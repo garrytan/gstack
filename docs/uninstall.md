@@ -49,7 +49,7 @@ rm -rf ~/.gstack
 rm -rf "${CODEX_HOME:-$HOME/.codex}/skills/gstack"* 2>/dev/null
 rm -rf ~/.factory/skills/gstack* 2>/dev/null
 rm -rf ~/.kiro/skills/gstack* 2>/dev/null
-rm -rf "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/skills/gstack"* 2>/dev/null
+rm -rf "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/skills/gstack"* "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/skills/.gstack-skills" 2>/dev/null
 rm -rf "${HERMES_HOME:-$HOME/.hermes}/skills/gstack" 2>/dev/null
 rm -rf ~/.cursor/skills/gstack* 2>/dev/null
 rm -rf ~/.config/opencode/skills/gstack* 2>/dev/null

@@ -107,7 +107,7 @@ function markdownTargets(): string[] {
   return listFiles('.', rel =>
     /^[^/]+\/SKILL\.md(\.tmpl)?$/.test(rel) ||
     /^[^/]+\/sections\/[^/]+\.md(\.tmpl)?$/.test(rel) ||
-    /^autoplan\/DRIVER\.md(\.tmpl)?$/.test(rel) ||
+    /^(autoplan|ship)\/DRIVER\.md(\.tmpl)?$/.test(rel) ||
     /^capy\/skill\/gstack\/[^/]+\.md$/.test(rel));
 }
 
@@ -162,7 +162,7 @@ describe('launch-env echo ratchet', () => {
   test('the scan covers the skill surfaces and the shell helpers', () => {
     const md = markdownTargets();
     for (const want of ['ship/SKILL.md', 'ship/sections/documentation.md', 'review/SKILL.md', 'qa/SKILL.md',
-      'document-release/SKILL.md', 'autoplan/DRIVER.md', 'capy/skill/gstack/SKILL.md']) expect(md).toContain(want);
+      'document-release/SKILL.md', 'autoplan/DRIVER.md', 'ship/DRIVER.md', 'capy/skill/gstack/SKILL.md']) expect(md).toContain(want);
     const sh = shellTargets();
     for (const want of ['bin/gstack-capy-install', 'bin/gstack-capy-session', 'bin/gstack-skill-start', 'setup', 'scripts/build.sh', 'scripts/sandbox-doctor.sh']) expect(sh).toContain(want);
   });

@@ -121,6 +121,23 @@ describe('scope decisions', () => {
     expect(by(unplaced)['undefined']).toBe('outside/defect/blocking/fix');
   });
 
+  // Value: protects=below-floor findings from Step 11's voices or a fix-check are notes even when classified at --pass 1, so they never send the ship back through Steps 9-11; blocking ones stay fix; fails_when=Step 11 scopes its queue at PASS=1 and four below-floor notes come back `scope: fix` (GSTA-167 replay 8G on #34; CREW 23 and 30a);
+  //   why_new=the frozen pass-1 case above has no raised_by; seam=scopeFindings; no_claim=that the parent tags raised_by correctly
+  test('frozen pass 1: below-floor findings raised after pass 1 (Step 11, fix-check) are notes, blocking ones are fixed', () => {
+    const late = (raised_by: string) => [
+      { fingerprint: `src/auth.ts:42:naming:${raised_by}`, path: 'src/auth.ts', line: 42, severity: 'INFORMATIONAL', category: 'naming', summary: 'wording', raised_by },
+      { fingerprint: `src/auth.ts:11:security:${raised_by}`, path: 'src/auth.ts', line: 11, severity: 'CRITICAL', category: 'security', summary: 'real', raised_by },
+    ];
+    for (const who of ['adversarial-native', 'adversarial', 'outside-voice', 'fix-check']) {
+      const [below, blocker] = scopeFindings(late(who), { policy: 'frozen', pass: 1, diffHunks: diff, rangeHunks: range });
+      expect([who, below!.scope, below!.locus]).toEqual([who, 'note', 'diff']);
+      expect([who, blocker!.scope]).toEqual([who, 'fix']);
+      expect(scopeFindings(late(who), { policy: 'diff-plus-blocking', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('note');
+    }
+    for (const who of ['core', 'red-team', 'qa', 'security']) expect(scopeFindings(late(who), { policy: 'frozen', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('fix');
+    expect(scopeFindings(late('outside-voice'), { policy: 'all', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('fix');
+  });
+
   test('diff-plus-blocking (the documented fallback, not the default): a blocking finding outside the diff is fixed here instead of filed; everything else is as frozen', () => {
     const p1 = by(scopeFindings(findings, { policy: 'diff-plus-blocking', pass: 1, diffHunks: diff, rangeHunks: range }));
     expect(p1['lib/legacy.ts:7:data-loss']).toBe('outside/defect/blocking/fix');

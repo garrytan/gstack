@@ -130,17 +130,15 @@ repository-landing asks, including on Apple repos.
 
 ## Step 1: Pre-flight
 
-1. Save the current branch as `<branch-name>`. If on the base branch or the repo's default branch, **abort**: "You're on the base branch. Ship from a feature branch."
+Run `~/.claude/skills/gstack/bin/gstack-ship-preflight --base <base>`: Steps 1–3's mechanics in one call;
+act on every `STOP:` and `NEXT:` line.
 
-2. Run `git status` (never `-uall`). Uncommitted changes are always included; do not ask.
+1. It saves the current branch as `<branch-name>`. If on the base branch or the repo's default branch, **abort**: "You're on the base branch. Ship from a feature branch."
+2. Uncommitted changes are always included; do not ask (`STATUS:`).
+3. It runs `git fetch origin <base>` first; if the fetch fails, stop: report the error and
+   restore access. `DIFF:` is the stat and commit count.
 
-3. Run `git fetch origin <base>` before inspecting the diff. If fetch fails, STOP:
-   report the error and restore access first. Then inspect
-   `git diff origin/<base> --stat`, untracked files from status, and
-   `git log origin/<base>..HEAD --oneline`.
-
-4. **Carry check.** If `gh pr list --head <branch-name> --state open --json number`
-   names a PR, run `~/.claude/skills/gstack/bin/gstack-ship-receipt carry --pr <n> --base <base> --dry-run`.
+4. **Carry check.** An open PR prints `PR: #<n>` and its `gstack-ship-receipt carry --pr <n> --base <base> --dry-run` line.
    `CARRY: would carry` (base merge committed, same product patch-id): skip review, fix
    what it broke (CHANGELOG, size caps), run `gstack-pregate --allow-repo-commands`, then carry
    without `--dry-run` plus `--pregate .gstack/tmp/pregate.json`. `CARRY: carried` binds HEAD and
@@ -153,10 +151,8 @@ repository-landing asks, including on Apple repos.
 
 An outside review with status `unverified` or `unavailable` is missing coverage, never a pass.
 
-For diffs >200 lines (`git diff origin/<base> --stat | tail -1`), recommend
-`/plan-eng-review` or `/autoplan`.
-
-For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review exists, mention: "Design Review not run — Step 9 includes the lite check; consider /design-review for a full visual audit."
+Over 200 lines, `DIFF:` recommends `/plan-eng-review` or `/autoplan`. `SCOPE: frontend=true` (from
+`gstack-diff-scope <base>`) with no design review: mention "Design Review not run — Step 9 includes the lite check; consider /design-review for a full visual audit."
 
 Continue to Step 2 without asking; Step 9 applies the review gates.
 
@@ -167,49 +163,35 @@ Continue to Step 2 without asking; Step 9 applies the review gates.
 Check distribution for new standalone artifacts (CLI binaries, packages, tools),
 not web services already deployed.
 
-1. List candidate distribution paths:
-   ```bash
-   git diff origin/<base> --diff-filter=A --name-only | grep -E '(^|/)(cmd/[^/]+/main\.go|bin/[^/]+|Cargo\.toml|setup\.py|package\.json)$' | head -5
-   ```
-   Include matching untracked files from Step 1's status. Read each match:
+1. `DISTRIBUTION:` lists new candidate paths (`git diff origin/<base> --diff-filter=A --name-only`,
+   untracked included) and any release workflow. Read each match:
    a new `package.json` or `Cargo.toml` alone is not a publishable artifact;
    also check existing manifests for newly declared binaries or package
    exports. Gate only when a new distributable is present.
 
-2. If new artifact detected, check for a release workflow:
-   ```bash
-   ls .github/workflows/ 2>/dev/null | grep -iE 'release|publish|dist'
-   grep -qE 'release|publish|deploy' .gitlab-ci.yml 2>/dev/null && echo "GITLAB_CI_RELEASE"
-   ```
-
-3. **New artifact without a pipeline:** AskUserQuestion: "Users cannot download this
+2. **New artifact without a pipeline:** AskUserQuestion: "Users cannot download this
    artifact after merge without a release pipeline."
    - A) Add the platform's release workflow now
    - B) Defer with a P1 distribution TODO in Step 14
    - C) Not needed: internal/web-only, covered by existing deployment
 
-4. **If A:** Add packaging/publish configuration using repository CI conventions.
+3. **If A:** Add packaging/publish configuration using repository CI conventions.
    Ask for unknown targets, registries or access first; never invent credentials.
    Recheck against the artifact and include the workflow in tests and review.
    Do not publish a release during `/ship`.
-5. Otherwise continue without a pipeline.
+4. Otherwise continue without a pipeline.
 
 ---
 
 ## Step 3: Merge the base branch (BEFORE tests)
 
-Merge the base ref fetched in Step 1 so tests and reviews cover the integrated code:
+The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `skipped` under stamp-at-merge).
 
-```bash
-git merge origin/<base> --no-edit
-```
+**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**, show the conflicting choices, use AskUserQuestion for the resolution, and wait for the answer before editing or continuing; then commit and rerun the preflight.
 
-**Merge conflicts:** Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**, show the conflicting choices, use AskUserQuestion for the resolution, and wait for the answer before editing or continuing.
-
-**If already up to date:** Continue silently.
-
-**Ship policy:** `~/.claude/skills/gstack/bin/gstack-ship-policy show-effective --base <base>`
-(docs/ship-policy.md); its `ship:` lines bind Steps 12, 16 and history.
+**Ship policy:** `POLICY:` is `gstack-ship-policy show-effective --base <base>`
+(docs/ship-policy.md); its `ship:` lines bind Steps 12-16 and history. `RUNTIME_LINES:` goes
+to `gstack-ship-budget check --runtime-lines`.
 
 If integration changes the artifact or distribution configuration inspected in Step 2,
 repeat Step 2 (decisions included) on the merged content, then Step 4.
@@ -255,6 +237,10 @@ repeat Step 2 (decisions included) on the merged content, then Step 4.
 
 Item 3 needs `BUMP_LEVEL`: reuse this invocation's saved level. Else FRESH
 chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
+
+**One call:** `~/.claude/skills/gstack/bin/gstack-ship-release version --base <base> [--bump <BUMP_LEVEL>] --why '<WHY>'`
+runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun flag
+(`--bump`, `--accept-incomplete`, `--version <v>`, `--keep-current`).
 
 `ship: queue_mode stamp-at-merge` replaces items 1–4.
 
@@ -325,11 +311,9 @@ chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
    push, verify the committed digest matches generation for the selected VERSION.
 
 5. **Record the release decision after a version was written**, including
-   an approved ALREADY_BUMPED rebump. Skip unchanged versions and manifest-only repairs.
-   ```bash
-   ~/.claude/skills/gstack/bin/gstack-decision-log '{"decision":"Ship NEW_VERSION (BUMP_LEVEL)","rationale":"WHY","scope":"repo","source":"skill","confidence":9}' 2>/dev/null || true
-   ```
-   Substitute `NEW_VERSION`, `BUMP_LEVEL` and a one-line `WHY` (scope or breaking-change signal); best-effort.
+   an approved ALREADY_BUMPED rebump; skip unchanged versions and manifest-only repairs.
+   The bin logs `Ship NEW_VERSION (BUMP_LEVEL)` through `gstack-decision-log` with `--why`,
+   a one-line `WHY` (scope or breaking-change signal); best-effort.
 
 {{SECTION:changelog}}
 
@@ -402,6 +386,10 @@ EOF
 Run stages 1–5 in order; recovery notes below name where to resume. Content
 changes during or after verification restart at stage 1 and complete all five
 stages before Step 17. Content-preserving commits keep evidence valid.
+
+**One call for stages 1–4:** `~/.claude/skills/gstack/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
+makes Step 15's item-3 commit and runs stages 1–4 and the pregate; each `STOP:` is a recovery
+below (`--docs-rechecked`, `--no-lanes-approved` record stage 2.2 and Step 5's approval).
 
 ### 1. Finish writers and prepare outputs
 
@@ -605,25 +593,15 @@ failure STOPs here. If one exists and is not a draft:
 
 A new PR or an existing draft needs no question: Step 19 creates or keeps the draft.
 
-**Idempotency check:** Check if the branch is already pushed and up to date.
+**Idempotency check:** after the guard block run
 
 ```bash
-LOCAL=$(git rev-parse HEAD) || exit 1
-REMOTE_REF=$(git ls-remote --heads origin refs/heads/<branch-name>) || {
-  echo "STATUS: BLOCKED — cannot verify remote branch; restore access before pushing"
-  exit 1
-}
-REMOTE=$(printf '%s\n' "$REMOTE_REF" | awk '{print $(1)}')
-REMOTE=${REMOTE:-none}
-echo "LOCAL: $LOCAL  REMOTE: $REMOTE"
-[ "$LOCAL" = "$REMOTE" ] && echo "ALREADY_PUSHED" || echo "PUSH_NEEDED"
+~/.claude/skills/gstack/bin/gstack-ship-release push --branch <branch-name>
 ```
 
-`ALREADY_PUSHED`: skip the push, continue to Step 18. Otherwise push with upstream tracking:
-
-```bash
-git push -u origin <branch-name>
-```
+It checks the branch, the offer, the gate above (`--gate-open <n>`; `--gate-open-approved` is B)
+and `gstack-pregate sealed`, then `git ls-remote --heads origin refs/heads/<branch-name>` against HEAD: a failed lookup STOPs, a match prints
+`PUSH: ALREADY_PUSHED` (go to Step 18), else it runs `git push -u origin <branch-name>`.
 
 **If the push fails, STOP.** No Step 19 or publication claim. Report the error:
 - **Non-fast-forward push:** fetch and inspect the remote, then merge under Step 3's
