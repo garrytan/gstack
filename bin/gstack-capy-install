@@ -42,7 +42,8 @@
 # mode-0600 file beside the verdict; callers and their children `. <file>` it,
 # never re-type it) and the doctor's trailer (`gstack: ok ...` or `gstack: fail ...`;
 # grep that, never pipe through tail).
-# --model <id>, else GSTACK_MODEL (GSTA-161, docs/loadouts.md), names the model this session runs:
+# --model <id>, else GSTACK_MODEL (GSTA-161, docs/loadouts.md), else the agent_model of the session's
+# GSTACK_PREFERENCES_FILE as gstack-models resolve --role agent reads it (GST-982), names the model this session runs:
 # bin/gstack-modules install picks its loadout, publishes a non-full one beside
 # the full Claude install and prints LOADOUT and SKILL_ROOT lines before the
 # launch lines; a non-full loadout gets its own launch file, keyed by loadout
@@ -723,16 +724,29 @@ fi
 [ "$RC" -eq 0 ] || { [ "$PROFILE" -eq 1 ] && rm -rf "${VERDICT%.json}.profile" 2>/dev/null; verdict_kept || rm -f "$LAUNCH_FILE" 2>/dev/null; LAUNCH_FILE=""; }
 record_verdict "$TRAILER" "$([ "$RC" -eq 0 ] && echo 1 || echo 0)"
 LOADOUT_LINES=""
+if [ "$RC" -eq 0 ] && [ -z "$MODEL" ] && [ -n "${GSTACK_PREFERENCES_FILE:-}" ] && [ -z "${GSTACK_EVAL_DIR:-}${EVALS_RUN_ID:-}" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_FILE" ]; then
+  _ag_out=$(cd "$ROOT" && bin/gstack-models resolve --role agent 2>&1) && _ag_rc=0 || _ag_rc=$?
+  _ag_first=$(printf '%s\n' "$_ag_out" | head -1)
+  case "$_ag_first" in
+    *", this machine") MODEL_SOURCE=config ;;
+    *", the preferences file") MODEL_SOURCE=preferences ;;
+  esac
+  [ "$_ag_rc" -eq 0 ] || LOADOUT_LINES="LOADOUT_FALLBACK: agent_model unreadable: $(printf '%s' "$_ag_first" | tr -d '\000-\037' | cut -c1-200); serving full (docs/troubleshooting.md#loadout-fallback)"
+  [ "$MODEL_SOURCE" = GSTACK_MODEL ] || MODEL=$(printf '%s' "$_ag_first" | sed -n 's|^agent: [a-z0-9-]*/\([A-Za-z0-9._-]*\) .*|\1|p')
+fi
 if [ "$RC" -eq 0 ] && [ -n "$MODEL" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_FILE" ]; then
   _lo_full=$(. "$SELF/bin/gstack-claude-root.sh" && dirname "$(gstack_canonical_claude_root)")
-  if [ "$MODEL_SOURCE" = model-flag ]; then
-    _lo_out=$(cd "$ROOT" && bin/gstack-modules install --model "$MODEL" --full-root "$_lo_full" 2>&1)
-  else
+  if [ "$MODEL_SOURCE" = GSTACK_MODEL ]; then
     _lo_out=$(cd "$ROOT" && GSTACK_MODEL=$MODEL bin/gstack-modules install --full-root "$_lo_full" 2>&1)
+  else
+    _lo_out=$(cd "$ROOT" && bin/gstack-modules install --model "$MODEL" --full-root "$_lo_full" 2>&1)
   fi
   _lo_line=$(printf '%s\n' "$_lo_out" | grep -m1 '^LOADOUT: ')
+  case "$MODEL_SOURCE" in preferences|config) _lo_line=$(printf '%s' "$_lo_line" | sed "s/ source=model-flag/ source=$MODEL_SOURCE/") ;; esac
   _lo_root=$(printf '%s\n' "$_lo_out" | sed -n 's/^SKILL_ROOT: //p' | head -1)
   _lo_notes=$(printf '%s\n' "$_lo_out" | grep -E '^(LOADOUT_INVALID_MODEL|LOADOUT_FALLBACK): ')
+  case "$MODEL_SOURCE" in preferences|config) _lo_notes="${_lo_notes:+$_lo_notes
+}LOADOUT_ASSUMED: model=$MODEL is the owner's agent_model ($MODEL_SOURCE), not read from the session; a session on another model sets GSTACK_MODEL=<its id>" ;; esac
   _lo_name=$(printf '%s' "$_lo_line" | sed -n 's/^LOADOUT: \([a-z0-9-]*\) .*/\1/p')
   _lo_digest=$(printf '%s' "$_lo_line" | sed -n 's/.* digest=\([0-9a-f]\{12\}\) .*/\1/p')
   if [ -n "$_lo_name" ] && [ "$_lo_name" != full ]; then

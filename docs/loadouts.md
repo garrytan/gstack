@@ -44,17 +44,18 @@ bin/gstack-modules install --full-root "$HOME/.claude/skills" --model claude-opu
 
 ### How gstack picks a loadout
 
-gstack never guesses the model. It uses, in order:
+gstack does not detect the running model. It uses, in order:
 
 1. An explicit loadout: `./setup --loadout <name>` on Claude Code, or `bin/gstack-modules install --loadout <name>`. It is served as asked and bound to no model.
 2. An explicit model id: `--model <id>` on the Capy installer (`scripts/install.sh --model <id>`, which passes it to `bin/gstack-capy-install`), else `GSTACK_MODEL`, which the installer also reads.
-3. Nothing: `full`.
+3. On Capy only, with neither and outside an eval run: the owner's `agent_model` (this machine's `config.yaml`, else the Drive skill's `preferences.yaml`), as `gstack-models resolve --role agent` resolves it (`opus` is the newest Opus). This is an assumption, not a detection, and the installer prints `LOADOUT_ASSUMED:` beside it. `host` or no preference means no model.
+4. Nothing: `full`.
 
-A model id is lowercased, its `provider/` prefix and a trailing `[…]` are dropped, and it must then be a plain id (`^[a-z0-9][a-z0-9._-]{0,79}$`). An unmapped id serves `full`; an id that is not plain also serves `full` and prints `LOADOUT_INVALID_MODEL`. Nothing reads Claude Code settings or an inherited loadout variable, so a Sonnet subagent of an Opus session gets `full` unless its own install names Opus.
+A model id is lowercased, its `provider/` prefix and a trailing `[…]` are dropped, and it must then be a plain id (`^[a-z0-9][a-z0-9._-]{0,79}$`). An unmapped id serves `full`; an id that is not plain also serves `full` and prints `LOADOUT_INVALID_MODEL`. Nothing reads Claude Code settings or an inherited loadout variable, so on Claude Code a Sonnet subagent of an Opus session gets `full` unless its own install names Opus. On Capy every session shares the owner's preference, so a session on another model sets `GSTACK_MODEL=<its id>` to get its own loadout.
 
 ### Capy
 
-The Capy skill passes the thread's model id in the environment: `GSTACK_MODEL=<id> bash scripts/install.sh --check --for <skill>`. The variable, unlike `--model`, is safe on a checkout whose installer predates loadouts: that installer ignores it instead of refusing an unknown argument. The installer prints two lines before the launch lines:
+A plain `bash scripts/install.sh --check --for <skill>` picks the loadout from the owner's `agent_model` preference, so the skill needs no model sentence (`source=preferences` on the line below, or `source=config` when this machine's `config.yaml` sets `agent_model`). The preference names the model Garry starts sessions on, not the model reading the skill, so the installer says so in a `LOADOUT_ASSUMED:` line, and it skips the preference inside an eval run (`GSTACK_EVAL_DIR` or `EVALS_RUN_ID` set), where the model under test may differ. A session on another model names its own with `GSTACK_MODEL=<id>`, which wins over the preference and, unlike `--model`, is safe on a checkout whose installer predates loadouts: that installer ignores it instead of refusing an unknown argument. The installer prints two lines before the launch lines:
 
 ```
 LOADOUT: lite model=claude-opus-5-5 source=GSTACK_MODEL digest=3f2a9c01d4e7 reused=yes
