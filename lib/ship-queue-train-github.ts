@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import type { Exec, RunSummary } from '../scripts/eval-bg';
 import type { QueueContext } from './ship-queue';
 
-export interface PrInfo { headRefOid: string; isCrossRepository: boolean; state: string; headRefName: string; body: string }
+export interface PrInfo { headRefOid: string; isCrossRepository: boolean; state: string; headRefName: string; body: string; baseRefName?: string }
 export interface RunInfo { databaseId: number; status: string; conclusion: string | null; url: string; headSha: string; event: string; displayTitle: string }
 export interface CheckInfo { status: string; conclusion: string | null }
 
@@ -34,10 +34,10 @@ export function repoSlug(ctx: QueueContext): string | null {
 }
 
 export function prInfo(ctx: QueueContext, pr: string): PrInfo | { error: string } {
-  const r = ctx.gh(['pr', 'view', pr, '--json', 'headRefOid,isCrossRepository,state,headRefName,body']);
+  const r = ctx.gh(['pr', 'view', pr, '--json', 'headRefOid,isCrossRepository,state,headRefName,body,baseRefName']);
   const p = json<Partial<PrInfo>>(r);
   if (!p?.headRefOid) return { error: `cannot read PR #${pr} through gh (${(r.err ?? r.out).trim().slice(0, 120) || 'no headRefOid'})` };
-  return { headRefOid: p.headRefOid, isCrossRepository: p.isCrossRepository !== false, state: p.state ?? 'OPEN', headRefName: p.headRefName ?? '', body: p.body ?? '' };
+  return { headRefOid: p.headRefOid, isCrossRepository: p.isCrossRepository !== false, state: p.state ?? 'OPEN', headRefName: p.headRefName ?? '', body: p.body ?? '', ...(p.baseRefName ? { baseRefName: p.baseRefName } : {}) };
 }
 
 const RUN_FIELDS = 'databaseId,status,conclusion,url,headSha,event,displayTitle';

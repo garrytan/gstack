@@ -19,7 +19,7 @@ export type PathClass = 'docs' | 'tests' | 'code';
 export type Depth = 'light' | 'standard' | 'full';
 export type Effort = 'light' | 'full' | 'host';
 export type Role = 'specialist' | 'red-team' | 'adversarial-native' | 'outside-voice' | 'fix-check';
-export type Step = 'full' | 'fix-check' | 'done' | 'stop';
+export type Step = 'full' | 'scoped' | 'fix-check' | 'done' | 'stop';
 
 export const SPECIALISTS = ['testing', 'maintainability', 'security', 'performance', 'data-migration', 'api-contract', 'design', 'simplification', 'state-machines'] as const;
 export type Specialist = (typeof SPECIALISTS)[number];
@@ -27,6 +27,8 @@ export const FULL_PASS_CAP = 2;
 export const SMALL_DIFF_LINES = 50;
 export const RED_TEAM_LINES = 200;
 export const LARGE_DIFF_LINES = 100;
+/** The largest fix range, in runtime lines, a pass 2 after a blocking fix reviews as a scoped pass (GSTA-152 D6); a starting value. */
+export const SCOPED_RANGE_LINES = 150;
 /** The checklists light's batched specialist always reads, whatever the scope. */
 export const LIGHT_FIXED: readonly Specialist[] = ['testing', 'maintainability', 'security'];
 /** Why light with runtime above 0 keeps the native adversarial pass as its own dispatch. */
@@ -48,7 +50,7 @@ const GATE_PATH = [
 
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
-  SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED,
+  SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, SCOPED_RANGE_LINES,
   patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
@@ -199,23 +201,34 @@ export interface History {
   blockingOpen?: boolean;
   /** A fix in the finished step touched a gate-class path. */
   touchedGate?: boolean;
+  /** Runtime lines of the fix range (RANGE_BASE..HEAD) as classifyDiff counts them, 0 when it touches none; undefined or null when the range was not read. */
+  rangeRuntimeLines?: number | null;
+  pass1Depth?: Depth;
 }
 export interface NextStep { step: Step; reason: string }
 
 /**
  * The transition table (docs/review-policy.md#transitions). Pass 1 is full. A fixed
- * blocking finding earns a second full pass on the range; any other fix earns one
- * fix-check; two full passes is the cap; a blocker still open after any step
- * stops for the owner.
+ * blocking finding earns a second full pass on the range, scoped when `depth` (known
+ * only to planReview) is below full and the fix range has at most SCOPED_RANGE_LINES
+ * runtime lines; any other fix earns one fix-check; two full passes is the cap (a
+ * scoped pass is one); a blocker still open after any step stops for the owner.
  */
-export function nextStep(h: History): NextStep {
+export function nextStep(h: History, depth?: Depth): NextStep {
   if (h.last === 'none') return { step: 'full', reason: 'pass 1 reviews the whole diff' };
   const fixed = !!(h.fixedBlocking || h.fixedBelow);
   if (h.last === 'fix-check') return h.blockingOpen || fixed ? { step: 'stop', reason: 'the fix-check found a blocking finding: name it for the owner, never a third full pass' } : { step: 'done', reason: 'the fix-check found nothing blocking' };
   if (h.blockingOpen && h.fullPasses >= FULL_PASS_CAP) return { step: 'stop', reason: `a blocking finding is open after ${FULL_PASS_CAP} full passes: name it for the owner` };
   if (h.blockingOpen) return { step: 'stop', reason: 'a blocking finding is still open in fix scope: name it for the owner' };
   if (!fixed) return { step: 'done', reason: 'the step applied no edits' };
-  if ((h.fixedBlocking || h.touchedGate) && h.fullPasses < FULL_PASS_CAP) return { step: 'full', reason: h.fixedBlocking ? 'a blocking finding was fixed: full pass on the range' : 'a fix touched a gate-class path: full pass on the range' };
+  if ((h.fixedBlocking || h.touchedGate) && h.fullPasses < FULL_PASS_CAP) {
+    if (!h.fixedBlocking) return { step: 'full', reason: 'a fix touched a gate-class path: full pass on the range' };
+    const n = h.rangeRuntimeLines;
+    const keep = h.touchedGate ? 'a fix touched a gate-class path' : depth === undefined ? 'the depth is unknown' : h.pass1Depth === 'full' ? 'pass 1 ran at full depth' : depth === 'full' ? 'the diff is at full depth'
+      : typeof n !== 'number' || !Number.isFinite(n) || n < 0 ? 'the fix range was not read' : n > SCOPED_RANGE_LINES ? `the fix range has ${n} runtime lines (> ${SCOPED_RANGE_LINES})` : null;
+    if (keep) return { step: 'full', reason: `a blocking finding was fixed and ${keep}: full pass on the range` };
+    return { step: 'scoped', reason: `a blocking finding was fixed on a ${depth} diff with ${n} runtime lines in the fix range (<= ${SCOPED_RANGE_LINES}): scoped pass on the range` };
+  }
   return { step: 'fix-check', reason: h.fixedBlocking ? `full-pass cap ${FULL_PASS_CAP} reached: one fix-check reads the fix` : 'only below-floor fixes: one fix-check reads the touched hunks' };
 }
 
@@ -295,7 +308,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   const c = classifyDiff(i);
   const depth = decideDepth(c, c.runtimeLines ?? (CLASS_RANK[c.class] >= CLASS_RANK.code ? i.diffLines : 0), i.floor);
   const { class: cls, runtimeLines } = depth;
-  const next = nextStep(i.history);
+  const next = nextStep(i.history, depth.depth);
   const h = i.history;
   const raise = depth.depth === 'light' && (h.fixedBlocking || h.blockingOpen || i.criticalFound);
   const stepDepth: Depth = raise ? 'standard' : depth.depth;
@@ -340,6 +353,18 @@ export function planReview(i: PlanInput): ReviewPlan {
       skipped.push('adversarial-native and outside-voice (run once per invocation)');
       if (numbersChanged) add('outside-voice', 'outside-voice (numbers changed)', 'host');
     }
+  } else if (next.step === 'scoped') {
+    add('fix-check', 'fix-check', 'full');
+    const forced = SPECIALISTS.filter(forcedBy(i));
+    for (const n of forced) add('specialist', n, 'full');
+    skipped.push(forced.length ? 'specialists (scoped pass; forced ones dispatched)' : 'specialists (scoped pass)');
+    add('red-team', 'red-team', 'full');
+    const stepElevenPending = !i.adversarialRan && cls === 'code';
+    if ((h.rangeRuntimeLines ?? 0) > 0 || stepElevenPending) add('adversarial-native', 'adversarial', 'full');
+    else skipped.push('adversarial-native (scoped pass: the fix range changes no runtime lines)');
+    if (stepElevenPending) add('outside-voice', 'outside-voice', 'host');
+    else if (numbersChanged) add('outside-voice', 'outside-voice (numbers changed)', 'host');
+    else skipped.push('outside-voice (scoped pass)');
   } else if (next.step === 'fix-check') {
     add('fix-check', 'fix-check', 'full');
     if (numbersChanged) add('outside-voice', 'outside-voice (numbers changed)', 'host');
@@ -348,7 +373,7 @@ export function planReview(i: PlanInput): ReviewPlan {
 }
 
 export function reviewPlanLine(p: ReviewPlan, pass: number): string {
-  return `REVIEW_PLAN: class=${p.class} pass=${pass} next=${p.next.step} dispatches=${p.dispatches.length} numbers=${p.numbers.publishes ? `yes(${p.numbers.claims})` : 'no'} fingerprint=${p.numbers.fingerprint}`;
+  return `REVIEW_PLAN: class=${p.class} pass=${pass} next=${p.next.step} dispatches=${p.dispatches.length} numbers=${p.numbers.publishes ? `yes(${p.numbers.claims})` : 'no'} fingerprint=${p.numbers.fingerprint} reason=${JSON.stringify(p.next.reason)}`;
 }
 
 export function reviewDepthLine(p: ReviewPlan): string {

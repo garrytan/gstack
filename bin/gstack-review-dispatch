@@ -1,0 +1,130 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-review-dispatch — /ship's reviewers get their briefs byte for byte and the parent changes
+ * nothing they return (GSTA-167 no-loss gate; docs/review-policy.md#verbatim-dispatch).
+ *
+ *   gstack-review-dispatch render --role <role> [--name <n>] --out <dir> [slots]   write the brief, print its sha256
+ *   gstack-review-dispatch sent --ledger <f> --role <role> [--name <n>] --sent <file>  the prompt actually passed; mismatch fails
+ *   gstack-review-dispatch collect --ledger <f> --role <role> [--name <n>] --output <file> --merged <file>
+ *   gstack-review-dispatch judge --ledger <f> --merged <file> --judged <file>        no drop, no downgrade
+ *   gstack-review-dispatch verify --ledger <f>                                       replay every hash and the judgment
+ *
+ * Logic: lib/review-brief.ts (rendering from the sections) and lib/review-ledger.ts (ledger, collect, judge, verify).
+ */
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { BRIEF_ROLES, BriefError, briefFile, promptHash, renderBrief, sectionTexts, type BriefRole, type Slots } from '../lib/review-brief';
+import { collect, readJsonl, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine } from '../lib/review-ledger';
+
+const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free collection for /ship
+
+  render --role <role> [--name <n>] --out <dir> [--ledger <f>] [slots]
+      roles: ${BRIEF_ROLES.join(', ')}
+      slots: --diff-base <sha> (every role but fix-check)  --exclude '<DIFF_CMD tail>'  --stack <s>  --test-fw <s>
+             --learnings-file <f>  --checklist <path> (default <root>/review/specialists/<name>.md; red-team.md for red-team)
+             --checklists <a,b> (specialist-batched)  --findings-file <f> --specialists <n> (red-team)
+             --fix-list <f> --hunks <f> --tests <f> [--callers <f>] (fix-check)
+      writes <out>/<role>[-<name>].prompt.md, records it in the ledger (default <out>/review-ledger.jsonl) and prints
+      BRIEF: reader=<role/name> sha256=<h> bytes=<n> file=<path>. Pass that file's content as the reader's prompt, unchanged.
+  sent --ledger <f> --role <role> [--name <n>] --sent <file>
+      the exact prompt a dispatch passed: BRIEF_SENT: … match, or BRIEF_MISMATCH: … (exit 1; the pass is not reviewed)
+  collect --ledger <f> --role <role> [--name <n>] --output <file> --merged <merged.jsonl>
+      the reader's raw output: hashes it and appends each finding to merged.jsonl with its label as written
+  judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl>
+      judged lines {"id","severity","reason"?,"duplicate_of"?}: every merged id kept at its severity or above (a
+      duplicate folds into one at least as severe); added and promoted findings need a reason. JUDGMENT: ok …, or
+      JUDGMENT_REJECTED: dropped=… downgraded=… (exit 1)
+  verify --ledger <f>
+      BRIEF, OUTPUT and JUDGE rows from the ledger alone, then VERIFY: clean (exit 0), VERIFY: dirty (exit 1) or
+      VERIFY: no brief records (exit 3: this run's ledger kept no prompts)
+${exitTableHelp()}`;
+
+const args = process.argv.slice(2);
+const flag = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const readFile = (f: string | undefined, what: string) => {
+  if (!f) return undefined;
+  try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read ${what} file ${f}`); }
+};
+const ROOT = path.resolve(import.meta.dir, '..');
+
+function render(): number {
+  const role = flag('--role') as BriefRole | undefined;
+  const out = flag('--out');
+  if (!role || !BRIEF_ROLES.includes(role) || !out) { process.stderr.write(`gstack-review-dispatch render: needs --role <${BRIEF_ROLES.join('|')}> and --out <dir>\n`); return EXIT.usage; }
+  const name = flag('--name');
+  const diffBase = flag('--diff-base');
+  const checklist = flag('--checklist') ?? (role === 'red-team' ? path.join(ROOT, 'review/specialists/red-team.md') : role === 'specialist' && name ? path.join(ROOT, 'review/specialists', `${name}.md`) : undefined);
+  if (checklist && (role === 'specialist' || role === 'red-team') && !fs.existsSync(checklist)) throw new BriefError(`checklist not found: ${checklist}`);
+  let diff: string | undefined;
+  if (role === 'outside-voice' && diffBase) {
+    const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', diffBase], { encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    if (r.status !== 0) throw new BriefError(`git diff ${diffBase} failed: ${(r.stderr ?? '').trim().split('\n')[0]}`);
+    diff = r.stdout;
+  }
+  const slots: Slots = {
+    name, diff_base: diffBase, exclude: flag('--exclude'), stack: flag('--stack'), test_fw: flag('--test-fw'),
+    learnings: readFile(flag('--learnings-file'), 'learnings'), checklist, checklists: flag('--checklists'),
+    findings: readFile(flag('--findings-file'), 'findings'), specialists: flag('--specialists'), diff,
+    fix_list: readFile(flag('--fix-list'), 'fix list'), hunks: readFile(flag('--hunks'), 'hunks'), tests: readFile(flag('--tests'), 'tests'), callers: readFile(flag('--callers'), 'callers'),
+  };
+  const text = renderBrief(role, slots, sectionTexts(ROOT));
+  fs.mkdirSync(out, { recursive: true, mode: 0o700 });
+  const file = path.join(path.resolve(out), briefFile(role, name));
+  fs.writeFileSync(file, text, { mode: 0o600 });
+  const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
+  const sha = promptHash(text);
+  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text) });
+  process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
+  return EXIT.ok;
+}
+
+function main(): number {
+  const cmd = args[0];
+  if (!cmd || cmd === '--help' || cmd === '-h') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  if (cmd === 'render') return render();
+  const ledger = flag('--ledger');
+  if (!ledger) { process.stderr.write(`gstack-review-dispatch ${cmd}: --ledger <file> is required\n`); return EXIT.usage; }
+  const reader = flag('--role') ? readerKey(flag('--role')!, flag('--name')) : '';
+  if (cmd === 'sent') {
+    const sent = readFile(flag('--sent'), 'sent prompt');
+    if (!reader || sent === undefined) { process.stderr.write('gstack-review-dispatch sent: needs --role and --sent <file>\n'); return EXIT.usage; }
+    const r = recordSent(ledger, reader, sent);
+    process.stdout.write(r.ok ? `BRIEF_SENT: reader=${reader} sha256=${r.sent} match\n`
+      : `BRIEF_MISMATCH: reader=${reader} rendered=${r.rendered ?? 'none'} sent=${r.sent} (dispatch the rendered file unchanged; this reader's review does not count)\n`);
+    return r.ok ? EXIT.ok : EXIT.fail;
+  }
+  if (cmd === 'collect') {
+    const outFile = flag('--output');
+    const output = readFile(outFile, 'reader output');
+    const merged = flag('--merged');
+    if (!reader || output === undefined || !merged) { process.stderr.write('gstack-review-dispatch collect: needs --role, --output <file> and --merged <file>\n'); return EXIT.usage; }
+    const r = collect(ledger, reader, output, merged, path.resolve(outFile!));
+    process.stdout.write(`COLLECT: reader=${reader} findings=${r.lines.length} sha256=${r.sha} merged=${merged}\n`);
+    return EXIT.ok;
+  }
+  if (cmd === 'judge') {
+    const merged = flag('--merged');
+    const judged = flag('--judged');
+    if (!merged || !judged) { process.stderr.write('gstack-review-dispatch judge: needs --merged <file> and --judged <file>\n'); return EXIT.usage; }
+    const r = recordJudgment(ledger, readJsonl<MergedLine>(merged), readJsonl<JudgedLine>(judged), judged, merged);
+    process.stdout.write(r.ok ? `JUDGMENT: ok added=${r.added.length} promoted=${r.promoted.length} folded=${r.folded.length}\n`
+      : `JUDGMENT_REJECTED: dropped=${JSON.stringify(r.dropped)} downgraded=${JSON.stringify(r.downgraded)} unexplained=${JSON.stringify(r.unexplained)} invalid=${JSON.stringify(r.invalid)} (lead judgment may add or promote a finding, never drop or downgrade one)\n`);
+    return r.ok ? EXIT.ok : EXIT.fail;
+  }
+  if (cmd === 'verify') {
+    const v = verify(ledger);
+    for (const r of v.rows) process.stdout.write(`${r.kind} ${r.reader} ${r.status} ${r.detail}\n`);
+    if (!v.briefs) { process.stdout.write('VERIFY: no brief records (this run\'s ledger kept no prompts; dispatched-vs-rendered cannot be checked)\n'); return EXIT.refused; }
+    process.stdout.write(`VERIFY: ${v.clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}\n`);
+    return v.clean ? EXIT.ok : EXIT.fail;
+  }
+  process.stderr.write(`gstack-review-dispatch: unknown command ${cmd}\n${HELP}\n`);
+  return EXIT.usage;
+}
+
+try { process.exit(main()); } catch (e) {
+  if (e instanceof BriefError) { process.stderr.write(`BRIEF_RENDER_FAILED: ${e.message}\n`); process.exit(EXIT.fail); }
+  throw e;
+}

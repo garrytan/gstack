@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import {
-  isBlocking, kindOf, locusOf, parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
+  isBlocking, kindOf, locusOf, parseHunks, raisedBy, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
   type ScopedFinding,
 } from '../lib/review-scope';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -119,6 +119,23 @@ describe('scope decisions', () => {
     // a blocking finding nobody could place is fixed now, never filed against '(no path)'
     const unplaced = scopeFindings([{ severity: 'CRITICAL', category: 'logic', summary: 'somewhere' }], { policy: 'frozen', pass: 2, diffHunks: diff, rangeHunks: range });
     expect(by(unplaced)['undefined']).toBe('outside/defect/blocking/fix');
+  });
+
+  // Value: protects=below-floor findings from Step 11's voices or a fix-check are notes even when classified at --pass 1, so they never send the ship back through Steps 9-11; blocking ones stay fix; fails_when=Step 11 scopes its queue at PASS=1 and four below-floor notes come back `scope: fix` (GSTA-167 replay 8G on #34; CREW 23 and 30a);
+  //   why_new=the frozen pass-1 case above has no raised_by; seam=scopeFindings; no_claim=that the parent tags raised_by correctly
+  test('frozen pass 1: below-floor findings raised after pass 1 (Step 11, fix-check) are notes, blocking ones are fixed', () => {
+    const late = (raised_by: string) => [
+      { fingerprint: `src/auth.ts:42:naming:${raised_by}`, path: 'src/auth.ts', line: 42, severity: 'INFORMATIONAL', category: 'naming', summary: 'wording', raised_by },
+      { fingerprint: `src/auth.ts:11:security:${raised_by}`, path: 'src/auth.ts', line: 11, severity: 'CRITICAL', category: 'security', summary: 'real', raised_by },
+    ];
+    for (const who of ['adversarial-native', 'adversarial', 'outside-voice', 'fix-check']) {
+      const [below, blocker] = scopeFindings(late(who), { policy: 'frozen', pass: 1, diffHunks: diff, rangeHunks: range });
+      expect([who, below!.scope, below!.locus]).toEqual([who, 'note', 'diff']);
+      expect([who, blocker!.scope]).toEqual([who, 'fix']);
+      expect(scopeFindings(late(who), { policy: 'diff-plus-blocking', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('note');
+    }
+    for (const who of ['core', 'red-team', 'qa', 'security']) expect(scopeFindings(late(who), { policy: 'frozen', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('fix');
+    expect(scopeFindings(late('outside-voice'), { policy: 'all', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('fix');
   });
 
   test('diff-plus-blocking (the documented fallback, not the default): a blocking finding outside the diff is fixed here instead of filed; everything else is as frozen', () => {
@@ -419,5 +436,19 @@ describe('gstack-review-scope (bin)', () => {
     expect(fs.existsSync(noneOut)).toBe(false);
     const late = runBin(repo, 'gstack-review-scope', ['summary', '--since', '2026-10-27T00:00:00Z']);
     expect(late.status).toBe(EXIT.fail);
+  });
+});
+
+describe('raised_by: which reviewer raised a classified finding (GSTA-152 D6)', () => {
+  test.each([
+    [{ raised_by: 'red-team' }, 'red-team'], [{ raised_by: 'QA' }, 'qa'], [{ raised_by: 'core' }, 'core'], [{ raised_by: 'fix-check' }, 'fix-check'],
+    [{ specialist: 'State Machines' }, 'state-machines'], [{ specialist: 'red-team' }, 'red-team'], [{ specialist: 'adversarial' }, 'adversarial-native'],
+    [{ specialist: 'outside-voice' }, 'outside-voice'], [{ raised_by: 'nonsense\n', specialist: 'testing' }, 'testing'], [{ specialist: 42 }, 'unknown'], [{}, 'unknown'],
+  ])('%j -> %s', (f, want) => expect(raisedBy(f as any)).toBe(want));
+  test('classify stamps raised_by on every finding, and an older row without it still summarizes', () => {
+    const scoped = scopeFindings([{ fingerprint: 'src/a.ts:3:logic', path: 'src/a.ts', line: 3, severity: 'CRITICAL', specialist: 'security' }, { fingerprint: 'src/a.ts:9:logic', path: 'src/a.ts', line: 9, severity: 'CRITICAL' }], { policy: 'frozen', pass: 1, diffHunks: { 'src/a.ts': 'whole' }, rangeHunks: null });
+    expect(scoped.map(f => f.raised_by)).toEqual(['security', 'unknown']);
+    const old = { skill: 'review', via: 'ship', timestamp: '2026-10-28T10:00:00Z', findings: [{ fingerprint: 'src/a.ts:3:logic', blocking: true, action: 'fixed' }] };
+    expect(summarizeReviewLoop([old], '2026-10-28T09:00:00Z')).toMatchObject({ passes: 1, blocking_found: 1, fixed: 1 });
   });
 });

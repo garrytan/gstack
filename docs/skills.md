@@ -45,7 +45,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/write-skill`](#write-skill) | **Skill Editor** | Write or improve an agent skill without bloat: edit ladder, size per level, skill-to-bin drift check, full diets with a before/after test. |
 | [`/test-audit`](#test-audit) | **Test Auditor** | Sweep existing tests for low-value, implementation-coupled or duplicate tests. Report-only unless you approve a batch. |
 | [`/landing-report`](#landing-report) | **Ship Queue Dashboard** | Read-only snapshot of the workspace-aware ship queue. Which version slots are claimed, which sibling workspaces have WIP. |
-| [`/captain`](#captain) | **Crew Controller** | Run many coding agents from one controller. Lanes build and send a READY block; the controller validates it, merges through trains (stamp on call, verify, merge with the expected head, verify again), keeps the digest, relays approvals in three fixed shapes and runs a daily flaky-fix pass. Also answers to `/crew`. |
+| [`/captain`](#captain) | **Crew Controller** | Run many coding agents from one controller. Lanes build and send a READY block; the controller validates it, merges through trains (stamp on call, verify, merge with the expected head, verify again; `train land` per slot under `changelog_fragments`), keeps the digest, relays approvals in three fixed shapes and runs a daily flaky-fix pass. Also answers to `/crew`. |
 | [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini). Latency, tokens, cost, optional LLM-judged quality. |
 | [`/eval-plan`](#eval-plan) | **Eval Planner** | Preregister a paid eval (bars, arms, decoys, stop rules), dry-run it for $0 with the stub model, pilot three priced items, then approve the spend from the extrapolation table. |
 | | | |
@@ -989,8 +989,10 @@ A suite that takes an hour on a 4-core sandbox takes minutes on a `standard-16`
 VM. `/ubicloud` runs it there through one entry point, `bin/gstack-ubi`
 (`scripts/ubicloud/ubi-runner.sh`), with the discipline a shared quota needs:
 every VM is named `ubirun-<owner>-<epoch>-<suffix>-t<hours>`, so its owner
-(`UBI_OWNER`) and TTL (`UBI_TTL_HOURS`, default 4) are visible to everyone;
-every `up` first reaps VMs whose TTL ended, whichever owner made them; the
+(`UBI_OWNER`, required to create one) and TTL (`UBI_TTL_HOURS`, default 3) are
+visible to everyone; every `up` first reaps VMs whose TTL ended, whichever owner
+made them, and its own owner's VMs with no TTL once they are 4 hours old; every run
+ends with `UBICLOUD: left=0` or fails; the
 quota preflight refuses before the create request when the project's running
 VMs plus the new size exceed the known ceiling (`UBI_QUOTA_VCPUS`, or the
 maximum the last refusal printed; `UBI_QUOTA_WAIT` waits for room instead); a
@@ -1011,11 +1013,12 @@ You:   /ubicloud run the full verify
 Claude: UBICLOUD_API_KEY: set; UBI_OWNER=lane7
         gstack-ubi verify  (.gstack/ubicloud.json: bootstrap.sh, "bash scripts/verify.sh", standard-16)
         ubi-runner: reap: no expired VMs
-        ubi-runner: creating eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t4 (standard-16)
-        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t4 carries a 4h TTL (any later run of this script reaps it); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t4
+        ubi-runner: creating eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3 (standard-16)
+        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (any later run of this script reaps it); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
         ubi-runner: heartbeat: command 300s elapsed, last output 2s ago
         ubi-runner: command exited 0 after 1140s
-        ubi-runner: destroyed eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t4
+        ubi-runner: destroyed eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3
+        UBICLOUD: left=0 owner=lane7 vm=ubirun-lane7-1761500000-9f3a2c10-t3 others=0
 ```
 
 ---
@@ -1464,7 +1467,9 @@ receipt at the pin and the logged flaky cases); a green PR page or a cheap test 
 never merge evidence. The controller batches READY pins into a **merge train**, reads one
 full gate on the train head (an in-run flaky rerun once; a case that failed twice is
 real), then merges slot by slot: slot call, lane stamps on call with a commit that holds
-only tool output, `verify --train`, `gh pr merge --match-head-commit`, verify again. A red
+only tool output, `verify --train`, `gh pr merge --match-head-commit`, verify again. Under
+`changelog_fragments` there is no slot call: `train land` publishes each slot's stamped
+prefix and merges it. A red
 train is bisected on its red cases and rebuilt at most once; a backstop gate on every
 base push freezes the queue when a tree no train covered lands. Approvals have three
 shapes (the per-thread record, the plan ask with before → after and a "do it" reply, the

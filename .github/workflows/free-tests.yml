@@ -288,6 +288,21 @@ jobs:
           installed="${chrome%/*}/chrome-sandbox"
           test -f "$helper" && test ! -L "$helper"
           sudo install -T -o root -g root -m 4755 "$helper" "$installed"
+      # Runner image 20261026.1.0 keeps kernel.apparmor_restrict_unprivileged_userns=1
+      # but loads no AppArmor profiles, so Chromium's namespace sandbox aborts with
+      # "credentials.cc: Permission denied". Grant user namespaces to this one
+      # resolved binary, the way Ubuntu's own chrome profile does.
+      - name: Let the bundled Chromium create its sandbox namespaces
+        run: |
+          set -euo pipefail
+          chrome=$(bun -e 'import { chromium } from "playwright"; import { realpathSync } from "node:fs"; console.log(realpathSync(chromium.executablePath()))')
+          case "$chrome" in
+            "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome) ;;
+            *) echo "Unexpected Chromium installation path" >&2; exit 1 ;;
+          esac
+          profile=/etc/apparmor.d/gstack-playwright-chromium
+          printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile gstack-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$chrome" | sudo tee "$profile" > /dev/null
+          sudo apparmor_parser -r "$profile"
       - name: Install Xvfb + X11 utilities + gate tools
         run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji zsh
       - name: Configure git identity (tests init temp repos)
@@ -397,6 +412,21 @@ jobs:
           sudo install -T -o root -g root -m 4755 "$helper" "$installed"
           test "$(stat -c '%u:%a' "$installed")" = '0:4755'
           cmp -s "$helper" "$installed"
+      # Runner image 20261026.1.0 keeps kernel.apparmor_restrict_unprivileged_userns=1
+      # but loads no AppArmor profiles, so Chromium's namespace sandbox aborts with
+      # "credentials.cc: Permission denied". Grant user namespaces to this one
+      # resolved binary, the way Ubuntu's own chrome profile does.
+      - name: Let the bundled Chromium create its sandbox namespaces
+        run: |
+          set -euo pipefail
+          chrome=$(bun -e 'import { chromium } from "playwright"; import { realpathSync } from "node:fs"; console.log(realpathSync(chromium.executablePath()))')
+          case "$chrome" in
+            "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome) ;;
+            *) echo "Unexpected Chromium installation path" >&2; exit 1 ;;
+          esac
+          profile=/etc/apparmor.d/gstack-playwright-chromium
+          printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile gstack-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$chrome" | sudo tee "$profile" > /dev/null
+          sudo apparmor_parser -r "$profile"
 
       # Headed-browser tests (handoff, extension sidepanel DOM) need a real
       # DISPLAY — first Linux run failed with Playwright's "launched a headed

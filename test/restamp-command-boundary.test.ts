@@ -145,6 +145,7 @@ describe('restamp_command (field wave CD3): the repo owns the stamp inside the s
     "fs.writeFileSync('VERSION', (process.env.FIXTURE_WRONG_VERSION ? '9.9.9.9' : v) + '\\n');",
     "const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); pkg.version = v.split('.').slice(0, 3).join('.'); fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n');",
     "fs.writeFileSync('generated/digest.md', '# digest v' + v + '\\nbody\\n');",
+    "if (process.env.FIXTURE_SAVE) { const prev = Number(execSync('git show ' + process.env.GSTACK_RESTAMP_BASE_SHA + ':generated/save.txt', { encoding: 'utf8', timeout: 30000 })); fs.writeFileSync('generated/save.txt', String(prev + 1) + '\\n'); }",
     "if (process.env.FIXTURE_STRAY) fs.writeFileSync('stray.txt', 'x\\n');",
     "execSync('git add -A', { timeout: 30000 }); execSync('git -c user.name=r -c user.email=r@example.com -c commit.gpgsign=false commit -q -m restamp', { timeout: 30000 });",
   ].join('\n') + '\n';
@@ -194,6 +195,19 @@ describe('restamp_command (field wave CD3): the repo owns the stamp inside the s
     expect(d.err).toMatch(/restamp_command needs a clean HEAD, index and worktree.*notes\.txt.*nothing written.*\(RESTAMP_CONFLICT\)/);
     expect(treeOf(dirty)).toBe(before);
     expect(fs.existsSync(journal(dirty))).toBe(false);
+  });
+
+  test('it gets the release predecessor in GSTACK_RESTAMP_BASE_SHA, so a repo counter (a SAVE_VERSION) computes predecessor + 1', () => {
+    const repo = fixture({ policy: POLICY });
+    fs.writeFileSync(path.join(repo.work, 'restamp.js'), RESTAMP_JS);
+    fs.writeFileSync(path.join(repo.work, 'generated', 'save.txt'), '41\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'repo restamp tool and counter'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'feat-save');
+    fs.writeFileSync(path.join(repo.work, 'generated', 'save.txt'), '99\n');
+    repo.git('commit', '-q', '-am', 'a branch-side counter edit the hook must not read');
+    const r = runBin(repo, 'gstack-restamp', ['--next', '--base', 'main', '--allow-repo-commands'], { FIXTURE_SAVE: '1' });
+    expect(r.status).toBe(EXIT.ok);
+    expect(fs.readFileSync(path.join(repo.work, 'generated', 'save.txt'), 'utf8')).toBe('42\n');
   });
 
   test('without --allow-repo-commands it is listed and refused like release_tool', () => {

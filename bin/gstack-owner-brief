@@ -3,7 +3,7 @@
  * gstack-owner-brief — the one-page owner brief at the autoplan gate (plan E3).
  *
  *   gstack-owner-brief render --out <dir> [--page N] [--summary <file>] [--write] [--json]
- *   gstack-owner-brief render --captain --out <dir> [--allow-incomplete] [--write] [--json]
+ *   gstack-owner-brief render --captain --out <dir> [--captain-name <name>] [--allow-incomplete] [--write] [--json]
  *   gstack-owner-brief close  --out <dir> --plan <file> [--date YYYY-MM-DD] [--json]
  *
  * `render` prints the plain-language summary (--summary <file>, else <dir>/summary.md
@@ -12,8 +12,9 @@
  * taken if unanswered, approval items stay pending) and points at review-record.md
  * for the full review; --write also saves brief.md in the run directory.
  * `render --captain` prints the plan ask in the shape Capy Captains relay (lib/captain-brief.ts): header with
- * the one-word reply, Before → after, Why it matters, What caused this work, Big decisions, What we need from
- * you, and one trailing line for the relaying agent; a plan missing a section exits 1
+ * the "do it" reply, Before → after, Why it matters, What caused this work, Big decisions, What we need from
+ * you (the lettered ask lines of docs/captain.md § The ask format, headed by --captain-name), and one
+ * trailing line for the relaying agent; a plan missing a section exits 1
  * (CAPTAIN_BRIEF_INCOMPLETE) unless --allow-incomplete. --write saves captain-brief.md.
  * `close` rewrites every `draft direction stands until the owner decides` line in
  * the plan to the decided option and date; pending lines stay and are reported
@@ -29,7 +30,7 @@ import { resultLine } from '../lib/result-codes';
 const HELP = `gstack-owner-brief — one page for the owner: summary, URGENT block, numbered decisions (docs/unattended.md#owner-brief)
 
   render --out <dir> [--page N] [--summary <file>] [--write] [--json]
-  render --captain --out <dir> [--allow-incomplete] [--write] [--json]   the plan ask for a Capy Captain (capy/skill/gstack/captain.md)
+  render --captain --out <dir> [--captain-name <name>] [--allow-incomplete] [--write] [--json]   the plan ask for a Capy Captain (capy/skill/gstack/captain.md); --captain-name heads the lettered ask
   close  --out <dir> --plan <file> [--date YYYY-MM-DD] [--json]
 
 ${exitTableHelp()}`;
@@ -49,7 +50,7 @@ function main(argv: string[]): number {
   const json = rest.includes('--json');
 
   if (cmd === 'render' && rest.includes('--captain')) {
-    const brief = renderCaptainBrief(loaded.inputs, { outDir: path.resolve(out) });
+    const brief = renderCaptainBrief(loaded.inputs, { outDir: path.resolve(out), captainName: flag(rest, '--captain-name') });
     if (rest.includes('--write')) fs.writeFileSync(path.join(path.resolve(out), 'captain-brief.md'), brief.text);
     if (json) process.stdout.write(JSON.stringify({ run: loaded.inputs.gate.run, gate_rev: loaded.inputs.gate.gate_rev, rec_hash: brief.recHash, pending: brief.pending, missing: brief.missing, brief: brief.text }) + '\n');
     else process.stdout.write(brief.text);

@@ -93,7 +93,8 @@ incomplete coverage, which blocks until the reviewer is rerun.
    for every reviewer (the gate scan and QA probes keep the whole candidate) and
    classifies with `--range-base`. Only a blocking finding in that range or in
    the diff is `fix`; every below-floor finding is a `note`.
-3. **Two full passes is the cap**, plus at most one fix-check. A blocking
+3. **Two full passes is the cap**, plus at most one fix-check; a scoped pass
+   ([below](#scoped-pass)) is a full pass. A blocking
    finding still open after the last allowed step stops the run and names the
    finding (path, severity, problem) for the owner; a third full pass is the
    owner's call, never the loop's. The cap approves nothing.
@@ -108,18 +109,38 @@ incomplete coverage, which blocks until the reviewer is rerun.
 |---|---|
 | none | full pass 1 on the whole diff |
 | a full pass with no edits | done |
-| a full pass that fixed a blocking finding, below the cap | full pass on the range |
+| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |
+| a full pass that fixed a blocking finding, below the cap (full depth, a larger range, or a range or depth it could not read) | full pass on the range |
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
 | a full pass that fixed only below-floor findings | one fix-check |
 | a full pass at the cap that fixed a blocking finding | one fix-check |
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
-| a fix-check that found nothing blocking | done |
+| a fix-check that found nothing blocking (below-floor fixes before it included) | done |
 | a fix-check that found a blocking finding | stop: name it for the owner |
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is
 logged as a `review-fix-check` row, so it never counts as a pass. No army, no
 Red Team and no outside voice run on it.
+
+<a id="scoped-pass"></a>
+A **scoped pass** is pass 2 after a blocking fix when pass 1 and the diff both
+ran below full depth (no gate class, no depth error, no `--depth-floor full`).
+A full pass 1 always gets a full pass 2: `--pass1-depth` carries pass 1's
+`REVIEW_DEPTH`, and an absent flag counts as full. The fix range
+`RANGE_BASE..HEAD` must have at most `SCOPED_RANGE_LINES` (150) runtime lines, counted
+as the depth counts them (`gstack-review-plan --range-base $PASS_HEAD` prints
+`FIX_RANGE:`). It dispatches one fix-check on the range, the Red Team on the
+range, the native adversarial pass when the range changes runtime lines, every
+force-included specialist and the outside voice when published numbers changed.
+Step 11's voices that have not run yet stay listed, as on a full pass 2. It
+writes a full-pass `review` row with `"scope":"scoped"`, so it counts toward
+the cap, and a blocker it leaves open stops for the owner as before. A fix that
+touched a gate-class path (read from the range with its own scope and gate
+scan), a larger range, an empty range, or a
+range, classifier or depth it cannot read keeps the full pass 2. The 150-line figure is a starting value from
+a 24-PR backtest (GSTA-152 D6), to revisit once classified findings carry
+`raised_by`.
 
 The same floor and the same `NO FINDINGS` rule apply to `/review` on its own;
 its re-review loop keeps its three-cycle fix cap (`CYCLES`), and a pass that
@@ -156,7 +177,8 @@ runtime; a `.tmpl` edit plus its regenerated `SKILL.md` counts the template once
 
 A fixed blocking finding, a CRITICAL or an open blocker raises a light diff to
 standard for the next step (`step=standard`): its specialists read at least 50 lines
-and the Red Team runs, so a raise never dispatches less than light did. A fix-check
+and the Red Team runs, so a raise never dispatches less than light did. When the
+next step is a scoped pass, the raise applies to the scoped set only. A fix-check
 is the same at every depth.
 
 **Fail closed.** Each of these makes the depth full and is listed in `errors[]` with
@@ -217,6 +239,9 @@ the audits and watchers at the host default too
 
 ### Behavior changes
 
+- Pass 2 after a blocking fix on a diff below full depth, with a fix range of at
+  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check, the Red
+  Team and the native adversarial pass on the range instead of the specialist army.
 - A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
   core checklist and the gate scan review it.
 - Light no longer runs a separate Red Team: the batched specialist carries its
@@ -243,7 +268,8 @@ puts in the receipt:
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
-diff_bytes, status}]`; `summary` adds them up (older rows fall back to the
+diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,
+stamped by `gstack-review-scope classify`; `unknown` when untagged, absent on older rows); `summary` adds them up (older rows fall back to the
 specialist stats they record). The summary line appends `fix_checks=`,
 `dispatches=` and `est_input_tokens=` only when they were recorded, so an old
 loop prints the old line.
@@ -331,7 +357,48 @@ email case-folded, so running it twice changes nothing. The `COAUTHORS: <n> in
 <range>` line on stderr is the receipt; `--json` prints `{ range, authors,
 trailers, appended }`.
 
+## Verbatim dispatch
+
+A driven `/ship` (ship/DRIVER.md) never lets the model write a reviewer's brief
+or merge a reviewer's findings. The no-loss replays showed why: with briefs the
+parent filled in by hand, only 37 of 112 dispatched prompts matched the rendered
+ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
+
+1. `render --role <role> [--name <n>] --out <dir>` cuts the brief out of
+   `ship/sections/review-army.md` or `ship/sections/adversarial.md` (the fix-check
+   from `scripts/resolvers/fix-check.ts`) and fills only declared slots: the
+   literal diff base, the plan's `DIFF_CMD` excludes, stack, test framework,
+   learnings, checklist paths, the Red Team's merged findings and specialist count,
+   and the outside voice's branch diff. A section that lost an anchor or placeholder
+   refuses (`BRIEF_RENDER_FAILED`) instead of rendering something else.
+2. The dispatch program passes that file's content unchanged as the reader's
+   prompt and runs `sent` on what it passed: a hash that differs from the rendered
+   one is `BRIEF_MISMATCH`, and that reader's review does not count.
+3. `collect` hashes each reader's raw output and appends its findings to
+   `merged.jsonl` with the label exactly as written (a JSON line's `severity`, or a
+   prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE wherever it
+   stands, headings and table rows included; a top-level list item under a label-only
+   heading takes that label). A phantom finding costs a fold; a lost one costs the gate.
+4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
+   finding, lowers its severity, folds it into a less severe duplicate, or adds or
+   promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
+   the ledger collected is a drop. Each addition and promotion is logged with its reason.
+5. `verify --ledger <f>` replays all of it from the run's ledger: rendered against
+   dispatched hashes per render (each render is one dispatch of its reader, so a
+   two-pass ledger checks pass-1 sends against pass-1 briefs; a later render prints as
+   `<reader>@2`), a collected output for every sent reader (`NOT_COLLECTED`
+   otherwise; a reader that failed is collected from its failure text, where any
+   label word becomes a finding the judge folds, and its coverage is logged
+   `unavailable` in the review-log row). A mismatched send re-sent
+   byte-exact before anything was collected is void and counted (`voided=N` on the
+   verdict line); one that produced an output stays `MISMATCH`. Then output hashes
+   against the merged lines they produced, and the judgment rerun against the
+   recorded judged set, covering every collected id. A ledger from a run that kept no
+   prompts prints `VERIFY: no brief records` (exit 3), never clean.
+
 ## Where this is enforced
+
+- `lib/review-brief.ts`, `lib/review-ledger.ts`, `bin/gstack-review-dispatch`: [verbatim dispatch](#verbatim-dispatch) (`test/review-dispatch.test.ts`).
 
 - `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
