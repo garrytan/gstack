@@ -34,6 +34,12 @@ export const SWITCH_ENV: Record<SwitchName, string> = {
   skill_contracts: 'GSTACK_SKILL_CONTRACTS',
 };
 
+/** Each switch's one default. setup, gstack-config and gstack-skill-route read it through `gstack-skill-route --default <switch>`; the hooks read it here. */
+export const SWITCH_DEFAULT: Record<SwitchName, 'on' | 'off'> = {
+  skill_routing: 'off',
+  skill_contracts: 'off',
+};
+
 export function normalizeSwitch(raw: string | null | undefined): 'on' | 'off' | null {
   const v = String(raw ?? '').trim().toLowerCase();
   if (['on', 'yes', 'y', 'true', '1'].includes(v)) return 'on';
@@ -43,18 +49,33 @@ export function normalizeSwitch(raw: string | null | undefined): 'on' | 'off' | 
 
 export interface SwitchReading { on: boolean; source: string; invalid?: string }
 
-/** env GSTACK_SKILL_ROUTING / GSTACK_SKILL_CONTRACTS > config key > default off. An unrecognized value is off. */
+/** A config.yaml that exists but cannot be read as a file: the person's choice is unknown. */
+function configUnreadable(env: NodeJS.ProcessEnv): boolean {
+  const file = path.join(resolveStateRoot(env), 'config.yaml');
+  try {
+    fs.accessSync(file, fs.constants.R_OK);
+    return !fs.statSync(file).isFile();
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code !== 'ENOENT';
+  }
+}
+
+/**
+ * env GSTACK_SKILL_ROUTING / GSTACK_SKILL_CONTRACTS > config key > SWITCH_DEFAULT. An unrecognized value takes the
+ * default, as setup does. An unreadable config is off whatever the default: it may hold an off the person set.
+ */
 export function readSkillSwitch(name: SwitchName, env: NodeJS.ProcessEnv = process.env): SwitchReading {
+  const fallback = SWITCH_DEFAULT[name] === 'on';
   const envName = SWITCH_ENV[name];
   const raw = env[envName];
   if (raw !== undefined && raw !== '') {
     const v = normalizeSwitch(raw);
-    return v ? { on: v === 'on', source: `env ${envName}` } : { on: false, source: `env ${envName}`, invalid: raw };
+    return v ? { on: v === 'on', source: `env ${envName}` } : { on: fallback, source: `env ${envName}`, invalid: raw };
   }
   const cfg = readConfigKey(name, env);
-  if (cfg === null) return { on: false, source: 'default' };
+  if (cfg === null) return configUnreadable(env) ? { on: false, source: 'config unreadable' } : { on: fallback, source: 'default' };
   const v = normalizeSwitch(cfg);
-  return v ? { on: v === 'on', source: `config ${name}` } : { on: false, source: `config ${name}`, invalid: cfg };
+  return v ? { on: v === 'on', source: `config ${name}` } : { on: fallback, source: `config ${name}`, invalid: cfg };
 }
 
 /** Where Claude Code reads skills: GSTACK_INSTALLED_SKILLS_DIR, else ${CLAUDE_CONFIG_DIR:-~/.claude}/skills. */
