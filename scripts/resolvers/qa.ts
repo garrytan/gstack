@@ -66,7 +66,7 @@ full contents. If either required Read is missing, complete it now before Charte
 
 ## 1. Charter and preflight
 
-Reuse resolved REPORT_DIR; otherwise own a fresh \`.gstack/qa-reports\` subdirectory.
+${reportOnly ? 'Reuse resolved REPORT_DIR; otherwise own a fresh \`.gstack/qa-reports\` subdirectory.' : 'Reuse resolved REPORT_DIR; otherwise use the \`reportDir\` \`EVIDENCE_TOOL report-dir\` prints.'}
 Write a **charter** per behavior: contract, risk, entrypoint, isolation, exit condition, source, commands and inputs. Save charters as Markdown in the report.
 
 ${reportOnly ? '' : `For /review and /ship, no plan/server is required.

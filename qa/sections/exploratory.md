@@ -19,7 +19,7 @@ Missing or unreadable assets, prerequisites or permission block affected probes,
 
 ## 1. Charter and preflight
 
-Reuse resolved REPORT_DIR; otherwise own a fresh `.gstack/qa-reports` subdirectory.
+Reuse resolved REPORT_DIR; otherwise use the `reportDir` `EVIDENCE_TOOL report-dir` prints.
 Write a **charter** per behavior: contract, risk, entrypoint, isolation, exit condition, source, commands and inputs. Save charters as Markdown in the report.
 
 For /review and /ship, no plan/server is required.
