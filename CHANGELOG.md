@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.91.358.0] - 2026-10-31
+
+**Diffs that touch money, gate, auth or secret code now get one more reviewer, a targeted reader with a short brief for that kind of code, and the /ship receipt records whether it ran (GST-257, part 1 of 2).** The merge queue reports the result and refuses nothing yet; enforcement comes in a later release.
+
+### Added
+- **`lib/review-targeted.ts` names the classes a diff touches.** It reads added and deleted lines, so removing a spend cap, a check or a redaction counts. Money is a cost, spend, budget, ledger, billing, price, fee or invoice path, an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid model provider. Gate is a hunk the gate scan tagged. Auth is `SCOPE_AUTH` on an auth, session, jwt, permission or role path. Secret is a secrets, credentials, keychain or token path, or a line that reads a key-named environment variable or a credential store. Matching is token-bounded, paths review depth counts as docs or tests never count (agent prose such as skill sections and docs/review-policy.md counts as code there, so it counts here too), and an input the classifier cannot read gives all four classes.
+- **`gstack-review-plan` prints `TARGETED: classes=… rules=… brief=… targeted_patch_id=…`** and, when a class hit, `DISPATCH: targeted targeted effort=full` at every depth, light included. `--targeted-ran <targeted_patch_id>` skips the reader only when the whole committed diff, tests included, is the one it already read.
+- **`review/specialists/targeted.md` is the reader's brief:** one block per class, the blocking floor in one sentence, and the checklist's Forced-CRITICAL rule on uncapped spend in the money block. The reader is read-only, and `NO FINDINGS` is a result.
+- **`gstack-review-dispatch render --role targeted --classes …`** renders the brief with only the blocks that hit; `verify --targeted-out <file>` writes the record (done only when the reader's output was collected and the committed diff it was rendered on is unchanged) `gstack-ship-receipt write --review-targeted @<file>` stores as `review_targeted`, bound to the receipt's `product_patch_id`. A carry keeps it while the product patch is unchanged.
+- **`gstack-ship-queue ready` and `train build` print `REVIEW_TARGETED: required=… receipt=… verdict=ok|missing`.** Nothing is refused on it in this release.
+
+### Precision
+- Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit 21, gate 18, auth 3 and secret 8. The gate class first used the gate paths, which hit 43 of 100, so it was narrowed to the gate scan's tagged hunks; those paths already get full review depth.
+
+### Tests
+- `test/review-targeted.test.ts` covers each class with deleted lines, token boundaries, the docs and tests exclusions, failing closed, the dispatch at light, standard and full depth, `--targeted-ran`, the path from `render` through the receipt, the review-loop summary and the queue line. Its dispatch-superset check runs `gstack-review-plan` on 18 fixture diffs and requires every reviewer main dispatched at 8be7f21, unchanged, plus only the targeted reader. `test/review-packets-removed.test.ts` repins `lib/review-depth.ts` and `ship/sections/adversarial.md` and pins the new brief to that check.
+
 ## [1.91.357.0] - 2026-10-31
 
 **pregate `literals` no longer flags a version-history table that the branch extended.** A test that keeps one row per past version of a constant (`[45, "<digest>"]`, then `[46, "<digest>"]`) used to fail `literals` on every bump, because the old row still holds the old value. Truther turned the check down to a warning over it, which also hid real stale tests.
