@@ -163,6 +163,13 @@ good, edit or delete that line; `gstack-config unset agent_model` clears this
 machine only. Copying a newer `capy/skill/gstack/` over the skill folder leaves
 `preferences.yaml` alone, because the shipped folder has no such file.
 
+A Capy session with no gstack checkout (a Captain or coordinator that runs
+`install.sh --check --for none`) can't run the resolver, so the skill tells it
+to read the `agent_model` line itself. There a family means the newest model of
+that family the host lists, while the resolver maps each family to the id in
+its table (today they agree: `opus` is `anthropic/claude-opus-5-5`). Anything
+it can't use means the session keeps its own model and says so.
+
 ## Reasoning effort
 
 Codex calls carry a `model_reasoning_effort`. It follows the same shape as the
