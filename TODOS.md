@@ -2,6 +2,10 @@
 
 ## NEXT PRIORITY
 
+### P3: screen verdict reuse lookback (filed 2026-11-02, GST-1027)
+
+- **Screen reuse sees only the newest 50 evals.yml dispatches.** `listGateRuns` (`scripts/recover-receipts.ts`) lists dispatched screens as one unfiltered page (`event=workflow_dispatch`, `per_page=50`), shared with every PR's screens and every train. At week-B traffic (220 dispatches from 2026-10-25 to 11-02, about 27 a day) that is under two days, and nothing says when a PR's earlier screen fell off the page: `gate-reuse find` prints "no earlier executed gate on this PR bound a verdict" and the full screen runs. No miss yet: the longest gap among the week-B re-screens was 44 dispatches (#3607). Page the listing until runs are older than the PR's oldest candidate head (or filter by `created>=`), and print a truncation line when the last page is full. A missed run only costs a screen, never a wrong verdict. **Effort:** S. **Priority:** P3.
+
 ### P3: gstack-clean follow-ups (filed 2026-10-31, GSTA-226 E2, #2627)
 
 - **Codex templates delete their own scratch.** The `/codex` review, challenge and consult blocks leave `codex-err-*`, `codex-resp-*`, `codex-out-*` and `codex-prompt-*` mktemp files under `TMP_ROOT` (which falls back to `.gstack/tmp`) and the `codex-prompt.*` and `codex-focus.*` free-text files in `.gstack/tmp`; `gstack-clean` removes them after 7 days. Delete each file at the end of its block instead. Skill prose for every user, so it needs its own review. **Effort:** S. **Priority:** P3.
