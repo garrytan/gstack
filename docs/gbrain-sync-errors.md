@@ -107,7 +107,11 @@ After fixing auth, run any skill to retry sync automatically.
 git's error appears after the colon.
 
 **Cause.** Could be network issue, rejected push (remote ahead), server 500,
-or repo access revoked.
+or repo access revoked. The line is git's own error, not its `To <remote>`
+banner or `hint:` lines. After a rejected push, brain-sync fetches and merges
+the other machine's commits; when that merge fails, the status adds
+`; merging origin failed: <reason>` (for example `CONFLICT (content): Merge
+conflict in developer-profile.json`).
 
 **Fix.** Look at `~/.gstack/.brain-sync-status.json` for more detail, or run:
 ```bash

@@ -303,8 +303,8 @@ export const RELEASE_RESULT_CODES = {
   // Lane D (GSTA-112): the no-policy warning and the environment-cause verdict.
   PREGATE_NO_POLICY: {
     anchor: 'pregate-no-policy',
-    summary: 'the repository has no pregate policy yet (no .gstack/pregate.json on the base branch and no user-owned file) and a touched file maps to no test lane; a warn, with a starter policy printed',
-    fix: 'review the printed starter, write it with `gstack-pregate init`, edit the TODO entries, then commit .gstack/pregate.json on the base branch; from then on an unmapped file is PREGATE_NO_LANE',
+    summary: 'the repository has no pregate policy yet (no .gstack/pregate.json on the base branch and no user-owned file), or its policy declares no lanes (no dependencies, empty_lanes, selection or local key), and a touched file maps to no test lane; a warn, with a starter policy printed',
+    fix: 'review the printed starter, write it with `gstack-pregate init` (or add its dependencies to the existing policy), edit the TODO entries, then commit .gstack/pregate.json on the base branch; from then on an unmapped file is PREGATE_NO_LANE',
   },
   PREGATE_ENVIRONMENT: {
     anchor: 'pregate-environment',
