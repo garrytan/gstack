@@ -294,7 +294,7 @@ After routing, output a brief context summary:
 ```bash
 $D prompt --image <approved-variant.png> --output json
 ```
-This returns colors, typography, layout structure, and component inventory via an OpenAI vision model (gpt-5.5 by default, `GSTACK_DESIGN_MODEL` overrides).
+This returns colors, typography, layout structure, and component inventory via the provider's vision model (OpenAI gpt-5.5, or Gemini when only a Gemini key is set; `GSTACK_DESIGN_MODEL` overrides).
 
 2. If `$D` is not available, read the approved PNG inline using the Read tool.
    Describe the visual layout, colors, typography, and component structure yourself.
