@@ -41,6 +41,21 @@ export function runBin(name: string, args: string[], opts: SpawnSyncOptions) {
   });
 }
 
+/** Claude Code's timeout for a gstack hook, as setup registers it (`--timeout 5`). */
+export const HOOK_TIMEOUT_MS = 5000;
+/** Kept back from HOOK_TIMEOUT_MS so a hook logs and exits before Claude Code kills it. */
+const HOOK_EXIT_RESERVE_MS = 500;
+
+/**
+ * What is left of a hook's registered budget for its next child. Every child
+ * a hook spawns shares one deadline: a fixed per-child timeout either kills a
+ * cold child that would have finished in time, or lets several children run
+ * past the point where Claude Code kills the hook itself.
+ */
+export function hookChildBudgetMs(startedAtMs: number, nowMs: number = Date.now()): number {
+  return HOOK_TIMEOUT_MS - HOOK_EXIT_RESERVE_MS - (nowMs - startedAtMs);
+}
+
 /** Kept tail of the child's stderr, for the caller's error log. */
 const STDERR_TAIL_BYTES = 500;
 /** After a group kill, how long to wait for 'exit'/'close' before resolving anyway (kept under the callers' post-spawn reserve). */
