@@ -75,7 +75,12 @@ export interface ShipPolicy {
   train: TrainPolicy | null;
   /** Documentation caps /ship Step 14.5 checks before the verification gate (`gstack-ship-receipt docs-caps`); null declares none. */
   docs: { caps: Array<{ path: string; max_bytes: number }> } | null;
+  /** How /ship reproduces a Step 5 failure on the base branch before calling it base-red (docs/ship-policy.md#base-red); null never calls one base-red. */
+  base_red: BaseRedPolicy | null;
 }
+
+/** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */
+export interface BaseRedPolicy { setup: string | null; select: string; timeout_sec: number }
 
 /** The `train` block: the gate workflow trains dispatch and how its verdict is read. */
 export interface TrainPolicy {
@@ -95,6 +100,44 @@ export interface TrainPolicy {
   screen_selection: 'gstack-paid' | 'none';
   /** Bisect admission price of one case trial that has no recorded cost. */
   trial_reservation_usd: number;
+  /**
+   * The repo's own gates (docs/ship-policy.md#run-a-merge-train): every entry must be GREEN on every prefix T0..Tk.
+   * A block with gates declares only gates, land, max_size and fill_hours; without gates the block is the gstack-evals
+   * kind above, and the six gstack-evals fields above are absent on a block with gates (read them only when gates is absent).
+   */
+  gates?: TrainGate[];
+  /** How `train land` merges a slot; absent means squash (gstack-evals trains only). */
+  land?: TrainLand;
+}
+
+/** One generic train gate: the repo's CI workflows dispatched by nonce on each prefix, or a command run on a Ubicloud VM. */
+export type TrainGate = WorkflowsGate | CommandGate;
+export interface WorkflowsGate {
+  kind: 'workflows';
+  /** Workflow files dispatched on each prefix ref; each accepts a `nonce` input and names it in run-name as `[eval-bg <nonce>]`. */
+  workflows: string[];
+  /** `<workflow file>/<job name as GitHub reports it>`: each must conclude success (skipped or missing is INCOMPLETE). */
+  required_jobs: string[];
+  /** Artifact with JUnit XML or a JSON test list; when set it must exist and report at least one executed test. */
+  record?: string;
+  /** Check runs `train land` waits on at the merged commit (default none). */
+  post_merge_checks?: string[];
+}
+export interface CommandGate {
+  kind: 'command';
+  /** Run on a Ubicloud VM (scripts/ubicloud/ubi-runner.sh) from a clean checkout of the prefix head; exit 0 is GREEN. */
+  command: string;
+  timeout_sec: number;
+  /** One cap over every prefix run of one train, at the VM's list price. */
+  spend_cap_usd: number;
+  /** The only local variables forwarded to the VM. */
+  pass_env?: string[];
+}
+export type MergeMethod = 'squash' | 'merge' | 'rebase';
+export interface TrainLand {
+  merge_method: MergeMethod;
+  /** Checks `train land` requires green on the landing commit, for repos without changelog_fragments (whose required_checks are the one list). */
+  required_checks?: string[];
 }
 
 export const DEFAULT_POLICY: ShipPolicy = {
@@ -121,6 +164,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
+  base_red: null,
 };
 
 export type PolicyKey = Exclude<keyof ShipPolicy, '$schema'>;
@@ -148,8 +192,9 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   migrations: '{ dir, id }: the migration directory and a regex with one capture group for the number in a file name; `gstack-pregate regate` reports MIGRATION_COLLISION against the base branch and every open PR.',
   gate_command: 'The repo’s full pre-merge gate command. gstack-ship-queue gate-ahead and ready print it for the caller to run (in the background or in CI); gstack never executes it. null when the repo has none.',
   full_e2e: 'true: every merge needs a passing full-gate result (gstack-ship-queue gate-ahead --record, or the lane\'s --gate-exit 0 --gate-log on the gated head) bound to a tree equal to the merging one modulo stamps; ready, stamp and verify refuse without one (QUEUE_GATE_MISSING).',
-  train: '{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd } or null: turns on merge trains in gstack-ship-queue (train build|status|verdict|bisect|rebuild|prune, ready --screen|--no-screen, verify --train). null keeps today\'s per-PR queue unchanged.',
+  train: '{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? } (the gstack-evals gate) or { gates, land, max_size, fill_hours } (any repo: gates lists { kind: workflows, workflows, required_jobs, record?, post_merge_checks? } and { kind: command, command, timeout_sec, spend_cap_usd, pass_env? }, each GREEN on every prefix; land is { merge_method: squash|merge|rebase, required_checks? }) or null: turns on merge trains in gstack-ship-queue (train build|status|verdict|land|watch|init|doctor|prune, ready --screen|--no-screen, verify --train). gates and land need min_gstack_version at the release that reads them (validate names it). null keeps today\'s per-PR queue unchanged.',
   docs: '{ caps: [{ path, max_bytes }] } or null: documentation files with a byte cap. /ship Step 14.5 runs `gstack-ship-receipt docs-caps` before the verification gate and prints one DOCS_CAP: line per cap; a file over its cap (or absent) blocks the ship until the doc is trimmed or the cap raised on the base branch. null declares none.',
+  base_red: '{ setup, select, timeout_sec } or null: how /ship Step 5 proves a failure is the base branch\'s own (docs/ship-policy.md#base-red). gstack-base-red checks out the base head and the PR head in scratch worktrees, runs setup (dependency install, or null), then select with the failing test files in its {files} slot; only the same failures in both, in files the PR does not touch, are base-red, and /ship then pauses before READY instead of failing. Read from the base branch only. null keeps every failure in-branch.',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
 
@@ -183,6 +228,9 @@ export const DOCS_CAPS_KEY_VERSION = '1.91.270.0';
 export const CHANGELOG_FRAGMENTS_KEY_VERSION = '1.91.336.0';
 /** `bump: never` is a value of an older key, so the per-key floor check misses it; compatErrors checks it by value. */
 export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
+export const BASE_RED_KEY_VERSION = '1.91.374.0';
+/** `train.gates` and `train.land` are values of the older train key, so compatErrors checks them by value, as for bump: never. */
+export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
@@ -190,6 +238,7 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   migrations: '1.91.98.0', gate_command: SHIP_QUEUE_KEYS_VERSION, full_e2e: SHIP_QUEUE_KEYS_VERSION, min_gstack_version: SHIP_QUEUE_KEYS_VERSION,
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
+  base_red: BASE_RED_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -202,14 +251,14 @@ const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, pa
 export function runningGstackVersion(): string {
   let own = '0.0.0.0';
   try { own = fs.readFileSync(path.resolve(import.meta.dir, '..', 'VERSION'), 'utf8').trim(); } catch {}
-  const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
+  const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
   return parseVersion(own) && !newer(known, own) ? own : known;
 }
 
 /** The newest introducing version among the keys a parsed policy sets: the gstack a crew needs to read it. */
 export function minimumReader(raw: Record<string, unknown>): string {
   return Object.keys(raw).filter((k): k is PolicyKey => POLICY_KEYS.includes(k as PolicyKey))
-    .map(k => (k === 'bump' && raw.bump === 'never' ? BUMP_NEVER_KEY_VERSION : POLICY_KEY_INTRODUCED[k])).reduce((a, b) => (newer(b, a) ? b : a), POLICY_KEY_INTRODUCED.bump);
+    .map(k => (k === 'bump' && raw.bump === 'never' ? BUMP_NEVER_KEY_VERSION : k === 'train' && genericTrainKeys(raw.train) ? TRAIN_GATES_KEY_VERSION : POLICY_KEY_INTRODUCED[k])).reduce((a, b) => (newer(b, a) ? b : a), POLICY_KEY_INTRODUCED.bump);
 }
 
 export interface PolicyError { code: ResultCodeName; path: string; message: string }
@@ -302,7 +351,7 @@ function migrationErrors(value: unknown, out: PolicyError[]): void {
   } catch (e: any) { out.push({ code: 'POLICY_INVALID', path: 'migrations.id', message: `not a valid regex: ${e.message}` }); }
 }
 
-const TRAIN_FIELDS: Record<keyof TrainPolicy, (v: unknown) => string | null> = {
+const TRAIN_FIELDS: Record<Exclude<keyof TrainPolicy, 'gates' | 'land'>, (v: unknown) => string | null> = {
   gate_workflow: v => (typeof v === 'string' && /^[A-Za-z0-9_.-]{1,64}\.ya?ml$/.test(v) ? null : 'must be a workflow file name such as evals.yml'),
   free_workflow: v => (typeof v === 'string' && /^[A-Za-z0-9_.-]{1,64}\.ya?ml$/.test(v) ? null : 'must be a workflow file name such as free-tests.yml'),
   full_gate_check: v => (typeof v === 'string' && /^[A-Za-z0-9_./-]{1,64}$/.test(v) ? null : 'must be a check-run name ([A-Za-z0-9_./-]{1,64})'),
@@ -313,15 +362,88 @@ const TRAIN_FIELDS: Record<keyof TrainPolicy, (v: unknown) => string | null> = {
   trial_reservation_usd: v => (typeof v === 'number' && v > 0 && v <= 100 ? null : 'must be dollars above 0 and at most 100'),
 };
 
-function trainErrors(value: unknown, out: PolicyError[]): void {
+const WORKFLOW_FILE = /^[A-Za-z0-9_.-]{1,64}\.ya?ml$/;
+const CHECK_NAME = /^[^\n]{1,100}$/;
+const GENERIC_TRAIN_KEYS = ['gates', 'land', 'max_size', 'fill_hours'];
+
+/** Whether a raw train block uses the generic keys (gates or land), which need TRAIN_GATES_KEY_VERSION. */
+export function genericTrainKeys(train: unknown): boolean {
+  return !!train && typeof train === 'object' && !Array.isArray(train) && ('gates' in train || 'land' in train);
+}
+
+function nameList(at: string, v: unknown, max: number, item: RegExp, out: PolicyError[], what: string): v is string[] {
+  if (!Array.isArray(v) || !v.length || v.length > max || new Set(v).size !== v.length || v.some(x => typeof x !== 'string' || !item.test(x))) {
+    out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(v)} must be 1-${max} distinct ${what}` });
+    return false;
+  }
+  return true;
+}
+
+function workflowsGateErrors(o: Record<string, unknown>, at: string, out: PolicyError[]): void {
+  const wfs = nameList(`${at}.workflows`, o.workflows, 8, WORKFLOW_FILE, out, 'workflow file names such as ci.yml') ? o.workflows as string[] : [];
+  if (nameList(`${at}.required_jobs`, o.required_jobs, 64, /^[A-Za-z0-9_.-]{1,64}\.ya?ml\/[^\n]{1,100}$/, out, '<workflow file>/<job name> entries')) {
+    for (const job of o.required_jobs as string[]) {
+      const wf = job.slice(0, job.indexOf('/'));
+      if (wfs.length && !wfs.includes(wf)) out.push({ code: 'POLICY_INVALID', path: `${at}.required_jobs`, message: `${JSON.stringify(job)} names ${wf}, which is not in workflows` });
+    }
+    for (const wf of wfs) if (!(o.required_jobs as string[]).some(j => j.startsWith(`${wf}/`))) out.push({ code: 'POLICY_INVALID', path: `${at}.required_jobs`, message: `no required job of ${wf}; a dispatched workflow with no required job proves nothing` });
+  }
+  if ('record' in o && (typeof o.record !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(o.record))) out.push({ code: 'POLICY_INVALID', path: `${at}.record`, message: 'must be an artifact name ([A-Za-z0-9_.-]{1,64})' });
+  if ('post_merge_checks' in o) nameList(`${at}.post_merge_checks`, o.post_merge_checks, 20, CHECK_NAME, out, 'check names of 1-100 characters');
+}
+
+function commandGateErrors(o: Record<string, unknown>, at: string, out: PolicyError[]): void {
+  if (typeof o.command !== 'string' || !o.command.trim()) out.push({ code: 'POLICY_INVALID', path: `${at}.command`, message: 'must be a non-empty string' });
+  else if (o.command.length > MAX_COMMAND || /[\0\r\n]/.test(o.command)) out.push({ code: 'POLICY_CONTAINMENT', path: `${at}.command`, message: `must be one line under ${MAX_COMMAND} characters` });
+  if (!Number.isInteger(o.timeout_sec) || (o.timeout_sec as number) < 60 || (o.timeout_sec as number) > 21600) out.push({ code: 'POLICY_INVALID', path: `${at}.timeout_sec`, message: 'must be an integer from 60 to 21600' });
+  if (typeof o.spend_cap_usd !== 'number' || !(o.spend_cap_usd > 0) || o.spend_cap_usd > 100) out.push({ code: 'POLICY_INVALID', path: `${at}.spend_cap_usd`, message: 'must be dollars above 0 and at most 100' });
+  if (!('pass_env' in o)) return;
+  const p = o.pass_env;
+  if (!Array.isArray(p) || p.length > 16 || new Set(p).size !== p.length || p.some(n => typeof n !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(n))) out.push({ code: 'POLICY_INVALID', path: `${at}.pass_env`, message: 'must be up to 16 distinct variable names' });
+  else if (p.some(n => /^UBICLOUD_/.test(n))) out.push({ code: 'POLICY_CONTAINMENT', path: `${at}.pass_env`, message: 'the runner never forwards its own Ubicloud credentials to a VM' });
+}
+
+function gateErrors(g: unknown, at: string, out: PolicyError[]): void {
+  const o = g as Record<string, unknown> | null;
+  if (!o || typeof o !== 'object' || Array.isArray(o)) { out.push({ code: 'POLICY_INVALID', path: at, message: 'must be { kind: workflows, ... } or { kind: command, ... }' }); return; }
+  const allowed = o.kind === 'workflows' ? ['kind', 'workflows', 'required_jobs', 'record', 'post_merge_checks'] : o.kind === 'command' ? ['kind', 'command', 'timeout_sec', 'spend_cap_usd', 'pass_env'] : null;
+  if (!allowed) { out.push({ code: 'POLICY_INVALID', path: `${at}.kind`, message: `${JSON.stringify(o.kind)} must be workflows | command` }); return; }
+  for (const k of Object.keys(o)) if (!allowed.includes(k)) out.push({ code: 'POLICY_INVALID', path: `${at}.${k}`, message: `unknown key for a ${o.kind} gate` });
+  if (o.kind === 'workflows') workflowsGateErrors(o, at, out); else commandGateErrors(o, at, out);
+}
+
+function landErrors(v: unknown, obj: Record<string, unknown>, out: PolicyError[]): void {
+  const l = v as Record<string, unknown> | null;
+  if (!l || typeof l !== 'object' || Array.isArray(l)) { out.push({ code: 'POLICY_INVALID', path: 'train.land', message: 'must be { merge_method, required_checks? }' }); return; }
+  for (const k of Object.keys(l)) if (k !== 'merge_method' && k !== 'required_checks') out.push({ code: 'POLICY_INVALID', path: `train.land.${k}`, message: 'unknown key' });
+  if (!['squash', 'merge', 'rebase'].includes(l.merge_method as string)) out.push({ code: 'POLICY_INVALID', path: 'train.land.merge_method', message: `${JSON.stringify(l.merge_method)} must be squash | merge | rebase` });
+  if (!('required_checks' in l)) return;
+  if (obj.changelog_fragments != null) out.push({ code: 'POLICY_INVALID', path: 'train.land.required_checks', message: 'this policy declares changelog_fragments; its required_checks are the one list train land reads' });
+  else nameList('train.land.required_checks', l.required_checks, 50, CHECK_NAME, out, 'check names of 1-100 characters');
+}
+
+function trainErrors(value: unknown, obj: Record<string, unknown>, out: PolicyError[]): void {
   const t = value as Record<string, unknown> | null;
-  if (!t || typeof t !== 'object' || Array.isArray(t)) { out.push({ code: 'POLICY_INVALID', path: 'train', message: `must be { ${Object.keys(TRAIN_FIELDS).join(', ')} } or null` }); return; }
-  for (const k of Object.keys(t)) if (!(k in TRAIN_FIELDS)) out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: 'unknown key' });
+  if (!t || typeof t !== 'object' || Array.isArray(t)) { out.push({ code: 'POLICY_INVALID', path: 'train', message: `must be { ${Object.keys(TRAIN_FIELDS).join(', ')} }, { ${GENERIC_TRAIN_KEYS.join(', ')} } or null` }); return; }
+  const generic = 'gates' in t;
+  const fields = generic ? GENERIC_TRAIN_KEYS : [...Object.keys(TRAIN_FIELDS), 'land'];
+  for (const k of Object.keys(t)) {
+    if (!fields.includes(k)) out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: generic && k in TRAIN_FIELDS ? 'belongs to the gstack-evals gate; a train with gates declares only gates, land, max_size and fill_hours' : 'unknown key' });
+  }
+  for (const k of generic ? GENERIC_TRAIN_KEYS : Object.keys(TRAIN_FIELDS)) if (!(k in t)) out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: `missing (every ${generic ? 'field of a train with gates' : 'train field'} is required)` });
   for (const [k, check] of Object.entries(TRAIN_FIELDS)) {
-    if (!(k in t)) { out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: 'missing (every train field is required)' }); continue; }
-    const why = check(t[k]);
+    if (!(k in t) || (generic && k !== 'max_size' && k !== 'fill_hours')) continue;
+    const size = t[k] as number;
+    const why = generic && k === 'max_size' ? (Number.isInteger(size) && size >= 1 && size <= 5 ? null : 'must be an integer from 1 to 5 (every prefix is gated: at most six runs per gate)') : check(t[k]);
     if (why) out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: `${JSON.stringify(t[k])} ${why}` });
   }
+  if (generic) {
+    if (!Array.isArray(t.gates) || !t.gates.length || t.gates.length > 4) out.push({ code: 'POLICY_INVALID', path: 'train.gates', message: 'must be a list of 1-4 gates' });
+    else t.gates.forEach((g, i) => gateErrors(g, `train.gates[${i}]`, out));
+  }
+  if ('land' in t) landErrors(t.land, obj, out);
+  const method = (t.land as { merge_method?: unknown } | undefined)?.merge_method ?? 'squash';
+  if ('land' in t && obj.history === 'merge-only' && method !== 'merge') out.push({ code: 'POLICY_INVALID', path: 'train.land.merge_method', message: `history merge-only allows only the merge method; train land would use ${String(method)}` });
 }
 
 /**
@@ -370,9 +492,10 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
     else if (t.length > MAX_COMMAND || /[\0\r\n]/.test(t)) errors.push({ code: 'POLICY_CONTAINMENT', path: 'gate_command', message: `must be one line under ${MAX_COMMAND} characters` });
   }
   if ('full_e2e' in obj && typeof obj.full_e2e !== 'boolean') errors.push({ code: 'POLICY_INVALID', path: 'full_e2e', message: 'must be true or false' });
-  if ('train' in obj && obj.train !== null) trainErrors(obj.train, errors);
+  if ('train' in obj && obj.train !== null) trainErrors(obj.train, obj, errors);
   if ('docs' in obj && obj.docs !== null) docsErrors(obj.docs, errors);
   if ('changelog_fragments' in obj && obj.changelog_fragments !== null) fragmentsErrors(obj.changelog_fragments, errors);
+  if ('base_red' in obj && obj.base_red !== null) baseRedErrors(obj.base_red, errors);
   if ('stamp_paths' in obj) listErrors('stamp_paths', obj.stamp_paths, errors, globError);
   for (const key of ['changelog', 'mirror'] as const) {
     if (!(key in obj) || obj[key] === null) continue;
@@ -418,6 +541,9 @@ function compatErrors(obj: Record<string, unknown>, running: string, errors: Pol
     if (typeof min === 'string' && !newer(since, min)) continue;
     errors.push({ code: 'POLICY_INVALID', path: key, message: `introduced in gstack ${since}; set min_gstack_version to ${since} or later so an older gstack refuses this policy by name` });
   }
+  if (genericTrainKeys(obj.train) && !(typeof min === 'string' && !newer(TRAIN_GATES_KEY_VERSION, min))) {
+    errors.push({ code: 'POLICY_INVALID', path: 'train', message: `gates and land were introduced in gstack ${TRAIN_GATES_KEY_VERSION}; set min_gstack_version to ${TRAIN_GATES_KEY_VERSION} or later so an older gstack refuses this policy by name` });
+  }
   if (obj.bump === 'never' && !(typeof min === 'string' && !newer(BUMP_NEVER_KEY_VERSION, min))) {
     errors.push({ code: 'POLICY_INVALID', path: 'bump', message: `never was introduced in gstack ${BUMP_NEVER_KEY_VERSION}; set min_gstack_version to ${BUMP_NEVER_KEY_VERSION} or later so an older gstack refuses this policy by name` });
   }
@@ -455,6 +581,21 @@ function docsErrors(raw: unknown, errors: PolicyError[]): void {
     if (why) errors.push({ code: 'POLICY_CONTAINMENT', path: `docs.caps[${i}].path`, message: `${JSON.stringify(c.path)} ${why}` });
     if (!Number.isInteger(c.max_bytes) || (c.max_bytes as number) < 1) errors.push({ code: 'POLICY_INVALID', path: `docs.caps[${i}].max_bytes`, message: 'must be an integer >= 1' });
   });
+}
+
+function baseRedErrors(raw: unknown, errors: PolicyError[]): void {
+  const b = raw as Record<string, unknown> | null;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) { errors.push({ code: 'POLICY_INVALID', path: 'base_red', message: 'must be { setup, select, timeout_sec } or null' }); return; }
+  for (const k of Object.keys(b)) if (!['setup', 'select', 'timeout_sec'].includes(k)) errors.push({ code: 'POLICY_INVALID', path: `base_red.${k}`, message: 'unknown key' });
+  const command = (key: string, value: unknown, nullable: boolean) => {
+    if (nullable && value === null) return;
+    if (typeof value !== 'string' || !value.trim()) errors.push({ code: 'POLICY_INVALID', path: `base_red.${key}`, message: `must be a non-empty string${nullable ? ' or null' : ''}` });
+    else if (value.length > MAX_COMMAND || /[\0\r\n]/.test(value)) errors.push({ code: 'POLICY_CONTAINMENT', path: `base_red.${key}`, message: `must be one line under ${MAX_COMMAND} characters` });
+  };
+  command('setup', b.setup, true);
+  command('select', b.select, false);
+  if (typeof b.select === 'string' && !b.select.includes('{files}')) errors.push({ code: 'POLICY_INVALID', path: 'base_red.select', message: 'needs a {files} slot for the failing test files' });
+  if (!Number.isInteger(b.timeout_sec) || (b.timeout_sec as number) < 10 || (b.timeout_sec as number) > 7200) errors.push({ code: 'POLICY_INVALID', path: 'base_red.timeout_sec', message: 'must be an integer from 10 to 7200' });
 }
 
 function fragmentsErrors(raw: unknown, errors: PolicyError[]): void {

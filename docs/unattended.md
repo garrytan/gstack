@@ -148,8 +148,12 @@ The other endings, each greppable: when gh cannot read the PR,
 `GSTACK_RESULT: skill=ship status=incomplete run=-` (exit 1); a receipt that is
 missing or names another head, `GSTACK_RESULT: skill=ship status=refused run=-`
 with `QUEUE_RECEIPT_MISSING` or `QUEUE_RECEIPT_STALE` on stderr (exit 3), the
-line a run that stops before publication prints itself; and `result --pr <n>`
-refuses `QUEUE_RECEIPT_STALE` when HEAD is not the PR's pushed head.
+line a run that stops before publication prints itself; `result --pr <n>`
+refuses `QUEUE_RECEIPT_STALE` when HEAD is not the PR's pushed head; and a
+receipt with a `base_red` block (Step 5 paused on a red base) prints
+`SHIP_PAUSED: base-red …` on stderr, writes the run record and ends
+`GSTACK_RESULT: skill=ship status=incomplete run=<dir>` (exit 1): the lane is
+waiting on the base, not failed ([base_red](ship-policy.md#base-red)).
 
 The one publication the unattended rules allow: when an open PR for the branch
 exists and HEAD is its pushed head, Step 18 takes the pr-body section's
@@ -233,8 +237,12 @@ and reruns carry with `--pregate .gstack/tmp/pregate.json`. `CARRY: carried from
 `GSTACK_RESULT: skill=ship status=complete run=<dir>` line means the receipt
 now names HEAD with a `carry` object holding the `git range-diff` evidence, and
 `ship-run.json` gains `carried_from` and `carry_reason`; the `review_loop`
-counters are kept, because the reviewed product diff is unchanged. `CARRY:
-current` means nothing moved. `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`,
+counters are kept, because the reviewed product diff is unchanged or its only
+difference passed a scoped review. `CARRY: current` means nothing moved.
+`CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)` means the base edited context
+next to reviewed hunks: one fix-check reviewer reads the packet the refusal
+names, and a clean record reruns carry with `--scoped-review <record.json>`
+([troubleshooting](troubleshooting.md#receipt-carry-scoped-review)). `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`,
 `(RECEIPT_CARRY_TREE_MISMATCH)` or `(RECEIPT_CARRY_REFUSED)` with the refused
 result line means the product diff changed, or history was rewritten onto a
 tree no review saw, so /ship runs again;

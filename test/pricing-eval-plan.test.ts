@@ -50,7 +50,8 @@ describe('preregistration', () => {
     expect(check.missing).toEqual([]);
     expect(check.empty.length).toBe(PREREG_SECTIONS.length);
     expect(check.ok).toBe(false);
-    const filled = t.replace(/^(##\s+.+)$/gm, '$1\n- filled in');
+    expect(PREREG_SECTIONS).toContain('Comparison');
+    const filled = t.replace(/^(##\s+.+)$/gm, '$1\n- filled in').replace('## Comparison\n- filled in', '## Comparison\nstack: none\nwhy: one arm, no skill stack');
     expect(checkPrereg(filled)).toMatchObject({ ok: true, missing: [], empty: [] });
     expect(checkPrereg('# nothing here\n').missing).toEqual([...PREREG_SECTIONS]);
   });

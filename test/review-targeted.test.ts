@@ -18,6 +18,7 @@ import { carryReceipt, extractReceipt, renderReceiptBlock } from '../lib/ship-re
 import { bindShippedReceipt, parseReviewTargeted, receiptTargetedLine } from '../lib/ship-receipt-depth';
 import type { ShipReceipt } from '../lib/headless-artifacts';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
+import { checkoutTree } from '../lib/review-brief';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const PLAN = path.join(ROOT, 'bin', 'gstack-review-plan');
@@ -268,7 +269,7 @@ describe('the targeted role end to end on a fixture repository', () => {
     expect(runBin(repo, 'gstack-review-dispatch', ['sent', '--ledger', ledger, '--role', 'targeted', '--sent', file]).out).toContain('BRIEF_SENT: reader=targeted');
     const output = path.join(repo.root, 'targeted.out');
     const finding = { severity: 'CRITICAL', confidence: 8, path: 'src/charge.ts', line: 1, category: 'money', summary: 'cap is never enforced', fingerprint: 'src/charge.ts:1:money', specialist: 'targeted' };
-    fs.writeFileSync(output, JSON.stringify(finding) + '\n');
+    fs.writeFileSync(output, `REVIEWED_TREE: ${checkoutTree(repo.work)}\n` + JSON.stringify(finding) + '\n');
     const merged = path.join(repo.root, 'merged.jsonl');
     expect(runBin(repo, 'gstack-review-dispatch', ['collect', '--ledger', ledger, '--role', 'targeted', '--output', output, '--merged', merged]).out).toContain('COLLECT: reader=targeted findings=1');
     const judged = path.join(repo.root, 'judged.jsonl');
