@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.93.24.0] - 2026-11-02
+
+**The /ship workflow judge loses the contradiction it cited in every recorded red sample.**
+
+### Fixed
+- **`ship/SKILL.md` Steps 12 and 15**: Step 15 no longer tells the agent to make the VERSION/CHANGELOG commit by hand while Step 16's `gstack-ship-release finish` makes the same commit. Feature work is committed in Step 15, and `finish` commits the release files last with the co-author trailer. Step 12 now says what a `VERSION: skipped` (stamp-at-merge or changelog fragments) or `VERSION: <v> kept` result leaves for Steps 13, 18 and 20. All six judge samples in the two recorded reds (E2E Evals 41429095451, 41445571955) named the commit conflict, and three named the undefined skipped/kept result. Three focused judge runs on the fix passed (actionability median 4 each), and none of their nine samples cited either one.
+
 ## [1.93.23.0] - 2026-11-02
 
 **Four tests from the 2026-11-02 flaky pass stop failing correct runs, and one more names its cause when it fails.**
