@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.94.20.0] - 2026-11-03
+
+### Fixed
+
+- **A finished /ship no longer blocks `gstack-upgrade` for two hours (GST-1205).** Each `gstack-skill-start` writes a workflow lease that `gstack-upgrade` checks before moving a shared checkout. Nothing released it when the workflow ended, and on Capy every session's lease names the machine's one `capy-server`. So after a /ship finished, its own lease kept refusing the upgrade with UPGRADE_BUSY until it was 120 minutes old, unless you set `GSTACK_UPGRADE_FORCE=1`. Now `gstack-skill-start` records its `SESSION_ID` as an open run on the lease, and `gstack-skill-end` closes it with the new `gstack-lease release`. Once every run on a lease is closed, the lease is idle and blocks nothing (`gstack-lease list` shows `idle`). A run another session still has open keeps blocking. So does a holder that records no run (an older gstack, or `gstack-lease touch` without `--run`, which now leaves a `hold` entry that no release removes). Each run counts for 120 minutes from its own start, so one that never reaches `gstack-skill-end` stops blocking on time even while other sessions keep starting. A nested skill's own run covers it while it runs, but other sessions' starts no longer extend a run past its 120 minutes.
+
 ## [1.94.19.0] - 2026-11-03
 
 **The Windows-safe test subset is green again on current main.** `test/qa-report-dir.test.ts` expected `ENOTDIR` when `.gstack` is a file, but Windows reports `ENOENT` for the same mistake, so the test failed on every Windows run (windows-free-tests run 41607809007 at f6d6215). The test now accepts either code on Windows and still requires `ENOTDIR` everywhere else. With Windows checks now running by path, a red subset test would block any pull request that touches it.
