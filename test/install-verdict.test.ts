@@ -134,6 +134,24 @@ describe('install verdict keyed by (checkout, project): both twins', () => {
     expect(future.detail).toContain('unsupported schema_version');
   });
 
+  test('GST-1161: a review-voice install on a shared machine never shadows the verdict the session launched with', () => {
+    const sr = tmp();
+    const proj = project('evals');
+    const launched = writeVerdict(sr, { project: '', bun_path: BUN, bun_version: '1.4.2', schema_version: 2, for: 'autoplan' });
+    const env = { GSTACK_STATE_ROOT: sr, GSTACK_INSTALL_VERDICT: launched };
+    expect(both('autoplan', proj, env)).toMatchObject({ refuse: false, status: 'ok' });
+    writeVerdict(sr, { project: proj, bun_path: BUN, bun_version: '1.4.2', schema_version: 2, for: 'review-voice',
+      required: ['patch', 'runtime', 'helpers', 'state-root', 'privacy', 'cores', 'revision'], trailer: 'gstack: ok 9.9.9.9 for=review-voice' });
+    expect(both('autoplan', proj, env)).toMatchObject({ refuse: false, status: 'ok' });
+    const alone = both('autoplan', proj, { GSTACK_STATE_ROOT: sr });
+    expect(alone).toMatchObject({ refuse: true, status: 'verdict', code: 'INSTALL_UNVERIFIED' });
+    expect(alone.detail).toContain('certified for=review-voice');
+    const gone = both('autoplan', proj, { GSTACK_STATE_ROOT: sr, GSTACK_INSTALL_VERDICT: path.join(sr, 'gone.json') });
+    expect(gone.detail).toContain('certified for=review-voice');
+    writeVerdict(sr, { project: proj, schema_version: 3, for: 'review-voice' });
+    expect(both('autoplan', proj, env).detail).toContain('unsupported schema_version');
+  });
+
   test('a running Bun other than the recorded one refuses with BUN_RESOLUTION_DRIFT and names both', () => {
     const sr = tmp();
     const a = project('a');
