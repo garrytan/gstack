@@ -249,6 +249,37 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(judge(m, [{ id: 'r#1', severity: 'INFORMATIONAL', reason: 'a real defect' }]).ok).toBe(true);
   });
 
+  // Value: protects=a reader's closing prose that negates a severity word ("found nothing CRITICAL") is not collected as a finding,
+  //   while a label stated as a finding still is; fails_when=collect records the negated word as a CRITICAL the judge cannot drop;
+  //   why_new=GST-766: GEVA-92's fix-check#5 on gstack-evals #108 (1.92.17.0) became a phantom CRITICAL; seam=parseFindings; no_claim=prose voices' summaries that state a count
+  test('a negated severity word is not a finding: GEVA-92 fix-check#5 and its negated forms', () => {
+    const fixCheck = [
+      'REVIEWED_TREE: bedd511efa0fa16c9277821073c68e438dc760d2 /workspace/gstack-evals',
+      '{"severity":"INFORMATIONAL","path":"wiki/board/README.md","line":229,"summary":"Section 9\'s opening still says every ruling is recorded in the approvals file."}',
+      '{"severity":"INFORMATIONAL","path":"wiki/board/README.md","line":113,"summary":"The tstack row still runs on full stacks-r1 and is not labelled raw."}',
+      '',
+      'I checked these against the post, the frozen texts and the pinned code, and found nothing CRITICAL. The arithmetic is consistent throughout:',
+      '- The new secondary: 47/60, 15/60, 5/40, 7/40, 4/40 and 11.5/40.',
+      '- The minimum p of 2^-15.',
+    ].join('\n');
+    expect(parseFindings('fix-check', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL']);
+    for (const prose of ['Found no CRITICAL issues in the fix range.', 'Nothing CRITICAL or HIGH remains.', 'This is not CRITICAL.', 'I found zero Critical findings, and none High.', 'The retry path is safe; without CRITICAL impact.',
+      'No new CRITICAL issues introduced by the fix.', 'No remaining CRITICAL or HIGH findings.', '**No** CRITICAL issues found.', 'No **CRITICAL** issues found.', 'No `CRITICAL` issue.', 'No [P1] issues remain.', 'Nothing at CRITICAL severity remains.',
+      'No CRITICAL regressions introduced by the fix.', 'Nothing CRITICAL to report.', 'There is nothing CRITICAL in the fix range.', 'No CRITICAL — the fix is sound.', 'Found no CRITICAL or HIGH regressions.', 'No HIGH-risk changes.',
+      'No CRITICAL/HIGH findings.', 'No P0/P1 issues.', 'No CRITICAL, HIGH or MEDIUM issues.', 'Checked collect() at lib/review-ledger.ts:189; no CRITICAL issues remain.', 'No CRITICAL issues; served on localhost:3000.'])
+      expect([prose, parseFindings('fix-check', prose)]).toEqual([prose, []]);
+    expect(parseFindings('r', 'Not CRITICAL, but High: the cache drops a row (c.ts:4)').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('r', 'No CRITICAL, High: the cache drops a row (c.ts:4)').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('r', 'Nothing CRITICAL / HIGH: race in q.ts:7').map(f => f.label)).toEqual(['HIGH']);
+    expect(parseFindings('r', 'No CRITICAL lock guards the write in Makefile:7\nSeverity: CRITICAL').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL lock guards the write in Makefile:7\nSeverity: CRITICAL').map(f => [f.label, f.raw])).toEqual([['LOW', '1. auth.ts:3 LOW: log line too verbose'], ['CRITICAL', 'No CRITICAL lock guards the write in Makefile:7 | Severity: CRITICAL']]);
+    expect(parseFindings('r', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL issues remain.').map(f => f.label)).toEqual(['LOW']);
+    expect(parseFindings('outside-voice', '- a.ts:3 race. Severity: Low. Blocks: no\n  Separately, nothing CRITICAL about b.ts:9, but it leaks fds.\n  Severity: High').map(f => [f.label, f.raw])).toEqual([['Low', '- a.ts:3 race. Severity: Low. Blocks: no'], ['High', 'Separately, nothing CRITICAL about b.ts:9, but it leaks fds. | Severity: High']]);
+    expect(parseFindings('r', '1. A CRITICAL race in queue.ts:78 that no lock covers').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', '- A divide by zero CRITICAL bug in parse()').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('adversarial-native', 'FIXABLE: no timeout on the fetch in a.ts:3').map(f => f.label)).toEqual(['CRITICAL']);
+  });
+
   // Value: protects=normalizer v2 in production (GSTA-167 part 1, certified by round 5's G1): a prose voice's Blocks: yes reaches
   //   merged.jsonl as CRITICAL, so judge refuses a lead that keeps it below the floor; Blocks: no never lowers a label;
   //   fails_when=a Blocks: yes finding is collected at its Medium or INVESTIGATE label, a Blocks line with no finding before it is
@@ -436,6 +467,21 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '**Race in a.ts:3 (High).**\n- the writer holds no lock\nSeverity: Medium').map(f => f.raw)).toEqual(['**Race in a.ts:3 (High).** | - the writer holds no lock | Severity: Medium']);
     expect(parseFindings('outside-voice', '**Race in a.ts:3 (Medium).**\n\n- the writer holds no lock\n\nSeverity: Medium. Blocks: yes').map(f => [f.label, f.raw]))
       .toEqual([['CRITICAL', '**Race in a.ts:3 (Medium).** | - the writer holds no lock | Severity: Medium. Blocks: yes']]);
+  });
+
+  // Value: protects=the reviewer's own Severity and Blocks fields travel beside the collected label in merged.jsonl (GST-766 part a:
+  //   HARN-1 on harness-evals#200 and GSTA-135 on GST-718 saw FIXABLE collected as CRITICAL while the text said "Severity: Low. Blocks:
+  //   no.", and the run record did not show the disagreement); fails_when=a merged line drops the stated fields or they change the
+  //   label; why_new=collect kept only the label; seam=collect; no_claim=which of the two should block (part b, a gate change)
+  test('a finding keeps the severity and Blocks its reviewer stated beside the collected label', () => {
+    const d = tmp();
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-196-native.txt'), 'utf8');
+    const r = collect(path.join(d, 'l.jsonl'), 'adversarial-native', native, path.join(d, 'm.jsonl'));
+    expect(r.lines.map(l => [l.label, l.stated])).toEqual([
+      ['High', { severity: 'High', blocks: 'no' }], ['CRITICAL', { severity: 'Low', blocks: 'no' }], ['CRITICAL', { severity: 'Low', blocks: 'no' }], ['Low', { severity: 'Low', blocks: 'no' }]]);
+    expect(fs.readFileSync(path.join(d, 'm.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l).stated)).toEqual(r.lines.map(l => l.stated));
+    const json = collect(path.join(d, 'l2.jsonl'), 'fix-check', '{"severity":"INFORMATIONAL","path":"a.ts","line":3,"summary":"Severity: High is the wrong word here"}\n', path.join(d, 'm2.jsonl'));
+    expect(json.lines.map(l => [l.label, l.stated])).toEqual([['INFORMATIONAL', undefined]]);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
