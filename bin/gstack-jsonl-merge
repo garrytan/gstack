@@ -91,8 +91,12 @@ for path in paths:
         sys.exit(1)
 
 # Timestamp-ordered entries first (group 0), then hash-ordered (group 1).
+# UTF-8 bytes and LF on every platform: print() encodes with the stdout code
+# page and writes CRLF on Windows (#3659).
+out = sys.stdout.buffer
 for line, _ in sorted(seen.items(), key=lambda item: item[1]):
-    print(line)
+    out.write(line.encode('utf-8') + b'\n')
+out.flush()
 PYEOF
 
 _PYEXIT=$?

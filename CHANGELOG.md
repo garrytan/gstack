@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.92.48.0] - 2026-11-01
+
+**On Windows, `gstack-review-scope summary` works again, and the JSONL merge driver no longer fails on non-English text or rewrites files with CRLF.** Before, the summary started the bash script `gstack-review-read` directly, which Windows cannot run, so it always refused with an empty "gstack-review-read failed:" message and /ship could not write its review-loop file (#3541). The `jsonl-append` merge driver wrote its result with Python's `print()`, so a line the console code page could not encode (Cyrillic text under cp1250, for example) made it exit 1 and git reported a conflict with no markers, and every merge on Windows turned LF files into CRLF (#3659).
+
+### Fixed
+- **`gstack-review-scope summary`** runs `gstack-review-read` through `lib/script-invocation.ts` (Git Bash on Windows). When the helper cannot start, the refusal names the launch error instead of an empty string.
+- **`gstack-jsonl-merge`** writes UTF-8 bytes with LF line endings on every platform and code page.
+
+### Tests
+- `test/review-scope-windows-launch.test.ts` runs the summary against a seeded review log through the same launcher; it runs on windows-latest.
+- `test/jsonl-merge-encoding.test.ts` merges a Cyrillic line with `PYTHONIOENCODING=cp1252` and checks the bytes are UTF-8 with no CR. It failed before the fix on Linux too.
+- `test/script-invocation-tripwire.test.ts` now also catches a bin spawned through `path.join(path.dirname(...import.meta.url...), ...)` or `import.meta.dir`, the shape that hid #3541. `bin/gstack-ship-receipt`'s `gstack-session-kind` spawn is listed as a known site until its own follow-up.
+
 ## [1.92.47.0] - 2026-11-01
 
 - **`/ship` Step 5 runs its test lanes one at a time on machines with 4 or fewer cores, and `--lanes serial|parallel` picks the mode by hand** (`gstack-ship-preflight`, GST-851). Preflight used to start every `--lane` at once. On garrytan/gstack-evals#115 six lanes (a 1,451-test bun suite, tsc, a Docker tier and an arm tarball trial) started within 60 ms of each other on a 4-core, 16 GB machine, and running lanes together has taken machines down before (gstack-evals #101, #106, #107). Now, with no flag, preflight runs one lane at a time when `os.availableParallelism()` is 4 or less and all of them at once above that. `--lanes serial` or `--lanes parallel` overrides the default, and any other value, or `--lanes` with no value, is a usage error (exit 2). A new `LANES: serial|parallel (--lanes|<n> cores)` line before the `LANE` lines says which mode ran and why. Each lane still prints its own `LANE` line with its own `tests_ran` count, in the order the lanes were given. Serial runs take the sum of the lane times instead of the longest one. There is no ship-policy key for this: a new key needs key versioning and a `min_gstack_version` bump, and the core-count default already covers the 4-core case.

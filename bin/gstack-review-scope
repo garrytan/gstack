@@ -23,6 +23,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLineWithDocs } from '../lib/result-codes';
+import { runScriptSync } from '../lib/script-invocation';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import { EXIT as POST_EXIT, runPost } from '../lib/gstack-post';
 import {
@@ -237,8 +238,8 @@ function cmdRender(rest: string[]): number {
 function cmdSummary(rest: string[], json: boolean): number {
   const since = flag(rest, '--since');
   if (!since || !Number.isFinite(Date.parse(since))) return refuse('summary', 'REVIEW_SCOPE_INPUT', '--since <ISO-8601 timestamp> (the invocation\'s first Step 9 entry) is required');
-  const read = spawnSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
-  if (read.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `gstack-review-read failed: ${(read.stderr ?? '').trim().split('\n')[0] ?? ''}`);
+  const read = runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  if (read.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `gstack-review-read failed: ${read.error?.message ?? (read.stderr ?? '').trim().split('\n')[0] ?? ''}`);
   const rows: Record<string, unknown>[] = [];
   for (const line of (read.stdout ?? '').split('---CONFIG---')[0]!.split('\n')) {
     if (!line.trim() || line === 'NO_REVIEWS') continue;
