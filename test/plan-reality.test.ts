@@ -315,6 +315,7 @@ describe('field wave item 12: a receipt per measured number, the rule text for a
     expect(r.out.split('\n').filter(Boolean)).toEqual([
       expect.stringMatching(/^PLAN_REALITY: phase=eng rows=7\/7 missing=none unreceipted_numbers=4 .*verdict=incomplete$/),
       'NUMBER_UNRECEIPTED: p50 120ms', 'NUMBER_UNRECEIPTED: p95 340ms', 'NUMBER_UNRECEIPTED: 13% faster', 'NUMBER_UNRECEIPTED: 28k tokens',
+      'RECEIPT_UNRESOLVED: numbers test/bench.ts:10 no such file',
     ]);
     expect(r.err).toContain('(REALITY_RECEIPT_MISSING)');
     expect(r.err).toContain('fix:');

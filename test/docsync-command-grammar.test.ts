@@ -643,3 +643,35 @@ test.skipIf(process.platform === 'win32')('the captured store orientations with 
     expect(docsNativeInterface(store, [publish], false, true)).toContain('branch listings with no operand and only --show-current, -a/--all, -r/--remotes, -v/--verbose, -l/--list, --no-color or --no-abbrev (no --merged, --sort, --format or --contains)');
   } finally { store.clean(); }
 });
+
+// Screens 40822033640 and 40815828320 and gate 40809051510 (ship-docsync-current, -completion and -store, each green on the
+// in-run rerun): each parent joined `cat <installed gstack-docs-candidate> --help 2>&1 | head -N` to a line of reads. GNU cat
+// printed its own usage and read nothing; a BSD cat would read the operand, which stays checked as a read either way.
+test.skipIf(process.platform === 'win32')('the captured lines joining a read command\'s --help replay clean, and --help grants nothing else', () => {
+  const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-read-help-public.json'), 'utf8')) as
+    { runs: Array<{ sourceRun: string; scenario: 'current' | 'updated' | 'store'; calls: SkillTestResult['toolCalls'] }> };
+  expect(captured.runs.map(run => run.scenario)).toEqual(['current', 'updated', 'store']);
+  for (const run of captured.runs) {
+    const fixture = fixtureDocs(run.scenario);
+    try {
+      const publish = path.join(fixture.home, 'fixture-publish.ts');
+      const fill = (text: string) => text.replaceAll('{home}', fixture.home).replaceAll('{shard}', path.dirname(path.dirname(fixture.home)));
+      const replayed = run.calls.map(call => ({ ...call, input: Object.fromEntries(Object.entries(call.input).map(([key, value]) =>
+        [key, typeof value === 'string' ? fill(value) : value])), output: fill(call.output) }));
+      const joined = replayed.filter(call => /; cat \S+\/bin\/gstack-docs-candidate --help 2>&1 \| head -\d+(?:;|$)/.test(String(call.input?.command ?? '')));
+      expect(joined, run.sourceRun).toHaveLength(1);
+      expect(docsToolFailures({ toolCalls: replayed, exitReason: 'success' } as SkillTestResult, fixture, [publish], run.scenario !== 'updated'), run.sourceRun).toEqual([]);
+    } finally { fixture.clean(); }
+  }
+  const fixture = fixtureDocs('current');
+  try {
+    const publish = path.join(fixture.home, 'fixture-publish.ts');
+    const candidate = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+    for (const line of [`git status; cat ${candidate} --help 2>&1 | head -5`, 'cat README.md --help', 'git status; cat README.md --help', 'ls handbook --help; git status', 'git status; cat --help 2>&1 | head -5'])
+      expect(docsCommandAllowed(line, fixture, [publish]), line).toBe(true);
+    for (const line of ['git status; cat /etc/hostname --help | head -5', 'git status; cat README.md --help > out.txt', 'git status; echo x | cat README.md --help',
+      `git status; cat ${path.join(fixture.home, 'actor-state.json')} --help`, 'cd handbook; git status; cat README.md --help', 'git status; cat README.md --help; rm -rf handbook',
+      'git status; cat README.md --help $(pwd)', 'git status; tee out.txt --help', 'git status; find . --help -delete'])
+      expect(docsCommandAllowed(line, fixture, [publish]), line).toBe(false);
+  } finally { fixture.clean(); }
+});
