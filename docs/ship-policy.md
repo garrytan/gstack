@@ -765,7 +765,8 @@ narrower selects, along with its derived judges: the plan's reason names it,
 and the train gate's full census runs those cases. A `pull_request` run, the
 merge gate when the base has no `train` block, keeps the broad selection. Full-gate files, shared runtime and paid-runner
 inputs, and files the derivation cannot place still run the full gate on a
-narrow screen. The nonce key carries the purpose and
+narrow screen, except `setup`, which no paid run executes: a narrow screen
+derives it like any other file. The nonce key carries the purpose and
 the policy, so a repeat follows the same run and a broad screen never adopts
 a narrow one. The READY block gains `screen: …`, and the receipt is written
 locally and to the notes ref. `--dry-run` prints the dispatch without sending

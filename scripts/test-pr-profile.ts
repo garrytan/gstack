@@ -328,6 +328,13 @@ export const PR_FULL_GATE_FILES = [
   'test/helpers/periodic-exclude-data.ts',
 ] as const;
 
+/**
+ * Full-gate inputs a narrow screen derives like any other file. No paid run executes ./setup (evals.yml only
+ * builds) and scripts/pr-dependencies.ts maps it to the cases that invoke it; pull_request runs, broad screens
+ * and --profile full still restore the full gate for it, and the train gate's full census runs every case.
+ */
+export const NARROW_DERIVED_FULL_GATE_FILES = ['setup'] as const;
+
 /** Periodic- and marathon-lane workflows: the PR gate never runs a case under them; their branch dispatch validates them. */
 export const PERIODIC_ONLY_PR_FILES = ['.github/workflows/evals-periodic.yml', '.github/workflows/evals-marathon.yml'] as const;
 
@@ -463,7 +470,9 @@ export function selectPrProfile(options: {
     ? [...consumers.keys()].filter(file => derived?.tracked.has(file) && gateIds.every(id => consumers.get(file)!.e2e.has(id))) : [];
   const derivedFiles = [...consumers.keys()].filter(file => !hubFiles.includes(file));
   const unknownFiles = unmapped.filter(file => !derivedGlobal.includes(file) && !consumers.has(file) && !noConsumerFiles.includes(file));
-  const sharedInputs = files.filter(file => depends(file, PR_FULL_GATE_FILES));
+  const fullGateFiles = options.screenPolicy === 'narrow'
+    ? PR_FULL_GATE_FILES.filter(file => !(NARROW_DERIVED_FULL_GATE_FILES as readonly string[]).includes(file)) : PR_FULL_GATE_FILES;
+  const sharedInputs = files.filter(file => depends(file, fullGateFiles));
   const fallback = unknownFiles.length > 0 || sharedInputs.length > 0;
   const dependentsMode = !fallback && derivedFiles.length > 0;
   const derivedE2E = derivedFiles.flatMap(file => [...consumers.get(file)!.e2e]);

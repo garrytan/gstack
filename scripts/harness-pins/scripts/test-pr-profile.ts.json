@@ -1,1 +1,1 @@
-{"blob":"900a5ec1eb151f99f93a07b3b8f3c4b2c047e4b1","since":6,"nonBehavioral":"scripts/test-pr-profile.ts only adds qm/** to FREE_ONLY_PR_FILES; no paid case reads qm/, so no case's selection or verdict can change (GST-1492)"}
+{"blob":"812d84b94328409328020a842696e1a34b22b095","since":6,"nonBehavioral":"narrow screens derive setup and loadouts.json is derived; case selection only, no verdict can change (GST-1575)"}
