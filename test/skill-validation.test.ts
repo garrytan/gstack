@@ -911,7 +911,7 @@ describe('office-hours skill structure', () => {
 
 describe('investigate skill structure', () => {
   const content = fs.readFileSync(path.join(ROOT, 'investigate', 'SKILL.md'), 'utf-8');
-  for (const section of ['Iron Law', 'Root Cause', 'Pattern Analysis', 'Hypothesis',
+  for (const section of ['Iron Law', 'How to work', 'Scope Lock',
                           'DEBUG REPORT', '3-strike', 'BLOCKED']) {
     test(`contains ${section}`, () => expect(content).toContain(section));
   }
