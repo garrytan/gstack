@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.91.359.0] - 2026-10-31
+
+**New `/verify` skill: run the repo's own checks and the tests `/ship`'s pre-gate would pick, fix what breaks, and repeat until green, then hand off to `/ship`.** `/verify` is the loop an agent runs while building. It never calls a change green when it cannot tell which tests cover it, and it asks once before running any repo command. It never reviews, bumps a version, pushes or opens a PR. GST-116, PR 1 of 2; moving `/health` onto the same detector is PR 2.
+
+### Added
+- **`gstack-checks`** (`bin/gstack-checks`, `lib/checks.ts`) with four verbs. `detect` lists the checks the repo declares (a `gstack:verify:` line, then a `## Health Stack` section in CLAUDE.md, then package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml and go.mod) and never makes one up. `run` runs them plus the tests pregate's own selector picks, under pregate's supervision, and prints one `CHECK <name> <verdict>` line each with at most 40 failing lines. `trust` records consent. `status` prints `READY_FOR_SHIP tree=<tree>` from the last run and reruns nothing.
+- **No false green.** A touched file with no test (`UNMAPPED`), a selection that ran zero tests (`ZERO_RUN`), more than 300 selected test files (`TOO_BROAD`), a timeout and a missing tool or service (`ENV`) are all not green. A tree that changes during a run reads `INCOMPLETE`. `status` is `NOT_READY` once the tree, the trusted commands, the base commit or the pregate policy moves. Platform lanes pregate owes remotely are listed as `not_covered`.
+- **Consent covers every command a run could execute:** the checks, every package.json script, the pregate runner (or what it would detect) and each selection manifest command. Any change asks again, and nothing runs before consent.
+- **`/verify` skill** (lightest preamble): `detect`, ask before `trust`, `run` after each change, fix reds in the code under test, stop after 5 runs, a repeated failure or an environment failure, send a stubborn red to `/investigate`, and finish on `READY_FOR_SHIP`.
+
+### Tests
+- `test/gstack-checks.test.ts` covers detection, the verify-gate parity of the `gstack:verify:` parser, consent (including a changed selection command, refused before it runs), reds, unmapped and zero-run selections, partial runs, a tree moved mid-run and argument errors.
+- `test/fixtures/skill-evals/verify/` adds six eval tasks (build error, failing test, lint only, a test that needs a missing service, a repo with no checks, a green tree) with shell postconditions. `test/verify-skill-eval.test.ts` checks for free that each seed gives the expected verdict, that a real fix passes, and that two decoys (a disabled check, a claim of green with no fix) fail.
+- Catalog budget ceiling raised from 1,393 to 1,423 for the new skill row, by the new-skill ratchet in `test/catalog-budget.test.ts`.
+
 ## [1.91.358.0] - 2026-10-31
 
 **Diffs that touch money, gate, auth or secret code now get one more reviewer, a targeted reader with a short brief for that kind of code, and the /ship receipt records whether it ran (GST-257, part 1 of 2).** The merge queue reports the result and refuses nothing yet; enforcement comes in a later release.
