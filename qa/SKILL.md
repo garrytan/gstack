@@ -2,7 +2,7 @@
 name: qa
 preamble-tier: 4
 version: 2.0.0
-description: Fix browser/API/CLI/job/worker/webhook bugs. (gstack)
+description: Test the site, API or CLI and fix the bugs it finds. (gstack)
 allowed-tools:
   - Bash
   - Read
