@@ -12,6 +12,7 @@
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { createServer } from 'http';
+import { createServer as createNetServer } from 'net';
 import type { Server, IncomingMessage } from 'http';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -71,6 +72,22 @@ function startStubStateServer(opts: { onUnauthorized?: (reply: () => void) => vo
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
       resolve({ server, port, receivedRequests: received });
+    });
+  });
+}
+
+const STUCK_HOP_MS = 10_000;
+
+function startResettingRoute(): Promise<{ port: number; close: () => Promise<void> }> {
+  return new Promise((resolve, reject) => {
+    const route = createNetServer((socket) => socket.destroy());
+    route.once('error', reject);
+    route.listen(0, '127.0.0.1', () => {
+      const address = route.address();
+      resolve({
+        port: typeof address === 'object' && address ? address.port : 0,
+        close: () => new Promise<void>((done, fail) => route.close((err) => err ? fail(err) : done())),
+      });
     });
   });
 }
@@ -380,27 +397,20 @@ describe('daemon — loopback listener', () => {
   });
 
   test('connection failure after redeploy reboots the tunnel once and keeps the replacement cached', async () => {
-    const deadPort = await new Promise<number>((resolve, reject) => {
-      const reservation = createServer();
-      reservation.once('error', reject);
-      reservation.listen(0, '127.0.0.1', () => {
-        const address = reservation.address();
-        const port = typeof address === 'object' && address ? address.port : 0;
-        reservation.close((err) => err ? reject(err) : resolve(port));
-      });
-    });
+    const staleRoute = await startResettingRoute();
     let bootstraps = 0;
     const d = await startDaemon({
       loopbackPort: 0,
       tailnetEnabled: false,
       pidfilePath: join(workDir, 'daemon-redeploy-refresh.pid'),
+      proxyTimeoutMs: STUCK_HOP_MS,
       tunnelProvider: async () => {
         bootstraps++;
         if (bootstraps === 1) {
           return {
             udid: 'STUB-UDID',
             ipv6Addr: '127.0.0.1',
-            port: deadPort,
+            port: staleRoute.port,
             bootTokenRotated: 'old-deploy-token',
           };
         }
@@ -420,40 +430,34 @@ describe('daemon — loopback listener', () => {
     try {
       const base = `http://127.0.0.1:${d.loopbackPort}`;
       const recovered = await fetchWith('GET', `${base}/screenshot`);
-      expect(recovered.status).toBe(200);
+      expect(recovered.status, recovered.bodyText).toBe(200);
       expect(JSON.parse(recovered.bodyText)).toEqual({ png_base64: 'abc=' });
       expect(bootstraps).toBe(2);
 
       const healthyReuse = await fetchWith('GET', `${base}/screenshot`);
-      expect(healthyReuse.status).toBe(200);
+      expect(healthyReuse.status, healthyReuse.bodyText).toBe(200);
       expect(bootstraps).toBe(2);
     } finally {
       await d.close();
+      await staleRoute.close();
     }
   });
 
   test('connection failure refreshes but never replays an ambiguous tap', async () => {
-    const deadPort = await new Promise<number>((resolve, reject) => {
-      const reservation = createServer();
-      reservation.once('error', reject);
-      reservation.listen(0, '127.0.0.1', () => {
-        const address = reservation.address();
-        const port = typeof address === 'object' && address ? address.port : 0;
-        reservation.close((err) => err ? reject(err) : resolve(port));
-      });
-    });
+    const staleRoute = await startResettingRoute();
     let bootstraps = 0;
     const d = await startDaemon({
       loopbackPort: 0,
       tailnetEnabled: false,
       pidfilePath: join(workDir, 'daemon-mutation-no-replay.pid'),
+      proxyTimeoutMs: STUCK_HOP_MS,
       tunnelProvider: async () => {
         bootstraps++;
         return bootstraps === 1
           ? {
               udid: 'STUB-UDID',
               ipv6Addr: '127.0.0.1',
-              port: deadPort,
+              port: staleRoute.port,
               bootTokenRotated: 'old-deploy-token',
             }
           : {
@@ -473,7 +477,7 @@ describe('daemon — loopback listener', () => {
         headers: { 'x-session-id': 'old-session', 'content-type': 'application/json' },
         body: JSON.stringify({ x: 10, y: 20 }),
       });
-      expect(ambiguous.status).toBe(503);
+      expect(ambiguous.status, ambiguous.bodyText).toBe(503);
       expect(bootstraps).toBe(2);
       expect(stub.receivedRequests.filter((request) => request.path === '/tap')).toHaveLength(beforeTaps);
 
@@ -481,11 +485,12 @@ describe('daemon — loopback listener', () => {
         headers: { 'x-session-id': 'new-session', 'content-type': 'application/json' },
         body: JSON.stringify({ x: 10, y: 20 }),
       });
-      expect(explicitRetry.status).toBe(200);
+      expect(explicitRetry.status, explicitRetry.bodyText).toBe(200);
       expect(stub.receivedRequests.filter((request) => request.path === '/tap')).toHaveLength(beforeTaps + 1);
       expect(bootstraps).toBe(2);
     } finally {
       await d.close();
+      await staleRoute.close();
     }
   });
 

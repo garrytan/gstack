@@ -1,0 +1,153 @@
+{
+  "provenance": {
+    "kind": "public native AskUserQuestion calls and answers only (observation.json fingerprints[].nativeCall, byte-exact)",
+    "runId": 41186376825,
+    "artifact": "paid-slice-6-a1",
+    "prNumber": 3665,
+    "headSha": "9e6a4693f6dbfc4c5254057732fe428daa35810f",
+    "testedSha": "047dad78ba757ebd6f29267f68a4695a7b002cbd",
+    "recordedOutcome": "ceiling_reached",
+    "recordedReviewCount": 1,
+    "recordedStep0Count": 3,
+    "recordedPassed": false,
+    "note": "Step 0D titled only 'Review focus', with the 4/10 design-completeness rating in the ELI10 body, and lettered its options: 'A) All 7 dimensions (recommended)'. The runner reached the review ceiling on the issue-labeled D4 finding, but the focus predicate accepted an all-seven option only when 'All 7' led the label, so the letter prefix hid Step 0D and the gate failed."
+  },
+  "calls": [
+    {
+      "preReview": true,
+      "observedAtMs": 25664,
+      "call": {
+        "sessionId": "cf524a80-d9e6-49b2-bdd7-11c9a579366e",
+        "toolUseId": "toolu_01SPReG7GjZpJDfP8tF9Hv4h",
+        "questions": [
+          {
+            "question": "D1 — What should I review? Plan mode is on, but there's no host plan file yet. Your request names review-input.md, while CLAUDE.md says PLAN.md is the current plan. Both look like they hold the same User Dashboard plan, but I haven't opened either file yet and won't until you pick one. Why it matters: every rating, mockup and plan edit gets anchored to the file you choose. Recommendation: B, review-input.md, because it's the file your request names. Completeness: all three options lead to a full 7-pass review of whichever target you pick.",
+            "header": "Scope",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "B) review-input.md (recommended)",
+                "description": "✅ It's the file your request names, so it matches what you asked for. ✅ The dashboard UI plan with its implementation contracts gets the full Step 0, mockups and 7 passes. ❌ If PLAN.md has drifted from it, those differences won't be reviewed."
+              },
+              {
+                "label": "B) PLAN.md",
+                "description": "✅ It's the file CLAUDE.md names as the current plan for this review fixture. ✅ It gets the same full review: audit, mockups and 7 passes. ❌ If the file you meant was review-input.md, the review targets a different document."
+              },
+              {
+                "label": "A) Current branch diff",
+                "description": "✅ Reviews the work in progress on main against its base. ❌ The repo is clean with one seed commit, so there's probably no UI diff to review. ❌ The dashboard plan document itself wouldn't be reviewed."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — What should I review? Plan mode is on, but there's no host plan file yet. Your request names review-input.md, while CLAUDE.md says PLAN.md is the current plan. Both look like they hold the same User Dashboard plan, but I haven't opened either file yet and won't until you pick one. Why it matters: every rating, mockup and plan edit gets anchored to the file you choose. Recommendation: B, review-input.md, because it's the file your request names. Completeness: all three options lead to a full 7-pass review of whichever target you pick.": "B) review-input.md (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-10-31T08:56:07.469Z"
+      }
+    },
+    {
+      "preReview": true,
+      "observedAtMs": 83634,
+      "call": {
+        "sessionId": "cf524a80-d9e6-49b2-bdd7-11c9a579366e",
+        "toolUseId": "toolu_01Q1eo6eZkH5femF9ZSvJL7Y",
+        "questions": [
+          {
+            "question": "D2 — Review focus\nProject/branch/task: /plan-design-review of review-input.md (User Dashboard) on main.\nELI10: I rated this plan 4/10 on design completeness. The biggest gaps: no defined order of attention after login, panel states with no copy or actions, and no visual tokens or per-viewport layout. Next I'll generate mockups, then go through all 7 design dimensions. You can narrow that to a few areas.\nStakes if we pick wrong: narrowing can leave modal/toast accessibility or mobile layout unspecified, and implementers will guess.\nRecommendation: A because the gaps span every dimension and the review is cheap compared with rework after it ships.\nCompleteness: A=10/10, B=6/10\nPros / cons:\nA) All 7 dimensions (recommended)\n  ✅ Covers hierarchy, states, journey, AI-slop risk, design system, responsive/a11y and open decisions\n  ✅ Every gap gets its own decision and a fix written into the plan\n  ❌ More questions: roughly one per real gap across all seven passes\nB) Focus on specific areas\n  ✅ Faster, with fewer decisions centered on what you care about most\n  ✅ Lets you skip dimensions you plan to handle elsewhere, like a later design system\n  ❌ Gaps in the skipped dimensions stay unresolved in the plan\nNet: full coverage now versus fewer questions.",
+            "header": "Focus",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) All 7 dimensions (recommended)",
+                "description": "✅ Full coverage of hierarchy, states, journey, slop risk, system, responsive/a11y, decisions. ✅ Each gap fixed in the plan. ❌ More decision questions to answer."
+              },
+              {
+                "label": "B) Focus on specific areas",
+                "description": "✅ Faster, centered on what you care about. ✅ Skips dimensions handled elsewhere. ❌ Skipped dimensions stay unresolved in the plan. (Name the areas in Other.)"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Review focus\nProject/branch/task: /plan-design-review of review-input.md (User Dashboard) on main.\nELI10: I rated this plan 4/10 on design completeness. The biggest gaps: no defined order of attention after login, panel states with no copy or actions, and no visual tokens or per-viewport layout. Next I'll generate mockups, then go through all 7 design dimensions. You can narrow that to a few areas.\nStakes if we pick wrong: narrowing can leave modal/toast accessibility or mobile layout unspecified, and implementers will guess.\nRecommendation: A because the gaps span every dimension and the review is cheap compared with rework after it ships.\nCompleteness: A=10/10, B=6/10\nPros / cons:\nA) All 7 dimensions (recommended)\n  ✅ Covers hierarchy, states, journey, AI-slop risk, design system, responsive/a11y and open decisions\n  ✅ Every gap gets its own decision and a fix written into the plan\n  ❌ More questions: roughly one per real gap across all seven passes\nB) Focus on specific areas\n  ✅ Faster, with fewer decisions centered on what you care about most\n  ✅ Lets you skip dimensions you plan to handle elsewhere, like a later design system\n  ❌ Gaps in the skipped dimensions stay unresolved in the plan\nNet: full coverage now versus fewer questions.": "A) All 7 dimensions (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-10-31T08:57:05.424Z"
+      }
+    },
+    {
+      "preReview": true,
+      "observedAtMs": 114012,
+      "call": {
+        "sessionId": "cf524a80-d9e6-49b2-bdd7-11c9a579366e",
+        "toolUseId": "toolu_013N2EdnqoiSH6Z5ip7ZHYTE",
+        "questions": [
+          {
+            "question": "Want outside design voices before the detailed review?\nD3 — Outside design voices\nProject/branch/task: /plan-design-review of review-input.md on main.\nELI10: This optional step brings in two more reviewers before my 7 passes. Codex checks the plan against hard design rules and a litmus scorecard. A separate Claude agent does an independent read for missing pieces. It's a second opinion on hierarchy and on generic-looking \"AI slop\" layouts.\nStakes if we pick wrong: skipping it means every finding comes from one reviewer; running it costs a few minutes.\nRecommendation: B because the gaps here are clear and concrete, and the 7 passes cover them directly.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons: see options.\nNet: a cross-model check versus the fastest path to a fixed plan.",
+            "header": "Voices",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Yes, run outside design voices",
+                "description": "✅ Codex hard-rule + litmus scorecard plus an independent Claude completeness read. ✅ Disagreements surface with both perspectives in the relevant pass. ❌ Adds a few minutes; Codex may be missing here, in which case only the Claude voice runs and it's tagged single-model."
+              },
+              {
+                "label": "No, proceed without (recommended)",
+                "description": "✅ Straight into the 7 passes with the approved mockup as anchor. ✅ Fewest steps to a fixed plan. ❌ Findings rest on one reviewer; no cross-model check on slop risk or hierarchy."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "Want outside design voices before the detailed review?\nD3 — Outside design voices\nProject/branch/task: /plan-design-review of review-input.md on main.\nELI10: This optional step brings in two more reviewers before my 7 passes. Codex checks the plan against hard design rules and a litmus scorecard. A separate Claude agent does an independent read for missing pieces. It's a second opinion on hierarchy and on generic-looking \"AI slop\" layouts.\nStakes if we pick wrong: skipping it means every finding comes from one reviewer; running it costs a few minutes.\nRecommendation: B because the gaps here are clear and concrete, and the 7 passes cover them directly.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons: see options.\nNet: a cross-model check versus the fastest path to a fixed plan.": "No, proceed without (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-10-31T08:57:34.355Z"
+      }
+    },
+    {
+      "preReview": false,
+      "observedAtMs": 146460,
+      "call": {
+        "sessionId": "cf524a80-d9e6-49b2-bdd7-11c9a579366e",
+        "toolUseId": "toolu_01HzjkF4h3fnqfV15mQeCBAS",
+        "questions": [
+          {
+            "question": "D4 — Issue 1.1: Order of attention on /dashboard\nProject/branch/task: design review of review-input.md (User Dashboard) on main.\nELI10: The plan never says what the user sees first after login. Without that, each panel gets equal weight, nothing stands out, and people scan without finding their next step. We need to pick the anchor and the order.\nStakes if we pick wrong: users land on a wall of equal boxes, miss unread notifications, and click around to get oriented.\nRecommendation: 1A because unread notifications are the only content that asks for action, and Open workspace is the main reason to leave the page (principle: every screen has a hierarchy).\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\n1A) Notifications anchor + quick actions in header (recommended)\n  ✅ Unread items get the widest column and the first look, so attention goes where action is needed\n  ✅ Open workspace sits in the page header and is visible right away at every width\n  ❌ Activity becomes secondary; users who mostly check activity scroll on mobile\n1B) Activity feed anchor, notifications in a side rail\n  ✅ Familiar GitHub-style layout with the feed as the main column\n  ✅ Suits users who come to see what changed rather than to clear alerts\n  ❌ Unread notifications get pushed into a narrow rail and are easier to ignore\n1C) Single column at every width (actions, notifications, activity)\n  ✅ Simplest layout to build and test, with one reading order everywhere\n  ✅ No column-ratio decisions or breakpoint-specific layouts to maintain\n  ❌ Wastes desktop width and pushes activity far below the fold at lg\nNet: pick what the user sees first: things to act on (A), recent changes (B), or a plain list (C).",
+            "header": "1.1 Hierarchy",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A) Notifications anchor (recommended)",
+                "description": "✅ Unread items get the first look and widest column. ✅ Open workspace in header, visible right away. ❌ Activity is secondary; more scroll on mobile."
+              },
+              {
+                "label": "1B) Activity anchor + side rail",
+                "description": "✅ Familiar feed-first layout. ✅ Suits users checking recent changes. ❌ Unread notifications pushed into a narrow rail, easier to ignore."
+              },
+              {
+                "label": "1C) Single column everywhere",
+                "description": "✅ Simplest to build and test, one reading order. ✅ No breakpoint layouts. ❌ Wastes desktop width; activity far below fold."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Issue 1.1: Order of attention on /dashboard\nProject/branch/task: design review of review-input.md (User Dashboard) on main.\nELI10: The plan never says what the user sees first after login. Without that, each panel gets equal weight, nothing stands out, and people scan without finding their next step. We need to pick the anchor and the order.\nStakes if we pick wrong: users land on a wall of equal boxes, miss unread notifications, and click around to get oriented.\nRecommendation: 1A because unread notifications are the only content that asks for action, and Open workspace is the main reason to leave the page (principle: every screen has a hierarchy).\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\n1A) Notifications anchor + quick actions in header (recommended)\n  ✅ Unread items get the widest column and the first look, so attention goes where action is needed\n  ✅ Open workspace sits in the page header and is visible right away at every width\n  ❌ Activity becomes secondary; users who mostly check activity scroll on mobile\n1B) Activity feed anchor, notifications in a side rail\n  ✅ Familiar GitHub-style layout with the feed as the main column\n  ✅ Suits users who come to see what changed rather than to clear alerts\n  ❌ Unread notifications get pushed into a narrow rail and are easier to ignore\n1C) Single column at every width (actions, notifications, activity)\n  ✅ Simplest layout to build and test, with one reading order everywhere\n  ✅ No column-ratio decisions or breakpoint-specific layouts to maintain\n  ❌ Wastes desktop width and pushes activity far below the fold at lg\nNet: pick what the user sees first: things to act on (A), recent changes (B), or a plain list (C).": "1A) Notifications anchor (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-10-31T08:58:08.249Z"
+      }
+    }
+  ]
+}
