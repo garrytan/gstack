@@ -562,7 +562,7 @@ describe('ready on a PR that conflicts with the base (CHANGELOG-only conflicts, 
     const { r, at } = readyWith('CONFLICTING', { check_runs: [] });
     expect(r.status).toBe(EXIT.refused);
     expect(line(r.out, 'ci: ')).toBe(`ci: none at ${at} (passed=0 failed=0 pending=0 skipped=0)`);
-    expect(line(r.out, 'ci-hint: ')).toBe(`ci-hint: PR conflicts with the base (no merge ref, so pull_request CI did not run on ${at}); dispatch the free workflows on the branch (gh workflow run free-tests.yml --ref pr-a && gh workflow run windows-smoke.yml --ref pr-a), clear the pregate lanes with their run URLs (gstack-pregate clear --remote <lane> --run-url <run>), then rerun ready (advisory)`);
+    expect(line(r.out, 'ci-hint: ')).toBe(`ci-hint: PR conflicts with the base (no merge ref, so pull_request CI did not run on ${at}); dispatch the free workflows on the branch (gh workflow run free-tests.yml --ref pr-a && gh workflow run windows-smoke.yml --ref pr-a), clear each lane pregate names with a run of that lane's own workflow (gstack-pregate clear --remote <workflow.yml/job> --run-url <that workflow's run>; a run of another workflow is refused), then rerun ready (advisory)`);
     for (const name of ['x;$(curl evil)', '--field']) {
       const odd = readyWith('CONFLICTING', { check_runs: [] }, { headRefName: name });
       expect(line(odd.r.out, 'ci-hint: ')).toContain('gh workflow run free-tests.yml --ref <branch> && gh workflow run windows-smoke.yml --ref <branch>');
