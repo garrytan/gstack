@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.94.8.0] - 2026-11-03
+
+**`gstack-approvals render` no longer puts the owner's exact words, autoplan run ids or plan hashes into PR bodies on public repositories (GST-1160).** On a public repo, /ship pasted the full `## Approvals` table into the PR description. That table carries the owner's verbatim quote, the run id and the plan sha256, and GitHub keeps every earlier version of a description in its edit history, which no API can delete.
+
+### Fixed
+- **`bin/gstack-approvals render`** asks gh for the visibility of the repository gh picks by default (`GH_REPO`, its default repo, an `upstream` remote) and of the `origin` repository the PR is opened against. When every one of them is private (or internal), it prints the full table as before. When any is public, or gh can't tell, it prints only `Approved: yes|no (record r-<12 hex>)`. The record id is a hash of the row ids, so the Captain can match it to the private record without anything identifying being published. A stderr line, `APPROVALS_RENDER: redacted (repository visibility …)`, says which mode was used.
+- **`--full`** prints the full table when gh can't read the visibility and you know the repository is private. It never prints the full table for a repository GitHub reports as public. `gstack-approvals list` still shows the full record.
+- **/ship Step 19** (`ship/sections/capy-pr.md`) says a public repository gets only the one line, and never to pass `--full` for a PR body.
+
 ## [1.94.7.0] - 2026-11-03
 
 ### Fixed
