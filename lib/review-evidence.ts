@@ -272,6 +272,9 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
   if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
   stampGateFindings(rec.findings, env.GSTACK_STAMP_SESSION_KIND);
+  if (rec.skill === 'review-fix-check' && (typeof rec.completed !== 'boolean' || typeof rec.converged !== 'boolean')) {
+    throw new Error('review-log: a review-fix-check row must carry completed and converged as true or false (review-army item 6 fields; without them gstack-review-read marks the row UNVERIFIED and finish cannot count it)');
+  }
   // A /ship pass whose findings were all fixed, or deferred or noted below the floor, left no open defect (review-army
   // item 6), so a claimed issues_found is recorded clean with zero counts and Step 11.5 can bind it (GST-430). Only the
   // logger-stamped action counts (never a caller's status), and the findings must account for every claimed issue.

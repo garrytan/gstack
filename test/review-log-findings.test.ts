@@ -191,6 +191,23 @@ describe('lib: deriveFromFindings, bindReview order and reviewFreshness', () => 
     expect(reviewFreshness(bound, 'd'.repeat(64))?.status).toBe('STALE');
   });
 
+  // Value: protects=a fix-check row is written with the fields review-read verifies (GEVA-218: the row lacked them, so it read
+  //   UNVERIFIED and finish could not count it); fails_when=the logger accepts a review-fix-check row without completed and
+  //   converged, or consumes the start token while refusing it; seam=bindReview
+  test('a review-fix-check row without completed and converged is refused and keeps its start token (GST-1130)', () => {
+    const dir = path.join(home, 'starts', '.review-starts');
+    fs.mkdirSync(dir, { recursive: true });
+    const token = '77777777-2222-3333-4444-555555555555';
+    const w = 'e'.repeat(64);
+    fs.writeFileSync(path.join(dir, `${token}.json`), JSON.stringify({ skill: 'review-fix-check', repo: '/r', branch: 'b', wtree: w, started_at: 't' }));
+    const env = { GSTACK_REVIEW_DIR: path.join(home, 'starts'), GSTACK_REVIEW_REPO: '/r', GSTACK_REVIEW_BRANCH: 'b', GSTACK_STAMP_WTREE: w };
+    for (const row of [{}, { completed: true }, { converged: true }, { completed: 'yes', converged: true }]) {
+      expect(() => bindReview({ skill: 'review-fix-check', status: 'clean', ...row }, token, env)).toThrow('review-log: a review-fix-check row must carry completed and converged as true or false');
+    }
+    expect(fs.existsSync(path.join(dir, `${token}.json`))).toBe(true);
+    expect(bindReview({ skill: 'review-fix-check', status: 'clean', completed: true, converged: true }, token, env).review_binding.state).toBe('verified');
+  });
+
   test('reviewFreshness reads findings_open: resolved criticals are CURRENT, claimed issues_found stays conservative', () => {
     const w = 'b'.repeat(64);
     const base = { skill: 'review', completed: true, converged: true, wtree: w, review_binding: { state: 'verified', start_wtree: w, end_wtree: w } };
