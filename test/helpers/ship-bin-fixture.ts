@@ -56,8 +56,9 @@ export function shipFixture(base: Record<string, string> = {}, feat: Record<stri
   must(gitIn(work, ['checkout', '-qb', 'feat']), 'branch');
   writeIn(work, feat);
   must(gitIn(work, ['add', '-A']), 'add feat'); must(gitIn(work, ['commit', '-qm', 'feat']), 'feat commit');
-  const env = { ...process.env, PATH: `${stub}:${process.env.PATH}`, GSTACK_STATE_ROOT: state, GSTACK_HOME: state, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com',
-    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com', GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig') };
+  const { GSTACK_SESSION_KIND: _k, GSTACK_HEADLESS: _h, OPENCLAW_SESSION: _o, CI: _c, GITHUB_ACTIONS: _g, ...ambient } = process.env;
+  const env = { ...ambient, PATH: `${stub}:${process.env.PATH}`, GSTACK_STATE_ROOT: state, GSTACK_HOME: state, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com',
+    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com', GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GSTACK_SESSION_KIND: 'interactive' };
   fs.writeFileSync(path.join(root, 'gitconfig'), '[commit]\n\tgpgsign = false\n');
   const fx: ShipFx = {
     root, work, origin, state,

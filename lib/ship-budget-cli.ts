@@ -18,6 +18,7 @@ import {
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
   type Ledger, type MeterKind, type Next, type Note,
 } from './ship-budget';
+import { callsLine, countCalls } from './ship-calls';
 import { claudeConfigDir, loadMeterState, newMeterState, nonceSessions, readClaudeUsage, saveMeterState, sessionJournals } from './claude-usage';
 
 export type Opts = Record<string, string | true>;
@@ -377,8 +378,10 @@ const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n
  */
 export function cmdNote(argv: string[], ctx: Ctx): Outcome {
   const o = parseArgs(argv, ['run', 'record', 'step', 'label', 'reading', 'credits', 'dispatched-at', 'dispatched-credits', 'readers']);
-  const step = parseStep(str(o, 'step'));
-  const label = str(o, 'label');
+  const raw = str(o, 'step');
+  const parent = raw && !(SHIP_STEPS as readonly string[]).includes(raw) ? /^(\d+)(?:\.\d+)+$/.exec(raw)?.[1] : undefined;
+  const step = parseStep(parent && (SHIP_STEPS as readonly string[]).includes(parent) ? parent : raw);
+  const label = str(o, 'label') ?? (step !== raw ? raw : undefined);
   return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
     if (l.closed_at) throw usageError(`run ${l.run} is closed`);
     if (l.stopped) return { stdout: [budgetLine(l, { call: null, next: l.stopped.next, projected: 0, verdict: 'stop' }), `STOP: reason=${l.stopped.reason} at Step ${l.stopped.step}; resume first: gstack-ship-budget resume --record ${l.record}`, `GSTACK_RESULT: skill=ship status=incomplete run=${l.dir}`], exit: 3 };
@@ -394,6 +397,20 @@ export function cmdNote(argv: string[], ctx: Ctx): Outcome {
     (l.notes ??= []).push(n);
     return observed(l, step, label ?? step, null, `NOTE: ${noteText(n)}`);
   });
+}
+
+/** calls: count parent calls from the host's transcript items (lib/ship-calls.ts). */
+export function cmdCalls(argv: string[]): Outcome {
+  const o = parseArgs(argv, ['events', 'since', 'until']);
+  const file = str(o, 'events');
+  if (!file) throw usageError('calls needs --events <file of the host\'s transcript items>');
+  let doc: unknown;
+  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e: any) { throw usageError(`calls --events ${file}: ${e.message}`); }
+  const d = doc as { items?: unknown; cursor?: unknown };
+  const items = Array.isArray(doc) ? doc : Array.isArray(d.items) ? d.items : undefined;
+  if (!items) throw usageError(`calls --events ${file}: expected a JSON array of transcript items or { items: [...] }`);
+  const c = countCalls(items, { since: str(o, 'since'), until: str(o, 'until') });
+  return { stdout: [callsLine(c, typeof d.cursor === 'string' ? d.cursor : 'none')], exit: 0 };
 }
 
 /** resume: re-attach after a stop or a machine change; rebuild or restore a lost ledger; journal a cap raise. */

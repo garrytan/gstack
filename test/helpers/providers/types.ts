@@ -40,6 +40,8 @@ export interface TokenUsage {
   output: number;
   /** Cached input tokens (Anthropic/OpenAI support). Undefined if provider doesn't report. */
   cached?: number;
+  /** Prompt-cache write tokens (Claude CLI `cache_creation_input_tokens`). Not priced by estimateCostUsd. */
+  cacheWrite?: number;
 }
 
 export type RunError =
@@ -70,6 +72,8 @@ export interface RunResult {
   toolTimeline?: ToolTimelineEntry[];
   /** Actual model ID the provider reports using (may be a variant of the family). */
   modelUsed: string;
+  /** Every model the CLI billed during the run (Claude CLI `modelUsage` keys). Unset if unreported. */
+  modelsBilled?: string[];
   /** If the run failed, error code + human reason. output/tokens may be partial. */
   error?: { code: RunError; reason: string };
 }
