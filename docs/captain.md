@@ -66,6 +66,13 @@ surface. Keep it small and predictable:
 Scope instructions in the drive root (`AGENTS.md`, `CREW.md`) apply to every thread in
 the crew, so a rule written there needs no relaying.
 
+On Capy, `tools.capy.read` returns a view of a file, not the whole file: roughly the first
+38,000 characters, with each line cut at 2,000. A program that reads a file, changes it
+and writes it back with `tools.capy.write` therefore saves a truncated copy, and drive
+files are no exception. Edit long files with `tools.capy.edit`, or read and write the
+whole file in bash or Python and check the line count afterward. `tools.drive.history`
+restores a recent version of a drive file.
+
 ## CREW.md: the lanes' contract
 
 gstack holds how the work is done; a crew's `CREW.md` holds only what is specific to that
@@ -130,6 +137,43 @@ with another owner, missing access, or a decision that is the owner's, and it br
 such decision with a plain-language explanation of every option: what it is, why it
 matters, what each answer does, and what it costs. A gate code or a tool's result line
 alone is not an ask.
+
+## New threads join the crew
+
+A crew thread never creates a thread itself. It asks its Captain, and the Captain creates
+the thread, which puts it in the crew from the start: the Captain briefs it, reads its
+reports and archives it when its work is done. When a crew thread has already made a
+thread, it reports the new thread's code to its Captain in that same turn, and the Captain
+adds it to the crew (`crew.add` on Capy).
+
+A thread in another project goes Captain to Captain, because `crew.add` refuses a thread
+from another project and a Captain creates threads only in its own project. The crew
+thread asks its Captain, who asks that project's Captain to create and own the thread, and
+the results come back the same way. For the receiving Captain, that ask is work: it
+creates the thread in its own crew, briefs it and returns the result. Only when the other
+project has no Captain does the crew thread create the thread itself, and then it records
+the new thread's code on the work's issue so the thread can still be found. A thread the
+crew thread already created in another project goes the same way: it reports the code to
+its Captain, who asks that project's Captain to adopt the thread, and the code goes on
+the work's issue.
+
+Why: a crew thread once created a thread in another project directly. That thread ran
+outside every crew, so no Captain briefed it, tracked it or could archive it.
+
+## Keep issues tidy
+
+Issues show what the crew is really doing, so keep them true:
+
+- Before archiving a thread, close or move to Backlog every issue assigned to it.
+- On each wake, leave every issue you touched accurate: its status, assignee and links.
+- An unassigned Todo that nobody will start goes to Backlog.
+- A daily sweep closes, re-assigns or backlogs any open issue outside Backlog that nobody
+  has touched for 2 days and whose assignee is archived, or idle with no open PR.
+- The sweep skips an issue assigned to a person (an ask waiting on the owner, say) and a
+  Waiting issue that names what it waits on, by a blocked-by link or a dated comment, while that is still open.
+
+The target: the Overview's In progress count is about the number of working threads plus
+the PRs waiting to merge.
 
 ## Plan before build
 
