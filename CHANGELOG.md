@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.95.5.0] - 2026-11-04
+
+- **gstack's own PRs now merge at their own green head.** Its ship policy sets `merge: direct`, so the Captain lands each READY PR with `gstack-ship-queue land --pr <n> --pin <sha>` instead of a train, and VERSION waits for the release stamp. The policy's `min_gstack_version` rises to 1.95.0.0, the release that introduced the key, so an older gstack refuses it by name (`POLICY_GSTACK_TOO_OLD`) and asks for an upgrade.
+
 ## [1.95.4.0] - 2026-11-04
 
 ### Fixed
