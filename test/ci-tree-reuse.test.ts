@@ -9,7 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import type { ApiJob, ApiRun, RunProfile, TreeRecord } from '../lib/run-evidence';
-import { MAX_CANDIDATES, findReuse, reuseOutputs, treeRecord, type ApiPull, type ReuseDeps } from '../scripts/ci-tree-reuse';
+import { MAX_CANDIDATES, findPrReuse, findReuse, reuseOutputs, treeRecord, type ApiPull, type PrReuseDeps, type ReuseDeps } from '../scripts/ci-tree-reuse';
 
 const REPO = 'garrytan/gstack';
 const PUSH = '1'.repeat(40);
@@ -120,6 +120,87 @@ describe('findReuse: candidate discovery for a main push', () => {
   });
 });
 
+describe('findPrReuse: a pull request reuses only a run it cannot control', () => {
+  const BASE = '7'.repeat(40);
+  const MAIN_HEAD = '8'.repeat(40);
+  const SELF = 999;
+  const GUARDED = ['.github/workflows/free-tests.yml', 'scripts/ci-tree-reuse.ts', 'lib/run-evidence.ts'];
+  interface PrFake { id: number; event: string; branch: string; head: string; conclusion?: string | null; status?: string; started?: string; record?: Partial<TreeRecord> }
+  interface PrWorld { runs: PrFake[]; trees: Record<string, string>; blobs: Record<string, string>; parents: string[]; headRepo: string; attempt?: number }
+  const blobs = (over: Record<string, string> = {}) => ({ ...Object.fromEntries(GUARDED.flatMap(p => [[`${MERGE}:${p}`, `blob-${p}`], [`${BASE}:${p}`, `blob-${p}`]])), ...over });
+  const prWorld = (over: Partial<PrWorld> = {}): PrWorld => ({
+    runs: [{ id: 500, event: 'push', branch: 'main', head: MAIN_HEAD }, { id: SELF, event: 'pull_request', branch: 'feat', head: HEAD, status: 'in_progress', conclusion: null, started: '2026-10-30T11:30:00Z' }],
+    trees: { [MERGE]: TREE, [MAIN_HEAD]: TREE, [HEAD]: TREE, [BASE]: '9'.repeat(40) }, blobs: blobs(), parents: [BASE, HEAD], headRepo: REPO, ...over,
+  });
+  function prDeps(w: PrWorld): PrReuseDeps {
+    const api = (f: PrFake): ApiRun => ({ id: f.id, run_attempt: 1, status: f.status ?? 'completed', conclusion: f.conclusion === undefined ? 'success' : f.conclusion, event: f.event, head_sha: f.head, head_branch: f.branch,
+      path: '.github/workflows/free-tests.yml', created_at: f.started ?? '2026-10-30T10:00:00Z', run_started_at: f.started ?? '2026-10-30T10:00:00Z', updated_at: '2026-10-30T10:30:00Z', repository: { full_name: REPO }, head_repository: { full_name: REPO } });
+    const byId = (id: number) => { const f = w.runs.find(r => r.id === id); if (!f) throw new Error('HTTP 404'); return f; };
+    return {
+      run: id => api(byId(id)),
+      runsForHead: (wf, sha) => (wf === 'free-tests.yml' ? w.runs.filter(r => r.head === sha).map(api) : []),
+      runsForBranch: (wf, branch) => (wf === 'free-tests.yml' ? w.runs.filter(r => r.branch === branch).map(api) : []),
+      jobs: () => [{ name: 'free-plan', conclusion: 'success' }, { name: 'free-tests', conclusion: 'success' }],
+      artifact: id => { const f = byId(id); return { run_id: id, run_attempt: 1, event: f.event, sha: f.head, head_sha: f.head, tree: w.trees[f.head], os: ['Linux', 'macOS', 'Windows'], files: ['test/a.test.ts'], tests: 9, ...f.record }; },
+      commitTree: sha => w.trees[sha] ?? null,
+      commit: sha => (sha === MERGE ? { tree: TREE, parents: w.parents } : null),
+      blob: (sha, p) => w.blobs[`${sha}:${p}`] ?? null,
+    };
+  }
+  const pr = (w: PrWorld) => findPrReuse(prDeps(w), { repo: REPO, base: 'main', workflow: 'free-tests.yml', profileName: 'ci-reuse/free-tests', profile: PROFILE, now: NOW,
+    pr: { number: 42, mergeSha: MERGE, headSha: HEAD, headRef: 'feat', headRepo: w.headRepo, baseRef: 'main', runId: SELF, runAttempt: w.attempt ?? 1 } });
+  const prWhy = (w: PrWorld) => { const v = pr(w); return v.reused ? 'reused' : v.reason; };
+
+  test('a green push run on main at the merge commit\'s exact tree is reused', () => {
+    expect(pr(prWorld())).toEqual({ reused: true, run_id: 500, run_attempt: 1, event: 'push', pr: 42, head_sha: MAIN_HEAD, tree: TREE });
+  });
+
+  test('a green dispatch run on the same branch at that tree is reused, and the pull request\'s own run in progress does not veto it', () => {
+    const v = pr(prWorld({ runs: [{ id: 501, event: 'workflow_dispatch', branch: 'feat', head: HEAD }, { id: SELF, event: 'pull_request', branch: 'feat', head: HEAD, status: 'in_progress', conclusion: null, started: '2026-10-30T11:30:00Z' }] }));
+    expect(v).toEqual({ reused: true, run_id: 501, run_attempt: 1, event: 'workflow_dispatch', pr: 42, head_sha: HEAD, tree: TREE });
+  });
+
+  test('refused when the pull request changes the workflow file', () => {
+    expect(prWhy(prWorld({ blobs: blobs({ [`${MERGE}:.github/workflows/free-tests.yml`]: 'edited' }) }))).toBe('workflow_changed');
+  });
+
+  test('refused when the pull request changes the reuse script or the run verifier it imports', () => {
+    expect(prWhy(prWorld({ blobs: blobs({ [`${MERGE}:scripts/ci-tree-reuse.ts`]: 'edited' }) }))).toBe('script_changed');
+    expect(prWhy(prWorld({ blobs: blobs({ [`${MERGE}:lib/run-evidence.ts`]: 'edited' }) }))).toBe('script_changed');
+    expect(prWhy(prWorld({ blobs: blobs({ [`${BASE}:scripts/ci-tree-reuse.ts`]: '' }) }))).toBe('api_error');
+  });
+
+  test('refused on a tree mismatch: the source run tested another tree than this merge commit', () => {
+    expect(prWhy(prWorld({ trees: { [MERGE]: TREE, [MAIN_HEAD]: '5'.repeat(40), [HEAD]: TREE } }))).toBe('tree_mismatch');
+    expect(pr(prWorld({ runs: [{ id: 500, event: 'push', branch: 'main', head: MAIN_HEAD, record: { tree: '5'.repeat(40) } }] }))).toMatchObject({ reused: false, reason: 'no_verified_run', detail: expect.stringContaining('reason=tree_mismatch') });
+  });
+
+  test('refused when the only green source is a pull_request run, which the pull request itself controls', () => {
+    expect(prWhy(prWorld({ runs: [{ id: 502, event: 'pull_request', branch: 'feat', head: HEAD }] }))).toBe('no_candidate');
+    expect(prWhy(prWorld({ runs: [{ id: 503, event: 'pull_request', branch: 'main', head: MAIN_HEAD }] }))).toBe('no_candidate');
+  });
+
+  test('a push to another branch, a dispatch on another branch and a fork head are never sources', () => {
+    expect(prWhy(prWorld({ runs: [{ id: 504, event: 'push', branch: 'feat', head: HEAD }] }))).toBe('no_candidate');
+    expect(prWhy(prWorld({ runs: [{ id: 505, event: 'workflow_dispatch', branch: 'other', head: HEAD }] }))).toBe('no_candidate');
+    expect(prWhy(prWorld({ headRepo: 'someone/gstack' }))).toBe('fork_head');
+  });
+
+  test('a runner-sizing experiment dispatch is never a source (red team p1 #1)', () => {
+    const v = pr(prWorld({ runs: [{ id: 506, event: 'workflow_dispatch', branch: 'feat', head: HEAD, record: { sizing_experiment: true } }] }));
+    expect(v).toMatchObject({ reused: false, reason: 'no_verified_run', detail: expect.stringContaining('reason=sizing_experiment') });
+  });
+
+  test('a re-run attempt of the pull request run never reuses, so its own red earlier attempt stays visible (red team p1 #2)', () => {
+    expect(prWhy(prWorld({ attempt: 2, runs: [{ id: 501, event: 'workflow_dispatch', branch: 'feat', head: HEAD }] }))).toBe('rerun');
+  });
+
+  test('a merge commit that is not base plus this head, or an unreadable one, is refused', () => {
+    expect(prWhy(prWorld({ parents: [BASE, '6'.repeat(40)] }))).toBe('merge_mismatch');
+    expect(prWhy(prWorld({ parents: [BASE] }))).toBe('merge_mismatch');
+  });
+});
+
 describe('treeRecord: the tested-tree producer', () => {
   const plan = { shards: [{ files: ['test/b.test.ts', 'test/a.test.ts'] }, { files: ['test/c.test.ts'] }] };
   const results = [{ outcome: { summary: { testsRan: 7 } } }, { outcome: { summary: { testsRan: 5 } } }];
@@ -128,6 +209,8 @@ describe('treeRecord: the tested-tree producer', () => {
     expect(treeRecord(env(), { plan, results, os: ['Linux', 'macOS', 'Windows'], tree: TREE })).toEqual({ run_id: 300, run_attempt: 2, event: 'workflow_dispatch', sha: HEAD, head_sha: HEAD, tree: TREE, workflow: '.github/workflows/free-tests.yml', os: ['Linux', 'macOS', 'Windows'], files: ['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts'], tests: 12 });
     expect(treeRecord(env({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: MERGE, PR_HEAD_SHA: HEAD }), { plan, results, os: ['Windows'], tree: TREE })).toMatchObject({ event: 'pull_request', sha: MERGE, head_sha: HEAD });
     expect(treeRecord(env(), { plan, results: [{ outcome: {} }], os: ['Linux'], tree: TREE }).tests).toBe(3);
+    expect(treeRecord(env({ SIZING_OVERRIDE: '1' }), { plan, results, os: ['Linux'], tree: TREE })).toMatchObject({ sizing_experiment: true });
+    expect(treeRecord(env({ SIZING_OVERRIDE: '' }), { plan, results, os: ['Linux'], tree: TREE })).not.toHaveProperty('sizing_experiment');
   });
   test('missing or malformed inputs throw, so the aggregate fails instead of uploading a record', () => {
     expect(() => treeRecord(env({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: MERGE }), { plan, results, os: ['Linux'], tree: TREE })).toThrow(/PR_HEAD_SHA/);
