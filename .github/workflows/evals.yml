@@ -278,10 +278,14 @@ jobs:
   # Free Tests red on this head fails the run without paid work (re-run this
   # workflow after a green Free Tests rerun). Dispatches never wait: they are
   # explicit (eval:bg, census). Version Gate is not an input, so a stamp push
-  # waits for its own Free Tests only and always gets its gate.
+  # waits for its own Free Tests only and always gets its gate. A pr-summary
+  # run (a repository with a train block) plans no paid slices, so it skips
+  # the wait: the train gate and the dispatched screen carry the paid work,
+  # and Free Tests stays the required free check.
   readiness:
     runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [route]
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && needs.route.outputs.mode != 'pr-summary'
     timeout-minutes: 90
     permissions:
       contents: read
