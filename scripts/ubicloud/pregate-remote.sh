@@ -117,7 +117,8 @@ usd() { awk -v m="$1" -v p="$ppm" 'BEGIN { s = m * p; c = int(s * 100); if (c < 
 if [ "$wall_min" -lt "$min_min" ]; then
   stop 5 PREGATE_REMOTE_CAP_TOO_LOW "worst case \$$(usd "$min_min") ($min_min min x \$$ppm/min on $size) exceeds the spend cap \$$cap" "nothing created, nothing spent" "rerun with --spend-cap $(usd "$min_min") or more"
 fi
-# The enclosing gstack-pregate kills this gate at its --timeout (default 600 s)
+# The enclosing gstack-pregate kills this gate at its --timeout (default the
+# policy's timeout_s, else 600 s; pregate passes it as PREGATE_TIMEOUT_S)
 # with a 5 s grace, so the VM must be told to stop early enough for teardown to
 # be confirmed first: 120 s reserved for teardown plus 15 s margin. The deadline
 # comes from PREGATE_TIMEOUT_S, else from the gstack-pregate process this gate

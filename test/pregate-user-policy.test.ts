@@ -174,16 +174,17 @@ describe('gstack-pregate with a user-owned policy', () => {
     expect(unreadable.err).toContain('cannot read the user-owned policy');
   }, 60_000);
 
-  // Value: protects=the user file is consulted only for --policy-from base with no base copy: head mode and a committed base copy never
-  //   read it; fails_when=either guard on the fallback is dropped and an unreviewed user file overrides reviewed policy; why_new=the
-  //   fallback is new; seam=none; no_claim=none beyond protects
-  test('--policy-from head and a base copy never read the user file', () => {
+  // Value: protects=the user file is consulted only with no base copy: a committed base copy never reads it, and under --policy-from head it
+  //   is the trusted policy the head file is compared with, so an invalid one refuses instead of vanishing (GST-419); fails_when=a base
+  //   copy is overridden by the user file, or head mode drops an unreadable user policy; why_new=the fallback is new, and head mode
+  //   now compares with it; seam=none; no_claim=none beyond protects
+  test('a base copy never reads the user file; under --policy-from head an invalid user file refuses', () => {
     const { repo, userPolicy, run } = setup();
     writePolicy(userPolicy, { local: ['not-a-lane'] });
 
     const head = run(['--policy-from', 'head']);
-    expect(head.err).not.toContain('PREGATE_CONFIG_INVALID');
-    expect(head.out).not.toContain('policy user');
+    expect(head.status).toBe(EXIT.refused);
+    expect(head.err).toContain('PREGATE_CONFIG_INVALID');
 
     commit(repo, { '.gstack/pregate.json': JSON.stringify(BASE_PREGATE) + '\n' });
     repo.git('push', '-q', 'origin', 'HEAD:main');

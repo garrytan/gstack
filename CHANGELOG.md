@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.91.366.0] - 2026-10-31
+
+**A partial `gstack-post pr-body` post keeps the PR's intro.** Since GST-412, any body file with a `## ` section replaced the text above the PR's first heading, so a lane that posted only `## Screenshots` deleted a human intro or a `Review-loop exception:` line under the receipt (GStack Minder: "a partial pr-body post must keep the human intro").
+
+### Fixed
+- **Only a full post owns the text above the first heading.** A file with a receipt block above its first `## ` section, as /ship composes it, still replaces stale lead text and stale notes under the receipt. Any other file keeps them; its own lead text still replaces the PR's lead text.
+
+### Tests
+- `test/gstack-post.test.ts`: a partial post keeps the intro and the note under the receipt, even with a caption of its own or a receipt further down; the full-post cases now carry a receipt, as /ship's body does.
+
+## [1.91.365.0] - 2026-10-31
+
+**An unclosed code fence in an outside review no longer hides a later `[P1]` or not-ready verdict (GST-436).** Before, an outside-voice reply that said no issues were found, opened a code fence it never closed, and then listed a `[P1]` finding or ended with `Verdict: not ready` was classified clean, because everything after the fence was treated as quoted code. Now a P0 or P1 severity or a last `Verdict: not ready` after an unclosed fence still blocks. Text inside that fence still can't make a reply clean, so a quoted `Verdict: ready`, `[P3]` or `No issues found.` there is ignored, as before.
+
+### Fixed
+- `lib/outside-review-result.ts` reads the reply after an unclosed fence's opening line for severities (P0 and P1, or Critical and High words, block), an unparsed label (which makes the review `unverified`) and a last `Verdict: not ready`. The evidence for clean (a parsed severity, the last verdict line, the no-findings conclusion) keeps that text blanked. Closed fences still hide quoted severities.
+- Fence matching is one pass, and an opener counts only when a later marker of its kind is at least as long. A reply with thousands of unmatched fences classifies in milliseconds instead of rescanning the rest once per fence.
+
+### Tests
+- `test/outside-review-unclosed-fence.test.ts` covers:
+  - a `[P1]` and a `Verdict: not ready` after an unclosed fence
+  - a closed fence that still hides a quoted `[P1]`
+  - a quoted `Verdict: ready`, `[P3]` or `No issues found.` inside an unclosed fence, which stays findings or unverified
+  - 3,000 unmatched fences
+
+## [1.91.364.0] - 2026-10-31
+
+**`--policy-from head` now only adds test lanes, and the repo can set pregate's per-process timeout.** Two /ship tooling gaps cost other crews a rerun each. GEVA-2 (gstack-evals#93) had a PR that added its own pregate lane, but `gstack-ship-preflight` could not pass `--policy-from head`, so Step 5 failed with `PREGATE_NO_LANE` and the lane called runLanes by hand (GST-419). HARN-1 (HARN-12) had lanes of about 780 s, while preflight and the `finish` fallback ran pregate at its 600 s default, so the result was always `PREGATE: incomplete` (GST-420). There was also a hole behind the first gap: `--policy-from head` took the branch's whole `.gstack/pregate.json`, so a branch could delete its own lanes.
+
+### Added
+- **`timeout_s` in `.gstack/pregate.json`** (1 to 3600 s): gstack-pregate's per-process timeout when `--timeout` is not passed, so preflight, `finish` and plain runs all pick it up. The remote gate gets the same value as `PREGATE_TIMEOUT_S`. A timed-out lane names where its timeout came from (`--timeout`, `timeout_s from <policy>` or the 600 s default).
+- **`gstack-ship-preflight --policy-from head`** forwards to Step 5's pregate. When pregate does not pass, preflight prints up to three `PREGATE_DETAIL:` lines with pregate's own reasons, and a refusal reads `PREGATE: refused (<code>)` instead of `unreadable`.
+
+### Changed
+- **A head policy may only add test lanes** (`PREGATE_HEAD_POLICY_LOOSENS`). It may add a `dependencies` glob with at least one test, or add tests to a glob the trusted policy already maps. Anything else that differs from the trusted policy refuses the run and names each difference. The trusted policy is the base copy, or the user-owned file when the base has none. A branch behind its base is measured from the copy at its merge base and runs the base tip's policy plus its additions. A head file with no trusted policy anywhere is still a bootstrap.
+- **`--remote` works with `--policy-from head`** once that check passes, so a lane on a machine with under 8 cores can clear its obligation. It still runs the trusted copy's `remote_gate`. With no trusted policy at all, `--remote` under head is refused, because a bootstrap head file's own `remote_gate` would be clearing its own obligation.
+- **Under `--policy-from head`, an invalid user-owned policy now refuses** (`PREGATE_CONFIG_INVALID`) instead of being ignored, because it is the policy the head file is compared with.
+- **A `[]` declaration added only on the branch is refused under `--policy-from head`**, the Dart device-test workaround included: declare `"**/integration_test/**": []` on the base branch first. The `PREGATE_NO_LANE` fix line and docs say so.
+
+### Tests
+- `test/pregate-head-policy.test.ts`: a head policy that adds a lane passes; one that removes or swaps a lane, adds `[]`, changes the runner, downgrades a check, allowlists a finding or deletes the file is refused; reorders are not changes; a stale branch keeps the base's newer lanes; the user-owned policy is compared when the base has none; a bootstrap still runs; `timeout_s` bounds each runner process, `--timeout` overrides it, and out-of-range values are invalid.
+- `test/ship-preflight.test.ts`: `--policy-from head` reaches pregate, a removed lane stops with `PREGATE_HEAD_POLICY_LOOSENS`, and `timeout_s` reaches preflight's pregate with the cause printed.
+- `test/pregate-remote.test.ts`: `--remote` under head runs the base gate with the `timeout_s` deadline (or `--timeout`), and a head policy that changes the gate is refused. `test/pregate-dart.test.ts` and `test/pregate-user-policy.test.ts` follow the two behavior changes above.
+
 ## [1.91.363.0] - 2026-10-31
 
 **A passing test lane that leaves Bun's `.bun/` folder behind now grades FRESH, `--check-prose` no longer reads the Approvals table as a claim, and `gstack-post pr-body` drops a stale intro.** Three /ship false alarms from GST-421 and GST-412 (HARN-1, HARN-12, GSTA-2, GEVA-69, gstack-evals#90).
