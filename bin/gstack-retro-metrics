@@ -29,6 +29,8 @@
 #            expression ("24 hours ago"). Default: "7 days ago".
 #   --until  optional window end (compare mode's prior window).
 
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
+
 BASE=""
 SINCE="7 days ago"
 UNTIL=""
@@ -378,5 +380,36 @@ fi
 [ -f "TODOS.md" ]                         && echo "TODOS_FILE: present (TODOS.md)"                            || echo "TODOS_FILE: absent"
 [ -f "$_GH/analytics/skill-usage.jsonl" ] && echo "SKILL_USAGE_LOG: present ($_GH/analytics/skill-usage.jsonl)" || echo "SKILL_USAGE_LOG: absent"
 [ -f "$_GH/analytics/eureka.jsonl" ]      && echo "EUREKA_LOG: present ($_GH/analytics/eureka.jsonl)"         || echo "EUREKA_LOG: absent"
+
+# ── Friction by skill (this project's timeline + question log) ──────────────
+# lib/retro-friction.ts does the counting; the window bounds come from git's own
+# date parser so they match the commit queries above. Any failure prints
+# FRICTION: unavailable and the script still reaches RETRO_METRICS_END.
+_FR_SLUG=$("$_BIN/gstack-slug" --get SLUG 2>/dev/null || true)
+_FR_SINCE=$(git rev-parse "--since=$SINCE" 2>/dev/null | sed -n 's/^--max-age=//p' | head -1)
+_FR_UNTIL=""
+[ -n "$UNTIL" ] && _FR_UNTIL=$(git rev-parse "--until=$UNTIL" 2>/dev/null | sed -n 's/^--min-age=//p' | head -1)
+_FR_QLOG=""
+[ "$("$_BIN/gstack-config" get question_tuning 2>/dev/null)" = "true" ] && _FR_QLOG="$_GH/projects/$_FR_SLUG/question-log.jsonl"
+_FR_LIB="$_SCRIPT_DIR/../lib/retro-friction.ts"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && _FR_LIB="$(cygpath -m "$_FR_LIB")" ;;
+esac
+if [ -z "$_FR_SLUG" ]; then
+  echo "FRICTION: unavailable (no project slug)"
+elif [ -z "$_FR_SINCE" ] || { [ -n "$UNTIL" ] && [ -z "$_FR_UNTIL" ]; }; then
+  echo "FRICTION: unavailable (window bounds did not resolve)"
+elif ! command -v bun >/dev/null 2>&1; then
+  echo "FRICTION: unavailable (bun not found)"
+else
+  _FR_OUT=$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$_FR_LIB" \
+    --timeline "$_GH/projects/$_FR_SLUG/timeline.jsonl" \
+    --questions "$_FR_QLOG" \
+    --since-epoch "$_FR_SINCE" --until-epoch "$_FR_UNTIL" 2>/dev/null) || _FR_OUT=""
+  case "$_FR_OUT" in
+    *FRICTION:*) printf '%s\n' "$_FR_OUT" ;;
+    *) echo "FRICTION: unavailable (friction helper failed)" ;;
+  esac
+fi
 
 echo "RETRO_METRICS_END: ok"

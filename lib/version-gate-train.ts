@@ -13,6 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { parseChangelog } from './changelog-check';
 import { effectiveBump, readFragments } from './changelog-fragments';
+import { HistoryReadError, readHistoryFile } from './history-read';
 import { matchesAny } from './ship-policy';
 
 export type TrainHead =
@@ -90,19 +91,27 @@ export function regeneratedAtBase(o: { repoRoot: string; head: string; baseVersi
   }
 }
 
+/** A history read that fails (not an absent file) classifies the head invalid with HISTORY_READ_FAILED. */
 export function classifyTrainHead(o: { repoRoot: string; baseRef: string; head: string; author?: string }): TrainHead {
+  try { return classify(o); } catch (e) { if (e instanceof HistoryReadError) return { kind: 'invalid', reason: e.message }; throw e; }
+}
+
+function classify(o: { repoRoot: string; baseRef: string; head: string; author?: string }): TrainHead {
   const base = `origin/${o.baseRef.replace(/^origin\//, '')}`;
-  const show = (rev: string, file: string) => git(o.repoRoot, ['show', `${rev}:${file}`]);
+  const show = (rev: string, file: string) => readHistoryFile(o.repoRoot, rev, file);
+  const policyText = show(base, '.gstack/ship-policy.json');
   let policy: any = null;
-  try { policy = JSON.parse(show(base, '.gstack/ship-policy.json') ?? 'null'); } catch { policy = null; }
+  try { policy = JSON.parse(policyText ?? 'null'); } catch { policy = null; }
   const fragDir: string | null = typeof policy?.changelog_fragments?.dir === 'string' ? policy.changelog_fragments.dir : null;
   if (!policy || ((typeof policy.train !== 'object' || policy.train === null) && !fragDir && policy.bump !== 'never')) return { kind: 'off' };
   const mergeBase = git(o.repoRoot, ['merge-base', base, o.head])?.trim();
   if (!mergeBase) return { kind: 'invalid', reason: `no merge base between ${base} and ${o.head}` };
 
-  const npmVersion = (rev: string) => { try { return JSON.parse(show(rev, 'package.json') ?? '{}').version ?? null; } catch { return null; } };
+  const npmVersion = (rev: string) => { const text = show(rev, 'package.json'); try { return JSON.parse(text ?? '{}').version ?? null; } catch { return null; } };
   if (policy.bump === 'never') return show(mergeBase, 'VERSION') === show(o.head, 'VERSION') && npmVersion(mergeBase) === npmVersion(o.head) ? { kind: 'unstamped', entry: 'kept' } : { kind: 'off' };
-  const changed = (git(o.repoRoot, ['diff', '--name-only', mergeBase, o.head]) ?? '').split('\n').filter(Boolean);
+  const diff = git(o.repoRoot, ['diff', '--no-renames', '--name-only', mergeBase, o.head]);
+  if (diff === null) return { kind: 'invalid', reason: `cannot list the files ${o.head} changes since its merge base ${mergeBase.slice(0, 12)}. Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)` };
+  const changed = diff.split('\n').filter(Boolean);
   const releaseOutputs: string[] = Array.isArray(policy.release_outputs) ? policy.release_outputs : [];
   // touched: what marks the head as stamped (the labels only feed the length check below)
   const touched: string[] = changed.filter(f => f === 'VERSION');
@@ -128,10 +137,7 @@ export function classifyTrainHead(o: { repoRoot: string; baseRef: string; head: 
   }
 
   const file = typeof policy.changelog === 'string' ? policy.changelog : 'CHANGELOG.md';
-  const exists = (rev: string) => git(o.repoRoot, ['cat-file', '-e', `${rev}:${file}`]) !== null;
-  const read = (rev: string) => (exists(rev) ? show(rev, file) : '');
-  const [beforeText, afterText] = [read(mergeBase), read(o.head)];
-  if (beforeText === null || afterText === null) return { kind: 'invalid', reason: `cannot read ${file} at ${beforeText === null ? `the merge base ${mergeBase.slice(0, 12)}` : o.head}` };
+  const [beforeText, afterText] = [show(mergeBase, file) ?? '', show(o.head, file) ?? ''];
   const before = parseChangelog(beforeText);
   const after = parseChangelog(afterText);
   const unreleased = after.sections.filter(s => s.unreleased);

@@ -13,9 +13,9 @@
 
 import fs from "fs";
 import path from "path";
-import { openaiUrl, requireApiKey } from "./auth";
+import { requireProvider } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
-import { modelRejectionHint, visionRequestBody } from "./models";
+import { visionErrorHint, visionRequest } from "./provider";
 import { parseDesignMd, detectFormat, renderDesignMd, spliceSection, specSkeleton, tokensFlat, slug, DesignMdEditRefused } from "../../lib/design-md";
 import { atomicWriteSync } from "../../lib/fs-atomic";
 
@@ -34,20 +34,14 @@ export interface ExtractedDesign {
  * Extract visual language from an approved mockup PNG.
  */
 export async function extractDesignLanguage(imagePath: string): Promise<ExtractedDesign> {
-  const apiKey = requireApiKey();
+  const provider = requireProvider();
   const imageData = fs.readFileSync(imagePath).toString("base64");
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
 
   try {
-    const response = await receiptedFetch("memory-distill-request", openaiUrl("chat/completions"), {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: visionRequestBody([{
+    const request = visionRequest(provider, [{
         role: "user",
         content: [
           {
@@ -69,13 +63,12 @@ export async function extractDesignLanguage(imagePath: string): Promise<Extracte
 Extract real values from what you see. Be specific about hex colors and font sizes.`,
           },
         ],
-      }], 800, { response_format: { type: "json_object" } }),
-      signal: controller.signal,
-    });
+      }], 800, { response_format: { type: "json_object" } });
+    const response = await receiptedFetch("memory-distill-request", request.url, { ...request.init, signal: controller.signal }, globalThis.fetch, request.receipt);
 
     if (!response.ok) {
       const error = await response.text();
-      console.error(`Vision extraction failed (${response.status}): ${error.slice(0, 200)}${modelRejectionHint(response.status, error, "vision")}`);
+      console.error(`Vision extraction failed (${response.status}): ${error.slice(0, 200)}${visionErrorHint(provider, response.status, error)}`);
       return defaultDesign();
     }
 

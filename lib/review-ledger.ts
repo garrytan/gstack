@@ -16,7 +16,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { promptHash } from './review-brief';
+import { isReviewedTreeLine, promptHash, type TreeCheck } from './review-brief';
 
 export interface LedgerEvent { event: 'rendered' | 'sent' | 'output' | 'judgment' | 'judge' | 'program'; [k: string]: unknown }
 export const readerKey = (role: string, name?: string) => (name ? `${role}/${name}` : role);
@@ -59,12 +59,31 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
+/**
+ * A label a negation word governs ("found nothing CRITICAL", "no new **High** or Critical issues", "No P0/P1 issues") is no finding
+ * (GST-766), unless it opens a field ("High:"). Such a line still closes the open finding and heads the next, so a prose finding
+ * phrased around a negated label reaches merged.jsonl through its required Severity or Blocks field.
+ */
+const NEGATED = /(?<![A-Za-z0-9-])(?:no|nothing|not|none|(?<!\bby\s)zero|without|never)\s+(?:(?:new|remaining|other|further|additional|more|at)\s+)?$/i;
+const NEGATION_LIST = /^\s*(?:,|\/|or|nor|and|,\s*(?:or|nor|and))\s*$/i;
+const MARKUP = /[*_`[\]]/g;
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
 const META = new RegExp(`^(?:[-*+]\\s+)?\\**\\s*(Severity|Blocks)\\**\\s*(?::|\\s+\\**(?:${LABELS}|yes|no)(?![A-Za-z0-9]))`, 'i');
 
-export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
+/** The severity and Blocks a prose finding's own fields state (GST-766): recorded beside the collected label, never in its place. */
+export interface Stated { severity?: string; blocks?: string }
+const STATED_SEVERITY = new RegExp(`(?<![A-Za-z0-9])Severity\\**\\s*:?\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])`, 'gi');
+const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
+function stated(raw: string): Stated | undefined {
+  if (raw.startsWith('{')) return undefined;
+  const severity = [...raw.matchAll(STATED_SEVERITY)].at(-1)?.[1];
+  const blocks = [...raw.matchAll(STATED_BLOCKS)].at(-1)?.[1]?.toLowerCase();
+  return severity || blocks ? { ...(severity ? { severity } : {}), ...(blocks ? { blocks } : {}) } : undefined;
+}
+
+export interface MergedLine { id: string; reader: string; label: string; stated?: Stated; raw: string; output_sha256: string }
 
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
@@ -83,13 +102,26 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let current: Finding | null = null;
   let head = '';
   let gap = false;
+  let treeSeen = false;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
-  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
+  const asserted = (t: string) => {
+    const all = [...t.matchAll(ALL_LABELS)];
+    let end = -1, negated = false;
+    return all.filter(m => {
+      const at = m.index!;
+      negated = !/^\s*:/.test(t.slice(at + m[0].length, at + m[0].length + 8).replace(MARKUP, ''))
+        && (NEGATED.test(t.slice(Math.max(0, at - 60), at).replace(MARKUP, '')) || (negated && NEGATION_LIST.test(t.slice(end, at).replace(MARKUP, ''))));
+      end = at + m[0].length;
+      return !negated;
+    });
+  };
+  const strongest = (t: string) => asserted(t).map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
   const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
     if (!t) { gap = true; continue; }
+    if (!treeSeen && isReviewedTreeLine(t)) { treeSeen = true; continue; }
     const afterGap = gap;
     gap = false;
     if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
@@ -119,6 +151,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
         if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
+    if (!label && !blocks && !(section && listItem) && ANY_LABEL.test(t)) { current = null; head = t; continue; }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
     const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
@@ -155,15 +188,21 @@ const hasCleanMarker = (reader: string, output: string) => output.replace(/\r\n/
 
 /**
  * collect: hash the raw output, append its findings to merged.jsonl and record both; a reply with no finding and no clean marker records
- * review: false. With unavailable (the outside voice only) the output is its failure text, recorded as missing coverage.
+ * review: false. With unavailable (the outside voice only) the output is its failure text, recorded as missing coverage. With a
+ * failed tree check (GST-482: the reply reviewed another checkout, or names none) nothing is merged and the output is no review.
  */
-export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string, unavailable?: string): { sha: string; lines: MergedLine[]; review: boolean } {
+export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string, unavailable?: string, tree?: TreeCheck): { sha: string; lines: MergedLine[]; review: boolean } {
   const sha = promptHash(output);
   const prior = readLedger(ledger).filter(e => e.event === 'output' && e.reader === reader).length;
-  const lines = unavailable ? [] : parseFindings(reader, output).map((f, i) => ({ id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, raw: f.raw, output_sha256: sha }));
-  const review = !unavailable && (lines.length > 0 || hasCleanMarker(reader, output));
+  const wrongTree = !unavailable && tree !== undefined && !tree.ok;
+  const lines = unavailable || wrongTree ? [] : parseFindings(reader, output).map((f, i) => {
+    const s = stated(f.raw);
+    return { id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, ...(s ? { stated: s } : {}), raw: f.raw, output_sha256: sha };
+  });
+  const review = !unavailable && !wrongTree && (lines.length > 0 || hasCleanMarker(reader, output));
   fs.appendFileSync(mergedFile, lines.map(l => JSON.stringify(l) + '\n').join(''), { mode: 0o600 });
-  appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id), review, ...(unavailable ? { unavailable } : {}) });
+  appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id), review, ...(unavailable ? { unavailable } : {}),
+    ...(tree && !unavailable ? { tree: tree.expected, reported_tree: tree.reported, tree_ok: tree.ok } : {}) });
   return { sha, lines, review };
 }
 /** The outside voice may fail without blocking (ship/sections/adversarial.md): its failure is recorded as unavailable coverage, never as a review. */
@@ -222,6 +261,7 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
  * a ledger written before collect recorded the field is judged by the same rule; with no readable file, collect's own review field.
  */
 function reviewed(o: LedgerEvent): boolean {
+  if (o.tree_ok === false || unavailableOutput(o)) return false;
   if (Array.isArray(o.ids) && o.ids.length) return true;
   let text: string | undefined;
   try { text = typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined; } catch { /* unreadable */ }
@@ -292,6 +332,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
       const replaced = review > 0 && later.slice(0, review).some(e => e.event === 'sent' && e.reader === reader && e.sha256 === events[p!.at]!.sha256);
       if (unavailableOutput(o)) { status = 'UNAVAILABLE'; notes.push(`reason=${JSON.stringify(o.unavailable)}`); }
       else if (replaced) { status = 'VOIDED'; voided++; notes.push('replaced_by_a_review'); }
+      else if (o.tree_ok === false) { status = 'NOT_REVIEWED'; notes.push(`wrong_tree reported=${JSON.stringify(o.reported_tree)} expected=${JSON.stringify(o.tree)}`); }
       else { status = 'NOT_REVIEWED'; notes.push('no_finding_no_clean_marker'); }
     }
     rows.push({ kind: 'OUTPUT', reader: p?.label ?? reader, status, detail: `sha=${short(o.sha256)} findings=${ids.length}${notes.length ? ' ' + notes.join(' ') : ''}` });
