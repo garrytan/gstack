@@ -18,7 +18,7 @@ That is the whole promise. Other skills, optional parts such as `/cso`'s native 
 ## What we stop doing
 
 - No Windows-only or Gemini-only features, parity work, tuning or polish.
-- No new Windows or Gemini CI jobs or eval cells. Windows CI tuning stops.
+- No new Windows or Gemini CI jobs or eval cells, apart from the path-scoped Windows checks under Windows CI below (ship-90-90 plan D). Other Windows CI tuning stops.
 - A Windows-only or Gemini-only report that doesn't break install, startup or a core workflow closes as won't fix ([triage rules](triage.md#closing-an-issue)), with a link to this page. A report that does break one of them gets a small fix.
 
 ## Windows CI
@@ -26,6 +26,7 @@ That is the whole promise. Other skills, optional parts such as `/cso`'s native 
 - `windows-smoke` is the required Windows check on pull requests.
 - The six-shard Windows free suite (the `Windows Free Tests` workflow, `windows-free-tests`) runs nightly on main, or when someone starts it by hand, and never blocks a pull request.
 - A red nightly run gets a fix only when it shows an install, startup or core-workflow break.
+- Windows checks run by path (ship-90-90 plan D, approved 2026-11-03): `Windows Scoped Tests` runs a pull request's changed Windows-safe test files on one Windows job only when it touches path, file-name or process code (a red run blocks that pull request, like any failed check), and `Windows Setup E2E` runs only when install files change (a version-only `package.json` change doesn't count).
 
 ## What doesn't change
 

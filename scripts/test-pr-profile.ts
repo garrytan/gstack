@@ -295,6 +295,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/version-gate.yml',
   '.github/workflows/windows-free-tests.yml',
   '.github/workflows/windows-pregate-e2e.yml',
+  '.github/workflows/windows-scoped-tests.yml',
   '.github/workflows/windows-setup-e2e.yml',
   '.github/workflows/windows-smoke.yml',
 ] as const;

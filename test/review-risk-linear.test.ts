@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { DATA_LINE, MONEY_LINE, SECRET_LINE, SECURITY_LINE, matchRisk } from '../lib/review-risk';
 
 const ROOT = path.join(import.meta.dir, '..');
@@ -51,7 +52,7 @@ describe('the rules hashes cover every new pattern', () => {
       fs.symlinkSync(path.join(ROOT, 'lib/ship-policy.ts'), path.join(dir, 'ship-policy.ts'));
       fs.writeFileSync(path.join(dir, 'print.ts'), "import { DEPTH_RULES } from './review-depth';\nconsole.log(DEPTH_RULES);\n");
       const hash = () => {
-        const r = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', path.join(dir, 'print.ts')], { encoding: 'utf8', timeout: 30_000 });
+        const r = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(dir, 'print.ts')], { encoding: 'utf8', timeout: 30_000 });
         expect(r.status, r.stderr).toBe(0);
         return r.stdout.trim();
       };

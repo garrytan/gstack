@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.94.10.0] - 2026-11-03
+
+**Windows checks now run by path.** Windows Setup E2E, the 10-to-25-minute install test, no longer starts its Windows jobs on a pull request whose only install change is `package.json`'s version line, which the merge-train stamp puts on every pull request before it merges. Of the 61 pull requests in its last 100 runs (as of 2026-11-03), 37 changed no install file besides `package.json`. Its path list also gains `bun.lock` and the `bin/` scripts that the test or `./setup` runs. A new `Windows Scoped Tests` workflow runs the Windows-safe test files a pull request changed, on one Windows job, when the pull request touches path, file-name or process code, such as a hook script or a new `spawnSync` call. On the last 120 commits to main (through 923fc0a) it would have run on 50, with a median of one test file. It catches both Windows breaks the plan names: /freeze's path check (#3758) and a test that started Bun with `--config=/dev/null` (#3829). A red run blocks its pull request like any failed check, so this release also fixes #3829's test, which has failed every nightly Windows run since it landed. `windows-smoke` still runs on every pull request, and the full Windows suite still runs nightly.
+
+### CI
+- `.github/workflows/windows-setup-e2e.yml`: a Linux `windows-scope` job runs first and skips both Windows jobs when the only install change is `package.json`'s `"version"` line. Paths add `bun.lock`, `bin/gstack-config`, `bin/gstack-patch-names` and the scripts `./setup` sources or runs.
+- `.github/workflows/windows-scoped-tests.yml` (new): a Linux scope job reads the diff's file names and changed code lines, picks the changed files in the curated Windows-safe subset, and a `windows-latest` job runs them. The `windows-scoped-tests` check passes when nothing is in scope, so a skipped run still reports success. A `workflow_dispatch` with a `files` input reruns chosen Windows-safe files on a branch.
+
+### Tests
+- `test/review-risk-linear.test.ts`: the rules-hash case starts Bun with `bunIsolationArgs()` (`--config=NUL` on native Windows) instead of `--config=/dev/null`, which native Windows Bun cannot open (nightly Windows Free Tests run 41420490350, EINVAL).
+- `scripts/test-pr-profile.ts`: the new workflow is listed as free-lane only beside the other Windows workflows (test/free-fixtures.test.ts requires every workflow to be classified).
+- `test/windows-path-scope-workflow.test.ts`: runs both scope steps in a two-commit git repository. The filter catches #3758's and #3829's changed files and passes over a docs-and-stamp change and a pure-logic change. The Setup E2E scope skips a version-only `package.json` bump and runs on a dependency change. `windows-smoke` stays unfiltered, and no job that can skip is a required check.
+
 ## [1.94.9.0] - 2026-11-03
 
 **A pull request can clear its remote gate obligation from a run with named flaky failures, once the owner grants it (GST-1096).** A timing flake in a test file the pull request never touched used to keep the pregate red with no way through but another paid run. `gstack-pregate clear --remote <lane> --run <id|url> --flaky-exception "<file>::<case>" --pr <n> --grant <approval id>` now accepts such a run when every failure is named from the run's own shard results and logs, at most three cases, each file outside the pull request's diff and its import closure, none paid and none a security scan test, and a gstack-approvals row in the owner's words binds the repository, PR, head, tree, lane, run attempt and cases. It covers the pregate only, and a red required CI check still needs its own green run.
