@@ -40,6 +40,23 @@ function sliceFunction(source: string, name: string): string {
   return source.slice(start + 1, end + 3);
 }
 
+/** install_runtime_deps and the helpers it calls, sliced out of setup in definition order. */
+function depsFunctions(setup: string): string {
+  const names = ['bun_cmd', '_deps_role', '_deps_has_dev', '_deps_verified', '_deps_lock', '_deps_unlock', '_deps_recover',
+    '_deps_migration_start', '_deps_migration_finish', 'install_runtime_deps'];
+  return names.map((n) => (n === '_deps_unlock' ? setup.split('\n').find((l) => l.startsWith('_deps_unlock() {'))! + '\n' : sliceFunction(setup, n))).join('\n');
+}
+
+/** A git repository marked as a contributor's checkout (what bin/dev-setup writes). */
+function markContributor(dir: string): void {
+  gitInit(dir);
+  spawnSync('git', ['-C', dir, 'config', '--local', 'gstack.contributor', 'true'], { timeout: 10_000 });
+}
+
+function gitInit(dir: string): void {
+  spawnSync('git', ['init', '-q', dir], { timeout: 10_000 });
+}
+
 /**
  * A bun that records each argv line. Like Bun, a --frozen-lockfile install fails
  * ($FROZEN_RC) until `install --lockfile-only` has refreshed the lockfile; any other
@@ -56,7 +73,7 @@ function stubBun(base: string): { bun: string; calls: () => string[] } {
 describe.skipIf(process.platform === 'win32')('setup installs production dependencies only', () => {
   const setup = read('setup');
   const script = (bun: string, call: string) =>
-    `set -e\nBUN_CMD=${JSON.stringify(bun)}\n${sliceFunction(setup, 'bun_cmd')}\n${sliceFunction(setup, 'install_runtime_deps')}\n${call}\n`;
+    `set -e\nBUN_CMD=${JSON.stringify(bun)}\n${depsFunctions(setup)}\n${call}\n`;
 
   test('install_runtime_deps passes --production with the frozen lockfile, and refreshes a stale lockfile before installing production-only again', () => {
     const base = tempBase();
@@ -81,17 +98,20 @@ describe.skipIf(process.platform === 'win32')('setup installs production depende
     expect(stub3.calls()).toEqual(['install --production --frozen-lockfile', 'install --lockfile-only']);
   });
 
-  // Value: protects=a contributor checkout (dev toolchain present) keeps its dev packages at bun.lock's versions after ./setup;
+  // Value: protects=a contributor checkout (marked, dev toolchain present) keeps its dev packages at bun.lock's versions after ./setup;
   //   fails_when=setup runs the production install there, which Bun reports as "no changes" and leaves old dev versions;
   //   why_new=every other row starts without node_modules; seam=none; no_claim=Bun's own update behavior (stub bun)
-  test('a checkout with the dev toolchain gets the full frozen install, falling back to a plain install', () => {
+  // #3447: the contributor is the checkout marked with git config gstack.contributor, not any checkout that has typescript.
+  test('a marked contributor checkout gets the full frozen install, falling back to a plain install', () => {
     const base = tempBase();
+    markContributor(base);
     fs.mkdirSync(path.join(base, 'node_modules', 'typescript'), { recursive: true });
     const { bun, calls } = stubBun(base);
     expect(runBashScript(script(bun, 'install_runtime_deps'), { cwd: base, env: { ...process.env, FROZEN_RC: '0' } }).status).toBe(0);
     expect(calls()).toEqual(['install --frozen-lockfile']);
 
     const base2 = tempBase();
+    markContributor(base2);
     fs.mkdirSync(path.join(base2, 'node_modules', 'typescript'), { recursive: true });
     const stub2 = stubBun(base2);
     expect(runBashScript(script(stub2.bun, 'install_runtime_deps'), { cwd: base2, env: { ...process.env, FROZEN_RC: '1' } }).status).toBe(0);
@@ -103,6 +123,7 @@ describe.skipIf(process.platform === 'win32')('setup installs production depende
     //   why_new=both rows above succeed, and the failure row in the test above runs the production branch; seam=none;
     //   no_claim=setup's own subshell wiring around the call (stub bun)
     const base3 = tempBase();
+    markContributor(base3);
     fs.mkdirSync(path.join(base3, 'node_modules', 'typescript'), { recursive: true });
     const stub3 = stubBun(base3);
     const failed = runBashScript(script(stub3.bun, 'install_runtime_deps\necho AFTER'), { cwd: base3, env: { ...process.env, FROZEN_RC: '1', FALLBACK_RC: '4' } });
@@ -150,6 +171,25 @@ describe.skipIf(process.platform === 'win32')('setup installs production depende
     const r = runBashScript(`set -e\nREPO_ROOT=${JSON.stringify(base)}\nbun() { ${JSON.stringify(bun)} "$@"; }\n${block}`);
     expect(r.status).toBe(0);
     expect(calls()).toEqual(['install']);
+    // #3447: outside git the marker cannot be written; dev-setup says how to mark the run instead and still installs.
+    expect(r.stderr).toContain('GSTACK_CONTRIBUTOR=1');
+  });
+
+  // Value: protects=a contributor's clone keeps its dev toolchain on every later ./setup;
+  //   fails_when=bin/dev-setup stops writing the marker install_runtime_deps reads; why_new=#3447 adds the marker; seam=none; no_claim=none
+  test('bin/dev-setup marks the clone as a contributor checkout', () => {
+    const devSetup = read('bin/dev-setup');
+    const start = devSetup.indexOf('# 2. Install dependencies');
+    const block = devSetup.slice(start, devSetup.indexOf('# 3.', start));
+    const base = tempBase();
+    gitInit(base);
+    const { bun } = stubBun(base);
+    const r = runBashScript(`set -e\nREPO_ROOT=${JSON.stringify(base)}\nbun() { ${JSON.stringify(bun)} "$@"; }\n${block}`, { env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+    expect(r.status, r.stderr).toBe(0);
+    const marker = spawnSync('git', ['-C', base, 'config', '--bool', '--get', 'gstack.contributor'], { encoding: 'utf-8', timeout: 10_000 });
+    expect(marker.stdout.trim()).toBe('true');
+    const role = runBashScript(`${sliceFunction(read('setup'), '_deps_role')}\n_deps_role\n`, { cwd: base, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+    expect(role.stdout.trim()).toBe('contributor');
   });
 });
 
@@ -174,7 +214,7 @@ describe.skipIf(process.platform === 'win32')('install_runtime_deps with the rea
     const env = { ...isolatedBunEnv(base), BUN_INSTALL_CACHE_DIR: path.join(base, 'cache') };
     const setup = read('setup');
     const run = (call: string) => runBashScript(
-      `set -e\nBUN_CMD=${JSON.stringify(process.execPath)}\n${sliceFunction(setup, 'bun_cmd')}\n${sliceFunction(setup, 'install_runtime_deps')}\n${call}\n`,
+      `set -e\nBUN_CMD=${JSON.stringify(process.execPath)}\n${depsFunctions(setup)}\n${call}\n`,
       { cwd: project, env, timeout: 90_000 });
     const has = (name: string) => fs.existsSync(path.join(project, 'node_modules', name, 'package.json'));
 
@@ -214,7 +254,7 @@ describe.skipIf(process.platform === 'win32')('install_runtime_deps with the rea
     const env = { ...isolatedBunEnv(base), BUN_INSTALL_CACHE_DIR: path.join(base, 'cache') };
     const setup = read('setup');
     const run = (call: string) => runBashScript(
-      `set -e\nBUN_CMD=${JSON.stringify(process.execPath)}\n${sliceFunction(setup, 'bun_cmd')}\n${sliceFunction(setup, 'install_runtime_deps')}\n${call}\n`,
+      `set -e\nBUN_CMD=${JSON.stringify(process.execPath)}\n${depsFunctions(setup)}\n${call}\n`,
       { cwd: project, env, timeout: 90_000 });
     const has = (name: string) => fs.existsSync(path.join(project, 'node_modules', name, 'package.json'));
 
@@ -226,6 +266,230 @@ describe.skipIf(process.platform === 'win32')('install_runtime_deps with the rea
     expect(stale.status, stale.stderr).toBe(0);
     expect([has('runtime-pkg'), has('late-pkg'), has('dev-pkg')]).toEqual([true, true, false]);
     expect(fs.readFileSync(path.join(project, 'bun.lock'), 'utf-8')).toContain('late-pkg');
+  });
+});
+
+// #3447: installs made before v1.91.231.0 ran a full bun install, so they carry the dev
+// toolchain, and the old rule ("node_modules/typescript means contributor") kept them on it
+// forever. The contributor is now the checkout marked with git config gstack.contributor
+// (bin/dev-setup) or GSTACK_CONTRIBUTOR=1; every other checkout with dev packages migrates once.
+describe.skipIf(process.platform === 'win32')('install_runtime_deps moves older installs to production dependencies', () => {
+  const setup = read('setup');
+  const SDK = '@anthropic-ai/claude-agent-sdk';
+
+  /** A user checkout as an install made before v1.91.231.0 leaves it: a git clone with the full dev toolchain. */
+  function oldInstall(opts: { git?: boolean } = {}): string {
+    const base = tempBase();
+    if (opts.git !== false) gitInit(base);
+    fs.writeFileSync(path.join(base, 'package.json'), JSON.stringify({ name: 'fixture', dependencies: { 'runtime-pkg': '1.0.0' } }, null, 2) + '\n');
+    fs.writeFileSync(path.join(base, 'bun.lock'), `{\n  "packages": {\n    "${SDK}": ["${SDK}@0.2.141", "", {}],\n  }\n}\n`);
+    for (const dir of ['typescript', SDK, 'runtime-pkg']) {
+      fs.mkdirSync(path.join(base, 'node_modules', dir), { recursive: true });
+      fs.writeFileSync(path.join(base, 'node_modules', dir, 'package.json'), '{}');
+    }
+    return base;
+  }
+
+  /**
+   * A bun for the migration rows: records argv; a --production install recreates node_modules with
+   * runtime-pkg unless PROD_RC is nonzero (or PROD_SKIP_DEPS=1 leaves it out); `pm cache` prints
+   * $CACHE_DIR; any other install exits 0.
+   */
+  function migrateBun(base: string): { bun: string; calls: () => string[] } {
+    const log = path.join(base, '.calls');
+    const bun = path.join(base, '.bun-stub');
+    fs.writeFileSync(bun, `#!/usr/bin/env bash
+echo "$*" >> ${JSON.stringify(log)}
+case "$*" in
+  "pm cache") echo "\${CACHE_DIR:-}"; exit 0 ;;
+  *--production*)
+    [ "\${PROD_RC:-0}" -ne 0 ] && { echo "error: network down" >&2; exit "\${PROD_RC}"; }
+    mkdir -p node_modules
+    [ "\${PROD_SKIP_DEPS:-0}" = 1 ] || { mkdir -p node_modules/runtime-pkg && echo '{}' > node_modules/runtime-pkg/package.json; }
+    exit 0 ;;
+esac
+exit 0
+`, { mode: 0o755 });
+    return { bun, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf-8').trim().split('\n').filter((l) => l !== 'pm cache') : []) };
+  }
+
+  const run = (base: string, bun: string, env: Record<string, string> = {}) => {
+    const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI' && k !== 'GSTACK_CONTRIBUTOR'));
+    return runBashScript(`set -e\nBUN_CMD=${JSON.stringify(bun)}\n${depsFunctions(setup)}\ninstall_runtime_deps\n`,
+      { cwd: base, env: { ...clean, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...env } });
+  };
+  const has = (base: string, dir: string) => fs.existsSync(path.join(base, 'node_modules', dir));
+  const leftovers = (base: string) => ['node_modules.gstack-migrate', 'node_modules.gstack-migrate.lock'].filter((p) => fs.existsSync(path.join(base, p)));
+
+  // Value: protects=an install made before v1.91.231.0 drops its ~520 MB of dev packages on the next ./setup;
+  //   fails_when=setup keeps treating node_modules/typescript as a contributor marker (the pre-#3447 rule);
+  //   why_new=no row ran an unmarked checkout that already has the dev toolchain; seam=none; no_claim=real Bun (stub bun)
+  test('an unmarked checkout with the dev toolchain migrates to the production install once', () => {
+    const base = oldInstall();
+    const { bun, calls } = migrateBun(base);
+    const r = run(base, bun);
+    expect(r.status, r.stderr).toBe(0);
+    expect(calls()).toEqual(['install --production --frozen-lockfile']);
+    expect([has(base, 'typescript'), has(base, SDK), has(base, 'runtime-pkg')]).toEqual([false, false, true]);
+    expect(leftovers(base)).toEqual([]);
+    expect(r.stdout).toContain('gstack: moved this install to production dependencies');
+    expect(r.stdout).toContain('git config gstack.contributor true, then ./setup again');
+
+    const again = run(base, bun);
+    expect(again.status, again.stderr).toBe(0);
+    expect(again.stdout).not.toContain('moved this install');
+    expect(calls()).toEqual(['install --production --frozen-lockfile', 'install --production --frozen-lockfile']);
+  });
+
+  test('a contributor, a CI run and a checkout whose role git cannot read keep the dev toolchain', () => {
+    const marked = oldInstall();
+    spawnSync('git', ['-C', marked, 'config', '--local', 'gstack.contributor', 'true'], { timeout: 10_000 });
+    const envOnly = oldInstall();
+    const ci = oldInstall();
+    const unreadable = oldInstall();
+    const fakeGit = path.join(unreadable, '.fake-bin');
+    fs.mkdirSync(fakeGit);
+    fs.writeFileSync(path.join(fakeGit, 'git'), '#!/usr/bin/env bash\necho "fatal: detected dubious ownership" >&2\nexit 128\n', { mode: 0o755 });
+    for (const [base, env] of [[marked, {}], [envOnly, { GSTACK_CONTRIBUTOR: '1' }], [ci, { CI: 'true' }], [unreadable, { PATH: `${fakeGit}:${process.env.PATH}` }]] as const) {
+      const { bun, calls } = migrateBun(base);
+      const r = run(base, bun, env);
+      expect(r.status, r.stderr).toBe(0);
+      expect(calls()).toEqual(['install --frozen-lockfile']);
+      expect([has(base, 'typescript'), has(base, SDK)]).toEqual([true, true]);
+      expect(leftovers(base)).toEqual([]);
+    }
+    const marker = spawnSync('git', ['-C', marked, 'config', '--bool', 'gstack.contributor', 'false'], { timeout: 10_000 });
+    expect(marker.status).toBe(0);
+    const { bun } = migrateBun(marked);
+    expect(run(marked, bun).status).toBe(0);
+    expect(has(marked, 'typescript')).toBe(false);
+  });
+
+  test('a fresh CI checkout still gets the production install', () => {
+    const base = tempBase();
+    gitInit(base);
+    fs.writeFileSync(path.join(base, 'package.json'), JSON.stringify({ name: 'fixture', dependencies: { 'runtime-pkg': '1.0.0' } }, null, 2) + '\n');
+    const { bun, calls } = migrateBun(base);
+    expect(run(base, bun, { CI: 'true' }).status).toBe(0);
+    expect(calls()).toEqual(['install --production --frozen-lockfile']);
+  });
+
+  // Value: protects=an offline upgrade never leaves a user without node_modules;
+  //   fails_when=the migration deletes the old node_modules before the production install is proven, or swallows the failure;
+  //   why_new=the success row cannot fail the install; seam=none; no_claim=real network failures (stub bun)
+  test('a failed or unverified production install puts the full install back and says why', () => {
+    for (const env of [{ PROD_RC: '7' }, { PROD_SKIP_DEPS: '1' }] as Record<string, string>[]) {
+      const base = oldInstall();
+      const { bun, calls } = migrateBun(base);
+      const r = run(base, bun, env);
+      expect(r.status, r.stderr).toBe(0);
+      expect([has(base, 'typescript'), has(base, SDK), has(base, 'runtime-pkg')]).toEqual([true, true, true]);
+      expect(leftovers(base)).toEqual([]);
+      expect(r.stderr).toContain('SETUP_DEPS_MIGRATE_FAILED');
+      expect(r.stderr).toContain('Nothing was removed');
+      expect(calls().at(-1)).toBe('install --frozen-lockfile');
+    }
+    const offline = oldInstall();
+    expect(run(offline, migrateBun(offline).bun, { PROD_RC: '7' }).stderr).toContain('error: network down');
+  });
+
+  test('a backup left by an interrupted migration is recovered on the next run', () => {
+    const moved = oldInstall();
+    fs.renameSync(path.join(moved, 'node_modules'), path.join(moved, 'node_modules.gstack-migrate'));
+    const stub = migrateBun(moved);
+    expect(run(moved, stub.bun).status).toBe(0);
+    expect([has(moved, 'typescript'), has(moved, 'runtime-pkg')]).toEqual([false, true]);
+    expect(leftovers(moved)).toEqual([]);
+
+    const finished = oldInstall();
+    fs.renameSync(path.join(finished, 'node_modules'), path.join(finished, 'node_modules.gstack-migrate'));
+    fs.mkdirSync(path.join(finished, 'node_modules', 'runtime-pkg'), { recursive: true });
+    fs.writeFileSync(path.join(finished, 'node_modules', 'runtime-pkg', 'package.json'), '{}');
+    expect(run(finished, migrateBun(finished).bun).status).toBe(0);
+    expect(has(finished, 'typescript')).toBe(false);
+    expect(leftovers(finished)).toEqual([]);
+  });
+
+  test('a live migration lock skips the migration; a dead holder is reclaimed', () => {
+    const busy = oldInstall();
+    fs.mkdirSync(path.join(busy, 'node_modules.gstack-migrate.lock'));
+    fs.writeFileSync(path.join(busy, 'node_modules.gstack-migrate.lock', 'pid'), String(process.pid));
+    const b = migrateBun(busy);
+    expect(run(busy, b.bun).status).toBe(0);
+    expect(b.calls()).toEqual(['install --frozen-lockfile']);
+    expect(has(busy, 'typescript')).toBe(true);
+
+    const stale = oldInstall();
+    fs.mkdirSync(path.join(stale, 'node_modules.gstack-migrate.lock'));
+    fs.writeFileSync(path.join(stale, 'node_modules.gstack-migrate.lock', 'pid'), '2147483646');
+    expect(run(stale, migrateBun(stale).bun).status).toBe(0);
+    expect(has(stale, 'typescript')).toBe(false);
+    expect(leftovers(stale)).toEqual([]);
+  });
+
+  // Value: protects=another project's install that reads the Agent SDK out of Bun's shared cache (Bun's symlink
+  //   backend links each file there with no extra hardlink) keeps working after a gstack migration;
+  //   fails_when=the migration deletes Bun cache entries; why_new=a review reproduced a symlink-backend consumer
+  //   losing its package.json when cache entries with no extra hardlinks were deleted; seam=none; no_claim=Bun's cache layout
+  test('the migration never touches Bun\'s shared cache', () => {
+    const base = oldInstall();
+    const cache = path.join(base, '.cache');
+    const entry = path.join(cache, '@anthropic-ai', 'claude-agent-sdk-linux-x64@0.2.141@@@1');
+    fs.mkdirSync(entry, { recursive: true });
+    fs.writeFileSync(path.join(entry, 'cli.js'), 'x');
+    const consumer = path.join(base, '.symlink-project', 'node_modules', 'sdk');
+    fs.mkdirSync(consumer, { recursive: true });
+    fs.symlinkSync(path.join(entry, 'cli.js'), path.join(consumer, 'cli.js'));
+    const { bun, calls } = migrateBun(base);
+    const r = run(base, bun, { CACHE_DIR: cache });
+    expect(r.status, r.stderr).toBe(0);
+    expect(has(base, 'typescript')).toBe(false);
+    expect(calls()).toEqual(['install --production --frozen-lockfile']);
+    expect(fs.readFileSync(path.join(consumer, 'cli.js'), 'utf-8')).toBe('x');
+  });
+
+  test('a checkout outside git with the dev toolchain is a user install', () => {
+    const base = oldInstall({ git: false });
+    expect(run(base, migrateBun(base).bun).status).toBe(0);
+    expect(has(base, 'typescript')).toBe(false);
+  });
+});
+
+// Value: protects=with the real Bun, an older full install loses its dev packages and a marked contributor keeps them;
+//   fails_when=the production install after the move resolves differently from a fresh one, or the marker read breaks;
+//   why_new=the migration rows stub bun; seam=none; no_claim=registry packages (local file: packages; offline)
+describe.skipIf(process.platform === 'win32')('the migration with the real Bun', () => {
+  test('an unmarked full install loses its dev packages; a marked one keeps them across two runs', () => {
+    for (const marked of [false, true]) {
+      const base = tempBase();
+      const project = path.join(base, 'project');
+      for (const name of ['runtime-pkg', 'typescript']) {
+        fs.mkdirSync(path.join(project, 'pkgs', name), { recursive: true });
+        fs.writeFileSync(path.join(project, 'pkgs', name, 'package.json'), JSON.stringify({ name, version: '1.0.0' }));
+      }
+      fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({
+        name: 'migrate-fixture', version: '0.0.0',
+        dependencies: { 'runtime-pkg': 'file:./pkgs/runtime-pkg' },
+        devDependencies: { typescript: 'file:./pkgs/typescript' },
+      }, null, 2) + '\n');
+      gitInit(project);
+      if (marked) spawnSync('git', ['-C', project, 'config', '--local', 'gstack.contributor', 'true'], { timeout: 10_000 });
+      const env = { ...isolatedBunEnv(base), BUN_INSTALL_CACHE_DIR: path.join(base, 'cache'), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+      delete (env as Record<string, string | undefined>).CI;
+      delete (env as Record<string, string | undefined>).GSTACK_CONTRIBUTOR;
+      const setup = read('setup');
+      const runIt = (call: string) => runBashScript(`set -e\nBUN_CMD=${JSON.stringify(process.execPath)}\n${depsFunctions(setup)}\n${call}\n`, { cwd: project, env, timeout: 90_000 });
+      const has = (name: string) => fs.existsSync(path.join(project, 'node_modules', name, 'package.json'));
+      const full = runIt('bun_cmd install');
+      expect(full.status, full.stderr).toBe(0);
+      expect(has('typescript')).toBe(true);
+      for (let i = 0; i < 2; i++) {
+        const r = runIt('install_runtime_deps');
+        expect(r.status, r.stderr).toBe(0);
+        expect([has('runtime-pkg'), has('typescript')]).toEqual([true, marked]);
+      }
+      expect(fs.existsSync(path.join(project, 'node_modules.gstack-migrate'))).toBe(false);
+    }
   });
 });
 
@@ -339,14 +603,14 @@ describe('setup and runtime need only production dependencies', () => {
   });
 
   // Generated by /ship Step 7 coverage audit (GSTA-97).
-  // Value: protects=a production-only install never creates the dev-toolchain marker install_runtime_deps reads, so a user's next ./setup stays production-only;
+  // Value: protects=a production-only install never creates a dev-toolchain package _deps_has_dev reads, so a user's next ./setup stays production-only;
   //   fails_when=a production dependency, or a package it pulls in (required peers included), starts depending on the marker package, so every repeat ./setup goes full;
   //   why_new=the real-Bun rows use local fixture packages, and nothing walks the repo's own bun.lock production closure;
   //   seam=none; no_claim=Bun's actual hoisting or platform filtering (a static, name-based walk of bun.lock that counts every candidate entry)
-  test('the production closure in bun.lock never installs the dev-toolchain marker setup checks', () => {
-    const marker = sliceFunction(read('setup'), 'install_runtime_deps').match(/\[ -d node_modules\/([^\s\]]+) \]/)?.[1];
-    expect(marker).toBeDefined();
-    expect(PKG.devDependencies).toHaveProperty([marker!]);
+  test('the production closure in bun.lock never installs the dev-toolchain packages setup checks', () => {
+    const markers = [...sliceFunction(read('setup'), '_deps_has_dev').matchAll(/\[ -d node_modules\/([^\s\]]+) \]/g)].map((m) => m[1]);
+    expect(markers).toEqual(['typescript', '@anthropic-ai/claude-agent-sdk']);
+    for (const marker of markers) expect(PKG.devDependencies).toHaveProperty([marker]);
     type Lock = { workspaces: Record<string, { dependencies?: Record<string, string> }>; packages: Record<string, unknown[]> };
     const closure = (lock: Lock): Set<string> => {
       const seen = new Set<string>();
@@ -369,14 +633,16 @@ describe('setup and runtime need only production dependencies', () => {
     const lock: Lock = JSON.parse(read('bun.lock').replace(/,(\s*[}\]])/g, '$1'));
     const production = closure(lock);
     expect(production.has('playwright-core')).toBe(true);
-    expect(production.has(marker!)).toBe(false);
-    // Negative controls: a required peer on the marker is caught, through a nested entry too; an optional peer is not.
+    for (const marker of markers) expect(production.has(marker), marker).toBe(false);
+    // Negative controls: a required peer on a marker is caught, through a nested entry too; an optional peer is not.
     const synthetic = (meta: Record<string, unknown>): Lock => ({
       workspaces: { '': { dependencies: { a: '1' } } },
       packages: { a: ['a@1', '', { dependencies: { b: '1' } }, 'sha'], b: ['b@1', '', {}, 'sha'], 'a/b': ['b@2', '', meta, 'sha'] },
     });
-    expect(closure(synthetic({ peerDependencies: { [marker!]: '*' } })).has(marker!)).toBe(true);
-    expect(closure(synthetic({ peerDependencies: { [marker!]: '*' }, optionalPeers: [marker!] })).has(marker!)).toBe(false);
+    for (const marker of markers) {
+      expect(closure(synthetic({ peerDependencies: { [marker]: '*' } })).has(marker)).toBe(true);
+      expect(closure(synthetic({ peerDependencies: { [marker]: '*' }, optionalPeers: [marker] })).has(marker)).toBe(false);
+    }
   });
 
   test('the dev toolchain stays out of the user install', () => {

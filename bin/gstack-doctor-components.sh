@@ -141,6 +141,7 @@ gstack_result_anchor() {
     BROWSER_UNAVAILABLE) printf '%s' 'browser-ensure-failed' ;;
     INSTALL_PREFLIGHT_FAILED) printf '%s' 'capy-install-preflight-failed' ;;
     SETUP_PS1_EMPTY_ARGUMENT) printf '%s' 'setup-ps1-empty-argument' ;;
+    SETUP_DEPS_MIGRATE_FAILED) printf '%s' 'setup-deps-migrate-failed' ;;
     POLICY_SOURCE_UNAVAILABLE) printf '%s' 'policy-source-unavailable' ;;
     POLICY_INVALID) printf '%s' 'policy-invalid' ;;
     POLICY_CONTAINMENT) printf '%s' 'policy-containment' ;;
@@ -330,6 +331,7 @@ gstack_result_anchor() {
     REVIEW_LOOP_EXCEPTION_INVALID) printf '%s' 'review-loop-exception-invalid' ;;
     RECEIPT_CARRY_TREE_MISMATCH) printf '%s' 'receipt-carry-tree-mismatch' ;;
     RECEIPT_CARRY_PRODUCT_CHANGED) printf '%s' 'receipt-carry-product-changed' ;;
+    RECEIPT_CARRY_SCOPED_REVIEW) printf '%s' 'receipt-carry-scoped-review' ;;
     DOCS_AUDIT_BLOCKED) printf '%s' 'docs-audit-blocked' ;;
     RECEIPT_PROSE_MISMATCH) printf '%s' 'receipt-prose-mismatch' ;;
     RECEIPT_CARRY_PREGATE_STALE) printf '%s' 'receipt-carry-pregate-stale' ;;
@@ -369,6 +371,9 @@ gstack_result_anchor() {
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
     EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
+    OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
+    TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
+    REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
     *) return 1 ;;
   esac
 }

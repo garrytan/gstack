@@ -1239,8 +1239,8 @@ git -C ~/.claude/skills/gstack update-ref -d 'refs/gstack/rescue/<oid>'
 <a id="setup-runtime-root-contains-checkout"></a>
 ### `gstack setup: refusing to replace <root> for <host>: this runtime directory contains the source checkout setup runs from (<checkout>), so replacing it would delete the checkout. Nothing was changed.`
 
-**Meaning.** Setup installs Codex, Factory, OpenCode, Cursor, Copilot and
-Antigravity by building a runtime root (such as `~/.cursor/skills/gstack`) and
+**Meaning.** Setup installs Codex, Factory, OpenCode, Cursor, Copilot,
+Antigravity and Gemini CLI by building a runtime root (such as `~/.cursor/skills/gstack`) and
 swapping it in for the old one, and Kiro by writing into `~/.kiro/skills/gstack`.
 Your gstack checkout lives at that root or inside it, so the swap would delete
 the checkout (#3084), and Kiro would link the checkout into itself. Setup refuses before
@@ -2206,6 +2206,25 @@ anything.
 
 ---
 
+<a id="setup-deps-migrate-failed"></a>
+### `gstack: WARN kept the full dependency install (SETUP_DEPS_MIGRATE_FAILED; ...): <cause>`
+
+**Meaning.** Your install was made before v1.91.231.0, so it still carries the
+test and eval packages (about 520 MB, mostly the Claude Agent SDK). setup moved
+`node_modules` aside to install production dependencies only, that install
+failed, and setup put the full `node_modules` back. Nothing was removed, and
+gstack keeps working on the full install.
+
+**Fix.** Fix the cause the warning names (no network, a proxy, a full disk),
+then run `./setup` again. Developing gstack in this checkout? Mark it, and
+setup keeps the dev packages from then on:
+
+```bash
+git config gstack.contributor true
+```
+
+---
+
 <a id="chromium-install-exit-127"></a>
 ### `Chromium bootstrap: chromium-install — <bun> x playwright install chromium exited 127 (command not found); install Bun from bun.sh (winget Bun ships no bunx), or skip with ./setup --no-browser (Git Bash) or .\setup.ps1 --no-browser (PowerShell)`
 
@@ -2896,6 +2915,34 @@ fetching it cannot create that ref, so pass a branch that exists on `origin`
 (`git branch -r --list 'origin/*'` lists them). `gstack-pregate` says so in
 its fix instead of suggesting the fetch.
 
+<a id="history-read-failed"></a>
+### `cannot read <path> at <ref>. <cause> (git version <v>). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)`
+
+**Meaning.** A CI job or a local release tool read a file at an older commit
+and git could not produce it. The PR and train path jobs (Free Tests' plan, the Version Gate,
+and E2E Evals' route, screen summary, planner, slices, reruns, bisect and
+report) check out blobless clones (`filter: blob:none`): every commit and
+tree is there, but an older file's contents are fetched from GitHub the first
+time something reads them. When that fetch fails three times (a GitHub outage,
+a network drop), or the ref does not resolve at all, the read fails here
+instead of counting as "the file is absent". A file the commit really does not
+have still reads as absent, as before. No ship policy at the base means no
+train, and no VERSION means `0.0.0.0`. The route and backstop policy reads (inline
+in their workflows), `.github/scripts/history-read.sh` (the Version Gate's base
+`VERSION`) and `lib/history-read.ts` (the Version Gate's train classification)
+print this line. The Version Gate prints the same code when
+`git fetch origin <base>` fails three times. `gstack-restamp` and
+`gstack-ship-queue land` print it too when they cannot read the base branch's
+CHANGELOG, which they check fragments against (`lib/changelog-fragments.ts`
+reads it through `lib/history-read.ts`); outside a partial clone they do not
+retry.
+
+**Fix.** Rerun the failed job once GitHub is reachable. If it fails the same
+way on a healthy network, check that the ref exists on `origin` and that the
+runner's git supports partial clone (`git --version` 2.22 or newer; the eval
+image asserts it at build time in `.github/docker/Dockerfile.ci`). For a local
+tool, run `git fetch origin <base>` and rerun it.
+
 <a id="policy-invalid"></a>
 ### `POLICY_INVALID`
 
@@ -3306,6 +3353,54 @@ makes the row a check rather than a claim.
 **Fix.** Add where the check was made to the line, for example
 `REALITY: already-done pass 0 hits since 2026-10-09 for bin/gstack-doctor 91bbd9e`
 or `REALITY: surface-check finding bun upgrade --version absent on 1.3.14 bin/gstack-capy-install:52`.
+
+<a id="office-hours-probe-refused"></a>
+### `OFFICE_HOURS_PROBE_REFUSED`
+
+**Meaning.** The office-hours spec reviewer may check a cited flag with
+`gstack-office-hours-review probe --help <command> [<subcommand>]`, and nothing
+else runs. The command must be a gstack bin or one of the listed read-only CLIs
+(git, gh, bun, node, npm, pnpm, yarn, jq, rg, python3, uv, go, cargo, make,
+docker, claude, codex, gemini), found on PATH outside the repository; a gstack
+bin must handle `--help`. Subcommand words are allowed for git, gh,
+docker, cargo, go, npm and uv (one word for git, cargo and npm; up to two for gh, docker, go and uv), each from that CLI's list of built-in names in
+`lib/office-hours-probe.ts`; words that run a named program, script, image or
+extension (`uv run`, `docker run`, `go test`, `npm exec`, a gh extension) are
+refused. The probe never runs a shell or a repository-local program (PATH
+entries inside the repository are dropped), closes stdin, runs in an empty
+temporary directory, passes no keys or tokens in its environment and stops after
+10 seconds.
+
+**Fix.** Nothing to repair. The claim stays unverified, not disproved; check it
+from the command's source or docs in the repository instead.
+
+<a id="tasks-supersede-refused"></a>
+### `TASKS_SUPERSEDE_REFUSED`
+
+**Meaning.** `gstack-tasks` refused a task list. Either `add` found a line in
+the rows file (`.gstack/tmp/tasks-<phase>-rows.jsonl`) that is not a valid
+task or disposition, or it leaves a task from the branch's earlier list neither
+carried nor closed (the error names each `<run_id>/<id>`), so nothing was written; or `supersede` was asked to retire the earlier lists
+but the new list (`--keep`) is missing, outside the tasks directory, has a
+malformed line, or holds a row for another phase or branch, so nothing was
+moved and both lists stay live.
+
+**Fix.** Fix the line the error names in the rows file (`gstack-tasks --help`
+shows both row shapes), and rerun `gstack-tasks add --phase <phase>`.
+
+<a id="reality-receipt-unresolved"></a>
+### `REALITY_RECEIPT_UNRESOLVED`
+
+**Meaning.** `gstack-plan-reality check` opened a receipt and it is false in
+the checkout: the file is missing, it is a directory or a dangling link, the
+line is 0 or the range runs backward, or the cited line is past its end. The `RECEIPT_UNRESOLVED: <row> <receipt> <reason>` line names each
+one. A receipt the checkout cannot judge (a path outside every root, a bare
+file name no root has, a sha a shallow clone lacks) prints
+`RECEIPT_UNVERIFIABLE:` instead and never blocks.
+
+**Fix.** Open the file and cite the line that holds the evidence. When the
+evidence lives in another checkout, run `check` with `--root <dir>` for it
+(repeatable; the default is the git top level of the working directory).
 
 ## Pre-gate: generated-file registry, gstack-pregate, issue links
 
@@ -5481,10 +5576,36 @@ retargeted stacked PR the parent branch and the base.
 **Fix.** Run /ship on the new head. The receipt carries only across a
 conflict-only base merge, a test-only change, release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
-the recorded product diff, or a stacked PR's retarget once its parent fully
-landed on the base, which the
+the recorded product diff, a stacked PR's retarget once its parent fully
+landed on the base, or base context next to unchanged hunks after a clean
+scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
+
+<a id="receipt-carry-scoped-review"></a>
+### `RECEIPT_CARRY_SCOPED_REVIEW`
+
+**Meaning.** Every product path the branch touches has the reviewed +/- lines
+in the same places, but the base edited context lines next to some of them, so
+the 3-line patches differ (GST-384: main reworded the line above the PR's
+hunk). The merge may have spliced the two, as in a JSON entry where the branch
+changed one key and the base the next, so the receipt does not carry silently.
+The refusal names the paths and a packet file with the hunks that differ and
+the base's own change. The same lines moved somewhere else are
+`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code.
+
+**Fix.** Dispatch one fix-check reviewer
+([review-policy.md](review-policy.md)) on the packet. When it comes back clean,
+write `{"head":"<HEAD>","paths":[...],"reviewer":"<model>","verdict":"clean"}`
+and rerun `gstack-ship-receipt carry ... --scoped-review <record.json>`; the
+carry reason records the reviewer and the paths. A blocking finding means /ship
+on the new head. `gstack-ship-release finish` stops the same way with
+`context=N` and takes `--context-reviewed <record.json>` bound to the tree;
+write that record beside the packet, outside the worktree, so it does not change
+the tree it is bound to. Finish also stops this way for test code changed since
+review with no gate edit (`tests=N`): the packet holds those test hunks, and the
+reviewer checks that each test still tests what it did. A packet that cannot be
+written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the path.
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`
