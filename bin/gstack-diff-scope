@@ -36,6 +36,20 @@ _default_base() {
 BASE="${1:-$(_default_base)}"
 HEAD_REF=""
 if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
+# A bare branch name reads origin's tracking branch, by its full ref, when that
+# shares history with HEAD: /ship merges against origin/<base>, and a linked
+# worktree or a Capy clone never moves the local branch, so a stale one widens
+# the scope (#3650). A remote-qualified name is taken as given.
+_NOT_BRANCH='^[0-9a-f]{7,64}$|[~^]|@\{|^[A-Z_]*HEAD$|^refs/'
+_QUALIFIED=false
+for _remote in $(git remote 2>/dev/null); do
+  case "$BASE" in "$_remote"/*) _QUALIFIED=true ;; esac
+done
+if [[ ! "$BASE" =~ $_NOT_BRANCH ]] && [ "$_QUALIFIED" = false ] \
+  && git rev-parse --verify -q "refs/remotes/origin/${BASE}^{commit}" >/dev/null 2>&1 \
+  && git merge-base "refs/remotes/origin/${BASE}" "${HEAD_REF:-HEAD}" >/dev/null 2>&1; then
+  BASE="refs/remotes/origin/${BASE}"
+fi
 
 FRONTEND=false
 BACKEND=false
