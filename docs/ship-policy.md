@@ -994,8 +994,10 @@ construction:
    body, so a finding that quotes a credential stays `unfiled (publication scan
    refused: …)`; `unfiled (<reason>)` without `gh`) and `render` writes it under
    `## Deferred findings` in the PR body. Below-floor findings outside the diff,
-   and every below-floor finding from pass 2 on, are `scope: note` and go under
-   `## Review notes` in the PR body.
+   every below-floor finding from pass 2 on, and every below-floor finding from
+   Step 11's voices or a fix-check (`raised_by` `adversarial-native`,
+   `outside-voice` or `fix-check`, even classified at `--pass 1`) are
+   `scope: note` and go under `## Review notes` in the PR body.
 2. **Pass 2 and later review the range since the previous pass.** Each pass saves
    `PASS_HEAD`; the next pass sets `RANGE_BASE` to it, diffs `RANGE_BASE..HEAD`
    for every reviewer (the core checklist, specialists, Red Team, the outside
@@ -1080,7 +1082,10 @@ itself touched at either head (a base merge brings in every path the base
 changed, none of which can differ between the two base diffs). Product means every changed path that is not test code (`test/**`,
 `spec/**`, `e2e/**`, `**/*.test.<code ext>`, `**/*.spec.<code ext>` and the
 other `CARRY_TEST_GLOBS` in `lib/ship-receipt.ts`; an `openapi.spec.yaml` is
-product) or release metadata (`CHANGELOG.md`, `agents-digest/**`, and `VERSION`
+product) or release metadata (`CHANGELOG.md`, `agents-digest/**`, each
+`<changelog_fragments.dir>/<slug>.md` fragment when the base policy sets
+`changelog_fragments` (not the directory's README.md or a nested path; a README
+change also makes the range's fragments product), and `VERSION`
 or `package.json` only while the change is a version stamp and nothing else: a
 dependency, a script or a new key makes them product). A path the policy's
 `stamp_files`, `stamp_paths` or `release_outputs` name is metadata only while

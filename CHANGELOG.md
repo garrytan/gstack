@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.91.347.0] - 2026-10-31
+
+**A Captain archives only its own crew's threads (R39, amended). A thread outside every crew belongs to the owner and stays as it is, even when the Captain's own automation created it.**
+
+### Changed
+- **docs/captain.md and the Capy factory context (`factory.md` point 12)** now say a Captain archives only the threads in its own crew, each when its plan for that thread says the work is done. No Captain archives, flags or lists a thread outside every crew for archiving unless the owner asks. The earlier wording also let a Captain archive threads its automations started outside the crew, and that emptied the owner's unattached threads.
+
+## [1.91.346.0] - 2026-10-31
+
+**`sealed.local_path` now flags a home path inside a shell default, `${UBI_RUNNER:-/home/<user>…}`, as it already flagged the same path after `?? "/home/<user>…"` in TypeScript.** gstack-evals `quick/laneb/runner/launch.sh:9` passed the scan because the `-` before the path counted as part of a word (#3568).
+
+### Fixed
+- **`sealed.local_path`** (`lib/sealed-guard.ts`): a home path directly after a `${…:-` or `${…-` default now matches, for a name, an array element (`${arr[0]:-`, a subscript of up to 64 characters, so a long line of unclosed `${a[` cannot make the scan quadratic), an indirect name (`${!ref:-`), a positional number or a special parameter (`${@:-`). `:=`, `:+` and `:?` already matched, because `=`, `+` and `?` were never word characters. A hyphen anywhere else still excludes the match, so a path glued to a word (`docs-…`, `$VAR-…`, `${VAR}-…`) stays unflagged; docs/pregate.md lists that as a known limit.
+
+### Gate integrity
+- This is a gate edit that only tightens. The guard now refuses lines it passed before. No existing test, threshold or allowlist changed. A new case in `test/sealed-guard.test.ts` covers all five operators, a positional parameter, `${@`, an array element, an indirect name, a Windows path and the TypeScript `??` form. It also checks six negative controls, which are two hyphenated paths, a hyphenated sentence, `$VAR-`, `${VAR}-` and a relative default. Without the fix it misses every `-` form.
+
+## [1.91.345.0] - 2026-10-31
+
+**A capped `/ship` on Capy now spends fewer agent turns and counts only its own tokens, while every reviewer still gets exactly the brief 1.91.331.0 gives it.** Two new commands do `/ship`'s fixed shell work, a short driver file replaces reading the whole skill when a parent agent runs `/ship`, and the budget measures each reviewer batch on its own instead of across the parent's work. Replays of gstack-evals #34 and #36 (GSTA-167) spent 12.19M tokens on Steps 12-17 and 0.25-0.4M on each parent turn; these changes cut turns, not reviewer context.
+
+### Added
+- **`gstack-ship-preflight`** runs Steps 1-3 (branch guard, status, fetch, diff stat, PR and receipt carry, scope, base merge, distribution, policy, runtime lines) and Step 5 (pregate, then the test lanes in parallel) in one call. **`gstack-ship-release`** runs Step 12's version, Steps 15-16's release commit and verification, and Step 17's push. Each prints at most 30 lines; `STOP:` names the decision left to the agent and `NEXT:` the step to run. Under `queue_mode stamp-at-merge` or `changelog_fragments` the version step prints `VERSION: skipped (policy: ...)` and writes nothing; under `changelog_fragments` its `NEXT:` line names the branch's own fragment, and `finish` commits that fragment as release metadata.
+- **`ship/DRIVER.md`**, a compact host-neutral driver for a parent agent running `/ship` unattended: one or two calls per phase, and the section each STOP needs. Its audit, review, adversarial and documentation phases run their sections as written, so it never restates or shortens a reviewer's brief.
+- **`gstack-review-dispatch`** gates every `/ship` reviewer brief and finding. `render` builds a reader's brief from its section with only declared slots filled, `sent` checks the prompt a dispatch passed against that brief by sha256 (`BRIEF_MISMATCH` voids the review), `collect` is the only way findings reach `merged.jsonl` (each with its label as written), and `judge` refuses a judged set that drops or downgrades a collected finding. `verify --ledger` replays all of it per pass from the run's ledger and prints `VERIFY: clean` only when nothing was lost; a mismatched send that was re-sent exact before anything was collected shows as `voided=N`.
+- **Small runs keep their segment.** `check --runtime-lines <n>` continues at the Step 9 and Step 12 boundaries with a `SMALL_RUN:` line when the diff has at most 50 runtime lines and the segment would cost less than a child's fixed startup.
+
+### Changed
+- **The Capy meter reads the agent's own thread**, its subagents included, inside the same program as the budget command, never in a call of its own. A handoff child counts from its own `verify-handoff` reading, and `reconcile` charges the `used=` its return prints.
+- **Steps are priced at the run's own per-call charge** once three calls are measured; a prior reading older than the run's last reading is ignored (`CALL_UNKNOWN:`).
+- **A reviewer batch is measured only by its own program's reading pair** (`settle --dispatched-at <before> --reading <after> --readers <n>`); anything else prints `UNMEASURED:` and leaves the factor alone. `check` prints the reservation id alone on a `RESERVATION_ID:` line, a multi-role reservation admits one review start per role, and `--finish` settles a later Red Team batch of the same pass.
+- **A handoff brief lists the child's `READ:` line ranges**: its own steps of `ship/SKILL.md` and each of its sections whole, and names the last step it returns at.
+- **The Capy launch file appends the checkout's `bin/` to PATH**, so a bare `gstack-ship-budget` resolves.
+
+### Fixed
+- **A failed child stops its parent** until a regenerated child reconciles complete or the owner resumes, and `reconcile --record` finds the parent run after a `--continue` child.
+- **`close` counts review starts reserved in handoff children**, so a dispatch reserved inside a child is no longer flagged as unreserved at the root.
+- **A dependency or script change after review is re-reviewed.** `gstack-ship-release finish` counts package.json and package-lock.json as release metadata only when the version alone changed, never counts bun.lock, and decides after any `--build` runs. TODOS.md edits rerun the test lanes.
+- **`push` stops when the sealed-output guard could not run**, not only when it refuses.
+
+### Tests
+- `test/review-packets-removed.test.ts` now also pins the reviewer briefs, checklists, fix-check prompt and depth rules by content, so a change to what a reviewer sees fails until its no-loss replay is recorded.
+
+## [1.91.344.0] - 2026-10-31
+
+**A PR that moves its CHANGELOG entry into `changelog.d/` keeps its /ship receipt (GST-343).** Since #3654 turned on changelog fragments for gstack, a base merge that moved a PR's `[Unreleased]` entry into `changelog.d/<slug>.md` made `gstack-ship-receipt carry` refuse with RECEIPT_CARRY_PRODUCT_CHANGED. The PR then needed a new review pass for a changelog edit.
+
+### Fixed
+- **Carry counts a changelog fragment as release metadata** (`lib/ship-receipt.ts`, `bin/gstack-ship-receipt`). When the base policy sets `changelog_fragments`, each `<dir>/<slug>.md` directly under the directory is metadata, as `CHANGELOG.md` is. The directory's README.md, a nested path, a non-Markdown file and a fragment under a policy without `changelog_fragments` stay product. docs/ship-policy.md lists the fragment under release metadata.
+
+### Tests
+- `test/gstack-ship-receipt.test.ts`: a merge-only head that moves the entry into `changelog.d/feat.md` carries as "base merge + release metadata". A README edit in the same merge is refused and named, and so is the same move when the base policy has no `changelog_fragments`.
+
 ## [1.91.343.0] - 2026-10-31
 
 **Every ask to the owner now uses one lettered format (R41): the Captain's name, then one line per decision with the problem, the options and the recommendation, so the owner can answer "do it" or a letter like "B2" from a phone. When the owner has to do something, the ask links the exact page and lists the steps (R43).**

@@ -29,6 +29,19 @@ describe('ship-budget calibration', () => {
     }
   });
 
+  // Value: protects=step_calls are refit from measured step windows, not guessed: a keyed step equals the ceiling of its most observed calls and an unkeyed step stays at or under default; fails_when=a step_calls entry drifts from its observations or loses its sources;
+  //   why_new=the constant tests above never covered step_calls; seam=none; no_claim=the 330k per-call divisor fits every run
+  test('step_calls equal the ceiling of their most observed calls; unkeyed steps stay at or under default', () => {
+    const observed = cal.step_calls_observed ?? {};
+    expect(Object.keys(observed)).toEqual(expect.arrayContaining(['8', '14']));
+    for (const [step, rows] of Object.entries(observed)) {
+      for (const row of rows) expect(row.source.length, step).toBeGreaterThan(20);
+      const most = Math.ceil(Math.max(...rows.map(r => r.value)));
+      if (step in cal.step_calls) expect(cal.step_calls[step], step).toBe(most);
+      else expect(most, step).toBeLessThanOrEqual(cal.step_calls.default!);
+    }
+  });
+
   test('every meter unit has its own per-call floor: the largest round_to multiple at or below its observed fresh call, justified', () => {
     for (const unit of ['capy-tokens', 'claude-usage-tokens', 'estimate-tokens']) {
       const u = cal.units[unit]!;

@@ -102,6 +102,36 @@ describe('pre-push hook: public destination refuses each kind of sealed output',
     }
   });
 
+  test('local_path matches a home path after every shell parameter-expansion operator, and still skips hyphenated words', () => {
+    const positives = [
+      'RUNNER="${UBI_RUNNER:-/home/user/.capy/drive/runner}"',
+      'RUNNER="${UBI_RUNNER-/home/user/runner}"',
+      'RUNNER="${UBI_RUNNER:=/home/user/runner}"',
+      'RUNNER="${UBI_RUNNER:+/Users/bob/runner}"',
+      'RUNNER="${UBI_RUNNER:?/home/user/runner}"',
+      'ROOT="${1:-/Users/bob/work}"',
+      'ROOT="${@:-/home/user/work}"',
+      'ROOT="${arr[0]:-/home/user/work}"',
+      'ROOT="${!ref:-/home/user/work}"',
+      'ROOT="${WIN_ROOT:-C:\\Users\\bob\\work}"',
+      'const dir = process.env.UBI_WORK ?? "/home/ubi/work";',
+    ];
+    const negatives = [
+      'see docs-/home/user/x for the old layout',
+      'mount at data-/Users/bob/cache',
+      'RUNNER="$UBI_RUNNER-/home/user/runner"',
+      'RUNNER="${UBI_RUNNER}-/home/user/runner"',
+      'RUNNER="${UBI_RUNNER:-./runner}"',
+      'a well-known, self-hosted, run-to-completion job',
+    ];
+    const s = scratch({ '.gstack/pregate.json': policy(SEALED) });
+    commit(s, { 'runner/launch.sh': [...positives, ...negatives].join('\n') + '\n' });
+    const r = hook(s);
+    expect(r.code).toBe(1);
+    const flagged = [...r.err.matchAll(/sealed\.local_path\s+runner\/launch\.sh:(\d+)/g)].map(m => Number(m[1]));
+    expect(flagged).toEqual(positives.map((_, i) => i + 1));
+  });
+
   test('path rules ignore content: a binary file, an empty transcript, an add-then-delete and a rename into a sealed path all refuse', () => {
     const binary = scratch({ '.gstack/pregate.json': policy(SEALED) });
     commit(binary, { 'heldout/questions.bin': Buffer.from([0, 1, 2, 0, 255, 0]) });

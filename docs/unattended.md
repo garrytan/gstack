@@ -192,7 +192,7 @@ never on polling wakes.
 A parent bounds a /ship run with `--token-cap <n>` (or `GSTACK_SHIP_TOKEN_CAP`).
 It is an admission cap: /ship meters usage, reserves every step and dispatch
 batch before it starts, and stops `status=incomplete` with a `RECOVER:` line
-instead of starting work that would cross the cap. Long runs hand Steps 7–11.5
+instead of starting work that would cross the cap. Long runs hand Steps 9–11.5
 and 12–22 to fresh-context children. The flow, the BUDGET line and the result
 codes are in [ship-budget.md](ship-budget.md).
 

@@ -1846,17 +1846,17 @@ owner's call: run the printed `RECOVER:` line; its resume needs
 <a id="budget-reading-missing"></a>
 ### `gstack-ship-budget: ... (BUDGET_READING_MISSING)`
 
-**Meaning.** The run's meter is the Capy root counter, a cap is set, and the command got no
+**Meaning.** The run's meter is the agent's own Capy jam counter, a cap is set, and the command got no
 `--reading`. Exit 2. No gstack binary can call Capy's API, so the agent reads it.
 
-**Fix.** In one execute program return only
-`(await tools.thread.get({ thread_id: "this" })).cost.tokens` and pass it as `--reading <n>`.
+**Fix.** In the execute program that runs the command, read
+`(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` and pass it as `--reading <n>`.
 
 <a id="budget-reading-rejected"></a>
 ### `gstack-ship-budget: ... (BUDGET_READING_REJECTED)`
 
 **Meaning.** The reading breaks the run's meter contract: it is lower than the last reading
-of the same epoch, `--prior-reading` is above `--reading`, or `--reading` went to a meter that
+of the same epoch, `--prior-reading` or `--dispatched-at` is above `--reading`, or `--reading` went to a meter that
 reads its own source (Claude Code journals, the estimate). Exit 2; nothing changed.
 
 **Fix.** Pass the counter the run started with (the BUDGET line names meter, unit and epoch).
@@ -1908,7 +1908,7 @@ and actual value. Main moving alone keeps the merge base and never refuses. Exit
 wrote its return with status=refused.
 
 **Fix.** The parent reconciles the refusal and regenerates the handoff at the current tree
-(`gstack-ship-budget handoff ...`) or stops.
+(`gstack-ship-budget handoff ...`) or stops. The reconcile stops the run (`reason=child_refused`): every check refuses until a regenerated child reconciles complete or the owner runs `gstack-ship-budget resume`.
 
 ## Browser
 
