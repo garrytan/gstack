@@ -23,6 +23,7 @@ import { profileOwner, ensureProjectProfile, runProfilesCommand } from './chromi
 // Zero side effects on import (documented invariant in token-registry.ts) —
 // safe to pull the shared pairing default into the CLI.
 import { DEFAULT_PAIR_SCOPES } from './token-registry';
+import { chooseSession, extractSession, systemProcLookup } from './session-name';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -1088,14 +1089,16 @@ export async function commandTimeoutReport(state: { pid: number; port: number } 
 
 // ─── Command Dispatch ──────────────────────────────────────────
 export async function sendCommand(state: ServerState, command: string, args: string[], retries = 0): Promise<void> {
-  // Precedence: CLI --tab-id flag > BROWSE_TAB env var.
+  // Precedence: CLI --tab-id flag > BROWSE_TAB env var > --session > BROWSE_SESSION > agent harness.
   // make-pdf always passes --tab-id; human users typically rely on BROWSE_TAB
   // or the active tab.
   const extracted = extractTabId(args);
-  args = extracted.args;
+  const sessionFlag = extractSession(extracted.args);
   const envTab = process.env.BROWSE_TAB;
   const tabId = extracted.tabId ?? (envTab ? parseInt(envTab, 10) : undefined);
-  const body = JSON.stringify({ command, args, ...(tabId !== undefined && !isNaN(tabId) ? { tabId } : {}) });
+  const hasTab = tabId !== undefined && !isNaN(tabId);
+  const { session, auto } = chooseSession({ hasTab, flag: sessionFlag.session, env: process.env, parentPid: process.ppid, lookup: systemProcLookup() });
+  const body = JSON.stringify({ command, args: sessionFlag.args, ...(hasTab ? { tabId } : {}), ...(session ? { session, ...(auto ? { sessionAuto: true } : {}) } : {}) });
   const timeoutMs = command === 'cookie-import-browser' ? 90_000 : 30_000;
 
   try {
@@ -1856,6 +1859,10 @@ Inspection:     js <expr> | eval <file> | css <sel> <prop> | attrs <sel>
                 is <prop> <sel> (visible|hidden|enabled|disabled|checked|editable|focused)
 Visual:         screenshot [--viewport] [--clip x,y,w,h] [@ref|sel] [path]
                 pdf [path] | responsive [prefix]
+Touch:          device ["<phone>" [--landscape] | off | --list]  (this tab only)
+                tap <@ref|sel|x y> [--hold <ms>] | pinch <@ref|sel|x y> <scale>
+                swipe <@ref|sel|x y> <up|down|left|right> [--distance <px>] [--ms <n>]
+                touch [down|move <finger 0-9> <x> <y> | up <finger> | cancel]
 Snapshot:       snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o path] [-C]
                 -D/--diff: diff against previous snapshot
                 -a/--annotate: annotated screenshot with ref labels
@@ -1863,6 +1870,8 @@ Snapshot:       snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o path] [-C]
 Compare:        diff <url1> <url2>
 Multi-step:     chain (reads JSON from stdin)
 Tabs:           tabs | tab <id> | newtab [url] | closetab [id]
+                --session <name> | BROWSE_SESSION=<name>: this caller's own tab
+                (agents get one per agent process; BROWSE_SESSION= turns it off)
 Server:         status | cookie <n>=<v> | header <n>:<v>
                 useragent <str> | stop | restart
                 profiles [list] | profiles prune [--days N]  (per-project headed profiles)

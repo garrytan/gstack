@@ -13,6 +13,7 @@
 | **Pages visited** | {COUNT} |
 | **Screenshots** | {COUNT} |
 | **Framework** | {DETECTED or "Unknown"} |
+| **Phones** | {Chromium device profiles emulated, or "—"}; real device still needed (/ios-qa): {what, or "—"} |
 
 ## Health Score: {SCORE}/100
 

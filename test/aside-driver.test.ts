@@ -138,6 +138,9 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
   test('cookbook uses only the verified Aside APIs', () => {
     expect(section).toContain('Page.addScriptToEvaluateOnNewDocument');
     expect(section).toContain('Emulation.setDeviceMetricsOverride');
+    // Touch and phone recipe: verified on Garry's Mac in Aside 1.26 (GSTA-227 F3, #3058).
+    expect(section).toContain('Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 }');
+    expect(section).toContain('Input.dispatchTouchEvent');
     expect(section).toContain('annotatedScreenshot(pg)');
     expect(section).toContain('snapshot(pg, { interactive: true })');
     // Verified NOT to exist or NOT to persist across CLI calls — must never be recommended.

@@ -24,6 +24,7 @@ import { TEMP_DIR, isPathWithin } from './platform';
 import { escapeEnvelopeSentinels } from './content-security';
 import { stripLoneSurrogates } from './sanitize';
 import { guardScreenshotPath } from './screenshot-size-guard';
+import { reassertDevice } from './device-emulation';
 import { SNAPSHOT_FLAGS, type SnapshotOptions } from './snapshot-flags';
 
 export { SNAPSHOT_FLAGS } from './snapshot-flags';
@@ -430,6 +431,7 @@ export async function handleSnapshot(
       }, boxes);
 
       await page.screenshot({ path: screenshotPath, fullPage: true });
+      await reassertDevice(session);
       await guardScreenshotPath(screenshotPath);
 
       // Always remove overlays
@@ -560,6 +562,7 @@ export async function handleSnapshot(
       }, boxes);
 
       await page.screenshot({ path: heatmapPath, fullPage: true });
+      await reassertDevice(session);
       await guardScreenshotPath(heatmapPath);
 
       // Remove heatmap overlays
