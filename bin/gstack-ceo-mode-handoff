@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # gstack-ceo-mode-handoff — print /plan-ceo-review's Step 0E mode handoff line.
 #
-# Usage: gstack-ceo-mode-handoff <MODE> [--auto] [--decisions "<rows>"]
+# Usage: gstack-ceo-mode-handoff <MODE> [--auto | --ceo-only] [--decisions "<rows>"]
 #   MODE: HOLD SCOPE | SCOPE EXPANSION | SELECTIVE EXPANSION | SCOPE REDUCTION
 #         (underscores accepted for spaces)
 #   --auto       the mode came from a saved AUTO_DECIDE preference
+#   --ceo-only   the mode came from 0E's rule in an /autoplan --ceo-only run
 #   --decisions  governing approved rows; defaults to "none"
 #
 # The handoff used to be chat-only, and the model often composed it in its
@@ -15,10 +16,12 @@ set -euo pipefail
 mode="${1:-}"
 [ "$#" -gt 0 ] && shift
 auto=0
+ceo_only=0
 decisions="none"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --auto) auto=1; shift ;;
+    --ceo-only) ceo_only=1; shift ;;
     --decisions)
       [ "$#" -ge 2 ] || { echo "gstack-ceo-mode-handoff: --decisions needs a value" >&2; exit 2; }
       decisions="$2"; shift 2 ;;
@@ -31,11 +34,14 @@ case "$mode" in
   "HOLD SCOPE"|"SCOPE EXPANSION"|"SELECTIVE EXPANSION"|"SCOPE REDUCTION") ;;
   *) echo "gstack-ceo-mode-handoff: unknown mode: ${mode:-<empty>}" >&2; exit 2 ;;
 esac
+[ "$auto$ceo_only" != 11 ] || { echo "gstack-ceo-mode-handoff: --auto and --ceo-only conflict" >&2; exit 2; }
 decisions="${decisions//$'\n'/ }"
 decisions="${decisions%.}"
 [ -n "${decisions// /}" ] || decisions="none"
 
-if [ "$auto" = 1 ]; then
+if [ "$ceo_only" = 1 ]; then
+  echo "Auto-selected review mode → $mode (CEO-only run: Step 0E's rule). Approved decisions: $decisions."
+elif [ "$auto" = 1 ]; then
   echo "Auto-decided review mode → $mode (your preference). Change with /plan-tune. Approved decisions: $decisions."
 else
   echo "Mode: $mode; approved decisions: $decisions."

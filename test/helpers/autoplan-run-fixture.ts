@@ -58,6 +58,16 @@ export function resultOf(out: string, phase: string, voice: 'native' | 'outside'
 }
 /** The sealed copy a completed voice is bound to. */
 export const boundOf = (out: string, phase: string, voice: 'native' | 'outside'): string => path.join(out, readRun(out).phases[phase][voice].output);
+/**
+ * A `rec`/`all` reply that carries every open Critical/High finding item into the build (`<id>b`, no plan change),
+ * so a test about another gate mechanism keeps its flow; `extra` tokens are appended to the except list.
+ */
+export function recCarrying(out: string, base = 'all', extra: string[] = []): string {
+  const carry = (JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8')).items as Array<{ id: string; finding?: string[] }>).filter(i => i.finding).map(i => `${i.id}b`);
+  const tokens = [...carry, ...extra];
+  return tokens.length ? `${base} except ${tokens.join(' ')}` : base;
+}
+
 export function attemptsOf(out: string, phase: string): { native: string; outside: string } {
   const run = readRun(out);
   return { native: run.phases[phase].native.attempt, outside: run.phases[phase].outside.attempt };

@@ -2,7 +2,9 @@
  * gate-list — one gate list instead of four-option sequences (plan B9).
  * A gate list is numbered items, each with a stable id, a recommended default
  * and lettered options; `auto` items take their recommendation when
- * unanswered, `approval` items stay pending until answered. One reply
+ * unanswered (one whose recommendation changes the plan keeps the plan's
+ * direction instead, unless the reply approves with the recommended changes,
+ * `p1b`), `approval` items stay pending until answered. One reply
  * grammar: `rec` (every item takes its recommendation, plan changes
  * included), `<id><option>` tokens (`d3b uc1a`), or `rec except <tokens>`
  * (the same operation as listing the overrides). `all`, `approve all`,
@@ -39,6 +41,8 @@ export interface GateItem {
   carried?: { from: string; chosen: string; gate_rev: number };
   /** A round-cap item (lib/autoplan-budget.ts): `b` grants the phase one more round and reopens it. */
   cap?: { phase: string; kind: 'deferred' | 'blocker' | 'delta'; ref?: string };
+  /** An open Critical or High finding (its ids, a paired twin included): `a` applies the reviewer's fix to the plan. */
+  finding?: string[];
 }
 export interface GateList { schema_version: 1; run: string; gate_rev: number; items: GateItem[]; title?: string;
   /** Bumped by every `recommend`, so a `rec` relayed before it no longer matches `recHash`. */
@@ -196,6 +200,7 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
   const choices: GateChoice[] = [];
   const pending: string[] = [];
   const how = (item: GateItem, chosen: string) => (chosen === item.recommended ? 'recommended' : 'override') as GateChoice['how'];
+  const withChanges = overrides.get('p1') === 'b';
   for (const item of list.items) {
     const chosen = overrides.get(item.id);
     const earlier = prior[item.id] ?? item.carried?.chosen;
@@ -203,7 +208,7 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
     else if (earlier !== undefined && item.options.some(o => o.key === earlier)) choices.push({ id: item.id, chosen: earlier, kind: item.kind, how: how(item, earlier), prior: true });
     else if (asIs) { const keep = keepDirection(item); choices.push({ id: item.id, chosen: keep, kind: item.kind, how: how(item, keep) }); }
     else if (rec) choices.push({ id: item.id, chosen: item.recommended, kind: item.kind, how: 'recommended' });
-    else if (item.kind === 'auto') choices.push({ id: item.id, chosen: item.recommended, kind: item.kind, how: 'auto_default' });
+    else if (item.kind === 'auto') choices.push({ id: item.id, chosen: withChanges ? item.recommended : autoDefault(item), kind: item.kind, how: 'auto_default' });
     else pending.push(item.id);
   }
   return { ...base, valid: true, choices, pending, mode: rec ? 'rec' : asIs ? 'as-is' : 'tokens' };
@@ -212,6 +217,11 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
 /** The option that keeps the plan's direction: the first with `changes_plan: false`; plan approval `a`; else the recommendation. */
 export function keepDirection(item: GateItem): string {
   return item.options.find(o => o.changes_plan === false)?.key ?? (item.id === 'p1' && item.options.some(o => o.key === 'a') ? 'a' : item.recommended);
+}
+
+/** What an unanswered `auto` item resolves to: its recommendation, unless that changes the plan (then the plan's direction). */
+export function autoDefault(item: GateItem): string {
+  return item.options.find(o => o.key === item.recommended)?.changes_plan ? keepDirection(item) : item.recommended;
 }
 
 /** The decisions.jsonl id for a gate item. Item ids restart at every gate revision, so revisions after the first carry `r<rev>-`. */
@@ -224,7 +234,7 @@ export function decisionRows(list: GateList, extra: Partial<DecisionRow> = {}): 
   return list.items.map(item => ({
     schema_version: 1, run: list.run, id: decisionId(list.run, list.gate_rev, item.id), label: item.id.toUpperCase(), title: item.title,
     options: item.options.map(o => o.key), recommended: item.recommended, kind: item.kind, status: 'pending',
-    default_if_unanswered: item.kind === 'auto' ? item.recommended : null, gate_rev: list.gate_rev,
+    default_if_unanswered: item.kind === 'auto' ? autoDefault(item) : null, gate_rev: list.gate_rev,
     ...(item.phase ? { phase: item.phase } : {}), ...(item.cost ? { cost: item.cost } : {}),
     ...(item.recommended_basis ? { recommended_basis: item.recommended_basis } : {}), ...(item.changes ? { changes: item.changes } : {}),
     ...(item.origin ? { origin: item.origin } : {}), ...(item.reopens === false ? { source: 'agent' } : {}), ...extra,
@@ -234,14 +244,19 @@ export function decisionRows(list: GateList, extra: Partial<DecisionRow> = {}): 
 /** `--by` values: the owner typing tokens, or an agent relaying or deciding them. */
 export const ANSWERED_BY_RE = /^(human|agent:[A-Za-z0-9_.:-]+)$/;
 
+/** Who answered and in whose words: a new answer replaces all of it, so an earlier answerer's fields never survive under a later one. */
+const PROVENANCE = ['answered_by', 'owner_reply', 'owner_reply_parsed', 'answer_words', 'answer_words_parsed', 'words_by', 'carried_gate_from', 'carried_gate_rev', 'carry_reason', 'carried_answered_by'] as const;
+
 export function applyReply(rows: DecisionRow[], parsed: ParsedReply, answeredAt: string, answeredBy?: string, extra: Partial<DecisionRow> = {}): DecisionRow[] {
   if (!parsed.valid) return rows;
   const byId = new Map(parsed.choices.map(c => [c.id, c]));
   return rows.map(row => {
     const choice = byId.get(row.label?.toLowerCase() ?? '') ?? byId.get(row.id.slice(row.run.length + 1).replace(/^r\d+-/, ''));
     if (!choice || choice.prior || row.gate_rev !== parsed.gate_rev) return row;
+    const fresh = { ...row };
+    for (const k of PROVENANCE) delete (fresh as Record<string, unknown>)[k];
     return {
-      ...row, chosen: choice.chosen, answered_at: answeredAt, reply: parsed.reply, ...(answeredBy ? { answered_by: answeredBy } : {}), ...extra,
+      ...fresh, chosen: choice.chosen, answered_at: answeredAt, reply: parsed.reply, ...(answeredBy ? { answered_by: answeredBy } : {}), ...extra,
       status: choice.how === 'override' ? 'overridden' : 'approved',
     };
   });
