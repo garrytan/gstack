@@ -407,7 +407,7 @@ One more thing.
 
 **Beat 3: Garry's Personal Plea**
 
-Use the founder signal count from Phase 4.5 to select the right sub-tier.
+Use the founder signal count from Phase 4.5 to select the right sub-tier. First, name the signals you counted and when each showed up.
 
 - **Top tier** (3+ signals AND named a specific user, revenue, or demand evidence):
 
