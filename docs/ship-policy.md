@@ -1080,7 +1080,10 @@ itself touched at either head (a base merge brings in every path the base
 changed, none of which can differ between the two base diffs). Product means every changed path that is not test code (`test/**`,
 `spec/**`, `e2e/**`, `**/*.test.<code ext>`, `**/*.spec.<code ext>` and the
 other `CARRY_TEST_GLOBS` in `lib/ship-receipt.ts`; an `openapi.spec.yaml` is
-product) or release metadata (`CHANGELOG.md`, `agents-digest/**`, and `VERSION`
+product) or release metadata (`CHANGELOG.md`, `agents-digest/**`, each
+`<changelog_fragments.dir>/<slug>.md` fragment when the base policy sets
+`changelog_fragments` (not the directory's README.md or a nested path; a README
+change also makes the range's fragments product), and `VERSION`
 or `package.json` only while the change is a version stamp and nothing else: a
 dependency, a script or a new key makes them product). A path the policy's
 `stamp_files`, `stamp_paths` or `release_outputs` name is metadata only while
