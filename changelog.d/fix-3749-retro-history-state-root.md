@@ -1,0 +1,10 @@
+**/retro now remembers its history across git worktrees, so a run in a linked worktree compares against last week instead of announcing "First retro recorded".** Retro snapshots used to live in `.context/retros/` inside the working tree. A worktree (Conductor, Claude Code) saw none of the main checkout's history, and its own snapshot was deleted along with the worktree (#3749).
+
+### Fixed
+- **`bin/gstack-retro-metrics --history [--next <YYYY-MM-DD>]`**: keeps retro history in `~/.gstack/projects/<slug>/retros/` (the state root), which every worktree of a repository shares. It lists earlier snapshots as `RETRO_PRIOR` lines, newest first, and reserves the next `<date>-<n>.json` as `RETRO_FILE`, so two retros running at once in different worktrees never write the same file.
+- **Moving old history**: snapshots in `.context/retros/` of the current worktree and the main checkout move to the shared folder on the first run. A copy identical to a stored snapshot from the same date is dropped, and a different snapshot with the same name takes the next free number, so nothing is overwritten. A `.context/retros` that points outside its worktree (a symlink to the shared folder or anywhere else) is left alone, and moves never replace an existing file.
+- **`retro/SKILL.md`**: Steps 12 and 13 use the helper, the gbrain prior-retros query reads the shared folder, and a history error is reported to the user instead of being mistaken for an outdated helper. `docs/skills.md` says where snapshots are saved.
+- `gstack-retro-metrics` no longer loops forever when an option such as `--next` is given without a value.
+
+### Tests
+- `test/regression-3749-retro-history-worktree.test.ts` runs the real Step 12 block in a main checkout with a linked worktree: the worktree sees the main checkout's snapshot, its new snapshot path is outside the worktree and survives `git worktree remove`, migration keeps every snapshot, a symlinked `.context/retros` cannot delete history, and two runs get different snapshot paths. It failed 4 of 4 on the code before the fix.
