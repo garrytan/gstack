@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.91.361.0] - 2026-10-31
+
+**A reviewer's install no longer rewrites the lane's launch environment, and a hand-run `gstack-upgrade` on Capy no longer moves a checkout under another session.** These are follow-ups to the v1.91.356.0 fix that stopped reviewer installs from upgrading the shared checkout.
+
+### Fixed
+- **A `--for review-voice` install that keeps the lane's fuller install verdict now borrows that install's launch environment.** It writes no launch file and announces the lane's own `GSTACK_LAUNCH_FILE` and `GSTACK_LAUNCH_PATH`. Before, it rewrote the lane's `<verdict>.env` and could repoint `<verdict>.launch/bun` at gstack's minimum Bun instead of the project's pinned Bun. A reviewer's own launch directory now lives under `<verdict>.profile/review-voice.launch` (mode 0700), and a failing review-voice check removes `<verdict>.profile/`.
+- **`bin/gstack-upgrade` on Capy counts a fresh `capy-server` lease as another session's.** Every session on a Capy machine runs under one `capy-server` process, so its own-session exclusion used to drop a sibling's lease and move the checkout at once. It now refuses with `a shared harness (capy-server, pid <p>) holds a lease <n>m old; … (UPGRADE_BUSY)` until that lease is 120 minutes old. `GSTACK_UPGRADE_FORCE=1` still overrides. `gstack-lease live` keeps its meaning for the session start and the team-mode hook; only `gstack-upgrade` passes the new `--count-shared-harness` flag.
+- **Fix hints after a skipped upgrade name the 120-minute wait or `GSTACK_UPGRADE_FORCE=1`** instead of a bare `bin/gstack-upgrade`, which on Capy now refuses while a lease is fresh.
+- **The /autoplan reviewer prompt no longer says its install fast-forwards the checkout.** It clones when absent and otherwise uses the checkout as it is.
+
+### Changed
+- **Documented: the bootstrapper still fast-forwards a checkout below the supported minimum, for a reviewer too.** Below it, every session's trailer on that checkout fails, and the minimum rises only for install-honesty or security fixes. A test locks this rule.
+
 ## [1.91.360.0] - 2026-10-31
 
 **A PR's changelog.d fragment no longer brings back every paid gate case.** Since fragments became the way every PR records its CHANGELOG entry (v1.91.342.0), the PR eval selector read each `changelog.d/<slug>.md` as an unknown dependency and restored the full gate, so it saved nothing on any PR (GST-400, found on #3668).
