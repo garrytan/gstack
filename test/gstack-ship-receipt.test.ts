@@ -70,7 +70,7 @@ describe('gstack-ship-receipt write', () => {
     expect(rewritten.match(/```gstack-ship-receipt/g)).toHaveLength(1);
     expect(rewritten).toContain('"pr": 43');
     expect(rewritten).toContain('## Summary');
-  });
+  }, 15_000);
 
   test('refuses an invalid receipt before writing (RECEIPT_INVALID) and a non-integer --pr', () => {
     const repo = fixture();

@@ -140,8 +140,8 @@ function stagePieces(stage: string[], scope: ShellScope, alone: boolean): Piece[
   }
   if (name === 'grep' || name === 'ls') return [unknown()];
   if (text === 'pwd' || text === 'wc -l') return [unknown(1, 1)];
-  if (name === 'wc' && args[0] === '-l' && args.length > 1) {
-    // One count line per literal in-cwd file, plus a total for several.
+  if (name === 'wc' && (args[0] === '-l' || args[0] === '-c') && args.length > 1) {
+    // One line or byte count line per literal in-cwd file, plus a total for several.
     if (args.slice(1).some(operand => !scopedFile(operand, scope))) return undefined;
     const lines = args.length - 1 + (args.length > 2 ? 1 : 0);
     return [unknown(lines, lines)];
