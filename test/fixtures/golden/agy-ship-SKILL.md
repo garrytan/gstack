@@ -508,7 +508,7 @@ repeat Step 2 (decisions included) on the merged content, then Step 4.
    does not mean failed or unrun probes passed. Keep Step 9.4's incomplete flags
    and the user's exception.
 4. **Save the evidence.** Save both records and matching **reviewed tree** for
-   Step 16. Continue to Step 12.
+   Step 16, with its merge base. Continue to Step 12.
 
 ## Step 12: Version bump (auto-decide)
 
@@ -666,7 +666,7 @@ Run stages 1–5 in order; recovery notes below name where to resume. Content
 changes during or after verification restart at stage 1 and complete all five
 stages before Step 17. Content-preserving commits keep evidence valid.
 
-**One call for stages 1–4:** `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
+**One call for stages 1–4:** `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --reviewed-base <mb> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
 makes Step 15's item-3 commit and runs stages 1–4 and the pregate; each `STOP:` is a recovery
 below (`--docs-rechecked`, `--no-lanes-approved` record stage 2.2 and Step 5's approval).
 

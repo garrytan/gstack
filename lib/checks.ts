@@ -175,7 +175,7 @@ export function recordTrust(root: string, set: string, checks: readonly Check[],
 
 export function ledgerPath(root: string, env: NodeJS.ProcessEnv = process.env): string {
   const state = resolveStateRoot(env);
-  return path.join(state, 'projects', slugFromEnvironment(state, root), 'verify', sha256(realRoot(root)).slice(0, 12), 'last-run.json');
+  return path.join(state, 'projects', slugFromEnvironment(state, root, { scope: 'repository' }), 'verify', sha256(realRoot(root)).slice(0, 12), 'last-run.json');
 }
 
 export function readLedger(file: string): Ledger | null {

@@ -14,7 +14,7 @@ bun install                    # install dependencies
 bin/dev-setup                  # activate dev mode
 ```
 
-`./setup` on its own installs production dependencies only. `bun install` (and `bin/dev-setup`, which runs it) adds the dev toolchain the tests and evals need: the Claude Agent SDK, TypeScript and Prettier. Once they are installed, a later `./setup` runs the full install too, so they stay at `bun.lock`'s versions.
+`./setup` on its own installs production dependencies only. `bin/dev-setup` adds the dev toolchain the tests and evals need (the Claude Agent SDK, TypeScript and Prettier) and marks the clone as a contributor's with `git config gstack.contributor true`. In a marked clone a later `./setup` runs the full install too, so the toolchain stays at `bun.lock`'s versions. In an unmarked clone `./setup` moves back to production dependencies, which is how installs made before v1.91.231.0 drop the toolchain they never needed. If you ran plain `bun install` instead of `bin/dev-setup`, run `git config gstack.contributor true` once, or set `GSTACK_CONTRIBUTOR=1` for a single run.
 
 > **Full clone vs shallow.** The README's user-facing install uses `--depth 1` for speed. As a contributor, use a full clone (no `--depth` flag) — you'll need history for `git log`, `git blame`, `git bisect`, and reviewing PRs against earlier versions. If you already have a `--depth 1` clone from following the README, promote it to a full clone with `git fetch --unshallow`.
 
@@ -736,11 +736,11 @@ worth the review overhead.
 
 ## Multi-host development
 
-gstack generates SKILL.md files for 10 hosts from one set of `.tmpl` templates.
+gstack generates SKILL.md files for 13 hosts from one set of `.tmpl` templates.
 Each host is a typed config in `hosts/*.ts`. The generator reads these configs
 to produce host-appropriate output (different frontmatter, paths, tool names).
 
-**Supported hosts:** Claude (primary), Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes, GBrain.
+**Supported hosts:** Claude (primary), Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes, GBrain, Copilot, Antigravity, Gemini CLI.
 
 ### Generating for all hosts
 
@@ -749,7 +749,7 @@ to produce host-appropriate output (different frontmatter, paths, tool names).
 bun run gen:skill-docs                    # Claude (default)
 bun run gen:skill-docs --host codex       # Codex
 bun run gen:skill-docs --host opencode    # OpenCode
-bun run gen:skill-docs --host all         # All 10 hosts
+bun run gen:skill-docs --host all         # All 13 hosts
 
 # Or use build, which does all hosts + compiles binaries
 bun run build

@@ -280,6 +280,7 @@ decision/report content. The system handles context limits; do not preemptively 
 * **Edge cases:** thorough handling over speed.
 * **Explicit over clever.**
 * **Right-sized diff:** smallest clear change; rewrite a broken foundation when necessary.
+* **Data model:** storage follows the data's queries, integrity rules and update boundaries, not file count: fields queried, constrained or updated on their own get explicit columns or tables; JSON suits a document read and written whole.
 
 ## Cognitive Patterns — How Great Eng Managers Think
 
