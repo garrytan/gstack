@@ -1705,10 +1705,12 @@ session holds a workflow lease on this installation: pid <p> (<age>m
 <checkout>/bin/gstack-upgrade once the lease is 120 minutes old, or
 GSTACK_UPGRADE_FORCE=1 <checkout>/bin/gstack-upgrade when no other session uses
 this checkout (UPGRADE_BUSY))` and leaves the
-checkout where the run started. Each `gstack-skill-start` renews the lease.
+checkout where the run started. Each `gstack-skill-start` renews the lease
+and opens a run that its `gstack-skill-end` closes; a lease whose runs are all
+closed is idle and never counts (GST-1205).
 
 **Fix.** Wait for those sessions to finish (`bin/gstack-lease list` shows
-every lease with its age and `alive|dead|stale`; a holder is named as
+every lease with its age and `alive|idle|dead|stale`; a holder is named as
 `pid <p> (<age>m <command>)`), then re-run `bin/gstack-upgrade`. For the
 session's own run, or a shared-harness lease, re-run once the lease is 120
 minutes old. When you know no other session uses the checkout, `GSTACK_UPGRADE_FORCE=1 bin/gstack-upgrade`

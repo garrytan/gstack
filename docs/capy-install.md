@@ -187,7 +187,7 @@ run from inside a workflow (/ship's docs step running `install.sh --for
 document-release`, #3571) prints `SELF_UPGRADE: skipped (a gstack run in this
 session holds a workflow lease on this installation: ... (UPGRADE_BUSY))`,
 leaves the checkout where the run started and stays ok with `behind=`. Each
-`gstack-skill-start` renews the lease. On Capy the leased pid is the machine's
+`gstack-skill-start` renews the lease and records its `SESSION_ID` as an open run; `gstack-skill-end` closes that run, and a lease whose runs are all closed is idle and blocks nothing, so a finished /ship no longer holds the upgrade back (GST-1205). Each run counts for 120 minutes from its own start, whatever other sessions renew. A lease with no recorded run (written without `--run`, or by an older gstack) counts as before. On Capy the leased pid is the machine's
 long-lived `capy-server`, so the deferral ends when the lease turns 120
 minutes old, not when the process exits. Every session on the machine runs
 under that same `capy-server`, so `bin/gstack-upgrade` run by hand also
@@ -231,7 +231,7 @@ identities, a taker stalled over 2 minutes between its `mkdir` and its owner
 rename can be broken and then publish into its successor's lock. While a live process
 holds the lock, or it cannot be taken at all, `touch` exits 3 without writing
 (`gstack-skill-start` reports that the session holds no lease) and a reclaim
-keeps the lease. `bin/gstack-lease list` shows `alive|dead|stale`, and
+keeps the lease. `bin/gstack-lease list` shows `alive|idle|dead|stale`, and
 `GSTACK_UPGRADE_FORCE=1` overrides.
 
 ## What the installer does
