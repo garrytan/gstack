@@ -32,7 +32,7 @@ import { CHECKS, pregateMirrorPath, readPregateFile, verifyPregate, PREGATE_OUT_
 import { exceptionConsumerProblem, flakyExceptionLines } from './pregate/flaky-exception';
 import { ensureTmpExcluded, restamp, versionAtRef } from './restamp';
 import type { ResultCodeName } from './result-codes';
-import { extractReceipt } from './ship-receipt';
+import { extractReceipt, readyTailLines } from './ship-receipt';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { isUnavailable, loadPolicyFromBase, type LoadedPolicy } from './ship-policy';
 import {
@@ -279,6 +279,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     receipt.line,
     ...(receipt.depthLine ? [receipt.depthLine] : []),
     ...(receipt.targetedLine ? [receipt.targetedLine] : []),
+    ...readyTailLines(receipt.ok ? receipt.receipt : undefined),
   ];
   const gate = policy.policy.full_e2e ? gateEvidence(ctx, o.pr, head, attempt, o.gateExit, o.gateLog) : null;
   if (gate) lines.push(gate.line);

@@ -49,7 +49,7 @@ describe('E18: a repository without a version source or CHANGELOG', () => {
     const out = path.join(repo.root, 'run');
     const result = runBin(repo, 'gstack-ship-receipt', ['result', '--body', body, '--out', out]);
     expect(result.status).toBe(EXIT.ok);
-    expect(result.out.trim()).toBe(`GSTACK_RESULT: skill=ship status=complete run=${out}`);
+    expect(result.out.trim()).toBe(`GSTACK_RESULT: skill=ship status=complete head=${head} run=${out}`);
     expect(JSON.parse(fs.readFileSync(path.join(out, 'ship-run.json'), 'utf8')).version).toBe('none');
   });
 

@@ -165,9 +165,10 @@ describe('gstack-ship-receipt result (/ship terminal line, GBRA-108)', () => {
     const ok = runBin(repo, 'gstack-ship-receipt', ['result', '--pr', '5'], env);
     expect(ok.status).toBe(EXIT.ok);
     const last = ok.out.trim().split('\n').at(-1)!;
-    const m = /^GSTACK_RESULT: skill=ship status=complete run=(.+)$/.exec(last);
+    const m = /^GSTACK_RESULT: skill=ship status=complete head=([0-9a-f]{40}) run=(.+)$/.exec(last);
     expect(m).not.toBeNull();
-    const dir = m![1]!;
+    expect(m![1]).toBe(head);
+    const dir = m![2]!;
     expect(dir.startsWith(path.join(state, 'ship', 'runs'))).toBe(true);
     expect(dir.endsWith(`-${head.slice(0, 12)}`)).toBe(true);
     const run = JSON.parse(fs.readFileSync(path.join(dir, 'ship-run.json'), 'utf8'));
@@ -202,13 +203,13 @@ describe('gstack-ship-receipt result (/ship terminal line, GBRA-108)', () => {
     fs.writeFileSync(bodyFile, renderReceiptBlock({ schema_version: 1, head, base: 'main' } as any));
     const handoff = runBin(repo, 'gstack-ship-receipt', ['result', '--body', bodyFile, '--out', path.join(repo.root, 'run-out')], env);
     expect(handoff.status).toBe(EXIT.ok);
-    expect(handoff.out.trim()).toBe(`GSTACK_RESULT: skill=ship status=complete run=${path.join(repo.root, 'run-out')}`);
+    expect(handoff.out.trim()).toBe(`GSTACK_RESULT: skill=ship status=complete head=${head} run=${path.join(repo.root, 'run-out')}`);
     expect(JSON.parse(fs.readFileSync(path.join(repo.root, 'run-out', 'ship-run.json'), 'utf8'))).toMatchObject({ head, pr: null, receipt_source: bodyFile, session_kind: 'unattended' });
     expect(runBin(repo, 'gstack-ship-receipt', ['result', '--body', path.join(repo.root, 'absent.md')], env).status).toBe(EXIT.refused);
     expect(runBin(repo, 'gstack-ship-receipt', ['result'], env).status).toBe(EXIT.usage);
     const relative = runBin(repo, 'gstack-ship-receipt', ['result', '--body', bodyFile, '--out', 'rel-out'], env);
     expect(relative.status).toBe(EXIT.ok);
-    expect(relative.out.trim()).toBe(`GSTACK_RESULT: skill=ship status=complete run=${path.join(repo.work, 'rel-out')}`);
+    expect(relative.out.trim()).toBe(`GSTACK_RESULT: skill=ship status=complete head=${head} run=${path.join(repo.work, 'rel-out')}`);
     expect(fs.existsSync(path.join(repo.work, 'rel-out', 'ship-run.json'))).toBe(true);
     const blocker = path.join(repo.root, 'not-a-dir');
     fs.writeFileSync(blocker, 'file\n');
@@ -251,7 +252,7 @@ describe('gstack-ship-receipt result (/ship terminal line, GBRA-108)', () => {
     const pinned = path.join(dir, 'pinned.md');
     fs.writeFileSync(pinned, renderReceiptBlock({ schema_version: 1, head: 'c'.repeat(40), base: 'main' } as any));
     const override = runBin(repo, 'gstack-ship-receipt', ['result', '--body', pinned, '--head', 'c'.repeat(40), '--out', path.join(repo.root, 'pinned-out')], env);
-    expect([override.status, override.out.trim()]).toEqual([EXIT.ok, `GSTACK_RESULT: skill=ship status=complete run=${path.join(repo.root, 'pinned-out')}`]);
+    expect([override.status, override.out.trim()]).toEqual([EXIT.ok, `GSTACK_RESULT: skill=ship status=complete head=${'c'.repeat(40)} run=${path.join(repo.root, 'pinned-out')}`]);
     expect(JSON.parse(fs.readFileSync(path.join(repo.root, 'pinned-out', 'ship-run.json'), 'utf8')).head).toBe('c'.repeat(40));
     const badHead = runBin(repo, 'gstack-ship-receipt', ['result', '--body', pinned, '--head', '../../etc'], env);
     expect([badHead.status, badHead.out]).toEqual([EXIT.usage, '']);
@@ -260,7 +261,7 @@ describe('gstack-ship-receipt result (/ship terminal line, GBRA-108)', () => {
     expect([shortHead.status, shortHead.out]).toEqual([EXIT.usage, '']);
     expect(shortHead.err).toContain('--head must be a full hex commit id');
     const upper = runBin(repo, 'gstack-ship-receipt', ['result', '--body', pinned, '--head', 'C'.repeat(40), '--out', path.join(repo.root, 'upper-out')], env);
-    expect([upper.status, upper.out.trim()]).toEqual([EXIT.ok, `GSTACK_RESULT: skill=ship status=complete run=${path.join(repo.root, 'upper-out')}`]);
+    expect([upper.status, upper.out.trim()]).toEqual([EXIT.ok, `GSTACK_RESULT: skill=ship status=complete head=${'c'.repeat(40)} run=${path.join(repo.root, 'upper-out')}`]);
     const noGit = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-receipt-nogit-'));
     const outside = runBin(repo, 'gstack-ship-receipt', ['result', '--body', pinned], env, noGit);
     expect([outside.status, outside.err.trim()]).toEqual([EXIT.usage, 'gstack-ship-receipt result: --head <sha> is required outside a git repository']);
@@ -312,7 +313,7 @@ describe('gstack-ship-receipt carry (harness lane E row 3: receipt follows a hea
     expect(carried.status).toBe(EXIT.ok);
     expect(carried.out.trim().split('\n')).toEqual([
       `CARRY: carried from ${reviewed.slice(0, 12)} to ${head.slice(0, 12)} (base merge + test-only change)`,
-      `GSTACK_RESULT: skill=ship status=complete run=${path.join(repo.root, 'carry-run')}`,
+      `GSTACK_RESULT: skill=ship status=complete head=${head} run=${path.join(repo.root, 'carry-run')}`,
     ]);
     expect(carried.err.trim()).toBe(`SHIP_RECEIPT: pr=5 head=${head.slice(0, 12)} version=- base=main passes=2 blocking_found=1 deferred=1 carried_from=${reviewed.slice(0, 12)}`);
     const after = extractReceipt(fs.readFileSync(body, 'utf8'));

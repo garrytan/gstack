@@ -101,7 +101,8 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    (all sources, queued Steps 10–11 included) as a JSON array to
    `.gstack/tmp/review-findings-p$PASS.json` with your file-write tool, each with
    `raised_by` (`core`, `qa`, a specialist, `red-team`, `adversarial-native`,
-   `outside-voice` or `fix-check`), then:
+   `outside-voice` or `fix-check`) and, for a dispatched reader's finding, `ledger_id`
+   (`<pass dir>/<its merged.jsonl id>`, e.g. `p2/adversarial-native#3`), then:
    `~/.claude/skills/gstack/bin/gstack-review-scope classify --base <base> --pass $PASS --range-base $RANGE_BASE --findings .gstack/tmp/review-findings-p$PASS.json --json > .gstack/tmp/review-classified-p$PASS.json`
    (omit `--range-base` on pass 1). Every Step 9.4 scratch file lives under
    `.gstack/tmp/` (gitignored): `<classified>` below is this pass's classified
@@ -168,7 +169,8 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    row under its own skill (a tokenless `review` row would read UNVERIFIED):
    `~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review-late-defer","via":"ship","timestamp":"TIMESTAMP","status":"issues_found","issues_found":0,"critical":0,"informational":0,"pass":PASS,"review_scope":"SCOPE","findings":FINDINGS_JSON}'`
    with `findings` holding only the deferred records (`action: "deferred"`, `issue`,
-   `locus`, `kind`, `blocking` as in item 6) and no `--finish` token.
+   `locus`, `kind`, `blocking`, `ledger_id` as in item 6) and no `--finish` token. Log it in the
+   program that decides the defer, with that moment's full ISO 8601 TIMESTAMP, never at Step 19.
 
 4. **Finish and log this pass before choosing the next step.** Apply each A) Restore
    by reverting only the relaxation. After any fix or restore in this pass, run item
@@ -179,7 +181,8 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    REVIEW_START. Missing dispatched output uses `status:"unavailable"`,
    `completed:false` and `converged:false`; fixes also require `converged:false`.
    Then commit named fixed files, if any
-   (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`).
+   (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes" --trailer "Review-Finding: <ledger_id or fingerprint> reader=<raised_by>"`,
+   one trailer per fixed finding: the receipt counts fixes by it).
 
 5. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped), D deferred, O noted`
 
@@ -218,7 +221,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
   `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`.
   ACTION: `"auto-fixed"`, `"fixed"` (approved), `"skipped"` (explicit Skip),
   `"deferred"` (with `issue`, the filed number or `null`) or `"noted"`. Copy
-  `locus`, `kind`, `blocking` and `raised_by` from the classified output onto every finding.
+  `locus`, `kind`, `blocking`, `raised_by` and `ledger_id` from the classified output onto every finding.
   Merge revalidated invocation decisions by identity and advisory/defect kind;
   preserve `advisory`, `evidence_paths` and `helper_target`.
   Gate findings add `gate` (RH tag), `gate_id` (the tool's hunk identity), `reason`

@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.94.41.0] - 2026-11-03
+
+**/ship's receipt counts its review findings by id, keeps every run, and a small change after review gets one reader instead of a second /ship (GSTA-258 L4; GST-1136, GST-1168, GST-1179).** The receipt's `REVIEW_LOOP` counts were wrong in a repeatable way: gbrain-evals#310's receipt said 3 blockers found and 2 fixed when 2 were found, 1 fixed and 1 deferred; gstack-evals#174 counted 16 blocking with 8 unrecorded against 9 found and 9 fixed; #3906 and #3911 showed `fixed=0` after real fixes. The summary paired findings by path:line only, so a native finding with no path:line, a row logged after its fix moved the line, or a late defer re-logged under another fingerprint all broke the count, and rows it couldn't place were dropped without a word.
+
+### Changed
+- **`gstack-review-scope summary` binds by finding id.** A row finding carries `ledger_id` (`<pass dir>/<merged.jsonl id>`), each fix commit names what it fixed in a `Review-Finding: <id> reader=<role>` trailer, rows that record their head dedupe by kind, pass, head and finding ids, and a late defer counts once. Rows and findings without an id keep the path:line pairing.
+- **What can't bind is named, never a silent zero.** A row with no start token or readable time, a `pN` ledger with no review row, a `ledger_id` no ledger holds and a trailer naming nothing each print `REVIEW_SCOPE_UNBOUND: <what>: <why>`, and the line and receipt carry `unbound=N`.
+- **The native reader's own verdict line no longer collects as a blocker.** "There are three low-severity findings, all FIXABLE, and none blocks." (#3901) collected as CRITICAL beside the findings it summarized; it now collects at FIXABLE. A line that says something blocks, names a file:line or leads with FIXABLE still collects as CRITICAL. A finding's `Severity: Low. Blocks: no` after a closing quote (`… its base." Severity: Low`) now counts as its own field: on ggstack#71 that one quote made one of four identical findings CRITICAL.
+- **`gstack-ship-receipt carry` offers a scoped re-check (J1).** On `RECEIPT_CARRY_PRODUCT_CHANGED` with linear history against the reviewed base and a range-diff (plus the diff of the changed product paths) of at most 400 lines, carry prints `RECHECK: eligible … packet=<file>`. One reader on the packet and `carry --recheck <record.json>` rebind the receipt, unless HEAD needs a deeper review depth or another risk class. Rebased branches, retargeted stacks, receipts with no recorded review depth, more than 20 changed product paths, binary paths, moved base context and packets over 400 lines or 64 KB still need /ship.
+- **Every /ship run's receipt is kept.** When `write` or `carry` replaces a different receipt, the old one's identifiers and counters move to an append-only `gstack-receipt-runs` block in the PR body (newest 30).
+- **`gstack-ship-queue ready` prints the whole READY.** It adds the receipt's `REVIEW_LOOP:` line, a `TRIAL_MERGES:` line for the lane to fill and an `Attention:` stub that opens with `reviewed by <model>` on risk-class PRs and `self-audited` on every other PR. docs/unattended.md now asks for the cross-family trail read only on risk-class PRs.
+- **The `GSTACK_RESULT:` line names the full head** (`status=complete head=<sha> run=<dir>`), so a leftover line from an earlier ship can't pass for a new head (GST-1179). `parseResult` reads the optional token.
+- **The receipt schema has `no_stop`**, one `{class, reason, evidence}` record per routine stop a run went on past (`write --no-stop`), for the five no-stop defaults that come next.
+
+### Tests
+- `test/review-loop-binding.test.ts`: the GBEV-3, GEVA-223, #3906, #3892/#3903/#3911 and #3911 duplicate-row cases. On main the GBEV-3 case reproduces its receipt exactly (3 found, 2 fixed) and GEVA-223's pattern (18 found, 9 unrecorded).
+- `test/review-ledger-verdict-line.test.ts`: the captured #3901 output and ggstack#71's findings, with negative controls.
+- `test/ship-recheck.test.ts`: every refusal that does and doesn't qualify, the record binding, and the carry end to end.
+- `test/ship-receipt-runs.test.ts`, `test/ship-receipt-result-head.test.ts`: the runs block, the READY tail, `no_stop` validation and the `head=` token.
+
 ## [1.94.40.0] - 2026-11-03
 
 - **The macOS named regressions no longer fail when a test that spawns many processes runs past Bun's 5 s default on a slow runner (GST-1280).** The `macos-named-regressions` job in Free Tests now runs `bun test --timeout=30000`, the same per-test limit the Linux free suite and the pregate runner already use. On #3917's stamp commit (run 41719016775) the codex probe-model test, which runs nine probe scripts one after another, was killed at 5,022 ms in both attempts; in three green macOS runs (41720189541, 41716637247, 41720760241) it took 941 ms, 2,079 ms and 3,428 ms, and 505 to 580 ms on Linux. Train 107's first build (run 41712557655) lost two CSO Git fixture tests the same way. Tests that set their own timeout keep it, and the job's 20-minute limit is unchanged.
