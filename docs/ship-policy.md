@@ -1698,6 +1698,13 @@ base context next to the branch's unchanged hunks, which is
 [`RECEIPT_CARRY_SCOPED_REVIEW`](troubleshooting.md#receipt-carry-scoped-review)
 until one fix-check reviewer clears the packet; a working tree with uncommitted
 changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
+A `RECEIPT_CARRY_PRODUCT_CHANGED` on linear history against the reviewed base
+whose range-diff, plus the diff of the changed product paths, is at most 400
+lines and 64 KB, with no binary path, no moved base context and a receipt that
+records its review depth, also prints `RECHECK: eligible … packet=<file>`: one reader on that
+packet and `carry --recheck <record.json>` rebind the receipt instead of a
+full second /ship, unless HEAD needs a deeper review depth or another risk
+class ([scoped re-check](troubleshooting.md#receipt-carry-recheck), J1).
 
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
 and `product_patch_id` (its product patch against the base), and every carry

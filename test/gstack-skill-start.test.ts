@@ -413,7 +413,7 @@ describe('gstack-skill-start behavior', () => {
     expect(evalPlan).toContain('No helper writes a gate.json');
     expect(evalPlan).not.toContain('gate list');
     const ship = blocks.ship;
-    expect(ship).toContain('`GSTACK_RESULT: skill=ship status=complete run=<dir>`');
+    expect(ship).toContain('`GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>`');
     expect(ship).toContain('`GSTACK_RESULT: skill=ship status=refused run=-`');
     expect(ship).not.toContain('writes no run directory');
     const records: Record<string, string> = {
@@ -437,7 +437,7 @@ describe('gstack-skill-start behavior', () => {
     const ship = runStart(['--skill', 'ship'], { GSTACK_SESSION_KIND: 'unattended' });
     expect(ship.match(line)).toHaveLength(1);
     expect((ship.match(/^GSTACK_INSTRUCTION_BEGIN: (\S+)/gm) ?? []).map((h) => h.replace(/^GSTACK_INSTRUCTION_BEGIN: /, ''))).toEqual(['unattended-session']);
-    expect(ship).toContain('`GSTACK_RESULT: skill=ship status=complete run=<dir>`');
+    expect(ship).toContain('`GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>`');
     expect(ship).toContain("update that PR's body and title with the receipt through the pr-body section's existing-PR path (never pr-create, never a push, and never `gh pr ready`");
     expect(ship).toContain('the handoff section writes the receipt to .gstack/tmp/ship-receipt.md');
     for (const skill of ['review', 'qa', 'autoplan']) {
