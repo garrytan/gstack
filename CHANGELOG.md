@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.94.3.0] - 2026-11-03
+
+**`gstack-ship-preflight` no longer trusts a local `origin/HEAD` when origin can't say its default branch.** Preflight fell back to the local `origin/HEAD` whenever `git ls-remote --symref origin HEAD` failed or named no branch. With no local `origin/HEAD`, it went on from the default branch itself and merged the given base into it. When a PR-branch clone's `origin/HEAD` named the feature branch, it refused that branch as "on the base branch". Now a failed `ls-remote` stops with `git ls-remote origin HEAD failed: …; restore access first` before anything merges. A remote HEAD that names no branch (a detached HEAD, or a server that sends no symref) falls back to the shared default-base order in `lib/default-base.ts`, which uses the local `origin/HEAD` only when it doesn't name the checked-out branch, its upstream or HEAD's commit. The default-branch check now runs after the fetch, so a failed fetch still reports the fetch.
+
+### Fixed
+- **`docs/eval-calls.md`, `docs/eval-models.md`**: the default `--base` now matches base resolution: origin/HEAD's branch unless it names the checked-out branch, its upstream or HEAD's commit, then the PR's base, the remote's live HEAD, `main` or `master`.
+
+### Tests
+- `test/ship-preflight.test.ts`: with `ls-remote` failing and the fetch working, preflight stops before merging in two cases. One is the default branch with no local `origin/HEAD`, where main exited 0 and merged `release` into `main`. The other is a feature branch that the local `origin/HEAD` names, where main stopped as "on the base branch". When `ls-remote` prints only a sha, the default branch still stops as the base branch (main exited 0) and the feature branch goes on.
+
 ## [1.94.2.0] - 2026-11-03
 
 ### Fixed
