@@ -189,9 +189,9 @@ const CARRY_RERUNS = ['CI at head (gstack-ship-queue ready requires it); test an
 
 /**
  * The file's text at the reviewed head and at HEAD, with the release version each head carries (from `VERSION`, else
- * `package.json`) and the base policy's `stamp_patterns` templates.
+ * `package.json`) and the base policy's `stamp_patterns` templates and `stamp_placeholders`.
  */
-export interface CarryChange { before: string | null; after: string | null; oldVersion?: string | null; newVersion?: string | null; templates?: readonly string[]; side?: BranchSide }
+export interface CarryChange { before: string | null; after: string | null; oldVersion?: string | null; newVersion?: string | null; templates?: readonly string[]; side?: BranchSide; placeholders?: readonly string[] }
 
 /**
  * A policy-named stamp path's change is a stamp when the new text reads as the
@@ -214,7 +214,7 @@ export function stampOnlyText(change: CarryChange): boolean {
   const now = after.split('\n');
   if (was.length !== now.length) return false;
   const changed = was.map((line, i) => i).filter(i => was[i] !== now[i]);
-  return changed.length > 0 && changed.every(i => stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, change.templates ?? [], change.side, i + 1));
+  return changed.length > 0 && changed.every(i => stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, change.templates ?? [], change.side, i + 1, change.placeholders ?? []));
 }
 
 /**
