@@ -373,6 +373,7 @@ describe.skipIf(process.platform !== 'linux')('daemon-owned display lifecycle', 
       fs.writeFileSync(preload, `
         import * as fs from 'node:fs';
         import { BrowserManager } from ${JSON.stringify(path.resolve(import.meta.dir, '../src/browser-manager.ts'))};
+        import { atomicWriteSync } from ${JSON.stringify(path.resolve(import.meta.dir, '../../lib/fs-atomic.ts'))};
         const getPage = BrowserManager.prototype.getPage;
         const wrapped = new WeakSet();
         let rejectWelcome;
@@ -383,7 +384,7 @@ describe.skipIf(process.platform !== 'linux')('daemon-owned display lifecycle', 
             const goto = page.goto.bind(page);
             page.goto = async (url, options) => {
               if (new URL(url).pathname === '/welcome') {
-                fs.writeFileSync(${JSON.stringify(entered)}, JSON.stringify(this.getXvfbHandle()));
+                atomicWriteSync(${JSON.stringify(entered)}, JSON.stringify(this.getXvfbHandle()));
                 if (${JSON.stringify(mode)} === 'shutdown') {
                   return new Promise((resolve, reject) => {
                     rejectWelcome = () => reject(new Error('Welcome interrupted during shutdown'));

@@ -10,6 +10,8 @@ export type CsoRuntimeBuildStack = typeof CSO_RUNTIME_STACKS[number];
 
 const IMAGE = /^[a-z0-9.-]+(?::[0-9]+)?\/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/;
 const TAGGED_IMAGE = /^[a-z0-9.-]+(?::[0-9]+)?\/[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const RELEASE_TAG = /:v?\d+\.\d+\.\d+(?:[._-][A-Za-z0-9._-]*)?$/;
+const TWO_PART_RELEASE_TAG = /:v?\d+\.\d+(?:\.\d+)?(?:[._-][A-Za-z0-9._-]*)?$/;
 const REVISION = /^[a-z0-9][a-z0-9._-]{0,100}$/;
 const REQUIRED_VERSIONS: Record<CsoRuntimeBuildStack, string[]> = {
   node: ['node', 'npm', 'cso-preparation'],
@@ -56,8 +58,9 @@ function repositoryOfTag(image: string): string {
   return image.slice(0, colon);
 }
 
-function assertPinnedFamily(source: unknown, indexImage: unknown, images: unknown, label: string): Record<CsoRuntimeBuildPlatform, string> {
+function assertPinnedFamily(source: unknown, indexImage: unknown, images: unknown, label: string, releaseTag = RELEASE_TAG): Record<CsoRuntimeBuildPlatform, string> {
   if (typeof source !== 'string' || !TAGGED_IMAGE.test(source)) throw new Error(`INVALID_${label}_SOURCE`);
+  if (!releaseTag.test(source)) throw new Error(`FLOATING_${label}_SOURCE: ${source} must name an exact release version, not a moving major, minor or alias tag`);
   if (typeof indexImage !== 'string' || !IMAGE.test(indexImage)) throw new Error(`UNPINNED_${label}_INDEX`);
   if (!record(images)) throw new Error(`MISSING_${label}_IMAGES`);
   const repository = repositoryOfTag(source);
@@ -101,7 +104,7 @@ export function imageBuildMatrix(input: unknown): { include: ImageBuildRow[] } {
     if (typeof stack !== 'string' || !CSO_RUNTIME_STACKS.includes(stack as CsoRuntimeBuildStack) || seenStacks.has(stack)) throw new Error('INVALID_STACK');
     seenStacks.add(stack);
     const typedStack = stack as CsoRuntimeBuildStack;
-    const bases = assertPinnedFamily(source, indexImage, baseImages, 'BASE');
+    const bases = assertPinnedFamily(source, indexImage, baseImages, 'BASE', typedStack === 'postgresql' ? TWO_PART_RELEASE_TAG : RELEASE_TAG);
     if (!record(versions)) throw new Error('MISSING_TOOL_VERSIONS');
     const exactVersion = (value: unknown) => typeof value === 'string' &&
       (typedStack === 'postgresql'

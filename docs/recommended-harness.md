@@ -82,7 +82,7 @@ a time; each is independent.
 
 | File | Why | Without it |
 |---|---|---|
-| `.gstack/pregate.json` | Maps changed paths to test lanes, so `/ship` runs the tests that cover the diff and the remote gate selects correctly ([docs/pregate.md](pregate.md)) | `/ship` fails every touched file with `PREGATE_NO_LANE`. Write it once, from one owner, before the crew starts. |
+| `.gstack/pregate.json` | Maps changed paths to test lanes, so `/ship` runs the tests that cover the diff and the remote gate selects correctly ([docs/pregate.md](pregate.md)) | `/ship` warns on every touched file with no test lane (`PREGATE_NO_POLICY`) and prints a starter policy; the selected tests still run. A policy that sets only `timeout_s` or other keys without `dependencies`, `empty_lanes`, `selection` or `local` behaves the same. Write it once, from one owner, before the crew starts. |
 | `.gstack/ship-policy.json` | `queue_mode`, the `train` block (gate and free workflow names, the full-gate check, the train size and fill wait), the stamp files ([docs/ship-policy.md](ship-policy.md)) | Per-PR queue; `train …` refuses with `QUEUE_TRAIN_OFF`. |
 | `CHANGELOG.md` + `VERSION` | A stamp per merge and a twice-weekly release with notes ([docs/releases.md](releases.md)) | Skip the version and changelog steps; the train still works on the tree receipt. |
 | `AGENTS.md` validation discipline | Diagnose before fixing, focused checks during repair, one full suite at the end on a frozen tree | Threads retry blindly and report passes from older revisions. |

@@ -1,45 +1,16 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, rmSync, symlinkSync } from 'node:fs';
+import { symlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanupFixtures, cleanupSeed, fixtureWriteFileSync, fixtureCopyFileSync, fixtureMkdirSync, fixtureUtimesSync, tree, fixture, install } from './helpers/install-fixture';
+import { cleanupFixtures, cleanupSeed, fixtureWriteFileSync, fixtureCopyFileSync, fixtureMkdirSync, fixtureUtimesSync, tree, fixture } from './helpers/install-fixture';
+import { claudeOnlySetupPreservesCyclicLink } from './helpers/setup-codex-scope-cyclic';
 
 afterEach(cleanupFixtures);
 afterAll(cleanupSeed);
 
 describe.skipIf(process.platform === 'win32')('F13 independent review boundaries', () => {
-  for (const target of ['legacy', 'replacement', 'legacy-skill', 'runtime', 'runtime-bin', 'runtime-lib']) {
-    test(`Claude-only setup preserves cyclic foreign ownership link: ${target}`, () => {
-      const f = fixture('ordinary');
-      rmSync(join(f.global, 'gstack-retired'));
-      for (const rel of ['bin', 'lib']) {
-        const asset = join(f.global, 'gstack', rel);
-        rmSync(asset);
-        symlinkSync(join(f.source, rel), asset, 'dir');
-      }
-      const old = join(f.global, 'gstack-claude');
-      rmSync(old, { recursive: true });
-      const oldRender = join(f.source, '.agents/skills/gstack-claude');
-      fixtureMkdirSync(oldRender, { recursive: true });
-      fixtureWriteFileSync(join(oldRender, 'SKILL.md'), '<!-- AUTO-GENERATED from SKILL.md.tmpl -->\n<!-- Regenerate: bun run gen:skill-docs -->\nPrior legacy render.\n');
-      symlinkSync(oldRender, old, 'dir');
-      const link = target === 'legacy' ? old
-        : target === 'replacement' ? join(f.global, 'gstack-claude-code')
-        : target === 'legacy-skill' ? join(old, 'SKILL.md')
-        : target === 'runtime' ? join(f.global, 'gstack')
-        : join(f.global, 'gstack', target === 'runtime-bin' ? 'bin' : 'lib');
-      if (target === 'legacy-skill') {
-        rmSync(old);
-        fixtureMkdirSync(old);
-      }
-      if (existsSync(link) || lstatSync(link, { throwIfNoEntry: false })) rmSync(link, { recursive: true });
-      symlinkSync(link, link);
-      const before = tree(f.global);
-      for (let run = 0; run < 2; run++) {
-        install(f, '--host claude');
-        expect(tree(f.global)).toEqual(before);
-      }
-    }, 90_000);
+  for (const target of ['legacy', 'replacement', 'legacy-skill']) {
+    test(`Claude-only setup preserves cyclic foreign ownership link: ${target}`, () => claudeOnlySetupPreservesCyclicLink(target), 90_000);
   }
 
   for (const alias of [false, true]) for (const windows of [false, true]) {
@@ -86,5 +57,4 @@ describe.skipIf(process.platform === 'win32')('F13 independent review boundaries
       }
     }, 90_000);
   }
-
 });

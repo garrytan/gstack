@@ -71,6 +71,9 @@ jobs:
 
   windows:
     uses: ./.github/workflows/windows-free-tests.yml
+    permissions:
+      contents: read
+      actions: read
     with:
       record_durations: true
 

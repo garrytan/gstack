@@ -14,6 +14,15 @@ name: Free Tests
 # is permanent false comfort.
 #
 # Local `bun run test` still uses the existing bounded process pool.
+#
+# One full suite per tree (GSTA-156, docs/pregate.md#ci-reuse). The aggregate
+# uploads a `tested-tree` record (tree.json) only after strict verification
+# passes. A push to main first runs `reuse`: when the merged pull request's
+# head has the pushed tree and a green pull_request or workflow_dispatch run of
+# this workflow verifies (lib/run-evidence.ts), every suite job is skipped and
+# the aggregate links that run instead. Any other answer, a reuse failure
+# included, runs every job as before. Pull request and dispatch runs never
+# consume; reused runs never upload a record, so they are never reused.
 
 on:
   pull_request:
@@ -37,7 +46,7 @@ on:
 # push runs never see workflow_dispatch inputs, so free-plan resolves these
 # (or a dispatch override) into outputs that free-suite reads.
 env:
-  FREE_SUITE_RUNNER: ubicloud-standard-2
+  FREE_SUITE_RUNNER: ubicloud-standard-4
   FREE_SUITE_SHARDS: '20'
 
 # Keyed on the PR number, not head_ref: a bare branch name carries no fork
@@ -54,7 +63,40 @@ permissions:
   contents: read
 
 jobs:
+  # Main pushes only, and the one job with actions: read (it reads this
+  # repository's runs and their tested-tree artifacts). Every suite job below
+  # runs unless this job succeeded and reused a run; a skipped or failed reuse
+  # job runs them all. Their conditions start with !cancelled() because a
+  # skipped needed job would otherwise skip its dependents on pull_request and
+  # dispatch runs, where reuse never runs.
+  reuse:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reused: ${{ steps.find.outputs.reused }}
+      run_id: ${{ steps.find.outputs.run_id }}
+      run_url: ${{ steps.find.outputs.run_url }}
+      tree: ${{ steps.find.outputs.tree }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - id: find
+        name: Find a green pull request or dispatch run of this exact tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun run scripts/ci-tree-reuse.ts find --workflow free-tests.yml --profile ci-reuse/free-tests
+
   free-plan:
+    needs: reuse
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -65,8 +107,10 @@ jobs:
         with:
           persist-credentials: false
           # Full history: the seed ratchet compares the allowlist with its
-          # merge-base copy, which a depth-1 checkout cannot read.
+          # merge-base copy, which a depth-1 checkout cannot read. Blobless:
+          # that copy is fetched on demand, and a failed read fails the ratchet.
           fetch-depth: 0
+          filter: blob:none
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
@@ -104,6 +148,8 @@ jobs:
           if-no-files-found: error
 
   cso-macos-launcher:
+    needs: reuse
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -142,6 +188,8 @@ jobs:
   # default, and the job fails if that layout is not symlinked. It also sources
   # the Codex probe from zsh, macOS's default shell (#3024; no paid call).
   macos-named-regressions:
+    needs: reuse
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -186,6 +234,8 @@ jobs:
           bun test "${files[@]}"
 
   cso-windows-launcher:
+    needs: reuse
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -214,6 +264,8 @@ jobs:
           retention-days: 14
 
   cso-docker-integration:
+    needs: reuse
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -244,6 +296,8 @@ jobs:
           DOCKER_HOST: unix:///var/run/docker.sock
 
   typecheck:
+    needs: reuse
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -267,6 +321,8 @@ jobs:
   # the quick tier also runs on it. Its pin equals GSTACK_BUN_DEFAULT;
   # test/bun-version-drift.test.ts checks this job exists and agrees.
   quick-bun-default:
+    needs: reuse
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ubicloud-standard-8
     timeout-minutes: 30
     steps:
@@ -363,7 +419,8 @@ jobs:
         run: xvfb-run -a bun run test:quick
 
   free-suite:
-    needs: free-plan
+    needs: [free-plan, reuse]
+    if: ${{ !cancelled() && needs.free-plan.result == 'success' && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ${{ needs.free-plan.outputs.runner }}
     timeout-minutes: 20
     strategy:
@@ -588,13 +645,38 @@ jobs:
   # Branch protection already requires the `free-tests` context. Keep that
   # stable name as an always-running aggregate so every platform-specific CSO
   # gate is merge-blocking without a separate branch-protection migration.
+  # Its first step picks one of two exclusive paths before any download: a
+  # verified reuse (main pushes only) links the reused run and passes; anything
+  # else takes the strict path below unchanged, which alone uploads tested-tree.
   free-tests:
     if: always()
-    needs: [free-suite, typecheck, quick-bun-default, cso-macos-launcher, macos-named-regressions, cso-windows-launcher, cso-docker-integration]
+    needs: [reuse, free-suite, typecheck, quick-bun-default, cso-macos-launcher, macos-named-regressions, cso-windows-launcher, cso-docker-integration]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Take the reuse path only for a verified main-push reuse
+        id: route
+        env:
+          REUSE_RESULT: ${{ needs.reuse.result }}
+          REUSED: ${{ needs.reuse.outputs.reused }}
+          REUSE_RUN_ID: ${{ needs.reuse.outputs.run_id }}
+          REUSE_RUN_URL: ${{ needs.reuse.outputs.run_url }}
+          REUSE_TREE: ${{ needs.reuse.outputs.tree }}
+        run: |
+          set -eu
+          if [ "$REUSE_RESULT" != success ] || [ "$REUSED" != true ]; then
+            echo 'reused=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/main
+          case "$REUSE_RUN_ID" in ''|*[!0-9]*) echo "::error::the reuse job named no run id"; exit 1 ;; esac
+          case "$REUSE_TREE" in ''|*[!0-9a-f]*) echo "::error::the reuse job named no tree"; exit 1 ;; esac
+          test "$REUSE_RUN_URL" = "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN_ID"
+          echo "Reused $REUSE_RUN_URL, which passed on tree $REUSE_TREE; this push ran no suite of its own." >> "$GITHUB_STEP_SUMMARY"
+          echo 'reused=true' >> "$GITHUB_OUTPUT"
       - name: Require the free suite, typecheck, the quick tier on the default Bun, macOS regressions, and every CSO platform gate
+        if: steps.route.outputs.reused != 'true'
         env:
           FREE_SUITE_RESULT: ${{ needs.free-suite.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
@@ -613,16 +695,20 @@ jobs:
           test "$CSO_WINDOWS_RESULT" = success
           test "$CSO_DOCKER_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.route.outputs.reused != 'true'
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.route.outputs.reused != 'true'
         with:
           bun-version: 1.4.2
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: steps.route.outputs.reused != 'true'
         with:
           name: free-plan
           path: ${{ runner.temp }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: steps.route.outputs.reused != 'true'
         with:
           pattern: free-result-*
           merge-multiple: true
@@ -631,10 +717,27 @@ jobs:
       # flake-ledger.jsonl). A green run is where a retried flake hides, so the
       # summary runs before strict verification.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: steps.route.outputs.reused != 'true'
         with:
           pattern: flake-ledger-*
           path: ${{ runner.temp }}/flake-ledgers
       - name: Summarize flaky passes absorbed by the serial retry
+        if: steps.route.outputs.reused != 'true'
         run: bun run scripts/test-health-report.ts flake-summary "$RUNNER_TEMP/flake-ledgers" >> "$GITHUB_STEP_SUMMARY"
       - name: Require exact coverage and complete strict results
+        if: steps.route.outputs.reused != 'true'
         run: bun run scripts/test-free-shards.ts --ci-verify "$RUNNER_TEMP/free-plan.json" --results "$RUNNER_TEMP/free-results"
+      # Only after strict verification passed, so a red or partial run never
+      # leaves a record; the reuse path never reaches here.
+      - name: Record the tested tree
+        if: steps.route.outputs.reused != 'true'
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bun run scripts/ci-tree-reuse.ts record --plan "$RUNNER_TEMP/free-plan.json" --results "$RUNNER_TEMP/free-results" --os Linux,macOS,Windows --out "$RUNNER_TEMP/tested-tree/tree.json"
+      - name: Upload the tested tree
+        if: steps.route.outputs.reused != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: tested-tree
+          path: ${{ runner.temp }}/tested-tree/tree.json
+          if-no-files-found: error

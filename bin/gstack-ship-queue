@@ -18,6 +18,7 @@
  *   gstack-ship-queue land --pr <n> --repair                    (after QUEUE_LAND_DRIFT: open the outside merge's release PR)
  *   gstack-ship-queue land --census
  *   gstack-ship-queue train build|status|verdict|bisect|rebuild|watch|prune ...   (merge trains; train --help)
+ *   gstack-ship-queue wave plan|build|status|settle ...   (wave PRs: 3-6 same-area PRs in one train slot; wave --help)
  *
  * Every subcommand takes --base <branch> (default origin/HEAD, else main) and
  * ends with GSTACK_RESULT: skill=ship-queue status=complete|refused run=<path>.
@@ -65,6 +66,8 @@ const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (doc
   train build|status|verdict|bisect|rebuild|watch|prune ...
                                            merge trains, when the base policy declares a train block (train --help;
                                            docs/ship-policy.md#run-a-merge-train); ready then takes --screen|--no-screen
+  wave plan|build|status|settle ...        wave PRs under a train policy: 3-6 same-area PRs in one slot and one version
+                                           (wave --help; docs/ship-policy.md#wave-prs)
 
 --base <branch>: base branch (default: origin/HEAD, else main). Nothing here pushes, except land (the stamp commit and the
 refs/notes/gstack-land lock), ready under changelog_fragments (its READY receipt note) and merge trains.
@@ -162,6 +165,7 @@ async function main(argv: string[]): Promise<number> {
     if (!args[0] || args[0].startsWith('-')) { process.stdout.write(train.TRAIN_HELP + '\n'); return args.includes('--help') || args.includes('-h') ? EXIT.ok : EXIT.usage; }
     return train.trainMain(ctx, args);
   }
+  if (cmd === 'wave') return (await import('../lib/ship-queue-wave')).waveMain(ctx, args);
   if (cmd === 'verify' && flag(args, '--post-merge') !== undefined) return (await import('../lib/ship-queue-train-cli')).postMergeMain(ctx, args);
   if (cmd === 'land') {
     const l = await import('../lib/ship-queue-land');

@@ -24,6 +24,7 @@
 #   ~/.config/opencode/skills/gstack* — OpenCode skill install + per-skill symlinks
 #   ~/.copilot/skills/gstack*     — GitHub Copilot CLI skill install + per-skill symlinks
 #   ~/.gemini/antigravity-cli/skills/gstack* — Antigravity CLI skill install + per-skill symlinks
+#   ~/.gemini/skills/gstack*      — Gemini CLI skill install + per-skill symlinks (gstack-managed only)
 #   harness registrations         — every file gstack-harness wrote into OpenClaw,
 #                                   Hermes, a Dot or another harness (from its
 #                                   ledger; edited files move to a backup), and
@@ -141,6 +142,7 @@ if [ "$FORCE" -eq 0 ]; then
   [ -d "$HOME/.config/opencode/skills" ] && echo "  ~/.config/opencode/skills/gstack*"
   [ -d "$HOME/.copilot/skills" ] && echo "  ~/.copilot/skills/gstack*"
   [ -d "$HOME/.gemini/antigravity-cli/skills" ] && echo "  ~/.gemini/antigravity-cli/skills/gstack*"
+  [ -d "$HOME/.gemini/skills" ] && echo "  ~/.gemini/skills/gstack*"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
   [ -n "$_LEAVE_ROOT" ] && echo "  (kept) $_LEAVE_ROOT: state root selected by $RESOLVED_VAR; left in place"
 
@@ -540,6 +542,22 @@ if [ -d "$ANTIGRAVITY_SKILLS" ]; then
     if _cursor_item_is_gstack_managed "$_ITEM"; then
       rm -rf "$_ITEM"
       REMOVED+=("agy/$(basename "$_ITEM")")
+    else
+      _SKIPPED_DIRS+=("$_ITEM")
+    fi
+  done
+fi
+
+# ─── Remove Gemini CLI skills ───────────────────────────────
+# Same provenance gate. ~/.gemini/skills also holds the user's own skills, so
+# only gstack-managed gstack* entries go.
+GEMINI_SKILLS="$HOME/.gemini/skills"
+if [ -d "$GEMINI_SKILLS" ]; then
+  for _ITEM in "$GEMINI_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    if _cursor_item_is_gstack_managed "$_ITEM"; then
+      rm -rf "$_ITEM"
+      REMOVED+=("gemini/$(basename "$_ITEM")")
     else
       _SKIPPED_DIRS+=("$_ITEM")
     fi

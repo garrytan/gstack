@@ -60,10 +60,26 @@ export function vetDocsCompletion(result: DocsCompletion, evidence: {
  * (Blocked recovery preserves partial content), so it is not the accepted attempt's unreported edit; the accepted attempt
  * answers for it again only when its own `files_updated` claims it (an honest re-audit that re-edited the same document).
  */
-export function acceptedChangedPaths(changed: string[], contracts: DocsCompletion[]): string[] {
+export function acceptedChangedPaths(changed: string[], contracts: Array<Pick<DocsCompletion, 'files_updated'>>): string[] {
   const accepted = contracts.at(-1)!;
   const retained = contracts.slice(0, -1).flatMap(earlier => earlier.files_updated);
   return changed.filter(p => !retained.includes(p) || accepted.files_updated.includes(p));
+}
+
+/**
+ * Each dispatch's completion in order. The accepted (last) attempt must meet the whole contract. An earlier attempt is one
+ * the parent rejected, so only what it reported is read: its audit id, status and files_updated (gate 40805543956: attempt
+ * 1 omitted documentation_section, the parent rejected it and re-audited over its retained edit).
+ */
+export function docsAttemptContracts(outputs: string[]): { accepted: DocsCompletion; attempts: Array<Pick<DocsCompletion, 'audit_id' | 'status' | 'files_updated'>> } {
+  const reports = outputs.map(output => JSON.parse(output.trimEnd().split('\n').at(-1)!));
+  const accepted = parseDocsCompletion(outputs.at(-1)!, reports.at(-1)?.audit_id);
+  const earlier = reports.slice(0, -1).map(report => {
+    if (!report || typeof report.audit_id !== 'string' || !['updated', 'current', 'blocked'].includes(report.status) || !Array.isArray(report.files_updated)
+      || report.files_updated.some((file: unknown) => typeof file !== 'string' || !file.trim())) throw new Error('rejected attempt report');
+    return { audit_id: report.audit_id, status: report.status, files_updated: report.files_updated };
+  });
+  return { accepted, attempts: [...earlier, accepted] };
 }
 
 export function extractDocsDispatch(section: string): string {
