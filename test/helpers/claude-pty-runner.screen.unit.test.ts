@@ -13,6 +13,7 @@ import {
   classifyPlanCountFrame,
   idleTurnEnd,
 } from './claude-pty-runner';
+import { screenPanelEnd } from './pty/screen';
 
 describe('saved preference annotation', () => {
   test('recognizes the explicit preference attribution from the timed-out CEO capture', () => {
@@ -250,6 +251,25 @@ describe('idle turn end (captured CI screens)', () => {
     const question = '☐ Scope\nWhat should I review?\n❯ 1. The current branch diff\n  2. A plan or design doc\nEnter to select · ↑/↓ to navigate · Esc to cancel';
     expect(idleTurnEnd(question)).toBeNull();
     expect(idleTurnEnd(scope + '\r' + question)).toBeNull();
+  });
+
+  test('the 40851840940 plan-mode idle footer ends the turn and names its provider error for the ledger', () => {
+    const plan: string = captures.planModeApiErrorIdle.visible;
+    const panel = '●API Error: Connection lost mid-response. The response above may be incomplete.';
+    expect(idleTurnEnd(plan)).toEqual({ done: '✻Brewed for 1m 13s · done 9:51 AM', apiError: panel });
+    expect(screenPanelEnd(plan)).toEqual({ end: 'api_error', evidence: panel });
+    expect(idleTurnEnd(plan.replace('⏸planmodeon (shift+tabtocycle)·←foragents', '⏸ plan mode on (shift+tab to cycle) · ← for agents')))
+      .toMatchObject({ apiError: panel });
+  });
+
+  test('negative controls: the running plan-mode footer and extra plan-mode footer text are not idle', () => {
+    const plan: string = captures.planModeApiErrorIdle.visible;
+    const footer = '⏸planmodeon (shift+tabtocycle)·←foragents';
+    expect(plan.split(footer)).toHaveLength(2);
+    expect(idleTurnEnd(plan.replace(footer, '⏸planmodeon (shift+tabtocycle)·esctointerrupt·←foragents'))).toBeNull();
+    expect(idleTurnEnd(plan.replace(footer, footer + ' · 1 background task'))).toBeNull();
+    expect(idleTurnEnd(plan.replace(footer, '⏸planmodeon (shift+tabtocycle)'))).toBeNull();
+    expect(screenPanelEnd(plan.replace(footer, '⏸planmodeon (shift+tabtocycle)·esctointerrupt·←foragents'))).toBeNull();
   });
 
   test('an API Error mention in prose or in an earlier turn is not this turn\'s error panel', () => {

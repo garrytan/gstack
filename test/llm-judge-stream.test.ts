@@ -223,3 +223,43 @@ test('an abort reason is retained at most 200 characters long', async () => {
   await rejected;
   expect(JSON.parse(diagnostics.mock.calls[0]![0]).reason).toBe('x'.repeat(200));
 });
+
+test('pings after the last SDK event show a live connection; a silent socket shows none (run 41185637598)', async () => {
+  const encoder = new TextEncoder();
+  const frame = (event: Record<string, unknown>) => encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+  const opening = [
+    frame({ type: 'message_start', message: { id: 'msg_quiet', type: 'message', role: 'assistant', model: 'claude-fable-5-1',
+      content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 99023, output_tokens: 1 } } }),
+    frame({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '', signature: '' } }),
+  ];
+  const ping = frame({ type: 'ping' });
+  const opened = opening.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  for (const pings of [0, 3]) {
+    diagnostics.mockClear();
+    let delivered!: () => void;
+    const received = new Promise<void>(resolve => { delivered = resolve; });
+    const chunks = [...opening, ...Array.from({ length: pings }, () => ping)];
+    transport.mockImplementation(async (_url: string, init: RequestInit) => new Response(new ReadableStream({
+      start(stream) { init.signal!.addEventListener('abort', () => stream.error(init.signal!.reason), { once: true }); },
+      pull(stream) {
+        const chunk = chunks.shift();
+        if (chunk) stream.enqueue(chunk);
+        else delivered();
+      },
+    }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream', 'request-id': 'req_quiet' } }));
+    const controller = new AbortController();
+    const rejected = callJudge('score the whole bundle', 'claude-fable-5-1', {
+      max_tokens: 65_536, stream: true, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA, signal: controller.signal,
+    }).catch(error => error);
+    await received;
+    const failure = new Error('review/SKILL.md workflow exceeded its workflow judge work deadline');
+    controller.abort(failure);
+    expect(await rejected).toBe(failure);
+    expect(diagnostics).toHaveBeenCalledTimes(1);
+    const event = JSON.parse(diagnostics.mock.calls[0]![0]);
+    expect(event).toMatchObject({ type: 'llm-judge-aborted', httpStatuses: [200], block: 'thinking', thinkingChars: 0, textChars: 0,
+      messageId: 'msg_quiet', bytesReceived: opened + pings * ping.byteLength });
+    if (pings) expect(event.lastByteMs).toBeGreaterThanOrEqual(event.lastEventMs); // gstack-timing-ok: ordering of two recorded offsets, not an elapsed-time bound
+    else expect(event.lastByteMs).toBeLessThanOrEqual(event.lastEventMs); // gstack-timing-ok: the last byte is counted before the SDK parses it
+  }
+});

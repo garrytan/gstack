@@ -191,6 +191,15 @@ append commits. Git's default would conflict at the file tail, but the
 You shouldn't see conflict prompts. If you do (a real semantic conflict,
 like two machines editing the same plan), git will stop and prompt.
 
+When a push is rejected, brain-sync fetches and merges the other machine's
+commits itself. Local edits to files that merge would change are set aside
+and put back afterward, and a failed merge is aborted, so `~/.gstack` never
+holds conflict markers. If a local edit conflicts with the other machine's
+change, the other machine's version stays in the working tree and your edit
+is kept in a git stash; `gstack-brain-sync --status` names the stash and the
+`git -C ~/.gstack --literal-pathspecs restore --source=<stash> -- <path>`
+command that brings it back.
+
 ## Cross-machine pull cadence
 
 The preamble runs `git fetch` + `git merge --ff-only` once per 24 hours
