@@ -26,6 +26,12 @@ export interface RefEntry {
 
 export type SetContentWaitUntil = 'load' | 'domcontentloaded' | 'networkidle';
 
+/** Phone profile applied by `$B device` (a Playwright `devices` name). */
+export interface DeviceProfile {
+  name: string;
+  landscape: boolean;
+}
+
 export class TabSession {
   readonly page: Page;
 
@@ -62,6 +68,12 @@ export class TabSession {
   //                                     TabSession.loadedHtml too)
   private loadedHtml: string | null = null;
   private loadedHtmlWaitUntil: SetContentWaitUntil | undefined;
+
+  // ─── Phone emulation and held touch fingers (device-emulation.ts, touch-commands.ts) ─
+  private device: DeviceProfile | null = null;
+  private fingers: Map<number, { x: number; y: number }> = new Map();
+  private fingerCancel: (() => void) | null = null;
+  private gestureChain: Promise<unknown> = Promise.resolve();
 
   constructor(page: Page) {
     this.page = page;
@@ -176,6 +188,40 @@ export class TabSession {
     this.activeFrame = null;
     this.loadedHtml = null;
     this.loadedHtmlWaitUntil = undefined;
+    this.dropFingers();
+  }
+
+  // ─── Phone emulation and touch ─────────────────────────────
+  getDevice(): DeviceProfile | null {
+    return this.device;
+  }
+
+  setDevice(profile: DeviceProfile | null): void {
+    this.device = profile;
+  }
+
+  /** Held fingers by finger number; touch-commands.ts mutates this map. */
+  heldFingers(): Map<number, { x: number; y: number }> {
+    return this.fingers;
+  }
+
+  /** How to tell the browser the held fingers are gone (a CDP touchCancel). */
+  setFingerCancel(cancel: () => void): void {
+    this.fingerCancel = cancel;
+  }
+
+  /** Forget held fingers and cancel them in the page. Navigation and device changes call this. */
+  dropFingers(): void {
+    if (this.fingers.size === 0) return;
+    this.fingers.clear();
+    this.fingerCancel?.();
+  }
+
+  /** Run gestures on this tab one at a time. */
+  runGesture<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.gestureChain.then(fn, fn);
+    this.gestureChain = next.catch(() => {});
+    return next;
   }
 
   // ─── Loaded HTML (load-html replay) ───────────────────────

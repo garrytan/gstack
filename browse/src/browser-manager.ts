@@ -16,18 +16,20 @@
  */
 
 import type { ChildProcess } from 'node:child_process';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { emitActivity } from './activity';
 import { validateNavigationUrl, blockedNavigationReason } from './url-validation';
-import { TabSession, type RefEntry } from './tab-session';
+import { TabSession, type DeviceProfile, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks, resolveConfig } from './config';
 import { ensureProjectProfile } from './chromium-profiles';
 import { launchWithXProtectHeal } from './xprotect-heal';
 import { DIRECT_PROXY_ARG, forcesDirect } from './proxy-config';
 import { readPidStartTime, shouldSpawnXvfb, spawnFreeXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
 import { withCdpSession } from './cdp-bridge';
+import { applyDevice } from './device-emulation';
 import { resultLine } from '../../lib/result-codes';
 import { sanitizeEcho } from '../../lib/sanitize-echo';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
@@ -352,8 +354,15 @@ export interface BrowserState {
      * In-memory only.
      */
     owner?: string;
+    /** `$B device` profile, re-applied before the restored tab's first request. */
+    device?: DeviceProfile;
+    /** The tab's id before the save, so scopes on it follow it to its restored id. In-memory only. */
+    tabId?: number;
   }>;
 }
+
+/** The tab a scoped request runs on; owner set for session scopes (#1961). */
+export interface TabScope { tabId: number; owner?: string; picked?: number }
 
 export class BrowserManager {
   private browser: Browser | null = null;
@@ -366,6 +375,14 @@ export class BrowserManager {
   private pages: Map<number, Page> = new Map();
   private tabSessions: Map<number, TabSession> = new Map();
   private activeTabId: number = 0;
+  /**
+   * The tab one request runs on (#1961). A request that names a tab or a
+   * session runs inside this scope, so every getActiveSession() under it, after
+   * any await, resolves to that tab and never moves activeTabId for other
+   * callers. A scope with an owner follows that owner's tab across a context
+   * rebuild, which gives every tab a new id.
+   */
+  private readonly tabScope = new AsyncLocalStorage<TabScope>();
   private nextTabId: number = 1;
   private extraHeaders: Record<string, string> = {};
   private customUserAgent: string | null = null;
@@ -395,6 +412,8 @@ export class BrowserManager {
   // ─── Tab Ownership (multi-agent isolation) ──────────────
   // Maps tabId → clientId. Unowned tabs (not in this map) are root-only for writes.
   private tabOwnership: Map<number, string> = new Map();
+  /** Old tab id → its id after a context rebuild, so every scope on it follows it. */
+  private restoredTabIds = new Map<number, number>();
   /** Headless launch with BROWSE_EXTENSIONS_DIR: a persistent context (#2281). */
   private extensionContext = false;
   /** Pending and recorded navigation-guard verdicts per page (D2). */
@@ -1200,19 +1219,29 @@ export class BrowserManager {
       normalizedUrl = await validateNavigationUrl(url);
     }
 
+    const activeBefore = this.activeTabId;
     const page = await this.context.newPage();
-    const id = this.nextTabId++;
-    this.pages.set(id, page);
-    this.tabSessions.set(id, new TabSession(page));
-    this.activeTabId = id;
+    let id = [...this.pages].find(([, p]) => p === page)?.[0];
+    const adopted = id !== undefined;
+    if (id === undefined) {
+      id = this.nextTabId++;
+      this.pages.set(id, page);
+      this.tabSessions.set(id, new TabSession(page));
+    }
+    const scope = this.tabScope.getStore();
+    if (scope) {
+      scope.tabId = id;
+      this.activeTabId = activeBefore;
+    } else this.activeTabId = id;
 
     // Record tab ownership for multi-agent isolation
-    if (clientId) {
-      this.tabOwnership.set(id, clientId);
+    const owner = clientId ?? scope?.owner;
+    if (owner) {
+      this.tabOwnership.set(id, owner);
     }
 
     // Wire up console/network/dialog capture
-    this.wirePageEvents(page);
+    if (!adopted) this.wirePageEvents(page);
 
     if (normalizedUrl) {
       await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -1222,9 +1251,10 @@ export class BrowserManager {
   }
 
   async closeTab(id?: number): Promise<void> {
-    const tabId = id ?? this.activeTabId;
+    const tabId = id ?? this.getActiveTabId();
     const page = this.pages.get(tabId);
     if (!page) throw new Error(`Tab ${tabId} not found`);
+    const scope = this.tabScope.getStore();
 
     // Capture BEFORE close(): the page 'close' event handler wired in
     // wirePageEvents() can fire while page.close() is awaited. It removes
@@ -1234,15 +1264,19 @@ export class BrowserManager {
     // close() resolves varies across Playwright/Chromium versions and
     // machines, and losing the race means the last-tab auto-create below
     // never runs, leaving the manager with zero tabs.
-    const wasActive = tabId === this.activeTabId;
+    const wasActive = tabId === this.getActiveTabId();
 
     await page.close();
     this.pages.delete(tabId);
     this.tabSessions.delete(tabId);
     this.tabOwnership.delete(tabId);
 
-    // Switch to another tab if we closed the active one
-    if (wasActive) {
+    // Switch to another tab if we closed the active one. A scoped request moves
+    // only its own scope, to another tab of the same owner when there is one.
+    if (wasActive && scope && this.pages.size > 0) {
+      const ownedTabs = scope.owner ? this.tabsOwnedBy(scope.owner) : [];
+      if (ownedTabs.length > 0) scope.tabId = ownedTabs[ownedTabs.length - 1]!;
+    } else if (wasActive) {
       const remaining = [...this.pages.keys()];
       if (remaining.length === 0) {
         // No tabs left — create a new blank one
@@ -1257,7 +1291,9 @@ export class BrowserManager {
 
   switchTab(id: number, opts?: { bringToFront?: boolean }): void {
     if (!this.tabSessions.has(id)) throw new Error(`Tab ${id} not found`);
-    this.activeTabId = id;
+    const scope = this.tabScope.getStore();
+    if (scope) scope.tabId = scope.picked = id;
+    else this.activeTabId = id;
     // Only bring to front when explicitly requested (user-initiated tab switch).
     // Internal tab pinning (BROWSE_TAB) should NOT steal focus.
     if (opts?.bringToFront !== false) {
@@ -1311,7 +1347,40 @@ export class BrowserManager {
   }
 
   getActiveTabId(): number {
-    return this.activeTabId;
+    const scope = this.tabScope.getStore();
+    return scope ? this.resolveScopeTab(scope) : this.activeTabId;
+  }
+
+  /** The scope's tab; an owned scope whose tab is gone (context rebuild) or neither owned nor picked with `tab <id>` moves to its owner's newest tab. */
+  resolveScopeTab(scope: TabScope): number {
+    for (let hops = 0; hops < 64 && !this.pages.has(scope.tabId) && this.restoredTabIds.has(scope.tabId); hops++) {
+      const moved = this.restoredTabIds.get(scope.tabId)!;
+      if (scope.picked === scope.tabId) scope.picked = moved;
+      scope.tabId = moved;
+    }
+    const kept = this.tabOwnership.get(scope.tabId) === scope.owner || scope.picked === scope.tabId;
+    if (scope.owner && !(this.pages.has(scope.tabId) && kept)) {
+      const ownedTabs = this.tabsOwnedBy(scope.owner);
+      if (ownedTabs.length > 0) scope.tabId = ownedTabs[ownedTabs.length - 1]!;
+    }
+    return scope.tabId;
+  }
+
+  tabUrl(tabId: number): string | null {
+    return this.pages.get(tabId)?.url() ?? null;
+  }
+
+  /** Run fn with every active-tab lookup bound to scope.tabId (see tabScope). */
+  runInTab<T>(scope: TabScope, fn: () => Promise<T>): Promise<T> {
+    return this.tabScope.run(scope, fn);
+  }
+
+  hasTab(tabId: number): boolean {
+    return this.pages.has(tabId);
+  }
+
+  tabsOwnedBy(owner: string): number[] {
+    return [...this.tabOwnership].filter(([id, o]) => o === owner && this.pages.has(id)).map(([id]) => id).sort((a, b) => a - b);
   }
 
   getTabCount(): number {
@@ -1388,7 +1457,8 @@ export class BrowserManager {
    * TAB_PROBE_TIMEOUT_MS: a tab whose renderer is stuck comes back with
    * `busy: true` and an empty title instead of hanging the list (#3247).
    */
-  async getTabListWithTitles(): Promise<Array<{ id: number; url: string; title: string; active: boolean; busy: boolean }>> {
+  async getTabListWithTitles(): Promise<Array<{ id: number; url: string; title: string; active: boolean; busy: boolean; owner: string | null }>> {
+    const activeId = this.getActiveTabId();
     return Promise.all([...this.pages].map(async ([id, page]) => {
       const title = await withinTabBudget(
         this.sharedTabRead(page, 'title', () => page.title().catch(() => '')), TAB_PROBE_TIMEOUT_MS);
@@ -1396,8 +1466,9 @@ export class BrowserManager {
         id,
         url: page.url(),
         title: title ?? '',
-        active: id === this.activeTabId,
+        active: id === activeId,
         busy: title === undefined,
+        owner: this.tabOwnership.get(id) ?? null,
       };
     }));
   }
@@ -1413,7 +1484,7 @@ export class BrowserManager {
    * true when a new tab had to be opened.
    */
   async ensureActiveTab(): Promise<boolean> {
-    if (this.tabSessions.has(this.activeTabId)) return false;
+    if (this.tabSessions.has(this.getActiveTabId())) return false;
     const remaining = [...this.tabSessions.keys()];
     if (remaining.length > 0) {
       this.activeTabId = remaining[remaining.length - 1]!;
@@ -1447,7 +1518,7 @@ export class BrowserManager {
 
   /** Get the TabSession for the active tab. */
   getActiveSession(): TabSession {
-    const session = this.tabSessions.get(this.activeTabId);
+    const session = this.tabSessions.get(this.getActiveTabId());
     if (!session) throw new Error('No active page. Use "browse goto <url>" first.');
     return session;
   }
@@ -1736,13 +1807,20 @@ export class BrowserManager {
     }
     if (!this.context) throw new Error('Browser not launched');
 
-    const tabId = this.activeTabId;
+    const tabId = this.getActiveTabId();
     const pinned = this.getPage();
     const loaded = this.getActiveSession().getLoadedHtml();
     const url = pinned.url();
+    const activeBefore = this.activeTabId;
     const page = await this.context.newPage();
+    const listenerId = [...this.pages].find(([, p]) => p === page)?.[0];
+    if (listenerId !== undefined) {
+      this.pages.delete(listenerId);
+      this.tabSessions.delete(listenerId);
+    }
+    this.activeTabId = activeBefore;
     const session = new TabSession(page);
-    this.wirePageEvents(page);
+    if (listenerId === undefined) this.wirePageEvents(page);
     try {
       if (loaded) await session.setTabContent(loaded.html, { waitUntil: loaded.waitUntil });
       else if (url !== 'about:blank') await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -1831,6 +1909,8 @@ export class BrowserManager {
         loadedHtml: loaded?.html,
         loadedHtmlWaitUntil: loaded?.waitUntil,
         owner,
+        device: session?.getDevice() ?? undefined,
+        tabId: id,
       });
     }
 
@@ -1887,11 +1967,15 @@ export class BrowserManager {
       const newSession = new TabSession(page);
       this.tabSessions.set(id, newSession);
       this.wirePageEvents(page);
+      if (saved.tabId !== undefined) this.restoredTabIds.set(saved.tabId, id);
 
       // Restore tab ownership for the new ID — preserves scoped-agent isolation
       // across context recreation (viewport --scale, user-agent change, handoff).
       if (saved.owner) {
         this.tabOwnership.set(id, saved.owner);
+      }
+      if (saved.device) {
+        await applyDevice(newSession, saved.device).catch((err: any) => console.warn(`[browse] Failed to re-apply device for tab ${id}: ${err.message}`));
       }
 
       if (saved.loadedHtml) {
@@ -1938,11 +2022,10 @@ export class BrowserManager {
     }
 
     // If no pages were saved, create a blank one
-    if (this.pages.size === 0) {
-      await this.newTab();
-    } else {
-      this.activeTabId = activeId ?? [...this.pages.keys()][0];
-    }
+    if (this.pages.size === 0) await this.newTab();
+    this.activeTabId = activeId ?? [...this.pages.keys()][0];
+    const scope = this.tabScope.getStore();
+    if (scope && !this.pages.has(this.resolveScopeTab(scope))) scope.tabId = scope.picked = this.activeTabId;
 
     // Clear refs — pages are new, locators are stale
     this.clearRefs();
