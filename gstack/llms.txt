@@ -37,7 +37,7 @@ Conventions:
 - [/gstack-upgrade](gstack-upgrade/SKILL.md): Upgrade gstack to the latest version.
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
 - [/health](health/SKILL.md): Code quality dashboard.
-- [/investigate](investigate/SKILL.md): Systematic debugging with root cause investigation.
+- [/investigate](investigate/SKILL.md): Use when a test fails, code errors or output is wrong: find the root cause, then fix it.
 - [/ios-clean](ios-clean/SKILL.md): Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app.
 - [/ios-design-review](ios-design-review/SKILL.md): Visual design audit for iOS apps on real hardware.
 - [/ios-fix](ios-fix/SKILL.md): Autonomous iOS bug fixer.
@@ -56,10 +56,10 @@ Conventions:
 - [/plan-devex-review](plan-devex-review/SKILL.md): Interactive developer experience plan review.
 - [/plan-eng-review](plan-eng-review/SKILL.md): Eng manager-mode plan review.
 - [/plan-tune](plan-tune/SKILL.md): Self-tuning question sensitivity + developer psychographic for gstack (v1: observational).
-- [/qa](qa/SKILL.md): Test the site, API or CLI and fix the bugs it finds.
+- [/qa](qa/SKILL.md): Use when you test the site, API or CLI and fix bugs.
 - [/qa-only](qa-only/SKILL.md): Report browser/API/CLI/job/worker/webhook bugs.
 - [/retro](retro/SKILL.md): Weekly engineering retrospective.
-- [/review](review/SKILL.md): Review this PR's diff.
+- [/review](review/SKILL.md): Use when you review this PR's diff.
 - [/scrape](scrape/SKILL.md): Pull data from a web page through the Aside browser — your real, already signed-in sessions.
 - [/setup-browser-cookies](setup-browser-cookies/SKILL.md): Import cookies from your real Chromium browser into the headless browse session.
 - [/setup-deploy](setup-deploy/SKILL.md): Configure deployment settings for /land-and-deploy.
@@ -71,7 +71,7 @@ Conventions:
 - [/test-audit](test-audit/SKILL.md): Find low-value or duplicate tests and the test-only code they keep alive.
 - [/ubicloud](ubicloud/SKILL.md): Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs, a reaper, quota preflight and a hang watchdog.
 - [/unfreeze](unfreeze/SKILL.md): Clear the freeze boundary set by /freeze, allowing edits to all directories again.
-- [/verify](verify/SKILL.md): Build loop while coding: run the repo's checks and the tests /ship would pick, fix, repeat until green.
+- [/verify](verify/SKILL.md): Use when coding: run the checks and tests /ship picks until green.
 - [/write-skill](write-skill/SKILL.md): Write a new agent skill or improve one without bloat: the edit ladder, levels, drift and size checks, full diets.
 
 ## Browse Commands

@@ -3,10 +3,10 @@ name: investigate
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Systematic debugging with root cause investigation. Iron Law: no fixes
-  without root cause.
-  Use when asked to "debug this", "fix this bug", "why is this broken",
-  "investigate this error", or "root cause analysis". (gstack)
+  Use when a test fails, code errors or output is wrong: find the root cause, then fix it.
+  Systematic debugging; Iron Law: no fixes without root cause. Fits a failing
+  build, test, script, service or config, an error message or stack trace,
+  wrong or missing output, or broken data, before any edit that fixes it. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -19,9 +19,29 @@ allowed-tools:
 triggers:
   - debug this
   - fix this bug
+  - test fails
+  - failing test
   - why is this broken
-  - root cause analysis
+  - this doesn't work
+  - build is broken
+  - stack trace
   - investigate this error
+  - root cause analysis
+contract:
+  version: 1
+  items:
+    - id: debug-report
+      kind: report_labels
+      heading: DEBUG REPORT
+      labels:
+        - Symptom
+        - Root cause
+        - Fix
+        - Evidence
+        - Regression test
+        - Status
+    - id: check-after-last-edit
+      kind: check_after_last_edit
 hooks:
   PreToolUse:
     - matcher: "Edit"
@@ -62,6 +82,8 @@ gbrain:
       tail: 5
       render_as: "## Recent eureka moments (cross-project)"
 ---
+
+{{CONTRACT_DONE_MEANS}}
 
 {{PREAMBLE}}
 
