@@ -36,6 +36,15 @@ _default_base() {
 BASE="${1:-$(_default_base)}"
 HEAD_REF=""
 if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
+_twin=""
+case "$BASE" in
+  HEAD|refs/*|*[~^@:]*) ;;
+  origin/*) if git show-ref --verify -q "refs/remotes/$BASE"; then BASE="refs/remotes/$BASE"; fi ;;
+  *) if git remote | grep -qxF "${BASE%%/*}"; then
+       if git show-ref --verify -q "refs/remotes/$BASE"; then BASE="refs/remotes/$BASE"; fi
+     elif ! printf '%s' "$BASE" | grep -Eq '^[0-9a-f]{7,64}$'; then _twin="refs/remotes/origin/${BASE}"; fi ;;
+esac
+if [ -n "$_twin" ] && git show-ref --verify -q "$_twin" && git merge-base "$_twin" "${HEAD_REF:-HEAD}" >/dev/null 2>&1; then BASE="$_twin"; fi
 
 FRONTEND=false
 BACKEND=false

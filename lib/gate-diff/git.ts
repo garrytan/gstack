@@ -85,22 +85,35 @@ export function isShallow(cwd: string): boolean {
 
 /**
  * The base as a ref that resolves here and, when `head` is given, shares
- * history with it: the ref itself, else its remote-tracking branch
- * (`origin/main` for `main`). A clone that checked out only the feature
- * branch has no local `main`, and the merge-base against `origin/main` is the
- * same commit; a stale local `main` that shares no history with HEAD (a
- * fetched-over clone) yields to the twin too, so the fix line's fetch into the
- * tracking ref is a fix and not a loop.
+ * history with it. A bare branch name (`main`; never a sha, a relative ref or
+ * `refs/`) yields to its remote-tracking branch whenever that shares history
+ * with HEAD, the base gstack-review-plan's path list reads: a local `main`
+ * behind origin would count commits the base already has (GST-462), and one
+ * ahead of or diverged from it would leave out commits the branch lands. A
+ * missing or unrelated local branch yields to any remote's; otherwise only
+ * origin's counts. A remote-qualified ref (`origin/main`) is read as
+ * `refs/remotes/origin/main` when that exists. Tracking branches are read by
+ * their full names, so a tag or a fetched branch called `origin/main` cannot
+ * stand in. `local` says why a tracking branch won.
  */
-export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' } | null {
+export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' | 'behind' | 'ahead' | 'diverged' } | null {
   const related = (sha: string) => !head || mergeBase(sha, head, cwd) !== null;
+  const remotes = remoteNames(cwd);
   const direct = resolvesToCommit(ref, cwd);
-  if (direct && related(direct)) return { ref, sha: direct };
+  if (remotes.some((remote) => ref.startsWith(`${remote}/`))) {
+    const sha = resolvesToCommit(`refs/remotes/${ref}`, cwd) ?? direct;
+    return sha ? { ref, sha } : null;
+  }
   if (!isBranchName(ref)) return direct ? { ref, sha: direct } : null;
-  for (const remote of remoteNames(cwd)) {
-    const tracking = `${remote}/${ref}`;
-    const sha = resolvesToCommit(tracking, cwd);
-    if (sha && related(sha)) return { ref: tracking, sha, local: direct ? 'unrelated' : 'missing' };
+  const local = !direct ? 'missing' : !related(direct) ? 'unrelated' : null;
+  for (const remote of remotes) {
+    if (!local && remote !== 'origin') continue;
+    const sha = resolvesToCommit(`refs/remotes/${remote}/${ref}`, cwd);
+    if (!sha || !related(sha)) continue;
+    if (sha === direct) return { ref, sha };
+    if (local) return { ref: `${remote}/${ref}`, sha, local };
+    const fork = mergeBase(direct!, sha, cwd);
+    return { ref: `${remote}/${ref}`, sha, local: fork === direct ? 'behind' : fork === sha ? 'ahead' : 'diverged' };
   }
   return direct ? { ref, sha: direct } : null;
 }
