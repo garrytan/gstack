@@ -414,6 +414,10 @@ Slots merge with `train land --train <nonce> --pr <n>`, never a slot call:
 4. It refuses if main moved during the checks, merges with
    `--match-head-commit`, and confirms main's tree is S_i exactly. Any other
    main is the freeze path above (`QUEUE_TRAIN_TREE_MISMATCH`, backstop).
+   A slot counts as merged only when GitHub reports its PR MERGED. Main at
+   S_i with the PR still open refuses (`QUEUE_PROOF_MISSING`), and the
+   train's merged count, its freeze decision and the freeze record read
+   GitHub's state for every slot, never the record's `merged` list alone.
 
 `verify --train` refuses a stamped train and names `train land`. The backstop
 covers main only when its exact tree is some S_i of a green record (plain

@@ -251,3 +251,50 @@ describe('stamped trains: build and land', () => {
     expect(r.err).toMatch(/was built without stamped prefixes.*\(QUEUE_GATE_MISSING\)/);
   }, 180_000);
 });
+
+describe('train land counts only merges GitHub reports (#3603)', () => {
+  const trainPath = (fx: TrainFixture, nonce: string) => path.join(fx.state, 'ship-queue', 'trains', nonce, 'train.json');
+  const landFirst = (fx: TrainFixture, nonce: string) => { land(fx, nonce, '1'); expect(land(fx, nonce, '1').status).toBe(EXIT.ok); };
+
+  test('a record with its slot PRs swapped never confirms the open PR as merged', () => {
+    const { fx, nonce } = stampedTrain();
+    expect(queue(fx, ['train', 'verdict', '--train', nonce]).status).toBe(EXIT.ok);
+    landFirst(fx, nonce);
+    const t = trainJson(fx, nonce);
+    fs.writeFileSync(trainPath(fx, nonce), JSON.stringify({ ...t, slots: [{ ...t.slots[0], pr: '2' }, { ...t.slots[1], pr: '1' }] }));
+    const r = land(fx, nonce, '2');
+    expect(r.status).toBe(EXIT.refused);
+    expect(r.err).toMatch(/GitHub reports #2 as OPEN, not MERGED.*\(QUEUE_PROOF_MISSING\)/);
+    expect(r.out).not.toMatch(/^VERIFY_TRAIN: #2 merged/m);
+    expect(fx.read().prs['2']).not.toMatchObject({ state: 'MERGED' });
+    expect(trainJson(fx, nonce).merged.map((m: any) => m.pr)).toEqual(['1']);
+  }, 300_000);
+
+  test('a forged merged entry for an open slot does not mark the train merged', () => {
+    const { fx, nonce } = stampedTrain();
+    expect(queue(fx, ['train', 'verdict', '--train', nonce]).status).toBe(EXIT.ok);
+    const t = trainJson(fx, nonce);
+    fs.writeFileSync(trainPath(fx, nonce), JSON.stringify({ ...t, merged: [{ pr: '2', sha: t.prefixes[0].commit, tree: t.prefixes[0].tree, at: '2026-10-29T00:00:00Z' }] }));
+    landFirst(fx, nonce);
+    const rerun = land(fx, nonce, '1');
+    expect(rerun.out).toContain('(1/2 merged)');
+    expect(trainJson(fx, nonce).state).toBe('merging');
+  }, 300_000);
+
+  test('a forged merged entry does not turn a pre-landing mismatch into a freeze', () => {
+    const { fx, nonce } = stampedTrain();
+    expect(queue(fx, ['train', 'verdict', '--train', nonce]).status).toBe(EXIT.ok);
+    const t = trainJson(fx, nonce);
+    fs.writeFileSync(trainPath(fx, nonce), JSON.stringify({ ...t, merged: [{ pr: '1', sha: t.prefixes[0].commit, tree: t.prefixes[0].tree, at: '2026-10-29T00:00:00Z' }] }));
+    fx.repo.git('fetch', '-q', 'origin');
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    fs.writeFileSync(path.join(fx.repo.work, 'outside.txt'), 'outside\n');
+    fx.repo.git('add', 'outside.txt');
+    fx.repo.git('commit', '-q', '-m', 'outside');
+    fx.repo.git('push', '-q', 'origin', 'HEAD:refs/heads/main');
+    const r = land(fx, nonce, '1');
+    expect(r.err).toMatch(/nothing of train \S+ merged, so the queue is not frozen.*\(QUEUE_TRAIN_TREE_MISMATCH\)/);
+    expect(r.out).not.toMatch(/^QUEUE_TRAIN_FROZEN:/m);
+  }, 300_000);
+});
+

@@ -4273,7 +4273,10 @@ and whether a slot merged on GitHub cannot be read (so whether the queue must
 freeze is unknown; it never answers "nothing merged" from an unreadable
 state), `train land` when the base or the train branch cannot be fetched or
 the record's T0 and S_1..S_k are not the gated head's first-parent chain
-(each S_i's second parent slot i's pin), and `ready --screen` when the
+(each S_i's second parent slot i's pin), `train land` when main's tree is the
+slot's S_i but GitHub does not report the PR as MERGED (a record whose slot
+numbers or merged entries disagree with GitHub),
+and `ready --screen` when the
 scratch merge branch cannot be pushed. Nothing was written unless the `QUEUE_STAMP_REFUSED:` line says
 `committed=yes`.
 
