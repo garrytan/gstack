@@ -9,8 +9,8 @@
  *   gstack-autoplan submit  --out <dir> --phase <p> --voice outside --unavailable <reason> | --failed <reason> [--json]
  *   gstack-autoplan revise  --out <dir> --plan <file> [--incorporates <id,...>] [--withdraw <id>] [--settle <id>] [--json]   review a revised plan in this run
  *   gstack-autoplan run     --out <dir> --plan <file> --native-model <id> --outside-model <id> [--runner codex-cli|api] [--native-runner api]
- *                           [--deadline <min>] [--spend-cap <usd>] [--estimate-usd <n>] [--json]      next in a loop; needs runners for both voices
- *   gstack-autoplan answer  --out <dir> --gate-rev <rev> --reply "<grammar>" --by <human|agent:<id>> [--owner-reply <text>|-] [--rec-hash <h>] [--json]
+ *                           [--deadline <min>] [--spend-cap <usd>] [--estimate-usd <n>] [--max-tokens <n>] [--json]      next in a loop; needs runners for both voices
+ *   gstack-autoplan answer  --out <dir> --gate-rev <rev> --reply "<grammar>" --by <human|agent:<id>> [--owner-reply <text>|-] [--words-by owner|agent:<id>] [--rec-hash <h>] [--json]
  *   gstack-autoplan recommend --out <dir> --gate-rev <n> --item <id> --option <k> --basis "<why>" [--by <who>]
  *   gstack-autoplan resume  --out <dir> [--from <checkpoint>] [--json]   take ownership; intent without a terminal record becomes EXECUTION_UNKNOWN
  *   gstack-autoplan status  --out <dir> [--json]        query: the manifest, no GSTACK_RESULT line
@@ -43,11 +43,13 @@ import { capyRelayLine } from '../lib/captain-brief';
 import { exportPublic } from '../lib/autoplan-public';
 import { migrateRun } from '../lib/autoplan-migrate';
 import { reviseRun } from '../lib/autoplan-revise';
-import { pendingAmendments, type RunState } from '../lib/autoplan-state';
-import { FILES, RunError, currentPhase, initRun, markOutside, nextStep, readState, resumeRun, statusLines, submitResult, withRunLock, writeState } from '../lib/autoplan-run';
+import { pendingAmendments, type RunState, type Voice } from '../lib/autoplan-state';
+import { FILES, RunError, currentPhase, initRun, markOutside, nextStep, readState, resumeRun, statusLines, submitResult, withRunLock, writeState, type NextOptions } from '../lib/autoplan-run';
 import { driverFile, type Phase } from '../lib/autoplan-prompts';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { createRunner, familyConflict, type RunnerId } from '../lib/outside-voice-runner';
+import { DEFAULT_MAX_TOKENS, apiTimeoutMs } from '../lib/outside-voice-api';
+import { estimateCostUsd, pricingRow } from '../lib/pricing';
 import { resultLine } from '../lib/result-codes';
 import { release } from '../lib/spend-ledger';
 import { COORDINATOR_CONTRACT } from '../lib/coordinator-contract';
@@ -59,7 +61,7 @@ DRIVER: ${driverFile()}
           [--no-outside] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
           --max-rounds (first next): review rounds per phase (default 2 unattended); at the cap a phase closes accepted-with-findings
           --docs-only (first next; also detected when every Implementation-plan path is docs-class): CEO (native voice only) + Eng
-          --estimate-usd: reserved per new attempt; unattended Capy runs reserve a default for host attempts so --spend-cap binds
+          --estimate-usd: reserved per new attempt, kept for the rest of the run; with --spend-cap (or on Capy) unattended runs reserve a default so the cap binds
           --scaffold (first next): a plan missing one of its two sections is reviewed from <out>/plan-source.md with the heading added
           --light loads each phase's checklist plus the sections its scope needs (the unattended default); interactive kinds load everything
           --no-carry-forward (first next): every later gate revision goes to the owner, even one that asks nothing new
@@ -80,9 +82,12 @@ DRIVER: ${driverFile()}
           comes into scope, the edit applies without re-review (APPLIED:); --withdraw (alone or with --plan) drops one;
           --settle records a packaging/ordering change that needs no plan edit and reopens nothing (ids: decision id or d4)
   run     --out <dir> --plan <file> --native-model <id> --outside-model <id> [--runner codex-cli|api] [--native-runner api] ...
-          next in a loop, only when a runner executes both voices here; --deadline cancels the children it started
+          next in a loop, only when a runner executes both voices here (hosts without subagents: --native-runner api --runner api);
+          --deadline cancels the children it started; --max-tokens caps each api call's output (Anthropic default 16384), and a
+          response cut off at that limit is reported truncated; submit's result checks judge every completed response
   answer  --out <dir> --gate-rev <rev> --reply "<rec | rec except d3a | d3b uc1a | as-is>" --by <human|agent:<id>> [--json]
           --by agent:<id> needs --owner-reply "<owner's words>" (- reads stdin; --owner-reply-file <path>), stored verbatim;
+          --words-by agent:<id> (the same agent) when those words are its own: recorded as its words, never the owner's, never carried;
           --rec-hash <h> binds a rec to the render the owner saw (required once recommend ran); accepted changes leave amend_pending
   recommend --out <dir> --gate-rev <n> --item <id> --option <k> --basis "<why>" [--by <who>]
           set one item's recommendation before relay (provenance recorded, p1 follows); re-render and relay afterwards
@@ -178,7 +183,7 @@ function emit(json: boolean, lines: string[], payload: Record<string, unknown>):
   else process.stdout.write(lines.join('\n') + '\n');
 }
 
-function doNext(out: string, rest: string[], json: boolean): number {
+function doNext(out: string, rest: string[], json: boolean, price?: NextOptions['price']): number {
   const cwd = process.cwd();
   const initLines: string[] = [];
   const fresh = !fs.existsSync(path.join(out, FILES.run));
@@ -195,7 +200,7 @@ function doNext(out: string, rest: string[], json: boolean): number {
       deadlineMin: num(rest, '--deadline'), light: rest.includes('--light'), scaffold: rest.includes('--scaffold'), scope: { ui, developerTool: rest.includes('--developer-tool'), agentPrimary: rest.includes('--agent-primary'), dx: rest.includes('--no-dx') ? false : undefined, ...(rest.includes('--docs-only') ? { docsOnly: true } : {}) } }, initLines);
   }
   const redispatch = rest.flatMap((a, i) => (a === '--redispatch' && rest[i + 1] ? [rest[i + 1]!] : []));
-  const r = nextStep({ out, cwd, estimateUsd: num(rest, '--estimate-usd'), redispatch });
+  const r = nextStep({ out, cwd, estimateUsd: num(rest, '--estimate-usd'), redispatch, price });
   moment = fresh ? 'init' : r.attempts.some(a => a.new) || r.lines.some(l => l.startsWith('PHASE_DEFERRED: ')) ? 'transition' : undefined;
   const status = r.state.status;
   const lines = [...initLines, ...r.lines];
@@ -305,10 +310,19 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
   if (!['codex-cli', 'api'].includes(outsideRunner)) return usage('--runner must be codex-cli or api for run (host-subagent cannot execute here; use next/submit)');
   const conflict = familyConflict(outsideModel, nativeModel);
   if (conflict) throw new RunError('MODEL_FAMILY_CONFLICT', conflict, 3);
+  const maxTokens = num(rest, '--max-tokens');
+  if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens <= 0)) return usage('--max-tokens needs a positive integer');
   const deadline = num(rest, '--deadline');
   const deadlineAt = deadline ? Date.now() + deadline * 60_000 : undefined;
+  const modelOf = (voice: Voice) => (voice === 'native' ? nativeModel : outsideModel);
+  const isApi = (voice: Voice) => (voice === 'native' ? nativeRunner : outsideRunner) === 'api';
+  // An api call reserves its worst case (prompt bytes / 3 input tokens plus the output limit it is sent) and settles at its usage.
+  const price = (voice: Voice, promptFile: string) => {
+    const row = isApi(voice) ? pricingRow(modelOf(voice)) : undefined;
+    return row ? +((fs.statSync(promptFile).size / 3 * row.input_per_mtok + (maxTokens ?? DEFAULT_MAX_TOKENS) * row.output_per_mtok) / 1e6).toFixed(6) : undefined;
+  };
   for (let guard = 0; guard < 40; guard++) {
-    const code = withRunLock(out, () => doNext(out, rest, true));
+    const code = withRunLock(out, () => doNext(out, rest, true, price));
     if (code !== EXIT.ok) return code;
     const state = readState(out);
     if (state.status !== 'awaiting_result') {
@@ -322,21 +336,27 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
       if (!open) continue;
       const runnerId = voice === 'native' ? nativeRunner : outsideRunner;
       const runner = createRunner(runnerId);
-      const remaining = deadlineAt ? deadlineAt - Date.now() : 300_000;
+      const remaining = deadlineAt ? deadlineAt - Date.now() : runnerId === 'api' ? apiTimeoutMs(maxTokens) : 300_000;
       if (remaining <= 0) { withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }
       const timer = deadlineAt ? setTimeout(() => runner.cancel(), remaining) : undefined;
-      const res = await runner.run({ promptFile: open.prompt, outFile: `${open.result}.raw`, model: voice === 'native' ? nativeModel : outsideModel, timeoutMs: Math.min(remaining, 600_000), cwd: process.cwd(), gate: 'review' });
+      const res = await runner.run({ promptFile: open.prompt, outFile: `${open.result}.raw`, model: voice === 'native' ? nativeModel : outsideModel, timeoutMs: Math.min(remaining, runnerId === 'api' ? apiTimeoutMs(maxTokens) : 600_000), cwd: process.cwd(), gate: 'execution', maxTokens: runnerId === 'api' ? maxTokens ?? DEFAULT_MAX_TOKENS : maxTokens });
       if (timer) clearTimeout(timer);
       if (!json) process.stdout.write(`VOICE: ${phase} ${voice} ${res.status} runner=${res.runner} model=${res.model ?? 'unknown'}\n`);
       if (res.status === 'cancelled') { withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }
       if (res.status !== 'completed' && res.status !== 'unverified') {
         if (voice === 'outside') { withRunLock(out, () => markOutside(out, phase as Phase, 'unavailable', `${res.runner} ${res.status}${res.detail ? `: ${res.detail}` : ''}`)); continue; }
-        process.stderr.write(`gstack-autoplan run: native voice ${res.status}${res.detail ? `: ${res.detail}` : ''}\n`);
+        process.stderr.write(`gstack-autoplan run: native voice ${res.status}${res.reason ? `: ${res.reason}` : ''}${res.detail ? `: ${res.detail}` : ''}\n`);
         withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); });
         process.stdout.write(resultLineFor('interrupted', out) + '\n');
         return EXIT.fail;
       }
-      withRunLock(out, () => doSubmit(out, ['--phase', phase, '--voice', voice, '--result', `${open.result}.raw`, '--model', res.model ?? (voice === 'native' ? nativeModel : outsideModel), '--attempt', open.attempt, '--runner', res.runner], true));
+      const used = res.usage;
+      const usage = isApi(voice) && pricingRow(modelOf(voice)) && typeof used.input_tokens === 'number' && typeof used.output_tokens === 'number' ? ['--usage-usd', String(estimateCostUsd({ input: used.input_tokens, output: used.output_tokens }, modelOf(voice)))] : [];
+      try { withRunLock(out, () => doSubmit(out, ['--phase', phase, '--voice', voice, '--result', `${open.result}.raw`, '--model', res.model ?? modelOf(voice), '--attempt', open.attempt, '--runner', res.runner, ...usage], true)); }
+      catch (e) {
+        if (voice !== 'outside' || !(e instanceof RunError)) throw e;
+        withRunLock(out, () => markOutside(out, phase as Phase, 'unavailable', `${res.runner} result refused: ${e.code}`));
+      }
     }
   }
   return EXIT.fail;
@@ -386,10 +406,12 @@ async function main(argv: string[]): Promise<number> {
       if (rev === undefined) { const s = readState(out); process.stderr.write(resultLine('gstack-autoplan answer', 'GATE_REV_STALE', `no --gate-rev given; current gate_rev=${s.gate_rev ?? 0}`) + '\n'); return EXIT.refused; }
       const replyFile = flag(rest, '--owner-reply-file'); const ownerFlag = flag(rest, '--owner-reply');
       if (replyFile !== undefined && ownerFlag !== undefined) return usage('--owner-reply and --owner-reply-file are exclusive');
+      const wordsBy = flag(rest, '--words-by') ?? 'owner';
+      if (wordsBy !== 'owner' && (wordsBy !== by || !by.startsWith('agent:'))) return usage(`--words-by must be owner or the answering agent (--by ${by ?? '<unset>'}), got ${wordsBy}`);
       const ownerReply = replyFile !== undefined ? fs.readFileSync(replyFile, 'utf8') : ownerFlag === '-' ? fs.readFileSync(0, 'utf8') : ownerFlag;
       return mutating(out, json, () => {
         const state = readState(out);
-        const r = answerGate(state, Number(rev), reply, by, { recHash: flag(rest, '--rec-hash'), ownerReply });
+        const r = answerGate(state, Number(rev), reply, by, { recHash: flag(rest, '--rec-hash'), ownerReply, ...(wordsBy === 'owner' ? {} : { wordsBy }) });
         writeState(state);
         const lines = [...r.lines];
         if (r.outcome === 'reopened' || r.outcome === 'amend_pending') lines.push(nextLine(state, out));

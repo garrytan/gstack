@@ -16,7 +16,7 @@ import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt } from '../lib/ship-receipt';
 import { evaluateApprovals, parseCitations } from '../lib/approval-citations';
 import { scopeOf, type ApprovalHit } from '../lib/approval-classes';
-import { autoplan, runPhase } from './helpers/autoplan-run-fixture';
+import { autoplan, recCarrying, runPhase } from './helpers/autoplan-run-fixture';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -228,7 +228,7 @@ describe('gstack-ship-receipt write enforces declared classes (APPROVAL_CITATION
       expect(autoplan(['next', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui']).status).toBe(0);
       runPhase(out, 'ceo');
       runPhase(out, 'eng');
-      if (approve) expect(autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', 'all']).stdout).toMatch(/^APPROVED: gate_rev=1/m);
+      if (approve) expect(autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', recCarrying(out)]).stdout).toMatch(/^APPROVED: gate_rev=1/m);
       const sha = JSON.parse(fs.readFileSync(path.join(out, 'run.json'), 'utf8')).artifacts['plan.md'].sha256 as string;
       return { out, sha: sha.slice(0, 8) };
     };
@@ -237,11 +237,11 @@ describe('gstack-ship-receipt write enforces declared classes (APPROVAL_CITATION
     const other = run('docs-plan', 'Rewrite the quickstart in docs/quickstart.md with a shorter first step. Tests cover the links.', true);
     const ok = write(repo, `Approved by Garry 2026-10-16 via ${good.sha}\n`, ['--approval-run', other.out, '--approval-run', good.out]);
     expect(ok.status, ok.err).toBe(EXIT.ok);
-    expect(JSON.parse(ok.out).approval.classes[0]).toMatchObject({ class: 'data-repair', citation: 'verified', binding: 'paths', via: good.sha, evidence: expect.stringMatching(/^plan run-\d+ gate_rev=1 p1=a answered_by=human$/) });
+    expect(JSON.parse(ok.out).approval.classes[0]).toMatchObject({ class: 'data-repair', citation: 'verified', binding: 'paths', via: good.sha, evidence: expect.stringMatching(/^plan run-\d+ gate_rev=1 p1=b answered_by=human$/) });
     const notApproved = write(repo, `Approved by Garry 2026-10-16 via ${pending.sha}\n`, ['--approval-run', pending.out]);
     expect(notApproved.err).toMatch(/holds this plan but its gate is not APPROVED \(status gate_pending, p1 unanswered\).*\(APPROVAL_CITATION_MISSING\)$/m);
     const unrelated = write(repo, `Approved by Garry 2026-10-16 via ${other.sha}\n`, ['--approval-run', other.out]);
-    expect(unrelated.err).toMatch(/plan run-\d+ gate_rev=1 p1=a answered_by=human names neither/);
+    expect(unrelated.err).toMatch(/plan run-\d+ gate_rev=1 p1=b answered_by=human names neither/);
     const noRun = write(repo, `Approved by Garry 2026-10-16 via ${good.sha}\n`);
     expect(noRun.err).toMatch(/plan sha [0-9a-f]{8}: pass the autoplan run with --approval-run <dir>.*must attest "for data-repair@[0-9a-f]{12}"/);
     fs.appendFileSync(path.join(good.out, 'plan.md'), '\nsrc/commands/repair/later.ts\n');

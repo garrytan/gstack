@@ -58,7 +58,7 @@ export interface DispatchCounts { total: number; by_phase: Record<string, Partia
 export interface RunState extends RunManifest {
   revision: number; out: string; plan_source: string; active_plan: string; restore: string; scope: Scope; phase_order: Phase[];
   phases: Record<string, PhaseState>; native_model?: string; outside_model?: string; outside_enabled: boolean; attempt_counter: number;
-  spend_cap_usd: number | null; deadline_at?: string; light?: boolean; history: Array<Record<string, unknown>>; created_at: string; updated_at: string;
+  spend_cap_usd: number | null; /** `next --estimate-usd`, kept for every later attempt. */ estimate_usd?: number; deadline_at?: string; light?: boolean; history: Array<Record<string, unknown>>; created_at: string; updated_at: string;
   /** The gstack that last wrote this run (lib/autoplan-migrate.ts); absent on runs written before 1.91.96. */
   gstack_version?: string;
   /** The --plan file the owner edits (drift hints, revise), the --plan-heading it was cut from, and the scope flags revise re-detects with. */

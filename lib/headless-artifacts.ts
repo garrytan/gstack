@@ -41,6 +41,8 @@ export interface DecisionRow {
   recommended_basis?: string; changes?: string; origin?: string; carried_from?: string; chosen_text?: string;
   /** An agent-relayed answer: the owner's verbatim words, and whether they parsed under the gate grammar. */
   owner_reply?: string; owner_reply_parsed?: boolean; recommended_by?: string;
+  /** An agent's own words (`--words-by agent:<id>`): never the owner's, so never carried or imported as the owner's. */
+  answer_words?: string; answer_words_parsed?: boolean; words_by?: string;
   /** A whole-gate carry (lib/autoplan-carry.ts): the earlier p1 decision whose owner words this answer reuses, its gate_rev, why, who relayed them, items taken under "do it", and the delta check attempt. */
   carried_gate_from?: string; carried_gate_rev?: number; carry_reason?: string; carried_answered_by?: string; carried_under?: string; carry_check?: string;
 }

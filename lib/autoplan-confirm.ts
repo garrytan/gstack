@@ -108,11 +108,15 @@ export function reviewRows(state: RunState, prev: PhaseState | undefined): Findi
 const earlierRows = (state: RunState, phase: string): FindingRow[] =>
   state.history.filter(h => h.event === 'reopened' && h.phase === phase).flatMap(h => reviewRows(state, h.previous as PhaseState | undefined));
 
-/** Earlier finding id -> the answered decision whose gate item named it. */
+/** The origin tag of an open Critical/High finding's gate item: only `a` (its fix applied to the plan) settles it. */
+export const FINDING_ORIGIN = 'finding';
+
+/** Earlier finding id -> the answered decision whose gate item named it. A finding carried into the build stays open. */
 export function settledIds(state: RunState): Map<string, string> {
   const out = new Map<string, string>();
   for (const d of readDecisions(state.out)) {
     if (d.chosen == null || d.status === 'pending' || !d.origin) continue;
+    if (d.origin.endsWith(`|${FINDING_ORIGIN}`) && d.chosen !== 'a') continue;
     for (const id of (d.origin.split('|')[1] ?? '').split('+')) if (id && id !== 'null') out.set(id, d.id);
   }
   return out;
