@@ -61,6 +61,11 @@ Model selection:
                     every later setup, upgrade and gbrain-refresh. Without it
                     the generic claude overlay is used; --claude-model claude
                     returns to it.
+  --loadout <name>  Claude skill loadout from modules/loadouts.json (for
+                    example lite). Saved as claude_loadout and rendered into
+                    the untracked Claude render dir by every later setup,
+                    upgrade and gbrain-refresh; the checkout stays full.
+                    --loadout full returns to the full skills (docs/loadouts.md).
 
 Examples:
   ./setup                          # solo install for Claude Code
@@ -182,13 +187,14 @@ MODEL_OVERRIDE=""
 MODEL_OVERRIDE_SET=0
 CLAUDE_MODEL_ARG=""
 CLAUDE_MODEL_SET=0
+LOADOUT_SET=0
 REFRESH_REGISTERED=0
 HOST_FLAG_SET=0
 HARNESS_AUTO=1; [ "${GSTACK_HARNESS_AUTO:-1}" = 0 ] && HARNESS_AUTO=0
 # Reject unknown options before anything is written, with the closest flag.
 _setup_unknown_option() {
   local bad="$1" next="${2:-}" best="" best_d=99 flag d value=""
-  for flag in --host --model --claude-model --global --local --prefix --no-prefix --team --no-team \
+  for flag in --host --model --claude-model --loadout --global --local --prefix --no-prefix --team --no-team \
     --plan-tune-hooks --no-plan-tune-hooks --timeline-stop-hook --no-timeline-stop-hook \
     --refresh-registered --status --no-browser --no-harness-auto --quiet --help; do
     d="$(awk -v a="${bad%%=*}" -v b="$flag" 'BEGIN {
@@ -204,7 +210,7 @@ _setup_unknown_option() {
     if [ "$d" -lt "$best_d" ]; then best_d="$d"; best="$flag"; fi
   done
   echo "Unknown option: $bad — nothing was installed or changed." >&2
-  case "$best" in --host|--model|--claude-model) case "$next" in ''|-*) ;; *) value=" $next" ;; esac ;; esac
+  case "$best" in --host|--model|--claude-model|--loadout) case "$next" in ''|-*) ;; *) value=" $next" ;; esac ;; esac
   if [ "$best_d" -le 3 ]; then
     echo "Did you mean: ./setup $best$value" >&2
   fi
@@ -218,6 +224,8 @@ while [ $# -gt 0 ]; do
     --model=*) MODEL_OVERRIDE="${1#--model=}"; MODEL_OVERRIDE_SET=1; shift ;;
     --claude-model) [ -z "$2" ] && echo "Missing value for --claude-model (a Claude model ID such as claude-opus-4-8, or claude)" >&2 && exit 1; CLAUDE_MODEL_ARG="$2"; CLAUDE_MODEL_SET=1; shift 2 ;;
     --claude-model=*) CLAUDE_MODEL_ARG="${1#--claude-model=}"; [ -z "$CLAUDE_MODEL_ARG" ] && echo "Missing value for --claude-model (a Claude model ID such as claude-opus-4-8, or claude)" >&2 && exit 1; CLAUDE_MODEL_SET=1; shift ;;
+    --loadout) [ -z "$2" ] && echo "Missing value for --loadout (a loadout from modules/loadouts.json, such as lite or full)" >&2 && exit 1; LOADOUT_ARG="$2"; LOADOUT_SET=1; shift 2 ;;
+    --loadout=*) LOADOUT_ARG="${1#--loadout=}"; [ -z "$LOADOUT_ARG" ] && echo "Missing value for --loadout (a loadout from modules/loadouts.json, such as lite or full)" >&2 && exit 1; LOADOUT_SET=1; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --global) GLOBAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -333,6 +341,29 @@ if [ "$CLAUDE_MODEL_SET" -eq 1 ]; then
     exit 1
   fi
 fi
+# --loadout is validated the same way: a name modules/loadouts.json defines.
+if [ "$LOADOUT_SET" -eq 1 ]; then
+  if ! printf '%s' "$LOADOUT_ARG" | grep -Eq '^[a-z0-9-]{1,40}$' \
+    || ! _LOADOUT_CHECK="$(cd "$SOURCE_GSTACK_DIR" && bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" bin/gstack-modules resolve --loadout "$LOADOUT_ARG" 2>&1)"; then
+    printf 'Error: --loadout %s is not a loadout. %s\n' "$(printf '%s' "$LOADOUT_ARG" | tr -cd 'a-z0-9-' | cut -c1-40)" "$(printf '%s' "${_LOADOUT_CHECK:-}" | tail -1)" >&2
+    echo "  Nothing was installed or changed. List loadouts: bin/gstack-modules list" >&2
+    exit 1
+  fi
+fi
+# _persist_claude_loadout — save the validated --loadout (full clears it).
+_persist_claude_loadout() {
+  [ "$LOADOUT_SET" -eq 1 ] || return 0
+  if [ "$LOADOUT_ARG" = full ]; then
+    "$SOURCE_GSTACK_DIR/bin/gstack-config" unset claude_loadout >/dev/null 2>&1 || true
+    log "Claude loadout: full (claude_loadout cleared)."
+    return 0
+  fi
+  if ! "$SOURCE_GSTACK_DIR/bin/gstack-config" set claude_loadout "$LOADOUT_ARG" >/dev/null; then
+    echo "Error: could not save claude_loadout. Nothing was installed or changed." >&2
+    exit 1
+  fi
+  log "Claude loadout: $LOADOUT_ARG (saved as claude_loadout; ./setup --loadout full returns to the full skills)."
+}
 # _persist_claude_model — save the validated --claude-model value as given.
 _persist_claude_model() {
   local overlay generic
@@ -478,7 +509,16 @@ $_RF_TARGETS" in
 $HOST	"*) ;;
     *) if [ "$HOST_FLAG_SET" -eq 1 ] || [ -z "$_RF_TARGETS" ]; then _rf_add "$HOST" global -; fi ;;
   esac
-  # The children read claude_overlay_model, so the parent saves it first.
+  # The children read claude_overlay_model and claude_loadout, so the parent saves them first.
+  if [ "$LOADOUT_SET" -eq 1 ]; then
+    case "
+$_RF_TARGETS" in
+      *"
+claude	"*) _persist_claude_loadout ;;
+      *) echo "Error: --loadout applies to Claude installs, and no Claude install is registered for this checkout. Nothing was installed or changed. Install Claude first: ./setup --loadout $LOADOUT_ARG" >&2
+         exit 1 ;;
+    esac
+  fi
   if [ "$CLAUDE_MODEL_SET" -eq 1 ]; then
     case "
 $_RF_TARGETS" in
@@ -1140,7 +1180,7 @@ _render_install() {
   rm -rf "$tmp"
   rc=0
   if [ "$host" = claude ]; then
-    out="$(cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs:user --host claude --out-dir "$tmp" --link-root "$render" --install-root "$named" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} 2>&1)" || rc=$?
+    out="$(cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs:user --host claude --out-dir "$tmp" --link-root "$render" --install-root "$named" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} 2>&1)" || rc=$?
     want="$(find "$SOURCE_GSTACK_DIR" -mindepth 2 -maxdepth 2 -name SKILL.md | wc -l)"
     got="$(find "$tmp" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l)"
     [ "$rc" -ne 0 ] || { [ "$want" -eq "$got" ] && grep -qF "$named/bin/gstack-skill-start --skill" "$tmp/SKILL.md" 2>/dev/null; } \
@@ -1452,6 +1492,10 @@ if [ "$MODEL_OVERRIDE_SET" -eq 1 ] && [ "$INSTALL_CODEX" -eq 0 ]; then
   echo "Error: --model is supported only when Codex is selected (--host codex or --host auto with Codex installed). For the Claude overlay, use --claude-model <id>." >&2
   exit 1
 fi
+if [ "$LOADOUT_SET" -eq 1 ] && [ "$INSTALL_CLAUDE" -eq 0 ]; then
+  echo "Error: --loadout is supported only when Claude is selected (the default host, --host claude, or --host auto with Claude Code installed). Nothing was installed or changed." >&2
+  exit 1
+fi
 if [ "$CLAUDE_MODEL_SET" -eq 1 ] && [ "$INSTALL_CLAUDE" -eq 0 ]; then
   echo "Error: --claude-model is supported only when Claude is selected (the default host, --host claude, or --host auto with Claude Code installed). Nothing was installed or changed." >&2
   exit 1
@@ -1467,6 +1511,10 @@ for _rr in "$INSTALL_KIRO kiro $KIRO_SKILLS/gstack" "$INSTALL_FACTORY factory $F
   _runtime_root_refused "${_rr%% *}" "${_rr#* }" && exit 1
 done
 _persist_claude_model
+_persist_claude_loadout
+# claude_loadout (GSTA-161): a non-full loadout renders the Claude skills into
+# the untracked render dir, like plan_mode_preamble=off (docs/loadouts.md).
+gstack_claude_loadout_arg "$GSTACK_CONFIG"
 
 migrate_direct_codex_install() {
   local gstack_dir="$1"
@@ -4410,7 +4458,7 @@ if [ -x "$DETECT_BIN" ]; then
           # No pipe before the || guard: `cmd | tail -3` reports TAIL's exit
           # status, so a generator crash read as success (same masking the
           # main gen:skill-docs site had). Capture, show the tail, propagate.
-          _GEN_USER_OUT=$(bun_cmd run gen:skill-docs:user --host claude --out-dir "$_GSTACK_RENDER_TMP" --link-root "$_GSTACK_RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} 2>&1)
+          _GEN_USER_OUT=$(bun_cmd run gen:skill-docs:user --host claude --out-dir "$_GSTACK_RENDER_TMP" --link-root "$_GSTACK_RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} 2>&1)
           _GEN_USER_RC=$?
           printf '%s\n' "$_GEN_USER_OUT" | tail -3
           exit "$_GEN_USER_RC"
@@ -4437,7 +4485,7 @@ if [ -x "$DETECT_BIN" ]; then
       # A render from a previous gbrain install would shadow canonical files
       # on the next link/relink — drop it and restore canonical links. A
       # pinned overlay re-renders it without brain blocks instead (below).
-      if [ -d "$_GSTACK_RENDER_DIR" ] && [ -z "${GSTACK_SKIP_GBRAIN_REGEN:-}" ] && [ "$INSTALL_CLAUDE" -eq 1 ] && [ "$_GSTACK_OVERLAY" = claude ] && [ -z "$_PLAN_MODE_ARG" ]; then
+      if [ -d "$_GSTACK_RENDER_DIR" ] && [ -z "${GSTACK_SKIP_GBRAIN_REGEN:-}" ] && [ "$INSTALL_CLAUDE" -eq 1 ] && [ "$_GSTACK_OVERLAY" = claude ] && [ -z "$_PLAN_MODE_ARG" ] && [ -z "$_LOADOUT_ARG" ]; then
         rm -rf "$_GSTACK_RENDER_DIR"
         gstack_claude_render_settle "$SOURCE_GSTACK_DIR" "$_GSTACK_RENDER_DIR" absent removed
         if [ "${_CLAUDE_SKILLS_LINKED:-0}" -eq 1 ]; then

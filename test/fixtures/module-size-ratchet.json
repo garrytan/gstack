@@ -4,6 +4,8 @@
     { "file": "scripts/modules.ts", "movedFrom": "(new: module loadouts catalog and selection, GSTA-140)" },
     { "file": "scripts/modules-render.ts", "movedFrom": "(new: module loadout render and lock, GSTA-140)" },
     { "file": "scripts/modules-cli.ts", "movedFrom": "(new: bin/gstack-modules CLI, GSTA-140)" },
+    { "file": "scripts/modules-install.ts", "movedFrom": "(new: lite loadout install tree with identity-keyed reuse, GSTA-161)" },
+    { "file": "lib/model-detect.ts", "movedFrom": "(new: explicit model to loadout detection, GSTA-161)" },
     { "file": "lib/harness-register.ts", "movedFrom": "(new: gstack-harness registrar, GSTA-135)" },
     { "file": "lib/harness-qm.ts", "movedFrom": "(new: gstack-harness QM skill-pack target, GSTA-135)" },
     { "file": "lib/harness-start-hook.ts", "movedFrom": "(new: gstack-harness start hook for OpenClaw and Hermes, GST-718)" },
