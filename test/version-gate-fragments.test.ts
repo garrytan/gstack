@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import { BASE_POLICY, cleanup, makeFixtureRepo, ROOT, type FixtureRepo } from './helpers/restamp-fixture';
 
 const SCRIPT = path.join(ROOT, 'scripts', 'compare-pr-version.ts');
-const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.92.0.0' };
+const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 const fixture = () => { const r = makeFixtureRepo({ policy: POLICY, prefix: 'version-gate-frag-' }); repos.push(r); return r; };

@@ -261,6 +261,13 @@ Never merge out of order, never merge anything else while a train is merging, an
 skip the second verify: a mismatch there is what writes the freeze. When every slot has
 merged, `train prune --train "$NONCE"` deletes the train branch.
 
+**Under `changelog_fragments`** (a stamped train: `train build` printed `S1:`..`Sk:` lines)
+there is no slot call and no lane stamp. Per slot, in `ORDER`, run
+`gstack-ship-queue train land --train "$NONCE" --pr "$PR"` until it exits 0. It pushes the
+stamped prefix S_i as a commit on [pin, `BASE`], waits for the policy's `required_checks`,
+merges with `--match-head-commit` and confirms `BASE` is S_i exactly. A rerun resumes from
+its journal, and any other `BASE` freezes the queue as above (docs/ship-policy.md#train-land).
+
 **The tree rule.** A gate covers a tree, not a commit. A head whose diff from the gated
 prefix touches only `STAMP_FILES` reuses the gate; that is what lets the lane stamp after
 the gate ran. Anything else is a new tree and needs a new gate.
