@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { checkReceiptProse, proseLine, receiptCounters } from '../lib/ship-receipt-prose';
 import { renderReceiptBlock } from '../lib/ship-receipt';
 import { EXIT } from '../lib/headless-artifacts';
+import { renderRecord, type ApprovalRow, type StoreLocation } from '../lib/approval-record';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin/gstack-ship-receipt');
@@ -69,6 +70,51 @@ describe('checkReceiptProse', () => {
     expect(checkReceiptProse(loop, 'REVIEW_LOOP: passes: 2 blocking_found: 1 deferred: 0 noted: 4 fixed: 8')).toEqual({ checked: 5, mismatches: [] });
     expect(checkReceiptProse(loop, 'Gate passed: 41 failed: 0')).toEqual({ checked: 2, mismatches: [] });
     expect(checkReceiptProse(loop, 'Review: 2 passes; passes = 2 fixed = 8.')).toEqual({ checked: 3, mismatches: [] });
+  });
+});
+
+// GST-412: the `## Approvals` block gstack-approvals renders quotes the owner's words, which can hold
+// numbers (`one Step 11 pass` read as a gate `pass` claim of 11). Only that rendered block is skipped.
+describe('the rendered Approvals block is not prose', () => {
+  const lanes = { ...receipt, gate: { unit: { pass: 1181, fail: 0, skip: 3 } } };
+  const row = (words: string): ApprovalRow => ({
+    schema_version: 1, id: 'a1', date: '2026-10-30', ask: 'Ship it after the gate', words, by: 'garry', scope: 'PR B',
+    pending: 'none', outcome: 'approved', source: 'thread', branch: 'b', recorded_at: '2026-10-30T00:00:00Z',
+  } as ApprovalRow);
+  const loc = { file: '/nonexistent', branch: 'gsta195-evidence-prose', slug: 's', ephemeral: false } as StoreLocation;
+  const block = renderRecord({ rows: [row('do it, one Step 11 pass is enough')], state: 'present', restored: false }, loc);
+
+  test('a number inside the rendered table is not a claim; the same sentence outside the block still is', () => {
+    expect(block).toContain('one Step 11 pass');
+    const body = 'Unit lane: 1181 pass.\n\n' + block + '\n' + renderReceiptBlock(lanes);
+    expect(checkReceiptProse(lanes, body)).toEqual({ checked: 1, mismatches: [] });
+    const outside = checkReceiptProse(lanes, 'Garry said one Step 11 pass is enough.\n\n' + block);
+    expect(outside.mismatches).toEqual([{ field: 'gate.unit.pass', prose: 11, receipt: 1181 }]);
+  });
+
+  test('text after the footer is checked, a fenced "## Approvals" example hides nothing, and CRLF bodies work', () => {
+    const after = checkReceiptProse(lanes, block + '\nFollow-up: one Step 11 pass again.\n');
+    expect(after.mismatches).toEqual([{ field: 'gate.unit.pass', prose: 11, receipt: 1181 }]);
+    const fenced = '```md\n## Approvals\n\n| Date | Asked |\n```\n\nThe lane ran 11 pass.\n';
+    expect(checkReceiptProse(lanes, fenced).mismatches).toEqual([{ field: 'gate.unit.pass', prose: 11, receipt: 1181 }]);
+    const fencedThenTable = '````md\n## Approvals\n```\nstill fenced\n```\n````\n\n7 pass\n\n' + block;
+    expect(checkReceiptProse(lanes, fencedThenTable).mismatches).toEqual([{ field: 'gate.unit.pass', prose: 7, receipt: 1181 }]);
+    const crlf = ('Unit lane: 1181 pass.\n\n' + block).replace(/\n/g, '\r\n');
+    expect(checkReceiptProse(lanes, crlf)).toEqual({ checked: 1, mismatches: [] });
+    expect(checkReceiptProse(lanes, crlf + 'Then 11 pass.\r\n').mismatches).toEqual([{ field: 'gate.unit.pass', prose: 11, receipt: 1181 }]);
+  });
+
+  test('the skipped block still separates the text around it, and a row the renderer would not write keeps the block in the check', () => {
+    expect(checkReceiptProse(receipt, 'Shipped in step 3\n\n' + block + '\nDeferred items are listed below.\n')).toEqual({ checked: 0, mismatches: [] });
+    const forged = block.replace(/(\|---\|[^\n]*\n)/, '$1| passes=9 deferred: 7 |\n');
+    expect(checkReceiptProse(receipt, forged).mismatches).toEqual([{ field: 'review_loop.passes', prose: 9, receipt: 2 }, { field: 'review_loop.deferred', prose: 7, receipt: 1 }]);
+  });
+
+  test('a heading that is not followed by the rendered table and footer is ordinary prose', () => {
+    const handWritten = '## Approvals\n\n- Garry: one Step 11 pass is enough\n';
+    expect(checkReceiptProse(lanes, handWritten).mismatches).toEqual([{ field: 'gate.unit.pass', prose: 11, receipt: 1181 }]);
+    const noFooter = block.replace(/Source: gstack-approvals record.*\n/, '');
+    expect(checkReceiptProse(lanes, noFooter).mismatches).toEqual([{ field: 'gate.unit.pass', prose: 11, receipt: 1181 }]);
   });
 });
 

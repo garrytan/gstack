@@ -1,5 +1,76 @@
 # Changelog
 
+## [1.91.367.0] - 2026-10-31
+
+**/ship's review collection no longer counts a reviewer that says it could not review as clean.** In the GSTA-196 replay a specialist replied in prose that the diff base did not exist and it was not returning NO FINDINGS. `collect` parsed that reply to zero findings, and `verify` marked the brief collected, so the review would have read clean from a reader that never saw the diff. What reviewers see is unchanged: every brief renders byte for byte as before.
+
+### Fixed
+- **`gstack-review-dispatch collect` needs the clean marker a reader's own brief asks for before it counts a reply with no findings.** That is `NO FINDINGS` alone on a line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check; the `Recommendation:` line for the outside voice; and either one for the native adversarial voice. A reply with no finding and no marker (a refusal, an empty reply, a reader that never got the diff) is recorded with `review: false`, prints `COLLECT_NOT_REVIEWED` and exits 1. Re-sending the brief and collecting a real review voids it, and the outside voice, whose failure never blocks, is collected with `--unavailable '<reason>'` and verifies as `UNAVAILABLE`, never as a review. A failure text that still holds findings is refused there and collected normally, so nothing is lost.
+- **`gstack-review-dispatch verify` reports that reader's brief `NOT_COLLECTED` and its output `NOT_REVIEWED`, so VERIFY reads dirty.** When the output file is still there and unchanged, verify checks the marker in it again, so a ledger written before this change is judged by the same rule. The GSTA-189 replay's combined ledger still verifies clean, with five `NO FINDINGS` specialists and one outside voice ending in `Recommendation:`.
+- **A paragraph finding keeps its detail bullets.** The GSTA-196 native adversarial voice wrote four findings, each with unlabeled bullets and then a `Severity:` line. Every bullet closed the open finding, so each `Severity:` line opened a new one: 4 findings collected as 8. They now collect as 4, each at the stronger of its two labels. Only an unnumbered bullet with no file and line of its own counts as detail; a numbered item is still its own finding.
+- **Every other finding collects exactly as before.** Main's parser and this one were run over every recorded reader output: 25 raw outputs from the GSTA-189 and GSTA-196 replays and 2,172 finding records from arms C6, L6, A3668 (both suites), G1 and L. 2,196 of the 2,197 collect the same findings with the same labels. The one difference is the GSTA-196 native sample, where 8 fragments join into 4 findings, each at its strongest fragment's label.
+
+## [1.91.366.0] - 2026-10-31
+
+**A partial `gstack-post pr-body` post keeps the PR's intro.** Since GST-412, any body file with a `## ` section replaced the text above the PR's first heading, so a lane that posted only `## Screenshots` deleted a human intro or a `Review-loop exception:` line under the receipt (GStack Minder: "a partial pr-body post must keep the human intro").
+
+### Fixed
+- **Only a full post owns the text above the first heading.** A file with a receipt block above its first `## ` section, as /ship composes it, still replaces stale lead text and stale notes under the receipt. Any other file keeps them; its own lead text still replaces the PR's lead text.
+
+### Tests
+- `test/gstack-post.test.ts`: a partial post keeps the intro and the note under the receipt, even with a caption of its own or a receipt further down; the full-post cases now carry a receipt, as /ship's body does.
+
+## [1.91.365.0] - 2026-10-31
+
+**An unclosed code fence in an outside review no longer hides a later `[P1]` or not-ready verdict (GST-436).** Before, an outside-voice reply that said no issues were found, opened a code fence it never closed, and then listed a `[P1]` finding or ended with `Verdict: not ready` was classified clean, because everything after the fence was treated as quoted code. Now a P0 or P1 severity or a last `Verdict: not ready` after an unclosed fence still blocks. Text inside that fence still can't make a reply clean, so a quoted `Verdict: ready`, `[P3]` or `No issues found.` there is ignored, as before.
+
+### Fixed
+- `lib/outside-review-result.ts` reads the reply after an unclosed fence's opening line for severities (P0 and P1, or Critical and High words, block), an unparsed label (which makes the review `unverified`) and a last `Verdict: not ready`. The evidence for clean (a parsed severity, the last verdict line, the no-findings conclusion) keeps that text blanked. Closed fences still hide quoted severities.
+- Fence matching is one pass, and an opener counts only when a later marker of its kind is at least as long. A reply with thousands of unmatched fences classifies in milliseconds instead of rescanning the rest once per fence.
+
+### Tests
+- `test/outside-review-unclosed-fence.test.ts` covers:
+  - a `[P1]` and a `Verdict: not ready` after an unclosed fence
+  - a closed fence that still hides a quoted `[P1]`
+  - a quoted `Verdict: ready`, `[P3]` or `No issues found.` inside an unclosed fence, which stays findings or unverified
+  - 3,000 unmatched fences
+
+## [1.91.364.0] - 2026-10-31
+
+**`--policy-from head` now only adds test lanes, and the repo can set pregate's per-process timeout.** Two /ship tooling gaps cost other crews a rerun each. GEVA-2 (gstack-evals#93) had a PR that added its own pregate lane, but `gstack-ship-preflight` could not pass `--policy-from head`, so Step 5 failed with `PREGATE_NO_LANE` and the lane called runLanes by hand (GST-419). HARN-1 (HARN-12) had lanes of about 780 s, while preflight and the `finish` fallback ran pregate at its 600 s default, so the result was always `PREGATE: incomplete` (GST-420). There was also a hole behind the first gap: `--policy-from head` took the branch's whole `.gstack/pregate.json`, so a branch could delete its own lanes.
+
+### Added
+- **`timeout_s` in `.gstack/pregate.json`** (1 to 3600 s): gstack-pregate's per-process timeout when `--timeout` is not passed, so preflight, `finish` and plain runs all pick it up. The remote gate gets the same value as `PREGATE_TIMEOUT_S`. A timed-out lane names where its timeout came from (`--timeout`, `timeout_s from <policy>` or the 600 s default).
+- **`gstack-ship-preflight --policy-from head`** forwards to Step 5's pregate. When pregate does not pass, preflight prints up to three `PREGATE_DETAIL:` lines with pregate's own reasons, and a refusal reads `PREGATE: refused (<code>)` instead of `unreadable`.
+
+### Changed
+- **A head policy may only add test lanes** (`PREGATE_HEAD_POLICY_LOOSENS`). It may add a `dependencies` glob with at least one test, or add tests to a glob the trusted policy already maps. Anything else that differs from the trusted policy refuses the run and names each difference. The trusted policy is the base copy, or the user-owned file when the base has none. A branch behind its base is measured from the copy at its merge base and runs the base tip's policy plus its additions. A head file with no trusted policy anywhere is still a bootstrap.
+- **`--remote` works with `--policy-from head`** once that check passes, so a lane on a machine with under 8 cores can clear its obligation. It still runs the trusted copy's `remote_gate`. With no trusted policy at all, `--remote` under head is refused, because a bootstrap head file's own `remote_gate` would be clearing its own obligation.
+- **Under `--policy-from head`, an invalid user-owned policy now refuses** (`PREGATE_CONFIG_INVALID`) instead of being ignored, because it is the policy the head file is compared with.
+- **A `[]` declaration added only on the branch is refused under `--policy-from head`**, the Dart device-test workaround included: declare `"**/integration_test/**": []` on the base branch first. The `PREGATE_NO_LANE` fix line and docs say so.
+
+### Tests
+- `test/pregate-head-policy.test.ts`: a head policy that adds a lane passes; one that removes or swaps a lane, adds `[]`, changes the runner, downgrades a check, allowlists a finding or deletes the file is refused; reorders are not changes; a stale branch keeps the base's newer lanes; the user-owned policy is compared when the base has none; a bootstrap still runs; `timeout_s` bounds each runner process, `--timeout` overrides it, and out-of-range values are invalid.
+- `test/ship-preflight.test.ts`: `--policy-from head` reaches pregate, a removed lane stops with `PREGATE_HEAD_POLICY_LOOSENS`, and `timeout_s` reaches preflight's pregate with the cause printed.
+- `test/pregate-remote.test.ts`: `--remote` under head runs the base gate with the `timeout_s` deadline (or `--timeout`), and a head policy that changes the gate is refused. `test/pregate-dart.test.ts` and `test/pregate-user-policy.test.ts` follow the two behavior changes above.
+
+## [1.91.363.0] - 2026-10-31
+
+**A passing test lane that leaves Bun's `.bun/` folder behind now grades FRESH, `--check-prose` no longer reads the Approvals table as a claim, and `gstack-post pr-body` drops a stale intro.** Three /ship false alarms from GST-421 and GST-412 (HARN-1, HARN-12, GSTA-2, GEVA-69, gstack-evals#90).
+
+### Fixed
+- **GST-421: `gstack-wtree` leaves an untracked `.bun/` folder at the repo root out of the fingerprint.** A test that created it made `gstack-evidence` treat the run as a mid-run edit, so `check` graded the lane STALE with "record has no content fingerprint" and named no file. Tracked files under `.bun/` still count, and a tree without that folder hashes exactly as before.
+- **GST-421: `gstack-evidence` names what changed during a run.** When the fingerprint before and after a run differ, the record stores up to five changed paths as `wtree_changed`, the stderr warning lists them, and `check` grades STALE with `content changed during the run: <paths>`. A record without them (or with entries that are not plain paths) still says "record has no content fingerprint".
+- **GST-412: `gstack-ship-receipt read --check-prose` skips the `## Approvals` block `gstack-approvals` renders** (the heading, the table and its `Source: gstack-approvals record` line), so "one Step 11 pass" in the owner's quoted words is no longer read as `gate.<lane>.pass body=11`. Text after that block, a row the renderer would not write, a hand-written Approvals list and an example inside a code fence are still checked, the text on either side of the block never joins into a new claim, and CRLF bodies work.
+
+### Changed
+- **GST-412: `gstack-post pr-body` manages the text above the first heading when the file has a `## ` section.** The current body's opening text, any text between the receipt and the first heading, or a whole body with no `## ` heading, is replaced by the file's own text above its first heading, or dropped when the file has none. The stderr line names each dropped piece with its first line (`; dropped leading text ("…")`), or withholds that line when the redaction scan flags it, so a removed secret never reaches the terminal. A receipt-only or text-only file merges as before, and reposting the same body gives the same bytes.
+
+### Tests
+- `test/evidence.test.ts`: a lane that writes `.bun/x` grades FRESH; one that writes `src/new.ts` grades STALE naming it; a tracked file under `.bun/` still moves the fingerprint; a tree without `.bun/` hashes like a plain `git add -A`.
+- `test/ship-receipt-prose.test.ts`: the rendered Approvals table, text after its footer, a fenced example, a hand-written list and a CRLF body.
+- `test/gstack-post.test.ts`: stale lead text and stale text under the receipt are dropped and named; receipt-only and text-only files keep the old merge; reposts are byte-identical; an attribution callout is never doubled.
+
 ## [1.91.362.0] - 2026-10-31
 
 **A /ship review pass on Capy is one call to a checked-in program, and reviewer briefs no longer pass through the model.** In the GSTA-189 replay one pass took about 10 parent calls to plan, render, create, check and poll its readers, and the Red Team brief went out wrong twice because a file read cut its long lines. What reviewers see, which reviewers run, their depth and the blocking floor are unchanged, and the new path renders all 16 briefs of that replay byte for byte.

@@ -9,7 +9,9 @@
  * `pr-body` merges by `## ` section into the PR's current body (read through
  * the same runner): a section in the file replaces the same-titled one, the
  * ship-receipt block is a section of its own, sections the file does not
- * rewrite are kept, new ones are appended; `--replace` overwrites instead.
+ * rewrite are kept, new ones are appended, and a file with a receipt above
+ * its first `## ` section replaces the text above the first heading;
+ * `--replace` overwrites instead.
  * The scan runs on the merged bytes, which are the bytes sent.
  *
  * Exit codes: 0 posted; 1 HIGH finding (or oversize input) refused;
@@ -211,24 +213,57 @@ function splitSections(body: string): Section[] {
  * A file section whose title the current body holds more than once (an old
  * description pasted under the new one) matches no single section, so the
  * merge refuses instead of replacing one copy and keeping the stale other.
+ * A full post (a file with a receipt block above its first `## ` section, as
+ * /ship composes it) manages the preamble (GST-412): every
+ * non-blank text section before the current body's first heading (the leading
+ * text, text after a receipt block) is dropped, the file's own text before its
+ * first heading takes its place (leading text first, text after the file's
+ * receipt right after the receipt), a dropped piece the file brings no text for
+ * is listed in `dropped` with its first line (withheld when the redaction scan
+ * flags it, since the merged bytes no longer hold it), and the receipt keeps the rules
+ * above. Any other file (`## ` sections with no receipt above them, or no
+ * `## ` section) merges as described above, so the current intro is kept.
  */
-export function mergeBodySections(current: string, incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[] } {
+export function mergeBodySections(current: string, incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[]; dropped: string[] } {
   const now = splitSections(current);
   const next = splitSections(incoming).filter(n => !(n.key.startsWith("text:") && n.text.trim() === ""));
   const ambiguous = next.filter(n => now.filter(s => s.key === n.key).length > 1).map(n => `"${n.label}"`);
   if (ambiguous.length) throw new UsageError(`the PR's current body holds ${[...new Set(ambiguous)].join(", ")} more than once, so the file's copy matches no single section; nothing was posted. Rerun with --replace and the whole body`);
-  const used = new Set<Section>();
-  const replaced: string[] = [], kept: string[] = [], added: string[] = [];
-  const merged: Section[] = now.map(s => {
+  const preamble = (list: Section[]) => {
+    const end = list.findIndex(s => s.key.startsWith("h2:"));
+    return list.slice(0, end < 0 ? list.length : end).filter(s => s.key.startsWith("text:") && s.text.trim() !== "");
+  };
+  const firstHeading = next.findIndex(n => n.key.startsWith("h2:"));
+  const managed = firstHeading > 0 && next.slice(0, firstHeading).some(n => n.key === "receipt");
+  const stale = managed ? preamble(now) : [];
+  const ours = managed ? preamble(next) : [];
+  const role = (s: Section) => (s.key === "text:lead" ? "lead" : "trailing");
+  const paired = new Set<Section>();
+  for (const r of ["lead", "trailing"]) {
+    const theirs = ours.filter(n => role(n) === r);
+    stale.filter(s => role(s) === r).slice(0, theirs.length).forEach((s, i) => { paired.add(s); paired.add(theirs[i]!); });
+  }
+  const used = new Set<Section>(ours);
+  const replaced: string[] = [], kept: string[] = [], added: string[] = [], dropped: string[] = [];
+  const merged: Section[] = [];
+  for (const s of now) {
+    if (stale.includes(s)) {
+      const line = s.text.trim().split(/\r?\n/)[0]!;
+      if (paired.has(s)) replaced.push(s.label);
+      else if (scan(line).findings.length) dropped.push(`${s.label} (first line withheld: the redaction scan flagged it)`);
+      else dropped.push(`${s.label} ("${line.length > 60 ? line.slice(0, 59).trimEnd() + "…" : line}")`);
+      continue;
+    }
     const match = s.key === "unclosed-receipt" ? undefined : next.find(n => !used.has(n) && n.key === s.key);
-    if (!match) { if (s.text.trim()) kept.push(s.label); return s; }
-    used.add(match); replaced.push(s.label); return match;
-  });
+    if (!match) { if (s.text.trim()) kept.push(s.label); merged.push(s); continue; }
+    used.add(match); replaced.push(s.label); merged.push(match);
+  }
   const fresh = next.filter(n => !used.has(n));
-  for (const n of fresh) added.push(n.label);
+  for (const n of next) if (fresh.includes(n) || (ours.includes(n) && !paired.has(n))) added.push(n.label);
   const first = fresh.filter(n => !n.key.startsWith("h2:"));
-  if (now.length === 0) return { body: incoming, replaced, kept, added };
-  const all = [...first, ...merged, ...fresh.filter(n => n.key.startsWith("h2:"))];
+  if (now.length === 0) return { body: incoming, replaced, kept, added, dropped };
+  const all = [...ours.filter(n => role(n) === "lead"), ...first, ...merged, ...fresh.filter(n => n.key.startsWith("h2:"))];
+  for (const t of ours.filter(n => role(n) === "trailing").reverse()) all.splice(all.indexOf(next[next.indexOf(t) - 1]!) + 1, 0, t);
   const fromFile = (s: Section) => next.includes(s);
   const body = all.map((s, i) => {
     const after = all[i + 1];
@@ -236,7 +271,7 @@ export function mergeBodySections(current: string, incoming: string): { body: st
     const seam = (fromFile(s) || fromFile(after)) && s.text.trim() !== "" && !/^\r?\n/.test(after.text);
     return seam ? s.text.replace(/\n*$/, "\n\n") : s.text.endsWith("\n") ? s.text : s.text + "\n";
   }).join("");
-  return { body, replaced, kept, added };
+  return { body, replaced, kept, added, dropped };
 }
 
 /** The PR's current body for a merge; GitHub's `--jq .body` prints it raw, GitLab's JSON carries `description`. */
@@ -508,7 +543,7 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
       const m = mergeBodySections(current.body, body!);
       body = m.body;
       const list = (names: string[]) => (names.length ? names.join(", ") : "none");
-      env.err(`gstack-post: pr-body merged by section: replaced ${list(m.replaced)}; kept ${list(m.kept)}; added ${list(m.added)}\n`);
+      env.err(`gstack-post: pr-body merged by section: replaced ${list(m.replaced)}; kept ${list(m.kept)}; added ${list(m.added)}${m.dropped.length ? `; dropped ${m.dropped.join(", ")}` : ""}\n`);
     }
     if (body !== undefined && req.attribute) body = attributionCallout(req.attribute) + body;
     const parts: Array<[Part, string]> = [];

@@ -160,7 +160,11 @@ the readiness dashboard and the PR body, and never count it as a pass.
   cell `| P1 |`. P0 and P1 block; P2 and P3 are advisory. A P0-P3 token in that
   label position that none of these forms reads (`## P1/P2 findings`) makes the
   review [`unverified`](#outside-review-unparsed-severity), never `clean`. Code
-  fences and inline code are quotes, not labels.
+  fences and inline code are quotes, not labels. A fence that never closes
+  still hides its text from the evidence for `clean`, but after its opening
+  line a P0 or P1 label (or a Critical or High word) and a last
+  `Verdict: not ready` still block, and an unreadable label still makes the
+  review `unverified`.
 - **Severity words in label position.** `Severity: High`, `Priority: low`, a
   line that starts with `High:`, `High —`, `[High]` or `**High**` (after an
   optional heading, bullet or number), a bold `**High**` anywhere, or a table
@@ -2517,11 +2521,22 @@ section instead of overwriting it: a section in the file replaces the
 same-titled section (title compared case-insensitively), the
 ````gstack-ship-receipt```` block is a section of its own so a receipt
 rewrite replaces only the receipt, sections the file does not rewrite stay in
-place, new sections are appended after them, and a current body with no
-`## ` headings is kept as the leading text. One stderr line names what was
-replaced, kept and added (`gstack-post: pr-body merged by section: replaced
-What changed; kept ship receipt, Why, Approvals; added Tests`). A body file
-holding only its first section therefore no longer wipes the rest of the PR.
+place, and new sections are appended after them. The text above the first
+`## ` heading belongs to the file when the file is a full post: a
+receipt block above its first `## ` section, as /ship composes it. Then the current body's text there (the opening lines, and
+any lines between the receipt and the first heading, or the whole body when it
+has no `## ` heading) is replaced by the file's own text above its first
+heading, or dropped when the file has none. A partial post (`## ` sections
+with no receipt above them, such as a lane posting `## Screenshots`) and a
+file with no `## ` section (a receipt-only or text-only post) leave that text alone, so a human
+intro or a `Review-loop exception:` line under the receipt survives; only
+opening lines the file brings of its own replace the PR's opening lines. One stderr line names what was replaced, kept, added
+and dropped, a dropped piece with its first line, or with that line withheld
+when the redaction scan flags it (`gstack-post: pr-body merged
+by section: replaced What changed; kept ship receipt, Why, Approvals; added
+Tests; dropped leading text ("Draft from gh pr create")`). A body file holding
+only its first section therefore no longer wipes the rest of the PR, and an
+old intro no longer sits above a fresh /ship body.
 The redaction scan runs on the merged bytes, so a MEDIUM or HIGH finding can
 come from a kept section; the `RULE:` line's `LINE:` is in the merged text.
 When the current body cannot be read (`gh pr view --json body` fails) nothing
@@ -3368,7 +3383,10 @@ for files with no behaviour) under `dependencies` in `.gstack/pregate.json` (or 
 Other non-Markdown documentation goes in `empty_lanes` on the base branch.
 Dart files under `integration_test/` or `test_driver/` need a device, so pregate
 never runs them: declare `"**/integration_test/**": []` (and
-`"**/test_driver/**": []`) under `dependencies` and let CI run them.
+`"**/test_driver/**": []`) under `dependencies` on the base branch and let CI run
+them. A `[]` declaration added only on the branch is refused under
+`--policy-from head` ([`PREGATE_HEAD_POLICY_LOOSENS`](#pregate-head-policy-loosens)),
+so land it in its own PR first.
 With no policy anywhere (no base copy, no user-owned file) an unmapped file is
 the warning [`PREGATE_NO_POLICY`](#pregate-no-policy) with a starter policy
 printed, not this error; `gstack-pregate init` writes that draft and lists the
@@ -3392,13 +3410,33 @@ two routes:
 
 1. Land the policy change in its own PR first (the reviewed route), then merge
    the base into this branch and rerun.
-2. Rerun with `--policy-from head --allow-repo-commands`. The run reads the
-   branch's copy and its record says `policy head (unreviewed)`, so a
-   reviewer sees that the gate ran under a policy nobody has reviewed yet;
-   `gstack-ship-queue` never accepts a head-policy run as a remote mirror.
+2. Rerun with `--policy-from head --allow-repo-commands` (in /ship,
+   `gstack-ship-preflight --tests-only --policy-from head`). The run uses the
+   trusted policy plus the lanes the branch adds, and its record says
+   `policy head (unreviewed)`, so a reviewer sees that the gate ran under a
+   policy nobody has reviewed yet; `gstack-ship-queue` never accepts a
+   head-policy run as a remote mirror. A head policy that does anything but add
+   test lanes is refused ([`PREGATE_HEAD_POLICY_LOOSENS`](#pregate-head-policy-loosens)).
 
-An allowlist entry the branch adds to its own `pregate.json` is read the same
-way: it clears a finding only once it is on the base.
+An allowlist entry or a `[]` declaration the branch adds to its own
+`pregate.json` counts only once it is on the base.
+
+<a id="pregate-head-policy-loosens"></a>
+### `PREGATE_HEAD_POLICY_LOOSENS`
+
+**Meaning.** Under `--policy-from head`, the branch's `.gstack/pregate.json`
+does more than add test lanes over the trusted policy (the base branch's copy,
+or the user-owned file when the base has none). The message lists each
+difference: a `dependencies` glob removed, a test dropped from a glob, a new
+`[]` declaration, a deleted file, or another key (`runner`, `guards`, `warn`,
+`allowlist`, `timeout_s`, `remote_gate`, ...) that differs. A branch behind
+its base is compared with the copy at its merge base, so a lane the base added
+later is not a difference. Nothing ran and no record was written.
+
+**Fix.** Keep every key of the trusted policy as it is and only add
+`dependencies` globs with at least one test, or tests on an existing glob. Land
+any other change, a `[]` declaration included, in its own PR on the base branch
+first, then merge the base into this branch and rerun.
 
 <a id="pregate-lane-failed"></a>
 ### `PREGATE_LANE_FAILED`
@@ -5066,7 +5104,8 @@ body that names a counter the receipt records (`passes=3` against
 `review_loop.passes: 2`, `1 deferred` against `deferred: 2`, `passed: 40`
 against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
-run did not produce. The `PROSE:` line names each field with both values.
+run did not produce. The `PROSE:` line names each field with both values. The
+`## Approvals` table `gstack-approvals` renders is never read as a claim.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten
