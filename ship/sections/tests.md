@@ -210,19 +210,16 @@ Only commit if there are changes. Stage the bootstrap's own files by name (confi
 
 ## Step 5: Run tests (on merged code)
 
-**Pre-gate first** — free, before any lane, eval or remote gate:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-pregate --allow-repo-commands
-```
-
-Stage 1 (regen, secrets, strays, literals) is the two-minute preflight; stage 2
-runs the selected lanes under pipefail. `fail` or `incomplete` blocks: fix,
-rerun. `requires-remote` (other platforms; the remote gate under 8 cores) needs
+**Run it:** `~/.claude/skills/gstack/bin/gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...`
+(or the Step 1 call with lanes). It runs the free pre-gate first, before any lane, eval or
+remote gate (`gstack-pregate --allow-repo-commands`: stage 1 regen, secrets, strays, literals;
+stage 2 the selected lanes under pipefail), then every lane in parallel inside the evidence
+ledger, and prints `PREGATE:` and one `LANE: <label> <state> exit= tests_ran= log=` line each.
+`fail` or `incomplete` blocks: fix, rerun. `requires-remote` (other platforms; the remote gate under 8 cores) needs
 `gstack-pregate clear` or, under a user cap, `--remote --spend-cap <usd>`. Rerun
-after the final stamp; Step 18 refuses a stale one.
+after the final stamp (`gstack-ship-release finish` does); Step 18 refuses a stale one.
 
-Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. The commands below are examples only for repositories that actually provide them. Use the same lane labels and exact commands again in Step 16.
+Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. Pass each as `--lane <label>=<command>`; use the same lane labels and exact commands again in Step 16.
 
 **If no applicable test suite exists:** Name the untested scope. AskUserQuestion:
 A) Add tests (recommended), B) Ship with this named testing
@@ -237,26 +234,14 @@ C stops this attempt.
 `db:test:prepare` internally, which loads the schema into the correct lane database.
 Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
 
-Run independent test suites in parallel, each wrapped in the evidence ledger. The
-wrapper is transparent (streams output live, exit code passes through) and
-records `{command, exit, working-tree fingerprint, log path}` to
-`$GSTACK_STATE_ROOT/projects/<slug>/<branch>-evidence.jsonl` — Step 16 cites this
-record instead of re-running when the content hasn't changed:
-
-```bash
-set -o pipefail; pids=()
-~/.claude/skills/gstack/bin/gstack-evidence run --label tests -- 'bin/test-lane 2>&1' & pids+=($!)
-~/.claude/skills/gstack/bin/gstack-evidence run --label vitest -- 'npm run test 2>&1' & pids+=($!)
-fail=0; for p in "${pids[@]}"; do wait "$p" || fail=1; done; echo "lanes failed=$fail"
-```
-
-After all suites complete, check the `gstack-evidence: recorded label=... exit=...
-log=...` summary lines — each carries the lane's exit code and a per-run log
-file (no shared /tmp collisions between concurrent ships). Read the log files
-for failure detail.
+Each lane runs as `gstack-evidence run --label <label> -- '<command>'`: transparent (exit code passes
+through) and recorded as `{command, exit, working-tree fingerprint, log path}` in
+`$GSTACK_STATE_ROOT/projects/<slug>/<branch>-evidence.jsonl`, which Step 16 cites instead of
+re-running when the content hasn't changed. Each lane has its own log (no shared /tmp
+collisions between concurrent ships); read it for failure detail.
 
 **A lane passes on its runner summary line, not on exit 0 alone.** Read each
-lane's `tests_ran` from its receipt (or from the runner's own summary in the log)
+lane's `tests_ran` from its `LANE:` line (or from the runner's own summary in the log)
 and keep the three states apart; never merge them:
 
 1. `tests_ran: N` (N > 0) with exit 0 — the lane passed; record N for the PR body.

@@ -901,6 +901,15 @@ export function renderAutoplanDriver(options: RenderOptions): string {
   return GENERATED_HEADER.replace('{{SOURCE}}', `${AUTOPLAN_DRIVER_RELPATH}.tmpl`) + resolvePlaceholders(tmpl, ctx, getHostConfig('claude'), `${AUTOPLAN_DRIVER_RELPATH}.tmpl`, options);
 }
 
+/** ship/DRIVER.md (GSTA-167 PR 5): the compact /ship entry for a parent agent, rendered the same way. */
+export const SHIP_DRIVER_RELPATH = 'ship/DRIVER.md';
+export function renderShipDriver(options: RenderOptions): string {
+  const tmplPath = path.join(ROOT, `${SHIP_DRIVER_RELPATH}.tmpl`);
+  const tmpl = fs.readFileSync(tmplPath, 'utf-8');
+  const ctx = buildContext(tmpl, tmplPath, 'claude', options, 'ship');
+  return GENERATED_HEADER.replace('{{SOURCE}}', `${SHIP_DRIVER_RELPATH}.tmpl`) + resolvePlaceholders(tmpl, ctx, getHostConfig('claude'), `${SHIP_DRIVER_RELPATH}.tmpl`, options);
+}
+
 /**
  * Generate one on-demand section file (`<skill>/sections/<name>.md.tmpl` →
  * `<name>.md`). Sections are BODY FRAGMENTS — no frontmatter, no catalog trim,
@@ -1091,6 +1100,9 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
       }
       if (host === 'claude' && includesSkill(hostConfig, 'autoplan') && templates.some(t => t.tmpl === 'autoplan/SKILL.md.tmpl')) {
         emit(path.join(options.outputRoot, AUTOPLAN_DRIVER_RELPATH), renderAutoplanDriver(options), 'asset', host);
+      }
+      if (host === 'claude' && includesSkill(hostConfig, 'ship') && templates.some(t => t.tmpl === 'ship/SKILL.md.tmpl')) {
+        emit(path.join(options.outputRoot, SHIP_DRIVER_RELPATH), renderShipDriver(options), 'asset', host);
       }
 
       if (host === 'openclaw') {

@@ -3,12 +3,17 @@
  * gstack-ship-budget — the /ship token budget and fresh-context handoff
  * (docs/ship-budget.md). An admission cap: no step or dispatch starts unless
  * used + open reservations + unknown + its projection + the tail and stop
- * reserve fit under the cap.
+ * reserve fit under the cap. --mode observe (ship/DRIVER.md) only records:
+ * note at each program's end, and the cap is one hard stop. Every --reading
+ * takes --credits <cost.credits> beside it.
  *
- *   start   --record <path> [--token-cap <n|none>] [--meter capy|claude|estimate] [--reading <n>] [--prior-reading <n>]
- *           [--session <id>|--nonce <v>] [--reserve <n>] [--delegate auto|never] [--calibration <file>] [--ledger <path>]
- *   check   --run <id>|--record <path> --step <id> --next <id|dispatch:<role>[,<role>...]> [--reading <n>] [--prior-reading <n>] [--returned <id>[,<id>...]]
- *   settle  --run|--record --reservation <id> [--unknown] [--reading <n>]      release --run|--record --reservation <id>
+ *   start   --record <path> [--token-cap <n|none>] [--mode admit|observe] [--meter capy|claude|estimate] [--reading <n>] [--credits <c>]
+ *           [--prior-reading <n>] [--session <id>|--nonce <v>] [--reserve <n>] [--delegate auto|never] [--calibration <file>] [--ledger <path>]
+ *   note    --run|--record --step <id> [--label <text>] --reading <n> [--credits <c>] [--dispatched-at <n> [--dispatched-credits <c>] --readers <k>]
+ *   check   --run <id>|--record <path> --step <id> --next <id|dispatch:<role>[,<role>...]> [--reading <n>] [--credits <c>] [--prior-reading <n>]
+ *           [--returned <id>[,<id>...]] [--runtime-lines <n>] [--dispatched-at <n> --readers <k>]
+ *   settle  --run|--record --reservation <id> [--unknown] [--reading <n>] [--credits <c>] [--dispatched-at <n> --readers <k>]
+ *   release --run|--record --reservation <id>
  *   handoff --run|--record --from <step> --to <step> --base origin/<base> [--reviewed-tree <t>] [--trail <f> --trail-run <id>]
  *           [--sub-cap <n>] [--reading <n>] [--child-session <id>]
  *   launch  --in <brief>   (Claude Code: background headless child with explicit permissions)
@@ -24,18 +29,19 @@
  * lib/ship-handoff.ts.
  */
 import { BudgetError } from '../lib/ship-budget';
-import { cmdCheck, cmdClose, cmdResume, cmdSettle, cmdStart, type Outcome } from '../lib/ship-budget-cli';
+import { cmdCheck, cmdClose, cmdNote, cmdResume, cmdSettle, cmdStart, type Outcome } from '../lib/ship-budget-cli';
 import { cmdHandoff, cmdLaunch, cmdReconcile, cmdReturn, cmdVerifyHandoff } from '../lib/ship-handoff';
 
 const [command, ...rest] = process.argv.slice(2);
 const ctx = { env: process.env, cwd: process.cwd() };
 const commands: Record<string, () => Outcome> = {
-  start: () => cmdStart(rest, ctx), check: () => cmdCheck(rest, ctx), settle: () => cmdSettle(rest, ctx), release: () => cmdSettle(rest, ctx, true),
+  start: () => cmdStart(rest, ctx), note: () => cmdNote(rest, ctx), check: () => cmdCheck(rest, ctx), settle: () => cmdSettle(rest, ctx), release: () => cmdSettle(rest, ctx, true),
   handoff: () => cmdHandoff(rest, ctx), launch: () => cmdLaunch(rest, ctx), 'verify-handoff': () => cmdVerifyHandoff(rest, ctx), return: () => cmdReturn(rest, ctx),
   reconcile: () => cmdReconcile(rest, ctx), resume: () => cmdResume(rest, ctx), close: () => cmdClose(rest, ctx),
 };
 if (!command || command === '--help' || command === '-h' || !commands[command]) {
-  const text = (await Bun.file(import.meta.path).text()).split('\n').slice(2, 26).map(l => l.replace(/^ \* ?/, '')).join('\n');
+  const lines = (await Bun.file(import.meta.path).text()).split('\n');
+  const text = lines.slice(2, lines.indexOf(' */')).map(l => l.replace(/^ \* ?/, '')).join('\n');
   (command && command !== '--help' && command !== '-h' ? console.error : console.log)(text);
   process.exit(command && command !== '--help' && command !== '-h' ? 2 : 0);
 }

@@ -423,6 +423,9 @@ GSTACK_LAUNCH_FILE: <verdict file without .json>.env
 
 `GSTACK_LAUNCH_FILE` names the same assignments as a sourceable script (mode
 0600, beside the verdict under the state root; the PATH prepend is idempotent).
+The file also appends the checkout's `bin/` directory to PATH, after everything
+already there and only once, so a shell that sourced only this file runs a bare
+`gstack-ship-budget` (GSTA-167: a /ship child got `command not found`, exit 127).
 When the session starts from the Drive skill (a bootstrapper outside the
 checkout), the file also exports `GSTACK_PREFERENCES_FILE`, the path of
 `preferences.yaml` beside that skill's SKILL.md, which the `GSTACK_LAUNCH` line

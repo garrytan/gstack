@@ -31,7 +31,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --pass <n>                full review passes already run in this invocation (default 0)
   --last none|full|fix-check  the step that just finished (default none: plan pass 1)
   --fixed-blocking          the finished step fixed a blocking finding (raises light to standard)
-  --fixed-below             the finished step fixed findings below the floor
+  --fixed-below             the finished step fixed findings below the floor (ignored after a fix-check: below-floor
+                            fixes never repeat review, so only --fixed-blocking or --blocking-open stops there)
   --blocking-open           a blocking finding is still open in fix scope
   --touched-gate            a fix touched a gate-class path
   --critical-found          a specialist reported a CRITICAL finding (Red Team on code class; raises light to standard)
@@ -131,7 +132,7 @@ function main(): number {
   const plan = planReview({
     ...collected, scope, gateTagged, numbers: scanNumbers(added), force, gated: list('--gated'), floor,
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
-    history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below'), blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines },
+    history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below') && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines },
   });
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
