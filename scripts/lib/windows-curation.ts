@@ -327,6 +327,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/ship-release.test.ts',
     reason: 'spawns bin/gstack-ship-release (shebang) directly and writes #!/bin/sh gh stubs through test/helpers/ship-bin-fixture.ts; windows-latest exits before the bin runs (windows-free-shard 3, run 41073592483)',
   },
+  {
+    file: 'test/ship-rereview-triggers.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-release.test.ts; windows-latest fails every bin case at the first spawn (windows-free-shard 6, run 41193336209)',
+  },
 ];
 
 // Force-include overrides: files a WINDOWS_FRAGILE_PATTERNS regex excludes for
