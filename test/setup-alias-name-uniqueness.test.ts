@@ -80,6 +80,7 @@ beforeAll(() => {
     extractFn('_write_owned_marker'),
     extractFn('_print_windows_copy_note_once'),
     extractFn('_link_skill_runtime_assets'),
+    `. "${path.join(ROOT, 'bin/gstack-skill-name.sh')}"`,
     extractFn('link_claude_skill_dirs'),
     extractFn('_install_alias_skill_md'),
     extractFn('link_claude_root_skill_alias'),

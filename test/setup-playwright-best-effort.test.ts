@@ -653,6 +653,7 @@ function runLinker(opts: {
     '_print_windows_copy_note_once() { :; }',
     '_FOREIGN_SKIPPED_ENTRIES=()',
     extractFn('_link_or_copy'),
+    `. "${path.join(ROOT, 'bin/gstack-skill-name.sh')}"`,
     extractFn('_gstack_link_target_abs'),
     extractFn('_gstack_target_is_ours'),
     extractFn('_claude_entry_is_ours'),

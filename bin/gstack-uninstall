@@ -59,6 +59,9 @@ GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="$HOME/.gstack"
 _STATE_DOC="https://github.com/garrytan/gstack/blob/main/docs/state-root.md"
 . "$(dirname "$0")/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $(dirname "$0")/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade ($_STATE_DOC)" >&2; exit 1; }
+# Skill names without a process per skill (#2120); an older copy lacking the helper keeps the pipeline.
+. "$(dirname "$0")/gstack-skill-name.sh" 2>/dev/null \
+  || gstack_skill_md_name() { GSTACK_SKILL_NAME=$(grep -m1 '^name:' "$1" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true); }
 gstack_state_root_select
 RESOLVED_ROOT="$_gstack_sr_root"
 RESOLVED_VAR="$_gstack_sr_var"
@@ -288,8 +291,8 @@ _INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome "
 if [ -d "$GSTACK_DIR" ]; then
   for _SRC in "$GSTACK_DIR"/*/; do
     [ -f "$_SRC/SKILL.md" ] || continue
-    _SRC_NAME="$(basename "$_SRC")"
-    _FM_NAME=$(grep -m1 '^name:' "$_SRC/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+    _SRC_NAME=${_SRC%/}; _SRC_NAME=${_SRC_NAME##*/}
+    gstack_skill_md_name "$_SRC/SKILL.md"; _FM_NAME=$GSTACK_SKILL_NAME
     for _N in "$_SRC_NAME" "$_FM_NAME"; do
       [ -n "$_N" ] || continue
       case "$_INVENTORY" in *" $_N "*) ;; *) _INVENTORY="$_INVENTORY$_N gstack-$_N " ;; esac

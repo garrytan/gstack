@@ -28,6 +28,7 @@ const HELPERS = [
   '_link_skill_runtime_assets() { :; }',
   '_print_windows_copy_note_once() { :; }',
   extractFn('_link_or_copy'),
+  `. "${path.join(ROOT, 'bin/gstack-skill-name.sh')}"`,
   extractFn('_gstack_link_target_abs'),
   extractFn('_gstack_target_is_ours'),
   extractFn('_claude_entry_is_ours'),
