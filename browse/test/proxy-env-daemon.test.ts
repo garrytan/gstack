@@ -14,6 +14,8 @@ import * as path from 'node:path';
 
 const CLI = path.resolve(import.meta.dir, '../src/cli.ts');
 const PROXIED_HOST = 'proxied.gstack-915.test';
+const AUTH_HOST = 'auth.gstack-3457.test';
+const AUTH_HEADER = `Basic ${Buffer.from('proxy-user:proxy-secret').toString('base64')}`;
 
 let scratch = '';
 let stateFile = '';
@@ -27,6 +29,11 @@ beforeAll(async () => {
   stateFile = path.join(scratch, 'state', 'browse.json');
   proxy = http.createServer((req, res) => {
     const host = new URL(req.url ?? '/', 'http://unknown').hostname;
+    if (host === AUTH_HOST && req.headers['proxy-authorization'] !== AUTH_HEADER) {
+      res.writeHead(407, { 'Proxy-Authenticate': 'Basic realm="gstack-3457"' });
+      res.end();
+      return;
+    }
     proxiedHosts.push(host);
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`<!doctype html><html><body><p>via proxy for ${host}</p></body></html>`);
@@ -176,5 +183,16 @@ describe.skipIf(process.platform === 'win32')('#915 proxy from the environment, 
       expect(plain.stdout).toContain('direct loopback page');
     }
     expect(daemonPid()).toBe(pid);
+  }, 120_000);
+
+  test('BROWSE_PROXY_USER/PASS with HTTP_PROXY: the daemon starts and Chromium answers the proxy auth challenge (#3457)', async () => {
+    expect((await browse(['stop'], {})).code).toBe(0);
+    const env = { HTTP_PROXY: proxyUrl, BROWSE_PROXY_USER: 'proxy-user', BROWSE_PROXY_PASS: 'proxy-secret' };
+    const r = await browse(['goto', `http://${AUTH_HOST}/`], env);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stderr).toContain(`Starting server with proxy ${proxyUrl.replace('http://', 'http://***:***@')}/ from HTTP_PROXY...`);
+    expect(r.out).not.toContain('proxy-secret');
+    expect(proxiedHosts).toContain(AUTH_HOST);
+    expect((await browse(['text'], env)).stdout).toContain(`via proxy for ${AUTH_HOST}`);
   }, 120_000);
 });
