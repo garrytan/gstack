@@ -135,9 +135,8 @@ alone is not an ask.
 
 A lane that builds something plans first. Its first act after the session-start install
 check, before any product code, is a `/autoplan` run on its brief, sized to the work. The
-phases run in order, CEO, then design, then DX, then eng, with design and DX only when the
-scope has them, and a fix the exemptions below don't cover gets a short run (`--no-ui --no-dx --max-rounds 1`, with
-`--estimate-usd` set so a small `--spend-cap` still seats its attempts), not no run. On Capy the
+full run's phases run in order, CEO, then design, then DX, then eng, with design and DX only when the
+scope has them. A bug fix gets no plan review and a feature gets the lean run (both below). On Capy the
 unattended loop is `autoplan/DRIVER.md` in the gstack checkout. New functionality a lane
 takes on part-way, scope its brief did not name, gets its own plan and its own ask before
 the lane builds it. In the rules file this is rule 24 of the
@@ -183,9 +182,11 @@ flaky pass's repairs, slot stamps, CHANGELOG-only conflict resolves and a size o
 cap re-pinned under the controller's written grant need no plan. Two kinds of fix are exempt
 too: an S1 emergency (a broken install or upgrade, a red main, a security bug), and a fix
 from a problem list that was already diagnosed and audited, where that list is the plan.
-Every other fix, a one-line bug fix included, gets a one-round, eng-only plan: the short
-run above, with the CEO phase closed before its voices are dispatched
-(`gstack-autoplan close --out <run dir> --phase ceo --deferred "eng-only fix plan" --by agent:<thread>`).
+Any other bug fix is exempt too (R65; the brief's reason is `bug fix (R65)`): `gstack-autoplan next --kind fix` prints
+`AUTOPLAN: not needed (bug fix; R65)` and writes nothing, and the PR carries the bug's
+proof, a repro on current main or a failing test written first. A feature gets the lean
+run, `--kind feature`: one reviewer reading the plan and the draft code together, one gate
+revision and no carry check (docs/unattended.md). `--full` brings back the full run.
 A crew may add exemptions
 in its rules file with the owner's words and date; it does not remove these. The brief
 says which applies, `Plan: required | approved: <run> | exempt: <reason>`, so an
