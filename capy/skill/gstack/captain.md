@@ -150,7 +150,8 @@ Every PR you send READY on, and the READY report itself, has:
    evidence-ladder rung that fact reached.
 4. **Approvals.** `gstack-approvals render`.
 5. **Evidence.** Checks green at the head, gate or train results, flaky cases, and an `Unverified:` line:
-   each claim you did not check yourself and why, or `none`. You write this item; /ship does not.
+   each claim you did not check yourself and why, or `none`; `Failed or skipped:` and `Also changed:` lines too.
+   A controller asks for a missing one of the three, never refuses it. You write this item; /ship does not.
 
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
 /ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
