@@ -50,7 +50,7 @@ test('summary reads the review log through gstack-review-read (#3541)', () => {
   ];
   fs.writeFileSync(path.join(state, 'projects', SLUG, 'feat-reviews.jsonl'), rows.map(r => JSON.stringify(r)).join('\n') + '\n');
   const out = path.join(tmp, 'review-loop.json');
-  const r = runScriptSync(path.join(ROOT, 'bin', 'gstack-review-scope'), ['summary', '--since', '2026-10-26T09:00:00Z', '--out', out, '--json'], {
+  const r = runScriptSync(path.join(ROOT, 'bin', 'gstack-review-scope'), ['summary', '--no-ledger', '--since', '2026-10-26T09:00:00Z', '--out', out, '--json'], {
     cwd: repo, env, encoding: 'utf8', timeout: 120_000,
   });
   expect(r.error).toBeUndefined();
