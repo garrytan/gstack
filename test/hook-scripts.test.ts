@@ -1245,6 +1245,29 @@ describe('check-careful.sh PowerShell and cmd coverage (#3067)', () => {
 // ============================================================
 // check-freeze.sh tests
 // ============================================================
+// The freeze fix (#3623) made the shared extractor keep trailing newlines and
+// map lone surrogates on PATH fields only; a command must come out exactly as
+// before, on both extractor branches.
+describe('shared extractor keeps /careful command values unchanged (#3623)', () => {
+  test.skipIf(process.platform === 'win32').each(['python3', 'node'])('with %s failing, a command still drops trailing newlines and nothing else', (broken) => {
+    const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-extract-shim-'));
+    try {
+      fs.writeFileSync(path.join(shim, broken), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      const env = { ...process.env, PATH: shim + path.delimiter + (process.env.PATH ?? '') };
+      const payload = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf /var/data  \n# note\n\n\n' } });
+      const r = spawnSync('bash', ['-c', '. "$1" && gstack_hook_extract_tool "$2" command && printf "%s|%s|%s" "$GSTACK_HOOK_TOOL" "$GSTACK_HOOK_FIELD" "$GSTACK_HOOK_VALUE"', 'x', HOOK_EXTRACT, payload], { env, encoding: 'utf-8', timeout: 5000 });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe('Bash|command|rm -rf /var/data  \n# note');
+
+      const hook = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf /var/data\n\n'), { PATH: env.PATH });
+      expect(hook.output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(hook.output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
+    } finally {
+      fs.rmSync(shim, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('check-freeze.sh', () => {
 
   describe('edits inside freeze boundary', () => {
@@ -1464,6 +1487,351 @@ describe('check-freeze.sh', () => {
       } finally {
         fs.rmSync(base, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('boundary escape shapes (#3623)', () => {
+    // The old resolver canonicalized only an EXISTING parent directory and
+    // otherwise compared the raw string, so any path through a directory that
+    // did not exist yet kept its literal in-boundary prefix: '..' segments and
+    // symlinks in it were never applied. Each case names the escape shape.
+    function decide(boundary: string, filePath: string, home: string, cwd?: string): string {
+      let decision = '';
+      withFreezeDir(boundary + '/', (stateDir) => {
+        const r = runHook(FREEZE_SCRIPT, freezeInput(filePath), freezeEnv(stateDir, { HOME: home }), cwd);
+        expect(r.exitCode).toBe(0);
+        decision = r.output.hookSpecificOutput?.permissionDecision ?? (r.raw === '{}' ? 'allow' : r.raw);
+      });
+      return decision;
+    }
+
+    function withTree(fn: (t: { base: string; home: string; src: string; outside: string }) => void) {
+      const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-esc-')));
+      const home = path.join(base, 'home');
+      const src = path.join(home, 'proj', 'src');
+      const outside = path.join(base, 'outside');
+      fs.mkdirSync(src, { recursive: true });
+      fs.mkdirSync(outside, { recursive: true });
+      try {
+        fn({ base, home, src, outside });
+      } finally {
+        fs.rmSync(base, { recursive: true, force: true });
+      }
+    }
+
+    test('dotdot through a missing directory, a trailing dotdot, tilde and cwd-relative paths are resolved before the check', () => {
+      withTree(({ base, home, src }) => {
+        expect(decide(src, src + '/../../../outside/new-dir/x.ts', home, base)).toBe('deny');
+        expect(decide(src, src + '/..', home, base)).toBe('deny');
+        expect(decide(src, '~/.zshrc', home, src)).toBe('deny');
+        expect(decide(src, '../../new-dir/x.ts', home, src)).toBe('deny');
+
+        expect(decide(src, src + '/new-dir/x.ts', home, base)).toBe('allow');
+        expect(decide(src, src + '/a/../b/x.ts', home, base)).toBe('allow');
+        expect(decide(src, '~/proj/src/x.ts', home, base)).toBe('allow');
+        expect(decide(src, 'new-dir/x.ts', home, src)).toBe('allow');
+      });
+    });
+
+    // A per-line sed squeezed slashes, so a newline split '..' off the next
+    // name ('<b>/../\nfoo.ts' read as inside, landed in the parent), and the
+    // extractor dropped a trailing one ('<b>\n' is a sibling of the boundary).
+    // No real file name holds a line break, so any path with one denies.
+    test('a line break in the path denies instead of hiding a dotdot or a sibling', () => {
+      withTree(({ base, home, src }) => {
+        expect(decide(src, src + '/../\nfoo.ts', home, base)).toBe('deny');
+        expect(decide(src, src + '/../\n/x.ts', home, base)).toBe('deny');
+        expect(decide(src, src + '\n', home, base)).toBe('deny');
+        expect(decide(src, src + '/new\r/x.ts', home, base)).toBe('deny');
+      });
+    });
+
+    // The walk is quadratic in path length, and a PreToolUse hook that times
+    // out does not block the edit; an over-long path must deny fast.
+    test('a path longer than PATH_MAX denies quickly instead of stalling the hook', () => {
+      withTree(({ base, home, src }) => {
+        const started = Date.now();
+        expect(decide(src, src + '/a/..'.repeat(20000) + '/../outside/x.ts', home, base)).toBe('deny');
+        expect(Date.now() - started).toBeLessThan(4000);
+        expect(decide(src, src + '/a/..'.repeat(500) + '/x.ts', home, base)).toBe('allow');
+      });
+    });
+
+    // Link targets re-expand the walk, so their total is bounded too: a chain
+    // of padded links must deny fast instead of running for minutes.
+    test.skipIf(process.platform === 'win32')('a symlink chain whose targets add up past 8192 characters denies quickly', () => {
+      withTree(({ base, home, src, outside }) => {
+        // Each target pads with 'name/..' pairs (few components, so the walk
+        // itself stays cheap) to about 3,800 characters; three hops pass 8192.
+        const pad = ('n'.repeat(250) + '/../').repeat(15);
+        fs.symlinkSync(pad + path.relative(src, outside), path.join(src, 'p3'));
+        fs.symlinkSync(pad + 'p3', path.join(src, 'p2'));
+        fs.symlinkSync(pad + 'p2', path.join(src, 'p1'));
+        const started = Date.now();
+        expect(decide(src, src + '/p1/x.ts', home, base)).toBe('deny');
+        expect(Date.now() - started).toBeLessThan(4000);
+      });
+    });
+
+    test('Windows separators: a C:\\ dotdot escape through a missing directory denies, a new C:\\ subdirectory allows', () => {
+      withTree(({ base, home }) => {
+        expect(decide('C:\\dev\\proj\\src', 'C:\\dev\\proj\\src\\..\\..\\other\\new\\x.ts', home, base)).toBe('deny');
+        expect(decide('C:\\dev\\proj\\src', 'C:/dev/proj/src/../../other/new/x.ts', home, base)).toBe('deny');
+        expect(decide('C:\\dev\\proj\\src', 'C:\\dev\\proj\\src\\new\\x.ts', home, base)).toBe('allow');
+      });
+    });
+
+    // Windows never climbs above X:\ or \\server\share: 'C:\..\c\dev' is
+    // C:\c\dev. A walker that popped the root would read it as C:\dev.
+    test('dotdot stops at a drive root and a UNC share root', () => {
+      withTree(({ base, home }) => {
+        expect(decide('C:\\dev\\proj\\src', 'C:\\..\\c\\dev\\proj\\src\\x.ts', home, base)).toBe('deny');
+        expect(decide('\\\\server.invalid\\share\\proj', '\\\\server.invalid\\share\\..\\..\\server.invalid\\share\\proj\\x.ts', home, base)).toBe('deny');
+        expect(decide('\\\\server.invalid\\share\\proj', '\\\\server.invalid\\share\\proj\\new\\x.ts', home, base)).toBe('allow');
+      });
+    });
+
+    // Windows bash rules, run on any platform by setting OSTYPE before the
+    // hook loads its helpers.
+    function decideOnWindowsBash(boundary: string, filePath: string, home: string, cwd: string): string {
+      let decision = '';
+      withFreezeDir(boundary + '/', (stateDir) => {
+        const r = spawnSync('bash', ['-c', 'OSTYPE=msys; . "$0"', FREEZE_SCRIPT], {
+          input: JSON.stringify(freezeInput(filePath)),
+          env: { ...process.env, ...freezeEnv(stateDir, { HOME: home }) },
+          cwd,
+          timeout: 5000,
+        });
+        expect(r.status).toBe(0);
+        const raw = r.stdout.toString().trim();
+        decision = raw === '{}' ? 'allow' : (JSON.parse(raw).hookSpecificOutput?.permissionDecision ?? raw);
+      });
+      return decision;
+    }
+
+    test('Windows bash: drive-relative paths and names Windows trims are denied, fail closed', () => {
+      withTree(({ base, home, src }) => {
+        expect(decideOnWindowsBash(src, 'C:..\\..\\x.ts', home, src)).toBe('deny');
+        expect(decideOnWindowsBash(src, 'C:x.ts', home, src)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\dev\\proj\\src', 'C:\\dev\\proj\\src\\.. \\x.ts', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\dev\\proj\\src', 'C:\\dev\\proj\\src\\...\\x.ts', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\dev\\proj\\src', '\\c\\dev\\proj\\src\\x.ts', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\dev\\proj\\src', '\\\\\\c\\..\\c\\dev\\proj\\src\\x.ts', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('\\\\server.invalid\\share\\proj', '\\\\server.invalid\\..\\share\\proj\\x.ts', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\dev\\proj\\src', '\\\\.\\C:\\dev\\proj\\src\\x.ts', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\dev\\proj\\src', '///c/dev/proj/src/x.ts', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\dev\\proj\\src', '\\\\/c/dev/proj/src/x.ts', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\', 'C:', home, base)).toBe('deny');
+        expect(decideOnWindowsBash('C:\\dev\\proj\\src', 'C:\\dev\\proj\\src\\new\\x.ts', home, base)).toBe('allow');
+      });
+    });
+
+    // Windows reads a link target of '\\x' against the link's drive root and
+    // 'C:x' against drive C's own working directory; normalized as /x or C:/x,
+    // either read as inside while the write landed elsewhere.
+    test.skipIf(process.platform === 'win32')('Windows bash: a link target relative to a drive or its root denies, fail closed', () => {
+      withTree(({ home, src }) => {
+        fs.symlinkSync(src.split('/').join('\\'), path.join(src, 'rootrel'));
+        fs.symlinkSync('C:x', path.join(src, 'driverel'));
+        fs.symlinkSync('\\', path.join(src, 'bare'));
+        fs.mkdirSync(path.join(src, 'real'));
+        fs.symlinkSync(path.join(src, 'real'), path.join(src, 'fwd'));
+        expect(decideOnWindowsBash(src, src + '/rootrel/x.ts', home, src)).toBe('deny');
+        expect(decideOnWindowsBash(src, src + '/driverel/x.ts', home, src)).toBe('deny');
+        expect(decideOnWindowsBash(src, src + '/bare' + src + '/x.ts', home, src)).toBe('deny');
+        expect(decideOnWindowsBash(src, src + '/fwd/x.ts', home, src)).toBe('allow');
+      });
+    });
+
+    // Git Bash reaches one folder through several mounts (/tmp is %TEMP%, and
+    // HOME converts through them), so '~/x' and 'D:\\...\\x' can name one file
+    // in two spellings; the hook compares cygpath's drive spelling.
+    test.skipIf(process.platform === 'win32')('Windows bash: a folder reached through a Git Bash mount compares by its drive spelling', () => {
+      withTree(({ base, home, src, outside }) => {
+        const bin = path.join(base, 'bin');
+        fs.mkdirSync(bin);
+        const mnt = path.join(base, 'mnt');
+        fs.writeFileSync(path.join(bin, 'cygpath'), [
+          '#!/bin/bash',
+          'case "$2" in',
+          '  "$FAKE_MNT"/in/*) printf "%s\\n" "$FAKE_IN${2#"$FAKE_MNT"/in}" ;;',
+          '  "$FAKE_MNT"/out/*) printf "%s\\n" "$FAKE_OUT${2#"$FAKE_MNT"/out}" ;;',
+          '  *) printf "%s\\n" "$2" ;;',
+          'esac',
+          '',
+        ].join('\n'), { mode: 0o755 });
+        const decideWithCygpath = (filePath: string): string => {
+          let decision = '';
+          withFreezeDir(src + '/', (stateDir) => {
+            const r = spawnSync('bash', ['-c', 'OSTYPE=msys; . "$0"', FREEZE_SCRIPT], {
+              input: JSON.stringify(freezeInput(filePath)),
+              env: { ...process.env, ...freezeEnv(stateDir, { HOME: home }), PATH: bin + path.delimiter + (process.env.PATH ?? ''), FAKE_MNT: mnt, FAKE_IN: home, FAKE_OUT: outside },
+              cwd: base,
+              timeout: 5000,
+            });
+            expect(r.status).toBe(0);
+            const raw = r.stdout.toString().trim();
+            decision = raw === '{}' ? 'allow' : (JSON.parse(raw).hookSpecificOutput?.permissionDecision ?? raw);
+          });
+          return decision;
+        };
+        expect(decideWithCygpath(mnt + '/in/proj/src/x.ts')).toBe('allow');
+        expect(decideWithCygpath(mnt + '/out/proj/src/x.ts')).toBe('deny');
+        expect(decideWithCygpath(src + '/x.ts')).toBe('allow');
+      });
+    });
+
+    // Linux and macOS read a leading '//' as '/', so neither a '//' path nor a
+    // link to '//' may borrow a UNC boundary, and a link to '/' followed by
+    // '/' stays a plain absolute path.
+    test.skipIf(process.platform === 'win32')('POSIX: a double slash is the root, never a UNC prefix', () => {
+      withTree(({ base, home, src }) => {
+        fs.symlinkSync('//', path.join(base, 'dbl'));
+        fs.symlinkSync('/', path.join(base, 'root'));
+        const unc = '\\\\server.invalid\\share\\proj';
+        expect(decide(unc, base + '/dbl/server.invalid/share/proj/x.ts', home, base)).toBe('deny');
+        expect(decide(unc, '//server.invalid/share/proj/x.ts', home, base)).toBe('deny');
+        expect(decide(src, base + '/root/' + src + '/x.ts', home, base)).toBe('allow');
+        expect(decide(src, '/' + src + '/x.ts', home, base)).toBe('allow');
+      });
+    });
+
+    // On POSIX '\\' is a filename character, so a name that spells '..' with
+    // backslashes is one directory, not a way back into the boundary.
+    test.skipIf(process.platform === 'win32')('a POSIX backslash name that spells dotdot never counts as inside', () => {
+      withTree(({ base, home, src, outside }) => {
+        expect(decide(src, outside + '/..\\home\\proj\\src\\x.ts', home, base)).toBe('deny');
+      });
+    });
+
+    // On POSIX, '\\/...' is a relative name, not a UNC path, and a Windows-
+    // shaped path names no local file: neither may borrow Windows rules or
+    // local symlinks to read as inside while Node writes elsewhere.
+    test.skipIf(process.platform === 'win32')('POSIX: a backslash prefix never turns a relative escape into a UNC path inside the boundary', () => {
+      withTree(({ base, home, src }) => {
+        const bs = src.slice(1).split('/').join('\\');
+        expect(decide(src, '\\\\/' + bs + '\\a\\b\\c/../../../outside/x.ts', home, src)).toBe('deny');
+
+        fs.mkdirSync(path.join(base, 'real', 'bnd'), { recursive: true });
+        fs.symlinkSync(path.join(base, 'real'), path.join(base, 'alias'));
+        const aliasBnd = path.join(base, 'alias', 'bnd');
+        const abs = aliasBnd.slice(1).split('/').join('\\');
+        expect(decide(aliasBnd, '\\\\' + abs + '\\a\\b/../../outside/x.ts', home, path.join(base, 'real', 'bnd'))).toBe('deny');
+      });
+    });
+
+    // The host resolves a relative path against its physical cwd; a logical
+    // $PWD through a symlink names a different parent for '..'.
+    test.skipIf(process.platform === 'win32')('a relative path resolves against the physical working directory', () => {
+      withTree(({ base, home, src, outside }) => {
+        const work = path.join(outside, 'work');
+        fs.mkdirSync(work);
+        fs.mkdirSync(path.join(src, 'a', 'b'), { recursive: true });
+        fs.symlinkSync(work, path.join(src, 'work-link'));
+        fs.symlinkSync(path.join(src, 'a', 'b'), path.join(outside, 'hop'));
+        let decision = '';
+        withFreezeDir(src + '/', (stateDir) => {
+          const r = runHook(FREEZE_SCRIPT, freezeInput('../hop/../x.ts'), freezeEnv(stateDir, { HOME: home, PWD: path.join(src, 'work-link') }), work);
+          decision = r.output.hookSpecificOutput?.permissionDecision ?? (r.raw === '{}' ? 'allow' : r.raw);
+        });
+        expect(decision).toBe('deny');
+      });
+    });
+
+    // Python used to write a lone UTF-16 surrogate as WTF-8 bytes while Node
+    // writes U+FFFD, so the hook looked up a different name than the host
+    // followed.
+    test.skipIf(process.platform === 'win32')('a lone surrogate names the same file the host writes', () => {
+      withTree(({ base, home, src, outside }) => {
+        fs.symlinkSync(outside, path.join(src, 'a\uFFFD'));
+        expect(decide(src, src + '/a\ud800/x.ts', home, base)).toBe('deny');
+      });
+    });
+
+    // The extractor tries python3, then node; with both on PATH a broken
+    // python branch hides behind node, and CI never takes the node branch
+    // that Windows hosts with a python3 Store stub run. Pin each one alone.
+    test.skipIf(process.platform === 'win32').each(['python3', 'node'])('with %s failing, the other extractor branch still keeps a path trailing newline', (broken) => {
+      withTree(({ base, home, src }) => {
+        const shim = path.join(base, 'shim');
+        fs.mkdirSync(shim);
+        fs.writeFileSync(path.join(shim, broken), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+        const env = { PATH: shim + path.delimiter + (process.env.PATH ?? '') };
+        withFreezeDir(src + '/', (stateDir) => {
+          const trailing = runHook(FREEZE_SCRIPT, freezeInput(src + '\n'), freezeEnv(stateDir, { HOME: home, ...env }), base);
+          expect(trailing.output.hookSpecificOutput?.permissionDecision).toBe('deny');
+          expect(trailing.output.hookSpecificOutput?.permissionDecisionReason).toContain('line break');
+          const inside = runHook(FREEZE_SCRIPT, freezeInput(src + '/x.ts'), freezeEnv(stateDir, { HOME: home, ...env }), base);
+          expect(inside.raw).toBe('{}');
+        });
+      });
+    });
+
+    // Linux paths are case-sensitive: a case variant is another directory.
+    // macOS volumes usually fold case, where the same denial is a safe false
+    // deny that this test deliberately does not pin.
+    test.skipIf(process.platform !== 'linux')('a case variant of the boundary is outside it on a case-sensitive filesystem', () => {
+      withTree(({ base, home, src }) => {
+        expect(decide(src, base + '/HOME/proj/src/x.ts', home, base)).toBe('deny');
+      });
+    });
+
+    // Windows CI runners lack Developer Mode, so symlinkSync throws EPERM there.
+    test.skipIf(process.platform === 'win32')('symlinks at any depth are followed, even when the rest of the path does not exist', () => {
+      withTree(({ base, home, src, outside }) => {
+        fs.symlinkSync(outside, path.join(src, 'out-link'));
+        fs.symlinkSync('../../../outside', path.join(src, 'up-link'));
+        fs.symlinkSync(path.join(outside, 'not-yet'), path.join(src, 'dangle'));
+        fs.mkdirSync(path.join(src, 'sub'));
+        fs.symlinkSync(path.join(src, 'sub'), path.join(outside, 'in-link'));
+
+        expect(decide(src, src + '/out-link/new-dir/x.ts', home, base)).toBe('deny');
+        expect(decide(src, src + '/out-link/', home, base)).toBe('deny');
+        expect(decide(src, src + '/up-link/new-dir/x.ts', home, base)).toBe('deny');
+        expect(decide(src, src + '/dangle/x.ts', home, base)).toBe('deny');
+        // '..' after a symlink means the target's parent to the OS but the
+        // link's parent to a lexical normalizer; both readings must be inside.
+        expect(decide(src, src + '/out-link/../x.ts', home, base)).toBe('deny');
+        expect(decide(src, outside + '/in-link/../x.ts', home, base)).toBe('deny');
+
+        expect(decide(src, outside + '/in-link/new-dir/x.ts', home, base)).toBe('allow');
+
+        // On POSIX a link target is POSIX text: 'C:\..' + src is one file
+        // name beside the link, not drive C's parent.
+        fs.symlinkSync('C:\\..' + src, path.join(outside, 'drive-text'));
+        expect(decide(src, outside + '/drive-text/x.ts', home, base)).toBe('deny');
+        // A link whose target ends in a newline is a sibling, not the target.
+        fs.symlinkSync('../src\n', path.join(home, 'proj', 'nl-link'));
+        expect(decide(src, path.join(home, 'proj', 'nl-link', 'x.ts'), home, base)).toBe('deny');
+        fs.symlinkSync('/', path.join(src, 'root-link'));
+        expect(decide(src, src + '/root-link' + outside + '/x.ts', home, base)).toBe('deny');
+      });
+    });
+
+    test.skipIf(process.platform === 'win32')('a symlink that cannot be resolved (loop, chain over 40 hops) denies, fail closed', () => {
+      withTree(({ base, home, src }) => {
+        fs.symlinkSync(path.join(src, 'loop-b'), path.join(src, 'loop-a'));
+        fs.symlinkSync(path.join(src, 'loop-a'), path.join(src, 'loop-b'));
+        let prev = path.join(base, 'outside', 'not-yet');
+        for (let i = 1; i <= 45; i++) {
+          const link = path.join(src, `chain-${i}`);
+          fs.symlinkSync(prev, link);
+          prev = link;
+        }
+        expect(decide(src, src + '/loop-a/x.ts', home, base)).toBe('deny');
+        expect(decide(src, src + '/chain-45/new-dir/x.ts', home, base)).toBe('deny');
+      });
+    });
+
+    test.skipIf(process.platform === 'win32')('a boundary saved through a symlinked parent (macOS /tmp) allows a new subdirectory under either spelling', () => {
+      withTree(({ base, home }) => {
+        fs.mkdirSync(path.join(base, 'real', 'bnd'), { recursive: true });
+        fs.symlinkSync(path.join(base, 'real'), path.join(base, 'alias'));
+        const boundary = path.join(base, 'alias', 'bnd');
+        expect(decide(boundary, boundary + '/new-dir/x.ts', home, base)).toBe('allow');
+        expect(decide(boundary, path.join(base, 'real', 'bnd', 'new-dir', 'x.ts'), home, base)).toBe('allow');
+        expect(decide(boundary, path.join(base, 'real', 'x.ts'), home, base)).toBe('deny');
+      });
     });
   });
 });
