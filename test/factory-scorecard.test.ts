@@ -59,7 +59,7 @@ describe('factory-scorecard: recorded window', () => {
     expect(values.merged).toBe('3 (crew 2, outside 1)');
     expect(values.lead_time).toBe('median 8.0h, p90 5.0d');
     expect(values.ready_to_merge).toBe('median 1.0h, p90 2.0h (2 of 3 PRs with a READY comment)');
-    expect(values.review_passes).toBe('median 2, p90 3 (2 of 3 PRs report a pass count; 1 at the cap of 3)');
+    expect(values.review_passes).toBe('median 2, p90 3 (2 of 3 PRs report a pass count; 2 at the cap of 2)');
     expect(values.gates).toBe('2 / 1 / 1; known cost $43.00 on 2 of 4 runs');
     expect(values.cost_per_merge).toBe('$14.33 (2 runs without a known cost)');
     expect(values.red_train).toBe('50% (1 red of 2 trains; 0 red backstop, 0 red screens)');

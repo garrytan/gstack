@@ -70,7 +70,7 @@ export interface ScorecardOptions {
 export const DEFAULTS = {
   base: 'main', sinceDays: 7, gateWorkflow: 'evals.yml', gateEvent: 'workflow_dispatch', freeWorkflow: 'free-tests.yml',
   trainPrefix: 'train/', readyMarker: 'READY #\\d+|SHIP_RECEIPT:|gstack-ship-receipt',
-  passMarker: '"passes"\\s*:\\s*(\\d+)|\\bpasses=(\\d+)|\\bREVIEW_PASS(?:ES)?[:= ]\\s*(\\d+)', passCap: 3, maxArtifactRuns: 60,
+  passMarker: '"passes"\\s*:\\s*(\\d+)|\\bpasses=(\\d+)|\\bREVIEW_PASS(?:ES)?[:= ]\\s*(\\d+)', passCap: 2, maxArtifactRuns: 60,
 } as const;
 
 export const CREW_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
@@ -399,7 +399,7 @@ export const BENCHMARKS: Record<string, string> = {
   merged: 'several merges a day, every day; outside contributions land in the same week',
   lead_time: 'median under 24h, p90 under 3 days (DORA elite: change lead time under a day)',
   ready_to_merge: 'under 2h from READY to merge; every merged PR carries a READY comment',
-  review_passes: 'median 2 passes, none at the cap (a pass that finds nothing new is the exit; what is left at the cap is named in the PR body)',
+  review_passes: 'median 1 pass, few at the cap (a pass that finds nothing blocking is the exit; a PR at the cap ships with what is left named in the PR body)',
   gates: 'green on 95%+ of runs, cancelled near 0, cost known for every run',
   cost_per_merge: 'known, stable or falling week over week',
   red_train: 'under 5% of trains red (each red train costs a bisect and a rebuild)',
