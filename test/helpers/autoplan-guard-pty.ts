@@ -5,7 +5,8 @@
  * carries /autoplan's own PreToolUse hook block and allowed tools. Its body is
  * a minimal scripted phase boundary: init, Phase 1 entry, a prepared close
  * packet, the report published with the `true autoplan-published` no-op, then the
- * Phase 2 entry in a later message and the Phase 2 reviewer. The restore point
+ * Phase 2 entry in a later message and the Phase 2 reviewer. The actor sends each reviewer dispatch as a declared
+ * token that startDispatchRelay replaces with the dispatch's exact bytes, so no actor retypes it. The restore point
  * and phase artifacts live in the project's `.gstack/tmp/autoplan/`, as /autoplan
  * Step 1 places them. Outcomes come from the guard decision log and the journals.
  */
@@ -32,7 +33,7 @@ export interface GuardSession {
   readLog(): Array<Record<string, any>>;
   /** Content-bounded journal summary for a failure message: tool names, inputs' first keys, result heads. */
   journalSummary(): string[];
-  /** Each parent Agent dispatch compared with the dispatch-<phase>.txt the actor had to copy, read before cleanup. */
+  /** Each parent Agent dispatch compared with the dispatch-<phase>.txt the relay substitutes, read before cleanup. */
   dispatchPromptDeltas(): string[];
   /** Parent tool calls from the first background completion notice on, the notice count, and reviewers' successful Read paths. */
   noticeEvidence(): { notices: number; afterNotice: string[]; reviewerReads: string[] };
@@ -50,7 +51,7 @@ export function stoppedAtPhaseBoundary(screen: string): boolean {
   if (!marks.length) return false;
   const last = marks[marks.length - 1]!;
   const after = screen.slice(last.index! + last[0].length);
-  return /✻[^\n]*\bdone\b/.test(after) && !/Step\s*8|design-phase|Design\s*review/i.test(after);
+  return /✻[^\n]*\bdone\b/.test(after) && !/Step\s*7|design-phase|Design\s*review/i.test(after);
 }
 
 /** The close packet Read (step 6) came after the CEO reviewer's completion notice, so it ran in the notice's new turn. */
@@ -66,6 +67,122 @@ export function dispatchPromptDelta(expected: string, actual: string): string {
   while (at < expected.length && at < actual.length && expected[at] === actual[at]) at++;
   const around = (text: string) => JSON.stringify(text.slice(Math.max(0, at - 80), at + 80));
   return `expected ${expected.length} chars, sent ${actual.length}; first difference at offset ${at}\n  expected: ${around(expected)}\n  sent:     ${around(actual)}`;
+}
+
+type DispatchPhase = 'ceo' | 'design';
+/** The actor's declared dispatch interface: its Agent prompt is exactly this token, never a retyped dispatch. */
+export const dispatchToken = (phase: DispatchPhase): string => `DISPATCH ${phase}`;
+const TOKEN_NOTE = "the test driver puts this phase's exact reviewer dispatch in place of that text before the tool runs; " +
+  'send it as written and never read, copy or retype the dispatch yourself';
+
+/**
+ * PR gate 41247097050 (#3646's delta): the Haiku actor retyped the Design dispatch's 64-hex contentHash and the guard
+ * rightly denied it. The actor is a fixture, so it never copies the dispatch: an Agent tool call whose prompt is exactly
+ * a declared token gets dispatch-<phase>.txt's bytes in its place. Anything else passes unchanged for the guard to judge.
+ */
+export function substituteDispatch(block: any, artifacts: string): DispatchPhase | undefined {
+  if (block?.type !== 'tool_use' || block.name !== 'Agent') return;
+  const phase = (['ceo', 'design'] as const).find(p => block.input?.prompt === dispatchToken(p));
+  if (!phase || !fs.existsSync(path.join(artifacts, `dispatch-${phase}.txt`))) return;
+  block.input.prompt = fs.readFileSync(path.join(artifacts, `dispatch-${phase}.txt`), 'utf8');
+  return phase;
+}
+
+/**
+ * The request direction (trial 1 of GSTA-262's first panel): with the substituted CEO dispatch in its own history, the
+ * actor imitated it for Design instead of sending its token. Each request shows the actor its own declared call instead.
+ * A reviewer's dispatch arrives as user text, not an Agent tool call, so it is untouched.
+ */
+export function restoreDispatchTokens(request: any, artifacts: string): void {
+  const sent = new Map((['ceo', 'design'] as const).flatMap(phase => {
+    const file = path.join(artifacts, `dispatch-${phase}.txt`);
+    return fs.existsSync(file) ? [[fs.readFileSync(file, 'utf8'), dispatchToken(phase)] as const] : [];
+  }));
+  for (const message of Array.isArray(request?.messages) ? request.messages : [])
+    for (const block of Array.isArray(message?.content) ? message.content : [])
+      if (block?.type === 'tool_use' && block.name === 'Agent' && sent.has(block.input?.prompt)) block.input.prompt = sent.get(block.input.prompt);
+}
+
+/**
+ * Rewrites one Messages API event stream: an Agent tool_use block is held until its stop, then sent as one input delta
+ * carrying the substituted input, or as its original events when no token matched.
+ */
+export function dispatchEventRewriter(artifacts: string, substituted: (phase: DispatchPhase) => void) {
+  let pending = '';
+  let held: { index: number; block: any; json: string; raw: string[] } | null = null;
+  const frame = (data: Record<string, unknown>) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
+  const take = (raw: string): string => {
+    const data = /^data: (.*)$/m.exec(raw)?.[1];
+    const event = data ? JSON.parse(data) : undefined;
+    if (event?.type === 'content_block_start' && event.content_block?.type === 'tool_use' && event.content_block.name === 'Agent') {
+      held = { index: event.index, block: event.content_block, json: '', raw: [raw] };
+      return '';
+    }
+    if (!held || event?.index !== held.index) return raw;
+    held.raw.push(raw);
+    if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') held.json += event.delta.partial_json;
+    if (event.type !== 'content_block_stop') return '';
+    const { index, block, json, raw: original } = held;
+    held = null;
+    let input: unknown;
+    try { input = JSON.parse(json || '{}'); } catch { return original.join(''); }
+    const rewritten = { ...block, input };
+    const phase = substituteDispatch(rewritten, artifacts);
+    if (!phase) return original.join('');
+    substituted(phase);
+    return frame({ type: 'content_block_start', index, content_block: { ...block, input: {} } }) +
+      frame({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(rewritten.input) } }) + raw;
+  };
+  return {
+    push(chunk: string): string {
+      pending = (pending + chunk).replace(/\r\n/g, '\n');
+      const events = pending.split('\n\n');
+      pending = events.pop()!;
+      return events.map(e => take(e + '\n\n')).join('');
+    },
+    end: (): string => { const rest = (held ? held.raw.join('') : '') + pending; held = null; pending = ''; return rest; },
+  };
+}
+
+export interface DispatchRelay { url: string; substituted: DispatchPhase[]; stop(): void }
+
+/**
+ * A loopback relay to the Messages API for the live case (point ANTHROPIC_BASE_URL at url). Headers pass through and are
+ * never logged; only an Agent tool call carrying a dispatch token, and that call in later requests' history, is rewritten.
+ */
+export function startDispatchRelay(artifacts: string, upstream = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'): DispatchRelay {
+  const substituted: DispatchPhase[] = [];
+  const server = Bun.serve({
+    hostname: '127.0.0.1', port: 0, idleTimeout: 0,
+    async fetch(req) {
+      const url = new URL(req.url), headers = new Headers(req.headers);
+      headers.delete('host');
+      headers.set('accept-encoding', 'identity');
+      let body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.text();
+      if (body && url.pathname.endsWith('/messages')) {
+        try { const request = JSON.parse(body); restoreDispatchTokens(request, artifacts); body = JSON.stringify(request); } catch { /* not JSON: forward as sent */ }
+      }
+      const res = await fetch(upstream.replace(/\/+$/, '') + url.pathname + url.search, { method: req.method, headers, body });
+      const out = new Headers(res.headers);
+      out.delete('content-encoding');
+      out.delete('content-length');
+      const type = res.headers.get('content-type') ?? '';
+      if (!url.pathname.endsWith('/messages') || !res.body) return new Response(res.body, { status: res.status, headers: out });
+      if (type.includes('application/json')) {
+        const message = await res.json() as { content?: unknown[] };
+        for (const block of message.content ?? []) { const phase = substituteDispatch(block, artifacts); if (phase) substituted.push(phase); }
+        return new Response(JSON.stringify(message), { status: res.status, headers: out });
+      }
+      if (!type.includes('text/event-stream')) return new Response(res.body, { status: res.status, headers: out });
+      const rewrite = dispatchEventRewriter(artifacts, phase => substituted.push(phase));
+      const decoder = new TextDecoder(), encoder = new TextEncoder();
+      return new Response(res.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, sink) { const text = rewrite.push(decoder.decode(chunk, { stream: true })); if (text) sink.enqueue(encoder.encode(text)); },
+        flush(sink) { const text = rewrite.push(decoder.decode()) + rewrite.end(); if (text) sink.enqueue(encoder.encode(text)); },
+      })), { status: res.status, headers: out });
+    },
+  });
+  return { url: `http://127.0.0.1:${server.port}`, substituted, stop: () => { server.stop(true); } };
 }
 
 export function prepareGuardSession(apiKey: string | undefined): GuardSession {
@@ -102,28 +219,26 @@ console.log(close);
   const tool = path.join(ROOT, 'bin', 'gstack-autoplan-snapshot.ts');
   const sections = path.join(config, 'skills', 'gstack', 'autoplan', 'sections');
   const body = [
-    'Run this scripted phase boundary exactly, from step 1 through step 11 in one continuous run. Each numbered step is its own ' +
-      'assistant message; do nothing else. End your turn before step 11 only where step 5 or step 10 says to wait for a ' +
+    'Run this scripted phase boundary exactly, from step 1 through step 9 in one continuous run. Each numbered step is its own ' +
+      'assistant message; do nothing else. End your turn before step 9 only where step 4 or step 8 says to wait for a ' +
       'background agent. **Phase 1 complete.** is a phase boundary, not the end of the task.',
     `1. Run this Bash command alone: bun "${tool}" init "${source}" "${active}" "${restore}"`,
     `2. Read the file ${path.join(sections, 'ceo-phase.md')} with offset 1 and limit 20.`,
     `3. Run this Bash command alone: bun "${review}"`,
-    `4. Run this Bash command alone: cat "${path.join(artifacts, 'dispatch-ceo.txt')}"`,
-    '5. Call the Agent tool once with these inputs: prompt = the exact, complete output of step 4 (every line, unchanged), ' +
+    `4. Call the Agent tool once with these inputs: prompt = exactly the text \`${dispatchToken('ceo')}\` (${TOKEN_NOTE}), ` +
       'description "CEO review", subagent_type "general-purpose", and run_in_background false. Include run_in_background even ' +
       'if the tool schema lacks it. If its result says the agent is running in the background, end your turn at once with no ' +
       'further tool call; the completion notification starts your next turn.',
-    '6. Only after the CEO review agent has finished (in the turn its completion notification starts, when it ran in the ' +
+    '5. Only after the CEO review agent has finished (in the turn its completion notification starts, when it ran in the ' +
       'background), Read the file whose path step 3 printed, completely (no offset or limit).',
-    '7. In one message, write exactly this line as your own text: **Phase 1 complete.** and make exactly one tool call in that ' +
+    '6. In one message, write exactly this line as your own text: **Phase 1 complete.** and make exactly one tool call in that ' +
       'same message: the Bash command `true autoplan-published ceo`. Do not end your turn after it: when its result arrives, go ' +
-      'straight on to step 8.',
-    `8. As your next assistant message, in the same turn as step 7's result (no user input is coming), Read the file ${path.join(sections, 'design-phase.md')} with offset 1 and limit 20.`,
-    `9. Run this Bash command alone: cat "${path.join(artifacts, 'dispatch-design.txt')}"`,
-    '10. Call the Agent tool once with these inputs: prompt = the exact, complete output of step 9 (every line, unchanged), ' +
+      'straight on to step 7.',
+    `7. As your next assistant message, in the same turn as step 6's result (no user input is coming), Read the file ${path.join(sections, 'design-phase.md')} with offset 1 and limit 20.`,
+    `8. Call the Agent tool once with these inputs: prompt = exactly the text \`${dispatchToken('design')}\` (${TOKEN_NOTE}), ` +
       'description "Design review", subagent_type "general-purpose". If the agent runs in the background, end your turn and wait ' +
       'for its completion notification.',
-    '11. Reply with the single word DONE. If any tool call is denied, quote the denial text and stop.',
+    '9. Reply with the single word DONE. If any tool call is denied, quote the denial text and stop.',
   ].join('\n');
   const skillDir = path.join(project, '.claude', 'skills', GUARD_SKILL);
   fs.mkdirSync(skillDir, { recursive: true });

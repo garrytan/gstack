@@ -35,7 +35,8 @@ export const DESIGN_BOARD_ACTOR_PROTOCOL = [
   'If offering that optional step, ask one single-select question with header "Voices",',
   'beginning "Want outside design voices before the detailed review?" and exactly:',
   ...DESIGN_OUTSIDE_VOICE_OPTIONS.map(option => `- ${option.label}: ${option.description}`),
-  'Option order, a letter prefix, and a trailing (recommended) marker may vary.',
+  'Option order, a letter prefix, a trailing (recommended) marker, and',
+  'keeping or dropping every ✅/❌ bullet in a description may vary.',
   'Keep this choice separate from other approvals; no previews or extra actions.',
   'The fixture user chooses No, proceed without. Observe the actual native',
   'answer before continuing when this question is offered.',
@@ -119,7 +120,8 @@ export function createDesignReviewPicker({ cwd, deadlineAt }: { cwd: string; dea
       || labels.includes(DESIGN_OUTSIDE_VOICE_OPTIONS[0].label);
     if (claimsVoices) {
       const voiceActions = question.options.map((option, index) => DESIGN_OUTSIDE_VOICE_OPTIONS.findIndex(expected =>
-        labels[index] === expected.label && option.description === expected.description && option.preview === undefined));
+        labels[index] === expected.label && option.preview === undefined
+        && [expected.description, expected.description.replace(/(^| )[✅❌] /g, '$1')].includes(option.description)));
       if (question.header.trim() !== 'Voices'
         || !/^(?:Want outside design voices before the detailed review|Run outside design voices before the 7 passes)\?(?:\s|$)/i.test(lead)
         || question.multiSelect || voiceActions.length !== 2 || voiceActions.includes(-1)
