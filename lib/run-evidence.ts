@@ -51,7 +51,7 @@ export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped
 export interface ApiRun {
   id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
-  repository?: { full_name: string } | null; head_repository?: { full_name: string } | null;
+  repository?: { full_name: string } | null; head_repository?: { full_name: string } | null; head_branch?: string | null;
 }
 export interface ApiJob { name: string; conclusion: string | null; completed_at?: string | null }
 export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown }
@@ -77,7 +77,8 @@ export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | '
   | 'artifact_reused' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
 /** `skipped`: the files whose every test skipped on the runner (tree.json `skipped_files`, GST-1190); undefined when an older tree.json does not say. */
 export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[] }
-export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string };
+/** `fix`: the one command that clears a refusal the caller can repair, such as a pull_request run that tested a merge with an older base. */
+export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string; fix?: string };
 
 const SHA = /^[0-9a-f]{40}$/;
 const RUN_EVENTS = ['push', 'workflow_dispatch', 'pull_request'];
@@ -145,7 +146,7 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
   return errors;
 }
 
-const fail = (reason: RunRefusal, detail: string): RunVerdict => ({ ok: false, reason, detail });
+const fail = (reason: RunRefusal, detail: string, fix?: string): RunVerdict => ({ ok: false, reason, detail, ...(fix ? { fix } : {}) });
 /** When a run's newest attempt started. A run vetoes the candidate when it started at or after the second the candidate was created: a red re-run of an older run counts, and re-running the candidate does not hide a failure in between. */
 const started = (r: ApiRun): string => r.run_started_at ?? r.created_at ?? '';
 export const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
@@ -209,12 +210,17 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     if (wrong.length) return fail('artifact_mismatch', `${at}'s ${p.artifact} records ${wrong.map(([k, got, want]) => `${k} ${String(got)} (expected ${want})`).join(', ')}`);
     const headTree = deps.commitTree(run.head_sha);
     if (!headTree) return fail('api_error', `git cannot read the tree of ${run.head_sha}`);
-    if (rec.tree !== headTree) return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
+    const baseMoved = `gh workflow run ${p.workflow} --ref ${run.head_branch || '<branch>'}, then gstack-ci-carry wait`;
+    if (rec.tree !== headTree) {
+      const testedMerge = pr && typeof rec.sha === 'string' && SHA.test(rec.sha) && deps.commitTree(rec.sha) === rec.tree;
+      if (testedMerge) return fail('tree_mismatch', `${at} tested merge commit ${(rec.sha as string).slice(0, 12)} (tree ${String(rec.tree)}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)`, baseMoved);
+      return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
+    }
     if (pr) {
       if (typeof rec.sha !== 'string' || !SHA.test(rec.sha)) return fail('artifact_mismatch', `${at}'s ${p.artifact} names no merge commit (sha) for its pull_request run`);
       const mergeTree = deps.commitTree(rec.sha);
       if (!mergeTree) return fail('api_error', `git cannot read the tree of merge commit ${rec.sha}`);
-      if (mergeTree !== headTree) return fail('tree_mismatch', `${at} tested merge commit ${rec.sha.slice(0, 12)} (tree ${mergeTree}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base`);
+      if (mergeTree !== headTree) return fail('tree_mismatch', `${at} tested merge commit ${rec.sha.slice(0, 12)} (tree ${mergeTree}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)`, baseMoved);
     }
     const oses = Array.isArray(rec.os) ? rec.os : [rec.os];
     if (p.os && !oses.includes(p.os)) return fail('os_mismatch', `${at} ran on ${oses.filter(Boolean).map(String).join(', ') || 'an unrecorded OS'}; ${o.profileName} requires ${p.os}`);

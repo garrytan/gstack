@@ -311,6 +311,14 @@ describe('GST-1189: a lane carries by named CI jobs instead of an inventory', ()
     expect(find(f).stdout).toContain('CI_CARRY: none (no_verified_run: ci/free: run 7: tree_mismatch)');
   });
 
+  test('a pull_request run whose base moved names the one-command fix (TRUT-7)', () => {
+    const f = gbrain();
+    const mergeTree = f.git('rev-parse', 'origin/main^{tree}').stdout.trim();
+    const merge = f.git('commit-tree', mergeTree, '-p', 'HEAD', '-p', 'origin/main', '-m', 'Merge origin/main into feat').stdout.trim();
+    world(f, { jobs: ALL, run: { event: 'pull_request', head_branch: 'feat' }, tree: { ...NO_FILES, tree: mergeTree, sha: merge } });
+    expect(find(f).stdout).toContain("CI_CARRY: none (no_verified_run: ci/free: run 7: tree_mismatch (the pull request's base moved after the run; fix: gh workflow run free.yml --ref feat, then gstack-ci-carry wait))");
+  });
+
   test('an entry declares exactly one of inventory or jobs', () => {
     const both = shipFixture({ ...BASE, '.gstack/pregate.json': pregateJson({ jobs: ['verify'], inventory: 'printf x' }) }); fixtures.push(both);
     world(both, { jobs: ALL, tree: NO_FILES });
