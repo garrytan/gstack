@@ -6,7 +6,7 @@
  * from the printed SKILL_ROOT; concurrent publishers of one identity agree;
  * the committed checkout stays byte-identical.
  */
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
@@ -19,7 +19,14 @@ import { LOCK_FILE } from '../scripts/modules-render';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadout-install-'));
-afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+const savedState = { GSTACK_HOME: process.env.GSTACK_HOME, GSTACK_STATE_ROOT: process.env.GSTACK_STATE_ROOT };
+beforeAll(() => {
+  process.env.GSTACK_HOME = process.env.GSTACK_STATE_ROOT = path.join(tmp, 'empty-state');
+});
+afterAll(() => {
+  for (const [key, value] of Object.entries(savedState)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 const FULL_ROOT = '/opt/claude/skills';
 const lite = selectModules({ loadout: 'lite' })!;
 const run = (...args: string[]) => {
@@ -64,7 +71,8 @@ describe('gstack-modules install', () => {
     expect(landing).toContain(`${FULL_ROOT}/gstack/bin/`);
     expect(landing).not.toContain('~/.claude/skills/gstack/bin/');
     expect(lock).toMatchObject({ kind: 'install', loadout: 'lite', loadout_model: 'claude-opus-5-5', full_root: FULL_ROOT });
-    expect(lock.excluded).toHaveLength(11);
+    expect(lock.excluded).toHaveLength(10);
+    expect(lock.excluded).not.toContain('preamble:evidence');
     expect(lock.excluded).not.toContain('preamble:upgrade-check');
     expect(lock.excluded).not.toContain('preamble:brain-sync');
     expect(JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), 'utf-8')).identity.source_tree).toBe(sourceTree(ROOT));
@@ -79,6 +87,32 @@ describe('gstack-modules install', () => {
     const explicit = fs.readFileSync(path.join(c.root, 'qa/SKILL.md'), 'utf-8');
     expect(explicit).toContain('--skill "qa" --model "claude"\n');
     expect(explicit).not.toContain('--loadout');
+  }, 240_000);
+
+  test('the lite tree keeps the install settings the full render uses: gbrain detection and disabled_skills, both in the identity (GST-944)', () => {
+    const state = path.join(tmp, 'settings-state');
+    const store = path.join(tmp, 'settings');
+    fs.mkdirSync(state, { recursive: true });
+    const install = () => {
+      const r = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(ROOT, 'bin/gstack-modules'), 'install', '--model', 'claude-opus-5-5', '--full-root', FULL_ROOT, '--store', store], { cwd: ROOT, encoding: 'utf-8', timeout: 120_000, env: { ...process.env, GSTACK_HOME: state, GSTACK_STATE_ROOT: state } });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stderr).not.toContain('LOADOUT_FALLBACK');
+      return r.stdout.match(/^SKILL_ROOT: (.+)$/m)![1];
+    };
+    const plain = install();
+    fs.writeFileSync(path.join(state, 'config.yaml'), 'disabled_skills: qa\n');
+    const onlyDisabled = install();
+    expect(onlyDisabled).not.toBe(plain);
+    fs.writeFileSync(path.join(state, 'config.yaml'), 'disabled_skills: "/qa, gstack-qa gstack-upgrade"\n');
+    expect(install()).toBe(onlyDisabled);
+    fs.writeFileSync(path.join(state, 'gbrain-detection.json'), JSON.stringify({ gbrain_local_status: 'ok' }));
+    const set = install();
+    expect(set).not.toBe(onlyDisabled);
+    const officeHours = (root: string) => fs.readFileSync(path.join(root, 'office-hours/SKILL.md'), 'utf-8');
+    expect(officeHours(set).split('gbrain').length).toBeGreaterThan(officeHours(plain).split('gbrain').length);
+    const router = fs.readFileSync(path.join(set, 'SKILL.md'), 'utf-8');
+    expect(router).toContain('Disabled on this install (never invoke or suggest them): `/qa`.');
+    expect(fs.readFileSync(path.join(plain, 'SKILL.md'), 'utf-8')).not.toContain('Disabled on this install');
   }, 240_000);
 
   test('concurrent publishers of one identity agree on one folder; a tampered folder is refused, not reused', async () => {

@@ -42,6 +42,7 @@
     "preamble:plan-mode-info",
     "preamble:ask-user-format",
     "preamble:completion-status",
+    "preamble:evidence",
     "section:autoplan/unattended",
     "section:ship/review-army",
     "section:ship/adversarial"
@@ -58,7 +59,6 @@
         "preamble:writing-style",
         "preamble:completeness",
         "preamble:confusion",
-        "preamble:evidence",
         "preamble:context-health",
         "preamble:question-tuning",
         "preamble:search-before-building",
@@ -66,7 +66,7 @@
         "preamble:brain-health",
         "preamble:context-recovery"
       ],
-      "note": "Opus 5.5 only (GSTA-161). Drops eleven coaching preamble pieces and keeps upgrade-check and brain-sync. Evidence: the GSTA-161 office-hours preamble run (handoffs/GSTA-161/preamble-measurement.md) and the three-arm land-and-deploy confirmation cited in docs/loadouts.md."
+      "note": "Opus 5.5 only (GSTA-161). Drops ten coaching preamble pieces and keeps upgrade-check, brain-sync and the pinned Claims Need Evidence rule (GST-944). Evidence: the GSTA-161 office-hours preamble run (handoffs/GSTA-161/preamble-measurement.md) and the three-arm land-and-deploy confirmation cited in docs/loadouts.md."
     }
   },
   "models": {

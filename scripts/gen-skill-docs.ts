@@ -55,6 +55,8 @@ export interface GenerationOptions {
   catalogMode?: 'trim' | 'full';
   explainLevel?: 'default' | 'terse';
   respectDetection?: boolean;
+  /** A detection result the caller already read; wins over respectDetection so one read serves identity and render. */
+  gbrainDetected?: boolean;
   log?: (message: string) => void;
   planMode?: boolean;
   /** Module loadout (scripts/modules.ts selectModules); null/undefined = `full`. */
@@ -94,7 +96,7 @@ export interface GenerationResult {
 }
 
 /** Canonical generation never reads local detection state unless opted in. */
-function loadGbrainOverride(respectDetection: boolean): boolean {
+export function loadGbrainOverride(respectDetection: boolean): boolean {
   if (!respectDetection) return false;
   const stateDir = resolveStateRoot();
   try {
@@ -989,7 +991,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
     model: settings.model ?? null,
     catalogMode: settings.catalogMode ?? 'trim',
     explainLevel: settings.explainLevel ?? 'default',
-    gbrainDetected: loadGbrainOverride(settings.respectDetection ?? false),
+    gbrainDetected: settings.gbrainDetected ?? loadGbrainOverride(settings.respectDetection ?? false),
     planMode: settings.planMode ?? true,
     modules: settings.modules ?? null,
   };
