@@ -277,7 +277,7 @@ export function collectHealth(inputs: HealthInputs): HealthReport {
     return { value: `${(total / 60_000 * 7 / sinceDays).toFixed(0)} min/week (${cancelled.length} cancelled run(s))` };
   }));
 
-  metrics.push(metric('push-to-verdict', 'PR lane push-to-verdict', 'created_at to updated_at of evals.yml pull_request runs that reached success or failure (includes queue and the readiness wait)', () => {
+  metrics.push(metric('push-to-verdict', 'PR lane push-to-verdict', 'created_at to updated_at of evals.yml pull_request runs that reached success or failure (includes queue and the readiness wait, which pr-summary runs skip since GSTA-149, so their verdicts land about 10 min sooner)', () => {
     const walls = need(prRuns).filter(run => run.conclusion === 'success' || run.conclusion === 'failure').map(run => span(run.createdAt, run.updatedAt)!);
     if (walls.length === 0) throw new Error('no PR run reached a verdict in the window');
     return { value: `p50 ${minutes(percentile(walls, 0.5))}, p95 ${minutes(percentile(walls, 0.95))} (${walls.length} runs)` };
