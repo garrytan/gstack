@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.94.7.0] - 2026-11-03
+
+### Fixed
+
+- **/autoplan no longer stalls after a review phase when its reviewers share your machine (GST-1161).** A session installed from the skill's own folder gets an install verdict with no project, and its `GSTACK_LAUNCH` line points admission at that file. When a reviewer on the same machine ran `install.sh --for review-voice` from the project, it wrote a review-voice verdict keyed by that project. Admission read the project's file first, so the next `gstack-autoplan submit` refused with INSTALL_UNVERIFIED ("certified for=review-voice") until `install.sh --for autoplan` was run again. Both admission readers (`lib/install-verdict.ts` and `bin/gstack-install-verdict.sh`) now skip a review-voice verdict at the project path when the session's launched `GSTACK_INSTALL_VERDICT` exists, since a review-voice verdict can't admit any workflow. With no launched verdict, the review-voice refusal and its fix line are unchanged. `scripts/install.sh` and its user-scope copy don't change.
+
 ## [1.94.6.0] - 2026-11-03
 
 Two opt-in Claude Code hooks so a model actually runs gstack's skills, both off by default (GST-1088). `./setup --skill-routing` adds a UserPromptSubmit hook that names the gstack skill a prompt fits, scored against each installed skill's `triggers:` with no model call. `./setup --skill-contracts` adds a Stop hook that blocks once when a skill with a `contract:` block ends without its required outputs (a report with real values, a test after the last edit, the specialist and adversarial dispatches). `gstack-skill-route --explain` shows how a prompt scores; `gstack-skill-contract check|report|waive` checks a transcript, lists misses and acknowledges a waiver. Turn either off with `gstack-config set skill_routing off` or `gstack-config set skill_contracts off`. Docs: docs/skill-routing-and-contracts.md.

@@ -6,7 +6,10 @@
  *
  * Verdict file: <state root>/install-verdicts/<sha256(checkout realpath)>/<sha256(project realpath | "none")>.json,
  * then the path the GSTACK_LAUNCH line names as GSTACK_INSTALL_VERDICT, then
- * the schema 1 file keyed by the checkout alone (<sha256(checkout)>.json).
+ * the schema 1 file keyed by the checkout alone (<sha256(checkout)>.json). An
+ * install-profile verdict (for=review-voice) at the first path yields to the
+ * launched GSTACK_INSTALL_VERDICT, so a reviewer's install on a shared machine
+ * never shadows the session's own verdict (GST-1161).
  * The project is the working directory's git toplevel unless that is the
  * checkout itself. It is the one record the bun shim, the Bash twin,
  * lib/pregate/runtime.ts and admission read.
@@ -102,11 +105,12 @@ export function installProject(checkout: string, cwd: string = process.cwd()): s
   try { const real = fs.realpathSync(top); return real === checkout ? null : real; } catch { return null; }
 }
 
-/** The verdict file admission reads: (checkout, project), then GSTACK_INSTALL_VERDICT, then the schema 1 file. */
+/** The verdict file admission reads: (checkout, project), then GSTACK_INSTALL_VERDICT, then the schema 1 file. An install-profile verdict at (checkout, project) admits no workflow, so the launched GSTACK_INSTALL_VERDICT outranks it (GST-1161). */
 export function findInstallVerdict(checkout: string, project: string | null, env: Env): string {
   const stateRoot = resolveStateRoot(env);
   const keyed = installVerdictPath(checkout, stateRoot, project);
-  if (fs.existsSync(keyed)) return keyed;
+  if (fs.existsSync(keyed) && !INSTALL_PROFILES.includes(readInstallVerdict(keyed)?.for ?? '')) return keyed;
+  if (fs.existsSync(keyed) && (!env.GSTACK_INSTALL_VERDICT || !fs.existsSync(env.GSTACK_INSTALL_VERDICT))) return keyed;
   if (env.GSTACK_INSTALL_VERDICT && fs.existsSync(env.GSTACK_INSTALL_VERDICT)) return env.GSTACK_INSTALL_VERDICT;
   const legacy = legacyInstallVerdictPath(checkout, stateRoot);
   return fs.existsSync(legacy) ? legacy : keyed;
