@@ -160,6 +160,20 @@ function commitRelease(cwd: string, release: string[], trailer: string | undefin
   return true;
 }
 
+/**
+ * A harness pin edit that only records changed harness files as non-behavioral at the same version and patterns (GST-1031): release
+ * metadata, like a version stamp. A bump, a pattern change or an entry without its reason is behavior.
+ */
+const HARNESS_PIN = 'scripts/harness-version.json';
+function harnessRepin(cwd: string, from: string, to: string, p: string): boolean {
+  if (p !== HARNESS_PIN) return false;
+  const read = (tree: string): any => { const s = git(cwd, ['show', `${tree}:${p}`]); try { return s.status === 0 ? JSON.parse(s.stdout) : null; } catch { return null; } };
+  const a = read(from), b = read(to);
+  if (!a?.files || !b?.files || typeof b.files !== 'object' || a.version !== b.version || JSON.stringify(a.patterns) !== JSON.stringify(b.patterns)) return false;
+  return Object.entries(b.files as Record<string, any>).every(([f, e]) => JSON.stringify(a.files[f]) === JSON.stringify(e)
+    || (e?.since === b.version && typeof e?.nonBehavioral === 'string' && e.nonBehavioral.trim().length >= 10));
+}
+
 /** Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts). */
 type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'accepted', string[]>;
 function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string; loop?: ReviewLoopException }, r: Report): Routed | null {
@@ -184,7 +198,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], accepted: [] };
   for (const p of [...changedSet].sort()) {
     const verdict = sides ? (touched.has(p) ? comparePath(cwd, sides, p) : 'same') : 'changed';
-    by[verdict === 'same' ? 'base' : release.includes(p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
+    by[verdict === 'same' ? 'base' : release.includes(p) || harnessRepin(cwd, reviewed, now, p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
   }
   const gated = gateEditedPaths(cwd, reviewed, now, by.tests) ?? new Set(by.tests);
   by.behavior.push(...by.tests.filter(p => gated.has(p)));

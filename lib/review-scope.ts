@@ -29,7 +29,7 @@ export const HUNK_CONTEXT_LINES = 3;
 export interface ScopeFinding {
   fingerprint?: string; path?: string; line?: number; severity?: string; category?: string; summary?: string;
   problem?: string; fix?: string; specialist?: string; advisory?: boolean; test_stub?: string;
-  /** The severity and Blocks the reviewer's own text stated, from its merged.jsonl line (GST-766); shown, never used to classify. */
+  /** The severity and Blocks the reviewer's own text stated, from its merged.jsonl line (GST-766); `Blocks: no` keeps a CRITICAL below the floor (GST-1031). */
   stated?: { severity?: string; blocks?: string };
   /** The changed line that causes a defect reported elsewhere (a broken caller, a consumer of a removed export); the locus follows it. */
   cause?: { path?: string; line?: number };
@@ -180,11 +180,13 @@ export function kindOf(finding: ScopeFinding): Kind {
 
 /**
  * The blocking floor: a CRITICAL defect (a test that would fail, a production
- * break, a security or data-loss defect). Advisories, test gaps, wording and
- * INFORMATIONAL items are below it and never trigger another pass.
+ * break, a security or data-loss defect) its reviewer did not mark `Blocks: no`
+ * (GST-1031). Advisories, test gaps, wording and INFORMATIONAL items are below
+ * it and never trigger another pass.
  */
+export const statesNoBlock = (f: Record<string, any>) => String(f.stated?.blocks ?? '').toLowerCase() === 'no';
 export function isBlocking(finding: ScopeFinding, kind = kindOf(finding)): boolean {
-  return kind === 'defect' && String(finding.severity ?? '').toUpperCase() === 'CRITICAL';
+  return kind === 'defect' && String(finding.severity ?? '').toUpperCase() === 'CRITICAL' && !statesNoBlock(finding);
 }
 
 export interface ScopeInput { policy: ReviewScopePolicy; pass: number; diffHunks: HunkMap; rangeHunks: HunkMap | null; context?: number }
@@ -355,8 +357,8 @@ function rowDispatches(row: Record<string, any>): Array<{ role: string; bytes: n
 
 /** Row actions that record what happened to a finding. */
 const DISPOSITIONS = ['fixed', 'auto-fixed', 'deferred', 'noted', 'skipped', 'kept', 'restored', 'open'];
-/** A row finding that blocks: classified blocking, or an unclassified CRITICAL defect (logged before Step 9.4's classify). */
-const rowBlocks = (f: Record<string, any>) => f.blocking === true || (f.blocking === undefined && f.advisory !== true && rank(f.severity) === 4);
+/** A row finding that blocks: classified blocking, or an unclassified CRITICAL defect its reviewer did not mark Blocks: no (logged before Step 9.4's classify). */
+const rowBlocks = (f: Record<string, any>) => f.blocking === true || (f.blocking === undefined && f.advisory !== true && rank(f.severity) === 4 && !statesNoBlock(f));
 /** The reviewer behind a row's raised_by or a ledger id: every specialist is one; the lead's additions and unknowns name none. */
 function raiserOf(raiser: unknown): string | null {
   const role = typeof raiser === 'string' ? raiser.split(/[/#]/)[0]!.trim() : '';

@@ -308,6 +308,29 @@ describe('gstack-ship-release push: branch names', () => {
   });
 });
 
+describe('GST-1031: a non-behavioral harness re-pin after review is release metadata', () => {
+  // Value: protects=a scripts/harness-version.json edit after review that only records changed harness files as non-behavioral at the same
+  //   version routes as metadata, so a clean round 2 is not sent back through 5-11.5, while a version bump, a pattern change or an entry
+  //   without its reason stays behavior; fails_when=the re-pin stops finish, or a bump or bare re-pin routes as metadata;
+  //   why_new=GSTA-150 GST-1027 (icm_01M6ERWWBZ3VWXZY07F2W5ZSFB); seam=route; no_claim=that the recorded reason is true
+  const pin = (version: number, entry: Record<string, unknown>, patterns = ['test/helpers/x.ts']) => JSON.stringify({ version, patterns, files: { 'test/helpers/x.ts': entry } }) + '\n';
+  const finish = (after: string) => {
+    const f = fx();
+    f.write({ 'scripts/harness-version.json': pin(6, { blob: 'a'.repeat(40), since: 6 }) }); f.commit('pin');
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    f.write({ 'scripts/harness-version.json': after }); f.commit('re-pin');
+    return f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]).stdout;
+  };
+  test('a non-behavioral re-pin is metadata; a bump, a pattern change or an entry without its reason is behavior', () => {
+    const repin = finish(pin(6, { blob: 'b'.repeat(40), since: 6, nonBehavioral: 'comment-only edit: no verdict can change' }));
+    expect(lineOf(repin, 'ROUTE')).toMatch(/behavior=0 docs=0 metadata=1/);
+    expect(repin).not.toContain('STOP: behavior');
+    for (const after of [pin(7, { blob: 'b'.repeat(40), since: 7 }), pin(6, { blob: 'b'.repeat(40), since: 6 }), pin(6, { blob: 'b'.repeat(40), since: 6, nonBehavioral: 'comment-only edit: no verdict can change' }, ['test/helpers/**'])])
+      expect(finish(after)).toContain('STOP: behavior, tests or build inputs changed since review (scripts/harness-version.json)');
+  });
+});
+
 describe('GSTA-167 part 4a: the post-review route stays path-only', () => {
   // Value: protects=F1/F2, a data file edited after review sends the ship back through review even when no code names it,
   //   because the route never applies the data rule; fails_when=a JSON edit after review takes the docs-rechecked route; seam=classifyPath

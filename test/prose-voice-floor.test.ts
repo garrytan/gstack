@@ -50,12 +50,12 @@ describe('normalizer v2 as collected: Blocks: yes is CRITICAL, Blocks: no never 
   // Value: protects=the rule round 5's G1 was scored under, on the path production runs (gstack-review-dispatch collect);
   //   fails_when=Blocks: yes collects below CRITICAL or Blocks: no lowers a label; seam=parseFindings
   test.each([
-    ['FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no', 'CRITICAL'],
+    ['FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no', 'Medium'],
     ['INVESTIGATE: odd lock in b.ts:9\nSeverity: Low\nBlocks: yes', 'CRITICAL'],
     ['INVESTIGATE: odd lock in b.ts:9\nBlocks: no', 'INVESTIGATE'],
-    ['FIXABLE: race in a.ts:3. Severity: Medium. Blocks: no', 'CRITICAL'],
-    ['1. FIXABLE: race in a.ts:3 — Severity: Low, Blocks: no', 'CRITICAL'],
-    ['- FIXABLE: race in a.ts:3\n- Severity: Medium\n- Blocks: no', 'CRITICAL'],
+    ['FIXABLE: race in a.ts:3. Severity: Medium. Blocks: no', 'Medium'],
+    ['1. FIXABLE: race in a.ts:3 — Severity: Low, Blocks: no', 'Low'],
+    ['- FIXABLE: race in a.ts:3\n- Severity: Medium\n- Blocks: no', 'Medium'],
   ] as const)('native %j -> %s', (output, want) => expect(parseFindings('adversarial-native', output).map(g => g.label)).toEqual([want]));
   test.each([
     ['1. Drops the last row (q.ts:7). Severity: Critical. Blocks: no', 'Critical'],
