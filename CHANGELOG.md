@@ -1,5 +1,67 @@
 # Changelog
 
+## [1.92.24.0] - 2026-11-01
+
+- `/ship` can finish after the owner accepts a Step 14.5 documentation risk. `gstack-docs-candidate snapshot --exception .gstack/tmp/docs-audit.json` writes the post-audit snapshot from the blocked record, naming who accepted it, the date, how and the base SHA, and `gstack-ship-release finish` prints that exception on its `DOCS:` line. Finish still stops on a blocked audit with no accepted exception, and on an exception snapshot whose docs-audit record no longer carries it (GST-713).
+
+## [1.92.23.0] - 2026-11-01
+
+- **OpenClaw and Hermes: opt-in start hook.** `gstack-harness register openclaw|hermes --start-hook` (or `gstack-config set harness_start_hook on`, or `GSTACK_HARNESS_START_HOOK=1`) adds a `gstack-start` plugin that puts a one-line note on every user turn telling the agent to run a gstack skill's start command as written. Agents in these harnesses read gstack's skills but ran that command on 1 of 29 chances. gstack turns the plugin on through each harness's own CLI, checks that it is active, and exits 4 when it is not. It is off by default, the choice is saved across upgrades, a plugin you disable in the harness stays off, and `--no-start-hook`, unregister and uninstall take it out. See docs/hosts.md#start-hook.
+
+## [1.92.22.0] - 2026-11-01
+
+**gstack installs into Gemini CLI, and installs made before v1.91.231.0 finally drop the test and eval packages they never needed.** `./setup --host gemini` puts every gstack skill in `~/.gemini/skills`, where Gemini CLI 0.66.0 lists them (#1247). Separately, `./setup` used to treat any checkout that had TypeScript installed as a contributor's, so every install made before v1.91.231.0 (which ran a full `bun install`) kept about 510 MB of dev packages in `node_modules` forever (#3447).
+
+### Added
+- **Gemini CLI host** (experimental): `./setup --host gemini` (alias `gemini-cli`; `--host auto` picks it only when `gemini` is on PATH) links `gstack-<skill>` directories into `~/.gemini/skills` plus the `~/.gemini/skills/gstack` runtime root. The render goes to `.gemini-cli/` with frontmatter names that match their directories, `CLAUDE.md` read as `GEMINI.md`, and a tool glossary for Gemini CLI's tool names and for Antigravity CLI, which can read the same folder. Ask for a skill by name (`gstack-office-hours`); Gemini CLI loads it with `activate_skill`. `gstack-uninstall` removes only gstack-managed entries there, so your own skills stay. `--local --host gemini` is refused with a note that Gemini CLI loads workspace skills only in trusted folders. docs/ADDING_A_HOST.md lists the verified facts.
+- **An explicit contributor marker**: `bin/dev-setup` runs `git config gstack.contributor true`, and `GSTACK_CONTRIBUTOR=1` marks a single run. A marked clone keeps the full install on every `./setup`.
+
+### Changed
+- **An unmarked clone that still has the dev toolchain moves to production dependencies once.** setup takes a lock in the checkout, moves `node_modules` aside, installs production dependencies, checks every runtime package resolves, then deletes the old copy. If the install fails, the full `node_modules` goes back and setup prints `SETUP_DEPS_MIGRATE_FAILED` with the cause; nothing is removed and the next `./setup` tries again. CI, and a checkout whose git config cannot be read, never migrate. On a real install `node_modules` went from 1079 MB to 569 MB. Bun's shared package cache is left alone, because other projects can read it through symlinks.
+
+### Tests
+- test/setup-production-deps.test.ts: the marker (git config, env, CI, unreadable git config), the one-time migration and its no-op rerun, restore on a failed or unverified install, recovery of an interrupted move, the lock, an untouched Bun cache, and a real-Bun fixture for a marked and an unmarked clone. test/uninstall.test.ts: Gemini CLI entries removed, the user's own kept. Host config, conformance, install-registry, render-prune and runtime-root tests cover the new host.
+
+## [1.92.21.0] - 2026-11-01
+
+**The PR and train path check out blobless clones, and the history reads they gate on fail loudly instead of reading a failed fetch as "absent" (GSTA-203 PR 5).** Free Tests' plan job, the Version Gate and E2E Evals' route, screen summary, planner, slices, reruns, bisect and report checked out every file of every commit (about 232 MB) to read a handful of old files. They now check out with `filter: blob:none` (about 17 MB), and git fetches an old file's contents the first time something reads it.
+
+### Changed
+- **Blobless checkouts** (`filter: blob:none`) in `free-tests.yml` (free-plan), `version-gate.yml` and `evals.yml` (route, screen-summary, plan-slices, eval-slices, eval-rerun, train-bisect, slices-report). The release, CSO, periodic, marathon, sweep and recorder workflows and the main backstop keep full clones. `test/ci-history-read.test.ts` names each with its reason and fails on any other full-history checkout without the filter, printing the file and line to fix.
+- **History reads fail loudly.** The train-policy reads in the route and backstop jobs stay inline (git and jq only, so no repository code decides whether a PR push starts paid work). The Version Gate's base `VERSION` read goes through `.github/scripts/history-read.sh` from the gate's merge-commit checkout, and its train classification through the TypeScript twin, `lib/history-read.ts`, which also lists the merge base's changed files without rename detection so that diff needs no file contents. Each one checks existence with `git ls-tree`, reads with `git show` (3 tries in a partial clone) and fails with `HISTORY_READ_FAILED` naming the ref, the path and the git version (docs/troubleshooting.md#history-read-failed). A file that is really absent keeps its old meaning. A ship policy that is not valid JSON now fails the route and backstop jobs instead of reading as "no train". The Version Gate goes red when `git fetch origin <base>` fails 3 times instead of carrying on. `gstack-restamp` and `gstack-ship-queue land` read the base branch's CHANGELOG the same way, so a read that fails stops them with `HISTORY_READ_FAILED` instead of treating the base as having no released sections.
+- **The eval image asserts partial clone support.** `.github/docker/Dockerfile.ci` makes a blobless clone and fetches a missing blob at build time, so an image whose git cannot do that fails to build.
+
+## [1.92.20.0] - 2026-11-01
+
+**`/retro global` now sees Kimi Code, OMP and Antigravity sessions (#2917, #1977).** `gstack-global-discover` scanned only Claude Code, Codex and Gemini. A week spent in other agent CLIs went uncounted, and nothing showed a zero to notice.
+
+### Added
+- **Kimi Code** (`~/.kimi-code/session_index.jsonl`, window by `state.json` updatedAt, repo by workDir) and **OMP** (`~/.omp/agent/sessions/*/*.jsonl`, window by file mtime, repo by the cwd in the session file; `~/.omp/logs` is never counted) are counted per repo.
+- **Antigravity** (`~/.gemini/antigravity-cli/conversations/*.db`) is counted by the later of each database's and its `-wal` file's mtime. Its sessions count in `total_sessions` but belong to no repo, because the CLI stores the working directory inside an undocumented blob.
+
+### Changed
+- **One scanner registry** drives the JSON, the summary and the stderr line. Every registered tool appears in `tools`, zeros included, with a `label`. Antigravity's entry carries `unattributed: true`. Existing keys (`claude_code`, `codex`, `gemini`) keep their paths, and each repo's `sessions` lists every attributed tool.
+- **/retro global** builds its session counts and Tool Usage Analysis from that list. A tool missing from an older saved retro counts as 0.
+
+Thanks to @richardiitse (#2917) and @Akagilnc (#1977) for the reports and the store layouts.
+
+## [1.92.19.0] - 2026-11-01
+
+**On Linux and Windows the renderer goes straight to gstack's own browser instead of asking for Aside (#2864).** `probeAside()` in `lib/aside-render.ts`, used by /make-pdf, /diagram and `gstack-render`, used to run `aside --version` on any platform. When that failed it told the user to install a browser that only ships for macOS. Off macOS it now answers `NEEDS_ASIDE` with "Aside is macOS-only (this is linux)", without starting a process, and the renderer moves on to gstack's own browser. macOS behavior and `GSTACK_SKIP_ASIDE=1` are unchanged.
+
+### Changed
+- **`probeAside(timeoutMs, platform)`** takes the platform, which defaults to `process.platform`. The fake-CLI probe tests pass `darwin`, so they still run on Linux CI.
+
+Thanks to @furkankoykiran for the report. The bash readiness block inside browsing skills already prints `NEEDS_ASIDE: Linux` and is unchanged.
+
+## [1.92.18.0] - 2026-11-01
+
+- `install.sh --project` (through `gstack-capy-install`) resolves the directory it names to its git toplevel, which is where pregate admission looks for the install verdict. `--project <repo>/<subdir>` now writes, and reads pins from, the same place as `--project <repo>`, so a Bun pin declared only in a subpackage no longer applies. A value that isn't a directory, such as a repo slug or a directory this shell can't enter, is a usage error that asks for the checkout's path, and it stops before anything is cloned or installed. Before this change, a slug or a subdirectory keyed the verdict somewhere admission never looks, so a later pregate admission check read a stale verdict (GST-743).
+
+## [1.92.17.0] - 2026-11-01
+
+- `gstack-review-dispatch pass` takes the readers' diff base from the merge base with `origin/<base>`, the same base the review plan scores and the targeted reader checks. Before, a local `<base>` branch that lagged `origin/<base>` gave every brief the stale merge base, so reviewers read upstream commits the branch only inherited (GST-716).
+
 ## [1.92.16.0] - 2026-11-01
 
 **/ship no longer pays for a second review loop when only main moved, a test file changed, or the docs audit's own requested fix landed.** Each of these used to count as a product change: a base merge after review (`ROUTE: … behavior=86` on gbrain #7739), main rewording the line next to a reviewed hunk (#3631, founderstar#441), a test-only fix (gbrain #8084), and a one-line index link the audit asked for (gbrain #8087). Each one cost another ~$19 loop or an owner's documentation exception. A real product change still sends the PR back through the full loop (GST-407, GST-384, GST-391).
