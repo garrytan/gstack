@@ -2,7 +2,7 @@
 name: review
 preamble-tier: 4
 version: 1.0.0
-description: Review this PR's diff. (gstack)
+description: Use when you review this PR's diff. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -15,12 +15,36 @@ allowed-tools:
   - WebSearch
 triggers:
   - review this pr
+  - look over my diff
   - code review
   - check my diff
+  - review my changes
   - pre-landing review
+contract:
+  version: 1
+  items:
+    - id: specialists-dispatched
+      kind: selected_specialists_dispatched
+      marker: "Dispatching N specialists:"
+    - id: adversarial-pass
+      kind: agent_dispatch
+      match: Think like an attacker and a chaos engineer
+    - id: review-report
+      kind: report_labels
+      heading: Pre-Landing Review
+      labels:
+        - Gate edits
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+## Done means
+
+Finish only when each of these exists (contract v1):
+
+- `specialists-dispatched`: the specialist selection printed (`Dispatching N specialists:` ...), then one Agent dispatch per specialist it names (none when a small diff skips them).
+- `adversarial-pass`: an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".
+- `review-report`: a `Pre-Landing Review` with Gate edits filled in (`none: <why>` where the skill's own stop rule leaves one empty).
 
 ## Shared preamble (load first)
 

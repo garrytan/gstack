@@ -2,11 +2,13 @@
 name: verify
 preamble-tier: 1
 version: 0.1.0
-description: "Build loop while coding: run the repo's checks and the tests /ship would pick, fix, repeat until green. (gstack)"
+description: "Use when coding: run the checks and tests /ship picks until green. (gstack)"
 triggers:
   - verify my change
   - run the checks
   - make the tests pass
+  - make it green
+  - is it green
   - check my work before ship
 allowed-tools:
   - Bash
