@@ -522,7 +522,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     fs.mkdirSync(files, { recursive: true });
     const fc: Record<string, string> = {};
     for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n'], ['callers', 'none\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
-    const planFlags = ['--pass', '2', '--last', 'full', '--fixed-blocking'];
+    const planFlags = ['--pass', '1', '--last', 'full', '--fixed-below'];
     const missing = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fc0'), pass: 'x19fc0', planFlags });
     expect(missing).toContain('STOP: gstack-review-dispatch pass exited');
     expect(missing).toContain('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests');
