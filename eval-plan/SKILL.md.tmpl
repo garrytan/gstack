@@ -107,6 +107,10 @@ page or drop the arm. Copy the priced arms into the Arms section. An arm identit
 `<model>#<loadout>` (for example `claude-opus-5-5#no-gstack`) is priced by its model and
 gets its own pilot attempts; naming one identity twice is `EVAL_ARM_DUPLICATE`.
 
+Models under test are frontier models (`claude-opus-5-5`, `gpt-6.1-sol`, at most one named
+low-cost primary); a Haiku or Sonnet arm only with a stated tier question
+(docs/TESTING_INTERNALS.md#frontier-models-under-test).
+
 When the repo commits `.gstack/eval-models.json` (allow, deny, per-scope lists, families
 newest first; `docs/eval-models.md` in gstack), `arms`, `dry-run`, `pilot start` and
 `price-gate` print one `EVAL_MODEL:` line per arm. Pass `--scope smoke` for a smoke run;
@@ -161,6 +165,7 @@ the budget the run will use. The checklist printed must be all `ok`:
   with no text is a repeat of the same failure at the same price.
 - `CHECK: reservation-fits-cap` (with `--cap <cap-usd>`) — one call, the largest row plus the
   output budget, priced, fits under the cap; a provider refuses a reservation the cap cannot hold.
+- `CHECK: frontier` — Haiku/Sonnet arms: `refused` if all (pass `--tier-question "<why>"`), `warn` if some; re-costs on frontier prices.
 - `DRY_RUN_ROW:` lines name rows missing a field; fix the rows, not the prompt.
 
 `DRY_RUN_RESULT: pass` writes `dry-run.json` to `--out`; the pilot refuses to start on

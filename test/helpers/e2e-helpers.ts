@@ -274,6 +274,7 @@ export function recordE2E(
     duration_ms: result.duration,
     cost_usd: result.costEstimate.estimatedCost,
     ...(result.costKnown === false ? { cost_known: false } : {}),
+    ...(result.testName && result.testName !== name && result.testName in E2E_TIERS ? { cost_case_id: result.testName } : {}),
     ...(result.tokenUsage ? { token_usage: result.tokenUsage } : {}),
     transcript: result.transcript,
     output: result.output?.slice(0, 2000),

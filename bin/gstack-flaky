@@ -9,11 +9,13 @@
 import * as fs from 'fs';
 import { DEFAULT_MAX_RERUNS, appendLedger, ledgerPath, renderResult, runFlaky, safeText, stepSummary, workflowEscape } from '../lib/flaky-run';
 import { JunitError, readJunit, type JunitRunner } from '../lib/junit';
+import { liveQuarantine, QuarantineError, quarantineMain, readRegistry } from '../lib/quarantine';
 
 const USAGE = `Usage:
   gstack-flaky run --junit <file.xml> [--runner playwright|bun|generic] [--max-reruns <n>]
-                   [--rerun-scope command|test] [--ledger <file>] -- <test command...>
+                   [--rerun-scope command|test] [--ledger <file>] [--base <ref>] -- <test command...>
   gstack-flaky ids --junit <file> [--runner playwright|bun|generic]
+  gstack-flaky quarantine add|renew|release|check|report ...   (gstack-flaky quarantine --help)
   gstack-flaky --help
 
 run: runs the command (an argv, no shell), reads the JUnit report it writes at
@@ -31,11 +33,18 @@ holds the first run's report afterwards; reruns' reports sit beside it as
 <name>.rerun-<n>.xml. The command runs with PLAYWRIGHT_JUNIT_INCLUDE_RETRIES=1
 so Playwright's own retries are reported.
 
+Quarantine: tests listed in .gstack/quarantine.json (read from --base <ref> when
+given, so PR CI passes its target branch) still run and never count as passes.
+When every test an attempt failed is a live quarantined test, the whole command
+may run again, up to 3 attempts; the run is green only on an attempt with the
+runner's full green verdict, and a quarantined test that fails all 3 is a hard
+break (red). A quarantined id missing from a run that included its file is red.
+
 ids: prints the id of every test in a report (<file>::<project>::<title>).
 
 Output: one FLAKY: line per test that failed at least once, FLAKY_RERUN:
 scope=command (<why>) when the rerun repeated the whole command, then
-FLAKY_RESULT: tests=<n> failed=<n> flaky=<n> reruns=<n> command_exit=<n> verdict=pass|fail ledger=<file|none>
+FLAKY_RESULT: tests=<n> failed=<n> flaky=<n> quarantined=<n> reruns=<n> command_exit=<n> verdict=pass|fail ledger=<file|none>
 Exit: 0 pass (flaky passes included), 1 a test failed, 2 usage,
 3 no usable report, a crash or a killed runner (FLAKY_<CODE> and a fix: line on stderr).
 `;
@@ -48,6 +57,10 @@ const FIX: Record<string, string> = {
   FLAKY_COMMAND_KILLED: 'the runner was killed by a signal (a cancelled job, an OOM kill); nothing was rerun, rerun the job',
   FLAKY_COMMAND_NOT_STARTED: 'check the command after -- (it runs without a shell; wrap it as bash -c \'<script> "$@"\' _ when it needs one)',
   FLAKY_UNREPORTED_FAILURES: 'the runner counted failures its JUnit omits (a test file that failed to load, an error outside any test); fix that first, it is a real red',
+  FLAKY_QUARANTINE_INVALID: 'fix .gstack/quarantine.json: it must be {"schema":1,"entries":{...},"released":[...]} (gstack-flaky quarantine check names the problem)',
+  FLAKY_QUARANTINE_BASE: 'the base branch is not in this clone: fetch it before the run (in Actions, actions/checkout with fetch-depth: 0) and pass it as --base origin/<branch>',
+  FLAKY_QUARANTINE_REFUSED: 'read the reason above; docs/flaky.md#quarantine lists the rules',
+  FLAKY_QUARANTINE_USAGE: 'gstack-flaky quarantine --help',
 };
 
 function die(msg: string, code = 2): never {
@@ -60,8 +73,13 @@ function coded(e: JunitError): never {
   process.exit(3);
 }
 
+function quarantineFailed(e: QuarantineError): never {
+  process.stderr.write(`gstack-flaky: ${e.message} (${e.code})\nfix: ${FIX[e.code] ?? 'see docs/flaky.md#quarantine'}\n`);
+  process.exit(e.exitCode);
+}
+
 function parse(argv: string[]) {
-  const o: { junit?: string; runner?: JunitRunner; maxReruns: number; rerunScope: 'command' | 'test'; ledger?: string; command: string[] } = { maxReruns: DEFAULT_MAX_RERUNS, rerunScope: 'command', command: [] };
+  const o: { junit?: string; runner?: JunitRunner; maxReruns: number; rerunScope: 'command' | 'test'; ledger?: string; base?: string; command: string[] } = { maxReruns: DEFAULT_MAX_RERUNS, rerunScope: 'command', command: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     const val = () => { const v = argv[++i]; if (v === undefined) die(`${a} needs a value`); return v; };
@@ -80,6 +98,7 @@ function parse(argv: string[]) {
       if (v !== 'command' && v !== 'test') die(`--rerun-scope must be command or test, got ${JSON.stringify(v)}`);
       o.rerunScope = v;
     } else if (a === '--ledger') o.ledger = val();
+    else if (a === '--base') o.base = val();
     else die(`unknown option ${a}\n${USAGE}`);
   }
   return o;
@@ -87,6 +106,16 @@ function parse(argv: string[]) {
 
 const [sub, ...rest] = process.argv.slice(2);
 if (!sub || sub === '--help' || sub === '-h') { process.stdout.write(USAGE); process.exit(sub ? 0 : 2); }
+
+if (sub === 'quarantine') {
+  try {
+    process.exit(quarantineMain(rest, { cwd: process.cwd(), out: s => process.stdout.write(s), now: new Date() }));
+  } catch (e) {
+    if (e instanceof QuarantineError) quarantineFailed(e);
+    if (e instanceof JunitError) coded(e);
+    throw e;
+  }
+}
 
 if (sub === 'ids') {
   const o = parse(rest);
@@ -107,9 +136,15 @@ try { existing = fs.statSync(o.junit, { throwIfNoEntry: false }) && fs.readFileS
 }
 if (existing && existing.trim() && !/<testsuites?[\s>/]/.test(existing)) die(`--junit ${JSON.stringify(o.junit)} exists and is not a JUnit report; gstack-flaky deletes that path before every attempt, so it refuses to touch it`);
 if (!o.command.length) die('run needs the test command after --');
+let quarantined: Set<string>;
+try {
+  const live = liveQuarantine(readRegistry(process.cwd(), o.base), new Date());
+  for (const n of live.notices) process.stdout.write(`${n}\n`);
+  quarantined = live.ids;
+} catch (e) { if (e instanceof QuarantineError) quarantineFailed(e); throw e; }
 let result;
 try {
-  result = await runFlaky({ command: o.command, junit: o.junit, runner: o.runner, maxReruns: o.maxReruns, rerunScope: o.rerunScope });
+  result = await runFlaky({ command: o.command, junit: o.junit, runner: o.runner, maxReruns: o.maxReruns, rerunScope: o.rerunScope, quarantined });
 } catch (e) { if (e instanceof JunitError) coded(e); throw e; }
 const ledger = ledgerPath(o.ledger);
 appendLedger(result.ledger, ledger, s => process.stderr.write(`gstack-flaky: ${s}\n`));
@@ -118,6 +153,7 @@ const summary = process.env.GITHUB_STEP_SUMMARY && stepSummary(result);
 if (summary) { try { fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY!, summary); } catch { /* a summary is a convenience, never the verdict */ } }
 if (process.env.GITHUB_ACTIONS === 'true') {
   for (const f of result.outcomes.filter(x => x.status === 'flaky-pass')) process.stdout.write(`::warning title=flaky test::${workflowEscape(safeText(f.test.id))} passed on attempt ${f.attempts.length}\n`);
+  for (const f of result.outcomes.filter(x => x.status === 'hard-break')) process.stdout.write(`::error title=quarantined test hard break::${workflowEscape(safeText(f.test.id))} failed all ${f.attempts.length} attempts\n`);
 }
 if (result.code) {
   process.stderr.write(`gstack-flaky: ${result.message} (${result.code})\nfix: ${FIX[result.code] ?? 'see docs/flaky.md'}\n`);

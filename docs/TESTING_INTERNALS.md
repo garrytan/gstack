@@ -651,15 +651,37 @@ this checkout to read it)`.
 samples, rationale}` entry per failing dimension (since EVAL_POLICY v3 `mean`
 holds the panel's gating median), each part capped at 200
 characters. `sessions[]` (at most 32) summarizes the trial's session-ledger
-rows. `cost_known: false` marks a record or trial whose harness captured no
-billing: PTY and Codex sessions never bill, and an SDK session bills only with a
-terminal `total_cost_usd`. It also marks a trial no result record could be
-attributed to: a record named by the case id or carrying `case_id` is that
-case's, and a record named by a display label (`/qa fix loop`) is the shard's
-only case's when the shard ran one case, so a multi-case shard whose records
-carry display labels leaves those trials cost-unknown rather than guessing
-which case paid (`junitCensus` in `scripts/lib/paid-report.ts`). An absent
-field means known. Census and marathon cost lines print the known sum and
+rows. `cost_known: false` marks a record or trial whose cost is not fully
+known; an absent field means known. A record carries it when its harness
+captured no billing (a Codex session that completed no turn or whose model has
+no price row). A rule case's trial in the JUnit census (`caseCost` in
+`scripts/lib/paid-report.ts`) costs its records' sum plus what no record
+carries: each ledger session without a terminal result (`billed: false`) adds
+its `streamed_cost_usd`, and a trial with no record adds each billed session's
+own `cost_usd` (Codex). The trial is cost-unknown when any record says
+`cost_known: false`, when any of those sessions has no priced cost (a PTY
+session whose transcript does not price, a `claude -p` session that ended
+without a result, an aborted Agent SDK session with no usage or an unpriced
+model), or when it has neither records
+nor sessions. A case in `MODEL_FREE_CASES` (`timeline-event-flow`, which runs
+no model) with neither is a known $0. A panel trial (`behavior`, `judge`) from
+an isolated trial shard keeps the older rule (`trialCostKnown` in
+`test/helpers/eval-store.ts`): known only with at least one record and every
+session billed, and streamed cost is not added.
+
+Records are attributed to a case this way: a record named by the case id or
+carrying `case_id` is that case's, and a record named by a display label
+(`/qa fix loop`) is the shard's only case's when the shard ran one case. In a
+multi-case shard, a display-label record whose `runSkillTest` test name is a
+registered case id carries `cost_case_id` (`recordE2E`), and the census adds
+its cost to that case only: the failed record, failure class and model still
+come from the records named by case id, so no verdict changes. A display-label
+record without `cost_case_id` in a multi-case shard is not attributed rather
+than guessed, and its case is cost-unknown when nothing else prices it
+(`junitCensus`). The report's headline `cost $<x>` adds the streamed session
+cost no collector record carries, so a newly priced trial counts once.
+
+Census and marathon cost lines print the known sum and
 `N of M trial(s) cost unknown`, and a train verdict's `ATTEMPT:` line prints
 `cost=$<known> known + <n> of <m> case(s) cost unknown` when some but not
 every case in the train record has a cost (a record with no priced case prints
@@ -671,13 +693,33 @@ including `runSharedInteractive`, the PTY session and `runRecordedCodexEval`)
 appends one best-effort line per armed session to
 `$GSTACK_EVAL_DIR/session-ledger.jsonl` (`test/helpers/session-ledger.ts`):
 a stable key `<runner>:<label>#n`, the exact `budget_ms` it armed, monotonic
-`elapsed_ms`, the `end` reason, sanitized evidence, `billed`, and a compact
+`elapsed_ms`, the `end` reason, sanitized evidence, `billed`, the billed
+`model`, `cost_usd` and token classes of a Codex session, and a compact
 liveness summary (longest in-request silence, the last event kind, any tool open
 at the end). `claude -p` sessions stream partial messages for this summary;
 transcripts keep their shape and size (full stream diagnostics only with
 `publicStreamDiagnostics`). A failed ledger write never fails a trial; a trial
 without ledger rows has no `sessions` and its headroom is `unknown`, never
-scored. The ledger rides in each slice artifact beside the shard results.
+scored. An Agent SDK session that ends without a terminal result (aborted,
+thrown) also records `streamed_cost_usd`: its streamed assistant usage priced
+by `streamedUsageCostUsd` (`lib/pricing.ts`), each message id once at its
+largest output, subagent turns included, `<synthetic>` messages skipped,
+5-minute cache writes at 1.25x and 1-hour writes at 2x the input rate. The
+field is absent when no message carries usage or any message's model has no
+price row, so an unpriced session stays cost-unknown, never $0. A PTY session
+records `streamed_cost_usd` from its transcript the same way. Both PTY ledger
+writers price `<CLAUDE_CONFIG_DIR>/projects/*/<id>.jsonl` plus
+`<id>/subagents/*.jsonl` (`test/helpers/pty/transcript-cost.ts`), where the
+id is the caller's `--session-id`, else the one transcript that appeared
+during this launch for its cwd. The launcher adds no argument. Pricing never
+takes the whole directory, because concurrent PTY tests in one process share
+one hermetic config dir; two new transcripts for one cwd are ambiguous and stay
+unknown. A non-hermetic or resumed launch, a caller that opts out
+(`priceTranscript: false`, the native AskUserQuestion capture, which never
+reads model transcripts), a missing transcript, no usage, an unpriced model or
+a read error leaves the field absent (cost-unknown), and a pricing failure
+never fails the test. The row keeps `billed: false`. The ledger rides in each slice
+artifact beside the shard results.
 
 **Quarantine** (`CASE_QUARANTINE`, same file). An entry needs: a per-trial rate
 below 95% over at least 10 post-policy trials of the case's current input
@@ -1232,9 +1274,11 @@ observation never removes a command and a missing or empty artifact never erases
 one; removing a command is a reviewed edit. While the map is in shadow mode it
 changes no selection, so a PR that changes only the map selects no paid case.
 
-Dollar figures are lower bounds. Known cost excludes PTY trials, whose cost is
-unknown: about 39% of observed case runs in the committed map. The shadow block
-and `test:health` both say so.
+Dollar figures are lower bounds. Known cost excludes trials whose cost is
+unknown: about 39% of observed case runs in the committed map, mostly PTY
+trials recorded before PTY sessions were priced from their transcripts
+([Failure causes and details](#failure-causes)). The shadow block and
+`test:health` both say so.
 
 - **Shadow block:** `prCoverage.shadow` in the paid-plan manifest lists the gate
   cases the map would select, would drop and would add, a provenance line per
@@ -1750,6 +1794,32 @@ lower-case words in path components under `test/fixtures/`; a substring match
 separate change with its own touchfile updates; the list is here so that change
 can be scoped.
 
+## Agent SDK system prompt
+
+An Agent SDK caller that leaves out `systemPrompt` doesn't get Claude Code's
+prompt. It gets the SDK's bare stub, and the stub drops the line that tells the
+model to run `/skill` through the Skill tool. A skill arm then never loads its
+skill, so a "no difference" result says nothing about the skill (FOUN-32 found
+this in another crew's null result).
+
+**Every caller says which prompt it uses.** `runAgentSdkTest` and every direct
+SDK `query()` call pass the Claude Code preset,
+`{ type: 'preset', preset: 'claude_code' }` (also exported as
+`CLAUDE_CODE_PRESET` from `test/helpers/sdk-system-prompt.ts`; an overlay arm
+adds `append`), or name why not: `{ type: 'sdk-default', reason }` for a stub
+provider or a connectivity probe, `{ type: 'custom', text, reason }` for an arm
+that replaces the prompt. The runner refuses a missing, empty, bare-string or
+unnamed prompt before it starts, and
+`test/sdk-system-prompt-tripwire.test.ts` scans test/ and scripts/ for the same
+mistake in free CI. Arms that compare loadouts, the no-gstack arm included,
+keep the same preset and differ only in what the arm loads.
+
+**Record it, and treat a null on the stub as a method bug.** Every eval report
+and results table names the prompt each arm ran under (`claude_code`,
+`claude_code + append`, or the named reason). A null or negative result from an
+arm that ran on the SDK default is FIX-METHOD under R48 ("Why null?"): fix the
+prompt and rerun before reading it as KEEP or CUT-CANDIDATE.
+
 ## No-gstack arm
 
 Garry, 2026-10-31: "all of our head to head tests have to test no gstack from
@@ -1842,6 +1912,36 @@ decides only after it passes calibration; the per-diff `armJudge` stays beside
 it as the diagnostic. Candidate folders and git identity name a project, never
 the arm. The model panel (`test/skill-e2e-model-panel.test.ts`) runs a
 `<model>#no-gstack` arm beside each model (GST-468, GST-469).
+
+## Frontier models under test
+
+Garry, 2026-11-01 (R54): "I think you are spending too much time with Haiku and
+Sonnet, whereas GBrain and GStack are really designed to be used with frontier
+models like Opus and 6.1 Sol... just transfer from Haiku to Sonnet, who gives a
+shit about that, man?"
+
+**Models under test are frontier models.** Today that's `claude-opus-5-5` and
+`gpt-6.1-sol`, plus at most one low-cost primary the preregistration names. Haiku
+and Sonnet are not models under test. They aren't stand-ins for a frontier model,
+and an eval has no tier-transfer arms (Haiku against Sonnet, say) unless its
+preregistration says it is asking about that tier.
+
+**Verdicts need a frontier result.** A result measured only on Haiku or Sonnet
+can't carry a KEEP, FIX-METHOD or CUT-CANDIDATE verdict under R48. Rerun it on a
+frontier model first.
+
+**What the rule leaves alone.** Judges, cross-family review voices and a
+harness's shipped housekeeping model aren't models under test, so they keep the
+model they already use.
+
+**The check.** `gstack-eval-plan dry-run` prints `CHECK: frontier` whenever an arm
+is Haiku or Sonnet. When every arm is one, the dry run fails unless
+`--tier-question "<what the preregistration asks about that tier>"` is passed.
+When only some arms are, it warns. Either way it prints the whole plan's price
+on `claude-opus-5-5` and `gpt-6.1-sol`. The dry run doesn't enforce that number:
+compare it with the brief cap before any arm is swapped. `pilot start` refuses a
+pilot whose every arm is Haiku or Sonnet unless its dry run recorded a tier
+question.
 
 ## Running evals as an agent: detach
 

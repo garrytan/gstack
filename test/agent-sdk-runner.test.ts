@@ -213,7 +213,7 @@ function makeStubProvider(config: StubConfig): QueryProvider {
 }
 
 const BASE_OPTS = {
-  systemPrompt: '',
+  systemPrompt: { type: 'sdk-default', reason: 'stub queryProvider: no model reads the prompt' } as const,
   userPrompt: 'test prompt',
   workingDirectory: '/tmp/test-dir',
   maxRetries: 3,
@@ -416,7 +416,7 @@ describe('runAgentSdkTest — options propagation', () => {
       calls: [],
     };
     await runAgentSdkTest({
-      systemPrompt: 'you are a test overlay',
+      systemPrompt: { type: 'custom', text: 'you are a test overlay', reason: 'checks that custom text reaches query()' },
       userPrompt: 'go',
       workingDirectory: '/tmp/spec-dir',
       model: 'claude-opus-4-7',
@@ -451,7 +451,7 @@ describe('runAgentSdkTest — options propagation', () => {
     expect(opts.pathToClaudeCodeExecutable).toBe('/fake/path/claude');
   });
 
-  test('empty systemPrompt means no systemPrompt option passed', async () => {
+  test('an sdk-default systemPrompt passes no systemPrompt option', async () => {
     freshSem();
     const stub: StubConfig = {
       streams: [[systemInit(), assistantTurn([{ type: 'text', text: 'ok' }]), resultSuccess()]],
@@ -461,7 +461,6 @@ describe('runAgentSdkTest — options propagation', () => {
       ...BASE_OPTS,
       queryProvider: makeStubProvider(stub),
     });
-    // systemPrompt is undefined when empty string passed (so SDK uses no override)
     expect(stub.calls[0]!.options!.systemPrompt).toBeUndefined();
   });
 });
