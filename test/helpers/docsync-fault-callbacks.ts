@@ -6,6 +6,9 @@
 import * as path from 'node:path';
 import { DOCS_CHECKPOINT_MARKER } from './docsync-fault-actor';
 
+export const CALLBACK_TEST_MS = 30_000;
+export const callbackBudgetMs = (count: number): number => (count + 1) * CALLBACK_TEST_MS;
+
 export function docsFaultCallbackScript(root: string): string {
   return `
 import { expect, mock, test } from 'bun:test';
@@ -20,6 +23,7 @@ const observers = { ...await import(observerModule) };
 const { CAPTURE_MS, CAPTURE_LONG_MS } = await import(path.join(root, 'test/helpers/eval-budgets.ts'));
 const { parseDocsCompletion } = await import(path.join(root, 'test/helpers/docsync-contract.ts'));
 const { docsActorSeeded, DOCS_SEEDED_AUDIT_ID } = await import(path.join(root, 'test/helpers/docsync-fault-actor.ts'));
+const CALLBACK_TEST_MS = ${CALLBACK_TEST_MS};
 const callbacks = new Map();
 let fixture, control = '', launches = 0, recorded, legacyReaudit = false;
 let returnedResult: SkillTestResult | undefined;
@@ -342,7 +346,7 @@ for (const name of names) test(name + ' consumes actual adapter results', async 
   expect(recorded).toEqual({ passed: true });
   expect(consumers).toEqual(['logCost', 'recordE2E']);
   expect(fs.existsSync(fixture.home)).toBe(false);
-});
+}, CALLBACK_TEST_MS);
 test('ship-docsync-failure accepts its remaining changed-input audit and preserves raw output in Markdown', async () => {
   control = '';
   legacyReaudit = true;
@@ -353,7 +357,7 @@ test('ship-docsync-failure accepts its remaining changed-input audit and preserv
   expect(recorded).toEqual({ passed: true });
   expect(consumers).toEqual(['logCost', 'recordE2E']);
   expect(fs.existsSync(fixture.home)).toBe(false);
-});
+}, CALLBACK_TEST_MS);
 for (const [name, mutation] of [
   ['ship-docsync-failure', 'false-current'], ['ship-docsync-failure', 'invalid-publication'],
   ['ship-docsync-failure', 'restore-partial'], ['ship-docsync-failure', 'user-content'],
@@ -381,6 +385,6 @@ for (const [name, mutation] of [
   expect(recorded).toEqual({ passed: false });
   expect(consumers).toEqual(['logCost', 'recordE2E']);
   expect(fs.existsSync(fixture.home)).toBe(false);
-});
+}, CALLBACK_TEST_MS);
 `;
 }

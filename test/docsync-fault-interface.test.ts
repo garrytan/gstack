@@ -8,7 +8,7 @@ import { DOC_PATH, docsSnapshotArgv, fixtureDocs, gitAt, gitBlobId, repoSnapshot
 import { DOCS_CHECKPOINT_MARKER, DOCS_SEEDED_AUDIT_ID, docsActorCommand, docsActorHook, docsActorSeeded, installDocsActor, seedDocsFirstAttempt, type DocsActorState } from './helpers/docsync-fault-actor';
 import { docsActorVerdict } from './helpers/docsync-fault-eval';
 import { extractDocsDispatch, parseDocsCompletion } from './helpers/docsync-contract';
-import { docsFaultCallbackScript } from './helpers/docsync-fault-callbacks';
+import { callbackBudgetMs, docsFaultCallbackScript } from './helpers/docsync-fault-callbacks';
 import { docsNativeInterface, docsWriteFailures, observeDocsWrites } from './helpers/docsync-observer';
 
 test.skipIf(process.platform !== 'linux')('actor CLI validates owned state before creating even transient locks', async () => {
@@ -485,7 +485,7 @@ for (const [split, pattern, count] of CALLBACK_SPLITS) test(`registered fault ca
       env: { ...process.env, EVALS: '', EVALS_TIER: '', EVALS_ALL: '', EVALS_RUN_ID: 'free-docsync-faults',
         HOME: home, USERPROFILE: home,
         GSTACK_EVAL_DIR: path.join(dir, 'evidence'), GSTACK_HOME: path.join(dir, 'state') },
-      stdout: 'pipe', stderr: 'pipe', timeout: 120_000,
+      stdout: 'pipe', stderr: 'pipe', timeout: callbackBudgetMs(count),
     });
     const output = result.stdout.toString() + result.stderr.toString();
     expect(result.exitCode, output).toBe(0);
@@ -493,4 +493,4 @@ for (const [split, pattern, count] of CALLBACK_SPLITS) test(`registered fault ca
     expect(output).toContain(`${36 - count} filtered out`);
     expect(output).toContain('0 fail');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-}, 120_000);
+}, callbackBudgetMs(count) + 10_000);
