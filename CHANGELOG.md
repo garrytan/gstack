@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.21.0] - 2026-11-03
+
+- **A stacked PR's /ship receipt now carries even when the child merged main before its receipt was written (GST-1214).** After the parent squash-landed and main was merged in again, `gstack-ship-receipt carry` compared the range from the parent's head, which still held every file the child's first main merge brought in, and refused with `RECEIPT_CARRY_PRODUCT_CHANGED` naming those files. The carry now leaves out paths whose content at the reviewed head is main's, unless HEAD changed them. A real edit to one of those files still refuses.
+
 ## [1.94.20.0] - 2026-11-03
 
 ### Changed

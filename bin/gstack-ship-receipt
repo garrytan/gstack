@@ -666,11 +666,19 @@ function cmdCarry(rest: string[], json: boolean): number {
     // receipt written against the base while stacked reviewed the parent's hunks too, and the squash moved them into the
     // base (GST-1199). A parent counts only when merging it into the current base changes no product path.
     const measure = (rangeBase: string) => {
-      const listed = [touchedPaths(repoRoot, rangeBase, from), touchedPaths(repoRoot, headBase, head)];
-      if (!listed[0] || !listed[1]) return `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`;
-      const touched = new Set([...listed[0], ...listed[1]]);
-      const spec = productSpec(repoRoot, rules, from, head, { touched, sides: [[rangeBase, from], [headBase, head]], own: branchSides(repoRoot, baseRef, from, '') });
-      if (!spec) return `git diff ${from.slice(0, 12)} ${head.slice(0, 12)} failed`;
+      const listed = [touchedPaths(repoRoot, rangeBase, from), touchedPaths(repoRoot, headBase, head), rangeBase === fromBase ? new Set<string>() : touchedPaths(repoRoot, fromBase, from)];
+      if (!listed[0] || !listed[1] || !listed[2]) return `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`;
+      // From a stack parent, a path whose reviewed content is the base's (an earlier base merge brought it in) is base
+      // context, not reviewed product, unless HEAD changed it against the base (GST-1214).
+      // A pathspec also names everything beneath a path, so a path with any compared path under it (a file the base turned
+      // into a directory) stays in.
+      const compared = [...listed[0], ...listed[1]];
+      const baseMerged = rangeBase === fromBase ? [] : [...listed[0]].filter(p => !listed[2]!.has(p) && !listed[1]!.has(p) && !compared.some(q => q.startsWith(`${p}/`)));
+      const touched = new Set([...listed[0], ...listed[1]].filter(p => !baseMerged.includes(p)));
+      const found = productSpec(repoRoot, rules, from, head, { touched, sides: [[rangeBase, from], [headBase, head]], own: branchSides(repoRoot, baseRef, from, '') });
+      if (!found) return `git diff ${from.slice(0, 12)} ${head.slice(0, 12)} failed`;
+      const skip = baseMerged.map(p => `:(exclude,literal)${p}`);
+      const spec = { ...found, product: [...found.product, ...skip], tests: [...found.tests, ...skip] };
       const ids = [patchId(repoRoot, rangeBase, from, spec.product), patchId(repoRoot, headBase, head, spec.product)];
       for (const r of ids) if (typeof r !== 'string') return `git could not compute the product patch-id at one of the heads: ${r.error}`;
       return { rangeBase, touched, spec, productFrom: ids[0] as string, productHead: ids[1] as string };

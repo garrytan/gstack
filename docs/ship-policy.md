@@ -1536,7 +1536,10 @@ the reviewed range (the reviewed head excluded, at most 100 commits) whose
 product change the current base already holds: `git merge-tree` of that commit
 into the base changes no product path. A conflicted product path never counts,
 so a parent that never landed is never treated as one, even when the child's
-merge dropped its change. The comparison then runs from that commit: an equal
+merge dropped its change. The comparison then runs from that commit, leaving out
+every path whose content at the reviewed head is the base's (a base merge the
+child made before its receipt brought it in) unless HEAD changed it against the
+base (GST-1214): an equal
 patch-id carries with reason `stack parent <sha12> landed`, base context next
 to the child's unchanged hunks is `RECEIPT_CARRY_SCOPED_REVIEW`, and any other
 difference refuses with `RECEIPT_CARRY_PRODUCT_CHANGED`.

@@ -240,3 +240,68 @@ describe('carry after a stack parent squash-merges, receipt written against main
     expect(landedStackParent(repo.work, { rangeBase: fork, reviewed, currentBase: mainTip }, ['.', ':(exclude,glob)test/**'])).toBeNull();
   }, 60_000);
 });
+
+describe('carry after a stack parent lands, the child having merged main before its receipt (GST-1214)', () => {
+  /** main <- parent (lib/util.js) <- feature (lib/retry.js), which merges main (wiki/) once before its receipt is written against main. */
+  function mergedStack(repo: FixtureRepo, mainFiles: Record<string, string | null> = { 'wiki/a.md': '# a\n', 'wiki/b.md': '# b\n' }): { parent: string; reviewed: string; body: string } {
+    repo.git('checkout', '-q', '-b', 'parent');
+    const parent = commit(repo, { 'lib/util.js': SUB }, 'parent: sub');
+    repo.git('push', '-q', 'origin', 'parent');
+    repo.git('checkout', '-q', 'feature');
+    repo.git('reset', '-q', '--hard', parent);
+    commit(repo, { 'lib/retry.js': RETRY4 }, 'child: four retries');
+    repo.git('checkout', '-q', 'main');
+    commit(repo, mainFiles, 'main: wiki');
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', 'feature');
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    const reviewed = repo.git('rev-parse', 'HEAD');
+    const body = path.join(repo.root, 'body.md');
+    const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '8', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]);
+    expect(w.status).toBe(EXIT.ok);
+    return { parent, reviewed, body };
+  }
+
+  // Value: protects=a stacked child that merged main before its receipt keeps it once the parent squash-lands and main is
+  // merged again (gstack-evals#178 refused on 20 wiki/ paths its first base merge brought in); fails_when=the range from the
+  // landed parent counts paths that hold main's content at the reviewed head; seam=none; no_claim=gh pr edit (--body stands in)
+  test('the child carries when only its earlier base merge separates the parent range from HEAD\'s diff against main', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const { parent, reviewed, body } = mergedStack(repo);
+    landOnMain(repo, { 'lib/util.js': SUB });
+    const head = repo.git('rev-parse', 'HEAD');
+    const out = carry(repo, body);
+    expect(out.err).not.toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+    expect(out.status).toBe(EXIT.ok);
+    expect(out.out).toContain(`CARRY: carried from ${reviewed.slice(0, 12)} to ${head.slice(0, 12)}`);
+    expect(receiptIn(body).carry!.reason).toBe(`stack parent ${parent.slice(0, 12)} landed + base merge`);
+  }, 90_000);
+
+  // Value: protects=fail closed: an edit to a file the earlier base merge brought in is product and refuses; fails_when=every
+  // base-merged path drops out of both sides, the child's own edit included; seam=none; no_claim=-
+  test('an edit to a base-merged file after the receipt refuses with RECEIPT_CARRY_PRODUCT_CHANGED', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const { reviewed, body } = mergedStack(repo);
+    landOnMain(repo, { 'lib/util.js': SUB });
+    commit(repo, { 'wiki/a.md': '# a, edited by the child\n' }, 'child: edit wiki');
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)');
+    expect(out.err).toContain('wiki/a.md');
+    expect(receiptIn(body).head).toBe(reviewed);
+  }, 90_000);
+
+  // Value: protects=fail closed when the earlier base merge turned a file into a directory: leaving out the old file must not
+  // hide an edit beneath it (a pathspec names a path and everything under it); fails_when=the exclusion covers a changed
+  // descendant; seam=none; no_claim=-
+  test('a base merge that replaced a file with a directory never hides an edit beneath it', () => {
+    const repo = makeFixtureRepo({ baseFiles: { services: 'old\n' } }); repos.push(repo);
+    const { reviewed, body } = mergedStack(repo, { services: null, 'services/worker.js': 'exports.allowed = false;\n' });
+    landOnMain(repo, { 'lib/util.js': SUB });
+    commit(repo, { 'services/worker.js': 'exports.allowed = true;\n' }, 'child: allow');
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)');
+    expect(receiptIn(body).head).toBe(reviewed);
+  }, 90_000);
+});
