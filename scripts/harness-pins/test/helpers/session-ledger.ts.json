@@ -1,0 +1,1 @@
+{"blob":"c99baaaa0a77a5a72384493fd8a85a4253ecb05d","since":6,"nonBehavioral":"PTY sessions price their ledger row (streamed_cost_usd) from the session transcript found by the caller's --session-id or the one new transcript for the launch cwd; ledger cost fields only, no prompt, argv, answer, timeout or verdict changes"}

@@ -1,0 +1,1 @@
+{"blob":"5439d0a8f6e1569fa7c924af20d67c30c81d5d30","since":6,"nonBehavioral":"credential rejections are classed infra instead of assertion: no case's pass or fail changes; only failed trials whose provider rejected the run's key move class, so no rerun spends on a rejected key"}

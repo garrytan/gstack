@@ -1,0 +1,1 @@
+{"replay":"GST-986","justification":"GST-986 brief-identity no-loss check (the brief-body test below): every reviewer brief lib/review-brief.ts cuts from ship/sections/adversarial.md is byte-identical to the bodies at the GST-257 pin; only the lead's Step 11 instruction naming the targeted record's path changed, outside the cut spans"}

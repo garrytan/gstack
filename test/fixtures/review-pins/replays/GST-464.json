@@ -1,0 +1,1 @@
+{"replay":"GST-464","justification":"GST-464 brief-identity no-loss check (the brief-body test below): every reviewer brief lib/review-brief.ts cuts from ship/sections/review-army.md and adversarial.md is byte-identical to the bodies at the L and GST-257 pins; only lead instructions outside the cut spans changed"}

@@ -1001,8 +1001,10 @@ paid test file, its fixtures and its skills' prompt files, including the
 generated SKILL.md) plus `HARNESS_VERSION`, keyed with model, Claude CLI version
 and policy version (`scripts/eval-trial-series.ts`). Each trial also records the
 full consumed-input fingerprint as provenance. `scripts/harness-version.json`
-pins every shared-harness file (`GLOBAL_TOUCHFILES` plus the session runners, the
-PTY harness, the e2e gate and the LLM judge) by blob hash. When
+holds the version and the harness patterns, and `scripts/harness-pins/<path>.json`
+pins each shared-harness file (`GLOBAL_TOUCHFILES` plus the session runners, the
+PTY harness, the e2e gate and the LLM judge) by blob hash, one file per pin, so
+two PRs that record decisions for different harness files never conflict. When
 `test/harness-version.test.ts` fails, run one of:
 
 ```bash
@@ -1010,8 +1012,8 @@ bun run scripts/bump-harness-version.ts --non-behavioral "<why no verdict can ch
 bun run scripts/bump-harness-version.ts --bump "<what behavior changed>"                # new series for every case
 ```
 
-On a merge conflict in the manifest, take the higher version, then rerun the
-script.
+On a merge conflict in the manifest or a pin file, take the higher version, then
+rerun the script.
 
 ## Ubicloud VMs (`bun run test:ubicloud`)
 

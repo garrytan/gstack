@@ -1,0 +1,1 @@
+{"blob":"e1b54ad5e3d3eadd8027de1b44e57554d6d99a41","since":6,"nonBehavioral":"selection only: fragment exemption narrowed to .md files directly in the fragments dir; changed-file lists include a rename's old path; no case prompt, fixture, judge or verdict logic changes (GST-400)"}

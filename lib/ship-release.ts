@@ -173,16 +173,20 @@ function commitRelease(cwd: string, release: string[], trailer: string | undefin
 
 /**
  * A harness pin edit that only records changed harness files as non-behavioral at the same version and patterns (GST-1031): release
- * metadata, like a version stamp. A bump, a pattern change or an entry without its reason is behavior.
+ * metadata, like a version stamp. The pins live one file per harness file under scripts/harness-pins/ (GST-1084), beside a manifest
+ * holding only version and patterns. A bump, a pattern change or a pin without its reason is behavior.
  */
-const HARNESS_PIN = 'scripts/harness-version.json';
+const HARNESS_MANIFEST = 'scripts/harness-version.json';
+const HARNESS_PINS = 'scripts/harness-pins/';
 function harnessRepin(cwd: string, from: string, to: string, p: string): boolean {
-  if (p !== HARNESS_PIN) return false;
-  const read = (tree: string): any => { const s = git(cwd, ['show', `${tree}:${p}`]); try { return s.status === 0 ? JSON.parse(s.stdout) : null; } catch { return null; } };
-  const a = read(from), b = read(to);
-  if (!a?.files || !b?.files || typeof b.files !== 'object' || a.version !== b.version || JSON.stringify(a.patterns) !== JSON.stringify(b.patterns)) return false;
-  return Object.entries(b.files as Record<string, any>).every(([f, e]) => JSON.stringify(a.files[f]) === JSON.stringify(e)
-    || (e?.since === b.version && typeof e?.nonBehavioral === 'string' && e.nonBehavioral.trim().length >= 10));
+  if (p !== HARNESS_MANIFEST && !(p.startsWith(HARNESS_PINS) && p.endsWith('.json'))) return false;
+  const read = (tree: string, file: string): any => { const s = git(cwd, ['show', `${tree}:${file}`]); if (s.status !== 0) return undefined; try { return JSON.parse(s.stdout); } catch { return null; } };
+  const a = read(from, HARNESS_MANIFEST), b = read(to, HARNESS_MANIFEST);
+  if (!a || !b || Object.keys(b).sort().join() !== 'patterns,version' || a.version !== b.version || JSON.stringify(a.patterns) !== JSON.stringify(b.patterns)) return false;
+  if (p === HARNESS_MANIFEST) return true;
+  const e = read(to, p);
+  return e === undefined || JSON.stringify(read(from, p)) === JSON.stringify(e)
+    || (e?.since === b.version && typeof e?.nonBehavioral === 'string' && e.nonBehavioral.trim().length >= 10);
 }
 
 /**
