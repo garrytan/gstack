@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.92.77.0] - 2026-11-02
+
+**The weekly marathon evals can run /design-motion again: the CI eval image now ships ffmpeg (#3687).** The `design-motion-showcase` case joined the marathon tier on 2026-10-26, and its first scheduled run (Actions run 41200316994, main @ 088bfc5) failed 0/3. Every trial built and captured the page, then stopped at `FFMPEG_MISSING`, because the image had no ffmpeg and the skill rightly refuses to export before its checks run. The model did nothing wrong; the case could not pass on that image.
+
+### Fixed
+- **`.github/docker/Dockerfile.ci`** installs Ubuntu's `ffmpeg` (6.1.1, with `ffprobe`). The build fails if that ffmpeg lacks a filter or encoder the motion checks and exports use (`psnr`, `gblur`, `palettegen`, `paletteuse`, `signalstats`, `tile`, `libx264`, `gif`).
+- **`test/ci-image-cli-pin.test.ts`** fails the free suite if the image stops installing ffmpeg or stops checking it.
+
+The macOS `macos-named-regressions` CI job now runs `test/regression-issue3680-ubicloud-bsd-userland.test.ts`, so the ubi-runner cases for #3680 (bsdtar) and #3679 (macOS awk) run on a real Mac against `/usr/bin/tar` and `/usr/bin/awk`. Before, the file ran only on Linux CI, where bsdtar and one-true-awk aren't installed, so every case skipped and a regression in either could merge green. A new wiring test fails if the macOS job stops naming the file.
+
+The Linux free suite now runs on 10 `ubicloud-standard-8` machines, each running its tests as 4 sandboxed sub-shards side by side, instead of main's 20 `ubicloud-standard-4` machines (set by #3710) running one file at a time. Both use 80 vCPUs per run. In a 3-run A/B at one commit against that main setup, the slowest shard dropped from 389–450 s to 224–258 s and the Ubicloud cost per run dropped from about $0.39 to $0.32 at premium prices, with the same per-file test counts and no new failures. The CI plan now stores each shard's sub-shard count (`--ci-plan --shard-jobs k`), keeps the exclusive host-state shard at one child, and `--ci-verify` rejects a shard that ran at a different count. The nightly Windows suite stays at one child per shard, because two sub-shards made Windows file-lock cleanup failures show up in two of three runs. Dispatch-only `free_jobs` and `windows_jobs` inputs exist for future experiments. See docs/TESTING_INTERNALS.md#sub-shards-inside-one-ci-job.
+
 ## [1.92.76.0] - 2026-11-02
 
 **/retro now remembers its history across git worktrees, so a run in a linked worktree compares against last week instead of announcing "First retro recorded".** Retro snapshots used to live in `.context/retros/` inside the working tree. A worktree (Conductor, Claude Code) saw none of the main checkout's history, and its own snapshot was deleted along with the worktree (#3749).
