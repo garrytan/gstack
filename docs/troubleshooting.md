@@ -3340,10 +3340,13 @@ targeted refusal, run the targeted reader on HEAD, `gstack-review-dispatch verif
 use this code when the receipt's review_exclude digest (or the
 `--review-exclude <digest>` write was given) is not the digest HEAD has under the
 base policy's [`review_exclude_paths`](ship-policy.md#review-exclude-paths). The line
-names `expected=` (now), `recorded=` (what the review read, `none` when it read
-without exclusion) and `source=` (the base commit). The reviewers read another
-selection than the one the head now has, so a receipt write alone cannot clear
-it: rerun `/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
+names `expected=` (now), `recorded=` (the `--review-exclude` argument, or the digest
+the receipt recorded from it; `none` without one) and `source=` (the base commit).
+A mismatch proves only that this argument differs from the selection the head has
+now. Write compares the argument and does not read the review ledger, so the line
+says nothing about what the readers read, and a write that passes the `expected=` digest clears
+the field without a review. Do not do that. Rerun
+`/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
 run `gstack-review-dispatch verify --ledger <ledger>`, which prints
 `REVIEW_EXCLUDE_RECORD: digest=<d>` from the briefs the readers got, then
 `gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body>`.

@@ -224,7 +224,8 @@ function headInputs(root: string, baseRef: string, head: string, r?: ShipReceipt
 /**
  * The queue's exclusion check: the digest the receipt recorded (none when absent) against the one `head` has under the current
  * base policy. Only the digest counts (the policy's patterns and the excluded list), so a base merge or a moved base that leaves
- * both unchanged binds; a changed selection needs the review rerun, which receipt write alone cannot stand in for.
+ * both unchanged binds; a changed selection needs the review rerun (write checks the same digest and does not read the
+ * review ledger).
  */
 export function excludeMismatch(x: Exclusion, r: ShipReceipt, head: string, base: string): string | null {
   const expected = x.state === 'active' ? x.record.digest : 'none';
@@ -232,7 +233,7 @@ export function excludeMismatch(x: Exclusion, r: ShipReceipt, head: string, base
   if (expected === recorded) return null;
   const source = x.state === 'active' ? x.record.source : r.review_exclude?.source ?? base;
   const h = head.slice(0, 12);
-  return `field=review_exclude expected=${expected} recorded=${recorded} source=${source}: the reviewers read another selection than ${base}'s review_exclude_paths gives ${h}; the receipt is unchanged; fix: rerun /ship's review on ${h} (gstack-review-dispatch pass --base ${base.replace(/^(refs\/remotes\/)?origin\//, '')}), then gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body> with the digest gstack-review-dispatch verify --ledger <ledger> prints on REVIEW_EXCLUDE_RECORD:; a receipt write alone does not clear this`;
+  return `field=review_exclude expected=${expected} recorded=${recorded} source=${source}: the receipt records another selection than ${base}'s review_exclude_paths gives ${h}; the receipt is unchanged; fix: rerun /ship's review on ${h} (gstack-review-dispatch pass --base ${base.replace(/^(refs\/remotes\/)?origin\//, '')}), then gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body> with the digest gstack-review-dispatch verify --ledger <ledger> prints on REVIEW_EXCLUDE_RECORD: (write checks the digest against the base policy and does not read the review ledger, so only the rerun shows the reviewers read this selection)`;
 }
 /** The receipt's recorded gate scan when it names this head; otherwise null (unavailable). */
 const boundScan = (r: ShipReceipt, head: string): number | null => {

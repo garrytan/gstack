@@ -11,7 +11,7 @@ import { EXIT } from '../lib/headless-artifacts';
 import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude, tooLargeLine, unreadableLine } from '../lib/review-exclude';
 import { collectCommit, collectLive } from '../lib/review-collect';
 import { extractReceipt } from '../lib/ship-receipt';
-import { bindShippedReceipt, receiptReviewAtHead } from '../lib/ship-receipt-depth';
+import { bindShippedReceipt, excludeMismatch, receiptReviewAtHead } from '../lib/ship-receipt-depth';
 import { REVIEW_EXCLUDE_KEY_VERSION, isUnavailable } from '../lib/ship-policy';
 import { loadPolicyAt } from '../lib/ship-policy-at';
 import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
@@ -313,6 +313,31 @@ describe('the receipt binds the selection the reviewers read', () => {
     expect(removed.status).toBe(EXIT.fail);
     expect(removed.err).toContain(`field=review_exclude expected=none recorded=${digest}`);
   }, 240_000);
+
+  // Value: protects=every place that describes write --review-exclude says what it checks: the digest HEAD has under the base
+  //   policy, not that a review read that selection; fails_when=the help, troubleshooting, ship-policy or the queue's refusal
+  //   line claims a receipt write alone cannot clear field=review_exclude while a write with the refusal's own expected= digest
+  //   clears it with no review run; why_new=GST-972 item 2 (the #3852 cross-family trail review); seam=gstack-ship-receipt write
+  //   and --help, excludeMismatch, the two docs; no_claim=binding the digest to the review ledger (write never reads it)
+  test('write binds --review-exclude to the base policy, not to a review, and no description claims more', () => {
+    const repo = census();
+    const body = path.join(repo.root, 'body.md');
+    const refused = writeReceipt(repo, body, []);
+    const expected = refused.err.match(/field=review_exclude expected=([0-9a-f]{64}) /)?.[1];
+    expect(expected).toBeDefined();
+    expect(writeReceipt(repo, body, ['--review-exclude', expected!, ...targetedAtHead(repo)]).status).toBe(EXIT.ok);
+    const doc = (rel: string) => fs.readFileSync(path.join(import.meta.dir, '..', rel), 'utf8').replace(/\s+/g, ' ');
+    const claims = {
+      help: runBin(repo, 'gstack-ship-receipt', ['--help']).out.replace(/\s+/g, ' '),
+      troubleshooting: doc('docs/troubleshooting.md'),
+      shipPolicy: doc('docs/ship-policy.md'),
+      queue: excludeMismatch({ state: 'none' }, { review_exclude: { digest: expected } } as any, repo.git('rev-parse', 'HEAD'), 'origin/main')!,
+    };
+    for (const [where, text] of Object.entries(claims)) {
+      expect({ where, overClaim: /write alone (cannot|does not) clear|never a receipt write alone/i.test(text) }).toEqual({ where, overClaim: false });
+      expect({ where, says: text.includes('does not read the review ledger') }).toEqual({ where, says: true });
+    }
+  }, 240_000);
 });
 
 describe('a branch cannot hide code under a base pattern', () => {
@@ -346,6 +371,84 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect(p.review_exclude.kept_files).toEqual([{ path: 'assets/loader.js', reason: 'code' }]);
     expect(p.review_exclude.content).toMatchObject({ binary: 1 });
     expect(p).toMatchObject({ depth: 'full', errors: expect.arrayContaining([expect.objectContaining({ code: 'binary_code_path', input: 'assets/loader.js' })]) });
+  }, 120_000);
+
+  // Value: protects=a compiled binary under a base pattern stays in review, because it is code; fails_when=a .node, .so, .so.N,
+  //   .dylib or .dll file, or an ELF, Mach-O or PE image under a content extension (.bin, .dat), is excluded as binary content;
+  //   why_new=GST-972 item 3; seam=bin/gstack-review-plan; no_claim=what a reader can see inside a binary
+  test('native binaries are code: .node, .so, .dylib, .dll and executable images under a content extension stay kept', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
+    const elf = Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(24)]);
+    const macho = Buffer.concat([Buffer.from([0xcf, 0xfa, 0xed, 0xfe]), Buffer.alloc(28)]);
+    const pe = Buffer.concat([Buffer.from('MZ'), Buffer.alloc(30)]);
+    const files = { 'assets/addon.node': elf, 'assets/libx.dylib': macho, 'assets/libx.so': elf, 'assets/libx.so.1': elf, 'assets/setup.dat': pe, 'assets/tool.bin': elf, 'assets/x.dll': pe, 'assets/real.gz': GZ };
+    for (const [rel, bytes] of Object.entries(files)) fs.writeFileSync(path.join(repo.work, rel), bytes);
+    commit(repo, {});
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    expect(p.review_exclude.kept_files).toEqual(Object.keys(files).filter(f => f !== 'assets/real.gz').map(f => ({ path: f, reason: 'code' })));
+    expect(p.review_exclude).toMatchObject({ excluded: 1, content: { binary: 1 } });
+  }, 120_000);
+
+  // Value: protects=a branch's .gitattributes cannot get an executable image excluded by making git read it as text, and a
+  //   64-bit universal Mach-O is an executable image; fails_when=only files git reports as binary under the branch's own
+  //   attributes get the magic check, so an ELF named .png under '*.png diff -binary' is excluded as data, or 0xcafebabf
+  //   is not executable magic; why_new=GST-972 item 3 follow-up (#3910, #3902 outside voice); seam=bin/gstack-review-plan and
+  //   reviewExclude in head mode; no_claim=a NUL-free script under a content extension
+  test('a branch .gitattributes that makes git read an ELF as text cannot get it excluded; fat64 Mach-O is native', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'assets/native.png'), Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(24)]));
+    fs.writeFileSync(path.join(repo.work, 'assets/fat64.dat'), Buffer.concat([Buffer.from([0xca, 0xfe, 0xba, 0xbf]), Buffer.alloc(28)]));
+    fs.writeFileSync(path.join(repo.work, 'assets/real.gz'), GZ);
+    commit(repo, { '.gitattributes': '*.png diff -binary\n' });
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    const kept = [{ path: 'assets/fat64.dat', reason: 'code' as const }, { path: 'assets/native.png', reason: 'code' as const }];
+    expect(p.review_exclude.kept_files).toEqual(kept);
+    expect(p.review_exclude).toMatchObject({ excluded: 1, content: { binary: 1 } });
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
+    expect(x.state === 'active' && x.kept).toEqual(kept);
+    expect(x.state === 'active' && x.record.digest).toBe(p.review_exclude.digest);
+  }, 120_000);
+
+  // Value: protects=a NUL byte cannot turn code or a key file into excludable content; fails_when=a NUL-bearing file with a
+  //   source extension outside the old CODE_EXT list (.gradle, .sql, .tf, .groovy), a key store (.p12) or an extensionless key
+  //   is excluded as binary; why_new=GST-972 item 6 (#3852 targeted gate reader at 61803d9); seam=bin/gstack-review-plan;
+  //   no_claim=the list of binary content extensions is complete (an unknown one is kept, never excluded)
+  test('a NUL-bearing file is binary content only under a known content extension; code and key files stay kept', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
+    const nul = (code: string) => Buffer.from(`/* \0 */ ${code}\n`);
+    const kept = { 'assets/Build.groovy': nul('println "x"'), 'assets/build.gradle': nul('apply plugin: "java"'), 'assets/id_ed25519': nul('openssh-key-v1'), 'assets/main.tf': nul('resource "x" "y" {}'), 'assets/query.sql': nul('DROP TABLE users;'), 'assets/server.p12': Buffer.from([0x30, 0x82, 0, 1, 2, 3]) };
+    const content = { 'assets/report.pdf': GZ, 'assets/shot.png': GZ };
+    for (const [rel, bytes] of Object.entries({ ...kept, ...content })) fs.writeFileSync(path.join(repo.work, rel), bytes);
+    commit(repo, {});
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    expect(p.review_exclude.kept_files).toEqual(Object.keys(kept).map(f => ({ path: f, reason: 'code' })));
+    expect(p.review_exclude).toMatchObject({ excluded: 2, content: { binary: 2 } });
+  }, 120_000);
+
+  // Value: protects=a branch's .gitattributes cannot get a matched file with a credential line excluded by making git call it
+  //   binary, at the plan (live tree) and at the receipt (head blobs); fails_when=the secret-line rule reads only the
+  //   collector's added lines, which git leaves empty for an attribute-binary file, so the file is excluded; why_new=GST-972
+  //   item 5 (#3852 round 3, outside-voice#2); seam=bin/gstack-review-plan and reviewExclude in head mode; no_claim=pregate's gitleaks scan, what readers' own diffs show (they still follow the attributes)
+  test('a branch .gitattributes marking receipts binary cannot get a credential-line file excluded: the keep rule reads the text', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['receipts/**']) } }); repos.push(repo);
+    const secret = '{"cmd": "curl -H $OPENAI_API_KEY"}\n';
+    commit(repo, { '.gitattributes': 'receipts/** binary\n', 'receipts/s.json': secret, 'receipts/a.b/c.json': secret, 'receipts/a.json': '{"ok": true}\n', 'receipts/a/t.json': '{"ok": true}\n' });
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    const kept = [{ path: 'receipts/a.b/c.json', reason: 'secret-line' as const }, { path: 'receipts/s.json', reason: 'secret-line' as const }];
+    expect(p.review_exclude.kept_files).toEqual(kept);
+    expect(p.review_exclude).toMatchObject({ excluded: 2, content: { data: 2 } });
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
+    expect(x.state === 'active' && x.kept).toEqual(kept);
+    expect(x.state === 'active' && x.record.digest).toBe(p.review_exclude.digest);
   }, 120_000);
 
   test('an unavailable gate scan keeps every candidate instead of excluding it', () => {
