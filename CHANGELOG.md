@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Captains now read factory.md and the owner's model preference.** A Capy session with no gstack checkout (every Captain and coordinator, which run `install.sh --check --for none`) used to skip factory.md without a word and never applied `agent_model`, because both were read only from the checkout. The skill now tells it to read the `factory.md` beside SKILL.md, to say `factory.md: none` on its own line when there isn't one, and to read the `agent_model` line of `preferences.yaml` itself. Owners get the fix by copying `capy/skill/gstack/` into the Drive skill folder.
+
+## [Unreleased]
+
 **OpenClaw opens gstack's large task skills again (GST-110).** #3555 made `hybrid` OpenClaw's default and registered review, investigate, qa, ship and plan-eng-review as skills of their own. OpenClaw 2026.10.6 serves a registered skill's `SKILL.md` whole or refuses it, with a 32,768-byte limit when its model catalog has no context window for the model. In HARN-5's panel the agent's first read of the 77,691-byte `gstack-review` file was refused in 4 of 5 trials, and opens fell from 5/5 to 0/5. Under the router layout the same file had been read as a plain file inside the router's folder, which OpenClaw pages.
 
 ### Fixed
