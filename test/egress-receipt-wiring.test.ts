@@ -98,6 +98,9 @@ const MODULE_SINKS = [
   // repository permission (`gh api .../collaborators/<user>/permission`); the
   // author login and repo slug leave the machine, sink 'contributor-mode'.
   'lib/contributor-mode.ts',
+  // GSTA-156: gstack-pregate clear --run reads the repository's own Actions runs
+  // through gh and fetches a missing run head from origin by sha; sink 'run-evidence'.
+  'lib/run-evidence.ts',
   // The Memorable bridge hook: gstack-owned code that hands each prompt to a
   // vendor CLI. hosts/ has no curl/fetch for the scanner to see, so the
   // receipt wiring is pinned here explicitly.

@@ -14,6 +14,7 @@
  *   fix-check           fix_list, hunks, tests, callers (scripts/resolvers/fix-check.ts)
  *   targeted            classes, brief (review/specialists/targeted.md's text), checklist (its path), diff_base, stack, test_fw, learnings
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -132,6 +133,55 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
     case 'fix-check':
       return renderFixCheckPrompt({ fixList: need(slots, 'fix_list'), touchedHunks: need(slots, 'hunks'), testResults: need(slots, 'tests'), callers: slots.callers ?? '' });
   }
+}
+
+/**
+ * The closing paragraph every dispatched brief carries (GST-482): a reader on a shared machine starts in that machine's working
+ * directory, and every command runs in a fresh shell, so the brief names the checkout under review and asks for a fingerprint
+ * measured there. It is appended after the section's render, so the brief before it stays byte for byte what renderBrief returns.
+ */
+export function workspaceParagraph(dir: string): string {
+  const q = `'${dir.replace(/'/g, `'\\''`)}'`;
+  return `Workspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${q} && \`, and give every file read, search, edit or write an absolute path under ${dir}. Make the first line of your final reply the line \`cd ${q} && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"\` prints, even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
+}
+export const withWorkspace = (text: string, dir: string) => `${text}\n\n${workspaceParagraph(dir)}`;
+/** The checkout a brief names: the toplevel of the directory the bins run in, where its diff and merge base come from. */
+export function checkoutRoot(): string {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 30_000 });
+  return realDir(r.status === 0 ? r.stdout.trim() : process.cwd());
+}
+
+/**
+ * One REVIEWED_TREE line as "<tree> <toplevel>", or null. A list marker or heading mark may lead it, and a whole-line `**…**` or
+ * backtick wrapper, a bold label and backticks around the sha or the whole path are removed; the path's own characters are kept.
+ */
+function parseTreeLine(line: string): string | null {
+  let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '');
+  for (const w of ['**', '`']) if (t.length > 2 * w.length && t.startsWith(w) && t.endsWith(w)) t = t.slice(w.length, -w.length).trim();
+  const m = /^(?:\*\*REVIEWED_TREE:\*\*|REVIEWED_TREE:)\s+`?([0-9a-f]{40,64})`?\s+(.+)$/.exec(t);
+  if (!m) return null;
+  const p = m[2]!.length > 2 && m[2]!.startsWith('`') && m[2]!.endsWith('`') ? m[2]!.slice(1, -1) : m[2]!;
+  return `${m[1]} ${realDir(p)}`;
+}
+export const isReviewedTreeLine = (line: string) => parseTreeLine(line) !== null;
+const realDir = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+/** The checkout a reply says it reviewed: its first REVIEWED_TREE line (a later one may be quoted inside a finding); null with none. */
+const reportedTree = (output: string): string | null => output.replace(/\r\n/g, '\n').split('\n').map(parseTreeLine).find(t => t !== null) ?? null;
+/** The fingerprint a reply must report, read from the checkout itself when its brief is rendered: "<HEAD^{tree}> <toplevel>". */
+export function checkoutTree(dir: string): string | null {
+  const git = (a: string[]) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8', timeout: 30_000 });
+  const tree = git(['rev-parse', 'HEAD^{tree}']), top = git(['rev-parse', '--show-toplevel']);
+  return tree.status === 0 && top.status === 0 ? `${tree.stdout.trim()} ${realDir(top.stdout.trim())}` : null;
+}
+/** moved: the reply reviewed the named checkout, but at another tree than the one its brief was rendered on. */
+export type TreeCheck = { ok: boolean; moved: boolean; expected: string; reported: string };
+/** Whether a reply's REVIEWED_TREE line is the fingerprint recorded when its brief was rendered (GST-482). */
+export function checkReviewedTree(output: string, expected: string | null): TreeCheck {
+  const reported = reportedTree(output);
+  const ok = expected !== null && reported === expected;
+  const top = (t: string) => t.slice(t.indexOf(' ') + 1);
+  return { ok, moved: !ok && !!reported && expected !== null && top(reported) === top(expected),
+    expected: expected ?? 'none (the checkout was unreadable at render)', reported: reported ?? 'none' };
 }
 
 /** The file a rendered brief is written to under the run's briefs directory. */

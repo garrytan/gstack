@@ -3293,8 +3293,9 @@ repository's lockfile), then rerun `gstack-regen check` or the pre-gate.
 **Meaning.** `.gstack/pregate.json` has an unknown key, a wrong type, a glob
 that escapes the repository, a runner without `{files}`, or `secrets` in `warn`.
 The user-owned `<state root>/projects/<slug>/pregate.json` also refuses when it
-sets `sealed` or `price_file` (both are read only from the base branch's copy)
-or exists but cannot be read (a dangling symlink on its path counts).
+sets `sealed`, `price_file`, a non-empty `run_profiles` or `remote_gate_runs`
+(all read only from the base branch's copy) or exists but cannot be read (a
+dangling symlink on its path counts).
 
 **Fix.** `gstack-pregate validate`. `secrets` and required-lane obligations
 cannot be downgraded; every other check id in `warn` is honoured only from the
@@ -3490,6 +3491,12 @@ reports failures. The obligation stays uncleared. A run URL alone never clears
 this obligation; a `test_backend/<backend>` obligation takes a run URL, recorded
 as attested rather than validated.
 
+`gstack-pregate clear --run <id|url>` refusals use this code too: the line
+reads `gstack-pregate clear: receipt refused — REUSE: refused reason=<code> —
+…`, and the GitHub Actions runs offered did not verify against the base
+branch's `run_profiles`. Each reason code and
+what it checks is listed in [run evidence](pregate.md#run-evidence).
+
 Another tree is accepted in exactly one case: it differs from `pregate.json`'s
 tree only in the repo's stamp rule (`.gstack/ship-policy.json` on the base
 branch: `stamp_files`, `stamp_patterns`, the built-in version, manifest,
@@ -3585,7 +3592,9 @@ run, named by `workflow.yml/job`, or the small-machine `pregate.json/remote_gate
 tier) has no receipt; or a `remote_gate` receipt accepted from a stamp-only
 predecessor tree records `accepted_for` as a tree other than `pregate.json`'s,
 or a `gated_tree` other than its receipt string's `tree=` (the file was edited
-after `clear`), so it clears nothing here.
+after `clear`), so it clears nothing here; or a `clear --run` receipt names
+another tree than `pregate.json`'s with no substitution recorded (`run
+receipt(s) verified for another tree`).
 
 **Fix.** Dispatch that job, then
 `gstack-pregate clear --remote <workflow.yml/job> --run-url <url>` (or
@@ -3593,7 +3602,11 @@ after `clear`), so it clears nothing here.
 `clear --remote pregate.json/remote_gate --receipt <gate output>`: the gate's
 own run on this tree, or a run on a predecessor tree that differs only by the
 repo's stamp rule ([gate ahead of the stamp](pregate.md#remote-gate-stamp-only));
-`verify` then prints the accepted substitution on its ok line. The ship receipt
+`verify` then prints the accepted substitution on its ok line. When the base
+branch declares run profiles, `clear --remote <lane> --run <id|url>` clears a
+lane from verified GitHub Actions runs on this tree (for the remote gate, one
+run per `remote_gate_runs` profile, with `--allow-repo-commands`); a profiled
+lane refuses `--bundle-lane` ([run evidence](pregate.md#run-evidence)). The ship receipt
 carries each obligation with its receipt.
 
 <a id="issue-unreadable"></a>
