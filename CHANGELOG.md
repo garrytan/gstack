@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.92.82.0] - 2026-11-02
+
+**`gstack-review-dispatch verify` now catches a merged findings file edited after collect.** Verify used to compare only output hashes and line counts. So a `merged.jsonl` row whose label was lowered, or whose text was replaced with another line's summary, passed with `VERIFY: clean` once the judge agreed with the edited row. Verify now re-parses each reader's unchanged output and checks every merged row against the finding at its index, label and raw text byte for byte. A mismatch prints `merged_line_differs` on the OUTPUT and JUDGE rows, and verify is dirty. A missing output file or an output event with no file recorded (even for a reply with no findings), a judgment run on a copy of the merged file, merged rows that collect never wrote, and an output whose finding count no longer matches its recorded ids are dirty too. A reply refused for naming the wrong checkout is still allowed to hold findings collect never merged, but only when verify re-checks its tree line and finds it wrong.
+
+### Known
+- Deleting a whole output event together with its merged rows still verifies clean, because the ledger keeps no anchor for it. It is listed for the structured-findings plan.
+
+### Tests
+- `test/review-dispatch.test.ts`: a forged label, a summary copied onto a blocker's id, a deleted output file, a judgment on a forged copy and an extra merged row all verify dirty. Each verified clean at main c830c9b.
+- `test/review-dispatch.test.ts`: an output event edited to look like a wrong-tree refusal (no ids, `review: false`, `tree_ok: false`) verifies dirty, even after a re-sent brief is answered, and so does one edited to drop its file and ids. A real wrong-tree reply stays `NOT_REVIEWED` until a re-sent brief gets a review, then verifies clean.
+
+### Docs
+- `docs/review-policy.md` (verify) describes the per-row check.
+
 ## [1.92.81.0] - 2026-11-02
 
 **`gstack-ship-release finish` now accepts the owner's edit after a fix-check instead of asking for another review round (GST-965).** On gbrain #8425, the fix-check found a blocker, the owner's pre-agreed fallback was applied and "then ship" was granted. Finish still classed the edit as behavior and stopped with `insert 5–11.5 → 12–14 → 16`, a third round the R51 cap forbids, so /ship could not get through Step 16 without running its stages by hand.
