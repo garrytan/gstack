@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.91.349.0] - 2026-10-31
+
+**Nine flaky tests from the 2026-10-30 flaky pass stop failing correct runs.** Two paid detectors missed correct replies, one paid case lost the evidence of its own failure, five free tests raced their own fixtures or paid a cold start inside a timed call, and two Windows failures came from real defects: a lost IPC receipt in the QA deadline worker and a Chromium feature that fails loopback connections.
+
+### Fixed
+- **`lib/qa-deadline.ts`**: the receipt worker waits for the parent to acknowledge each receipt before it exits. Bun can drop an IPC message the parent has not read yet when the child exits, so on Windows `gstack-qa-deadline run` and `gstack-qa-evidence` could return the exit code without the `finished` receipt (Windows Free Tests 40991662945, `test/qa-deadline.test.ts:431` received one of two receipts). A receipt still unacknowledged after the existing 5 s write wait makes the worker exit 2, as an unwritten receipt did before.
+- **`patches/playwright-core@1.62.1.patch`**: backports microsoft/playwright#43605, which disables Chromium's `TcpPortRandomizationWin`. On Windows it fails loopback page loads with `net::ERR_NO_BUFFER_SPACE` even when ports are free (`browse/test/cookie-picker-ui.test.ts`, Windows Free Tests 40656299153 and 41056150287). gstack's own browser launches on Windows had the same exposure.
+- **`test/helpers/qa-only-cleanup.ts`**: the cleanup check reads the daemon state file once and treats a file deleted during shutdown as absent, instead of checking that it exists and then reading it (Free Tests 40964422549: ENOENT on `browse.json`).
+- **`test/claude-code-runner.test.ts`**: the liveness helper counts a process in the `X` (being reaped) state as dead, like `Z`, and the cleanup no longer kills a pid that is already gone (Free Tests 41034844588: ESRCH).
+- **`test/helpers/free-owned-browser-settlement.ts`**: in the `cancel-vanishing-record` case the fake daemon waits for the observer to remove its record before it exits, so the race the case injects always happens (Free Tests 40924799742).
+- **`test/investigate-freeze-path.test.ts`**: the E1 cases pay the first bash and JSON interpreter start once, in an unasserted warm-up, before the timed hook calls. In four Windows runs (40824965988, 40917695070, 40985163846, 40996480693) only the file's first hook call hit the 15 s kill, the second took 1.9 to 7.9 s and the rest 0.3 to 1 s. Each timed call keeps its 15 s kill.
+
+### Gate integrity
+- **ship-unmanaged-hook-consent** (`test/helpers/ship-hook-actor.ts`): the decline check also credits "no hook/change/file was installed, changed, modified, overwritten or replaced". Gate 41005113772 said "No hook was installed or changed" and "nothing was overwritten" after a correct decline; its installs, hook bytes and question checks all passed. The four negative controls still fail.
+- **tpa-absent-darwin** (`test/helpers/third-party-actions.ts`): the Aside download pitch also counts in the passive voice at a clause start ("Aside ... can be downloaded at aside.com", gate 40987391676). Reported and mid-clause forms still count zero, and so does a clause with "not", "no", "never" or "n't" before the phrase.
+
+### Changed
+- **autoplan-guard-pty** (`test/helpers/autoplan-guard-pty.ts`, `test/skill-e2e-autoplan-guard-pty.test.ts`): a `dispatch_prompt` deny prints each Agent dispatch's length, first differing offset and context next to the prompt the actor had to copy, read before cleanup deletes it. Gate 40992022983 lost those bytes because the journal summary cuts inputs at 160 characters.
+
+### Tests
+- New captures: `test/fixtures/ship-hook-consent-2026-10-30.json` and a passive-voice capture in `test/fixtures/third-party-actions-pitch-captures.json`; both tests fail with their detector change reverted. `browse/test/playwright-core-patch.test.ts` checks the backport in the patch and the installed tree, and fails without it. `test/autoplan-guard-pty-fixture.test.ts` checks the dispatch delta on a synthetic journal. `test/qa-deadline.test.ts` plays the parent, so it now acknowledges each receipt; its assertions are unchanged, and a new case shows a worker whose parent never acknowledges exits 2 after sending both receipts.
+
 ## [1.91.348.0] - 2026-10-31
 
 - **Pregate now maps tests to dotfiles they name.** A test that reads `../.gitleaks.toml`, `.gitleaks.toml` or `join('.github', 'workflows', 'ci.yml')` used to get no edge to that file, so a branch touching only the dotfile ended in `PREGATE_NO_LANE`. Quoted literals may now start with a dot, and a dot-led literal that isn't `./` or `../` resolves from both the repository root and the folder of the file that names it, so a fixture's own `.github/` keeps its edge. A literal still forms an edge only when it names a file in the repo, so strings like `'.ts'` add nothing. On gstack this adds 179 edges (`buildGraph` over this repository: 16,934 on main 2127729, 17,113 with this change, none removed), all to real dotfiles such as `.github/workflows/*.yml` and `.gstack/*.json`. (GST-246, reported from garrytan/truther#956.)
