@@ -14,6 +14,7 @@ import { RELEASE_RESULT_CODES } from './result-codes-release';
 import { CAPY_RESULT_CODES } from './result-codes-capy';
 import { BUDGET_RESULT_CODES } from './result-codes-budget';
 import { EVAL_RESULT_CODES } from './result-codes-eval';
+import { PLAN_RESULT_CODES } from './result-codes-plan';
 
 export interface ResultCode {
   /** Stable `<a id>` in docs/troubleshooting.md. */
@@ -589,7 +590,7 @@ export const RESULT_CODES = {
   // Field wave lane A (items 1-4): gstack-upgrade, the Capy skill bootstrapper, install admission.
   UPGRADE_REFUSED: {
     anchor: 'upgrade-refused',
-    summary: 'bin/gstack-upgrade changed nothing: the checkout is dirty, diverged, pinned (detached or off the remote default branch), not a gstack checkout, or the incoming release holds',
+    summary: 'bin/gstack-upgrade changed nothing: the checkout is dirty, diverged, pinned (detached or off the remote default branch), not a gstack checkout, tracked by an enclosing project (#1022), or the incoming release holds',
     fix: 'resolve the named cause (commit or move the listed changes, check out the default branch), then re-run bin/gstack-upgrade; it never stashes or resets',
   },
   UPGRADE_BUSY: {
@@ -763,6 +764,7 @@ export const RESULT_CODES = {
   ...CAPY_RESULT_CODES,
   ...BUDGET_RESULT_CODES,
   ...EVAL_RESULT_CODES,
+  ...PLAN_RESULT_CODES,
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;
