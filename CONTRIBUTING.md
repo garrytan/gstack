@@ -73,8 +73,8 @@ project where you actually felt the pain.
 
 **What CI does on a fork PR.** GitHub never gives a fork PR this repository's
 secrets, so CI runs everything that needs none: the required `free-tests` check
-(the Linux free suite, typecheck, the macOS and Windows gates), Windows Free
-Tests, Skill Docs Freshness, Workflow Lint, Version Gate, Quality gate, the
+(the Linux free suite, typecheck, the macOS and Windows gates), Windows
+Smoke, Skill Docs Freshness, Workflow Lint, Version Gate, Quality gate, the
 make-pdf gate, and any path-triggered gates your change touches. E2E Evals
 still builds the CI image from your `Dockerfile.ci` without publishing it, and
 skips its paid eval jobs, which need provider API keys. That skip is expected
@@ -192,7 +192,7 @@ the new defaults.
 | Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.2 |
 | Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY`, `UBI_OWNER` |
 | Clear pregate's test tier on a machine under 8 cores ([remote gate](docs/pregate.md#remote-gate)) | `gstack-pregate --stage tests --remote --spend-cap 2 --timeout 2700 --allow-repo-commands` (same command keyed or keyless) | Keyed: one billed 16-vCPU VM, about 7 minutes and $0.06 for the whole free tier, worst case $0.38; keyless: free, local parallel shards, practical for small selections only (98 files took 103 s on 4 cores) | Keyed: `UBICLOUD_API_KEY`, `UBI_OWNER`; keyless: nothing |
-| Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs) | Free | Windows, Git Bash |
+| Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs, nightly on main; PRs run the shorter `windows-smoke` check) | Free | Windows, Git Bash |
 | Refresh the Windows duration seed | `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`, then commit the `free-test-durations-windows` artifact | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Run a native Windows qualification campaign | `gh workflow run native-qualification.yml --ref <branch> -f mode=<mode>` ([modes](docs/TESTING_INTERNALS.md#windows-free-lane)) | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Preview which paid cases my diff selects | `bun run eval:select` (PR profile; `--profile full` for the plain touchfile selection) | Free | — |

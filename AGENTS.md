@@ -285,9 +285,11 @@ Support tiers (full: macOS, Linux; minimal: Windows, Gemini models) are in
 [docs/support-tiers.md](docs/support-tiers.md).
 
 - **macOS** + **Linux**: full test suite supported.
-- **Windows**: the curated Windows-safe subset runs in the `windows-free-tests`
-  CI workflow across six `windows-latest` jobs, packed by Windows-measured
-  durations. Setup script (`./setup`) requires Git Bash or
+- **Windows**: minimal support; [docs/support-tiers.md](docs/support-tiers.md)
+  says what is promised. Every PR must pass the `windows-smoke` check (`./setup`,
+  the core skills start, the fastest Windows-safe tests); the curated
+  Windows-safe subset runs nightly on main in `windows-free-tests` and never
+  blocks a PR. Setup script (`./setup`) requires Git Bash or
   MSYS today; native PowerShell support is a future expansion. The `bin/gstack-paths`
   helper resolves state roots through `CLAUDE_PLUGIN_DATA` / `GSTACK_HOME` so plugin
   installs work on every platform.

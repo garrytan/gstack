@@ -15,7 +15,7 @@ import { parseWorkflow } from '../lib/pregate/workflows';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
-const FILES = { 'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: [] as string[] }, 'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'ci-reuse/windows-free-tests', plan: 'windows-plan', exempt: ['windows-record-durations'] } };
+const FILES = { 'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: [] as string[], manual: false }, 'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'ci-reuse/windows-free-tests', plan: 'windows-plan', exempt: ['windows-record-durations'], manual: true } };
 const REUSE_IF = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 const SKIP = "steps.route.outputs.reused != 'true'";
 const PROFILES = JSON.parse(read('.gstack/pregate.json')).run_profiles as Record<string, { workflow: string; jobs: string[]; artifact: string; events: string[]; os: string }>;
@@ -74,8 +74,10 @@ for (const [file, spec] of Object.entries(FILES)) {
       for (const name of Object.keys(jobs).filter(downstream)) expect([name, jobs[name].if]).toEqual([name, expect.stringMatching(/!cancelled\(\)|always\(\)/)]);
     });
 
-    test('pregate still sees every test lane as required (no condition reads inputs or workflow_dispatch)', () => {
-      for (const lane of parseWorkflow(file, source, 'linux').filter(l => l.runsTests && !spec.exempt.includes(l.job))) expect([lane.id, lane.manual]).toEqual([lane.id, false]);
+    test(spec.manual ? 'pregate reads every test lane as manual: the nightly Windows suite is never a PR obligation (windows-smoke.yml is)' : 'pregate still sees every test lane as required (no condition reads inputs or workflow_dispatch)', () => {
+      const lanes = parseWorkflow(file, source, 'linux').filter(l => l.runsTests && !spec.exempt.includes(l.job));
+      expect(lanes.length).toBeGreaterThan(0);
+      for (const lane of lanes) expect([lane.id, lane.manual]).toEqual([lane.id, spec.manual]);
     });
 
     test('the aggregate routes first, before any download; the strict path follows unchanged and alone uploads tested-tree after verification', () => {

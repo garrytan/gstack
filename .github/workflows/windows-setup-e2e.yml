@@ -92,16 +92,8 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      # Same lockfile-keyed install cache as windows-free-tests.yml (install
-      # was 45s of a 64s job, all network).
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.bun/install/cache
-          key: windows-bun-${{ hashFiles('bun.lock') }}
-          # A lockfile bump starts from the previous cache instead of cold
-          # (restore alone costs ~43s; without this a bump pays it for nothing).
-          restore-keys: |
-            windows-bun-
+      # No bun install cache, as in windows-free-tests.yml: a cold install is
+      # faster on windows-latest than restoring the ~450 MB cache entry.
 
       - name: Configure git identity
         run: |

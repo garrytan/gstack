@@ -449,6 +449,33 @@ describe('ready --dispatch-ci', () => {
     expect([fork.status, fork.err]).toEqual([EXIT.refused, expect.stringMatching(/#1's head is on a fork.*not dispatched.*\(QUEUE_TRAIN_UNTRUSTED\)/)]);
     expect(queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen', '--dispatch-ci', '../evil.yml']).status).toBe(EXIT.usage);
   }, 120_000);
+
+  // Value: protects=a conflicting PR cut before main gained windows-smoke.yml still gets its free-tests dispatch when the hint names both workflows (GitHub reads the workflow file from the branch, so dispatching the missing one could only fail);
+  // fails_when=the missing workflow is dispatched, a missing workflow refuses the whole command, or a workflow the branch has is skipped; why_new=windows-smoke.yml replaced windows-free-tests.yml in the hint while open branches predate it; seam=git objects in the fixture checkout; no_claim=GitHub's exact error for a workflow missing at the ref
+  test('skips a workflow the base has but the PR head predates, with a note, and dispatches the rest', () => {
+    const { fx, head, pregate } = readyFixture();
+    const { repo } = fx;
+    repo.git('checkout', '-q', 'origin/main');
+    fs.mkdirSync(path.join(repo.work, '.github', 'workflows'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, '.github', 'workflows', 'windows-smoke.yml'), 'name: Windows Smoke\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'add windows-smoke.yml');
+    repo.git('push', '-q', 'origin', 'HEAD:main');
+    repo.git('fetch', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', 'pr-1');
+    fx.write(d => {
+      (d.prs['1'] as any).mergeable = 'CONFLICTING';
+      d.ci[head] = [];
+      d.rules['free-tests.yml'] = { ci: 'free-tests', headSha: head };
+      d.rules['windows-smoke.yml'] = { ci: 'windows-smoke', headSha: head };
+    });
+    const r = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen', '--dispatch-ci', 'free-tests.yml,windows-smoke.yml', '--timeout', '5']);
+    expect(r.out.split('\n').filter(l => l.startsWith('CI_DISPATCH:'))).toEqual([
+      'CI_DISPATCH: free-tests.yml --ref pr-1 run 100 https://example.invalid/runs/100 success',
+      `CI_DISPATCH: windows-smoke.yml not dispatched (.github/workflows/windows-smoke.yml is on main but not in ${head.slice(0, 12)}; the branch predates it, so its pull_request run comes with the stamp commit)`]);
+    expect(dispatches(fx).map(l => l.workflow)).toEqual(['free-tests.yml']);
+    expect(line(r.out, 'ci:')).toBe(`ci: green at ${head.slice(0, 12)} (passed=1 failed=0 pending=0 skipped=0)`);
+  }, 120_000);
 });
 
 describe('train build --dry-run --stack-tests', () => {
