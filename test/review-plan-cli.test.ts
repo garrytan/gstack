@@ -62,6 +62,43 @@ describe('gstack-review-plan', () => {
     expect(r.stdout).not.toContain('NEXT: stop');
     expect(run(repo({ 'src/a.ts': 'export const a = 1;\n' }), ['--pass', '1', '--last', 'fix-check', '--fixed-below', '--blocking-open']).stdout).toContain('NEXT: stop');
   });
+  // Value: protects=a grant the owner recorded with gstack-approvals is something the plan can use, once, in the invocation it answers: --grant <id> plans the one scoped fix-check after a round-2 full pass when the row names review_loop_grant and the stop head (at or after --range-base, at or before HEAD); the fix-check never earns another; an unrecorded id, an unrelated approval, a review_loop_exception acceptance row, or a grant for an earlier head is refused; fails_when=the CLI ignores the grant and prints NEXT: stop (C6-36 after-opus-grant), accepts any of those rows, or grants a second fix-check;
+  //   why_new=GST-967 (round-2 red team: a grant from an earlier /ship on the branch could be reused); seam=bin/gstack-review-plan; no_claim=who may grant (the owner's words are the approval record's)
+  test('GST-967: --grant <id> plans the one scoped fix-check for the stop head it names; any other row, or a grant for an earlier head, is refused', () => {
+    const r = repo({ 'src/a.ts': 'export const a = 1;\n' });
+    const env: NodeJS.ProcessEnv = { ...process.env, GSTACK_STATE_ROOT: r.state, GSTACK_APPROVALS_MIRROR: '0' };
+    delete env.GSTACK_APPROVALS_DIR;
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const commit = (n: number) => { fs.appendFileSync(path.join(r.dir, 'src/a.ts'), `export const v${n} = ${n};\n`); git('commit', '-qam', `c${n}`); return git('rev-parse', 'HEAD'); };
+    const stale = git('rev-parse', 'HEAD');
+    const passHead = commit(1);
+    const stopHead = commit(2);
+    const add = (ask: string) => {
+      const a = spawnSync(path.join(path.dirname(BIN), 'gstack-approvals'), ['add', '--ask', ask, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env });
+      expect(a.status, a.stderr).toBe(0);
+      return JSON.parse(a.stdout).added[0] as string;
+    };
+    const id = add(`Owner grant: one scoped fix-check after round 2 (review_loop_grant ${stopHead.slice(0, 12)})`);
+    const refusedIds = [add(`Owner grant from an earlier run (review_loop_grant ${stale.slice(0, 12)})`), add('Owner grant: one scoped fix-check (review_loop_grant)'),
+      add(`Owner accepts the stop after the fix-check (review_loop_exception ${stopHead.slice(0, 12)})`), add('Approve the plan for the README rewrite'), 'a-000000000000'];
+    const plan = (a: string[]) => spawnSync(BIN, ['--base', 'main', '--gate-tagged', '0', ...a], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env });
+    const capStop = ['--pass', '2', '--last', 'full', '--fixed-blocking', '--range-base', passHead];
+    expect(plan(capStop).stdout).toContain('NEXT: stop');
+    const granted = plan([...capStop, '--grant', id]);
+    expect(granted.status, granted.stderr).toBe(0);
+    expect(granted.stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
+    expect(granted.stdout).toContain('DISPATCH: fix-check fix-check effort=full');
+    commit(3);
+    expect(plan([...capStop, '--grant', id]).stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
+    expect(plan(['--pass', '2', '--last', 'fix-check', '--fixed-blocking', '--range-base', passHead, '--grant', id]).stdout).toContain('NEXT: stop');
+    for (const other of refusedIds) {
+      const refused = plan([...capStop, '--grant', other]);
+      expect([other, refused.status, refused.stdout]).toEqual([other, 3, '']);
+      expect(refused.stderr).toContain(`--grant ${other}`);
+    }
+    expect(plan([...capStop.slice(0, -2), '--grant', id]).status).toBe(2);
+    expect(plan([...capStop, '--grant', '--json']).status).toBe(2);
+  });
   test('--fix-check-prompt renders the fix-check reviewer prompt from the parent\'s files and refuses a missing one', () => {
     const r = repo({ 'docs/howto.md': '# x\n' });
     const w = (n: string, t: string) => { const f = path.join(r.state, n); fs.writeFileSync(f, t); return f; };

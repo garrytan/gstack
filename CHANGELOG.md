@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.93.8.0] - 2026-11-02
+
+**/ship now runs Step 11's voices before any gate-class stop, and a recorded owner grant runs its fix-check.** On a gate-class change, a blocker fixed in review round 2 used to stop the run for the owner before Step 11 ran. If the owner then chose "ship with open notes", gate code shipped with no adversarial, outside or targeted review (C6-36 after-opus). `gstack-review-plan` now answers `NEXT: voices` for any gate-class stop while Step 11 has not run. /ship runs Step 11 as it does on `done`, asks the plan again with `--adversarial-ran`, and the stop then stands. The round cap still limits fix rounds; it no longer skips the required voices. Second, the owner's grant of one scoped fix-check after round 2 had no way in: the plan took no grant input, and the pass program printed `PASS: none next=stop`. Now `gstack-review-plan --grant <approval id>` checks that the branch's `gstack-approvals` record holds that id as an approved grant naming `review_loop_grant` and this run's stop head (exit 3 for any other row, a grant recorded for an earlier /ship on the branch included), and plans the one fix-check in place of the stop after a round-2 full pass. The pass program then dispatches that fix-check like any other. A fix-check never earns another, so the grant cannot repeat. After `NEXT: voices`, a blocking finding the voices queue goes back to the plan as `--blocking-open` instead of starting a new review pass.
+
+### Tests
+- `test/review-depth.test.ts`: a gate-class round-2 blocker fix plans `voices` (adversarial, outside and targeted) before every stop and stops once they ran. A grant plans one fix-check after round 2, after the voices on gate class, and never a second. The transitions table and rule 3 in `docs/review-policy.md` say both. All four failed at main 1022f4f.
+- `test/review-plan-cli.test.ts`: `--grant` with a recorded grant prints `NEXT: fix-check`; an unrelated approval, an unrecorded id, a `review_loop_exception` acceptance row or a grant for an earlier head exits 3; after a fix-check the grant never plans another. Failed at main 1022f4f (`NEXT: stop`).
+- `test/review-depth.test.ts`: an invariant over every transitions-table state (gate class or not, Step 11 run or not, grant or not) and a dispatch-superset no-loss check against main's plans.
+- `test/review-pass.test.ts`: the pass program runs the granted fix-check reader instead of `PASS: none next=stop`. Failed at main 1022f4f.
+
+### Docs
+- `docs/review-policy.md`: rule 3 and two new rows in the transitions table. `ship/DRIVER.md`, `ship/sections/review-army.md` and `ship/sections/adversarial.md` route `voices` and `--grant`.
+
 ## [1.93.7.0] - 2026-11-02
 
 **A version stamp the branch added at its fork point's version now counts as stale after the base moves (GST-963).** On gbrain #8425, a branch added a row that named the fork point's version. After main moved past it, `gstack-restamp` skipped the row ("no tentative mention") and `gstack-ship-release finish` routed the line as a behavior change, so the stamp kept the old version and the docs stage flagged a product edit.

@@ -85,6 +85,7 @@ function newShip(f: Fixture, sc: Scenario): { calls: Call[]; ending: string } {
     const diffBytes = plan.next.step === 'fix-check' ? f.diff_bytes * FIX_CHECK_FRACTION : h.fullPasses === 0 ? f.diff_bytes : f.diff_bytes * RANGE_FRACTION;
     for (const d of plan.dispatches) calls.push({ role: d.role, name: d.name, effort: d.effort, diffBytes: d.role === 'outside-voice' ? f.diff_bytes : diffBytes });
     adversarialRan ||= plan.dispatches.some(d => d.role === 'adversarial-native');
+    if (plan.next.step === 'voices') continue;
     const o = outcomes[sc][Math.min(i, outcomes[sc].length - 1)] ?? {};
     const last = plan.next.step === 'scoped' ? 'full' : plan.next.step;
     h = { fullPasses: h.fullPasses + (last === 'full' ? 1 : 0), last, ...o };

@@ -740,6 +740,26 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(h.creates.find(c => c.title === 'ship x21p2 red-team')!.prompt).toContain('DIFF_BASE=' + rangeBase);
   }, 240_000);
 
+  // Value: protects=the pass program dispatches the owner's granted fix-check from the plan, as decision 3.5 runs any fix-check, instead of PASS: none; fails_when=a recorded grant still prints PASS: none next=stop and the lane renders, sends and collects the fix-check by hand (C6-36 after-opus-grant);
+  //   why_new=GST-967; seam=the pass program; no_claim=the fix-check reviewer's verdict
+  test('GST-967: a recorded grant after round 2 runs its one scoped fix-check through the program', async () => {
+    const { dir, env } = repo();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const add = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${head.slice(0, 12)})`, '--words', 'one scoped fix-check after round 2', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, env: { ...env, GSTACK_APPROVALS_MIRROR: '0' }, encoding: 'utf8', timeout: 60_000 });
+    expect(add.status, add.stderr).toBe(0);
+    const id = JSON.parse(add.stdout).added[0] as string;
+    const files = path.join(dir, '.state/gfc');
+    fs.mkdirSync(files, { recursive: true });
+    const fc: Record<string, string> = {};
+    for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n'], ['callers', 'none\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/gfc'), pass: 'x30gfc', planFlags: ['--pass', '2', '--last', 'full', '--fixed-blocking', '--range-base', head, '--grant', id], fixCheck: fc, logStart: ['review-fix-check'] });
+    expect(res).not.toContain('PASS: none');
+    expect(res).toContain(`NEXT: fix-check (the owner's grant ${id}`);
+    expect(h.creates.map(c => c.title)).toEqual(['ship x30gfc fix-check']);
+    expect(res).toContain('NEXT: judge (Phase 4)');
+  }, 240_000);
+
   // Value: protects=the Capy pass program runs a scoped repeat with no fix-check files, dispatches its Red Team and leaves the fix-check to Step 3.5 as GST-619 does on the CLI; fails_when=the program stops a scoped plan for missing files or creates a fix-check reader in the scoped manifest;
   //   why_new=#3670 Step 11 (adversarial 1, red team 1), re-scoped to GST-619's model in the merge of main; seam=none; no_claim=the Step 3.5 fix-check itself
   test('a scoped repeat runs without fixCheck files and leaves its fix-check to Step 3.5 (GST-619)', async () => {
