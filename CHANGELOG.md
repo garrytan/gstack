@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.91.343.0] - 2026-10-31
+
+**Every ask to the owner now uses one lettered format (R41): the Captain's name, then one line per decision with the problem, the options and the recommendation, so the owner can answer "do it" or a letter like "B2" from a phone. When the owner has to do something, the ask links the exact page and lists the steps (R43).**
+
+### Changed
+- **The plan ask lists each gate choice as a lettered line** (`lib/captain-brief.ts`, `gstack-owner-brief render --captain`): "What we need from you" prints one line per choice with the recommended option first and the plan approval as the last letter. The header and the closing line invite **do it** or a named option, and a new `--captain-name <name>` heads the list. The relaying agent's last line maps every letter to its gate token next to `rec resolves to …` and says a named option answers as `rec except <token>`, so a reply like "B2" translates exactly. A plan that is missing a section still invites no reply.
+- **An ask that needs the owner to do something carries the exact link and simple steps (R43).** The ask format says so: the full URL of the page where it happens (never a menu path like "Settings → Tokens"; a Capy app page gets its exact path and field), numbered steps saying what to click and type, and the one word to reply when done. `docs/captain.md`, `plan-ask.md`, `merge-ask.md`, `captain/SKILL.md` and `factory.md` point 11 carry it.
+- **docs/captain.md has a new section, The ask format**, and the plan ask, the controller's relay and the digest's Needs you point to it. The captain templates (`plan-ask.md`, `DIGEST.md`, `merge-ask.md`, `AGENTS.md`, `report.md`), `captain/SKILL.md`, the Capy gstack skill (`SKILL.md`, `captain.md`, `factory.md`) and `docs/recommended-harness.md` state the same format.
+
+### Tests
+- `test/captain-brief.test.ts`: lettered lines with the recommendation first and "A1 to take recommendation", the letter-to-token map, the `--captain-name` heading, carried answers in the lettered lines, and no reply invitation on a plan that is missing a section.
+
 ## [1.91.342.0] - 2026-10-30
 
 **gstack now versions its own PRs at merge time: a PR adds `changelog.d/<branch-slug>.md` instead of a version, and trains merge through `train land` instead of slot calls.** `.gstack/ship-policy.json` turns `changelog_fragments` on with the checks every PR runs as `required_checks`, and `min_gstack_version` moves to 1.91.340.0, the first release that reads `required_checks` and counts a stamped slot as merged only when GitHub reports it MERGED, so an older gstack refuses the file by name.
