@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.15.0] - 2026-11-03
+
+- **A stacked PR keeps its /ship receipt after its parent squash-merges, even when the receipt was written against main (GST-1199).** `gstack-ship-receipt carry` used to refuse with `RECEIPT_CARRY_PRODUCT_CHANGED` once the parent's hunks moved into main, forcing a full re-review of unchanged code. The carry now finds the newest reviewed commit that main already holds (`git merge-tree` into main changes no product path) and compares from there: an unchanged child carries as `stack parent <sha12> landed`, base edits next to the child's hunks go to `RECEIPT_CARRY_SCOPED_REVIEW`, and any other change still refuses. A parent that never landed never counts, even if the child's merge dropped its change.
+
 ## [1.94.14.0] - 2026-11-03
 
 **`review_exclude_paths` keeps code it used to exclude, and the docs say exactly what the receipt check stops (GST-972).** Three ways to get code or a credential out of review under a base pattern are closed, each with a failing-first test in `test/review-exclude.test.ts`, and the receipt docs no longer over-claim.
