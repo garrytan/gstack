@@ -25,7 +25,7 @@ const { parseDocsCompletion } = await import(path.join(root, 'test/helpers/docsy
 const { docsActorSeeded, DOCS_SEEDED_AUDIT_ID } = await import(path.join(root, 'test/helpers/docsync-fault-actor.ts'));
 const CALLBACK_TEST_MS = ${CALLBACK_TEST_MS};
 const callbacks = new Map();
-let fixture, control = '', launches = 0, recorded, legacyReaudit = false;
+let fixture, control = '', launches = 0, recorded, legacyReaudit = false, bodyStartedAt = 0;
 let returnedResult: SkillTestResult | undefined;
 let consumers: string[] = [];
 function expectResult(result: SkillTestResult) {
@@ -47,7 +47,7 @@ mock.module(observerModule, () => ({ ...observers,
 mock.module(path.join(root, 'test/helpers/e2e-gate.ts'), () => ({ describeE2ETier: () => (_name, body) => body() }));
 mock.module(path.join(root, 'test/helpers/e2e-helpers.ts'), () => ({
   runId: 'free-docsync-faults', describeIfSelected: (_name, _names, body) => body(),
-  testConcurrentIfSelected: (name, body, budget) => callbacks.set(name, { body, budget }),
+  testConcurrentIfSelected: (name, body, budget) => callbacks.set(name, { body: () => { bodyStartedAt = Date.now(); return body(); }, budget }),
   createEvalCollector: () => ({}), finalizeEvalCollector() {},
   logCost(_name, result) {
     expectResult(result);
@@ -65,8 +65,10 @@ mock.module(path.join(root, 'test/helpers/session-runner.ts'), () => ({ async ru
   const legacy = options.testName === 'ship-docsync-failure';
   const scenario = legacy ? 'legacy-completion' : options.testName.slice('ship-docsync-'.length);
   expect(options.maxTurns).toBe(legacy ? 30 : 24);
-  expect(options.timeout).toBeGreaterThan((legacy ? CAPTURE_LONG_MS : CAPTURE_MS) - 20_000);
-  expect(options.timeout).toBeLessThanOrEqual((legacy ? CAPTURE_LONG_MS : CAPTURE_MS) - 15_000);
+  const remaining = (legacy ? CAPTURE_LONG_MS : CAPTURE_MS) - 15_000;
+  // gstack-timing-ok: runShipDocsFault derives the timeout from elapsed time, so the bound measures the same elapsed time
+  expect(options.timeout).toBeGreaterThanOrEqual(remaining - (Date.now() - bodyStartedAt));
+  expect(options.timeout).toBeLessThanOrEqual(remaining);
   expect(options.tools).toEqual(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep']);
   expect(options.allowedTools).toEqual(options.tools);
   expect(options.prompt).toContain('BOUNDED_CALLBACK_USED');
