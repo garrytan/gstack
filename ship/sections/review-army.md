@@ -21,9 +21,10 @@ reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
 `runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
 (specialists, Red Team, Step 11's voices), each at its `effort=` on the same model
-family and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
-`specialist batched` (light depth) is one subagent reading every checklist its
-`checklists=` names, Red Team included, tagging each finding with its checklist.
+family (`full` is the lane's reasoning, `medium` reasoning medium, `light` low; a
+host that cannot set it runs its default) and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
+`specialist batched` is one subagent reading every checklist its
+`checklists=` names (light adds Red Team), tagging each finding with its checklist.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
 `"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,
@@ -442,6 +443,11 @@ After specialist attempts settle, collect their outputs, tagged by actual source
 `NO FINDINGS` is a completed, clean result, never a failed reviewer. Otherwise parse
 each JSON line and skip invalid lines. Missing or unusable output is incomplete
 coverage, not an empty success. Keep each specialist's returned findings for activity stats.
+An output that carries a state-machine matrix record (State Machines, or a batched
+reader that read its checklist) is parsed from `~/.claude/skills/gstack/bin/gstack-state-matrix findings <file>`,
+after `check` ran on the raw file: an untested cell that is the only finding on its
+cell comes back INFORMATIONAL (`"state_matrix":"untested-cell"`), the test-gap ruling
+in `docs/review-policy.md`; a wrong row or collapsed kinds stays CRITICAL.
 
 #### 2. Validate severity
 

@@ -5,6 +5,7 @@
  *   gstack-state-matrix detect [--base <ref>] [--diff-base <sha>]
  *   gstack-state-matrix check <specialist-output|-> [--repo <dir>] [--expect <expectation.json>] [--json]
  *   gstack-state-matrix outfile
+ *   gstack-state-matrix findings <reviewer-output|->
  *
  * `detect` prints `SCOPE_STATE_MACHINE=true|false` (shell-safe for
  * `source <(...)`, with `# state-machine:` comment lines naming the hits) from
@@ -14,7 +15,10 @@
  * last; exit 0 ok, 1 incomplete (STATE_MATRIX_INCOMPLETE). `outfile` creates and
  * prints a new empty 0600 file in the repo's private `.gstack/tmp/` (0700, kept
  * out of git through info/exclude) for the specialist's output, so a later
- * review never checks or commits an earlier run's file. Logic: lib/state-matrix.ts.
+ * review never checks or commits an earlier run's file. `findings` prints the
+ * output for Step 9.3's merge with each untested cell mapped below the floor
+ * (lib/review-scope.ts mapStateMatrixOutput) and `STATE_MATRIX_FINDINGS:` on
+ * stderr. Logic: lib/state-matrix.ts.
  */
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -24,6 +28,7 @@ import { addedLines } from '../lib/banned-terms';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { resolveBaseBranch } from '../lib/ship-policy';
+import { mapStateMatrixOutput } from '../lib/review-scope';
 import { checkStateMatrix, detectStateMachine, renderStateMatrixCheck, type Expectation } from '../lib/state-matrix';
 
 const HELP = `gstack-state-matrix — kind × owner action × resulting row for proposal, hold and approval state machines
@@ -32,6 +37,7 @@ const HELP = `gstack-state-matrix — kind × owner action × resulting row for 
   check <file|-> [--repo <dir>] [--expect <json>] [--json]
                                              gaps in the state-machines specialist's output (review/specialists/state-machines.md)
   outfile                                    print a new empty private file for that output
+  findings <file|->                          that output for the Step 9.3 merge, each untested cell mapped below the floor
 
 ${exitTableHelp()}`;
 
@@ -71,6 +77,15 @@ function check(rest: string[]): number {
   return EXIT.ok;
 }
 
+function findings(rest: string[]): number {
+  const input = rest.find(a => !a.startsWith('--'));
+  if (!input) { process.stderr.write(`gstack-state-matrix findings: a reviewer output file (or -) is required\n${HELP}\n`); return EXIT.usage; }
+  const r = mapStateMatrixOutput(input === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(input, 'utf8'));
+  process.stdout.write(r.text.endsWith('\n') ? r.text : `${r.text}\n`);
+  process.stderr.write(`STATE_MATRIX_FINDINGS: mapped=${r.mapped} (untested cells below the floor; docs/review-policy.md test gap)\n`);
+  return EXIT.ok;
+}
+
 function outfile(): number {
   const root = git(['rev-parse', '--show-toplevel']);
   const exclude = git(['rev-parse', '--git-path', 'info/exclude']);
@@ -94,6 +109,7 @@ function main(argv: string[]): number {
   if (cmd === 'detect') return detect(rest);
   if (cmd === 'check') return check(rest);
   if (cmd === 'outfile') return outfile();
+  if (cmd === 'findings') return findings(rest);
   process.stderr.write(`gstack-state-matrix: unknown command ${cmd}\n${HELP}\n`);
   return EXIT.usage;
 }
