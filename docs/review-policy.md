@@ -580,12 +580,14 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
    `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), and the fork
    point is found against `origin/<base>` first, as preflight does.
-7. Every brief, audit readers' included, ends with a workspace paragraph naming the
-   checkout the bins run in (GST-482): a reader on a shared machine starts in the
-   machine's working directory, so it is told to `cd` there on every command, to give
-   every file tool an absolute path under it, and to start its reply with
-   `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` measured there. The paragraph follows the
-   section's render, which stays byte for byte. `collect` and `mark --state collected`
+7. Every brief, audit readers' included, opens with a fingerprint step and ends with a
+   workspace paragraph naming the checkout the bins run in (GST-482): a reader on a shared
+   machine starts in the machine's working directory, so it is told to `cd` there on every
+   command, to give every file tool an absolute path under it, and to start its reply with
+   the `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` line the step's command outputs there. The
+   step comes first because a reader following a findings-only format skipped the request
+   when it only closed the brief (GST-897). The section's render sits between the two,
+   byte for byte. `collect` and `mark --state collected`
    compare that line with the fingerprint recorded at render: a missing or foreign line is
    `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
    is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
