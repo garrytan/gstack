@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.91.362.0] - 2026-10-31
+
+**A /ship review pass on Capy is one call to a checked-in program, and reviewer briefs no longer pass through the model.** In the GSTA-189 replay one pass took about 10 parent calls to plan, render, create, check and poll its readers, and the Red Team brief went out wrong twice because a file read cut its long lines. What reviewers see, which reviewers run, their depth and the blocking floor are unchanged, and the new path renders all 16 briefs of that replay byte for byte.
+
+### Added
+- **`gstack-review-dispatch pass`** plans a pass and writes a staged manifest: audits marked first, then specialists with QA and the other audits, then the Red Team, then Step 11's voices. Each brief is rendered once its inputs exist, and the Red Team's findings file is the specialists' collected lines byte for byte.
+- **Briefs travel in chunks** (`gstack-review-dispatch chunk`) of at most 65,536 characters, so a brief over 1 MB, or one whose diff has invalid UTF-8, reaches the reader whole and is checked by `sent` before the reader starts.
+- **The Capy pass program** (`lib/capy-review-pass.js`, served by `gstack-review-dispatch program`) runs plan, review-log start, dispatch, poll, collect, the Red Team and the budget note in one call, returning within 200 s; the gstack Capy skill carries the loader. Each reader's intent is saved before its subagent is created, so a rerun after a lost create result finds the reader by title instead of starting it twice, and an unclear outcome stops the pass. A failed reader stops every rerun instead of leaving it polling, and a review-log start that failed is retried before any reader goes out.
+
+### Fixed
+- **The pass program takes its input as the Capy skill writes it.** `extras` may be JSON in the input, not only a file path, and `cwd` names the checkout its commands run in. A reader that reports done a moment before its summary arrives is collected on a later poll instead of stopping the pass. Replay C2-34 (GSTA-193) lost 7 of its 15 calls to these three issues.
+- **The targeted reader runs in the pass.** When the plan dispatches it for money, gate, auth or secret code, it is staged with Step 11's voices on the merge base. Its brief matches `gstack-review-dispatch render --role targeted` byte for byte, and its ledger row carries the classes, rules, brief and patch the receipt's targeted record reads.
+
+## [1.91.361.0] - 2026-10-31
+
+**A reviewer's install no longer rewrites the lane's launch environment, and a hand-run `gstack-upgrade` on Capy no longer moves a checkout under another session.** These are follow-ups to the v1.91.356.0 fix that stopped reviewer installs from upgrading the shared checkout.
+
+### Fixed
+- **A `--for review-voice` install that keeps the lane's fuller install verdict now borrows that install's launch environment.** It writes no launch file and announces the lane's own `GSTACK_LAUNCH_FILE` and `GSTACK_LAUNCH_PATH`. Before, it rewrote the lane's `<verdict>.env` and could repoint `<verdict>.launch/bun` at gstack's minimum Bun instead of the project's pinned Bun. A reviewer's own launch directory now lives under `<verdict>.profile/review-voice.launch` (mode 0700), and a failing review-voice check removes `<verdict>.profile/`.
+- **`bin/gstack-upgrade` on Capy counts a fresh `capy-server` lease as another session's.** Every session on a Capy machine runs under one `capy-server` process, so its own-session exclusion used to drop a sibling's lease and move the checkout at once. It now refuses with `a shared harness (capy-server, pid <p>) holds a lease <n>m old; … (UPGRADE_BUSY)` until that lease is 120 minutes old. `GSTACK_UPGRADE_FORCE=1` still overrides. `gstack-lease live` keeps its meaning for the session start and the team-mode hook; only `gstack-upgrade` passes the new `--count-shared-harness` flag.
+- **Fix hints after a skipped upgrade name the 120-minute wait or `GSTACK_UPGRADE_FORCE=1`** instead of a bare `bin/gstack-upgrade`, which on Capy now refuses while a lease is fresh.
+- **The /autoplan reviewer prompt no longer says its install fast-forwards the checkout.** It clones when absent and otherwise uses the checkout as it is.
+
+### Changed
+- **Documented: the bootstrapper still fast-forwards a checkout below the supported minimum, for a reviewer too.** Below it, every session's trailer on that checkout fails, and the minimum rises only for install-honesty or security fixes. A test locks this rule.
+
+## [1.91.360.0] - 2026-10-31
+
+**A PR's changelog.d fragment no longer brings back every paid gate case.** Since fragments became the way every PR records its CHANGELOG entry (v1.91.342.0), the PR eval selector read each `changelog.d/<slug>.md` as an unknown dependency and restored the full gate, so it saved nothing on any PR (GST-400, found on #3668).
+
+### Fixed
+- **`scripts/test-pr-profile.ts`** treats a `.md` file directly in the ship policy's `changelog_fragments.dir` as having no eval dependents. Other files in that folder, nested files, and a touchfile that names a fragment still select as before.
+- **`test/helpers/test-selection.ts`** lists both paths of a renamed file, so moving a file into `changelog.d/` or `docs/` still selects the cases its old path fed.
+
+### Tests
+- `test/test-pr-profile.test.ts` covers a fragment-only PR (no full fallback, no cases), other files in the folder, and a touchfile that names a fragment; `test/changed-files-union.test.ts` covers a rename.
+
+## [1.91.359.0] - 2026-10-31
+
+**New `/verify` skill: run the repo's own checks and the tests `/ship`'s pre-gate would pick, fix what breaks, and repeat until green, then hand off to `/ship`.** `/verify` is the loop an agent runs while building. It never calls a change green when it cannot tell which tests cover it, and it asks once before running any repo command. It never reviews, bumps a version, pushes or opens a PR. GST-116, PR 1 of 2; moving `/health` onto the same detector is PR 2.
+
+### Added
+- **`gstack-checks`** (`bin/gstack-checks`, `lib/checks.ts`) with four verbs. `detect` lists the checks the repo declares (a `gstack:verify:` line, then a `## Health Stack` section in CLAUDE.md, then package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml and go.mod) and never makes one up. `run` runs them plus the tests pregate's own selector picks, under pregate's supervision, and prints one `CHECK <name> <verdict>` line each with at most 40 failing lines. `trust` records consent. `status` prints `READY_FOR_SHIP tree=<tree>` from the last run and reruns nothing.
+- **No false green.** A touched file with no test (`UNMAPPED`), a selection that ran zero tests (`ZERO_RUN`), more than 300 selected test files (`TOO_BROAD`), a timeout and a missing tool or service (`ENV`) are all not green. A tree that changes during a run reads `INCOMPLETE`. `status` is `NOT_READY` once the tree, the trusted commands, the base commit or the pregate policy moves. Platform lanes pregate owes remotely are listed as `not_covered`.
+- **Consent covers every command a run could execute:** the checks, every package.json script, the pregate runner (or what it would detect) and each selection manifest command. Any change asks again, and nothing runs before consent.
+- **`/verify` skill** (lightest preamble): `detect`, ask before `trust`, `run` after each change, fix reds in the code under test, stop after 5 runs, a repeated failure or an environment failure, send a stubborn red to `/investigate`, and finish on `READY_FOR_SHIP`.
+
+### Tests
+- `test/gstack-checks.test.ts` covers detection, the verify-gate parity of the `gstack:verify:` parser, consent (including a changed selection command, refused before it runs), reds, unmapped and zero-run selections, partial runs, a tree moved mid-run and argument errors.
+- `test/fixtures/skill-evals/verify/` adds six eval tasks (build error, failing test, lint only, a test that needs a missing service, a repo with no checks, a green tree) with shell postconditions. `test/verify-skill-eval.test.ts` checks for free that each seed gives the expected verdict, that a real fix passes, and that two decoys (a disabled check, a claim of green with no fix) fail.
+- Catalog budget ceiling raised from 1,393 to 1,423 for the new skill row, by the new-skill ratchet in `test/catalog-budget.test.ts`.
+
 ## [1.91.358.0] - 2026-10-31
 
 **Diffs that touch money, gate, auth or secret code now get one more reviewer, a targeted reader with a short brief for that kind of code, and the /ship receipt records whether it ran (GST-257, part 1 of 2).** The merge queue reports the result and refuses nothing yet; enforcement comes in a later release.

@@ -1554,7 +1554,7 @@ branch), then re-run `bin/gstack-upgrade`. A reinstall that failed after the
 fast-forward is completed by the next run (`reinstall pending from <version>`).
 
 <a id="upgrade-busy"></a>
-### `gstack-upgrade: live gstack sessions hold this installation: pid <p> (<age>m), ...; nothing was changed; fix: ... (UPGRADE_BUSY)`
+### `gstack-upgrade: live gstack sessions hold this installation: pid <p> (<age>m), ...; nothing was changed; fix: ... (UPGRADE_BUSY)` / `gstack-upgrade: a shared harness (capy-server, pid <p>) holds a lease <n>m old; ... (UPGRADE_BUSY)`
 
 **Meaning.** Several agents share this checkout (Capy subagents on one
 machine, say). Each session start writes a workflow lease,
@@ -1567,20 +1567,27 @@ process has exited never blocks, and neither does a stale one: each lease
 records its process's start identity, so a pid reused after a reboot or a
 machine wake (GBRA-105's lease named pid 379, which had become dbus-daemon)
 is reclaimed instead of blocking. The upgrader's own session (the pid chain it
-runs under) never counts for `bin/gstack-upgrade` run by hand. A Capy install
+runs under) never counts for `bin/gstack-upgrade` run by hand, except under a
+shared harness: on Capy every tool call of every session runs under one
+`capy-server`, so a `capy-server` lease in the caller's chain may be a
+sibling's. `bin/gstack-upgrade` counts it until it is 120 minutes old, counted
+from the last renewal by any session on the machine (`a shared harness
+(capy-server, pid <p>) holds a lease <n>m old; …`, GST-396). A Capy install
 in install mode (`bin/gstack-capy-session`) counts it while that lease is under
 120 minutes old: an install run from inside a workflow that holds the lease
 (/ship's docs step, #3571) prints `SELF_UPGRADE: skipped (a gstack run in this
 session holds a workflow lease on this installation: pid <p> (<age>m
 <command>), so the upgrade waits until the lease is 120 minutes old; fix:
-<checkout>/bin/gstack-upgrade once the run ends (UPGRADE_BUSY))` and leaves the
+<checkout>/bin/gstack-upgrade once the lease is 120 minutes old, or
+GSTACK_UPGRADE_FORCE=1 <checkout>/bin/gstack-upgrade when no other session uses
+this checkout (UPGRADE_BUSY))` and leaves the
 checkout where the run started. Each `gstack-skill-start` renews the lease.
 
 **Fix.** Wait for those sessions to finish (`bin/gstack-lease list` shows
 every lease with its age and `alive|dead|stale`; a holder is named as
 `pid <p> (<age>m <command>)`), then re-run `bin/gstack-upgrade`. For the
-session's own run, run the printed `bin/gstack-upgrade` after the run ends.
-When you know they are idle, `GSTACK_UPGRADE_FORCE=1 bin/gstack-upgrade`
+session's own run, or a shared-harness lease, re-run once the lease is 120
+minutes old. When you know no other session uses the checkout, `GSTACK_UPGRADE_FORCE=1 bin/gstack-upgrade`
 proceeds. At a Capy session start the same refusal appears as
 `SELF_UPGRADE: skipped (live gstack sessions hold this installation: ...)`,
 the doctor adds `WARN behind — … (UPGRADE_BUSY)` and the trailer stays

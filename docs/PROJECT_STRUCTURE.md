@@ -68,6 +68,7 @@ gstack/
 ├── modernize/       # /modernize skill (aging PR → MODERNIZE / REWORK / CLOSE disposition, range-diff proof, pinned-lease push)
 ├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
+├── verify/          # /verify skill (build-and-verify loop over bin/gstack-checks + lib/checks.ts; tests come from lib/pregate)
 ├── spec/            # /spec skill (five-phase spec → GitHub issue, optional agent spawn, /ship auto-closes)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
 ├── careful/         # /careful skill; bin/check-careful.sh (PreToolUse destructive-command hook) + bin/hook-extract.sh (shared hook helpers: payload extraction, deny JSON, gstack_hook_state_root)
