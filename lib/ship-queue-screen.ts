@@ -47,7 +47,7 @@ function newestArtifact(ctx: QueueContext, slug: string, run: number, name: stri
   return hits[0]!.expired ? 'unreadable' : hits[0]!.name;
 }
 
-interface Outcomes { panels?: Array<{ case?: string; status?: string; failsLane?: boolean; redClass?: string | null }>; flakyLines?: string[] }
+interface Outcomes { panels?: Array<{ case?: string; status?: string; failsLane?: boolean; redClass?: string | null }>; failures?: unknown[]; flakyLines?: string[] }
 
 /** Read one screen run: status, plan, gate binding, panels. */
 export function screenVerdict(ctx: QueueContext, slug: string, run: number): ScreenOutcome {
@@ -78,7 +78,9 @@ export function screenVerdict(ctx: QueueContext, slug: string, run: number): Scr
   if (!binding) return { kind: 'unknown', detail: `run ${run}'s ${bindingName} artifact is unreadable` };
   const flaky = [...(binding.flaky_cases ?? [])].sort();
   const flakyLines = Array.isArray(outcomes?.flakyLines) ? outcomes!.flakyLines!.filter((l): l is string => typeof l === 'string') : [];
-  const red = (outcomes?.panels ?? []).filter(p => typeof p.case === 'string' && (p.failsLane === true || (p.status === 'FAIL' && p.redClass === 'VERDICT'))).map(p => p.case!).sort();
+  const panelRed = (outcomes?.panels ?? []).filter(p => typeof p.case === 'string' && (p.failsLane === true || (p.status === 'FAIL' && p.redClass === 'VERDICT'))).map(p => p.case!);
+  const lineRed = (Array.isArray(outcomes?.failures) ? outcomes!.failures : []).flatMap(l => typeof l === 'string' ? /^✗ (\S+) {2}/.exec(l)?.[1] ?? [] : []);
+  const red = [...new Set([...panelRed, ...lineRed])].sort();
   const base = `verdict ${binding.verdict}, reconcile exit ${binding.reconcile_exit}, run concluded ${view.conclusion ?? 'unknown'}${flaky.length ? `, flaky ${flaky.length}` : ''}`;
   if (binding.verdict === 'GREEN' && binding.reconcile_exit === 0 && view.conclusion === 'success') return { kind: 'green', detail: base, flaky, flakyLines };
   if (binding.verdict === 'RED' || binding.reconcile_exit !== 0 || red.length) return { kind: 'red', detail: base, red, flaky, flakyLines };

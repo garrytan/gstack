@@ -5709,7 +5709,8 @@ closed PRs.
 verdict is read from the run itself, never from a lane's report: the
 `gate-binding-a<attempt>` artifact evals.yml's report job uploads (verdict,
 reconcile exit, flaky cases) and the `report-verdict-a<attempt>` artifact's
-`collector-outcomes.json` (the panels that failed the lane and the rule-16
+`collector-outcomes.json` (the panels that failed the lane, the report's `✗`
+failure lines, which name rule cases that have no panel, and the rule-16
 flaky lines). A case the binding calls red already failed twice inside the
 run (rule 16 reruns a first failure once), so the red is real. `ready`
 refuses with this code when the head's recorded screen run is red, whichever

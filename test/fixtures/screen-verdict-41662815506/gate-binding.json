@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "garrytan/gstack",
+  "pr": 3947,
+  "run_id": 41662815506,
+  "run_attempt": 1,
+  "head_sha": "17ffac36004e20a63390cafab55521d2477b2b3d",
+  "base_sha": "95fc2105ff24d114d5aa078c8a46f860a0e0a8d9",
+  "profile": "pr",
+  "reconcile_exit": 1,
+  "verdict": "RED",
+  "manual_accepted": 0,
+  "selection_sha256": "4e4ff8ea430bf850a9f88a7a473f353b8a4f6a99387aa592335ee38cd10270a4",
+  "flaky_cases": [
+    "ship-docsync-stale-after"
+  ],
+  "purpose": "screen",
+  "tested_sha": "472c733bfbed9421df7859b07b902b98c07b79b2",
+  "screen_policy": "narrow"
+}

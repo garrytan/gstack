@@ -1,0 +1,144 @@
+{
+  "version": 2,
+  "totals": {
+    "executed": 124,
+    "reused": 0,
+    "passed": 117,
+    "failed": 7,
+    "manual_accepted": 0,
+    "attempts": 124,
+    "total": 124,
+    "flaky": 0
+  },
+  "verdict": {
+    "lane": "gate/pr",
+    "verdict": "RED",
+    "attempt": 1,
+    "counts": {
+      "rule": {
+        "passed": 105,
+        "total": 112
+      },
+      "behavior": {
+        "passed": 1,
+        "total": 1,
+        "split": 0
+      },
+      "judge": {
+        "passed": 24,
+        "total": 24
+      },
+      "quarantined": {
+        "total": 0,
+        "failingLane": 0
+      },
+      "skipped": 0,
+      "infra": 0,
+      "incomplete": 0,
+      "unattributed": 0,
+      "flaky": 1
+    },
+    "reruns": {
+      "executions": 8,
+      "usd": 0.43,
+      "unknown": 7
+    },
+    "actionRequired": 4,
+    "wallMs": 607684,
+    "costUsd": 37.91,
+    "redispatchEligible": false
+  },
+  "headline": [
+    "[test:paid] VERDICT RED — lane gate/pr, attempt 1",
+    "  rule 105/112 · behavior 1/1 · judge 24/24 · quarantined 0 (0 failing the lane)",
+    "  SKIPPED 0 · INFRA 0 · INCOMPLETE 0 · unattributed 0 · ACTION REQUIRED 4",
+    "  wall 10m08s · cost $37.91 known + 9 of 139 trial(s) cost unknown",
+    "  FLAKY 1 (failed once, passed on its one rule-16 rerun) · 8 rerun execution(s), cost $0.43 known + 7 of 8 trial(s) cost unknown"
+  ],
+  "census": {
+    "skipped": [],
+    "deselected": {
+      "sibling case of a case shard (its own shard runs it)": 302,
+      "Bun hook placeholder of a skipped describe block (not a test)": 6,
+      "periodic-tier case (this lane runs gate)": 8
+    },
+    "unattributed": []
+  },
+  "panels": [
+    {
+      "case": "ship-frozen-scope-convergence",
+      "kind": "behavior",
+      "status": "PASS",
+      "passed": 3,
+      "n": 3,
+      "k": 2,
+      "marks": "✓✓✓",
+      "split": false,
+      "quarantined": false,
+      "failsLane": false,
+      "redClass": null,
+      "reason": "3/3 passed",
+      "trials": [
+        {
+          "trial": 1,
+          "outcome": "passed"
+        },
+        {
+          "trial": 2,
+          "outcome": "passed"
+        },
+        {
+          "trial": 3,
+          "outcome": "passed"
+        }
+      ]
+    }
+  ],
+  "failures": [
+    "✗ qa-quick  rule  FAIL  timeout at turn 10 — expect(received).toContain(expected)  · cause session_timeout: armed 300000ms session timeout fired  Expected: \"timeout\" · Received: [ \"success\", \"error_max_turns\" ]  [slice 12, attempt 1]  evidence: paid-slice-12-a1/shards/skill-e2e-qa-workflow--qa-quick (fetch: bun run eval:pass-rates --run 41662815506 --case qa-quick)  after a repair: bun run scripts/test-paid-shards.ts --tier gate --case qa-quick",
+    "✗ browse-basic  rule  FAIL  timeout — test timed out  · cause session_timeout: armed 120000ms session timeout fired  [slice 15, attempt 1]  evidence: paid-slice-15-a1/shards/skill-e2e-bws (fetch: bun run eval:pass-rates --run 41662815506 --case browse-basic)  after a repair: bun run scripts/test-paid-shards.ts --tier gate --case browse-basic",
+    "✗ browse-snapshot  rule  FAIL  timeout — test timed out  · cause session_timeout: armed 120000ms session timeout fired  [slice 15, attempt 1]  evidence: paid-slice-15-a1/shards/skill-e2e-bws (fetch: bun run eval:pass-rates --run 41662815506 --case browse-snapshot)  after a repair: bun run scripts/test-paid-shards.ts --tier gate --case browse-snapshot",
+    "✗ skillmd-setup-discovery  rule  FAIL  timeout — test timed out  · cause session_timeout: armed 120000ms session timeout fired  [slice 15, attempt 1]  evidence: paid-slice-15-a1/shards/skill-e2e-bws (fetch: bun run eval:pass-rates --run 41662815506 --case skillmd-setup-discovery)  after a repair: bun run scripts/test-paid-shards.ts --tier gate --case skillmd-setup-discovery",
+    "✗ skillmd-no-local-binary  rule  FAIL  timeout — test timed out  · cause session_timeout: armed 120000ms session timeout fired  [slice 15, attempt 1]  evidence: paid-slice-15-a1/shards/skill-e2e-bws (fetch: bun run eval:pass-rates --run 41662815506 --case skillmd-no-local-binary)  after a repair: bun run scripts/test-paid-shards.ts --tier gate --case skillmd-no-local-binary",
+    "✗ skillmd-outside-git  rule  FAIL  timeout — test timed out  · cause unknown: case budget expired with no session evidence  [slice 15, attempt 1]  evidence: paid-slice-15-a1/shards/skill-e2e-bws (fetch: bun run eval:pass-rates --run 41662815506 --case skillmd-outside-git)  after a repair: bun run scripts/test-paid-shards.ts --tier gate --case skillmd-outside-git",
+    "✗ diagram-triplet  rule  FAIL  assertion — ENOENT: no such file or directory, open '<REDACTED-internal.user_path>  · cause assertion  [slice 17, attempt 1]  evidence: paid-slice-17-a1/shards/skill-e2e-diagram (fetch: bun run eval:pass-rates --run 41662815506 --case diagram-triplet)  after a repair: bun run scripts/test-paid-shards.ts --tier gate --case diagram-triplet",
+    "✗ qa-quick  rule  FAILED TWICE (rule 16: a real red): attempt 1 (paid-slice-12-a1); again in attempt 1 rerun (slice 1 attempt 1) — timeout: expect(received).toContain(expected)",
+    "✗ browse-basic  rule  FAILED TWICE (rule 16: a real red): attempt 1 (paid-slice-15-a1); again in attempt 1 rerun (slice 1 attempt 1) — timeout: test timed out",
+    "✗ browse-snapshot  rule  FAILED TWICE (rule 16: a real red): attempt 1 (paid-slice-15-a1); again in attempt 1 rerun (slice 1 attempt 1) — timeout: test timed out",
+    "✗ skillmd-setup-discovery  rule  FAILED TWICE (rule 16: a real red): attempt 1 (paid-slice-15-a1); again in attempt 1 rerun (slice 1 attempt 1) — timeout: test timed out",
+    "✗ skillmd-no-local-binary  rule  FAILED TWICE (rule 16: a real red): attempt 1 (paid-slice-15-a1); again in attempt 1 rerun (slice 1 attempt 1) — timeout: test timed out",
+    "✗ skillmd-outside-git  rule  FAILED TWICE (rule 16: a real red): attempt 1 (paid-slice-15-a1); again in attempt 1 rerun (slice 1 attempt 1) — timeout: test timed out",
+    "✗ diagram-triplet  rule  FAILED TWICE (rule 16: a real red): attempt 1 (paid-slice-17-a1); again in attempt 1 rerun (slice 1 attempt 1) — assertion: ENOENT: no such file or directory, open '<REDACTED-internal.user_path>"
+  ],
+  "flaky": [
+    {
+      "schema": 1,
+      "kind": "gate-flake",
+      "case": "ship-docsync-stale-after",
+      "case_kind": "rule",
+      "repository": "garrytan/gstack",
+      "pr": 3947,
+      "head_sha": "17ffac36004e20a63390cafab55521d2477b2b3d",
+      "tested_sha": "95fc2105ff24d114d5aa078c8a46f860a0e0a8d9",
+      "lane": "gate/pr",
+      "run_id": "41662815506",
+      "first": {
+        "attempt": 1,
+        "phase": "first",
+        "where": "attempt 1 (paid-slice-13-a1)"
+      },
+      "rerun": {
+        "attempt": 1,
+        "phase": "rerun",
+        "where": "attempt 1 rerun (slice 1 attempt 1)"
+      },
+      "symptom": "assertion: expect(received).toEqual(expected)",
+      "rerun_cost_usd": 0.43,
+      "recorded_at": "2026-11-03T15:43:25.811Z"
+    }
+  ],
+  "flakyLines": [
+    "⚑ ship-docsync-stale-after  rule  FLAKY: failed in attempt 1 (paid-slice-13-a1), passed on its one rerun in attempt 1 rerun (slice 1 attempt 1); rerun cost $0.43; first failure: assertion: expect(received).toEqual(expected)"
+  ],
+  "flakyCollectorFailures": 1
+}
