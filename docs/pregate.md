@@ -201,9 +201,12 @@ Two stages with separate clocks, both printed:
   file is read whole from disk. A file over the size limit, or whose full diff
   does not parse, is scanned on its added lines alone, without that context.
 - `strays`: a new file at the repository root, a new top-level directory, or a
-  scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
+  scratch name (`zz-*`, `tmp*`, `scratch*`) or editor leftover (`*.orig`,
+  `*.rej`, `*.swp`, `*.swo`, `*.bak`, `*.tmp`, `*~`, `.DS_Store`, `Thumbs.db`)
+  anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
-  literal, the whole test tree (nightly- and Heavy-only files included) is
+  literal (a named literal the branch only adds, such as `limit: 300` in a new
+  object, is not a change), the whole test tree (nightly- and Heavy-only files included) is
   searched for the old value in files that name the constant or, when the old
   value is longer than one character, its module (the module's file name not
   followed by another extension, or a path ending
