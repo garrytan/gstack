@@ -6,7 +6,9 @@
  *       The producer. A Free Tests or Windows Free Tests aggregate runs it only after its strict verification
  *       passed, and uploads the file as the `tested-tree` artifact: run_id, run_attempt, event, sha (GITHUB_SHA),
  *       head_sha (the pull request head for pull_request, else GITHUB_SHA), tree (git's tree of GITHUB_SHA),
- *       workflow, os (the OSes the run's test jobs ran on), files (every test file in the plan) and tests.
+ *       workflow, os (the OSes the run's test jobs ran on), files (every test file in the plan) and tests, plus
+ *       sizing_experiment: true when a dispatch overrode the runner, shards or sub-shards (SIZING_OVERRIDE), which
+ *       verifyRun never accepts as evidence.
  *
  *   bun run scripts/ci-tree-reuse.ts find --workflow <file.yml> --profile <run_profiles name>
  *       The main-push consumer (the `reuse` job). A push to main whose tree a pull request already tested green
@@ -17,7 +19,14 @@
  *       .gstack/pregate.json. A pull_request run counts only when its merge commit's tree is its head's tree
  *       (verifyRun). It writes reused=true, run_id, run_url and tree to GITHUB_OUTPUT, or reused=false and a
  *       reason, with one REUSE: line in the step summary. Every lookup failure is a refusal, never a pass: the
- *       workflow then runs every job as before. Pull request and dispatch runs never consume.
+ *       workflow then runs every job as before. Dispatch runs never consume.
+ *
+ *   bun run scripts/ci-tree-reuse.ts find --workflow <file.yml> --profile <name> --pull-request
+ *       Also lets a pull_request run consume, but only a run the pull request cannot control (findPrReuse): a green
+ *       push or dispatch run on main, or a dispatch run on the pull request's own same-repository branch, whose tested
+ *       tree is the merge commit's tree, while the merge commit leaves the workflow file, this script and
+ *       lib/run-evidence.ts byte-identical to its base parent. A pull_request run is never a source, so a pull request
+ *       never certifies itself. Without --pull-request a pull_request run refuses (not_main_push) as before.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -31,6 +40,14 @@ const OSES = ['Linux', 'macOS', 'Windows'];
 
 export interface ApiPull { number: number; merged_at: string | null; merge_commit_sha: string | null; base: { ref: string; repo?: { full_name: string } | null }; head: { sha: string; repo: { full_name: string } | null } }
 export interface ReuseDeps extends RunDeps { pullsForCommit(sha: string): ApiPull[] }
+export interface PrReuseDeps extends RunDeps {
+  runsForBranch(workflow: string, branch: string): ApiRun[];
+  commit(sha: string): { tree: string; parents: string[] } | null;
+  blob(sha: string, file: string): string | null;
+}
+export interface PrContext { number: number; mergeSha: string; headSha: string; headRef: string; headRepo: string; baseRef: string; runId: number; runAttempt: number }
+/** The files whose bytes decide what a reuse means: a pull request that edits one runs every job. */
+export const reuseGuardedFiles = (workflow: string) => [`.github/workflows/${workflow}`, 'scripts/ci-tree-reuse.ts', 'lib/run-evidence.ts'];
 export type ReuseVerdict =
   | { reused: true; run_id: number; run_attempt: number; event: string; pr: number; head_sha: string; tree: string }
   | { reused: false; reason: string; detail: string };
@@ -71,6 +88,51 @@ export function findReuse(deps: ReuseDeps, o: { repo: string; base: string; push
   }
 }
 
+/**
+ * The run a pull_request run of `o.pr.mergeSha` may reuse, or why none. A source is a green push or dispatch run on
+ * `o.base`, or a dispatch run on the pull request's own branch, never a pull_request run; its tested tree must be the
+ * merge commit's, and the merge commit must leave every reuseGuardedFiles path byte-identical to its base parent.
+ */
+export function findPrReuse(deps: PrReuseDeps, o: { repo: string; base: string; pr: PrContext; workflow: string; profileName: string; profile: RunProfile; now: Date }): ReuseVerdict {
+  const { pr } = o;
+  if (!SHA.test(pr.mergeSha) || !SHA.test(pr.headSha)) return refuse('usage', `merge ${JSON.stringify(pr.mergeSha)} or head ${JSON.stringify(pr.headSha)} is not a commit sha`);
+  if (!Number.isSafeInteger(pr.number) || pr.number < 1 || !pr.headRef) return refuse('usage', 'the pull_request event names no pull request number or head branch');
+  if (pr.runAttempt !== 1) return refuse('rerun', `attempt ${pr.runAttempt} of run ${pr.runId}: a re-run never reuses, so an earlier red attempt can't be hidden`);
+  if (pr.baseRef !== o.base) return refuse('not_main_pr', `#${pr.number} targets ${pr.baseRef}, not ${o.base}`);
+  if (o.profile.workflow !== o.workflow) return refuse('profile_mismatch', `profile ${o.profileName} names ${o.profile.workflow}, not ${o.workflow}`);
+  if (pr.headRepo.toLowerCase() !== o.repo.toLowerCase()) return refuse('fork_head', `#${pr.number}'s head is on ${pr.headRepo || 'a deleted repository'}, not ${o.repo}`);
+  try {
+    const merge = deps.commit(pr.mergeSha);
+    if (!merge) return refuse('api_error', `cannot read merge commit ${pr.mergeSha}`);
+    if (merge.parents.length !== 2 || merge.parents[1] !== pr.headSha || !SHA.test(merge.parents[0] ?? '')) return refuse('merge_mismatch', `merge commit ${pr.mergeSha.slice(0, 12)} has parents ${merge.parents.map(p => p.slice(0, 12)).join(', ') || 'none'}, not base plus #${pr.number}'s head ${pr.headSha.slice(0, 12)}`);
+    const baseSha = merge.parents[0]!;
+    for (const file of reuseGuardedFiles(o.workflow)) {
+      const mine = deps.blob(pr.mergeSha, file);
+      const theirs = deps.blob(baseSha, file);
+      if (!mine || !theirs) return refuse('api_error', `cannot read ${file} at ${(mine ? baseSha : pr.mergeSha).slice(0, 12)}`);
+      if (mine !== theirs) return refuse(file.startsWith('.github/') ? 'workflow_changed' : 'script_changed', `#${pr.number} changes ${file}; a pull request that edits the reuse rules runs every job`);
+    }
+    const sources = [
+      ...deps.runsForBranch(o.workflow, o.base).filter(r => (r.event === 'push' || r.event === 'workflow_dispatch') && r.head_branch === o.base),
+      ...(pr.headRef === o.base ? [] : deps.runsForBranch(o.workflow, pr.headRef).filter(r => r.event === 'workflow_dispatch' && r.head_branch === pr.headRef)),
+    ].sort((a, b) => startedAt(b).localeCompare(startedAt(a)) || b.id - a.id).slice(0, MAX_CANDIDATES);
+    if (!sources.length) return refuse('no_candidate', `no push or dispatch run of ${o.workflow} on ${o.base}, and no dispatch run on ${pr.headRef}`);
+    const candidates = sources.filter(r => SHA.test(r.head_sha) && deps.commitTree(r.head_sha) === merge.tree);
+    if (!candidates.length) return refuse('tree_mismatch', `none of ${sources.length} push or dispatch runs tested merge commit ${pr.mergeSha.slice(0, 12)}'s tree ${merge.tree.slice(0, 12)}`);
+    const profile = { ...o.profile, events: ['push', 'workflow_dispatch'] };
+    const refusals: string[] = [];
+    for (const run of candidates) {
+      const v = verifyRun(deps, { repo: o.repo, runRef: String(run.id), profileName: o.profileName, profile, ignoreRun: pr.runId, now: o.now });
+      if (!v.ok) { refusals.push(`run ${run.id} (${run.event}) reason=${v.reason} ${v.detail}`); continue; }
+      if (v.evidence.tree !== merge.tree) { refusals.push(`run ${run.id} (${run.event}) reason=tree_mismatch tested tree ${v.evidence.tree.slice(0, 12)}`); continue; }
+      return { reused: true, run_id: v.evidence.run_id, run_attempt: v.evidence.run_attempt, event: v.evidence.event, pr: pr.number, head_sha: v.evidence.head_sha, tree: merge.tree };
+    }
+    return refuse('no_verified_run', refusals.join(' | '));
+  } catch (e: any) {
+    return refuse('api_error', String(e?.message ?? e).slice(0, 300));
+  }
+}
+
 /** tree.json for the `tested-tree` artifact; throws on any missing or malformed input, so a broken record fails the aggregate instead of uploading. */
 export function treeRecord(env: NodeJS.ProcessEnv, o: { plan: { shards: Array<{ files: string[] }> }; results: Array<{ outcome?: { summary?: { testsRan?: number } } }>; os: string[]; tree: string }) {
   const int = (name: string) => { const v = Number(env[name]); if (!Number.isSafeInteger(v) || v < 1) throw new Error(`${name} is not a positive integer`); return v; };
@@ -87,7 +149,7 @@ export function treeRecord(env: NodeJS.ProcessEnv, o: { plan: { shards: Array<{ 
   if (!files.length) throw new Error('the plan lists no test files');
   const counts = o.results.map(r => r.outcome?.summary?.testsRan);
   const tests = o.results.length && counts.every(n => Number.isSafeInteger(n) && n! >= 0) ? counts.reduce((a, b) => a! + b!, 0)! : files.length;
-  return { run_id: int('GITHUB_RUN_ID'), run_attempt: int('GITHUB_RUN_ATTEMPT'), event, sha, head_sha: head, tree: o.tree, workflow, os: o.os, files, tests };
+  return { run_id: int('GITHUB_RUN_ID'), run_attempt: int('GITHUB_RUN_ATTEMPT'), event, sha, head_sha: head, tree: o.tree, workflow, os: o.os, files, tests, ...(env.SIZING_OVERRIDE ? { sizing_experiment: true } : {}) };
 }
 
 function flag(args: string[], name: string): string | undefined { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
@@ -125,7 +187,9 @@ function find(args: string[]): number {
     if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, output);
     return 0;
   };
-  if (env.GITHUB_EVENT_NAME !== 'push' || env.GITHUB_REF !== 'refs/heads/main') return settle(refuse('not_main_push', `${env.GITHUB_EVENT_NAME ?? 'no'} event on ${env.GITHUB_REF ?? 'no ref'}; only a push to main consumes`));
+  const mainPush = env.GITHUB_EVENT_NAME === 'push' && env.GITHUB_REF === 'refs/heads/main';
+  const pullRequest = args.includes('--pull-request') && env.GITHUB_EVENT_NAME === 'pull_request';
+  if (!mainPush && !pullRequest) return settle(refuse('not_main_push', `${env.GITHUB_EVENT_NAME ?? 'no'} event on ${env.GITHUB_REF ?? 'no ref'}; only a push to main consumes${args.includes('--pull-request') ? ', or a pull request' : ''}`));
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return settle(refuse('usage', `GITHUB_REPOSITORY ${JSON.stringify(repo)} is not owner/name`));
   let profiles: Record<string, RunProfile>;
   try {
@@ -141,7 +205,22 @@ function find(args: string[]): number {
     commitTree: sha => (SHA.test(sha) ? ghApiJson<{ tree?: { sha?: string } }>(`repos/${repo}/git/commits/${sha}`).tree?.sha ?? null : null),
     pullsForCommit: sha => ghApiJson<ApiPull[]>(`repos/${repo}/commits/${sha}/pulls?per_page=${MAX_PULLS}`),
   };
-  return settle(findReuse(deps, { repo, base: 'main', pushSha: env.GITHUB_SHA ?? '', workflow, profileName, profile, now: new Date() }));
+  if (mainPush) return settle(findReuse(deps, { repo, base: 'main', pushSha: env.GITHUB_SHA ?? '', workflow, profileName, profile, now: new Date() }));
+  let event: { pull_request?: { number?: number; head?: { sha?: string; ref?: string; repo?: { full_name?: string } | null }; base?: { ref?: string } } };
+  try { event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH ?? '', 'utf8')); } catch (e: any) { return settle(refuse('usage', `GITHUB_EVENT_PATH: ${String(e?.message ?? e).slice(0, 200)}`)); }
+  const p = event.pull_request ?? {};
+  const pr: PrContext = { number: Number(p.number), mergeSha: env.GITHUB_SHA ?? '', headSha: p.head?.sha ?? '', headRef: p.head?.ref ?? '', headRepo: p.head?.repo?.full_name ?? '', baseRef: p.base?.ref ?? '', runId: Number(env.GITHUB_RUN_ID), runAttempt: Number(env.GITHUB_RUN_ATTEMPT) };
+  const prDeps: PrReuseDeps = {
+    ...deps,
+    runsForBranch: (wf, branch) => ghApiJson<{ workflow_runs?: ApiRun[] }>(`repos/${repo}/actions/workflows/${wf}/runs?branch=${encodeURIComponent(branch)}&per_page=${MAX_CANDIDATES}`).workflow_runs ?? [],
+    commit: sha => {
+      if (!SHA.test(sha)) return null;
+      const c = ghApiJson<{ tree?: { sha?: string }; parents?: Array<{ sha?: string }> }>(`repos/${repo}/git/commits/${sha}`);
+      return c.tree?.sha ? { tree: c.tree.sha, parents: (c.parents ?? []).map(x => x.sha ?? '') } : null;
+    },
+    blob: (sha, file) => (SHA.test(sha) ? ghApiJson<{ sha?: string; type?: string }>(`repos/${repo}/contents/${file}?ref=${sha}`) : {}).sha ?? null,
+  };
+  return settle(findPrReuse(prDeps, { repo, base: 'main', pr, workflow, profileName, profile, now: new Date() }));
 }
 
 if (import.meta.main) {

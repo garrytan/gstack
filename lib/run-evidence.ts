@@ -49,12 +49,12 @@ import { runBashSync } from './script-invocation';
 export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string; skippable?: { jobs: string[]; gate: string; scripts: string[] } }
 export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped?: string }
 export interface ApiRun {
-  id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
+  id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string; head_branch?: string | null;
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null; head_branch?: string | null;
 }
 export interface ApiJob { name: string; conclusion: string | null; completed_at?: string | null }
-export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown }
+export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; sizing_experiment?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown }
 
 /** What a red run's reader needs beyond RunDeps (lib/pregate/flaky-exception.ts): every file of one artifact, and a pull request's head. */
 export interface RunArtifactDeps {
@@ -74,7 +74,7 @@ export interface RunDeps {
 
 export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | 'workflow_mismatch' | 'event_mismatch' | 'run_in_progress'
   | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_skipped' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
-  | 'artifact_reused' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
+  | 'artifact_reused' | 'sizing_experiment' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
 /** `skipped`: the files whose every test skipped on the runner (tree.json `skipped_files`, GST-1190); undefined when an older tree.json does not say. */
 export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[] }
 /** `fix`: the one command that clears a refusal the caller can repair, such as a pull_request run that tested a merge with an older base. */
@@ -155,7 +155,7 @@ export const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
  * The verdict for run `runRef` under `profile`. `vetoHeads` are further heads
  * whose newer runs of the same workflow can veto (the consumer's own head).
  */
-export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; now: Date; unchanged?: (p: RunProfile) => string | null }): RunVerdict {
+export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; ignoreRun?: number; now: Date; unchanged?: (p: RunProfile) => string | null }): RunVerdict {
   const id = parseRunRef(o.runRef, o.repo);
   if (id === null) return fail('run_ref_invalid', `${JSON.stringify(o.runRef)} is not a run id or a run URL on ${o.repo}`);
   const p = o.profile;
@@ -196,7 +196,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     }
     const heads = [...new Set([run.head_sha, ...(o.vetoHeads ?? []).filter(h => SHA.test(h))])];
     for (const head of heads) {
-      const newer = deps.runsForHead(p.workflow, head).filter(r => !(r.id === id && r.run_attempt === run.run_attempt) && started(r) >= (run.created_at ?? '') && !(r.status === 'completed' && r.conclusion === 'success'));
+      const newer = deps.runsForHead(p.workflow, head).filter(r => !(r.id === id && r.run_attempt === run.run_attempt) && r.id !== o.ignoreRun && started(r) >= (run.created_at ?? '') && !(r.status === 'completed' && r.conclusion === 'success'));
       if (newer.length) return fail('newer_run_vetoes', `newer run ${newer[0]!.id} of ${p.workflow} on ${head.slice(0, 12)} is ${newer[0]!.status === 'completed' ? newer[0]!.conclusion : newer[0]!.status}`);
     }
     let rec: TreeRecord;
@@ -204,6 +204,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     catch (e: any) { return fail('artifact_missing', `${at} has no readable ${p.artifact} tree.json: ${String(e?.message ?? e).slice(0, 200)}`); }
     if (!rec || typeof rec !== 'object') return fail('artifact_mismatch', `${at}'s ${p.artifact} tree.json is not a JSON object`);
     if (rec.reused === true || rec.reuse === true) return fail('artifact_reused', `${at} reused another run; a reuse is never evidence`);
+    if (rec.sizing_experiment !== undefined) return fail('sizing_experiment', `${at} was a runner-sizing experiment (a dispatch that overrode the runner, shards or sub-shards); it is never a Free Tests result`);
     const pr = run.event === 'pull_request';
     const recHeads = pr ? [['head_sha', rec.head_sha, run.head_sha] as const] : rec.head_sha === undefined && rec.sha === undefined ? [['head', undefined, run.head_sha] as const] : ([['sha', rec.sha, run.head_sha], ['head_sha', rec.head_sha, run.head_sha]] as const).filter(([, got]) => got !== undefined);
     const wrong = ([['run_id', rec.run_id, id], ['run_attempt', rec.run_attempt, run.run_attempt], ['event', rec.event, run.event], ...recHeads] as const).filter(([, got, want]) => got !== want);

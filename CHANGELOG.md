@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.29.0] - 2026-11-03
+
+- **Pull requests reuse a green Free Tests run they can't control** (`scripts/ci-tree-reuse.ts find --pull-request`, docs/pregate.md#ci-reuse-pr). A pull request run skips the suite when a push or dispatch run on main, or a dispatch run on its own branch, already passed on the merge commit's exact tree, and the pull request leaves the workflow, the reuse script and `lib/run-evidence.ts` unchanged. A pull request run is never a source, so a pull request never certifies itself.
+
 ## [1.94.28.0] - 2026-11-03
 
 **`gstack-ship-preflight --timeout` reaches Step 5's pregate (GST-1196).** Preflight ran `gstack-pregate` with no way to pass `--timeout`, so on a repo whose `.gstack/pregate.json` sets no `timeout_s`, a test group longer than 600 s always stopped with `PREGATE_INCOMPLETE`. The only workaround was a separate `gstack-pregate --timeout 1800` before finish (gstack-evals #176 and #179).
