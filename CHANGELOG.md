@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.92.70.0] - 2026-11-02
+
+**Five free-test files stop rebuilding the same git repositories for every test: they spend 17–24 s less in summed per-file runtime, with every assertion intact.** Each test still gets its own private copy of the fixture.
+
+### Tests
+- `test/helpers/git-fixture-template.ts` (new): builds a git fixture once per test file and copies it per test with `fs.cpSync`. The adopter rewrites every path-bearing file (remote URLs, alternates, state roots), and the copy is then scanned for any remaining reference to the template, so a test can never push into or read from the shared template. `test/git-fixture-template.test.ts` pins two-copy isolation and the leak scan.
+- `test/release-cut.test.ts` (~10 s to ~6 s), `test/train-backstop.test.ts` (~4 s to ~1.6 s), `test/restamp-mentions.test.ts` (via `test/helpers/restamp-fixture.ts`), `test/pregate-user-policy.test.ts` (via `test/helpers/pregate-fixture.ts`) and `test/held-install-recovery.test.ts` (~33 s to ~22 s) use the template. Test and `expect()` counts are unchanged in every file.
+- `test/helpers/restamp-fixture.ts` turns off auto-maintenance (`maintenance.auto=false`, `gc.auto=0`) in the bare origin the ship-queue train tests push to.
+- `test/test-of-test-ratchet.test.ts`: one BASELINE row for the new helper test, which tests a test helper by design.
+
 ## [1.92.69.0] - 2026-11-02
 
 **Background `--derive` runs no longer drop /office-hours sessions or fail with ENOENT when they overlap (#3437).** `gstack-question-log` starts a background `gstack-developer-profile --derive` after every append, and a multi-question AskUserQuestion logs several rows at once. Every derive wrote the same `developer-profile.json.tmp` and rewrote the whole profile without a lock. On main at 3bfe566, 30 rounds of 8 overlapping derives plus one `--log-session` saw 9 of 270 runs fail with `ENOENT` on rename, and 2 of the 30 sessions disappeared. With this change the same run has 0 failures and keeps 30 of 30 sessions.
