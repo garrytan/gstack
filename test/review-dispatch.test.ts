@@ -86,6 +86,14 @@ describe('gstack-review-dispatch render: briefs from the sections, slots only', 
     expect(run(['render', '--role', 'specialist', '--name', 'no-such-specialist', '--out', out, '--diff-base', SHA]).stderr).toContain('BRIEF_RENDER_FAILED: checklist not found');
   });
 
+  // Value: protects=a brief-render refusal reads as one clean line, not a crash (GST-507 moved the bin to process.exitCode);
+  //   fails_when=the BriefError handler falls through to its rethrow and Bun dumps source and a stack after the line; seam=gstack-review-dispatch render
+  test('a BriefError prints only its BRIEF_RENDER_FAILED line and exits 1', () => {
+    const r = run(['render', '--role', 'specialist', '--name', 'no-such-specialist', '--out', tmp(), '--diff-base', SHA]);
+    expect(r.status).toBe(1);
+    expect(r.stderr.trim().split('\n')).toEqual([expect.stringMatching(/^BRIEF_RENDER_FAILED: checklist not found/)]);
+  });
+
   // Value: protects=the lean ensemble's one batched reader (GSTA-167 part 2) gets checklist paths when the parent passes the plan's
   //   checklists= names as printed; fails_when=the brief names bare checklist words a reader cannot open, or an unknown name
   //   renders; seam=gstack-review-dispatch render
