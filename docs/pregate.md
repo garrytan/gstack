@@ -173,7 +173,7 @@ The list lives in its own file, not in `pregate.json`, because older pregate rea
 ## `gstack-pregate`
 
 ```
-gstack-pregate [--stage preflight|tests|all] [--only <check,..>] [--allow-repo-commands] [--policy-from base|head]
+gstack-pregate [--stage preflight|tests|guards|all] [--only <check,..>] [--allow-repo-commands] [--policy-from base|head]
                [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
 gstack-pregate verify | clear --remote <workflow.yml/job> --run-url <url> | lanes | validate | init
 ```
@@ -1328,6 +1328,43 @@ guard is a *command* with its own fix line. Older gstack refuses unknown keys
 (`PREGATE_CONFIG_INVALID`), so a repo commits `guards` only after the gstack
 that reads them ships. The worked gbrain configuration is in
 [gbrain worked configs](#gbrain-worked-configs).
+
+<a id="prepush"></a>
+### Before every push: `--stage guards`
+
+Housekeeping checks cause a large share of red CI runs: a stale render or
+golden, a size ratchet, a token budget, a type error. gbrain had 64 of 93 red
+heads from these (FOUN-64), and gstack's #3908 went red on the context-budget
+ratchet. Each one is quick to run locally, so run them before the push instead
+of waiting a CI round to find out:
+
+```
+gstack-pregate --stage guards --allow-repo-commands
+```
+
+`--stage guards` runs only two checks: `regen` (generated-file freshness) and
+`guards`. Each runs only for the files the branch touched, so a docs-only
+change runs nothing. It writes `.gstack/tmp/pregate-guards.json`, so it never
+replaces the full run's `.gstack/tmp/pregate.json`. It refuses `--only`,
+`--remote` and `--from-run`.
+
+`gstack-ship-release push` runs it before every push, early or final, and
+prints `GUARDS: <verdict> (<detail>)`. A failing or unfinished guard stops the
+push with the guard's fix, and nothing is pushed. A pass already recorded at
+HEAD's exact tree is reused instead of rerun: either push's own record or
+`finish`'s preflight record. Both live under `.git`, where no commit can
+place one. The guards must have checked the tree being pushed, so uncommitted
+or untracked files that change what they saw stop the push until you commit or
+stash them. A refused run (an unreadable policy, a base that is on origin but
+not fetched, a mistyped `--base`) stops the push too; only a remote that has no branch except the one
+being pushed skips the guards, as `GUARDS: not run`. Outside /ship, run the
+command above yourself before `git push`.
+
+gstack declares its own list in `.gstack/pregate.json`: `typecheck`,
+`skill-size`, `parity-suite`, `context-budget`, `module-size`, `goldens` and
+`doc-caps`. Generated SKILL.md freshness is the `regen` check's job. Other
+repos add their own `guards` the same way; the key needs no newer gstack than
+the one that already reads `guards`.
 
 <a id="guard-carry"></a>
 ### A guard that already passed at this tree does not run again

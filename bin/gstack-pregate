@@ -2,7 +2,7 @@
 /**
  * gstack-pregate — cheap checks before anything paid or remote (plan C8).
  *
- *   gstack-pregate [run] [--stage preflight|tests|all] [--only <check,..>] [--base <branch>]
+ *   gstack-pregate [run] [--stage preflight|tests|guards|all] [--only <check,..>] [--base <branch>]
  *                  [--allow-repo-commands] [--policy-from base|head] [--out <pregate.json>]
  *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
  *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, no fail/incomplete, obligations cleared
@@ -33,7 +33,7 @@ import { PREGATE_CONFIG_PATH, explainConfig, loadConfigFromHead } from '../lib/p
 import { describeDraft, draftConfig } from '../lib/pregate/init-draft';
 import { buildRunCheck } from '../lib/pregate/run-check';
 import { buildContext, defaultUserConfigPath, describeRefusal, loadedDotenvFiles } from '../lib/pregate/context';
-import { CHECKS, CHECK_IDS, PREGATE_OUT_REL, PREGATE_TIER2, clearDecision, clearObligation, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
+import { CHECKS, CHECK_IDS, PREGATE_GUARDS_OUT_REL, PREGATE_OUT_REL, PREGATE_TIER2, PREPUSH_CHECK_IDS, clearDecision, clearObligation, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { REMOTE_GATE_LANE } from '../lib/pregate/checks/lanes';
 import { describeSubstitution } from '../lib/pregate/remote-receipt';
@@ -75,7 +75,8 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
                   a fresh tree receipt, each lane's reuse verdict, migration collisions (base branch and open PRs), then
                   REGATE: needed|not-needed (docs/pregate.md#regate); \`gstack-pregate --against <head>\` is the same verb; exit 1 = needed
 
-  --stage preflight|tests|all   default all
+  --stage preflight|tests|guards|all   default all; guards is the pre-push housekeeping run (docs/pregate.md#prepush):
+                                only ${PREPUSH_CHECK_IDS.join(' and ')}, each for the files the diff touched, written to ${PREGATE_GUARDS_OUT_REL}
   --only <check,...>            restrict to these checks (${CHECK_IDS.join(', ')}; tier 2 later: ${PREGATE_TIER2.join(', ')})
   --base <branch>               a branch on origin, not a commit (default: origin/HEAD's branch unless it is the
                                 checked-out one, else the PR's base, origin/main, origin/master; lib/default-base.ts)
@@ -151,10 +152,11 @@ function repoRoot(): string | null {
 function outPath(root: string, rest: string[]): string { const o = flag(rest, '--out'); return o ? path.resolve(o) : path.join(root, PREGATE_OUT_REL); }
 
 async function cmdRun(root: string, rest: string[], json: boolean): Promise<number> {
-  const stage = (flag(rest, '--stage') ?? 'all') as 'preflight' | 'tests' | 'all';
-  if (!['preflight', 'tests', 'all'].includes(stage)) { process.stderr.write('gstack-pregate: --stage needs preflight, tests or all\n'); return EXIT.usage; }
+  const stage = (flag(rest, '--stage') ?? 'all') as 'preflight' | 'tests' | 'guards' | 'all';
+  if (!['preflight', 'tests', 'guards', 'all'].includes(stage)) { process.stderr.write('gstack-pregate: --stage needs preflight, tests, guards or all\n'); return EXIT.usage; }
+  if (stage === 'guards' && (flag(rest, '--only') !== undefined || rest.includes('--remote'))) { process.stderr.write(`gstack-pregate: --stage guards runs only ${PREPUSH_CHECK_IDS.join(' and ')}; drop --only and --remote\n`); return EXIT.usage; }
   const fromRun = flag(rest, '--from-run');
-  if (fromRun !== undefined && stage === 'preflight') { process.stderr.write('gstack-pregate: --from-run applies to the tests stage (--stage tests or all)\n'); return EXIT.usage; }
+  if (fromRun !== undefined && (stage === 'preflight' || stage === 'guards')) { process.stderr.write('gstack-pregate: --from-run applies to the tests stage (--stage tests or all)\n'); return EXIT.usage; }
   const only = flag(rest, '--only')?.split(',').map(s => s.trim()).filter(Boolean);
   const unknown = (only ?? []).filter(id => !CHECK_IDS.includes(id));
   if (unknown.length) { process.stderr.write(`gstack-pregate: unknown check(s) ${unknown.join(', ')}${unknown.some(u => (PREGATE_TIER2 as readonly string[]).includes(u)) ? ' (tier 2, not in this gstack)' : ''}; known: ${CHECK_IDS.join(', ')}\n`); return EXIT.usage; }
@@ -197,7 +199,7 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
     });
   }
   const file = await runPregate(ctx, { stage, only, run: flag(rest, '--run') });
-  const out = outPath(root, rest);
+  const out = stage === 'guards' && !flag(rest, '--out') ? path.join(root, PREGATE_GUARDS_OUT_REL) : outPath(root, rest);
   let written: string;
   try { written = writePregateFile(root, out, file); }
   catch (e: any) { process.stderr.write(resultLine('gstack-pregate', 'ARTIFACT_SCHEMA', e.message) + '\n'); return EXIT.fail; }

@@ -240,3 +240,59 @@ describe('lanes runtime and serial files (CD1)', () => {
     expect(r.out).toMatch(/^tests {6}lanes {5}pass .*2 tests ran in 2 file\(s\) \(1 serial\), exit 0/m);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GST-1138 (ship-90-90 L6): the pre-push housekeeping run and gstack's own guard list
+// ---------------------------------------------------------------------------
+import { matchesAny } from '../lib/ship-policy';
+
+describe('--stage guards: the pre-push housekeeping run (GST-1138)', () => {
+  // Value: protects=--stage guards runs only regen and guards for the touched files, writes its own record and never replaces the full run's
+  //   pregate.json; fails_when=it runs the secrets, strays or test checks, overwrites .gstack/tmp/pregate.json, or accepts --only/--from-run;
+  //   why_new=gbrain: 64 of 93 red heads were housekeeping (FOUN-64), #3908 went red on the context-budget ratchet; seam=gstack-pregate run; no_claim=CI
+  test('runs only regen and guards, writes pregate-guards.json, leaves pregate.json alone and refuses --only and --from-run', () => {
+    const repo = guardedFixture({ ...BASE_PREGATE, guards: [SERIAL_GUARD] });
+    commit(repo, { 'test/widget-env.serial.test.js': SERIAL_TEST });
+    const r = pregate(repo, ['--allow-repo-commands', '--stage', 'guards']);
+    expect(r.status).toBe(EXIT.fail);
+    expect(r.out).toMatch(/^preflight {2}guards {4}fail .*serial-manifest.*\(PREGATE_GUARD_FAILED\)/m);
+    expect(fs.existsSync(path.join(repo.work, '.gstack/tmp/pregate.json'))).toBe(false);
+    const rec = JSON.parse(fs.readFileSync(path.join(repo.work, '.gstack/tmp/pregate-guards.json'), 'utf8'));
+    expect(rec.checks.map((c: any) => c.id)).toEqual(['regen', 'guards']);
+    expect(rec.stage2_ms).toBeUndefined();
+    commit(repo, { 'scripts/serial-files.tsv': 'path\treason\ntest/widget-env.serial.test.js\tglobal-state\n' });
+    const ok = pregate(repo, ['--allow-repo-commands', '--stage', 'guards']);
+    expect(ok.status, ok.out + ok.err).toBe(EXIT.ok);
+    expect(ok.out).toContain('1 guard(s) passed: serial-manifest');
+    expect(pregate(repo, ['--stage', 'guards', '--only', 'secrets']).status).toBe(EXIT.usage);
+    expect(pregate(repo, ['--stage', 'guards', '--from-run', '123']).status).toBe(EXIT.usage);
+  });
+});
+
+describe("gstack's own pre-push guards (GST-1138)", () => {
+  // Value: protects=gstack declares the housekeeping guards that went red after push (typecheck, skill size, parity, context budget,
+  //   module size, goldens, doc caps), each runnable and selected only by its inputs; fails_when=a guard is dropped, names a missing test file,
+  //   fails validation, or fires on a docs-only change; why_new=GST-1138; seam=.gstack/pregate.json; no_claim=the guards' own verdicts
+  const GSTACK = path.resolve(import.meta.dir, '..');
+  const policy = JSON.parse(fs.readFileSync(path.join(GSTACK, '.gstack/pregate.json'), 'utf8'));
+  const guards: { id: string; when: string[]; command: string; fix?: string }[] = policy.guards ?? [];
+  const selected = (file: string) => guards.filter(g => matchesAny(g.when, file)).map(g => g.id).sort();
+
+  test('the list validates, every guard has a fix, and every test file it names exists', () => {
+    expect(codes(policy)).toEqual([]);
+    expect(guards.map(g => g.id).sort()).toEqual(['context-budget', 'doc-caps', 'goldens', 'module-size', 'parity-suite', 'skill-size', 'typecheck']);
+    for (const g of guards) {
+      expect(g.fix, g.id).toBeTruthy();
+      for (const f of g.command.match(/test\/[\w./-]+\.test\.ts/g) ?? []) expect(fs.existsSync(path.join(GSTACK, f)), `${g.id}: ${f}`).toBe(true);
+    }
+  });
+
+  test('each guard fires on its own inputs and none fires on a docs-only change', () => {
+    expect(selected('ship/SKILL.md.tmpl')).toEqual(['context-budget', 'goldens', 'parity-suite', 'skill-size']);
+    expect(selected('lib/pregate/index.ts')).toEqual(['module-size', 'typecheck']);
+    expect(selected('test/fixtures/golden/claude-ship-SKILL.md')).toEqual(['goldens']);
+    expect(selected('CLAUDE.md')).toEqual(['doc-caps']);
+    expect(selected('docs/pregate.md')).toEqual([]);
+    expect(selected('changelog.d/x.md')).toEqual([]);
+  });
+});
