@@ -313,7 +313,7 @@ export function branchAddedLines(cwd: string, since: string, files: string[], to
   return out;
 }
 
-const escapeRegExp = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const escapeRegExp = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const VERSION_RE = '(?<v>\\d+(?:\\.\\d+){1,3})(?![0-9.])';
 /**
  * The built-in stamp forms as scanners, the version in the `v` group: `(was X)`, `since: X` and `vX`.

@@ -18,6 +18,8 @@ import * as path from 'node:path';
 import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { cmpVersion, parseVersion } from './version-source';
+import { placeholderErrors, templateErrors } from './ship-policy-stamps';
+export { VERSION_SLOT } from './ship-policy-stamps';
 
 export const SHIP_POLICY_PATH = '.gstack/ship-policy.json';
 export const SHIP_POLICY_SCHEMA = 'https://github.com/garrytan/gstack/docs/ship-policy.md#schema-v1';
@@ -64,6 +66,8 @@ export interface ShipPolicy {
   stamp_files: string[];
   /** Literal stamp templates with one `{version}` slot, beside the built-in `(was X)`, `since: X`, `vX`; writer and classifier share them. */
   stamp_patterns: string[];
+  /** Placeholders (`TBD`) a restamp may replace with the new version inside a `stamp_patterns` template, on the branch's own lines only. */
+  stamp_placeholders: string[];
   /** The repo's own restamp, run first in the staging worktree with the target version; gstack's version writer is skipped. */
   restamp_command: string | null;
   /** Migration numbering: `{ dir, id }` where `id` is a regex with one capture group over the file name. */
@@ -161,6 +165,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   maintainers: [],
   stamp_files: [],
   stamp_patterns: [],
+  stamp_placeholders: [],
   restamp_command: null,
   migrations: null,
   gate_command: null,
@@ -193,6 +198,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   maintainers: 'GitHub logins treated as maintainers by /review contributor mode; empty uses repository push permission.',
   stamp_files: 'The repo’s stamp rule: globs of the only files that may differ by a stamp (version file, manifests, plugin trees, the PR’s own since: rows). Empty keeps gstack’s per-file rules; set, it applies before every rule.',
   stamp_patterns: 'Literal templates with exactly one {version} slot (at most 16, 128 characters each), for example `"version": "{version}"` or `since: \'{version}\'`; the restamp writer and the tree receipt use them beside (was X), since: X and vX.',
+  stamp_placeholders: 'Literal placeholders (at most 16, one line, 32 characters each, never `{version}` or a version), for example `["TBD"]`: a line the branch added that reads a placeholder in a stamp_patterns template (`since: \'TBD\'`) may become that template at the new version, and finish, the receipt carry and the tree receipt read it as a stamp. Empty (default) accepts no placeholder.',
   restamp_command: 'The repo’s own restamp, run first in gstack-restamp’s staging worktree (a clean checkout of HEAD) with the target version as its argument and in GSTACK_RESTAMP_VERSION; gstack’s version writer is skipped, output confinement still applies. Needs a clean caller tree and --allow-repo-commands.',
   migrations: '{ dir, id }: the migration directory and a regex with one capture group for the number in a file name; `gstack-pregate regate` reports MIGRATION_COLLISION against the base branch and every open PR.',
   gate_command: 'The repo’s full pre-merge gate command. gstack-ship-queue gate-ahead and ready print it for the caller to run (in the background or in CI); gstack never executes it. null when the repo has none.',
@@ -236,6 +242,7 @@ export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
 export const BASE_RED_KEY_VERSION = '1.91.374.0';
 /** `train.gates` and `train.land` are values of the older train key, so compatErrors checks them by value, as for bump: never. */
 export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
+export const STAMP_PLACEHOLDERS_KEY_VERSION = '1.94.0.0';
 export const REVIEW_EXCLUDE_KEY_VERSION = '1.93.33.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
@@ -245,6 +252,7 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
   base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION,
+  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -274,9 +282,6 @@ const MAX_PATTERN = 256;
 const MAX_REGEX = 512;
 const MAX_COMMAND = 512;
 const SHA_RE = /^[0-9a-f]{7,64}$/;
-const MAX_TEMPLATES = 16;
-const MAX_TEMPLATE = 128;
-export const VERSION_SLOT = '{version}';
 
 function hasDotDot(p: string): boolean {
   return p.split(/[\\/]+/).some(seg => seg === '..');
@@ -340,17 +345,6 @@ function excludeErrors(value: unknown, out: PolicyError[]): void {
   value.forEach((p, i) => {
     const why = typeof p !== 'string' ? 'must be a string' : containedRelative(p) ?? (/^[:!]/.test(p) ? 'must not start with : or ! (no pathspec magic or negation)' : /[\x00-\x1f\x7f]/.test(p) ? 'contains a control character' : p.replace(/\/+$/, '') === '' || p === '.' ? 'must not name the whole repository' : null);
     if (why) out.push({ code: 'POLICY_INVALID', path: `review_exclude_paths[${i}]`, message: `${JSON.stringify(p)} ${why}` });
-  });
-}
-
-function templateErrors(value: unknown, out: PolicyError[]): void {
-  if (!Array.isArray(value)) { out.push({ code: 'POLICY_INVALID', path: 'stamp_patterns', message: 'must be an array of literal templates' }); return; }
-  if (value.length > MAX_TEMPLATES) out.push({ code: 'POLICY_CONTAINMENT', path: 'stamp_patterns', message: `more than ${MAX_TEMPLATES} templates` });
-  value.forEach((t, i) => {
-    const at = `stamp_patterns[${i}]`;
-    if (typeof t !== 'string') { out.push({ code: 'POLICY_INVALID', path: at, message: 'must be a string' }); return; }
-    if (t.split(VERSION_SLOT).length !== 2) out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(t)} must contain exactly one ${VERSION_SLOT}` });
-    else if (t.length > MAX_TEMPLATE || /[\0\r\n]/.test(t)) out.push({ code: 'POLICY_CONTAINMENT', path: at, message: `must be one line of at most ${MAX_TEMPLATE} characters` });
   });
 }
 
@@ -497,6 +491,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('release_outputs' in obj) listErrors('release_outputs', obj.release_outputs, errors, globError);
   if ('stamp_files' in obj) listErrors('stamp_files', obj.stamp_files, errors, globError);
   if ('stamp_patterns' in obj) templateErrors(obj.stamp_patterns, errors);
+  if ('stamp_placeholders' in obj) placeholderErrors(obj.stamp_placeholders, errors);
   if ('restamp_command' in obj && obj.restamp_command !== null) {
     const t = obj.restamp_command;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'restamp_command', message: 'must be a non-empty string or null' });

@@ -501,13 +501,13 @@ function verifiedOutputs(repoRoot: string, base: string, pregateFile: string | u
   return regen.proven.filter(p => !/[*?[\]\\]/.test(p) && matchesAny(owned, p));
 }
 
-interface ProductRules { extra: { metadata: string[]; outputs: readonly string[]; fragments?: string }; metadata: string[]; templates: readonly string[] }
+interface ProductRules { extra: { metadata: string[]; outputs: readonly string[]; fragments?: string }; metadata: string[]; templates: readonly string[]; placeholders: readonly string[] }
 function productRules(repoRoot: string, base: string, outputs: readonly string[]): ProductRules {
   const load = loadPolicyFromBase(repoRoot, base);
   const policy: ShipPolicy | null = isUnavailable(load) ? null : load.policy;
   const fragments = policy?.changelog_fragments?.dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '');
   const extra = { metadata: [...(policy?.stamp_files ?? []), ...(policy?.stamp_paths ?? []), ...(policy?.release_outputs ?? []), ...(policy?.changelog ? [policy.changelog] : [])], outputs, fragments };
-  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...(fragments ? [`${fragments}/*.md`] : []), ...outputs], templates: policy?.stamp_patterns ?? [] };
+  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...(fragments ? [`${fragments}/*.md`] : []), ...outputs], templates: policy?.stamp_patterns ?? [], placeholders: policy?.stamp_placeholders ?? [] };
 }
 
 /**
@@ -534,7 +534,7 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
   const versions = new Map<string, string | null>();
   const version = (ref: string) => { if (!versions.has(ref)) versions.set(ref, versionAt(ref)); return versions.get(ref)!; };
   const stamped = (p: string) => matchesAny(rules.metadata, p) && !matchesAny(rules.extra.outputs, p);
-  const classify = (p: string, a: string, b: string) => classifyCarryPath(p, rules.extra, stamped(p) ? { before: blobAt(a, p), after: blobAt(b, p), oldVersion: version(a), newVersion: version(b), templates: rules.templates, side: a === from && b === to ? branch?.own(p) : undefined } : undefined);
+  const classify = (p: string, a: string, b: string) => classifyCarryPath(p, rules.extra, stamped(p) ? { before: blobAt(a, p), after: blobAt(b, p), oldVersion: version(a), newVersion: version(b), templates: rules.templates, placeholders: rules.placeholders, side: a === from && b === to ? branch?.own(p) : undefined } : undefined);
   const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classify(p, from, to) }));
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
   const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)
@@ -550,7 +550,7 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
     const was = before.split('\n');
     const now = after.split('\n');
     const lines = was.map((_, i) => i).filter(i => was[i] !== now[i]);
-    return was.length === now.length && lines.length > 0 && lines.every(i => side.at.has(i + 1) && stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, rules.templates, side, i + 1));
+    return was.length === now.length && lines.length > 0 && lines.every(i => side.at.has(i + 1) && stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, rules.templates, side, i + 1, rules.placeholders));
   });
   return { changed, product: ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs)], tests: [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs)], demoted, ownRows };
 }
@@ -701,6 +701,16 @@ function cmdCarry(rest: string[], json: boolean): number {
         if (changedProduct.length >= CARRY_NAMED_PATHS) break;
         const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra);
         if (cls === 'metadata' && spec.ownRows.includes(p) && !movedBase.has(p)) stampOnly.push(p);
+        if (cls === 'metadata' && spec.demoted.includes(p) && movedBase.has(p) && /(^|\/)package\.json$/.test(p)) {
+          const masked = Object.values(sides).map(ref => {
+            const r = spawnSync('git', ['show', `${ref}:${p}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+            try { const { version: _, ...rest } = JSON.parse(r.status === 0 ? r.stdout : 'null') ?? {}; return JSON.stringify(rest); } catch { return null; }
+          });
+          const [rb, rv, cb, cv] = masked;
+          if (masked.some(m => m === null) || rv !== cv || rb !== cb) changedProduct.push(p);
+          else stampOnly.push(p);
+          continue;
+        }
         if (cls !== 'product') continue;
         const verdict = comparePath(repoRoot, sides, p);
         if (verdict === 'changed') changedProduct.push(p);
@@ -778,7 +788,10 @@ function cmdCarry(rest: string[], json: boolean): number {
     depthField = { review_depth: { ...now, depth: deeper(receipt.review_depth.depth, now.depth) }, review_exclude: receiptExclude(review.exclude) };
   }
   // The rebound product_patch_id is HEAD's diff against the carry's base, so a retargeted receipt names that base from now on.
-  const rebound = { ...receipt, ...(retarget ? { base: base.replace(/^origin\//, '') } : {}), ...(pregateField ?? {}), ...depthField };
+  // A receipt that records a version names HEAD's, read as write reads it: a restamp after a base merge moves it (GST-1030).
+  // A head with no version source keeps the recorded one (write --version named it).
+  const version = receipt.version === undefined ? undefined : (receiptVersion(repoRoot, head, base) ?? receipt.version);
+  const rebound = { ...receipt, ...(version !== undefined ? { version } : {}), ...(retarget ? { base: base.replace(/^origin\//, '') } : {}), ...(pregateField ?? {}), ...depthField };
   const carried = carryReceipt(rebound, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
   const errors = validateReceipt(carried);
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);

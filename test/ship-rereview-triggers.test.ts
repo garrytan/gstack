@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
+import { STAMP_PLACEHOLDERS_KEY_VERSION } from '../lib/ship-policy';
 import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
 import { cleanup, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
@@ -265,6 +266,37 @@ describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => 
     expect(lineOf(own.stdout, 'ROUTE')).toEqual(expect.stringMatching(/ behavior=0 docs=0 metadata=1 tests=0 /));
     const base = kept([['0.9.0.0', 'old'], ['1.0.1.0', 'base'], ['1.0.0.0', 'mine']]);
     expect([base.status, lineOf(base.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+  });
+
+  // Value: protects=gbrain's restamp of the PR's own `since: 'TBD'` row to the new version routes as metadata when the
+  //   policy declares TBD in stamp_placeholders (GST-1026, gbrain #8444); an undeclared placeholder, a base row moved the
+  //   same way, a duplicated base copy, or a line no stamp_pattern matches still stops; fails_when=stampedFiles reads the
+  //   move as behavior (gbrain #8444) or accepts it off the branch's own rows; seam=lib/ship-bin-common.ts stampedFiles
+  test('a declared placeholder on the branch row is metadata; undeclared, a base row or no template stops (GST-1026)', () => {
+    const declared = (placeholders: string[] | undefined, templates = ["since: '{version}'"]) => JSON.stringify({ stamp_files: ['VERSION', 'src/notice.ts'], stamp_patterns: templates,
+      ...(placeholders ? { stamp_placeholders: placeholders, min_gstack_version: STAMP_PLACEHOLDERS_KEY_VERSION } : {}) });
+    const restamped = (pol: string, baseRows: [string, string][], ownRows: [string, string][], rows: [string, string][]) => {
+      const f = fx({ '.gstack/ship-policy.json': pol, VERSION: '1.0.0.0\n', 'src/notice.ts': notice(...baseRows) },
+        { VERSION: '1.0.1.0\n', 'src/notice.ts': notice(...baseRows, ...ownRows) });
+      const reviewed = wtree(f);
+      const post = snapshot(f);
+      f.write({ VERSION: '1.0.2.0\n', 'src/notice.ts': notice(...rows) }); f.commit('restamp: TBD rows to 1.0.2.0');
+      return finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+    };
+    const base: [string, string][] = [['0.9.0.0', 'old'], ['TBD', 'base']];
+    const metadata = / behavior=0 docs=0 metadata=2 tests=0 /;
+    const own = restamped(declared(['TBD']), base, [['TBD', 'mine']], [...base, ['1.0.2.0', 'mine']]);
+    expect(lineOf(own.stdout, 'ROUTE'), own.stdout).toEqual(expect.stringMatching(metadata));
+    const undeclared = restamped(declared(undefined), base, [['TBD', 'mine']], [...base, ['1.0.2.0', 'mine']]);
+    expect([undeclared.status, lineOf(undeclared.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    const other = restamped(declared(['WIP']), base, [['TBD', 'mine']], [...base, ['1.0.2.0', 'mine']]);
+    expect([other.status, lineOf(other.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    const baseRow = restamped(declared(['TBD']), base, [['TBD', 'mine']], [['0.9.0.0', 'old'], ['1.0.2.0', 'base'], ['1.0.2.0', 'mine']]);
+    expect([baseRow.status, lineOf(baseRow.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    const dup = restamped(declared(['TBD']), base, [['TBD', 'base']], [['0.9.0.0', 'old'], ['1.0.2.0', 'base'], ['TBD', 'base']]);
+    expect([dup.status, lineOf(dup.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    const noTemplate = restamped(declared(['TBD'], ['version: {version}']), base, [['TBD', 'mine']], [...base, ['1.0.2.0', 'mine']]);
+    expect([noTemplate.status, lineOf(noTemplate.stdout, 'STOP')]).toEqual([3, behaviorStop]);
   });
 });
 

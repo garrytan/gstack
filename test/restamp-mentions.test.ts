@@ -14,6 +14,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
+import { STAMP_PLACEHOLDERS_KEY_VERSION } from '../lib/ship-policy';
+import { extractReceipt } from '../lib/ship-receipt';
 import type { GitFixtureTemplate } from './helpers/git-fixture-template';
 import { BASE_POLICY, cleanup, cloneFixture, fixtureTemplate, makePr, mergeMain, mergeToMain, readFile, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
@@ -432,3 +434,156 @@ describe('a branch-added row left at the fork version after the base moved (GST-
     expect(carried.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
   });
 });
+
+describe('declared placeholders and the receipt carry (GST-1026, GST-1030)', () => {
+  /** gbrain's policy (GST-1026): the since: template, and TBD declared as a placeholder when `declared`. */
+  const placeholderPolicy = (declared: boolean) => ({ ...receiptPolicy(true), ...(declared ? { stamp_placeholders: ['TBD'], min_gstack_version: STAMP_PLACEHOLDERS_KEY_VERSION } : {}) });
+
+  /** A branch row written as since: 'TBD' at the claim 1.2.4.0, then the stamp to 1.2.5.0 with the row restamped by hand (gbrain's release:restamp). */
+  function tbdStamp(prefix: string, pol: Record<string, unknown>, ownRow: string): { repo: FixtureRepo; gated: string } {
+    const repo = makeFixtureRepo({ prefix, policy: pol }); repos.push(repo);
+    write(repo, NOTICE, notice([row('TBD', 'base_row')]));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'notice rows'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-tbd');
+    expect(restamp(repo, ['--version', '1.2.4.0']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp 1.2.4.0');
+    write(repo, NOTICE, notice([row('TBD', 'base_row'), '', ownRow]));
+    repo.git('commit', '-qam', 'mine: a TBD row');
+    const gated = repo.git('rev-parse', 'HEAD');
+    expect(restamp(repo, ['--version', '1.2.5.0']).status).toBe(EXIT.ok);
+    return { repo, gated };
+  }
+
+  // Value: protects=the tree receipt (stamp, verify, gate-ahead replay) accepts gbrain's restamp of the branch's own
+  //   since: 'TBD' row when the policy declares TBD, and refuses it undeclared, on a base row, or on a base row whose text
+  //   the branch duplicates (GST-1026); fails_when=classifyFile reads the TBD move as a hand edit, or accepts it off the
+  //   branch's own rows; seam=lib/tree-receipt.ts stampOnlyHunks
+  test('the tree receipt accepts a declared TBD row restamped on the branch, and refuses the same move on a base row (GST-1026)', () => {
+    const own = tbdStamp('restamp-tbd-receipt-', placeholderPolicy(true), row('TBD', 'mine'));
+    write(own.repo, NOTICE, readFile(own.repo, NOTICE).replace(row('TBD', 'mine'), row('1.2.5.0', 'mine')));
+    own.repo.git('commit', '-qam', 'stamp 1.2.5.0: the TBD row');
+    const accepted = runBin(own.repo, 'gstack-tree-receipt', ['--gated', own.gated, '--base', 'main']);
+    expect(accepted.out, accepted.err).toContain('TREE: same-modulo-stamps');
+    write(own.repo, NOTICE, readFile(own.repo, NOTICE).replace(row('TBD', 'base_row'), row('1.2.5.0', 'base_row')));
+    own.repo.git('commit', '-qam', 'move the base TBD row by hand');
+    const base = runBin(own.repo, 'gstack-tree-receipt', ['--gated', own.gated, '--base', 'main']);
+    expect(base.out, base.err).toContain('TREE: changed');
+    expect(base.out).toContain("id: 'base_row'");
+  });
+
+  test('the tree receipt refuses an undeclared TBD row restamped on the branch (GST-1026)', () => {
+    const undeclared = tbdStamp('restamp-tbd-undeclared-', placeholderPolicy(false), row('TBD', 'mine'));
+    write(undeclared.repo, NOTICE, readFile(undeclared.repo, NOTICE).replace(row('TBD', 'mine'), row('1.2.5.0', 'mine')));
+    undeclared.repo.git('commit', '-qam', 'stamp 1.2.5.0: the TBD row');
+    const refused = runBin(undeclared.repo, 'gstack-tree-receipt', ['--gated', undeclared.gated, '--base', 'main']);
+    expect(refused.out, refused.err).toContain('TREE: changed');
+  });
+
+  test('the tree receipt refuses a restamp of the base copy of a TBD row the branch duplicates (GST-1026)', () => {
+    const dup = tbdStamp('restamp-tbd-dup-', placeholderPolicy(true), row('TBD', 'base_row'));
+    write(dup.repo, NOTICE, notice([row('1.2.5.0', 'base_row'), '', row('TBD', 'base_row')]));
+    dup.repo.git('commit', '-qam', 'move the base copy of the duplicated TBD row');
+    const copy = runBin(dup.repo, 'gstack-tree-receipt', ['--gated', dup.gated, '--base', 'main']);
+    expect(copy.out, copy.err).toContain('TREE: changed');
+  });
+
+  /** A receipt written at the claim 1.2.4.0 after `own` changed the branch, then the stamp to 1.2.5.0, uncommitted. */
+  function receiptThenStamp(prefix: string, pol: Record<string, unknown>, own: (repo: FixtureRepo) => void): { repo: FixtureRepo; body: string } {
+    const repo = makeFixtureRepo({ prefix, policy: pol }); repos.push(repo);
+    write(repo, NOTICE, notice([row('TBD', 'base_row')]));
+    fs.rmSync(path.join(repo.work, 'package-lock.json'));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'notice rows, no lockfile'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-carry');
+    expect(restamp(repo, ['--version', '1.2.4.0']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp 1.2.4.0');
+    own(repo);
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'mine');
+    const body = path.join(repo.root, 'body.md');
+    fs.writeFileSync(body, '## Summary\n');
+    const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '3', '--base', 'main', '--session-kind', 'x', '--body', body]);
+    expect(w.status, w.err).toBe(EXIT.ok);
+    expect(restamp(repo, ['--version', '1.2.5.0']).status).toBe(EXIT.ok);
+    return { repo, body };
+  }
+  const carry = (repo: FixtureRepo, body: string) => runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+
+  // Value: protects=the receipt carry follows gbrain's restamp of the branch's own since: 'TBD' row when the policy
+  //   declares TBD, and refuses it undeclared (GST-1026); fails_when=productSpec's own-row check ignores the policy's
+  //   placeholders and refuses RECEIPT_CARRY_PRODUCT_CHANGED; seam=bin/gstack-ship-receipt productSpec ownRows
+  test.each([['declared', true], ['undeclared', false]])('the carry and a TBD row restamped on the branch: %s', (_, declared) => {
+    const { repo, body } = receiptThenStamp(`restamp-tbd-carry-${declared}-`, placeholderPolicy(declared), r => write(r, NOTICE, notice([row('TBD', 'base_row'), '', row('TBD', 'mine')])));
+    write(repo, NOTICE, readFile(repo, NOTICE).replace(row('TBD', 'mine'), row('1.2.5.0', 'mine')));
+    repo.git('commit', '-qam', 'stamp 1.2.5.0: the TBD row');
+    const carried = carry(repo, body);
+    if (declared) expect(carried.out, carried.err).toContain('CARRY: carried');
+    else expect([carried.status, carried.err.includes('RECEIPT_CARRY_PRODUCT_CHANGED')], carried.err).toEqual([EXIT.refused, true]);
+  });
+
+  // Value: protects=a carried receipt names the head's version, the one write would record there, after a main merge
+  //   and a restamp (GST-1030 point 1, GGST-1); fails_when=carryReceipt copies version from the old receipt;
+  //   seam=bin/gstack-ship-receipt cmdCarry
+  test('the carried receipt records the head\'s version after a main merge and a restamp (GST-1030)', () => {
+    const { repo, body } = receiptThenStamp('restamp-carry-version-', policy(true), r => write(r, 'src.ts', 'export const x = 0;\n'));
+    repo.git('reset', '-q', '--hard');
+    expect(readFile(repo, 'VERSION')).toBe('1.2.4.0\n');
+    makePr(repo, 'pr-other');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp other');
+    mergeToMain(repo, 'pr-other');
+    repo.git('checkout', '-q', 'pr-carry');
+    mergeMain(repo);
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'restamp after the lost slot');
+    expect(readFile(repo, 'VERSION')).toBe('1.2.5.0\n');
+    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt?.version).toBe('1.2.4.0');
+    const carried = carry(repo, body);
+    expect(carried.out, carried.err).toContain('CARRY: carried');
+    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt?.version).toBe('1.2.5.0');
+  });
+
+/** package.json with its dependency pin set to `pin`, every other field kept. */
+  const pinned = (repo: FixtureRepo, pin: string) => {
+    const pkg = JSON.parse(readFile(repo, 'package.json'));
+    pkg.dependencies = { ...pkg.dependencies, 'left-pad': pin };
+    write(repo, 'package.json', JSON.stringify(pkg, null, 2) + '\n');
+  };
+
+  // Value: protects=a pin-bump PR's receipt carries across a main merge and a restamp when package.json's only change since
+  //   review is its version field, and refuses when the pin itself moved (GST-1030, GBEV-3, gbrain-evals #306);
+  //   fails_when=the carry counts the PR's package.json as product and refuses RECEIPT_CARRY_PRODUCT_CHANGED on a version-only
+  //   move, or lets a changed dependency pin ride; seam=bin/gstack-ship-receipt cmdCarry walk
+  test.each([['the pin unchanged since review', false], ['the pin moved since review', true]])('the carry and a pin-bump PR after a main merge: %s (GST-1030)', (_, moved) => {
+    const { repo, body } = receiptThenStamp(`restamp-carry-pin-${moved}-`, policy(true), r => pinned(r, '1.3.0'));
+    repo.git('reset', '-q', '--hard');
+    makePr(repo, 'pr-other');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp other');
+    mergeToMain(repo, 'pr-other');
+    repo.git('checkout', '-q', 'pr-carry');
+    mergeMain(repo);
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    if (moved) pinned(repo, '1.3.1');
+    repo.git('commit', '-qam', 'restamp after the lost slot');
+    expect(JSON.parse(readFile(repo, 'package.json')).version).toBe('1.2.5');
+    const carried = carry(repo, body);
+    if (moved) expect([carried.status, carried.err.includes('RECEIPT_CARRY_PRODUCT_CHANGED')], carried.err).toEqual([EXIT.refused, true]);
+    else expect(carried.out, carried.err).toContain('CARRY: carried');
+  });
+
+  // Value: protects=a version-only restamp of EVIDENCE.md is release metadata to the carry when the policy declares it in
+  //   stamp_files, and product when it does not (GST-1030 point 2, GGST-1); fails_when=the carry counts the declared
+  //   file's stamp as a product change (RECEIPT_CARRY_PRODUCT_CHANGED), or lets an undeclared file's version edit ride;
+  //   seam=bin/gstack-ship-receipt productSpec, lib/ship-receipt.ts stampOnlyText
+  test.each([['declared in stamp_files', true], ['undeclared', false]])('the carry and a version-only restamp of EVIDENCE.md: %s (GST-1030)', (_, declared) => {
+    const base = policy(true);
+    const pol = declared ? { ...base, stamp_files: [...base.stamp_files, 'EVIDENCE.md'] } : base;
+    const { repo, body } = receiptThenStamp(`restamp-carry-evidence-${declared}-`, pol, r => write(r, 'EVIDENCE.md', '# Evidence\n\nVerified on v1.2.4.0 with the free suite\n'));
+    if (!declared) write(repo, 'EVIDENCE.md', '# Evidence\n\nVerified on v1.2.5.0 with the free suite\n');
+    expect(readFile(repo, 'EVIDENCE.md')).toBe('# Evidence\n\nVerified on v1.2.5.0 with the free suite\n');
+    repo.git('commit', '-qam', 'stamp 1.2.5.0');
+    const carried = carry(repo, body);
+    if (declared) expect(carried.out, carried.err).toContain('CARRY: carried');
+    else expect([carried.status, carried.err.includes('RECEIPT_CARRY_PRODUCT_CHANGED')], carried.err).toEqual([EXIT.refused, true]);
+  });
+});
+
