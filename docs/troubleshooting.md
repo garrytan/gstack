@@ -4347,6 +4347,65 @@ reason and dispatches nothing.
 **Fix.** Run the printed `train build --prs <list without it>`; the fork PR
 stays on the trusted-branch path.
 
+<a id="changelog-fragment-invalid"></a>
+### `CHANGELOG_FRAGMENT_INVALID`
+
+**Meaning.** A CHANGELOG fragment under the policy's `changelog_fragments`
+directory is not one regular `.md` file directly in that directory with entry
+text, optional `bump:` front matter and no release heading, or it is over
+64 KiB, or a fragment of that name already landed with other text. Nothing was
+allocated or written. See [changelog fragments](ship-policy.md#changelog-fragments).
+
+**Fix.** Rewrite the named fragment as a flat `<dir>/<slug>.md` holding only
+the entry text (and optional `bump: minor|major` front matter); rename it if
+the name already landed. Then rerun.
+
+<a id="queue-land-locked"></a>
+### `QUEUE_LAND_LOCKED`
+
+**Meaning.** Another `gstack-ship-queue land` holds the repository land lock
+(`refs/notes/gstack-land`), or took it from under this run, so this one would
+race it for the next version. The line names the holder, its PR and phase.
+
+**Fix.** Wait for the holder to finish. If it crashed, rerun with
+`--break-lock`; that is refused while the holder entered a push or a merge
+less than 10 minutes ago. A lock in phase `drift` is released by landing its
+repair PR ([QUEUE_LAND_DRIFT](#queue-land-drift)).
+
+<a id="queue-land-conflict"></a>
+### `QUEUE_LAND_CONFLICT`
+
+**Meaning.** The PR conflicts with the base branch in a product file (or a
+release field that cannot be resolved alone, such as a real dependency
+conflict in a manifest), so the merge step cannot stamp it. Nothing was
+pushed.
+
+**Fix.** The lane merges the base into the PR, resolves the named files, runs
+/ship and reports READY again.
+
+<a id="queue-land-drift"></a>
+### `QUEUE_LAND_DRIFT`
+
+**Meaning.** After the squash merge, the base branch's tree is not the
+stamped tree on the base `land` stamped: a merge made outside `land` slipped
+in between the last check and the merge. The lock stays held, in phase
+`drift`, so no other land allocates on a release record that is now wrong.
+
+**Fix.** Run `gstack-ship-queue land --pr <n> --repair`. It opens a PR whose
+only change is a fragment for what the outside merge brought. Run /ship on it
+and land it; that land takes over the lock and releases it. Then find what
+merged outside `land`.
+
+<a id="queue-land-base-busy"></a>
+### `QUEUE_LAND_BASE_BUSY`
+
+**Meaning.** The base branch moved during the stamp commit's CI on each of
+the two allowed restamps, so `land` stopped instead of restamping again.
+
+**Fix.** Find what is merging outside `land` (every merge should go through
+it), then rerun `gstack-ship-queue land --pr <n>`; the lock was released and
+the rerun restamps from the pin.
+
 <a id="queue-train-moved"></a>
 ### `QUEUE_TRAIN_MOVED`
 

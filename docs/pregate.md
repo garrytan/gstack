@@ -456,7 +456,8 @@ receipt for H when the two trees differ only as a stamp does:
   stamps, each hunk in them must be the exact old → new rewrite under
   `stamp_patterns` (literal `{version}` templates) or the built-in forms
   (`(was X)`, `since: X`, `vX`), and the version file, `package.json`'s
-  `version`, a lockfile's root version keys and a CHANGELOG re-heading have
+  `version`, a lockfile's root version keys and a CHANGELOG re-heading (under
+  `changelog_fragments`, also the fold of the fragments the head deletes) have
   their own built-in rules. There is no second list and no looser rule here:
   the file verdicts `clear` reaches on a pair are the verdicts
   `gstack-tree-receipt --gated G --current H` reaches, and its gate rule holds
@@ -475,7 +476,9 @@ receipt for H when the two trees differ only as a stamp does:
   the policy label (`origin/<base>@<sha>:.gstack/ship-policy.json`) and every
   differing path with the rule that classed it (`version-file`,
   `version-manifest`, `manifest-version`, `lockfile-root-version`,
-  `changelog-heading`, `stamp_files`, `stamp_paths`, `release_outputs`). `clear` prints the same
+  `changelog-heading`, `changelog-fragments` for the CHANGELOG under the fold,
+  `changelog_fragments` for a folded fragment's deletion, `stamp_files`,
+  `stamp_paths`, `release_outputs`). `clear` prints the same
   as `PREGATE_RECEIPT_SUBSTITUTED: …`, `verify` repeats it on its ok line, and
   the ship receipt carries the receipt string. The receipt's own tests and
   failed checks apply as before (its exit status is checked only when

@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+**A repository can now assign its version when a PR merges instead of inside the PR: PRs carry unversioned CHANGELOG fragments and `gstack-ship-queue land` stamps, pushes and merges.** Today every PR picks a version before it merges, so each merge makes the next PR's version stale and its lane redoes the stamp (a median 14.5 minutes from stamp commit to merge over 30 slots, Oct 27-29; the queue froze on hand-made stamps in #3422 and #3487). With `changelog_fragments` on, two PRs cut from one base cannot collide, and nobody stamps by hand. gstack's own policy does not turn it on in this release (docs/ship-policy.md#changelog-fragments).
+
+### Added
+- **`changelog_fragments: { dir }`** (`lib/ship-policy.ts`, `lib/changelog-fragments.ts`): a PR adds `<dir>/<slug>.md` with its entry text and optional `bump: minor|major` front matter. Fragments are read as Git blobs only; a symlink, gitlink, nested path, empty or oversized fragment, one with a release heading, a reused name, or one whose text is already released on the base (a parent PR's fragment carried in by stacked history) is `CHANGELOG_FRAGMENT_INVALID` before any version is allocated.
+- **`gstack-restamp` folds fragments**: their bodies go above any legacy `[Unreleased]` section under one new heading, the files are deleted, and the highest declared bump wins over the policy's. The tree receipt's `changelog-fragments` rule accepts exactly that fold and nothing else.
+- **`gstack-ship-queue land --pr <n>`** (`lib/ship-queue-land.ts`): the per-PR merge step. It takes the land lock (`refs/notes/gstack-land`), checks the /ship receipt, the READY receipt and checks at the pin, merges the base resolving release fields only (a clean dependency edit survives; a product conflict refuses), stamps, pushes a commit with parents [pin, base] under an exact lease, waits for checks, restamps if the base moved (at most twice), squashes with `--match-head-commit` (merges with `--merge` under `history: merge-only`) and confirms the base tree. A PR whose base is another branch refuses before the lock; a refusal before the push releases the lock. Every step is journaled and resumable, also from the stamp commit's pin when the local journal is gone. `--repair` opens the follow-up PR after `QUEUE_LAND_DRIFT`; `--census` prints what land would do with every open PR, writing nothing.
+- **/ship writes the fragment** (`lib/ship-policy.ts`, `ship/SKILL.md.tmpl`): under the key, `show-effective` prints a `ship: changelog_fragments` line, so Step 12 writes no version and Step 13 writes `<dir>/<branch-slug>.md` (linted with `gstack-prose-lint --gate`) instead of an `[Unreleased]` section; the skill's policy paragraph now says its `ship:` lines bind Steps 12–16.
+- **`restamp_command` gets `GSTACK_RESTAMP_BASE_SHA`**, the release predecessor, so a repo counter such as a SAVE_VERSION computes predecessor + 1 from the base and never from the branch.
+- New result codes with troubleshooting anchors: `CHANGELOG_FRAGMENT_INVALID`, `QUEUE_LAND_LOCKED`, `QUEUE_LAND_CONFLICT`, `QUEUE_LAND_DRIFT`, `QUEUE_LAND_BASE_BUSY`.
+
+### Changed
+- **Version Gate runs on every PR** (the path filter is gone), so under `changelog_fragments` a PR that touches no release file still proves it carries a fragment. An unstamped head keeps its release fields at its merge base and adds a valid fragment (legacy `[Unreleased]` passes; a `[bot]` author needs none); a merge-step stamp commit must have parents [pin, base] and carry the base plus its fragments' effective bump, so a lane that stamps its own head fails. Without the key nothing changes.
+
+### Tests
+- `test/changelog-fragments.test.ts`: blob-only reads and refusals, a carried-back fragment refused on whole released lines only, bump precedence, fold order with a legacy section, the restamp fold and its tree receipt, an edited fold refused.
+- `test/ship-queue-land.test.ts` (bare origin and a gh shim): happy path; two PRs from one base without a collision; a legacy stamp plus a dependency edit; a title-derived entry; a product conflict; the lock and `--break-lock`; the base moving during CI; a foreign push never overwritten; a missing receipt; drift, `--repair` and the lock release; the census; a receipt that fails #3567's depth check refuses; a base with a four-part package.json in `stamp_files` lands four parts (#3557), gstack's own shape stays three; one run without `--no-wait` merges; a PR on another base refuses; `--break-lock` refuses a drift lock; a conflict releases the lock; a stacked parent's fragment refuses; a lost journal resumes; `merge-only` merges with `--merge`; a merge GitHub completed behind an error reply reconciles; `--break-lock` refuses a holder mid-merge; `--repair` resumes after a failed PR create and its PR takes over from a clean checkout; a symlinked legacy VERSION refuses in `--dry-run`; a `package.json` version source keeps its dependency edits.
+- `test/version-gate-fragments.test.ts`: fragment heads, premature version changes, a bot author, an advanced base, an invalid fragment, the stamp commit's effective bump (open version claims do not apply to it), and the workflow's missing path filter.
+- `test/restamp-command-boundary.test.ts`: the hook reads its counter from `GSTACK_RESTAMP_BASE_SHA`, not the branch.
+
 ## [1.91.335.0] - 2026-10-30
 
 ### Fixed
