@@ -4424,7 +4424,8 @@ describe('CONFIDENCE_CALIBRATION resolver', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     const flat = content.replace(/\s+/g, ' ');
     expect(flat).toContain('Calibration learning');
-    expect(flat).toContain('log the corrected pattern as a learning');
+    expect(flat).toContain('log it per Operational Self-Improvement');
+    expect(fs.readFileSync(path.join(ROOT, 'review', 'sections', 'preamble.md'), 'utf-8')).toContain('## Operational Self-Improvement');
   });
 
   test('skills without confidence calibration do NOT contain it', () => {

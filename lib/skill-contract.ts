@@ -138,6 +138,7 @@ export function validateContract(raw: unknown): { contract: Contract } | { error
       out.labels = item.labels.map((l: string) => l.trim());
     }
     if (out.kind === 'agent_dispatch' && !out.match) return { error: `${id}: agent_dispatch needs match` };
+    if (out.kind === 'agent_dispatch' && out.marker) return { error: `${id}: agent_dispatch takes no marker until the checker can bind a marker to the dispatch it names (GST-1242)` };
     items.push(out);
   }
   return { contract: { version: 1, items } };
@@ -410,14 +411,6 @@ function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
         : { met: true, detail: `dispatched ${names.join(', ')}`, fix: '' };
     }
     case 'agent_dispatch': {
-      if (item.marker) {
-        const marker = markerPattern(item.marker);
-        let markedAt = -1;
-        run.forEach((e, i) => { if (e.kind === 'text' && marker.test(e.text)) markedAt = i; });
-        if (markedAt >= 0 && run.slice(markedAt + 1).some(e => isToolUse(e) && AGENT_TOOLS.test(e.name))) {
-          return { met: true, detail: `printed "${item.marker}", then an Agent dispatch`, fix: '' };
-        }
-      }
       const re = new RegExp(item.match as string, 'i');
       return agents.some(a => re.test(agentText(a)))
         ? { met: true, detail: `an Agent dispatch matches /${item.match}/`, fix: '' }
@@ -511,10 +504,10 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
 }
 
 /** The one agent-facing block text (gate rev 2, E1). It never names the off switch: that is for humans, in the docs and setup. */
-export function blockMessage(result: CheckResult): string {
+export function blockMessage(result: CheckResult, bin: string): string {
   const fixes = result.items.filter(i => i.status === 'missing').map(i => `${i.id}: ${i.fix}`).join('; ');
   return `SKILL_CONTRACT_UNMET ${result.skill} (contract v1): missing ${result.missing.join(', ')}. Fix: ${fixes}. ` +
-    'If an item truly does not apply, run gstack-skill-contract waive <item> --reason "<why>" (this session only; counted as a miss for follow). This blocks once.';
+    `If an item truly does not apply, run '${bin.replaceAll("'", "'\\''")}' waive <item> --reason "<why>" (this session only; counted as a miss for follow). This blocks once.`;
 }
 
 export type ContractLookup =
