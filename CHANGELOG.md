@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.91.346.0] - 2026-10-31
+
+**`sealed.local_path` now flags a home path inside a shell default, `${UBI_RUNNER:-/home/<user>…}`, as it already flagged the same path after `?? "/home/<user>…"` in TypeScript.** gstack-evals `quick/laneb/runner/launch.sh:9` passed the scan because the `-` before the path counted as part of a word (#3568).
+
+### Fixed
+- **`sealed.local_path`** (`lib/sealed-guard.ts`): a home path directly after a `${…:-` or `${…-` default now matches, for a name, an array element (`${arr[0]:-`, a subscript of up to 64 characters, so a long line of unclosed `${a[` cannot make the scan quadratic), an indirect name (`${!ref:-`), a positional number or a special parameter (`${@:-`). `:=`, `:+` and `:?` already matched, because `=`, `+` and `?` were never word characters. A hyphen anywhere else still excludes the match, so a path glued to a word (`docs-…`, `$VAR-…`, `${VAR}-…`) stays unflagged; docs/pregate.md lists that as a known limit.
+
+### Gate integrity
+- This is a gate edit that only tightens. The guard now refuses lines it passed before. No existing test, threshold or allowlist changed. A new case in `test/sealed-guard.test.ts` covers all five operators, a positional parameter, `${@`, an array element, an indirect name, a Windows path and the TypeScript `??` form. It also checks six negative controls, which are two hyphenated paths, a hyphenated sentence, `$VAR-`, `${VAR}-` and a relative default. Without the fix it misses every `-` form.
+
 ## [1.91.345.0] - 2026-10-31
 
 **A capped `/ship` on Capy now spends fewer agent turns and counts only its own tokens, while every reviewer still gets exactly the brief 1.91.331.0 gives it.** Two new commands do `/ship`'s fixed shell work, a short driver file replaces reading the whole skill when a parent agent runs `/ship`, and the budget measures each reviewer batch on its own instead of across the parent's work. Replays of gstack-evals #34 and #36 (GSTA-167) spent 12.19M tokens on Steps 12-17 and 0.25-0.4M on each parent turn; these changes cut turns, not reviewer context.
