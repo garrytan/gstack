@@ -131,6 +131,7 @@ const BASELINE = [
   'test/llm-judge-frontier.test.ts',
   'test/llm-judge-stream.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/memory-cache-injection.test.ts',
+  'test/model-panel-selftest.test.ts', // GSTA-173: free instrument check for the paid model panel; its hidden checks, INFRA classes and wording rule live in the paid-path helper
   'test/module-size-ratchet.test.ts', // ratchet (c) source scanner (W2): measures product modules as text; its counter is test tooling
   'test/native-auto-decide-pty.test.ts',
   'test/no-suicide-exit.test.ts',
