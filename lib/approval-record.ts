@@ -235,7 +235,7 @@ export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?
   return [...head, ...lines, '', `Source: gstack-approvals record for ${cell(loc.branch)} ${APPROVALS_FOOTER_END}`, ''].join('\n');
 }
 
-interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; carried_from?: string; label?: string; chosen_text?: string;
+interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; answer_words?: string; words_by?: string; carried_from?: string; label?: string; chosen_text?: string;
   carried_gate_from?: string; carried_gate_rev?: number; carried_answered_by?: string; carried_under?: string; carry_check?: string }
 
 const stripRef = (t: string) => t.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
@@ -278,7 +278,8 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     const answerer = first.answered_by ?? 'unknown';
     const carried = p1?.carried_gate_from ? p1 : undefined;
     const relayed = carried?.carried_answered_by && carried.carried_answered_by !== 'human' ? `, relayed by ${carried.carried_answered_by}` : '';
-    const who = carried ? `${by ?? 'the owner'} (words from gate_rev ${carried.carried_gate_rev}${relayed}), carried forward by gstack-autoplan`
+    const who = first.words_by ? `${first.words_by}, its own decision (not the owner's words)`
+      : carried ? `${by ?? 'the owner'} (words from gate_rev ${carried.carried_gate_rev}${relayed}), carried forward by gstack-autoplan`
       : answerer === 'human' ? (by ? `${by}, typed at the gate` : 'the owner, typed at the gate') : `${by ?? 'the owner'}, relayed by ${answerer}`;
     const unseen = items.filter(r => r.carried_under).map(r => stripRef(r.title ?? ''));
     const checked = [...new Set(items.map(r => r.carry_check).filter((c): c is string => !!c))];
@@ -286,7 +287,7 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
       unseen.length ? `taken under "do it", not seen by the owner: ${unseen.join('; ')}` : '', checked.length ? `post-cap delta checked by ${checked.join(', ')}` : ''].filter(Boolean).join('; ');
     const built = buildRow({
       ask: `Approve the plan "${planTitle}" (autoplan run ${runId}, ${carried ? `gate_rev ${rev} carried forward from gate_rev ${carried.carried_gate_rev}, ` : ''}${items.length + (p1 ? 1 : 0)} decisions)`.slice(0, CAPS.ask),
-      words: first.owner_reply ?? first.reply ?? '(no words recorded)',
+      words: first.owner_reply ?? first.answer_words ?? first.reply ?? '(no words recorded)',
       by: who.slice(0, CAPS.by),
       scope: scope.slice(0, CAPS.scope),
       pending: (stillPending.length ? `${stillPending.length} decision(s) unanswered: ${stillPending.map(r => stripRef(r.title ?? '')).join('; ')}` : outcome === 'pending' ? 'the plan approval itself' : 'none').slice(0, CAPS.pending),

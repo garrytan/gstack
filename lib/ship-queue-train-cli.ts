@@ -174,7 +174,7 @@ export async function readyMain(ctx: QueueContext, args: string[], base: { pr: s
   if (args.includes('--broad') && !screen) return usage('--broad selects the screen policy; it needs --screen');
   const dispatchCi = flag(args, '--dispatch-ci');
   const workflows = dispatchCi === undefined ? [] : dispatchCi.split(',').map(s => s.trim()).filter(Boolean);
-  if (dispatchCi !== undefined && (!workflows.length || workflows.some(w => !/^[\w.-]+\.ya?ml$/.test(w)))) return usage('--dispatch-ci names workflow files under .github/workflows, comma-separated (free-tests.yml,windows-free-tests.yml)');
+  if (dispatchCi !== undefined && (!workflows.length || workflows.some(w => !/^[\w.-]+\.ya?ml$/.test(w)))) return usage('--dispatch-ci names workflow files under .github/workflows, comma-separated (free-tests.yml,windows-smoke.yml)');
   const timeoutSec = positive(flag(args, '--timeout'), 2700);
   if (!Number.isFinite(timeoutSec)) return usage('--timeout needs a positive number of seconds');
   const fixer = flag(args, '--fixer');

@@ -314,6 +314,20 @@ network.
 
 **Expected result.** `OUTSIDE_STATUS: completed`.
 
+<a id="outside-review-truncated"></a>
+### `... outside review unavailable: the reviewer hit its output token limit and the response is cut off (...)`
+
+**Meaning.** The api runner's provider stopped at the output token limit
+(Anthropic `stop_reason: max_tokens`, OpenAI `finish_reason: length`), so the
+review ends mid-sentence and its findings may be missing.
+
+**Fix.** Re-run with a larger `--max-tokens` (`gstack-outside-voice run` or
+`gstack-autoplan run`), or shorten the prompt. `gstack-autoplan run` sends a
+default of 16384 to both providers, and OpenAI counts reasoning tokens toward
+it; `gstack-outside-voice run` sends that default to Anthropic only.
+
+**Expected result.** `OUTSIDE_STATUS: completed`.
+
 <a id="outside-review-missing-markers"></a>
 ### `... outside review unavailable: the response lacks the markers this gate requires (...)`
 

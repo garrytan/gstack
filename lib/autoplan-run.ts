@@ -31,7 +31,7 @@ import type { RunStatus } from './headless-artifacts';
 import { sha256File } from './headless-artifacts';
 import { outsideConsent } from './outside-consent';
 import { familyConflict, modelFamily } from './outside-voice-runner';
-import { renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
+import { SpendCapExceeded, release, renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
 import { DEFAULT_MAX_ROUNDS, attemptEstimate, overCap, resumeStop, roundCap, roundOf, roundsLine, stopForBudget, stopLines } from './autoplan-budget';
 import { annotateConfirm, confirmBlock } from './autoplan-confirm';
 
@@ -142,7 +142,11 @@ export function voiceState(state: RunState, phase: Phase, voice: Voice): VoiceSt
 }
 const openAttempt = (v: VoiceState) => v.attempts?.find(a => a.state === 'dispatched' || a.state === 'execution_unknown');
 
-export interface NextOptions { out: string; cwd: string; estimateUsd?: number; redispatch?: string[] }
+export interface NextOptions {
+  out: string; cwd: string; estimateUsd?: number; redispatch?: string[];
+  /** `run`: a voice's priced reservation from its prompt (undefined when unpriced); `--estimate-usd` wins over it. */
+  price?: (voice: Voice, promptFile: string) => number | undefined;
+}
 export interface NextResult { state: RunState; phase?: Phase; attempts: Array<{ attempt: string; voice: Voice; prompt: string; result: string; model_family: string; new: boolean }>; lines: string[] }
 
 function openPhase(state: RunState, phase: Phase, cwd: string): void {
@@ -219,15 +223,20 @@ export function nextStep(o: NextOptions): NextResult {
   if (ps.outside?.reason === 'docs_only') lines.push(`OUTSIDE: ${phase} not_run reason=docs_only (native voice only)`);
   if (ps.sections) lines.push(`Skipped sections: ${ps.sections.skipped.length ? ps.sections.skipped.join(',') : 'none'} (scope: ui=${state.scope.ui ? 'yes' : 'no'},dx=${state.scope.dx ? 'yes' : 'no'},source=${scopeSourceLabel(state.scope)}; checklist=${ps.sections.checklist ? 'loaded' : 'none'})`);
   const prompts = ps.prompts!;
+  if (o.estimateUsd !== undefined) state.estimate_usd = o.estimateUsd;
   const estimate = attemptEstimate(state, o.estimateUsd, process.env);
-  if (estimate.line) lines.push(estimate.line);
+  const usdFor = (voice: Voice) => (state.estimate_usd === undefined ? o.price?.(voice, prompts[voice]) : undefined) ?? estimate.usd;
+  if (estimate.line && (['native', 'outside'] as const).some(voice => usdFor(voice) === estimate.usd)) lines.push(estimate.line);
   if (first) lines.push(reviewEstimateLine(state, estimate.usd));
   const fresh = (['native', 'outside'] as const).filter(voice => { const v = voiceState(state, phase!, voice); const open = openAttempt(v); return !voiceTerminal(v) && (!open || (open.state === 'execution_unknown' && o.redispatch?.includes(open.attempt))); });
+  const resultOf = (voice: Voice, attempt: string) => path.join(state.out, attemptFile(phase!, voice, attempt.slice(state.run.length + 1), 'md'));
+  fresh.forEach((voice, i) => bindPromptResult(prompts[voice], resultOf(voice, `${state.run}-a${state.attempt_counter + i + 1}`)));
   const before = summarize(readLedger(path.join(state.out, FILES.spend), state.spend_cap_usd));
-  if (state.spend_cap_usd !== null && fresh.length && before.worst_case_usd + fresh.length * estimate.usd > state.spend_cap_usd + 1e-9) {
-    const stop = stopForBudget(state, phase, fresh.length * estimate.usd);
+  const asked = fresh.reduce((sum, voice) => sum + usdFor(voice), 0);
+  if (state.spend_cap_usd !== null && fresh.length && before.worst_case_usd + asked > state.spend_cap_usd + 1e-9) {
+    const stop = stopForBudget(state, phase, asked);
     writeState(state);
-    throw new RunError('SPEND_CAP_EXCEEDED', `spent ${before.spent_usd} + reserved ${before.reserved_usd} + unknown ${before.unknown_usd} + ${fresh.length} x estimate ${estimate.usd} > cap ${state.spend_cap_usd}; the run stopped incomplete (budget_exhausted)`, 3, { status: 'incomplete', lines: [...lines, ...stop] });
+    throw new RunError('SPEND_CAP_EXCEEDED', `spent ${before.spent_usd} + reserved ${before.reserved_usd} + unknown ${before.unknown_usd} + ${fresh.length} attempt(s) reserving ${+asked.toFixed(6)} > cap ${state.spend_cap_usd}; the run stopped incomplete (budget_exhausted)`, 3, { status: 'incomplete', lines: [...lines, ...stop] });
   }
   for (const voice of ['native', 'outside'] as const) {
     const v = voiceState(state, phase, voice);
@@ -243,11 +252,12 @@ export function nextStep(o: NextOptions): NextResult {
       continue;
     }
     const attempt = `${state.run}-a${++state.attempt_counter}`;
-    try { reserve(path.join(state.out, FILES.spend), attempt, estimate.usd, { cap: state.spend_cap_usd, label: `${phase}/${voice}` }); }
+    const resultFile = resultOf(voice, attempt);
+    const usd = usdFor(voice);
+    try { reserve(path.join(state.out, FILES.spend), attempt, usd, { cap: state.spend_cap_usd, label: `${phase}/${voice}` }); }
     catch (e: any) { if (e.code === 'SPEND_CAP_EXCEEDED') { state.attempt_counter--; writeState(state); throw new RunError('SPEND_CAP_EXCEEDED', e.message, 3); } throw e; }
-    const row: AttemptState = { attempt, state: 'dispatched', prompt: prompts[voice], result: path.join(state.out, attemptFile(phase, voice, attempt.slice(state.run.length + 1), 'md')), estimate_usd: estimate.usd, dispatched_at: now() };
-    bindPromptResult(row.prompt, row.result);
-    journal(state.out, { event: 'dispatched', attempt, phase, voice, snapshot: ps.snapshot, prompt: path.relative(state.out, row.prompt), prompt_sha256: sha256File(row.prompt), prompt_bytes: fs.statSync(row.prompt).size, result: path.relative(state.out, row.result), estimate_usd: estimate.usd });
+    const row: AttemptState = { attempt, state: 'dispatched', prompt: prompts[voice], result: resultFile, estimate_usd: usd, dispatched_at: now() };
+    journal(state.out, { event: 'dispatched', attempt, phase, voice, snapshot: ps.snapshot, prompt: path.relative(state.out, row.prompt), prompt_sha256: sha256File(row.prompt), prompt_bytes: fs.statSync(row.prompt).size, result: path.relative(state.out, row.result), estimate_usd: usd });
     (v.attempts ??= []).push(row);
     v.attempt = attempt; v.status = 'running';
     result.attempts.push({ attempt, voice, prompt: row.prompt, result: row.result, model_family: familyHint(state, voice), new: true });
@@ -403,6 +413,44 @@ export function closeOutside(state: RunState, phase: Phase, status: 'unavailable
   if (state.phases[phase]?.native?.status === 'completed') lines.push(...closeAndAdvance(state, phase));
   else if (state.status !== 'gate_pending') state.status = 'awaiting_result';
   return lines;
+}
+
+/** Raise an open attempt's reservation to what the call about to run can cost; the cap still binds (SPEND_CAP_EXCEEDED). */
+export function fitReservation(out: string, phase: Phase, voice: Voice, attempt: string, usd: number): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (!a || usd <= a.estimate_usd + 1e-9) return;
+  const file = path.join(out, FILES.spend);
+  release(file, attempt);
+  const label = `${phase}/${voice}`;
+  try { reserve(file, attempt, usd, { cap: state.spend_cap_usd, label }); }
+  catch (e) {
+    reserve(file, attempt, a.estimate_usd, { label });
+    if (e instanceof SpendCapExceeded) throw new RunError('SPEND_CAP_EXCEEDED', `${attempt} (${phase} ${voice}) was admitted at ${a.estimate_usd}; the call it is about to make can cost ${usd}, past the cap ${state.spend_cap_usd}`, 3);
+    throw e;
+  }
+  a.estimate_usd = usd;
+  writeState(state);
+}
+
+/** Record that `run`'s paid call for an open attempt is going out (true) or never left this machine (false). */
+export function markSent(out: string, phase: Phase, voice: Voice, attempt: string, sent: boolean): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (!a) return;
+  if (sent) a.sent_at = now(); else delete a.sent_at;
+  writeState(state);
+}
+
+/** A paid call that did not bind a result (failed, refused, lost with its process): settle what it cost and supersede its open attempt, so a retry is admitted afresh. */
+export function retireAttempt(out: string, phase: Phase, voice: Voice, attempt: string, usd: number | 'unknown'): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (!a || a.state !== 'dispatched') return;
+  a.state = 'superseded'; a.terminal_at = now();
+  settle(path.join(out, FILES.spend), attempt, usd);
+  journal(out, { event: 'superseded', attempt, phase, voice, usage_usd: usd });
+  writeState(state);
 }
 
 /** Mark the outside voice of the current phase unavailable/failed (the runner could not run); closes the phase if native is bound. */
