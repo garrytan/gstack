@@ -8,8 +8,12 @@
  *   gstack-review-dispatch collect --ledger <f> --role <role> [--name <n>] --output <file> --merged <file>
  *   gstack-review-dispatch judge --ledger <f> --merged <file> --judged <file>        no drop, no downgrade
  *   gstack-review-dispatch verify --ledger <f> [--targeted-out <file>]               replay every hash and the judgment
+ *   gstack-review-dispatch pass --base <b> --out <dir> --pass <id> [-- plan flags]  the pass's staged manifest
+ *   gstack-review-dispatch show|stage|chunk|mark --manifest <f> ...                  one manifest step
+ *   gstack-review-dispatch program [--ledger <f>]                                    the checked-in Capy pass program
  *
- * Logic: lib/review-brief.ts (rendering from the sections) and lib/review-ledger.ts (ledger, collect, judge, verify).
+ * Logic: lib/review-brief.ts (rendering from the sections), lib/review-ledger.ts (ledger, collect, judge, verify),
+ * lib/review-pass.ts (the staged manifest) and lib/capy-review-pass.js (the Capy program that runs it).
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -17,6 +21,9 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, promptHash, renderBrief, sectionTexts, type BriefRole, type Slots } from '../lib/review-brief';
 import { collect, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
+import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
+import type { Dispatch } from '../lib/review-depth';
+import { runScriptSync } from '../lib/script-invocation';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from '../lib/review-targeted';
 import { resolveBaseBranch } from '../lib/ship-policy';
 
@@ -44,6 +51,24 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       BRIEF, OUTPUT and JUDGE rows from the ledger alone, then VERIFY: clean (exit 0), VERIFY: dirty (exit 1) or
       VERIFY: no brief records (exit 3: this run's ledger kept no prompts). A ledger with a targeted brief also prints
       TARGETED_RECORD: and --targeted-out writes it as the JSON gstack-ship-receipt write --review-targeted reads
+  pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>]
+       [--checklist-root <dir>] [-- <gstack-review-plan flags>]
+      runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
+      specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
+      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full or scoped prints PASS: none.
+      An existing manifest for the same --pass is reused (resumed). --extras: [{"name","prompt_file","first"?,"model"?}]
+  show --manifest <f>                         MANIFEST_JSON: <the manifest on one line>
+  stage --manifest <f> --stage <first|specialists|red-team|voices>
+      renders a stage; the Red Team only after every earlier reader is collected, its findings file being the
+      specialists' merged.jsonl lines byte for byte
+  chunk --manifest <f> --reader <r> --index <i>
+      BRIEF_CHUNK: reader=… index=i of=n sha256=…, then one JSON string line of at most 65,536 brief characters
+  mark --manifest <f> --reader <r> --state <intent|created|queued|collected|failed> [--path <p>] [--output <f>] [--error <e>]
+  mark --manifest <f> --before <tokens>,<credits>
+  mark --manifest <f> --log-start <key> --token <t>   records a review-log start token once, so a rerun starts only what is missing
+      reader states move forward only; intent is recorded before the subagent is created, its path right after
+  program [--ledger <f>]
+      PROGRAM: v<n> sha256=… bytes=…, then lib/capy-review-pass.js as one JSON string line (see the gstack Capy skill)
 ${exitTableHelp()}`;
 
 const args = process.argv.slice(2);
@@ -96,6 +121,113 @@ function render(): number {
   return EXIT.ok;
 }
 
+const PROGRAM_FILE = path.join(ROOT, 'lib', 'capy-review-pass.js');
+const PROGRAM_VERSION = 1;
+const git = (a: string[]) => { const r = spawnSync('git', a, { encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
+const readerLine = (m: Manifest, r: PassReader) => `READER: ${r.reader} stage=${r.stage} state=${r.state} title="${r.title}"${r.sha256 ? ` sha256=${r.sha256} bytes=${r.bytes} chunks=${r.chunks}` : ''}${r.path ? ` path=${r.path}` : ''}`;
+const branchDiff = (base: string) => {
+  const d = git(['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', base]);
+  if (d === null) throw new BriefError(`git diff ${base} failed`);
+  return d;
+};
+
+function pass(): number {
+  const base = flag('--base'), out = flag('--out'), id = flag('--pass');
+  if (!base || !out || !id || !/^[a-z0-9-]+$/.test(id)) { process.stderr.write('gstack-review-dispatch pass: needs --base <ref>, --out <dir> and --pass <id> (lowercase letters, digits, dashes)\n'); return EXIT.usage; }
+  const file = manifestPath(out);
+  if (fs.existsSync(file)) {
+    const m = readManifest(file);
+    if (m.pass !== id) throw new BriefError(`${file} belongs to pass ${m.pass}, not ${id}`);
+    process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${m.pass} readers=${m.readers.length} resumed`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
+    return EXIT.ok;
+  }
+  const planArgs = args.includes('--') ? args.slice(args.indexOf('--') + 1) : [];
+  const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: 180_000, maxBuffer: 64 * 1024 * 1024 });
+  const text = plan(false);
+  if (text.status !== 0) { process.stdout.write(text.stdout ?? ''); process.stderr.write(text.stderr ?? ''); return EXIT.fail; }
+  const j = plan(true);
+  if (j.status !== 0) { process.stderr.write(j.stderr ?? ''); return EXIT.fail; }
+  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] } };
+  const planLines = text.stdout.trimEnd().split('\n');
+  const step = p.next.step;
+  if (step !== 'full' && step !== 'scoped') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
+  const diffBase = flag('--diff-base') ?? git(['merge-base', base, 'HEAD'])?.trim();
+  if (!diffBase) throw new BriefError(`no merge base between ${base} and HEAD`);
+  const root = git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd();
+  const extrasFile = flag('--extras');
+  const extras = extrasFile ? JSON.parse(readFile(extrasFile, 'extras')!) as Extra[] : [];
+  const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase, root, checklistRoot: flag('--checklist-root') ?? ROOT,
+    dispatches: p.dispatches, next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
+    targetedClasses: p.targeted?.classes, mergeBase: git(['merge-base', base, 'HEAD'])?.trim() });
+  fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
+  const t = sectionTexts(ROOT);
+  renderStage(m, 'first', t, branchDiff);
+  renderStage(m, 'specialists', t, branchDiff);
+  writeManifest(file, m);
+  const count = (s: string) => m.readers.filter(r => r.stage === s).length;
+  process.stdout.write([...planLines, `MANIFEST: file=${file} pass=${id} readers=${m.readers.length} first=${count('first')} specialists=${count('specialists')} red-team=${count('red-team')} voices=${count('voices')}`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
+  return EXIT.ok;
+}
+
+function passStep(cmd: string): number {
+  const file = flag('--manifest');
+  if (!file) { process.stderr.write(`gstack-review-dispatch ${cmd}: --manifest <file> is required\n`); return EXIT.usage; }
+  const m = readManifest(file);
+  if (cmd === 'show') { process.stdout.write(`MANIFEST_JSON: ${JSON.stringify(m)}\n`); return EXIT.ok; }
+  if (cmd === 'stage') {
+    const stage = flag('--stage') as Stage | undefined;
+    if (!stage || !STAGES.includes(stage)) { process.stderr.write(`gstack-review-dispatch stage: --stage ${STAGES.join('|')}\n`); return EXIT.usage; }
+    const done = renderStage(m, stage, sectionTexts(ROOT), branchDiff);
+    writeManifest(file, m);
+    process.stdout.write([`STAGE: ${stage} rendered=${done.length}`, ...done.map(r => readerLine(m, r))].join('\n') + '\n');
+    return EXIT.ok;
+  }
+  if (cmd === 'chunk') {
+    const r = m.readers.find(x => x.reader === flag('--reader'));
+    if (!r?.file || !r.sha256) { process.stderr.write(`gstack-review-dispatch chunk: no rendered reader ${flag('--reader')}\n`); return EXIT.usage; }
+    const text = readFile(r.file, 'brief')!;
+    if (promptHash(text) !== r.sha256) throw new BriefError(`${r.reader}'s brief ${r.file} changed since it was rendered`);
+    const index = Number(flag('--index') ?? '0');
+    process.stdout.write(`BRIEF_CHUNK: reader=${r.reader} index=${index} of=${chunkCount(text)} sha256=${r.sha256}\n${JSON.stringify(chunkOf(text, index))}\n`);
+    return EXIT.ok;
+  }
+  if (cmd === 'mark') {
+    const logStart = flag('--log-start');
+    if (logStart) {
+      const token = flag('--token');
+      if (!token) { process.stderr.write('gstack-review-dispatch mark: --log-start <key> --token <t>\n'); return EXIT.usage; }
+      m.log_starts ??= {};
+      m.log_starts[logStart] ??= token;
+      writeManifest(file, m);
+      process.stdout.write(`LOG_START: ${logStart} token=${m.log_starts[logStart]}\n`);
+      return EXIT.ok;
+    }
+    const before = flag('--before');
+    if (before) {
+      const [tokens, credits] = before.split(',').map(Number);
+      if (!Number.isFinite(tokens) || !Number.isFinite(credits)) { process.stderr.write('gstack-review-dispatch mark: --before <tokens>,<credits>\n'); return EXIT.usage; }
+      m.before ??= { tokens: tokens!, credits: credits! };
+      writeManifest(file, m);
+      process.stdout.write(`BEFORE: tokens=${m.before.tokens} credits=${m.before.credits}\n`);
+      return EXIT.ok;
+    }
+    const r = markReader(m, flag('--reader') ?? '', flag('--state') as ReaderState, { path: flag('--path'), output: flag('--output'), error: flag('--error') });
+    writeManifest(file, m);
+    process.stdout.write(readerLine(m, r) + '\n');
+    return EXIT.ok;
+  }
+  return EXIT.usage;
+}
+
+function program(): number {
+  const text = readFile(PROGRAM_FILE, 'pass program')!;
+  const sha = promptHash(text);
+  const ledger = flag('--ledger');
+  if (ledger) appendEvent(ledger, { event: 'program', version: PROGRAM_VERSION, sha256: sha });
+  process.stdout.write(`PROGRAM: v${PROGRAM_VERSION} sha256=${sha} bytes=${Buffer.byteLength(text)}\n${JSON.stringify(text)}\n`);
+  return EXIT.ok;
+}
+
 /**
  * The receipt's review_targeted record from the newest targeted dispatch: done only when its brief was sent verbatim, its output
  * collected, and the committed diff it was rendered on is still the one at verify (targetedPatchId; uncommitted never proves it).
@@ -117,6 +249,9 @@ function main(): number {
   const cmd = args[0];
   if (!cmd || cmd === '--help' || cmd === '-h') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
   if (cmd === 'render') return render();
+  if (cmd === 'pass') return pass();
+  if (cmd === 'program') return program();
+  if (['show', 'stage', 'chunk', 'mark'].includes(cmd)) return passStep(cmd);
   const ledger = flag('--ledger');
   if (!ledger) { process.stderr.write(`gstack-review-dispatch ${cmd}: --ledger <file> is required\n`); return EXIT.usage; }
   const reader = flag('--role') ? readerKey(flag('--role')!, flag('--name')) : '';

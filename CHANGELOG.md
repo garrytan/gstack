@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.91.362.0] - 2026-10-31
+
+**A /ship review pass on Capy is one call to a checked-in program, and reviewer briefs no longer pass through the model.** In the GSTA-189 replay one pass took about 10 parent calls to plan, render, create, check and poll its readers, and the Red Team brief went out wrong twice because a file read cut its long lines. What reviewers see, which reviewers run, their depth and the blocking floor are unchanged, and the new path renders all 16 briefs of that replay byte for byte.
+
+### Added
+- **`gstack-review-dispatch pass`** plans a pass and writes a staged manifest: audits marked first, then specialists with QA and the other audits, then the Red Team, then Step 11's voices. Each brief is rendered once its inputs exist, and the Red Team's findings file is the specialists' collected lines byte for byte.
+- **Briefs travel in chunks** (`gstack-review-dispatch chunk`) of at most 65,536 characters, so a brief over 1 MB, or one whose diff has invalid UTF-8, reaches the reader whole and is checked by `sent` before the reader starts.
+- **The Capy pass program** (`lib/capy-review-pass.js`, served by `gstack-review-dispatch program`) runs plan, review-log start, dispatch, poll, collect, the Red Team and the budget note in one call, returning within 200 s; the gstack Capy skill carries the loader. Each reader's intent is saved before its subagent is created, so a rerun after a lost create result finds the reader by title instead of starting it twice, and an unclear outcome stops the pass. A failed reader stops every rerun instead of leaving it polling, and a review-log start that failed is retried before any reader goes out.
+
+### Fixed
+- **The pass program takes its input as the Capy skill writes it.** `extras` may be JSON in the input, not only a file path, and `cwd` names the checkout its commands run in. A reader that reports done a moment before its summary arrives is collected on a later poll instead of stopping the pass. Replay C2-34 (GSTA-193) lost 7 of its 15 calls to these three issues.
+- **The targeted reader runs in the pass.** When the plan dispatches it for money, gate, auth or secret code, it is staged with Step 11's voices on the merge base. Its brief matches `gstack-review-dispatch render --role targeted` byte for byte, and its ledger row carries the classes, rules, brief and patch the receipt's targeted record reads.
+
 ## [1.91.361.0] - 2026-10-31
 
 **A reviewer's install no longer rewrites the lane's launch environment, and a hand-run `gstack-upgrade` on Capy no longer moves a checkout under another session.** These are follow-ups to the v1.91.356.0 fix that stopped reviewer installs from upgrading the shared checkout.
