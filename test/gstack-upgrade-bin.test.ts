@@ -19,7 +19,7 @@ const REPO = path.resolve(import.meta.dir, '..');
 const DEPS = [
   'bin/gstack-upgrade', 'bin/gstack-bun-version.sh', 'bin/gstack-paths', 'bin/gstack-state-root.sh',
   'bin/gstack-egress-lib.sh', 'bin/gstack-egress-receipt', 'lib/egress-receipt.ts', 'lib/state-root.ts',
-  'bin/gstack-lease', 'bin/gstack-harness-pid.sh', 'bin/gstack-install-verdict.sh',
+  'bin/gstack-lease', 'bin/gstack-harness-pid.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-ff-update',
 ];
 const hosts: CapyHost[] = [];
 const children: ChildProcess[] = [];
@@ -40,7 +40,7 @@ const write = (file: string, text: string, mode = 0o644) => {
   fs.writeFileSync(file, text, { mode });
 };
 
-function fixture() {
+function fixture(opts: { parent?: 'files' | 'gitlink' } = {}) {
   const host = capyHost({ systemBun: '1.4.2' });
   hosts.push(host);
   const git = (args: string[], cwd: string) => {
@@ -68,8 +68,18 @@ function fixture() {
   const a = git(['rev-parse', 'HEAD'], seed);
   git(['init', '-q', '--bare', '-b', 'main', bare], host.base);
   git(['push', '-q', bare, 'main'], seed);
-  const root = path.join(host.base, 'gstack');
+  const project = path.join(host.base, 'project');
+  const root = opts.parent ? path.join(project, '.claude/skills/gstack') : path.join(host.base, 'gstack');
+  fs.mkdirSync(path.dirname(root), { recursive: true });
   git(['clone', '-q', '--single-branch', '--depth', '1', `file://${bare}`, root], host.base);
+  if (opts.parent) {
+    // #1022: a project that committed the install's files as plain blobs (or,
+    // the supported shape, as a submodule gitlink) beside the nested .git.
+    git(['init', '-q', '-b', 'main'], project);
+    if (opts.parent === 'files') git(['update-index', '--add', '--', ...git(['ls-files'], root).split('\n').map(f => `.claude/skills/gstack/${f}`)], project);
+    else git(['update-index', '--add', '--cacheinfo', `160000,${a},.claude/skills/gstack`], project);
+    git(['commit', '-qm', 'vendor gstack'], project);
+  }
   write(path.join(seed, 'VERSION'), '1.0.1\n');
   git(['commit', '-qam', 'B'], seed);
   const b = git(['rev-parse', 'HEAD'], seed);
@@ -78,7 +88,7 @@ function fixture() {
   const run = (args: string[] = [], extra: Record<string, string> = {}) =>
     spawnSync('bash', [path.join(root, 'bin/gstack-upgrade'), ...args], { cwd: host.home, encoding: 'utf8', env: { ...env, ...extra }, timeout: 60_000 });
   return {
-    host, root, bare, a, b, run, git: (args: string[]) => git(args, root),
+    host, root, bare, a, b, run, project, git: (args: string[]) => git(args, root), parentGit: (args: string[]) => git(args, project),
     calls: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [],
   };
 }
@@ -394,6 +404,70 @@ describe('gstack-upgrade', () => {
     expect(r.status).toBe(1);
     expect(r.stdout.trim().split('\n').at(-1)).toBe('gstack: fail pins');
     expect(f.calls()).toEqual(['setup --refresh-registered', `doctor --check --require runtime,pins --project ${fs.realpathSync(project)}`]);
+  });
+
+  // Value: protects=an install whose enclosing project tracks its files is refused before it moves, so a project checkout cannot revert VERSION behind an upgraded HEAD (#1022);
+  //   fails_when=the enclosing-project check is dropped or matches a submodule gitlink; why_new=no case had an enclosing repository; seam=none
+  test('a project that tracks the install\'s files refuses --check and default with UPGRADE_REFUSED naming the untrack fix (#1022)', () => {
+    const f = fixture({ parent: 'files' });
+    const reflog = f.git(['reflog']);
+    for (const args of [['--check'], []]) {
+      const r = f.run(args);
+      expect(r.status, r.stdout + r.stderr).toBe(3);
+      expect(r.stderr).toContain('(UPGRADE_REFUSED)');
+      expect(r.stderr).toContain(`${f.project} tracks`);
+      expect(r.stderr).toContain(`git -C '${f.project}' --literal-pathspecs rm -r -q --cached -- '.claude/skills/gstack'`);
+      expect(r.stderr.trim().split('\n').filter(l => l.startsWith('gstack-upgrade: '))).toHaveLength(1);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.a);
+      expect(f.git(['reflog'])).toBe(reflog);
+    }
+    expect(f.calls()).toEqual([]);
+    f.parentGit(['rm', '-r', '-q', '--cached', '--', '.claude/skills/gstack']);
+    f.git(['stash', 'push', '-m', 'files reverted by the project']);
+    const fixed = f.run();
+    expect(fixed.status, fixed.stdout + fixed.stderr).toBe(0);
+    expect(fixed.stdout).toContain('gstack-upgrade: upgraded 1.0.0 -> 1.0.1');
+  });
+
+  // Value: protects=the supported vendoring shape (a submodule gitlink) still upgrades; fails_when=the #1022 check counts a gitlink as tracked files;
+  //   why_new=negative control for the case above; seam=none
+  test('a project that holds the install as a submodule gitlink upgrades normally', () => {
+    const f = fixture({ parent: 'gitlink' });
+    const r = f.run();
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+  });
+
+  // Value: protects=a working-tree VERSION that disagrees with HEAD is never reported current (the frozen VERSION of #1022);
+  //   fails_when=the current path trusts the VERSION file without comparing it to HEAD; why_new=every current case had a clean tree; seam=none
+  test('a VERSION reverted behind HEAD is not current: --check and default refuse naming both versions (#1022)', () => {
+    const f = fixture();
+    expect(f.run(['--ff-only-no-reinstall']).status).toBe(0);
+    fs.writeFileSync(path.join(f.root, 'VERSION'), '1.0.0\n');
+    for (const args of [['--check'], []]) {
+      const r = f.run(args);
+      expect(r.status, r.stdout + r.stderr).toBe(3);
+      expect(r.stdout).not.toContain('gstack-upgrade: current');
+      expect(r.stderr).toContain('VERSION says 1.0.0 but the checkout is at 1.0.1');
+      expect(r.stderr).toContain('(UPGRADE_REFUSED)');
+    }
+    expect(f.calls()).toEqual([]);
+    f.git(['stash', 'push', '-q', '-m', 'files reverted by the project']);
+    const fixed = f.run(['--check']);
+    expect(fixed.status, fixed.stdout + fixed.stderr).toBe(0);
+    expect(fixed.stdout).toContain('gstack-upgrade: current 1.0.1');
+  });
+
+  // Value: protects=a Windows checkout with core.autocrlf (VERSION written CRLF) is not mistaken for a reverted VERSION;
+  //   fails_when=the VERSION check compares raw bytes instead of git's eol-normalized diff; why_new=the check is new; seam=none
+  test('a CRLF VERSION under core.autocrlf=true is current, not reverted', () => {
+    const f = fixture();
+    expect(f.run(['--ff-only-no-reinstall']).status).toBe(0);
+    f.git(['config', 'core.autocrlf', 'true']);
+    fs.writeFileSync(path.join(f.root, 'VERSION'), '1.0.1\r\n');
+    const r = f.run(['--check']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain('gstack-upgrade: current 1.0.1');
   });
 
   test('every bin a trailer or fix line names exists in the repo', () => {

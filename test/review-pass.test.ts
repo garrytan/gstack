@@ -226,6 +226,25 @@ describe('the targeted reader in a pass (GST-257 on main)', () => {
   }, 180_000);
 });
 
+describe('a large diff (GST-507)', () => {
+  // Value: protects=a pass on a results PR with thousands of files reads gstack-review-plan's whole JSON plan through the pipe and stages its readers; fails_when=either bin exits before its stdout drains, so the plan JSON arrives cut short and pass dies on JSON.parse;
+  //   why_new=HARN-1 hit it on a 4,000-file receipt tree (a 1.39 MB plan); seam=none; no_claim=what reviewers read on a large diff (GST-508)
+  test('a 4,000-file diff round-trips a plan JSON over 1 MB and pass stages its readers', () => {
+    const { dir, env } = repo();
+    const files = 4000;
+    const made = spawnSync('bash', ['-c', `for d in $(seq 1 40); do p=receipts/harness-evals-lane-b-results-run-$d/per-case-receipts/skill-behavior-panel; mkdir -p $p; for i in $(seq 1 100); do echo "{\\"case\\":$i}" > $p/receipt-for-case-number-$i-trial-a.json; done; done && git add -A && git commit -qm receipts`], { cwd: dir, env, encoding: 'utf8', timeout: 120_000 });
+    expect(made.status, made.stderr).toBe(0);
+    const plan = spawnSync(path.join(BIN, 'gstack-review-plan'), ['--base', 'main', '--json'], { cwd: dir, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+    expect(plan.status, plan.stderr).toBe(0);
+    expect(plan.stdout.length).toBeGreaterThan(1_000_000);
+    expect((JSON.parse(plan.stdout) as { paths: string[] }).paths.filter(p => p.startsWith('receipts/'))).toHaveLength(files);
+    const out = path.join(dir, '.state/run/p1');
+    const p = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['pass', '--base', 'main', '--out', out, '--pass', 'big-p1'], { cwd: dir, env, encoding: 'utf8', timeout: 180_000 });
+    expect(p.status, p.stdout + p.stderr).toBe(0);
+    expect(p.stdout).toMatch(/^MANIFEST: file=.* pass=big-p1 readers=[1-9]/m);
+  }, 300_000);
+});
+
 describe('Capy pass program (fake host, real bins)', () => {
   test('gstack-review-dispatch program serves the checked-in file verbatim with its sha', () => {
     const r = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['program'], { encoding: 'utf8', timeout: 30_000 });
@@ -469,6 +488,63 @@ describe('the Capy skill loader', () => {
   }, 180_000);
 });
 
+
+describe('a scoped pass after a blocker fix (GST-619)', () => {
+  // Value: protects=the pass command accepts the scoped plan gstack-review-plan writes after a blocking fix, invoked as GEVA-2 ran it: the Red Team reviews the fix range, Step 11's voices still pending keep the whole branch, the fix-check is named outside the manifest for Step 3.5, and a resumed pass names it again; fails_when=pass refuses the scoped plan, stages the Red Team on the merge base, stages pending Step 11 voices on the range, drops the fix-check silently, or puts it in the manifest;
+  //   why_new=GEVA-82 on 1.91.379.0 hit BRIEF_RENDER_FAILED on every scoped pass and rendered briefs by hand; seam=none; no_claim=the fix-check's own brief
+  function scoped(flags: string[]) {
+    const { dir, env } = repo();
+    const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
+    const mergeBase = sh('git merge-base main HEAD');
+    const rangeBase = sh('git rev-parse HEAD');
+    sh('for i in $(seq 1 24); do echo "export const f$i = $i;" >> src/fix.ts; done && git add -A && git commit -qm "fix: pre-landing review fixes"');
+    const out = path.join(dir, '.state/run/p2');
+    const extras = path.join(dir, '.state/extras.json');
+    fs.mkdirSync(path.join(dir, '.state'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.state/qa.md'), 'QA the fix.\n');
+    fs.writeFileSync(extras, JSON.stringify([{ name: 'qa', prompt_file: path.join(dir, '.state/qa.md') }]));
+    const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--extras', extras, '--', '--pass', '1', '--last', 'full', '--pass1-depth', 'standard', '--fixed-blocking', ...flags, '--range-base', rangeBase.slice(0, 7)];
+    const p = bin(dir, env, args);
+    expect(p.status, p.stdout + p.stderr).toBe(0);
+    expect(p.stdout).toMatch(/^NEXT: scoped /m);
+    expect(p.stdout).toMatch(/^FIX_CHECK: planned effort=full \(Step 3\.5 runs it on its own; not in this manifest\)$/m);
+    const mf = path.join(out, 'pass-manifest.json');
+    return { dir, env, args, mf, mergeBase, rangeBase, m: JSON.parse(fs.readFileSync(mf, 'utf8')) as Manifest };
+  }
+  const settle = (s: ReturnType<typeof scoped>, stage: string) => {
+    if (stage !== 'specialists') expect(bin(s.dir, s.env, ['stage', '--manifest', s.mf, '--stage', stage]).status).toBe(0);
+    const m = JSON.parse(fs.readFileSync(s.mf, 'utf8')) as Manifest;
+    const reply = path.join(s.dir, '.state/reply.txt');
+    fs.writeFileSync(reply, treeLine(s.dir) + 'NO FINDINGS\n');
+    for (const r of m.readers.filter(x => x.stage === stage)) for (const [st, extra] of [['intent', []], ['created', ['--path', '1']], ['collected', r.reader.startsWith('audit/') ? ['--output', reply] : []]] as const) expect(bin(s.dir, s.env, ['mark', '--manifest', s.mf, '--reader', r.reader, '--state', st, ...extra]).status).toBe(0);
+    return JSON.parse(fs.readFileSync(s.mf, 'utf8')) as Manifest;
+  };
+
+  test('GEVA-2\'s invocation: the Red Team reads the fix range, the pending Step 11 voices read the whole branch, and the fix-check is named outside the manifest', () => {
+    const s = scoped([]);
+    expect(s.m.next).toBe('scoped');
+    expect(s.m.diff_base).toBe(s.mergeBase);
+    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['outside-voice', null], ['audit/qa', null]]);
+    settle(s, 'specialists');
+    const m = settle(s, 'red-team');
+    const redTeam = fs.readFileSync(m.readers.find(r => r.reader === 'red-team')!.file!, 'utf8');
+    expect(redTeam).toContain(s.rangeBase);
+    expect(redTeam).not.toContain(s.mergeBase);
+    expect(bin(s.dir, s.env, ['stage', '--manifest', s.mf, '--stage', 'voices']).status).toBe(0);
+    const voices = JSON.parse(fs.readFileSync(s.mf, 'utf8')) as Manifest;
+    expect(fs.readFileSync(voices.readers.find(r => r.reader === 'outside-voice')!.file!, 'utf8')).toContain('+export const v1 = 1;');
+    const again = bin(s.dir, s.env, s.args);
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    expect(again.stdout).toMatch(/^FIX_CHECK: planned effort=full /m);
+    expect(again.stdout).toContain('readers=4 resumed');
+  }, 120_000);
+
+  test('after Step 11 ran (--adversarial-ran), the whole scoped pass reads the fix range', () => {
+    const s = scoped(['--adversarial-ran']);
+    expect(s.m.diff_base).toBe(s.rangeBase);
+    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['audit/qa', null]]);
+  }, 120_000);
+});
 
 describe('readers on a shared machine review the checkout the pass ships (GST-482)', () => {
   /** The primary checkout on feat, and a worktree of it on another branch with one more commit: the GBRA-218 layout. */
