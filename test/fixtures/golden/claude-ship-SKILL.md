@@ -871,7 +871,7 @@ A new PR or an existing draft needs no question: Step 19 creates or keeps the dr
 ```
 
 It checks the branch, the offer, the gate above (`--gate-open <n>`; `--gate-open-approved` is B)
-and `gstack-pregate sealed`, then `git ls-remote --heads origin refs/heads/<branch-name>` against HEAD: a failed lookup STOPs, a match prints
+`gstack-pregate sealed` and push guards, then `git ls-remote --heads origin refs/heads/<branch-name>` against HEAD: a failed lookup STOPs, a match prints
 `PUSH: ALREADY_PUSHED` (go to Step 18), else it runs `git push -u origin <branch-name>`.
 
 **If the push fails, STOP.** No Step 19 or publication claim. Report the error:

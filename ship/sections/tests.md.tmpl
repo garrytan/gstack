@@ -25,7 +25,7 @@ at this exact, clean tree instead of running here: `LANE: <label> carried run=<i
 Before the first push run only targeted tests and the repro (the full suite too when the diff touches
 merge-check code: `lib/ship-*`, `lib/pregate/*`, the ship and pregate bins,
 `scripts/lib/shard-engine.ts`). Push early so CI runs beside the review: commit, `gstack-ship-release push
---branch <branch> --early` (sealed and secrets scans first), open a draft PR, then `gstack-ci-carry wait` in
+--branch <branch> --early` (sealed, secrets and guards first), open a draft PR, then `gstack-ci-carry wait` in
 the background; once it prints `CI_WAIT: green`, rerun `--tests-only` and the mapped lane is carried. A red
 run is a failed lane: triage it below. Batch review fixes into one commit and one push. `CI_CARRY: none
 label=<l> (<reason>)` names why a mapped lane ran here (a dirty tree, no green run at HEAD yet, a fork or stale

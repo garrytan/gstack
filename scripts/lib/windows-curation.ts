@@ -389,6 +389,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'spawns bin/gstack-ship-release (shebang) directly and writes #!/bin/sh gh stubs through test/helpers/ship-bin-fixture.ts; windows-latest exits before the bin runs (windows-free-shard 3, run 41073592483)',
   },
   {
+    file: 'test/ship-ci-carry.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-evidence, gstack-ci-carry and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-release.test.ts; windows-latest fails every bin case at the first spawn (windows-scoped-shard, run 41607840098)',
+  },
+  {
     file: 'test/ship-rereview-triggers.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-release.test.ts; windows-latest fails every bin case at the first spawn (windows-free-shard 6, run 41193336209)',
   },

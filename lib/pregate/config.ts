@@ -46,9 +46,13 @@
  *                 tree, the command listing the gate's test files they must
  *                 cover, and the command naming the selected files the gate
  *                 itself never runs (gstack: paid files)
- *   ship_lanes_from exact /ship lane command → `{ profiles, inventory }`: the
- *                 run profiles whose verified runs at HEAD's tree carry that
- *                 lane, and the command listing its test files (lib/ci-carry.ts)
+ *   ship_lanes_from exact /ship lane command → `{ profiles, inventory }` or
+ *                 `{ profiles, jobs }`: the run profiles whose verified runs
+ *                 at HEAD's tree carry that lane, and either the command
+ *                 listing its test files or the CI jobs that run it (a lane
+ *                 with no test files, GST-1189), plus optional `aliases`:
+ *                 other exact commands for the same lane (GST-1190)
+ *                 (lib/ci-carry.ts)
  *   allowlist     `{ finding, paths?, pattern?, reason }` entries the `secrets`
  *                 check accepts as benign: a gstack-redact finding id or a
  *                 non-secret category, scoped by path globs and/or a regex
@@ -74,7 +78,8 @@ import { shipLanesErrors, type ShipLaneMapping } from '../ci-carry';
 import type { ResultCodeName } from '../result-codes';
 import { runProfileErrors, type RemoteGateRuns, type RunProfile } from '../run-evidence';
 import { sealedErrors } from '../sealed-guard';
-import { containedRelative, globToRegExp } from '../ship-policy';
+import { containedRelative, globToRegExp, runningGstackVersion, SHIP_POLICY_PATH } from '../ship-policy';
+import { cmpVersion, parseVersion } from '../version-source';
 
 export const PREGATE_CONFIG_PATH = '.gstack/pregate.json';
 export const PREGATE_CONFIG_SCHEMA = 'https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1';
@@ -291,6 +296,22 @@ function git(cwd: string, args: string[]): { ok: boolean; out: string } {
   return { ok: r.status === 0 && !r.error, out: (r.stdout ?? '').trim() };
 }
 
+/**
+ * GST-1190: an unknown key in a policy whose project floor (min_gstack_version in the same tree's ship-policy.json) is
+ * above this gstack belongs to a newer gstack. It still refuses, but as an upgrade, not as a typo.
+ */
+function newerGstackErrors(parsed: { config: PregateConfig; errors: ConfigError[]; declaresLanes: boolean }, policyText: string | null): typeof parsed {
+  const unknown = (e: ConfigError) => e.message.startsWith('unknown key');
+  if (!policyText || !parsed.errors.some(unknown)) return parsed;
+  let min: unknown;
+  try { min = (JSON.parse(policyText) as Record<string, unknown> | null)?.min_gstack_version; } catch { return parsed; }
+  const running = runningGstackVersion();
+  const want = typeof min === 'string' ? parseVersion(min) : null;
+  const have = parseVersion(running);
+  if (!want || !have || cmpVersion(want, have) <= 0) return parsed;
+  return { ...parsed, errors: parsed.errors.map(e => unknown(e) ? { ...e, code: 'PREGATE_GSTACK_TOO_OLD' as const, message: `needs gstack >= ${min as string}; upgrade (this gstack is ${running} and does not know this key)` } : e) };
+}
+
 export function loadConfigFromBase(repoRoot: string, base: string, knownChecks: readonly string[] = []): ConfigLoad {
   const ref = `origin/${base.replace(/^origin\//, '')}`;
   const sha = git(repoRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
@@ -302,13 +323,15 @@ export function loadConfigFromBase(repoRoot: string, base: string, knownChecks: 
     if (!entry.ok || entry.out) return { unavailable: true, base: base.replace(/^origin\//, ''), detail: `${ref}:${PREGATE_CONFIG_PATH} could not be read and git cannot confirm it is absent` };
     return { config: DEFAULT_CONFIG, errors: [], present: false, label: `${ref}@${sha.out.slice(0, 12)} (no ${PREGATE_CONFIG_PATH})`, kind: 'none' };
   }
-  return { ...parseConfig(show.out, knownChecks), present: true, label: `${ref}@${sha.out.slice(0, 12)}:${PREGATE_CONFIG_PATH}`, kind: 'base' };
+  const policy = git(repoRoot, ['show', `${sha.out}:${SHIP_POLICY_PATH}`]);
+  return { ...newerGstackErrors(parseConfig(show.out, knownChecks), policy.ok ? policy.out : null), present: true, label: `${ref}@${sha.out.slice(0, 12)}:${PREGATE_CONFIG_PATH}`, kind: 'base' };
 }
 
 export function loadConfigFromHead(repoRoot: string, knownChecks: readonly string[] = []): ConfigLoad {
   const file = path.join(repoRoot, PREGATE_CONFIG_PATH);
   if (!fs.existsSync(file)) return { config: DEFAULT_CONFIG, errors: [], present: false, label: `head (no ${PREGATE_CONFIG_PATH})`, kind: 'none' };
-  return { ...parseConfig(fs.readFileSync(file, 'utf8'), knownChecks), present: true, label: `head (unreviewed) ${PREGATE_CONFIG_PATH}`, kind: 'head' };
+  const policy = path.join(repoRoot, SHIP_POLICY_PATH);
+  return { ...newerGstackErrors(parseConfig(fs.readFileSync(file, 'utf8'), knownChecks), fs.existsSync(policy) ? fs.readFileSync(policy, 'utf8') : null), present: true, label: `head (unreviewed) ${PREGATE_CONFIG_PATH}`, kind: 'head' };
 }
 
 /** A symlink to nothing on the way to `file` (a dotfiles link not yet cloned): a policy the user meant to have, not an absent one. */
@@ -365,7 +388,7 @@ export function explainConfig(): string {
     'remote_gate: the repo\'s remote test gate command; under 8 cores the test tier becomes a requires-remote obligation naming it, and gstack-pregate --remote runs it (it must print PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n>) (docs/pregate.md#remote-gate)',
     'run_profiles: name → { workflow, events, jobs, artifact, max_age_hours?, os? }; the GitHub Actions runs gstack-pregate clear --run verifies as evidence on the identical tree (docs/pregate.md#run-evidence)',
     'remote_gate_runs: { profiles, inventory, skipped? }; the run profiles that together clear the remote gate obligation, the command listing the gate\'s test files they must cover, and an optional command printing which selected files (PREGATE_FILES_FILE) the gate itself does not run, which then need no run (docs/pregate.md#run-evidence)',
-    'ship_lanes_from: exact /ship lane command → { profiles, inventory }; a verified run of each profile at HEAD\'s clean tree whose tree.json covers the inventory carries the lane instead of running it again (docs/pregate.md#ci-carry)',
+    'ship_lanes_from: exact /ship lane command → { profiles, inventory } or { profiles, jobs }, with optional aliases (other exact commands for the same lane); a verified run of each profile at HEAD\'s clean tree whose tree.json covers the inventory, or whose newest attempt ran every named job to success, carries the lane instead of running it again (docs/pregate.md#ci-carry)',
     `allowlist: [{ finding, paths?, pattern?, reason }]: benign findings the secrets check accepts and names as allowlisted. finding is a gstack-redact id (env.kv, google.api_key, pii.phone.e164, …) or a category (${ALLOWLISTABLE_CATEGORIES.join(', ')}); paths are globs; pattern is a regex matched at the finding's position in the added line; one of the two is required, reason always. Never ${NON_ALLOWLISTABLE.join(' or ')} or engine.* (docs/pregate.md#allowlist)`,
     'no .gstack/pregate.json on the base: <state root>/projects/<slug>/pregate.json is read instead (state root: GSTACK_STATE_ROOT, else GSTACK_HOME, else GSTACK_STATE_DIR, else a gstack plugin data dir, else ~/.gstack, per docs/state-root.md; run --explain prints the resolved path; outside the repo, so a PR cannot reach it; a path inside the checkout is ignored)',
   ].join('\n') + '\n';

@@ -40,7 +40,7 @@ import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
 import { adapterFor, readRange, STALL_IDLE, supervise, type Counter, type Supervised } from '../supervise';
-import { verifyFromRun, type RunProfile } from '../../run-evidence';
+import { ranFiles, verifyFromRun, type RunProfile } from '../../run-evidence';
 import { matchesAny } from '../../ship-policy';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
 
@@ -643,9 +643,10 @@ function fromRun(ctx: PregateContext, sel: Selection): { line: string; passed: s
   const names = 'error' in check ? [] : fromRunProfiles(ctx, check.profiles);
   const v = 'error' in check ? { ok: false as const, reason: 'profiles_unavailable', detail: check.error } : verifyFromRun(check, ref, names, ctx.wtree, ctx.head);
   if (!v.ok) return { line: `REUSE: refused reason=${v.reason} — ${v.detail}; every selected test runs here`, passed: [] };
-  const ran = new Set(v.evidence.files);
+  const ran = new Set(ranFiles(v.evidence));
   const passed = sel.localTests.filter(t => ran.has(t));
-  return { line: `REUSE: accepted ${passed.length} of ${sel.localTests.length} selected local test file(s) from ${v.receipt}; ${sel.localTests.length - passed.length} still run`, passed, receipt: v.receipt };
+  const skipped = sel.localTests.filter(t => v.evidence.skipped?.includes(t)).length;
+  return { line: `REUSE: accepted ${passed.length} of ${sel.localTests.length} selected local test file(s) from ${v.receipt}; ${sel.localTests.length - passed.length} still run${skipped ? ` (${skipped} skipped every test in the run)` : ''}`, passed, receipt: v.receipt };
 }
 
 /**

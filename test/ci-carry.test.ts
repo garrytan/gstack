@@ -40,9 +40,11 @@ describe('findCarry', () => {
     const v = findCarry(source([run(4)], { 4: record(4) }), { profiles: ['ci-reuse/free-tests'], head: HEAD, tree: TREE, wtree: clean, inventory: () => ['test/a.test.ts', 'test/b.test.ts'] });
     expect(v.ok).toBe(true);
     if (!v.ok) return;
-    expect(v.tests).toBe(40);
+    expect([v.tests, v.unit]).toEqual([2, 'files']);
     expect(v.runs.map(e => e.run_id)).toEqual([4]);
-    expect(v.receipt).toMatch(/^ci-carry tree=bbbbbbbbbbbb tests=40 runs=4\/1 profiles=ci-reuse\/free-tests heads=aaaaaaaaaaaa verified=/);
+    expect(v.receipt).toMatch(/^ci-carry tree=bbbbbbbbbbbb files=2 runs=4\/1 profiles=ci-reuse\/free-tests heads=aaaaaaaaaaaa verified=/);
+    const whole = findCarry(source([run(4)], { 4: record(4) }), { profiles: ['ci-reuse/free-tests'], head: HEAD, tree: TREE, wtree: clean });
+    expect(whole.ok && [whole.tests, whole.unit, whole.receipt.split(' ')[2]]).toEqual([40, undefined, 'tests=40']);
   });
 
   // Value: protects=A2, a carry binds to the working-tree fingerprint before and after; fails_when=a dirty tree or a tree edited during the lookup carries

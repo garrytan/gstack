@@ -88,9 +88,9 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `stall_timeout_s` | seconds a test command may print nothing while using under a tenth of one CPU before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
 | `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
-| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
+| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
-| `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }`: the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and the command listing its test files, which their runs must cover (see [CI carry](#ci-carry)); read from the base branch only |
+| `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases` (and, on an inventory entry, an optional `per_file` runner for files CI skipped entirely, see [skipped files](#skipped-files)): the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
 Only the `origin/<base>` copy or the user-owned file below is honoured, so a
@@ -259,7 +259,8 @@ Two stages with separate clocks, both printed:
   `--allow-repo-commands` the selected guards are listed and the check is
   `incomplete`. Guards are read from the base branch's copy (or the
   user-owned file when the base carries none) and cannot be
-  downgraded to warn. See [guards](#guards).
+  downgraded to warn. A guard whose exact command already passed at this tree
+  is not run again ([guard carry](#guard-carry)). See [guards](#guards).
 
 **Stage 2, test execution:**
 
@@ -710,7 +711,22 @@ other gate change. Each profile names the workflow file, the events it
 accepts, every job that must have passed (each exactly once), and the artifact
 holding the run's `tree.json`. `max_age_hours` (1–168, default 24) bounds how
 old the run may be, and `os` (`Linux`, `macOS`, `Windows`) requires
-`tree.json` to record that runner OS. Each workflow uploads `tree.json` from
+`tree.json` to record that runner OS. <a id="skippable"></a>`skippable`
+(`{ jobs, gate, scripts }`, GST-1190) lets named jobs be skipped by a path
+filter: a skipped job counts only in a `pull_request` run (whose gate diffs
+against the pull request's base; a push or dispatch gate diffs against the last
+push, which the branch's push history controls), when the `gate` job (the one
+whose output decides the skip) succeeded in the same attempt, and the workflow
+file plus the gate's inputs are byte-identical to `origin/<base>`. Those inputs
+are the declared `scripts`, which must list every repo file the gate reads,
+plus every path the gate job's steps name in the base copy of the workflow
+(also read under the job's `working-directory` and after a `${{ … }}`
+prefix), plus `package.json` when the gate runs a package script. gstack
+cannot see what a gate script imports or what a package script runs, so list
+those files in `scripts`. Otherwise the pull request controlled the skip
+decision, so the job refuses as `job_skipped` and the lane runs here. A lane
+whose every named job was skipped this way prints `LANE: <label> not owed: CI
+skipped at this tree (gate job <name>, workflow unchanged) run=…`. Each workflow uploads `tree.json` from
 its own job: `run_id`, `run_attempt`, `event`, `sha` (or `head_sha`),
 `tree` (`git rev-parse HEAD^{tree}` as tested), `files` (every test file the
 run executed), `tests` (the count) and, with `os`, the runner OS or a list of
@@ -737,6 +753,28 @@ once:
   record (a reuse is never evidence). Its tree equals the tree git computes for
   the run's head commit. `files` is a list of paths and `tests` a
   non-negative integer when present; without `tests` the file count stands in.
+  <a id="skipped-files"></a>`skipped_files`, when present, lists the files whose every test skipped on
+  the runner (a Docker image, a drive path or an installed gstack it lacks;
+  GST-1190). A carry treats them as uncovered: the pregate tests stage runs
+  them here. A /ship lane or guard whose inventory names one carries the
+  covered files and runs only the skipped ones here, through the runner its
+  `ship_lanes_from` entry declares as `per_file` (a command with `{files}`,
+  such as `"per_file": "bun test --timeout=30000 {files}"`, the same form as the
+  tests stage's `runner`). That run is recorded under `<label>.skipped`, the
+  `LANE:` line adds `skipped_here=<n> file(s) tests_ran_here=<n>`, and the CI row
+  is written only after it passes with a test count above zero and every carried
+  run still stands (`run_changed` otherwise). A failure there is
+  `skipped_failed` and a run of zero tests is `skipped_zero_run`; either way the
+  whole lane runs here. An entry with no `per_file` refuses as
+  `inventory_skipped`, naming the files, and the lane runs here whole. A partly
+  skipped file ran tests and stays covered. gstack's own Free Tests writer does
+  not emit the list yet: it starts in the same follow-up pull request that
+  declares `per_file` for gstack's `bun run test` lane, so gstack's carry does not
+  change until both switch on together. A `tree.json`
+  without the key (older writers, other repos) is read as before, with every
+  listed file counted as run; add the list to your writer to close that gap.
+  The remote gate's clearance does not use it: that gate runs on a Linux runner
+  like CI, where the same files skip.
 - No run of the same workflow on that head, or on pregate.json's own head,
   whose newest attempt started at or after the second this run was created
   failed, was cancelled or is still running (`run_started_at`, so a red re-run
@@ -785,7 +823,7 @@ Then, for the lane:
 Any API or git error refuses. Each refusal prints `REUSE: refused
 reason=<code> — …` as `PREGATE_RECEIPT_INVALID`, and a run that fails
 verification is named with its own reason (`fork_run`, `event_mismatch`,
-`run_not_success`, `job_missing`, `artifact_mismatch`, `artifact_reused`,
+`run_not_success`, `job_missing`, `job_skipped`, `artifact_mismatch`, `artifact_reused`,
 `tree_mismatch`, `newer_run_vetoes`, `run_changed`, `run_stale`,
 `os_mismatch`, `api_error`, …); the clear-level codes are `base_mismatch`,
 `no_verified_run`, `tree_mismatch` (runs on different trees),
@@ -895,7 +933,8 @@ whose workflow holds a lane this machine runs (gstack's `ci-reuse/free-tests`
 on Linux), with pregate.json's own head as a further veto head. Its tree must be this tree exactly (no
 stamp-only substitution). Then:
 
-- The selected local test files the run's `tree.json` lists count as passed.
+- The selected local test files the run's `tree.json` lists count as passed,
+  except those in its `skipped_files` ([above](#skipped-files)), which run here.
   The lanes check records them under `from_run` with the run receipt
   (`run tree=… tests=… runs=<id>/<attempt> profiles=… heads=… verified=…`) and
   prints `REUSE: accepted <n> of <m> selected local test file(s) from <receipt>;
@@ -933,11 +972,14 @@ it accepts a run only when all of these hold:
   tree. A `pull_request` run counts only when the pull request already
   contained its base.
 - Every run executed tests, and with an inventory command, the runs'
-  `tree.json` files cover every file it prints. Each run is read once more
-  afterward (`run_changed`).
+  `tree.json` files cover every file it prints, none of them a file whose every
+  test skipped there (`skipped_files`). A lane mapped by `jobs`
+  instead needs no test count: each named job succeeded in the run's newest
+  attempt. Each run is read once more afterward (`run_changed`).
 
-Security and advisory scans, the sealed guard, guards and every preflight-stage
-check always run; only test lanes carry.
+Security and advisory scans, the sealed guard and every other preflight-stage
+check always run; only test lanes carry, plus guards whose exact command
+already passed at this tree ([guard carry](#guard-carry)).
 
 **The tests stage.** Without `--from-run`, when the base branch declares
 `run_profiles`, `gstack-pregate` looks up the newest verified run at HEAD under
@@ -986,8 +1028,101 @@ it and the command that lists its test files:
 }
 ```
 
+<a id="ship-lanes-jobs"></a>A lane with no test files to list, such as a typecheck or a verify script,
+names the CI jobs that run it instead (GST-1189). Declare exactly one of
+`inventory` or `jobs`:
+
+```json
+"ship_lanes_from": {
+  "bun run verify": { "profiles": ["ci/test"], "jobs": ["verify", "typecheck"] }
+}
+```
+
+It carries only when every named job concluded `success` in the newest attempt
+of the verified run at HEAD's tree, read by the same `verifyRun` job check the
+profile's own `jobs` use. A job that is missing refuses as `job_missing`, a
+skipped one as `job_skipped`, any other conclusion as `job_not_success`, and a
+run of another tree as `tree_mismatch`. The receipt reads `ci-carry tree=…
+jobs=verify,typecheck runs=…`, and the ledger row records the jobs. gbrain run
+41564913688 (tree `13570abc`) is the case: its verify and typecheck jobs passed
+at the tree, but no inventory could name their files, so they ran again. The
+same form replaces fake `check:<command>` entries some repos wrote into
+`tree.json` to give a typecheck, a doc-freshness check or a lint an inventory
+(gstack-evals #180): name the job instead. A gstack older than the version that
+adds `jobs` rejects the key as invalid config, so a repo declaring it should
+first raise its `min_gstack_version` to that version.
+
+<a id="ship-lanes-aliases"></a>**Aliases.** A lane is keyed on its exact command, so
+`env -u ANTHROPIC_API_KEY bun test tests/` never matches a `bun test tests/` key.
+Declare the other spellings on the entry, read from the base like the rest of
+the map (GST-1190):
+
+```json
+"bun test tests/": { "profiles": ["ci/test"], "inventory": "…", "aliases": ["env -u ANTHROPIC_API_KEY bun test tests/"] }
+```
+
+An alias is a second exact command, never a pattern: gstack does not strip env
+prefixes on its own, because `env -i HOME=… PATH=… bun test tests/` runs in a
+different environment than the key. An alias that repeats a key or another
+entry's alias is invalid config. The ledger row binds the command the lane
+actually ran.
+
+**What `tests_ran` means on a carried lane.** No carried lane reports the whole
+run's count. A lane mapped by `inventory` reports how many of its inventory
+files the runs' `tree.json` covers, labeled as a file count (`tests_ran=14
+unit=files` on the ledger line, `tests_ran=14 (files)` on the `LANE:` line);
+alphaclaw's 14-file, 46-test guards lane used to record the run's 9677.
+`tree.json` has no per-file test counts yet, so the lane's own test count is
+not available. A lane mapped by `jobs` reports `tests_ran=n/a`. Only the
+pregate tests stage and `gstack-ci-carry find` without `--command`, which carry
+the whole run, report its test count.
+
+**`tree.json` counts from Bun's JUnit.** A writer that builds `tree.json` from
+Bun's JUnit report must take the root `testsuite` count. Nested `describe`
+suites repeat the file attribute, so summing every `testsuite` counts tests
+twice. harness-evals #240's `scripts/ci-tree-json.ts` does it right.
+
+<a id="prove-a-mapping"></a>**Proving a new mapping.** `ship_lanes_from` is read from `origin/<base>`
+only, so a branch that adds a mapping cannot carry from it, and running
+against `--base <PR branch>` fails (`BASE_CONTAINS_HEAD`). Prove it with the dry
+run instead, once per lane command:
+
+```bash
+gstack-ci-carry find --base main --policy-from head --simulate --command 'bun run verify' --allow-repo-commands
+```
+
+It reads the branch's own `ship_lanes_from` and `run_profiles`, checks the lane
+against the verified CI run at this tree exactly as a carry would, and prints
+`SIMULATION:` at the start of every line (`SIMULATION: CI_CARRY: accepted …` or
+`SIMULATION: CI_CARRY: none (<reason>)`). It writes no evidence or ledger row
+and clears no obligation. To check every /ship lane at once, the same dry run
+takes lane flags: `gstack-ship-preflight --tests-only --base main --policy-from
+head --simulate --allow-repo-commands --lane 'verify=bun run verify' …` prints `SIMULATION: LANE:
+<label> would carry run=…`, `SIMULATION: CI_CARRY: none label=<label> (<reason>)`
+or `not mapped` per lane, runs no lane and no pregate, and exits 0 when every
+mapped lane would carry. Both dry runs run the branch's inventory commands to
+check coverage, which is running the branch's code, so both need
+`--allow-repo-commands`; without it `gstack-ci-carry find --command` stops
+with a usage error (exit 2), and the preflight dry run prints
+`inventory_not_allowed` for an inventory-mapped lane. truther's adoption proved its map this way by hand
+before the dry run existed: run 41585332512 accepted 7 of 7 lanes. A branch's own map never carries,
+even when the base has no policy at all, because the pull request controls both
+the map and the CI that would satisfy it. So the first pull request that adopts
+a mapping pays its full lanes; the carry starts on the pull requests after it
+merges. `ship_lanes_from` itself needs `min_gstack_version` 1.94.0.0 or later in
+`.gstack/ship-policy.json`, and `jobs` and `aliases` need the release that ships
+them. With that floor set, a gstack that has this check but not the key prints
+`needs gstack >= <version>; upgrade` (`PREGATE_GSTACK_TOO_OLD`) instead of a
+generic invalid-config error. A gstack released before the check (1.94.0.0
+included) still reports the unknown key as `PREGATE_CONFIG_INVALID`.
+
+As a second guard, every `record-ci` row names the policy that mapped it
+(`origin/<base>@<sha>:.gstack/pregate.json`), and `gstack-evidence carried`, which
+the ship receipt reads, lists only rows whose policy is `origin/<the receipt's
+base>`. A row written by a run against another base never lands in a receipt.
+
 A carried lane prints `LANE: <label> carried run=<id>/<attempt> tests_ran=<n>`
-and writes an explicit CI-sourced ledger row (`gstack-evidence record-ci
+(see above for what `<n>` counts) and writes an explicit CI-sourced ledger row (`gstack-evidence record-ci
 --label <label> --base <base> -- <command>`, which finds and verifies the run
 itself, so no caller hands it run ids or a test count: `source: "ci"`, its runs
 and profiles, the run's finish time as `ts`, bound to the clean tree), never a
@@ -1021,6 +1156,8 @@ them (`ci_carried=<lane>:<run>/<attempt>`).
 --allow-repo-commands]` prints the verdict for HEAD; `wait [--timeout <s>]`
 polls the newest run at HEAD until it completes (run it in the background) and
 prints `CI_WAIT: green|red|running|none`, then `find`'s verdict on green.
+`find --policy-from head --simulate` is the dry run in
+[proving a new mapping](#prove-a-mapping).
 
 <a id="ci-reuse"></a>
 ### Main pushes reuse the merged pull request's run
@@ -1164,6 +1301,38 @@ guard is a *command* with its own fix line. Older gstack refuses unknown keys
 (`PREGATE_CONFIG_INVALID`), so a repo commits `guards` only after the gstack
 that reads them ships. The worked gbrain configuration is in
 [gbrain worked configs](#gbrain-worked-configs).
+
+<a id="guard-carry"></a>
+### A guard that already passed at this tree does not run again
+
+A guard is skipped as passed when its exact command already passed at this tree
+(GST-1186). Two sources count, checked in this order:
+
+1. **CI.** When the base branch's `ship_lanes_from` maps the guard's exact
+   command, the guard is carried from the verified CI run at HEAD's clean tree,
+   through the same `gstack-evidence record-ci` and `findCarry` path a /ship
+   lane uses ([ci-carry](#ci-carry)). It prints `GUARD: <id> carried
+   runs=<id>/<attempt>`, or `GUARD: <id> not owed: CI skipped at this tree …`
+   when every job it maps was skipped by an unchanged gate
+   ([skippable](#skippable)). When no run carries, it prints `CI_CARRY: none
+   guard=<id> (<reason>)` and goes on to the ledger.
+2. **The evidence ledger.** When the newest local ledger row for the exact
+   command at this working tree, under any label, is a counted pass (`tests_ran`
+   above zero under the runtime the guard would launch with, within 24 hours),
+   the guard prints `GUARD: <id> reused label=<L> source=local ts=<ts>`. CI rows
+   never count here: a CI pass counts only through `record-ci`'s live check
+   against the base, so an old CI row does not outlive a refusal.
+   `gstack-evidence passed -- <command>` is the same lookup by hand. A newer
+   failure of the command at that tree vetoes an older pass.
+
+Anything else runs the guard as before, with the same timeout, stall rule and
+fix line. This matters for repos whose suites are guards rather than lanes
+(founderstar declares `check-quick`, `play-through` and `assets` as guards),
+which otherwise reran every suite /ship had just carried from CI.
+
+Known limit: `ship_lanes_from` is read from `origin/<base>` only, so the pull
+request that adds a mapping cannot carry from it. Prove it with the dry run in
+[proving a new mapping](#prove-a-mapping) until it lands.
 
 <a id="allowlist"></a>
 ## Allowlist: benign findings the secrets check accepts

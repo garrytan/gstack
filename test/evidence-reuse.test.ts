@@ -109,7 +109,7 @@ describe('gstack-evidence run --reuse (A5)', () => {
 describe('gstack-evidence record-ci and carried (A4)', () => {
   const ciRow = () => {
     const tree = wtree();
-    return { ts: new Date(Date.now() - 600_000).toISOString(), label: 'free', command: 'bun run test', cmd_sha256: createHash('sha256').update('bun run test').digest('hex'), exit: 0, duration_s: 0, commit: gitIn(repo, 'rev-parse HEAD').trim(), tree, dirty: false, wtree: tree, tests_ran: 900, source: 'ci', runs: ['41/2'], profiles: ['ci-reuse/free-tests'] };
+    return { ts: new Date(Date.now() - 600_000).toISOString(), label: 'free', command: 'bun run test', cmd_sha256: createHash('sha256').update('bun run test').digest('hex'), exit: 0, duration_s: 0, commit: gitIn(repo, 'rev-parse HEAD').trim(), tree, dirty: false, wtree: tree, tests_ran: 900, source: 'ci', runs: ['41/2'], profiles: ['ci-reuse/free-tests'], policy: 'origin/main@000000000000:.gstack/pregate.json' };
   };
 
   // Value: protects=a carried lane is an explicit CI row the FRESH check accepts by source, and the receipt lists it only at its own tree;
@@ -121,7 +121,8 @@ describe('gstack-evidence record-ci and carried (A4)', () => {
     expect(chk.status).toBe(0);
     expect(chk.stdout).toContain('EVIDENCE: FRESH label=free exit=0 tests_ran=900');
     expect(chk.stdout).toContain('source=ci runs=41/2');
-    expect(JSON.parse(run(['carried', '--json']).stdout)).toEqual([{ lane: 'free', run: 41, attempt: 2, tree: wtree() }]);
+    expect(JSON.parse(run(['carried', '--base', 'main', '--json']).stdout)).toEqual([{ lane: 'free', run: 41, attempt: 2, tree: wtree() }]);
+    expect(JSON.parse(run(['carried', '--base', 'release', '--json']).stdout)).toEqual([]);
     fs.writeFileSync(path.join(repo, 'src.txt'), 'v2\n');
     gitIn(repo, 'commit -qam two');
     expect(JSON.parse(run(['carried', '--json']).stdout)).toEqual([]);

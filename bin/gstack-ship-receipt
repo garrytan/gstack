@@ -175,9 +175,9 @@ function reviewedProduct(repoRoot: string, base: string, head: string, pregateFi
   return typeof id === 'string' ? { head_tree: tree, product_patch_id: id || 'none' } : { head_tree: tree };
 }
 
-/** The lanes CI carried at the checked-out tree, from this machine's evidence ledger (gstack-evidence carried); undefined when none. */
-function ciCarried(): ShipReceipt['ci_carried'] {
-  const r = runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-evidence'), ['carried', '--json'], { encoding: 'utf8', timeout: 60_000 });
+/** The lanes CI carried at the checked-out tree under origin/<base>'s mapping, from this machine's evidence ledger (gstack-evidence carried); undefined when none. */
+function ciCarried(base: string): ShipReceipt['ci_carried'] {
+  const r = runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-evidence'), ['carried', '--base', base, '--json'], { encoding: 'utf8', timeout: 60_000 });
   try { const list = JSON.parse(r.stdout); return Array.isArray(list) && list.length ? list : undefined; } catch { return undefined; }
 }
 
@@ -271,7 +271,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       version: flag(rest, '--version') ?? receiptVersion(repoRoot, head, base), base,
       gated_tree: flag(rest, '--gated-tree') ?? tree?.gated_tree, predecessor: flag(rest, '--predecessor') ?? tree?.predecessor?.recorded_head ?? undefined,
       tree: tree?.tree, gate_reuse: tree ? `${tree.gate_reuse} (${tree.gate_reuse_reason})` : undefined,
-      gate: jsonArg(flag(rest, '--gate')), ci: jsonArg(flag(rest, '--ci')), ci_carried: ciCarried(),
+      gate: jsonArg(flag(rest, '--gate')), ci: jsonArg(flag(rest, '--ci')), ci_carried: ciCarried(base),
       spend_usd: flag(rest, '--spend-usd') !== undefined ? (Number.isFinite(Number(flag(rest, '--spend-usd'))) ? Number(flag(rest, '--spend-usd')) : flag(rest, '--spend-usd')) : undefined,
       session_kind: sessionKind, artifacts_consumed: flag(rest, '--artifacts-consumed'), run: flag(rest, '--run'), thread: flag(rest, '--thread'),
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),

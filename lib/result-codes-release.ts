@@ -16,6 +16,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the ship policy sets min_gstack_version above this gstack, so this gstack refuses to read it',
     fix: 'upgrade gstack (bin/gstack-upgrade, or the session install with --for <skill>) to the version named, then rerun',
   },
+  PREGATE_GSTACK_TOO_OLD: {
+    anchor: 'pregate-gstack-too-old',
+    summary: 'the pregate policy uses a key this gstack does not know, and the project floor (min_gstack_version in .gstack/ship-policy.json) is above this gstack, so the key belongs to a newer gstack; the policy stays refused',
+    fix: 'upgrade gstack (bin/gstack-upgrade, or the session install with --for <skill>) to at least the version named, then rerun',
+  },
   QUEUE_NOT_READY: {
     anchor: 'queue-not-ready',
     summary: 'the lane is not ready to report: the working tree, HEAD or CI state does not match the pushed PR head',
