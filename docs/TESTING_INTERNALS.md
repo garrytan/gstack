@@ -1282,7 +1282,10 @@ re-run keeps the creation time, so it does not wait out the window again). A
 head that is no longer the PR's head reports "superseded by <sha>" and plans
 nothing. Selection, trials and verdict rules do not change. Version Gate is not
 an input, so a stamp push waits only for its own Free Tests and always gets a
-gate. Dispatches (`eval:bg`, the census) never wait.
+gate. Dispatches (`eval:bg`, the census) never wait. Neither does a
+`pr-summary` run (a repository whose policy declares a train): it plans no paid
+slices, so `readiness` is skipped, the run ends with the screening summary, and
+a red Free Tests shows on Free Tests alone.
 
 **Verdict reuse (R2a restamp-only, R2 main moved; a gate edit).** A PR head
 reuses the verdict of the newest executed gate of the same PR instead of
