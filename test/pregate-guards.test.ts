@@ -275,7 +275,7 @@ describe("gstack's own pre-push guards (GST-1138)", () => {
 
   test('the list validates, every guard has a fix, and every test file it names exists', () => {
     expect(codes(policy)).toEqual([]);
-    expect(guards.map(g => g.id).sort()).toEqual(['context-budget', 'doc-caps', 'goldens', 'module-size', 'parity-suite', 'skill-size', 'typecheck']);
+    expect(guards.map(g => g.id).sort()).toEqual(['conflict-markers', 'context-budget', 'doc-caps', 'goldens', 'module-size', 'parity-suite', 'skill-size', 'typecheck']);
     for (const g of guards) {
       expect(g.fix, g.id).toBeTruthy();
       for (const f of g.command.match(/test\/[\w./-]+\.test\.ts/g) ?? []) expect(fs.existsSync(path.join(GSTACK, f)), `${g.id}: ${f}`).toBe(true);
@@ -283,8 +283,8 @@ describe("gstack's own pre-push guards (GST-1138)", () => {
   });
 
   test('each guard fires on its own inputs and none fires on a docs-only change', () => {
-    expect(selected('ship/SKILL.md.tmpl')).toEqual(['context-budget', 'goldens', 'parity-suite', 'skill-size']);
-    expect(selected('lib/pregate/index.ts')).toEqual(['module-size', 'typecheck']);
+    expect(selected('ship/SKILL.md.tmpl')).toEqual(['conflict-markers', 'context-budget', 'goldens', 'parity-suite', 'skill-size']);
+    expect(selected('lib/pregate/index.ts')).toEqual(['conflict-markers', 'module-size', 'typecheck']);
     expect(selected('test/fixtures/golden/claude-ship-SKILL.md')).toEqual(['goldens']);
     expect(selected('CLAUDE.md')).toEqual(['doc-caps']);
     expect(selected('docs/pregate.md')).toEqual([]);
