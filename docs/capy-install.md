@@ -31,7 +31,8 @@ the root they checked.
 
 A dispatched reviewer (an /autoplan voice, a second opinion) reads a plan and
 reports; it runs no workflow. `--for review-voice` gives its machine a real
-trailer in seconds: clone or fast-forward, Bun at gstack's own supported
+trailer in seconds: a clone when absent (an existing checkout is used as it
+is, unless it is below the supported minimum), Bun at gstack's own supported
 minimum (the project's pins are not applied, since no repo tests run there; the
 trailer says `pins: skipped (helper runtime)`), no `./setup`, no host profiles
 and no bun shim. The doctor certifies only the read-only helpers (`PASS
@@ -52,8 +53,18 @@ the lane on the same machine may be in the middle of a workflow on it: when
 origin is ahead it prints `SELF_UPGRADE: skipped (review-voice never
 self-upgrades a shared checkout; …)`, certifies the installed revision and
 stays ok with `behind=<n> … (UPGRADE_SKIPPED); fix: <root>/bin/gstack-upgrade`.
-The bootstrapper still fast-forwards a checkout below the supported minimum.
-Every /autoplan reviewer prompt
+The bootstrapper still fast-forwards a checkout below the supported minimum,
+for a reviewer too (GST-395): below it every session's trailer on that checkout
+fails (REVISION_BELOW_MINIMUM), the lane's own next install would move it
+anyway, and the minimum rises only for install-honesty or security fixes.
+When a reviewer keeps a fuller verdict, it also leaves that install's launch
+environment alone (GST-401): it writes no launch file and announces the fuller
+install's own `GSTACK_LAUNCH_FILE` and `GSTACK_LAUNCH_PATH`, so the lane's
+`<verdict>.env` and `<verdict>.launch` are never rewritten and the reviewer
+runs the helpers on the Bun that verdict certified. A launch directory the
+reviewer needs for its own Bun lives under `<verdict>.profile/review-voice.launch`
+(mode 0700), never `<verdict>.launch`; a failing review-voice check removes
+`<verdict>.profile/`. Every /autoplan reviewer prompt
 ends with this command (`GSTACK TRAILER`); the warm run's budget, under 20 s,
 is measured by `test/capy-review-voice.test.ts`.
 
@@ -108,8 +119,9 @@ there is refused with the usual `--for <skill>` fix.
    (next section).
    `SELF_UPGRADE: none (current)` when nothing is ahead;
    `--for review-voice` prints `SELF_UPGRADE: skipped (review-voice never
-   self-upgrades a shared checkout; fix: <root>/bin/gstack-upgrade when no other
-   session uses this checkout (UPGRADE_SKIPPED))` whenever origin is ahead,
+   self-upgrades a shared checkout; fix: GSTACK_UPGRADE_FORCE=1
+   <root>/bin/gstack-upgrade when no other session uses this checkout
+   (UPGRADE_SKIPPED))` whenever origin is ahead,
    with or without a lease, and `GSTACK_UPGRADE_FORCE=1` does not change that
    ([reviewer machines](#reviewer-machines---for-review-voice));
    `GSTACK_CAPY_SELF_UPGRADE=off` (or `GSTACK_CAPY_AUTO_UPGRADE=0`) prints
@@ -174,8 +186,15 @@ session holds a workflow lease on this installation: ... (UPGRADE_BUSY))`,
 leaves the checkout where the run started and stays ok with `behind=`. Each
 `gstack-skill-start` renews the lease. On Capy the leased pid is the machine's
 long-lived `capy-server`, so the deferral ends when the lease turns 120
-minutes old, not when the process exits; `bin/gstack-upgrade` run by hand
-moves the checkout sooner. The team-mode SessionStart hook
+minutes old, not when the process exits. Every session on the machine runs
+under that same `capy-server`, so `bin/gstack-upgrade` run by hand also
+counts a `capy-server` lease under 120 minutes old (it may be a sibling's) and
+refuses with `a shared harness (capy-server, pid <p>) holds a lease <n>m old;
+… (UPGRADE_BUSY)`; `GSTACK_UPGRADE_FORCE=1` moves it sooner when no other
+session uses the checkout (GST-396). The age counts from the last renewal by
+any session, so a workflow idle for more than 120 minutes since its last
+`gstack-skill-start` can be moved by any session on the machine: Capy gives
+the shell no per-session identity to tell the leases apart. The team-mode SessionStart hook
 (`bin/gstack-session-update`) honors the same leases: it logs
 `SKIP leased pid=<p>/<age>m` to `analytics/session-update.log` and tries again at
 the next session start, without writing its hourly throttle stamp. A lease whose

@@ -29,7 +29,7 @@ import { SMALL_DIFF_LINES, type Role } from './review-depth';
 
 export const SHIP_STEPS = ['0.9', '1', '2', '3', '4', '5', '6', '6.5', '7', '8', '9', '10', '11', '11.5', '12', '13', '14', '14.5', '15', '16', '17', '18', '19', '20', '21', '22'] as const;
 /** Reviewer roles plus `docs`, the Step 14.5 documentation audit: each is one reader priced and reconciled the same way. */
-export const DISPATCH_ROLES = ['specialist', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', 'docs'] as const satisfies readonly (Role | 'docs')[];
+export const DISPATCH_ROLES = ['specialist', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', 'targeted', 'docs'] as const satisfies readonly (Role | 'docs')[];
 type MissingRole = Exclude<Role, typeof DISPATCH_ROLES[number]>;
 const ROLES_COMPLETE: [MissingRole] extends [never] ? true : never = true;
 void ROLES_COMPLETE;
