@@ -1123,6 +1123,9 @@ As a second guard, every `record-ci` row names the policy that mapped it
 (`origin/<base>@<sha>:.gstack/pregate.json`), and `gstack-evidence carried`, which
 the ship receipt reads, lists only rows whose policy is `origin/<the receipt's
 base>`. A row written by a run against another base never lands in a receipt.
+`carried` also lists a row only when `check`'s own grading, at the 24-hour age
+limit /ship uses, calls it FRESH, so a carry that never reached FRESH (a failed
+or zero-run row, or one older than 24 hours) leaves no `ci_carried` entry.
 
 A carried lane prints `LANE: <label> carried run=<id>/<attempt> tests_ran=<n>`
 (see above for what `<n>` counts) and writes an explicit CI-sourced ledger row (`gstack-evidence record-ci
@@ -1131,7 +1134,11 @@ itself, so no caller hands it run ids or a test count: `source: "ci"`, its runs
 and profiles, the run's finish time as `ts`, bound to the clean tree), never a
 fictitious local run. `gstack-evidence check` grades it
 like any row and names `source=ci runs=…`, so `finish`'s FRESH check and the
-24-hour age limit apply to the CI run's own time. A mapped lane that cannot
+24-hour age limit apply to the CI run's own time. The ledger stores a label
+with every character outside `A-Za-z0-9._-` turned into `_` (`pnpm lint` is
+`pnpm_lint`, `db:test` is `db_test`), and `run`, `record-ci` and `check` all
+use that one spelling, so `check --label 'pnpm lint'` finds the row; `ci_carried`
+and `CI_CARRIED:` name the stored spelling. A mapped lane that cannot
 carry prints `CI_CARRY: none label=<label> (<reason>)` and runs here. Every
 other lane runs through `gstack-evidence run --reuse`: the newest row for its
 label, command and working tree is reused when it passed with a counted run
