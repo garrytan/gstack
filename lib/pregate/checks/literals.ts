@@ -61,8 +61,12 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
 
 /**
  * Test files that still carry the old literal beside the constant's name or
- * its module. The module counts as its full file name (`install.sh`) or as a
- * path fragment (`/retry.js`, `/retry'`): a bare stem such as `install` or `retry` is an
+ * its module. The module counts as its full file name (`install.sh`, not
+ * `install.sh.tmpl`) or as a path fragment (`/retry.js`, `/retry'`) whose stem is
+ * followed by the module's own extension (for a JS/TS module also any JS/TS
+ * extension or `.d.ts`), a sentence-ending `.`, or anything but a word
+ * character, `.` or `-`, so a sibling `/retry.txt`, `/retry-v2.ts` or
+ * `/retry.ts.snap`, or `lib/install.ts` for `install.sh`, is not the module (GST-820): a bare stem such as `install` or `retry` is an
  * English word in half the test tree, and a one-character old value (`2`)
  * sits in every test, so that value needs the constant's name (a wrapper
  * version 2 → 3 flagged 575 consumers through the stem alone).
@@ -83,7 +87,11 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   const newRowRe = row(change.new);
   const base = path.basename(change.file);
   const stem = base.replace(/\.[^.]+$/, '');
-  const moduleRe = new RegExp(`(?:(?:^|[/\\\\])${escape(stem)}|(?<![\\w-])${escape(base)})(?![\\w-])`, 'm');
+  const own = base.slice(stem.length + 1);
+  const jsLike = /^[cm]?[jt]sx?$/.test(own);
+  const exts = (jsLike ? [...new Set([own, 'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'mts', 'cts'])] : [own]).map(escape).join('|');
+  const dts = jsLike ? '(?:d\\.)?' : '';
+  const moduleRe = new RegExp(`(?:^|[/\\\\])${escape(stem)}(?=[^\\w.-]|$|\\.${dts}(?:${exts})(?![\\w.-])|\\.(?!\\w))|(?<![\\w-])${escape(base)}(?![\\w-]|\\.\\w)`, 'm');
   const nameRe = new RegExp(`\\b${escape(change.name)}\\b`);
   const nameRequired = value.length < 2;
   const hits: string[] = [];

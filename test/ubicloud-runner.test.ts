@@ -250,6 +250,25 @@ esac
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 30_000);
 
+  // Value: protects=a project with no VMs (Ubicloud answers vm list with a bare newline) reads as empty everywhere vm_rows feeds; fails_when=a blank list row becomes a VM named "-" again and reap dies on it or usage asks to show it; why_new=every fake list in this file had at least one VM, so #3678 shipped green; seam=none; no_claim=the real API's empty-body shape (taken from #3678's reading of ubi_cli.rb)
+  test('an empty project (vm list answers a bare or blank line) has no VMs: reap destroys nothing and exits 0, usage prints total 0 0, list --mine prints nothing (#3678)', () => {
+    for (const listed of ['\n', '  \n']) {
+      const f = fakeApi({ destroy: 200, listed });
+      try {
+        const reap = f.run('reap');
+        expect(reap.stderr.toString()).toContain('reap: no expired VMs');
+        expect(reap.stderr.toString()).not.toContain('invalid VM name');
+        expect(reap.exitCode).toBe(0);
+        const usage = f.run('usage');
+        expect(usage.exitCode).toBe(0);
+        expect(usage.stdout.toString()).toBe('OWNER           VMS  VCPUS\ntotal             0      0\n');
+        expect(f.run('list', '--mine').stdout.toString()).toBe('');
+        expect(f.calls()).not.toContain('destroy');
+        expect(f.calls()).not.toContain('"show"');
+      } finally { rmSync(f.root, { recursive: true, force: true }); }
+    }
+  });
+
   test('up and run refuse without UBI_OWNER before any API call; list, usage, reap and down still work without it', () => {
     const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 vm-a\n', owner: '' });
     try {
@@ -375,6 +394,25 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
       expect(sh('git rev-parse --abbrev-ref @{u} && git config --bool --get remote.origin.mirror && git ls-files -s sub | cut -c1-6', join(d, 'vm2')).split('\n').filter(Boolean)).toEqual(['origin/main', 'true', '160000']);
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 90_000);
+
+  // Value: protects=pack never lets macOS tar add AppleDouble ._* entries (files with extended attributes), which the VM's tree check would count as untracked files and fail the run with UBI_VM_TREE_MISMATCH; fails_when=a tar call in pack runs without COPYFILE_DISABLE=1; why_new=only Apple's tar reads the variable, so no Linux run can see the ._* entries themselves; seam=PATH (a tar shim records its environment, then runs the real tar); no_claim=Apple tar's metadata behavior itself (checked by hand on a Mac)
+  test('pack runs every tar with COPYFILE_DISABLE=1, for a checkout and for a plain directory', () => {
+    const d = mkdtempSync(join(tmpdir(), 'ubi-pack-copyfile-'));
+    try {
+      const realTar = Bun.which('tar');
+      expect(realTar).toBeTruthy();
+      mkdirSync(join(d, 'bin'));
+      writeFileSync(join(d, 'bin/tar'), `#!/usr/bin/env bash\necho "COPYFILE_DISABLE=${'$'}{COPYFILE_DISABLE:-unset}" >> ${JSON.stringify(join(d, 'tar.log'))}\nexec ${JSON.stringify(realTar)} "$@"\n`);
+      chmodSync(join(d, 'bin/tar'), 0o755);
+      const env = { ...process.env, PATH: `${join(d, 'bin')}:${process.env.PATH}`, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+      const sh = (cmd: string) => { const r = Bun.spawnSync(['bash', '-c', cmd], { cwd: d, env, timeout: 30_000 }); expect(r.exitCode, r.stderr.toString()).toBe(0); };
+      sh(`git init -q repo && cd repo && echo a > a && git add a && git commit -qm one && bash ${JSON.stringify(join(DIR, 'ubi-runner.sh'))} pack . > ../repo.tgz`);
+      sh(`mkdir plain && echo p > plain/p && bash ${JSON.stringify(join(DIR, 'ubi-runner.sh'))} pack plain > plain.tgz`);
+      const lines = readFileSync(join(d, 'tar.log'), 'utf8').trim().split('\n');
+      expect(lines.length).toBe(3);
+      expect(lines.every(l => l === 'COPYFILE_DISABLE=1')).toBe(true);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
 
   test('up records the VM in the scratch file before the create request is sent', () => {
     const runner = read('scripts/ubicloud/ubi-runner.sh');

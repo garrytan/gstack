@@ -136,6 +136,25 @@ describe('gstack-doctor', () => {
     expect(r.out).not.toContain('.brain-sync-status.json');
   });
 
+  test('artifacts sync: a synced JSON file with conflict markers warns by name (#3763)', () => {
+    const f = makeFixture();
+    syncOn(f, { status: 'ok', message: 'pushed 3 file(s)', drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
+    write(path.join(f.state, 'developer-profile.json'), '{\n<<<<<<< HEAD\n  "v": 1\n=======\n  "v": 2\n>>>>>>> origin/main\n}\n');
+    const r = doctor(f);
+    expect(r.row('artifacts sync').state).toBe('warn');
+    expect(r.row('artifacts sync').detail).toBe('developer-profile.json holds git conflict markers and does not parse');
+    write(path.join(f.state, 'developer-profile.json'), '{"v": 2}\n');
+    expect(doctor(f).row('artifacts sync').state).toBe('ok');
+  });
+
+  test('artifacts sync: a JSON hold is not attributed to the secret scanner (#3763)', () => {
+    const f = makeFixture();
+    syncOn(f, { status: 'held', message: 'held', held_count: 1, held: [{ path: 'developer-profile.json', rule: 'invalid-json', dependents: [], fixes: ['repair', 'skip'] }], drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
+    const r = doctor(f);
+    expect(r.row('artifacts sync').state).toBe('warn');
+    expect(r.row('artifacts sync').detail).toBe('status held (1 synced file(s) are not valid JSON; 1 held in all)');
+  });
+
   test('artifacts sync: held, then ok', () => {
     const f = makeFixture();
     syncOn(f, { status: 'held', message: 'held 2 file(s): sk-ant-secret', held_count: 2, held: [{ path: 'projects/p/notes.md', rule: 'anthropic_key', dependents: [], fixes: ['edit', 'skip'] }, { path: 'projects/p/b.md', rule: 'anthropic_key', dependents: [], fixes: ['edit', 'skip'] }], drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });

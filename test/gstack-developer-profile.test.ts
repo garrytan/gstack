@@ -628,6 +628,24 @@ describe('gstack-developer-profile --check-mismatch', () => {
 // Error handling
 // -----------------------------------------------------------------------
 
+describe('gstack-developer-profile --profile on an unparseable profile (#3763)', () => {
+  test('exits non-zero, prints nothing to stdout, and names the file and the conflict markers', () => {
+    fs.writeFileSync(path.join(tmpHome, 'developer-profile.json'), '{\n<<<<<<< HEAD\n  "sessions": []\n=======\n  "sessions": [1]\n>>>>>>> origin/main\n}\n');
+    const r = runDev('--profile');
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toContain('developer-profile.json is not valid JSON');
+    expect(r.stderr).toContain('git conflict markers');
+  });
+
+  test('a valid profile still prints as before', () => {
+    fs.writeFileSync(path.join(tmpHome, 'developer-profile.json'), '{"sessions":[]}\n');
+    const r = runDev('--profile');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('{"sessions":[]}\n');
+  });
+});
+
 describe('gstack-developer-profile errors', () => {
   test('unknown subcommand exits non-zero', () => {
     const r = runDev('--not-a-real-subcommand');
