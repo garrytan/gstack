@@ -7,7 +7,12 @@ every row with its thread and an age. Codes are the thread codes the host assign
 
 <empty when the owner has nothing to do>
 
-- <thread> · <age since asked> · <one-line plain-language ask> · default reply: **<one word>** · cost: <amount or none>
+<CREW_NAME>
+- A: <thread> hit problem <p>, which happens when <h>. We could fix it in these ways: 1) <x>; 2) <y>; 3) <z>. Recommendation: <x> because <why> (cost: <amount or none>; asked <age> ago). A1 to take recommendation.
+- B: …
+
+"do it" takes every recommendation above; a named option ("A2") takes that option instead. The
+ask format is gstack docs/captain.md, The ask format.
 
 ## New
 
