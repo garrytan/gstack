@@ -662,3 +662,79 @@ describe('a CHANGELOG re-heading after the docs audit (GST-906, GBRA-258, gbrain
     }
   });
 });
+
+describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-277, gbrain #8425)', () => {
+  const exceptionFile = (f: ShipFx, head: string, extra: Record<string, unknown> = {}) => {
+    const file = path.join(f.root, 'loop-exception.json');
+    fs.writeFileSync(file, JSON.stringify({ accepted_by: 'GStack Minder (rule 23 grant)', date: '2026-11-02', via: 'GSTA-36', reason: 'the pre-agreed fallback after the fix-check blocker, then ship', fix_check: { head, findings: 1 }, ...extra }));
+    return file;
+  };
+  const afterFixCheck = () => {
+    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'README.md': '# Fx, with the branch feature\n' });
+    const fixHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    f.write({ 'src/x.ts': 'export const x = 3;\n', 'README.md': '# Fx, with the fallback\n' }); f.commit('owner fallback after the fix-check');
+    return { f, fixHead, reviewed, post };
+  };
+
+  // Value: protects=an edit the owner accepted after a fix-check ships through Step 16 without another review round (R51 cap);
+  //   fails_when=finish routes the accepted src edit as behavior or stales the docs stage on the accepted doc, or accepts it
+  //   without the exception file; seam=finish's route and docsFresh; no_claim=the receipt and queue checks (exceptionProblems)
+  test('paths changed since fix_check.head route as accepted and the docs stage carries them; without the file it still stops', () => {
+    const { f, fixHead, reviewed, post } = afterFixCheck();
+    const plain = finish(f, reviewed, post);
+    expect([plain.status, plain.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts)')]).toEqual([3, true]);
+    expect(lineOf(plain.stdout, 'ROUTE')).toMatch(/ behavior=1 docs=1 metadata=0 tests=0 base=unknown context=0$/);
+    const r = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead)}`]);
+    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=unknown context=0 accepted=2$/);
+    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).toBe(`REVIEW_LOOP_EXCEPTION: accepted README.md,src/x.ts (changed since fix-check ${fixHead.slice(0, 12)}; accepted by GStack Minder (rule 23 grant) 2026-11-02 via GSTA-36)`);
+    expect(lineOf(r.stdout, 'DOCS')).toBe('DOCS: fresh against the Step 14.5 post-audit snapshot (carried: tests=0 base=0 requested=0 accepted=2)');
+    expect([r.status, lineOf(r.stdout, 'EVIDENCE')]).toEqual([0, expect.stringMatching(/^EVIDENCE: FRESH label=tests /)]);
+  });
+
+  // Value: protects=the exception covers only the frozen scope and only a real fix-check; fails_when=a path the branch never
+  //   touched at the fix-check, or an exception naming a commit outside the branch or a malformed record, is accepted; seam=finish
+  test('a path outside the frozen scope still routes as behavior; a fix-check head off the branch or a malformed record stops', () => {
+    const { f, fixHead, reviewed, post } = afterFixCheck();
+    f.write({ 'src/new.ts': 'export const n = 1;\n' }); f.commit('a new file after the fix-check');
+    const outside = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead)}`]);
+    expect(lineOf(outside.stdout, 'ROUTE')).toMatch(/ behavior=1 .* accepted=2$/);
+    expect([outside.status, outside.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/new.ts)')]).toEqual([3, true]);
+    const off = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, 'e'.repeat(40))}`]);
+    expect([off.status, off.stdout]).toEqual([3, expect.stringContaining(`STOP: --review-loop-exception: fix_check.head eeeeeeeeeeee is not HEAD or an ancestor of it`)]);
+    const bad = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { reason: '' })}`]);
+    expect([bad.status, bad.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: review_loop_exception.reason must be a non-empty one-line string')]);
+    const missing = finish(f, reviewed, post, ['--review-loop-exception', `@${path.join(f.root, 'no-such-record.json')}`]);
+    expect([missing.status, missing.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: ')]);
+  });
+
+  // Value: protects=fix_check.files only narrows the frozen scope; fails_when=a listed path the branch never touched at the
+  //   fix-check routes as accepted, or a touched path the list leaves out is accepted anyway; seam=finish's route
+  test('fix_check.files narrows the accepted scope and cannot add a path the branch had not touched at the fix-check', () => {
+    const { f, fixHead, reviewed, post } = afterFixCheck();
+    f.write({ 'src/new.ts': 'export const n = 1;\n' }); f.commit('a new file after the fix-check');
+    const r = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { fix_check: { head: fixHead, findings: 1, files: ['src/x.ts', 'src/new.ts'] } })}`]);
+    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=1 docs=1 metadata=0 tests=0 base=unknown context=0 accepted=1$/);
+    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).toStartWith('REVIEW_LOOP_EXCEPTION: accepted src/x.ts (');
+    expect([r.status, r.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/new.ts)')]).toEqual([3, true]);
+    const none = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { fix_check: { head: fixHead, findings: 1, files: [] } })}`]);
+    expect([none.status, none.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: fix_check.files lists no paths')]);
+  });
+
+  // Value: protects=a test weakened after the fix-check is never owner-accepted, with or without --reviewed-base;
+  //   fails_when=finish accepts a gate-edited test (a .skip, a removed assertion) because no base sides were given; seam=finish's route
+  test('a gate-edited test after the fix-check still routes as behavior under the exception', () => {
+    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': "import { expect, test } from 'bun:test';\ntest('a', () => { expect(2).toBe(2); });\n" });
+    const fixHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = wtree(f);
+    const reviewedBase = mergeBase(f);
+    const post = snapshot(f);
+    f.write({ 'test/x.test.ts': "import { test } from 'bun:test';\ntest.skip('a', () => {});\n" }); f.commit('weaken the test after the fix-check');
+    for (const extra of [[], ['--reviewed-base', reviewedBase]]) {
+      const r = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead)}`, ...extra]);
+      expect([r.status, lineOf(r.stdout, 'ROUTE'), r.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/x.test.ts)')]).toEqual([3, expect.stringMatching(/ behavior=1 .* accepted=0$/), true]);
+    }
+  });
+});
+

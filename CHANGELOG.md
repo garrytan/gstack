@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.92.81.0] - 2026-11-02
+
+**`gstack-ship-release finish` now accepts the owner's edit after a fix-check instead of asking for another review round (GST-965).** On gbrain #8425, the fix-check found a blocker, the owner's pre-agreed fallback was applied and "then ship" was granted. Finish still classed the edit as behavior and stopped with `insert 5–11.5 → 12–14 → 16`, a third round the R51 cap forbids, so /ship could not get through Step 16 without running its stages by hand.
+
+### Added
+- **`finish --review-loop-exception <json|@file>`** (`lib/ship-release.ts`) takes the same record `gstack-ship-receipt write --review-loop-exception` takes. Paths changed since `fix_check.head` that the branch already touched at that commit (narrowed to the record's `fix_check.files` when it lists them) route as `accepted=` on the `ROUTE:` line, a `REVIEW_LOOP_EXCEPTION:` line names them with the owner, date and channel, and the docs stage carries them (`accepted=` in the DOCS line). A path outside that scope and a gate-edited test (with or without `--reviewed-base`) still route as behavior, and with `--reviewed-base` so does a file too large for the scoped review. A malformed record, or a `fix_check.head` that is not HEAD or an ancestor of it, stops before the release commit. Without the flag nothing changes.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: an owner fallback edit to a source file and a doc after the fix-check stops without the record and passes Step 16 with it; a new file outside the scope (even when `fix_check.files` lists it), a fix-check head off the branch, a malformed record, an unreadable record file and an empty `fix_check.files` stop; a `fix_check.files` list narrows what is accepted; a test weakened after the fix-check stops with and without `--reviewed-base`.
+
 ## [1.92.80.0] - 2026-11-02
 
 **On a Capy machine, the git fixture tests no longer fail locally because of Capy's git shim log.** Capy's `/usr/bin/git` shim appends to `$HOME/.capy/git-shim.log`, so each fixture home that ran git during its template build ended up with a log naming the template. The leak scan in `test/helpers/git-fixture-template.ts` flagged it, and 34 tests in `test/train-backstop.test.ts`, `test/restamp-mentions.test.ts` and `test/pregate-user-policy.test.ts` failed on every Capy lane, though they passed on the remote gate.
