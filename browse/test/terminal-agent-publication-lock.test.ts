@@ -272,7 +272,8 @@ describe('owned terminal-agent publication lock recovery', () => {
         if (agent && String(to).endsWith('/terminal-agent-pid.lock') && !fs.existsSync(ready)) {
           const owner = JSON.parse(fs.readFileSync(to, 'utf8'));
           if (owner.kind !== 'agent-publication-v1' || owner.pid !== process.pid) throw new Error('Publication metadata was not atomic');
-          fs.writeFileSync(ready, JSON.stringify({ pid: process.pid, owner }));
+          fs.writeFileSync(ready + '.tmp', JSON.stringify({ pid: process.pid, owner }));
+          fs.renameSync(ready + '.tmp', ready);
           Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
           throw new Error('Expected the original fixture to kill the publication holder');
         }

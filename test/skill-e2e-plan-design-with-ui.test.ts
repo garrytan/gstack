@@ -44,13 +44,14 @@ const designFocusBoundary = (fp: AskUserQuestionFingerprint): boolean =>
     // The option leads with all seven, whatever it calls them ("All 7 areas", run 39363705692).
     // Run 40664336141 put the offer in the rated title instead ("Should I review all 7 areas
     // or focus on a few?") and lettered its options ("A) Review all 7 areas"). Either place
-    // carries the offer; issue-numbered options are a finding, never Step 0D.
+    // carries the offer; issue-numbered options are a finding, never Step 0D. Runs 41178131219
+    // and 41186376825 lettered the leading option itself ("A) All 7 passes (recommended)").
     const lead = text.split(/\r?\n|\s+(?=Project\/branch\/task:)/, 1)[0]!;
     return /^I(?:['’]ve| have) rated this plan (?:10(?:\.0+)?|[0-9](?:\.\d+)?)\/10 on design completeness\.[\s\S]*\bWant me to focus on specific areas instead(?: of all (?:7|seven))?\?/i.test(text)
       || (/\ball (?:7|seven) (?:design )?(?:dimensions|passes)\b/i.test(title) && /\bfocus\b/i.test(title)
         && (/\bdesign\b/i.test(title) || rated(text.slice(title.length))) && /\?\s*$/.test(title))
       || (/\bfocus\b/i.test(lead) && rated(text) && options.length >= 2 && !issueLabeled(options)
-        && (/\ball (?:7|seven)\s+[a-z]/i.test(lead) || options.some(({ label }) => /^\s*all (?:7|seven)\s+[a-z]/i.test(label))));
+        && (/\ball (?:7|seven)\s+[a-z]/i.test(lead) || options.some(({ label }) => /^\s*(?:[A-Z][).:]\s*)?all (?:7|seven)\s+[a-z]/i.test(label))));
   });
 
 // Require a choice about the supplied UI, not a workflow offer after focus.
