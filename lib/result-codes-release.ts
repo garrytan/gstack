@@ -153,6 +153,36 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the PR body’s /ship receipt is for another head than the one being READY’d or merged (a push after /ship, or a receipt copied from another PR)',
     fix: 'rerun /ship on the current head so the receipt names it, then gstack-ship-queue ready again; a slot’s stamp commit keeps the receipt written for its pinned head',
   },
+  QUEUE_RECEIPT_CONDITIONAL: {
+    anchor: 'queue-receipt-conditional',
+    summary: 'the PR body’s /ship receipt is conditional: Step 5 failed on cases gstack-base-red proved are the base branch’s own, so /ship paused before READY',
+    fix: 'wait for the base to pass those cases (gstack-base-red wait --pause <file>), then /ship --resume <record>, which re-runs Step 5 and rewrites the receipt without base_red; nothing READYs, trains or merges on a conditional receipt',
+  },
+  BASE_RED_UNCONFIGURED: {
+    anchor: 'base-red-unconfigured',
+    summary: 'the base branch’s ship policy declares no base_red block, so gstack-base-red cannot reproduce a Step 5 failure there and every failure stays in-branch',
+    fix: 'handle the failure with /ship’s usual triage; to let /ship pause on a red base, add base_red { setup, select, timeout_sec } to .gstack/ship-policy.json on the base branch',
+  },
+  BASE_RED_UNNAMED: {
+    anchor: 'base-red-unnamed',
+    summary: 'the failure evidence names fewer failures than the Step 5 lane reported, so an unnamed failure could be in-branch',
+    fix: 'list every failing test in the evidence file (id, file, first error line), with total equal to the lane’s failure count, and classify again',
+  },
+  BASE_RED_REPRO_ERROR: {
+    anchor: 'base-red-repro-error',
+    summary: 'gstack-base-red could not reproduce at the base or the PR head: a commit did not resolve, the scratch checkout failed, or the setup command exited non-zero',
+    fix: 'read the printed detail; fix the base_red setup command on the base branch or fetch the base, then classify again. Until then every failure is in-branch',
+  },
+  BASE_RED_PAUSE_EXPIRED: {
+    anchor: 'base-red-pause-expired',
+    summary: 'the base-red pause is older than 24 hours, so its classification is stale',
+    fix: 'report the paused PR to its Captain (or owner), then start /ship again on the current base; it classifies afresh',
+  },
+  BASE_RED_WAIT_TIMEOUT: {
+    anchor: 'base-red-wait-timeout',
+    summary: 'no new base head passed the paused cases before gstack-base-red wait’s timeout',
+    fix: 'run gstack-base-red wait --pause <file> again (the pause stays valid until it expires), or check who owns the base red',
+  },
   QUEUE_RECEIPT_DEPTH_RAISED: {
     anchor: 'queue-receipt-depth-raised',
     summary: 'the PR body’s /ship receipt records a review depth below the one its head needs (the queue recomputed it from git), or a current receipt records no review_depth at all',

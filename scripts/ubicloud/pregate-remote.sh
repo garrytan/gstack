@@ -213,7 +213,7 @@ fi
 say "$count files on one $size VM; worst case \$$(usd "$wall_min") under the cap \$$cap; the VM is told to stop after ${stop_after}s ($stop_why)"
 
 # The VM run gets its own session (python3, which ubi-runner already needs, for
-# setsid on Linux and macOS): pregate's --timeout and stall kill signal this
+# setsid on Linux and macOS): pregate's --timeout kill signals this
 # script's process group and then SIGKILL it, which must never cut ubi-runner's
 # teardown short. Output goes to files (a dead reader would SIGPIPE ubi-runner),
 # stamped for the phase timings; this script streams it. A watchdog sends
