@@ -4,6 +4,7 @@
  */
 import type { PregateCheck } from '../headless-artifacts';
 import type { Registry } from '../regen';
+import type { RunSource } from '../run-evidence';
 import type { PregateConfig } from './config';
 import type { Lane } from './workflows';
 
@@ -61,6 +62,8 @@ export interface PregateContext {
   cores: number;
   testBackend: string;
   policyFrom: 'base' | 'head';
+  /** `--from-run`: a Free Tests run whose tree.json files count as passed for this tree (lanes, lib/run-evidence.ts verifyFromRun), with the base branch's run check or why it could not be built. */
+  fromRun?: { ref: string; check: RunSource | { error: string } };
   /** `--remote`: run the declared remote gate now, under this spend cap. */
   remote: { spendCapUsd: number } | null;
   env: NodeJS.ProcessEnv;
