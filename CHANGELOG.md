@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.91.353.0] - 2026-10-31
+
+**`/ship` Step 12 now has a way through for repos whose unit PRs never change VERSION, and an unattended `/ship` no longer writes a version bump nobody approved.** On gstack-evals (no policy file, so `bump: ask`), `--keep-current`, `--version 0.0.1` and `--accept-incomplete` all stopped with `BUMP_LEVEL needed` (gstack-evals#85), and on gstack-evals#89 an unattended run took the recommended level and wrote 0.0.2 before anyone was asked (GST-380).
+
+### Added
+- **`"bump": "never"` in `.gstack/ship-policy.json`** for a repo whose unit PRs never version. Step 12 prints `VERSION: <v> kept (policy: bump never; no write)`, asks nothing and refuses `--bump`; a branch that moved VERSION stops until it is put back. `gstack-restamp --next` then needs an explicit `--bump` or `--version`. The value needs `min_gstack_version` at its introducing release and cannot be combined with `queue_mode: stamp-at-merge`, `train` or `changelog_fragments`, which stamp a version at every merge.
+
+### Fixed
+- **`gstack-ship-release version`**: on a branch whose VERSION still equals the base, `--keep-current` and `--version <current>` print `VERSION: <v> kept`, write nothing and read no queue. Passing `--bump` with either stops and names the conflict. The `BUMP_LEVEL needed` stop now names `--keep-current` too.
+- **No version write before the owner answers.** Under `bump: ask`, when `gstack-session-kind` reports anything but `interactive` (unattended, spawned, OpenClaw, headless or CI), a Step 12 call that would write a version stops with `BUMP_ANSWER_REQUIRED` and writes nothing until it is rerun with `--answer "<the owner's words>"` (one line, at most 200 characters). This covers a FRESH `--bump` and a `--version` rewrite of an already bumped branch. `bump: patch` is a standing answer and needs no `--answer`. `ship/DRIVER.md` lists the stop as an approval, so a brief's "take the recommended option" no longer answers it.
+
 ## [1.91.352.0] - 2026-10-31
 
 **gstack now knows particle-1 and has measured it on its own tasks.** particle-1 (Particle AI, October 28, 2026) passed 15/15 cells on a preregistered five-task panel, the same as Sonnet 5.5 and Opus 5.5, at $0.007 per task against Sonnet 5.5's $0.037 (run `2026-10-30-0105`, Claude Code through OpenRouter). The panel is easy, so it shows no measured difference between the models, not that they are equal. Results and every cell are in [docs/evals/particle-1-2026-10.md](docs/evals/particle-1-2026-10.md).
