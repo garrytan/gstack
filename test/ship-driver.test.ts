@@ -177,14 +177,26 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(doc).toContain('gstack-ship-budget close --reading R --credits C');
   });
 
-  // Value: protects=no call waits past the 5-minute prompt cache: programs return within 240 s and the next call resumes the wait, with the choice of a ping over a waiting child stated where the parent and Capy read it; fails_when=a phase waits in one program until slow work ends (cache probe: a call after a 7-minute gap cost ~2,820 credits against ~70), the cadence goes back to 270 s (16 s from the cache lifetime), or the reason is dropped;
-  //   why_new=wait hygiene is new; seam=none; no_claim=the host's cache lifetime
-  test('waits ping every 240 s in the driver and the Capy skill, and both say why a waiting child is not used', () => {
+  // Value: protects=no call waits past the 5-minute prompt cache and no turn ends while readers run: a program returns 200 s after its first line, the next call resumes the poll, long commands run in background, and Capy waits on operations only when no reader runs, with the choice of a ping over a waiting child stated where the parent and Capy read it; fails_when=a phase waits in one program until slow work ends (cache probe: a call after a 7-minute gap cost ~2,820 credits against ~70), the parent ends its turn on `wait` while readers run (GSTA-189: 23 of 25 waits were one wake per finished reader), the cadence drifts back toward the cache lifetime (240 s counted from the poll loop, or 270 s), or the reason is dropped;
+  //   why_new=GSTA-167 calls plan C1; seam=none; no_claim=the host's cache lifetime or wake policy
+  test('waits return 200 s after a program starts and never end the turn while readers run, in the driver and the Capy skill', () => {
     const waits = flat(doc.slice(doc.indexOf('**Waits.**'), doc.indexOf('\n\n', doc.indexOf('**Waits.**'))));
-    for (const s of ['No call waits past 240 s', 'the next call resumes', 'A small waiting child saves nothing', 'Past 100 minutes']) expect(waits).toContain(s);
-    const capy = read('capy/skill/gstack/SKILL.md');
-    for (const s of ['never let 5 minutes pass between calls', '`duration_seconds: 240`', 'A small waiting child saves nothing']) expect(capy).toContain(s);
-    for (const text of [doc, capy]) expect(text).not.toMatch(/\b270 ?s\b/);
+    for (const s of ['No call waits past 200 s', '200 s after its first line', 'the next call resumes the poll', 'run in background', 'Never end the turn while readers run',
+      'A small waiting child saves nothing', 'Past 100 minutes']) expect(waits).toContain(s);
+    const capy = flat(read('capy/skill/gstack/SKILL.md'));
+    for (const s of ['never let 5 minutes pass between calls', 'While readers run, never end the turn on `wait`', '`duration_seconds: 200`', 'one `tools.subagent.list` per ~20 s tick',
+      'returning 200 s after the program\'s first line', 'under `rejected` with `tools.subagent.start`', 'A small waiting child saves nothing']) expect(capy).toContain(s);
+    for (const text of [doc, capy]) expect(text).not.toMatch(/\b270 ?s\b|duration_seconds: 240|at most 240 s/);
+  });
+
+  // Value: protects=a program's return fits the host's output cap, a fix runs as one gated program, Step 7's test-writing audit settles before the pass reads the tree, and an unattended push never stops on the one-time pre-push offer; fails_when=Phase 2 returns review-army.md + adversarial.md + documentation.md (97,750 B) at once (replays 8G: truncated reads cost extra calls), a fix walks test, fix, tests and dispatch call by call (GSTA-189: 16 calls), Step 7 writes tests while specialists read (GSTA-164: a pregate refused mid-run), or push stops unattended (all three variant G replays);
+  //   why_new=GSTA-167 calls plan C5, C6, C7 and round-2 High 11; seam=none; no_claim=the parent's adherence, which the replays' CALLS: lines measure
+  test('returns stay at or under 32 KB, a fix is one gated program, Step 7 settles first, and unattended push defers the pre-push offer', () => {
+    const f = flat(doc);
+    for (const s of ['Returns: ≤32 KB per program; split longer reads at headings, each byte once, before first use',
+      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', 'Step 7 may write tests, so it settles first',
+      'Unattended, push defers the pre-push offer; else its STOP runs Step 17\'s guard block', 'plus a keep-alive per 200 s waited']) expect(f).toContain(s);
+    expect(flat(doc.slice(doc.indexOf('**Budget: observe.**')))).toContain('--reading R --credits C --record <rec>');
   });
 
   // Value: protects=a reader counts as settled only once it has run (status done or failed, or a final summary), in the driver, the Capy skill and the budget section, so a poll never closes a batch on a subagent that was just created; fails_when=the settled rule is dropped or lets a bare idle status through (replay 7e #36: the Red Team reservation settled actual=0 because a just-created subagent read idle);

@@ -257,7 +257,8 @@ turn, three sections in this order, each row with its thread, one line, and an a
 2. **New**: what landed or changed since the last digest (merges with versions, READYs
    received, trains built, incidents), newest first.
 3. **In progress**: every working lane, what it owns, its state (building, READY, in
-   train slot i, blocked on …) and how long since it last reported.
+   train slot i, blocked on …) and how long since it last reported. A thread the Captain
+   archives leaves this list in the same turn.
 
 Ages make stalls visible: a lane in progress with no report for hours, or a READY waiting
 longer than `FILL_HOURS`, is the controller's next action.

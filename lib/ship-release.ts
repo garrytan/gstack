@@ -221,8 +221,9 @@ export function push(argv: readonly string[], cwd: string): Report {
   if (branch !== flag('--branch')) return r.stop(`HEAD is on ${branch}, not the branch Step 1 saved (${flag('--branch')}): check out the saved branch, then rerun push`);
   const guard = bin(cwd, 'gstack-config', ['get', 'redact_prepush_hook'], 30_000).stdout.trim() || 'false';
   const prompted = fs.existsSync(path.join(resolveStateRoot(process.env), '.redact-prepush-prompted'));
-  r.add(`REDACT_PREPUSH: ${guard} prompted=${prompted ? 'yes' : 'no'}`);
-  if (guard !== 'true' && !prompted) return r.stop('Step 17\'s one-time pre-push guard offer is unanswered: run the guard block and ask it, then rerun push');
+  const deferred = guard !== 'true' && !prompted && process.env.GSTACK_SESSION_KIND === 'unattended';
+  r.add(`REDACT_PREPUSH: ${guard} prompted=${prompted ? 'yes' : 'no'}${deferred ? ' deferred=unattended' : ''}`);
+  if (guard !== 'true' && !prompted && !deferred) return r.stop('Step 17\'s one-time pre-push guard offer is unanswered: run the guard block and ask it, then rerun push');
   const gateOpen = Number(flag('--gate-open') ?? '0');
   if (gateOpen > 0) {
     if (!hostedOrigin(cwd)) return r.stop('open-PR lookup unavailable: origin is a local path, not a hosted remote gh can map; it must succeed before pushing open gate findings');

@@ -194,6 +194,7 @@ export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   'test-audit': CLAUDE_ONLY,
   ubicloud: CLAUDE_ONLY,
   unfreeze: CLAUDE_ONLY,
+  verify: CLAUDE_ONLY,
   'review-voice': REVIEW_VOICE,
 };
 
