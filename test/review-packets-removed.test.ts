@@ -58,6 +58,7 @@ const NO_LOSS_REPLAYS = {
   'GST-257': "GST-257 PR 1 dispatch-superset no-loss check (test/review-targeted.test.ts): on every fixture diff the branch dispatches main's reviewers at 8be7f21 unchanged plus only the targeted reader, and over the last 100 non-release commits on main it lost none; adds the targeted role and brief to the G1 and L bytes, whose existing reviewer text is unchanged",
   'GST-850': "GST-850 dispatch-superset no-loss check: on the 26 GSTA-167 no-loss units the branch plan (wider security and money classes, write-up text in the batched diff) drops no reviewer role main dispatches, so no saved blocker can be lost, and over the last 100 main commits no commit with a gate or risk class drops depth (test/review-risk-routing.test.ts, test/review-risk-linear.test.ts); reviewer text is unchanged",
   'R51': "R51 risk-tier routing no-loss re-score (GSTA-167): the saved panel findings (349 records over 24 of the 26 no-loss units) re-scored against the branch's plan lose no blocker whose only finders are roles it drops, and every gate, security, user-data and money fixture keeps main's reviewers plus the full panel (test/review-targeted.test.ts, test/review-risk-routing.test.ts); reviewer text is unchanged",
+  'GST-898': "GST-898 verdict-identity no-loss check: the linear rm rule, and the rmSync rule (which also raises security on any call with more than 500 characters before its closing parenthesis), give the same verdict as R51's on every changed line of the last 100 main commits (69,023 lines, a563f47 back 100 first-parent commits) and on 60,000 seeded lines per rule (test/review-risk-redos.test.ts), and no commit changes depth, class or risk class, so every diff dispatches main's reviewers unchanged; reviewer text is unchanged",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
@@ -80,7 +81,7 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
     'lib/review-depth.ts': { sha: '839205a409014fb2cca6988a01aa04c98c495d8d24bd94895a86bf7794627338', replay: 'GST-850' },
-    'lib/review-risk.ts': { sha: '18f0330ddfda0032eb93516b0eb941fa4244e0a68b028e19c436c74609093b03', replay: 'GST-850' },
+    'lib/review-risk.ts': { sha: '5269aed03318f745d0be7a39f24b8bf04cbf385d1f9f70fb967cb6a2cb01a8f7', replay: 'GST-898' },
 };
 
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {
