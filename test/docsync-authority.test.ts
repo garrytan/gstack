@@ -145,6 +145,35 @@ test('completed docs review accepts literal cat but not an unrelated command or 
   } finally { fixture.clean(); }
 });
 
+// Screen 40828580338 slice 8 (ship-docsync-failure, red on its phase read, green on the in-run rerun): the parent's first line
+// printed phase.md in full, then zsh read the separator `echo ======` as an = command lookup and abandoned the line (exit 1).
+test.skipIf(process.platform === 'win32')('captured run 40828580338: a line that opens with the full phase still reads it after a later command failed', () => {
+  const fixture = fixtureDocs('legacy');
+  try {
+    const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-phase-read-aborted-public.json'), 'utf8')) as
+      { calls: SkillTestResult['toolCalls'] };
+    const fill = (text: string) => text.replaceAll('{home}', fixture.home);
+    const phase = path.join(fixture.home, 'phase.md');
+    const command = fill(captured.calls[0].input.command);
+    const shape = /^Exit code 1\n([\s\S]+)\n\(eval\):1: ===== not found$/.exec(captured.calls[0].output);
+    expect(shape).not.toBeNull();
+    const body = shape![1];
+    fs.writeFileSync(phase, `${body}\n`);
+    const read = (line: string, output: string) => docsCompletedRead(calls({ tool: 'Bash', input: { command: line }, output }), phase, fixture);
+    expect(command.startsWith(`cat ${phase}; echo ======; `)).toBe(true);
+    expect(docsToolFailures(calls(...captured.calls.map(call => ({ ...call, input: { command: fill(call.input.command) } }))), fixture)).toEqual([]);
+    expect(read(command, captured.calls[0].output)).toBe(true);
+    expect(read(command, body)).toBe(true);
+    expect(read(`ls ${fixture.home}; ${command}`, captured.calls[0].output)).toBe(false);
+    expect(read(command.replace(`cat ${phase};`, `cat ${phase} | head -400;`), captured.calls[0].output)).toBe(false);
+    expect(read(command.replace(`cat ${phase};`, `cat ${fixture.home}/ship-invocation.md ${phase};`), captured.calls[0].output)).toBe(false);
+    expect(read(command, `Exit code 1\n(eval):1: boom\n${body}`)).toBe(false);
+    expect(read(command, `Exit code 1\n${body.slice(0, 200)}`)).toBe(false);
+    expect(read(command, `Error: ${captured.calls[0].output}`)).toBe(false);
+    expect(read(command, `<tool_use_error>${captured.calls[0].output}</tool_use_error>`)).toBe(false);
+  } finally { fixture.clean(); }
+});
+
 test.skipIf(process.platform === 'win32')('replay of Linux run 37237194905 late-result: only the write to a mistyped shard root is outside authority', () => {
   const fixture = fixtureDocs('current');
   try {

@@ -19,6 +19,7 @@ import captured_sed_context from './fixtures/coverage-audit-sed-context.json';
 import captured_cd_chain from './fixtures/coverage-audit-cd-chain.json';
 import captured_wc_anchor from './fixtures/coverage-audit-wc-anchor.json';
 import captured_separator from './fixtures/coverage-audit-separator-collision.json';
+import captured_two_file_grep from './fixtures/coverage-audit-two-file-grep.json';
 
 const clone = <T>(v:T):T => structuredClone(v);
 const diagram = '```text\nsrc/billing.ts\n├── processPayment: happy path [TESTED]\n└── refundPayment [UNTESTED]\n```';
@@ -1251,3 +1252,40 @@ describe('coverage audit native evidence: a separator that also appears in neigh
     expect(reads(dashed.command.replace('cat src/billing.ts', 'cat src/other.ts'), dashed.output)).toMatchObject({ sourceRead: false });
   });
 });
+
+describe('coverage audit native evidence: an escaped grep over two literal files after the reads (CI 41149166998 slice 5)', () => {
+  const capture = captured_two_file_grep;
+  const both = { sourceRead: true, testsRead: true }, neither = { sourceRead: false, testsRead: false };
+  const files = { cwd: capture.cwd, source: { path: capture.cwd + '/src/billing.ts', content: capture.files.source },
+    tests: { path: capture.cwd + '/test/billing.test.ts', content: capture.files.tests } };
+  const transcript = (command: string, output: string) => [
+    { type: 'system', subtype: 'init', session_id: capture.sessionId, cwd: capture.cwd },
+    { type: 'assistant', session_id: capture.sessionId, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: capture.call.toolUseId, name: 'Bash', input: { command } }] } },
+    { type: 'user', session_id: capture.sessionId, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: capture.call.toolUseId, is_error: capture.call.isError, content: output }] } },
+  ];
+  const reads = (command = capture.call.command, output = capture.call.output) => coverageAuditReadEvidence(transcript(command, output), files);
+  const grep = 'grep -n -i -A3 "coverage diagram\\|ASCII" review/SKILL.md review/sections/review-army.md';
+
+  test('both complete reads before a two-file escaped grep display are credited and the recorded run passes', () => {
+    expect(capture.provenance.recordedPassed).toBe(false);
+    expect(capture.call.command).toContain('; cat -n src/billing.ts; echo ----; cat -n test/billing.test.ts; echo ----; ' + grep + ' | head -80');
+    expect(reads()).toEqual(both);
+    expect(coverageAuditVerdict({ exitReason: 'success', browseErrors: [], output: capture.finalOutput,
+      transcript: transcript(capture.call.command, capture.call.output) } as any, files)).toEqual({ ...both, diagram: true, passed: true, failures: [] });
+  });
+
+  test('an option, substitution or redirect among the grep operands, or a tampered read, still gets no credit', () => {
+    for (const operands of ['review/SKILL.md -f/tmp/foreign', 'review/SKILL.md --include=*', '-r review/SKILL.md', 'review/SKILL.md "$(touch x)"', 'review/SKILL.md > out.txt']) {
+      expect(reads(capture.call.command.replace('review/SKILL.md review/sections/review-army.md', operands)), operands).toEqual(neither);
+    }
+    const nonce = capture.files.source.match(/coverage-read-evidence: (\S+)/)![1]!;
+    expect(reads(capture.call.command, capture.call.output.replace(nonce, nonce.slice(1) + '0'))).toMatchObject({ sourceRead: false });
+    expect(reads(capture.call.command.replace('cat -n test/billing.test.ts', 'cat -n test/other.test.ts'))).toMatchObject({ testsRead: false });
+  });
+
+  test('a quoted grep operand with a space stays one literal file operand', () => {
+    expect(reads(capture.call.command.replace('review/SKILL.md review/sections/review-army.md', 'review/SKILL.md "docs/design notes.md"'))).toEqual(both);
+    expect(reads(capture.call.command.replace('review/SKILL.md review/sections/review-army.md', '"docs/design notes.md" -f/tmp/foreign'))).toEqual(neither);
+  });
+});
+
