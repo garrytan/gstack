@@ -56,6 +56,8 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   // /eval-plan (plan E1): the pilot's ledger inputs.
   '<cap-usd>': { grammar: NUMBER, what: 'spend cap in USD' },
   '<total-items>': { grammar: NUM, what: 'items in the full eval run' },
+  '<tap-x>': { grammar: NUM, what: 'viewport x in CSS pixels for the Aside touch recipe' },
+  '<tap-y>': { grammar: NUM, what: 'viewport y in CSS pixels for the Aside touch recipe' },
   '<workers>': { grammar: NUM, what: 'concurrent eval workers' },
   '<attempt-id>': { grammar: ID, what: 'PILOT_ATTEMPT id printed by pilot start' },
   '<usd|unknown>': { grammar: /^(?:[0-9]+(?:\.[0-9]+)?|unknown)$/, what: 'actual cost in USD from the provider usage field, or unknown' },

@@ -1,6 +1,7 @@
 /**
  * Result codes for the CEO-only driver run (`gstack-autoplan next --ceo-only`,
- * lib/autoplan-ceo-only.ts). Kept beside lib/result-codes.ts, which spreads
+ * lib/autoplan-ceo-only.ts) and its shadow-mode reader (`gstack-autoplan shadow`,
+ * lib/autoplan-shadow-reader.ts). Kept beside lib/result-codes.ts, which spreads
  * this table into RESULT_CODES; the same rules apply: one stable
  * docs/troubleshooting.md anchor, a summary and a fix clause each. The run is
  * documented in docs/unattended.md#ceo-only-runs.
@@ -22,5 +23,10 @@ export const AUTOPLAN_RESULT_CODES = {
     anchor: 'ceo-only-no-gate',
     summary: 'answer, recommend, revise and approvals import need a gate or an approvable run, and a CEO-only run has neither: it ends status=reviewed and is never approved',
     fix: 'read <run dir>/ceo-review.md; to get a gate and an approval, start a full review with gstack-autoplan next --out <new dir> --plan <file> (no --ceo-only)',
+  },
+  SHADOW_BEFORE_ANSWER: {
+    anchor: 'shadow-before-answer',
+    summary: 'gstack-autoplan shadow skipped a gate revision whose plan approval is unanswered or answered c (interrogate): the export pairs predictions with answers, so it waits for the owner',
+    fix: 'answer the gate (gstack-autoplan answer --gate-rev <n> ...), then run gstack-autoplan shadow again; answered revisions of the same run still export',
   },
 } as const satisfies Record<string, ResultCode>;

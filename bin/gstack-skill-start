@@ -41,14 +41,18 @@ SKILL_NAME=""
 MODEL_OVERLAY="none"
 PARENT_PID=""
 BRAIN_HEALTH="no"
+LOADOUT="" LOADOUT_MODEL="" FULL_ROOT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --skill)       SKILL_NAME="$2"; shift 2 ;;
     --model)       MODEL_OVERLAY="$2"; shift 2 ;;
     --parent-pid)  PARENT_PID="$2"; shift 2 ;;
     --brain-health) BRAIN_HEALTH="yes"; shift ;;
+    --loadout)     LOADOUT="$2"; shift 2 ;;
+    --loadout-model) LOADOUT_MODEL="$2"; shift 2 ;;
+    --full-root)   FULL_ROOT="$2"; shift 2 ;;
     -h|--help)
-      echo 'Usage: gstack-skill-start --skill NAME [--model OVERLAY] [--parent-pid PID] [--brain-health]'
+      echo 'Usage: gstack-skill-start --skill NAME [--model OVERLAY] [--parent-pid PID] [--brain-health] [--loadout NAME --loadout-model ID --full-root DIR]'
       echo 'Starts a skill session and prints its STATUS lines. --help starts nothing.'
       exit 0 ;;
     *) shift ;;
@@ -326,6 +330,33 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
 echo "MODEL_OVERLAY: $MODEL_OVERLAY"
+# Loadout (GSTA-161, docs/loadouts.md): a render chosen for one model bakes
+# its loadout, that model id and the full install root into the start command.
+# Every value is re-validated before it is echoed, and GSTACK_MODEL (the
+# running model, when the harness sets it) is only compared, never echoed
+# unless it is a plain model id.
+_LO_MODEL_RE='^[a-z0-9][a-z0-9._-]{0,79}$'
+if [ -n "$LOADOUT" ]; then
+  [[ "$LOADOUT" =~ ^[a-z0-9-]{1,40}$ ]] || LOADOUT="invalid"
+  [[ "$LOADOUT_MODEL" =~ $_LO_MODEL_RE ]] || LOADOUT_MODEL=""
+  [[ "$FULL_ROOT" =~ ^/[A-Za-z0-9_.@+/-]*$ ]] || FULL_ROOT=""
+  [[ "$SKILL_NAME" =~ ^[a-z0-9-]{1,60}$ ]] || FULL_ROOT=""
+  if [ -z "$LOADOUT_MODEL" ] || [ -z "$FULL_ROOT" ]; then
+    echo "LOADOUT: $LOADOUT model=unknown: the start line is malformed; read the full SKILL.md for this skill instead of this file."
+  else
+    _lo_full="$FULL_ROOT/$SKILL_NAME/SKILL.md"
+    echo "LOADOUT: $LOADOUT model=$LOADOUT_MODEL full_root=$FULL_ROOT"
+    echo "LOADOUT_RULE: this file was rendered for $LOADOUT_MODEL. If you are not running $LOADOUT_MODEL, read $_lo_full now and follow it instead of this file."
+    if [ -n "${GSTACK_MODEL:-}" ]; then
+      _lo_run=$(printf '%s' "$GSTACK_MODEL" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/\[[^]]*\]$//' -e 's/[[:space:]]*$//' -e 's#^[a-z0-9-]*/##')
+      if ! [[ "$_lo_run" =~ $_LO_MODEL_RE ]]; then
+        echo "LOADOUT_MISMATCH: $LOADOUT_MODEL vs an invalid GSTACK_MODEL: read $_lo_full now and follow it instead of this file."
+      elif [ "$_lo_run" != "$LOADOUT_MODEL" ] && ! [[ "${_lo_run#"$LOADOUT_MODEL"-}" =~ ^([0-9]{8}|latest)$ && "$_lo_run" == "$LOADOUT_MODEL"-* ]]; then
+        echo "LOADOUT_MISMATCH: $LOADOUT_MODEL vs $_lo_run: read $_lo_full now and follow it instead of this file."
+      fi
+    fi
+  fi
+fi
 # Plan-mode hint for skills that branch on plan-mode state. Detected best-effort
 # from CLAUDE_PLAN_FILE (set by the harness when plan mode is active); "inactive"
 # is the safe default (file+execute pipeline).

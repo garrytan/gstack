@@ -233,7 +233,6 @@ gstack_result_anchor() {
     BUN_RESOLUTION_DRIFT) printf '%s' 'bun-resolution-drift' ;;
     BUN_INSTALL_VERSION_INVALID) printf '%s' 'bun-install-version-invalid' ;;
     INSTALL_UNVERIFIED) printf '%s' 'install-unverified' ;;
-    BROWSE_TAB_UNRECOVERABLE) printf '%s' 'browse-tab-unrecoverable' ;;
     BUN_VERSION_UNREADABLE) printf '%s' 'bun-version-unreadable' ;;
     BASH_UNAVAILABLE) printf '%s' 'bash-unavailable' ;;
     IOS_LAUNCH_ENV_INVALID) printf '%s' 'ios-launch-env-invalid' ;;
@@ -382,6 +381,19 @@ gstack_result_anchor() {
     CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
     CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
     CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;
+    SHADOW_BEFORE_ANSWER) printf '%s' 'shadow-before-answer' ;;
+    BROWSE_TAB_UNRECOVERABLE) printf '%s' 'browse-tab-unrecoverable' ;;
+    BROWSE_SESSION_INVALID) printf '%s' 'browse-session-invalid' ;;
+    BROWSE_SESSION_ROOT_ONLY) printf '%s' 'browse-session-root-only' ;;
+    BROWSE_SESSION_TAB_RESET) printf '%s' 'browse-session-tab-reset' ;;
+    BROWSE_SESSION_LIMIT) printf '%s' 'browse-session-limit' ;;
+    BROWSE_DEVICE_UNKNOWN) printf '%s' 'browse-device-unknown' ;;
+    BROWSE_DEVICE_CDP_FAILED) printf '%s' 'browse-device-cdp-failed' ;;
+    BROWSE_TOUCH_NO_DEVICE) printf '%s' 'browse-touch-no-device' ;;
+    GSTACK_CLEAN_USAGE) printf '%s' 'gstack-clean-usage' ;;
+    GSTACK_CLEAN_TARGET_REFUSED) printf '%s' 'gstack-clean-target-refused' ;;
+    GSTACK_CLEAN_PARTIAL) printf '%s' 'gstack-clean-partial' ;;
+    GSTACK_CLEAN_INTERNAL) printf '%s' 'gstack-clean-internal' ;;
     *) return 1 ;;
   esac
 }

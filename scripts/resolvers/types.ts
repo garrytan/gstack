@@ -140,6 +140,10 @@ export interface ModuleFilter {
   pinned: ReadonlySet<string>;
   /** Unpinned preamble pieces render as if the skill's preamble-tier were at most this. */
   preambleTierMax?: number;
+  /** The model an automatic selection was made for; the start line tells any other model to read fullRoot instead. */
+  boundModel?: string;
+  /** Absolute root of the full install that holds <skill>/SKILL.md. */
+  fullRoot?: string;
 }
 
 /** Resolver function signature. args is populated for parameterized placeholders like {{INVOKE_SKILL:name}}. */
