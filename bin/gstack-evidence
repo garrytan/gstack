@@ -653,12 +653,14 @@ function cmdPassed(argv: string[]): number {
   const sep = argv.indexOf("--");
   const command = sep < 0 ? "" : argv.slice(sep + 1).join(" ");
   if (!command || sep !== 0) { console.error("usage: gstack-evidence passed -- <command>"); return 2; }
-  const wtree = currentWtree();
-  if (!wtree) { console.log("NOT_PASSED: no working-tree fingerprint"); return 1; }
   let records: EvidenceRecord[] = [];
   try { records = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { records = []; }
   const cmdSha = sha256(command);
-  const newest = records.findLast((r) => r.cmd_sha256 === cmdSha && r.wtree === wtree && r.source === undefined);
+  const local = records.filter((r) => r.cmd_sha256 === cmdSha && r.source === undefined);
+  if (!local.length) { console.log("NOT_PASSED: no local ledger row for this command"); return 1; }
+  const wtree = currentWtree();
+  if (!wtree) { console.log("NOT_PASSED: no working-tree fingerprint"); return 1; }
+  const newest = local.findLast((r) => r.wtree === wtree);
   if (!newest) { console.log(`NOT_PASSED: no local ledger row for this command at tree ${wtree.slice(0, 12)}`); return 1; }
   if (!countedPass(newest, 24)) { console.log(`NOT_PASSED: the newest row (label=${newest.label} ts=${newest.ts}) is not a counted pass within 24 h under this runtime`); return 1; }
   console.log(`PASSED: label=${newest.label} source=local ts=${newest.reused_from ?? newest.ts}`);
