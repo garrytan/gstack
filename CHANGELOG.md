@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.93.9.0] - 2026-11-02
+
+**`gstack-ship-receipt read --check-prose` no longer reads the required Review-loop exception line as counter claims (GST-977).** `write --review-loop-exception` requires the PR body to carry the whole `Review-loop exception: …` line word for word, but the prose check read that line as prose. On gstack-evals #139 the owner's reason "outside 1 and 2 skip detector" was read as a `2 skip` claim against the receipt's 70 skips, so no body could pass both checks.
+
+### Fixed
+- **`lib/ship-receipt-prose.ts`:** the line that matches the receipt's own exception exactly (the same test `write` applies) is skipped, like the rendered `## Approvals` block. A copy of that exact line inside a code fence is skipped too, as `write` accepts one. The same words inside a longer line, or a line for a different exception, are still checked.
+
+### Tests
+- `test/ship-receipt-prose.test.ts`: the #139 exception text passes `--check-prose` beside a matching `70 skip` claim, and a wrong number elsewhere still fails. On main the same body failed with `gate.unit.skip body=2 receipt=70`.
+
 ## [1.93.8.0] - 2026-11-02
 
 **/ship now runs Step 11's voices before any gate-class stop, and a recorded owner grant runs its fix-check.** On a gate-class change, a blocker fixed in review round 2 used to stop the run for the owner before Step 11 ran. If the owner then chose "ship with open notes", gate code shipped with no adversarial, outside or targeted review (C6-36 after-opus). `gstack-review-plan` now answers `NEXT: voices` for any gate-class stop while Step 11 has not run. /ship runs Step 11 as it does on `done`, asks the plan again with `--adversarial-ran`, and the stop then stands. The round cap still limits fix rounds; it no longer skips the required voices. Second, the owner's grant of one scoped fix-check after round 2 had no way in: the plan took no grant input, and the pass program printed `PASS: none next=stop`. Now `gstack-review-plan --grant <approval id>` checks that the branch's `gstack-approvals` record holds that id as an approved grant naming `review_loop_grant` and this run's stop head (exit 3 for any other row, a grant recorded for an earlier /ship on the branch included), and plans the one fix-check in place of the stop after a round-2 full pass. The pass program then dispatches that fix-check like any other. A fix-check never earns another, so the grant cannot repeat. After `NEXT: voices`, a blocking finding the voices queue goes back to the plan as `--blocking-open` instead of starting a new review pass.

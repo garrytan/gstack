@@ -7,6 +7,7 @@
  */
 import { APPROVALS_FOOTER_END, APPROVALS_TABLE_HEADER } from './approval-record';
 import { RECEIPT_FENCE } from './ship-receipt';
+import { parseReviewLoopException, reviewLoopExceptionLine } from './ship-receipt-depth';
 
 export interface ProseClaim { field: string; prose: number; receipt: number }
 export interface ProseCheck { checked: number; mismatches: ProseClaim[] }
@@ -66,8 +67,23 @@ function withoutApprovalsBlocks(body: string): string {
 }
 
 /**
+ * The body without the `Review-loop exception: …` line the receipt's own exception requires (GST-977): write and the
+ * receipt check want it word for word, and it quotes the owner's reason (`outside 1 and 2 skip detector`), not this
+ * PR's counters. Only a line whose trimmed text is that rendered line, the test write applies, is left out (a fenced
+ * copy too, as write accepts one); the same words inside a longer line stay prose. A marker line takes its place so
+ * the text on either side never joins into a claim.
+ */
+function withoutExceptionLine(body: string, exception: unknown): string {
+  if (exception === undefined) return body;
+  const parsed = parseReviewLoopException(exception);
+  if (!parsed.ok) return body;
+  const line = reviewLoopExceptionLine(parsed.exception);
+  return body.split(/(?<=\n)/).map(l => (l.trim() === line ? '(review-loop exception line)\n' : l)).join('');
+}
+
+/**
  * Every `<name>=<n>`, `<name>: <n>` and `<n> <name>` in the prose (the body
- * without its receipt block and its rendered Approvals block), where `<name>` is a counter's leaf key with `_`
+ * without its receipt block, its rendered Approvals block and its review-loop exception line), where `<name>` is a counter's leaf key with `_`
  * matched as `_`, space or `-` and not part of a longer word (`3 pass-through`
  * is not a `pass` claim), compared with the receipt. A leaf key shared by
  * several counters (`pass` under every gate lane, `passed` under gate and ci)
@@ -77,7 +93,7 @@ function withoutApprovalsBlocks(body: string): string {
  * `<n> <name>` claim about the next key (#3513).
  */
 export function checkReceiptProse(receipt: Record<string, unknown>, body: string): ProseCheck {
-  const prose = withoutApprovalsBlocks(body.replace(BLOCK_RE, ''));
+  const prose = withoutExceptionLine(withoutApprovalsBlocks(body.replace(BLOCK_RE, '')), receipt.review_loop_exception);
   const byLeaf = new Map<string, Array<{ field: string; value: number }>>();
   for (const [field, value] of receiptCounters(receipt)) {
     const leaf = field.split('.').at(-1)!;
