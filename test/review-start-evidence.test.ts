@@ -166,6 +166,83 @@ describe('review start/end binding (#2803)', () => {
     });
   }
 
+  for (const when of ['created', 'removed']) {
+    test(`GST-985: an untracked scratch dir ${when} mid-review still binds; a tracked edit still breaks it`, () => {
+      const scratchDir = join(repo, '.review-units-test-x');
+      if (when === 'removed') { mkdirSync(scratchDir); writeFileSync(join(scratchDir, 'unit.json'), '{}\n'); }
+      const token = cli('gstack-review-log', ['--start', 'review']);
+      if (when === 'created') { mkdirSync(scratchDir); writeFileSync(join(scratchDir, 'unit.json'), '{}\n'); }
+      else rmSync(scratchDir, { recursive: true, force: true });
+      const row = log(token);
+      expect(row.review_binding.state).toBe('verified');
+      expect(row.review_binding.start_wtree).toBe(row.review_binding.end_wtree);
+      expect(row.review_freshness.status).toBe('CURRENT');
+      expect(git('diff', '--name-only', row.wtree, cli('gstack-wtree'))).toBe(when === 'created' ? '.review-units-test-x/unit.json' : '');
+
+      const edited = cli('gstack-review-log', ['--start', 'review']);
+      writeFileSync(join(repo, 'source.ts'), 'export const unreviewed = true;\n');
+      expect(log(edited).review_binding.state).toBe('changed');
+    });
+  }
+
+  test('GST-985: ignored root dot-directories still fingerprint under --review', () => {
+    writeFileSync(join(repo, '.git', 'info', 'exclude'), '.cache/\n');
+    mkdirSync(join(repo, '.cache'));
+    writeFileSync(join(repo, '.cache', 'blob'), 'x\n');
+    expect(cli('gstack-wtree', ['--review'])).toBe(cli('gstack-wtree'));
+  });
+
+  test('GST-985: an untracked file in a dot-directory that holds a tracked file still breaks the bind', () => {
+    mkdirSync(join(repo, '.tool'));
+    writeFileSync(join(repo, '.tool', 'a.json'), '{}\n');
+    git('add', '.tool/a.json');
+    git('commit', '-qm', 'tool');
+    const token = cli('gstack-review-log', ['--start', 'review']);
+    writeFileSync(join(repo, '.tool', 'b.json'), '{}\n');
+    expect(log(token).review_binding.state).toBe('changed');
+  });
+
+  test('GST-985: a root ..x scratch dir created mid-review still binds', () => {
+    const token = cli('gstack-review-log', ['--start', 'review']);
+    mkdirSync(join(repo, '..x'));
+    writeFileSync(join(repo, '..x', 'unit.json'), '{}\n');
+    expect(log(token).review_binding.state).toBe('verified');
+  });
+
+  test('GST-985: a git add -N file in a new dot-directory counts under the read-tree HEAD fallback', () => {
+    mkdirSync(join(repo, '.newdir'));
+    writeFileSync(join(repo, '.newdir', 'a.ts'), 'export const a = 1;\n');
+    git('add', '-N', '.newdir/a.ts');
+    const fakeBin = mkdtempSync(join(tmpdir(), 'review-start-faketouch-'));
+    writeFileSync(join(fakeBin, 'touch'), '#!/bin/sh\nexit 1\n');
+    chmodSync(join(fakeBin, 'touch'), 0o755);
+    try {
+      const env = { PATH: `${fakeBin}:${process.env.PATH}` };
+      expect(cli('gstack-wtree', ['--review'], repo, env)).toBe(cli('gstack-wtree', [], repo, env));
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
+  test('GST-985: gstack-wtree refuses an unknown or extra argument', () => {
+    for (const args of [['--bogus'], ['--review', 'x']]) {
+      const r = spawnSync(join(ROOT, 'bin', 'gstack-wtree'), args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain('Usage: gstack-wtree [--review]');
+    }
+  });
+
+  for (const file of ['.github/workflows/x.yml', '.gstack/ship-policy.json']) {
+    test(`GST-985: an untracked ${file} added mid-review still breaks the bind`, () => {
+      const token = cli('gstack-review-log', ['--start', 'review']);
+      mkdirSync(join(repo, file, '..'), { recursive: true });
+      writeFileSync(join(repo, file), '{}\n');
+      const row = log(token);
+      expect(row.review_binding.state).toBe('changed');
+      expect(git('diff', '--name-only', row.review_binding.start_wtree, row.review_binding.end_wtree)).toBe(file);
+    });
+  }
+
   test('fix commits do not certify the final tree until a new unchanged pass', () => {
     const token = cli('gstack-review-log', ['--start', 'review']);
     writeFileSync(join(repo, 'source.ts'), 'export const fixed = true;\n');
