@@ -1345,7 +1345,12 @@ falling back to the whitespace-stripping default, and a `git diff` or
 patch-ids differ, the refusal names up to `CARRY_NAMED_PATHS` (20) product
 paths whose patch against the base changed, walking only the paths the branch
 itself touched at either head (a base merge brings in every path the base
-changed, none of which can differ between the two base diffs). Product means every changed path that is not test code (`test/**`,
+changed, none of which can differ between the two base diffs), and of those
+only the paths that changed between the two heads or the two bases (a path with
+the same blob on both sides has the same patch). The product diff streams
+through a file under the git directory (`.git/gstack-patch-id`) into
+`git patch-id --verbatim`, so a PR with thousands of paths is not held in
+memory; a directory a killed run left there is removed after an hour. Product means every changed path that is not test code (`test/**`,
 `spec/**`, `e2e/**`, `**/*.test.<code ext>`, `**/*.spec.<code ext>` and the
 other `CARRY_TEST_GLOBS` in `lib/ship-receipt.ts`; an `openapi.spec.yaml` is
 product) or release metadata (`CHANGELOG.md`, `agents-digest/**`, each
@@ -1383,7 +1388,11 @@ along the receipt's own history, `rewritten` once any hop was a rebase;
 `CARRY: carried from <old> to <new> (<reason>)` and the `GSTACK_RESULT:
 skill=ship status=complete` line, and its summary line ends with
 `carried_from=<old12>`. `CARRY: current` means the receipt already names HEAD;
-`--dry-run` prints `CARRY: would carry …` and writes nothing.
+`--dry-run` prints `CARRY: would carry …` and writes nothing. When the only
+difference is base context next to the branch's unchanged hunks and none of
+carry's other checks would refuse, `--dry-run` refuses
+`RECEIPT_CARRY_SCOPED_REVIEW` without writing the packet; carry without
+`--dry-run` writes it.
 
 A changed product path, or a product patch-id that differs, is
 [`RECEIPT_CARRY_PRODUCT_CHANGED`](troubleshooting.md#receipt-carry-product-changed)
@@ -1416,7 +1425,12 @@ the carry when the branch has an open PR, in this order, and never reruns the
 review loop for a carried receipt:
 
 1. `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`. `CARRY: would
-   carry` is eligibility only; a refusal continues the full ship.
+   carry` is eligibility only; a refusal continues the full ship, except
+   `RECEIPT_CARRY_SCOPED_REVIEW`, for which `gstack-ship-preflight` prints
+   `NEXT: carry route`: fix what the base merge broke, commit and push, run carry
+   without `--dry-run` to write the packet, have one fix-check reviewer read it,
+   then carry with `--scoped-review <record.json>` and `--pregate`. A blocking
+   finding continues the full ship.
 2. At that pinned HEAD: the CHANGELOG check, the size-cap check the policy
    declares, and `gstack-pregate` (the remote tests stage when
    `requires_remote` asks for it). A failing check, or HEAD moving, continues
@@ -1706,7 +1720,9 @@ hand edit), and the replacement the current one, so a dependency pin
 that happens to equal the old version is `changed`; `stamp_patterns`
 templates count as stamp forms too). With `stamp_files` set, a file outside it
 is `changed (stamp_files: not in the repo's stamp_files allowlist)` whatever
-its diff. Any other byte is a change.
+its diff. Any other byte is a change. A diff git cannot produce between the two
+heads fails closed with `EVIDENCE_IDENTITY_UNKNOWN` and git's reason; it never
+reads as no change.
 
 Equivalence is decided per gate. A lane in `stamp_sensitive_gates` always
 `rerun`s; a verified lane is `reusable` only when the tree is same-modulo-stamps

@@ -125,6 +125,60 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 90_000);
 
+  // Value: protects=the first up on a fresh project reaches its create with the default reap on; fails_when=the reap before up dies on an empty list again (#3678); why_new=no up case ran against a project with no VMs; seam=none; no_claim=real create and boot (fake API and ssh)
+  test('up on an empty project reaps nothing, creates its VM and comes up (#3678)', () => {
+    const f = fakeVm({ listed: '\n' });
+    try {
+      const up = run(f, ['up']);
+      expect(up.stderr.toString()).toContain('reap: no expired VMs');
+      expect(up.exitCode).toBe(0);
+      expect(f.calls()).toContain('"create"');
+      expect(f.calls()).not.toContain('destroy');
+      const name = up.stdout.toString().trim();
+      expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3$/);
+      expect(run(f, ['down', name]).exitCode).toBe(0);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
+
+  // Value: protects=usage never reports a partial or empty count as the project's real usage, and the quota preflight says when it cannot read usage instead of passing silently; fails_when=a failed vm list or vm show prints a total again (the empty-project fix's `|| true` did that) or the preflight drops its log line; why_new=only successful reads were tested, and #3679 showed an unreadable usage switching the preflight off without a word; seam=none; no_claim=the real API's failure bodies
+  test('usage exits 1 without a total when the VM list or a size read fails, skips a VM destroyed since the list, and the quota preflight logs an unreadable usage and leaves the call to the API', () => {
+    const f = fakeVm({ listed: 'eu-central-h1 ubirun-peer-9999999999-cccc\n' });
+    const listed = join(f.root, 'listed');
+    try {
+      writeFileSync(`${listed}.list-fails`, '');
+      const noList = run(f, ['usage']);
+      expect(noList.exitCode).toBe(1);
+      expect(noList.stdout.toString()).not.toContain('total');
+      expect(noList.stderr.toString()).toContain("usage: could not list the project's VMs");
+      const up = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '16' });
+      expect(up.stderr.toString()).toContain("quota preflight: could not read the project's vCPU usage; the API's own answer decides");
+      expect(f.calls()).toContain('"create"');
+      // With a wait budget, an unreadable usage is retried until the budget is spent, as a full project is.
+      const waited = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '16', UBI_QUOTA_WAIT: '2' });
+      expect(waited.stderr.toString()).toContain("quota: could not read the project's vCPU usage; retrying, up to 2s more");
+      expect(waited.stderr.toString()).toContain("quota preflight: could not read the project's vCPU usage; the API's own answer decides");
+      const waitedName = waited.stdout.toString().trim();
+      rmSync(`${listed}.list-fails`);
+      for (const name of [up.stdout.toString().trim(), waitedName]) {
+        expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3$/);
+        expect(run(f, ['down', name]).exitCode).toBe(0);
+      }
+
+      writeFileSync(`${listed}.show-fails`, '');
+      const noShow = run(f, ['usage']);
+      expect(noShow.exitCode).toBe(1);
+      expect(noShow.stdout.toString()).not.toContain('total');
+      expect(noShow.stderr.toString()).toContain('usage: could not read the size of 1 of 1 VMs');
+      rmSync(`${listed}.show-fails`);
+
+      // A VM destroyed between the list and its size read (show answers 404) is gone, not unread.
+      writeFileSync(`${listed}.ghost`, 'eu-central-h1 ubirun-gone-9999999999-dddd-t3\n');
+      const ghost = run(f, ['usage']);
+      expect(ghost.exitCode).toBe(0);
+      expect(ghost.stdout.toString()).toBe('OWNER           VMS  VCPUS\npeer              1     16\ntotal             1     16\n');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
+
   // Value: protects=the quota wait budget counts seconds slept, not usage reads: a slow usage read keeps the printed budget, a wait above 30 s counts down in 30 s steps, and the wait releases when room appears; fails_when=the budget goes back to a wall-clock deadline taken before the first usage read (the first log line shrinks to 1s), the step cap or the decrement is lost, or room found mid-wait still refuses; why_new=the WAIT=3 case above passes under both the old deadline and the new countdown because its fake usage read is instant and it never sees a second step; seam=none (the fixture's bin/ is already first on PATH, so sleep and curl are stubbed there); no_claim=real elapsed time of the long wait (the 70 s case stubs sleep)
   test('quota wait: a slow usage read does not shave the printed budget; a long wait counts down in 30s steps and releases when room appears', () => {
     const slow = fakeVm({ listed: 'eu-central-h1 ubirun-peer-9999999999-cccc\n' });
