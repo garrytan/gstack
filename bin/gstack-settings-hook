@@ -127,7 +127,9 @@ var KNOWN_HOOKS = {
   "timeline-stop-hook":       { source: "gstack-timeline-stop", event: "Stop",        matcher: "", relpath: "hosts/claude/hooks/timeline-stop-hook" },
   "memorable-user-prompt-hook": { source: "gstack-memorable", event: "UserPromptSubmit", matcher: "", relpath: "hosts/claude/hooks/memorable-user-prompt-hook" },
   "gstack-session-update":    { source: "gstack-session-update", event: "SessionStart", matcher: "", relpath: "bin/gstack-session-update" },
-  "gstack-verify-gate":       { source: "verify-gate", event: "Stop", matcher: "", relpath: "bin/gstack-verify-gate" }
+  "gstack-verify-gate":       { source: "verify-gate", event: "Stop", matcher: "", relpath: "bin/gstack-verify-gate" },
+  "skill-route-hook":         { source: "gstack-skill-route", event: "UserPromptSubmit", matcher: "", relpath: "hosts/claude/hooks/skill-route-hook" },
+  "skill-contract-stop-hook": { source: "gstack-skill-contract", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/skill-contract-stop-hook" }
 };
 function gsHadBashPrefix(c) { return String(c == null ? "" : c).trim().indexOf("bash ") === 0; }
 function gsStripWrap(c) {

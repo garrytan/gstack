@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.6.0] - 2026-11-03
+
+Two opt-in Claude Code hooks so a model actually runs gstack's skills, both off by default (GST-1088). `./setup --skill-routing` adds a UserPromptSubmit hook that names the gstack skill a prompt fits, scored against each installed skill's `triggers:` with no model call. `./setup --skill-contracts` adds a Stop hook that blocks once when a skill with a `contract:` block ends without its required outputs (a report with real values, a test after the last edit, the specialist and adversarial dispatches). `gstack-skill-route --explain` shows how a prompt scores; `gstack-skill-contract check|report|waive` checks a transcript, lists misses and acknowledges a waiver. Turn either off with `gstack-config set skill_routing off` or `gstack-config set skill_contracts off`. Docs: docs/skill-routing-and-contracts.md.
+
 ## [1.94.5.0] - 2026-11-03
 
 **Security: the lean /autoplan reviewer no longer gets `.envrc`, `.env-production` or a key pasted into an ordinary file (GST-1164, #3914).** Since v1.93.36.0 (#3897), the lean run puts the branch's draft code into a prompt that goes to an outside model provider. It left out only some secret-named untracked files: `.env` and `.env.*`, but not `.envrc` or `.env-production`. It applied no name rule to tracked files and no content check at all. So a direnv `.envrc`, a `.env-production`, a committed or edited secret file, or a key sitting in any source file could reach the provider.

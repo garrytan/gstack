@@ -53,6 +53,14 @@ Options:
   -q, --quiet       Suppress progress output.
   -h, --help        Show this help and exit.
 
+Claude Code hooks (off by default; docs/skill-routing-and-contracts.md):
+  --skill-routing / --no-skill-routing
+                    Name the gstack skill a prompt fits, in one line of
+                    context (UserPromptSubmit). Saved as skill_routing.
+  --skill-contracts / --no-skill-contracts
+                    Block once when a contract skill ends without its
+                    required outputs (Stop). Saved as skill_contracts.
+
 Model selection:
   --model <id>      Codex model profile override. Otherwise reads Codex config.
   --claude-model <id>
@@ -183,6 +191,8 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 TIMELINE_STOP_HOOK_MODE=""  # "" = resolve from env/config; "yes"/"no" = explicit (#2677)
+SKILL_ROUTING_MODE=""       # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
+SKILL_CONTRACTS_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
 MODEL_OVERRIDE=""
 MODEL_OVERRIDE_SET=0
 CLAUDE_MODEL_ARG=""
@@ -196,6 +206,7 @@ _setup_unknown_option() {
   local bad="$1" next="${2:-}" best="" best_d=99 flag d value=""
   for flag in --host --model --claude-model --loadout --global --local --prefix --no-prefix --team --no-team \
     --plan-tune-hooks --no-plan-tune-hooks --timeline-stop-hook --no-timeline-stop-hook \
+    --skill-routing --no-skill-routing --skill-contracts --no-skill-contracts \
     --refresh-registered --status --no-browser --no-harness-auto --quiet --help; do
     d="$(awk -v a="${bad%%=*}" -v b="$flag" 'BEGIN {
       n = length(a); m = length(b)
@@ -238,6 +249,12 @@ while [ $# -gt 0 ]; do
     --timeline-stop-hook)    TIMELINE_STOP_HOOK_MODE="yes"; shift ;;
     --no-timeline-stop-hook) TIMELINE_STOP_HOOK_MODE="no"; shift ;;
     --timeline-stop-hook=*)  TIMELINE_STOP_HOOK_MODE="${1#--timeline-stop-hook=}"; shift ;;
+    --skill-routing)      SKILL_ROUTING_MODE="on"; shift ;;
+    --no-skill-routing)   SKILL_ROUTING_MODE="off"; shift ;;
+    --skill-routing=*)    SKILL_ROUTING_MODE="${1#--skill-routing=}"; shift ;;
+    --skill-contracts)    SKILL_CONTRACTS_MODE="on"; shift ;;
+    --no-skill-contracts) SKILL_CONTRACTS_MODE="off"; shift ;;
+    --skill-contracts=*)  SKILL_CONTRACTS_MODE="${1#--skill-contracts=}"; shift ;;
     --refresh-registered) REFRESH_REGISTERED=1; shift ;;
     --no-browser) export GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_SKIP_FONTS=1; shift ;;
     --no-harness-auto) HARNESS_AUTO=0; shift ;;
@@ -4863,6 +4880,63 @@ if [ "$NO_TEAM_MODE" -ne 1 ] && [ "$TL_DECISION" != "no" ] && [ -x "$SETTINGS_HO
     log "  warning: settings hook update failed: $(printf '%s\n' "$_TL_ENSURE_OUT" | head -1) — run $SETTINGS_HOOK manually"
   fi
 fi
+
+# ─── Skill routing + contract hooks (GST-1088) ───────────────────────────────
+# Two opt-in Claude Code hooks, both OFF by default (docs/skill-routing-and-contracts.md):
+#   skill_routing   — UserPromptSubmit: one line naming the gstack skill a prompt fits.
+#   skill_contracts — Stop: blocks once when a contract skill ends without its outputs.
+# Gate per hook, mirroring the timeline_stop_hook block above: flag > env
+# (GSTACK_SKILL_ROUTING / GSTACK_SKILL_CONTRACTS) > saved config (skill_routing /
+# skill_contracts) > default off. An explicit flag persists to config; a typo
+# warns and is not persisted; off (or --no-team) removes a live registration.
+# The hooks read the same switch at run time, so `gstack-config set <key> off`
+# takes effect on the next prompt without re-running setup.
+_skill_hook_gate() {
+  local key="$1" mode="$2" env_name="$3" event="$4" cmd="$5" source="$6" timeout="$7" what="$8"
+  local decision src out unrecognized=0
+  if [ -n "$mode" ]; then
+    decision="$mode"; src="flag"
+  elif [ -n "${!env_name:-}" ]; then
+    decision="${!env_name}"; src="env $env_name"
+  else
+    decision="$("$GSTACK_CONFIG" get "$key" 2>/dev/null || true)"; src="config $key"
+  fi
+  decision=$(printf '%s' "$decision" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+  case "$decision" in
+    on|yes|y|true|1)          decision="on" ;;
+    off|no|n|false|skip|0|"") decision="off" ;;
+    *)
+      log "  WARNING: unrecognized $key value '$decision' (from $src) — using default 'off' for this run, not persisting"
+      decision="off"; unrecognized=1 ;;
+  esac
+  if [ -n "$mode" ] && [ "$unrecognized" -eq 0 ]; then
+    "$GSTACK_CONFIG" set "$key" "$decision" >/dev/null 2>&1 || true
+  fi
+  [ -x "$SETTINGS_HOOK" ] || return 0
+  if [ "$decision" = "off" ] || [ "$NO_TEAM_MODE" -eq 1 ]; then
+    "$SETTINGS_HOOK" remove-source --source "$source" >/dev/null 2>&1 || true
+    return 0
+  fi
+  [ -n "$cmd" ] || return 0
+  if [ "$IS_WINDOWS" -eq 1 ]; then cmd="bash $cmd"; fi
+  if out=$("$SETTINGS_HOOK" ensure-event --event "$event" --command "$cmd" --source "$source" --timeout "$timeout" 2>&1); then
+    case "$out" in
+      *unchanged*) : ;;
+      *re-pointed*) log "  re-pointed $event hook to $cmd (previous registration held a stale path)" ;;
+      *) log "  registered $event hook: $what (on via $src; turn off: gstack-config set $key off, or ./setup --no-${key//_/-}; backup: settings.json.bak.<ts>)" ;;
+    esac
+  else
+    log "  warning: settings hook update failed: $(printf '%s\n' "$out" | head -1) — run $SETTINGS_HOOK manually"
+  fi
+}
+SKILL_ROUTE_HOOK="$(_hook_command_path hosts/claude/hooks/skill-route-hook || true)"
+SKILL_CONTRACT_HOOK="$(_hook_command_path hosts/claude/hooks/skill-contract-stop-hook || true)"
+_skill_hook_gate skill_routing "$SKILL_ROUTING_MODE" GSTACK_SKILL_ROUTING UserPromptSubmit \
+  "$SKILL_ROUTE_HOOK" gstack-skill-route 5 \
+  "prompts that fit a gstack skill get a one-line routing hint"
+_skill_hook_gate skill_contracts "$SKILL_CONTRACTS_MODE" GSTACK_SKILL_CONTRACTS Stop \
+  "$SKILL_CONTRACT_HOOK" gstack-skill-contract 10 \
+  "a contract skill that ends without its required outputs is blocked once"
 
 # Also tear down plan-tune + timeline hooks on --no-team (matches the existing pattern).
 # Tag-only remove-source misses untagged entries (Claude Code strips

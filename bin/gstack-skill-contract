@@ -1,0 +1,137 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-skill-contract — check a skill's contract against a Claude Code
+ * transcript, list recorded misses, and acknowledge a waiver (GST-1088).
+ *
+ * Usage:
+ *   gstack-skill-contract check --transcript <path> --skill <name> [--skill-file <SKILL.md>] [--json]
+ *   gstack-skill-contract report [--json] [--session <id>]
+ *   gstack-skill-contract waive <item> --reason "<why>" [--skill <name>]
+ *   gstack-skill-contract --help
+ *
+ * check is a pure function of the transcript (lib/skill-contract.ts). waive is
+ * stateless: it validates its arguments and prints an acknowledgement; check
+ * finds the waiver by reading this Bash call in the transcript, and a waived
+ * item counts as a miss for follow. Exit codes are stable:
+ *   0 met (check) / done (report, waive)   1 unmet   2 usage
+ *   3 state error   4 unknown transcript shape   5 no contract   6 skill not loaded
+ * Each has an anchor in docs/skill-routing-and-contracts.md.
+ */
+import {
+  EXIT, StateError, UnknownShape, blockMessage, checkContract, isMiss, lookupContract, parseTranscript, readAllRecords,
+  readTranscriptFile, reportRows, type CheckResult,
+} from '../lib/skill-contract';
+import { installedSkillsDir } from '../lib/skill-route';
+
+const USAGE = `Usage:
+  gstack-skill-contract check --transcript <path> --skill <name> [--skill-file <SKILL.md>] [--json]
+  gstack-skill-contract report [--json] [--session <id>]
+  gstack-skill-contract waive <item> --reason "<why>" [--skill <name>]
+Exit: 0 met/done, 1 unmet, 2 usage, 3 state error, 4 unknown transcript shape, 5 no contract, 6 skill not loaded.
+Docs: docs/skill-routing-and-contracts.md`;
+const ITEM_ID = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
+
+function die(code: number, line: string): never {
+  process.stderr.write(`${line}\n`);
+  process.exit(code);
+}
+
+/** --name value or --name=value; a missing value is a usage error. */
+function flag(args: string[], name: string): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === name) {
+      const v = args[i + 1];
+      if (v === undefined || v.startsWith('--')) die(EXIT.USAGE, `SKILL_CONTRACT_USAGE: ${name} needs a value\n${USAGE}`);
+      return v;
+    }
+    if (args[i].startsWith(`${name}=`)) return args[i].slice(name.length + 1);
+  }
+  return undefined;
+}
+
+function printCheck(result: CheckResult, json: boolean, code: number): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify({ exit: code, ...result }, null, 2)}\n`);
+    return;
+  }
+  const head = result.met
+    ? `SKILL_CONTRACT_MET ${result.skill} (contract v1)${result.waived.length ? ` with waivers: ${result.waived.join(', ')} (misses for follow)` : ''}`
+    : blockMessage(result);
+  const lines = result.items.map(i => `  ${i.status.padEnd(7)} ${i.id}: ${i.detail}${i.reason ? ` (waived: ${i.reason})` : ''}`);
+  process.stdout.write(`${[head, ...lines].join('\n')}\n`);
+}
+
+function check(args: string[]): never {
+  const transcriptPath = flag(args, '--transcript');
+  const skill = flag(args, '--skill');
+  const json = args.includes('--json');
+  if (!transcriptPath || !skill) die(EXIT.USAGE, `SKILL_CONTRACT_USAGE: check needs --transcript and --skill\n${USAGE}`);
+  const found = lookupContract(skill, installedSkillsDir(), flag(args, '--skill-file'));
+  if (!('contract' in found)) die(EXIT.NO_CONTRACT, `SKILL_CONTRACT_NO_CONTRACT ${skill}: ${found.error}`);
+  let result: CheckResult;
+  try {
+    result = checkContract(parseTranscript(readTranscriptFile(transcriptPath)), skill, found.contract);
+  } catch (e) {
+    if (e instanceof StateError) die(EXIT.STATE_ERROR, `SKILL_CONTRACT_STATE_ERROR ${e.file}: ${e.why}`);
+    if (e instanceof UnknownShape) die(EXIT.UNKNOWN_SHAPE, `SKILL_CONTRACT_UNKNOWN_SHAPE ${transcriptPath}: ${e.message}`);
+    throw e;
+  }
+  if (!result.loaded) die(EXIT.NOT_LOADED, `SKILL_CONTRACT_NOT_LOADED ${skill}: ${transcriptPath} never loads it`);
+  const code = result.met ? EXIT.MET : EXIT.UNMET;
+  printCheck(result, json, code);
+  process.exit(code);
+}
+
+function report(args: string[]): never {
+  const json = args.includes('--json');
+  const session = flag(args, '--session');
+  const { records, errors } = readAllRecords();
+  const rows = reportRows(records.filter(r => !session || r.session_id === session), (rec, run) => {
+    const found = lookupContract(run.skill, installedSkillsDir());
+    if (!('contract' in found)) return null;
+    try {
+      const again = checkContract(parseTranscript(readTranscriptFile(rec.transcript_path)), run.skill, found.contract, { loadLine: run.load_line });
+      return again.load ? again : null;
+    } catch {
+      return null;
+    }
+  });
+  const misses = rows.filter(isMiss);
+  const byItem = new Map<string, number>();
+  for (const row of misses) for (const id of [...row.missing, ...row.waived]) byItem.set(`${row.skill} ${id}`, (byItem.get(`${row.skill} ${id}`) ?? 0) + 1);
+  if (json) {
+    const items = [...byItem].map(([key, misses]) => ({ skill: key.split(' ')[0], item: key.split(' ')[1], misses }));
+    process.stdout.write(`${JSON.stringify({ runs: rows.length, misses, items, errors }, null, 2)}\n`);
+    process.exit(EXIT.MET);
+  }
+  const lines = [`SKILL_CONTRACT_REPORT runs=${rows.length} misses=${misses.length}`];
+  for (const [key, n] of [...byItem].sort((a, b) => b[1] - a[1])) lines.push(`  ${key}: ${n}`);
+  for (const row of misses) {
+    lines.push(`  ${row.session} ${row.skill} ${row.outcome} missing=${row.missing.join(',') || '-'} waived=${row.waived.join(',') || '-'}`);
+  }
+  for (const err of errors) lines.push(`  unreadable record: ${err}`);
+  process.stdout.write(`${lines.join('\n')}\n`);
+  process.exit(EXIT.MET);
+}
+
+function waive(args: string[]): never {
+  const item = args[0];
+  const reason = (flag(args, '--reason') ?? '').trim();
+  const skill = flag(args, '--skill');
+  if (!item || item.startsWith('--') || !ITEM_ID.test(item)) die(EXIT.USAGE, `SKILL_CONTRACT_USAGE: waive needs an item id matching ${ITEM_ID}\n${USAGE}`);
+  if (!reason) die(EXIT.USAGE, `SKILL_CONTRACT_USAGE: waive needs --reason "<why the item does not apply>"\n${USAGE}`);
+  if (skill) {
+    const found = lookupContract(skill, installedSkillsDir());
+    if (!('contract' in found)) die(EXIT.NO_CONTRACT, `SKILL_CONTRACT_NO_CONTRACT ${skill}: ${found.error}`);
+    if (!found.contract.items.some(i => i.id === item)) die(EXIT.USAGE, `SKILL_CONTRACT_USAGE: ${skill}'s contract has no item ${item}`);
+  }
+  process.stdout.write(`SKILL_CONTRACT_WAIVED ${item}${skill ? ` (${skill})` : ''}: ${reason} (this session only; counted as a miss for follow)\n`);
+  process.exit(EXIT.MET);
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+if (cmd === 'check') check(rest);
+if (cmd === 'report') report(rest);
+if (cmd === 'waive') waive(rest);
+if (cmd === '--help' || cmd === '-h') { process.stdout.write(`${USAGE}\n`); process.exit(EXIT.MET); }
+die(EXIT.USAGE, `SKILL_CONTRACT_USAGE: unknown command ${JSON.stringify(cmd ?? '')}\n${USAGE}`);
