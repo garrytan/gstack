@@ -24,6 +24,8 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
       --lanes serial|parallel   how Step 5 runs its lanes; unset, one at a time on 4 or fewer cores, all at once above
       --policy-from head   Step 5's pregate reads the branch's .gstack/pregate.json, which may only add test lanes
                            (a branch that adds the lane for a file it touches); anything else is PREGATE_HEAD_POLICY_LOOSENS
+      --timeout <s>        Step 5's pregate --timeout for each runner process, 1 to 3600; unset, the base .gstack/pregate.json
+                           timeout_s applies, else 600 s, and a longer lane is PREGATE_INCOMPLETE
   gstack-ship-preflight --tests-only --base <base> --policy-from head --simulate [--allow-repo-commands] --lane <label>=<command>...
       a dry run that proves a new ship_lanes_from mapping: which lanes the branch's own map would carry from a verified
       CI run at this tree. Every line starts SIMULATION:; no lane runs, no evidence or ledger row is written and no
@@ -153,8 +155,8 @@ function merge(cwd: string, base: string, r: Report): boolean {
   return true;
 }
 
-async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, run: { concurrency: number; line: string }, r: Report): Promise<void> {
-  const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--policy-from', policyFrom], 3_600_000);
+async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, run: { concurrency: number; line: string }, r: Report): Promise<void> {
+  const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--policy-from', policyFrom, ...(timeout ? ['--timeout', timeout] : [])], 3_600_000);
   const refusal = pg.status === 3 ? /\((PREGATE_[A-Z_]+|POLICY_[A-Z_]+)[;)]/.exec(pg.stderr)?.[1] : undefined;
   const verdict = refusal ? `refused (${refusal})` : /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
   r.add(`PREGATE: ${verdict}`);
@@ -219,6 +221,8 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   }
   const policyFrom = flag('--policy-from') ?? 'base';
   if (!['base', 'head'].includes(policyFrom)) return { text: 'gstack-ship-preflight: --policy-from needs base|head\n', exit: 2 };
+  const timeout = flag('--timeout');
+  if (has('--timeout') && !(timeout && /^[1-9]\d*$/.test(timeout) && Number(timeout) <= 3600)) return { text: 'gstack-ship-preflight: --timeout needs whole seconds from 1 to 3600\n', exit: 2 };
   if (!base || typeof list === 'string') return { text: `gstack-ship-preflight: ${typeof list === 'string' ? list : '--base <base> is required'}\n`, exit: 2 };
   if (has('--tests-only') && !list.length) return { text: 'gstack-ship-preflight: --tests-only needs at least one --lane <label>=<command>\n', exit: 2 };
   if (has('--simulate')) return has('--tests-only') && policyFrom === 'head' && list.length ? simulate(cwd, base, list, has('--allow-repo-commands')) : { text: 'gstack-ship-preflight: --simulate needs --tests-only --policy-from head and at least one --lane <label>=<command>\n', exit: 2 };
@@ -227,7 +231,7 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   if (typeof concurrency === 'string') return { text: `gstack-ship-preflight: ${concurrency}\n`, exit: 2 };
   const r = new Report();
   if (has('--tests-only') || integrate(cwd, base, r)) {
-    if (list.length) await tests(cwd, base, list, policyFrom, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})` }, r);
+    if (list.length) await tests(cwd, base, list, policyFrom, timeout, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})` }, r);
     else if (r.exit === 0) r.next('Step 4: confirm the test framework, then rerun with --tests-only --lane <label>=<command> per suite (Step 5)');
   }
   return { text: r.render(), exit: r.exit };
