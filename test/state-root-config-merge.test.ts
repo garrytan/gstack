@@ -163,4 +163,42 @@ describe('test preload hermeticity', () => {
     expect(r.stderr).toContain('test-setup: stripped inherited GSTACK_STATE_DIR; tests isolate state via GSTACK_HOME');
     expect(r.stderr.match(/test-setup: stripped/g)?.length).toBe(2);
   });
+
+  test('bun test strips an inherited live-brain URL, so a temp-HOME gbrain child never sees it (#3466)', () => {
+    const live = path.join(tmp, 'live-gbrain');
+    fs.mkdirSync(live, { recursive: true });
+    fs.writeFileSync(path.join(live, 'config.json'), JSON.stringify({ database_url: 'postgresql://live-config.invalid/brain' }));
+    const childHome = path.join(tmp, 'child-home');
+    fs.mkdirSync(childHome, { recursive: true });
+    const probe = path.join(tmp, 'brain-probe.test.ts');
+    fs.writeFileSync(probe, [
+      "import { test, expect } from 'bun:test';",
+      "import { spawnSync } from 'child_process';",
+      "test('probe', () => {",
+      "  const script = \"const { buildGbrainEnv } = require(\" + JSON.stringify(" + JSON.stringify(path.join(ROOT, 'lib', 'gbrain-exec.ts')) + ") + \"); const e = buildGbrainEnv(); console.log(['GBRAIN_DATABASE_URL','GBRAIN_DIRECT_DATABASE_URL','DATABASE_URL','GBRAIN_HOME'].map(k => k + '=' + (e[k] ?? '<unset>')).join(' '));\";",
+      "  const r = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', '-e', script], {",
+      "    env: { ...process.env, HOME: " + JSON.stringify(childHome) + " }, encoding: 'utf-8', timeout: 30_000,",
+      "  });",
+      "  expect(r.stdout.trim()).toBe('GBRAIN_DATABASE_URL=<unset> GBRAIN_DIRECT_DATABASE_URL=<unset> DATABASE_URL=<unset> GBRAIN_HOME=<unset>');",
+      "});",
+    ].join('\n'));
+    const r = spawnSync('bun', ['test', '--preload', path.join(ROOT, 'test-setup.ts'), probe], {
+      cwd: tmp,
+      env: {
+        ...env, GSTACK_HOME: resolved,
+        GBRAIN_DATABASE_URL: 'postgresql://live-brain.invalid/brain',
+        GBRAIN_DIRECT_DATABASE_URL: 'postgresql://live-brain.invalid/direct',
+        DATABASE_URL: 'postgresql://live-brain.invalid/fallback',
+        GBRAIN_HOME: live,
+      },
+      encoding: 'utf-8',
+      timeout: 60_000,
+    });
+    expect(r.stderr).not.toContain('live-brain.invalid');
+    expect(r.stderr).not.toContain('live-config.invalid');
+    expect(r.status).toBe(0);
+    for (const name of ['GBRAIN_DATABASE_URL', 'GBRAIN_DIRECT_DATABASE_URL', 'DATABASE_URL', 'GBRAIN_HOME']) {
+      expect(r.stderr).toContain(`test-setup: stripped inherited ${name}; tests must not reach a live gbrain`);
+    }
+  });
 });
