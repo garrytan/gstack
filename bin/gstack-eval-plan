@@ -6,7 +6,7 @@
  *   gstack-eval-plan arms [--arms <model,model>] [--policy-doc <file>] [--input-tokens N] [--output-tokens N] [--json]
  *   gstack-eval-plan dry-run --input <rows.jsonl> --arms <model,model> [--fields a,b] [--output-budget N]
  *                            [--retry-prompt <file>] [--max-rows N] [--out <dir>] [--json]
- *   gstack-eval-plan pilot start  --out <dir> --cap <usd> --arms <model[#loadout],...> --dry-run <dry-run.json> [--n 3]
+ *   gstack-eval-plan pilot start  --out <dir> --cap <usd> --arms <model[#loadout],...> --dry-run <dry-run.json> [--n 3] [--seat-metered <arm,...>]
  *   gstack-eval-plan pilot settle --out <dir> --attempt <id> --usd <n|unknown>
  *   gstack-eval-plan pilot release --out <dir> --attempt <id>
  *   gstack-eval-plan pilot report --out <dir> --total <items> [--workers W] [--json]
@@ -53,9 +53,11 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
   dry-run --input rows.jsonl --arms m,m [--fields a,b] [--output-budget N] [--retry-prompt f] [--max-rows N] [--cap usd] [--out dir] [--json]
                                      stub model over the real rows; checklist: price table, output budget, retry prompt text,
                                      and with --cap reservation-fits-cap (one call: largest row + output budget, priced)
-  pilot start --out dir --cap usd --arms m,m#no-gstack --dry-run dry-run.json [--n 3]
+  pilot start --out dir --cap usd --arms m,m#no-gstack --dry-run dry-run.json [--n 3] [--seat-metered arm,...]
+                                     --seat-metered: arms on a subscription with no incremental charge; they reserve $0,
+                                     settle unknown, and sit outside the cap and the projection until one settles a charge
   pilot settle --out dir --attempt id --usd <n|unknown>      pilot release --out dir --attempt id
-  pilot report --out dir --total items [--workers W] [--json]  spend table + extrapolation with a 95% band, then the approval ask
+  pilot report --out dir --total items [--workers W] [--json]  spend table + per-arm extrapolation with a 95% band, then the approval ask
   results --check <prereg> <results.md> [--json]
                                      one table in the results file has a filled row for every Arms identity, each no-gstack arm
                                      beside its variants; reads text only (docs/TESTING_INTERNALS.md#no-gstack-arm)
@@ -185,7 +187,7 @@ function doPilot(rest: string[]): number {
     if (cap === undefined || !arms.length || !dry || !fs.existsSync(dry)) return usage('pilot start needs --cap <usd> --arms <m,m> --dry-run <existing dry-run.json>');
     const rules = lintModels(args, arms.map(model => ({ model, scope: scopeOf(args), where: 'pilot start --arms' })), 'pilot start');
     if (!rules.ok) return EXIT.fail;
-    const r = startPilot({ out, cap, n: num(args, '--n', 3)!, arms, dryRun: dry });
+    const r = startPilot({ out, cap, n: num(args, '--n', 3)!, arms, seatMetered: csv(flag(args, '--seat-metered')), dryRun: dry });
     if (r.error && !r.record) { process.stderr.write(resultLine('gstack-eval-plan pilot start', r.error.code, r.error.message) + '\n'); return EXIT.refused; }
     for (const a of r.record.attempts) process.stdout.write(`PILOT_ATTEMPT: ${a.attempt} model=${a.model} estimate=$${a.estimate_usd.toFixed(4)}\n`);
     process.stdout.write(`PILOT: status=${r.record.status} reserved=${r.record.attempts.length} cap=$${cap.toFixed(2)} ledger=${path.join(out, 'spend.json')}\n`);
