@@ -117,7 +117,9 @@ export interface ReadyReceipt {
   schema: 1; kind: 'ready'; repo_key: string; pr: string; head: string; base_sha: string; ready_at: string; screen: ScreenChoice; updated_at: string;
   base_red?: BaseRedCondition; fixes_base_red?: string[];
 }
-export type AnyRecord = TrainRecord | AttemptRecord | BisectRecord | FreezeRecord | ReadyReceipt | WaveRecord;
+/** What `land --pin` merged (docs/ship-policy.md#land-direct): the pin, the base it landed on and the verified merge commit. */
+export interface LandNote { schema: 1; kind: 'land'; repo_key: string; pr: string; pin: string; base_sha: string; merge_sha: string; tree: string; landed_at: string; updated_at: string }
+export type AnyRecord = TrainRecord | AttemptRecord | BisectRecord | FreezeRecord | ReadyReceipt | WaveRecord | LandNote;
 
 /** Clock seam for fill-time and record tests (`GSTACK_SHIP_QUEUE_NOW`, ISO-8601). */
 export function nowIso(): string {
@@ -141,6 +143,7 @@ const bisectPath = (nonce: string) => path.join(trainDir(nonce), 'bisect.json');
 const freezePath = (repoKey: string) => path.join(queueRoot(), 'freeze', `${repoKey}.json`);
 export const readyPath = (repoKey: string, pr: string, head: string) => path.join(queueRoot(), 'ready', repoKey, `${pr}-${head}.json`);
 export const wavePath = (nonce: string) => path.join(queueRoot(), 'waves', `${nonce}.json`);
+export const landPath = (repoKey: string, pr: string, pin: string) => path.join(queueRoot(), 'landed', repoKey, `${pr}-${pin}.json`);
 
 /** Hosts that serve GitHub repositories at /<owner>/<repo> (git.capy.ai is Capy's GitHub proxy, set through url.insteadOf). */
 const GITHUB_HOSTS = ['github.com', 'www.github.com', 'ssh.github.com', 'git.capy.ai'];
@@ -226,6 +229,7 @@ export function recordPath(r: AnyRecord): string {
   if (r.kind === 'train-bisect') return bisectPath(r.train);
   if (r.kind === 'freeze') return freezePath(r.repo_key);
   if (r.kind === 'wave') return wavePath(r.nonce);
+  if (r.kind === 'land') return landPath(r.repo_key, r.pr, r.pin);
   return readyPath(r.repo_key, r.pr, r.head);
 }
 
@@ -235,6 +239,7 @@ export function noteName(r: AnyRecord): string {
   if (r.kind === 'train-bisect') return `gstack-trains:bisect:${r.train}`;
   if (r.kind === 'freeze') return `gstack-trains:freeze:${r.repo_key}`;
   if (r.kind === 'wave') return `gstack-trains:wave:${r.nonce}`;
+  if (r.kind === 'land') return `gstack-trains:land:${r.repo_key}:${r.pr}:${r.pin}`;
   return `gstack-trains:ready:${r.repo_key}:${r.pr}:${r.head}`;
 }
 
@@ -299,6 +304,7 @@ function parseNote(text: string): AnyRecord | null {
     if ((r.kind === 'train-attempt' && ids.test(r.train) && ids.test(r.id)) || (r.kind === 'train-bisect' && ids.test(r.train))) return r;
     if (r.kind === 'freeze' && ids.test(r.repo_key)) return r;
     if (r.kind === 'wave' && ids.test(r.nonce) && ids.test(r.repo_key) && Array.isArray(r.constituents)) return r;
+    if (r.kind === 'land' && ids.test(r.repo_key) && /^\d+$/.test(r.pr) && /^[0-9a-f]{40,64}$/.test(r.pin)) return r;
     if (r.kind === 'ready' && ids.test(r.repo_key) && /^\d+$/.test(r.pr) && /^[0-9a-f]{40,64}$/.test(r.head)) return r;
   } catch {}
   return null;

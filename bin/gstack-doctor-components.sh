@@ -347,6 +347,11 @@ gstack_result_anchor() {
     QUEUE_LAND_CONFLICT) printf '%s' 'queue-land-conflict' ;;
     QUEUE_LAND_DRIFT) printf '%s' 'queue-land-drift' ;;
     QUEUE_LAND_BASE_BUSY) printf '%s' 'queue-land-base-busy' ;;
+    QUEUE_LAND_STAMPED) printf '%s' 'queue-land-stamped' ;;
+    QUEUE_LAND_PIN_MOVED) printf '%s' 'queue-land-pin-moved' ;;
+    QUEUE_LAND_CHECKS) printf '%s' 'queue-land-checks' ;;
+    QUEUE_LAND_NOT_CLEAN) printf '%s' 'queue-land-not-clean' ;;
+    QUEUE_LAND_UNVERIFIED) printf '%s' 'queue-land-unverified' ;;
     PR_WAIT_BLOCKED) printf '%s' 'pr-wait-blocked' ;;
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
     PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;

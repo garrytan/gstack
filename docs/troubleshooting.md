@@ -5073,6 +5073,59 @@ the two allowed restamps, so `land` stopped instead of restamping again.
 it), then rerun `gstack-ship-queue land --pr <n>`; the lock was released and
 the rerun restamps from the pin.
 
+<a id="queue-land-stamped"></a>
+### `QUEUE_LAND_STAMPED`
+
+**Meaning.** Under `merge: direct`, the PR changes VERSION, the
+`package.json` version or the CHANGELOG. Versions and the CHANGELOG are set at
+release, so a PR carries only its `changelog.d` fragment. Nothing was merged.
+
+**Fix.** The lane runs the command the refusal prints, for example
+`git checkout $(git merge-base origin/main HEAD) -- VERSION CHANGELOG.md`
+(and sets the `package.json` version back by hand when it's named), keeps or
+adds the fragment with the entry text, commits, then runs /ship and
+`gstack-ship-queue ready --pr <n> --no-screen` at the new head.
+
+<a id="queue-land-pin-moved"></a>
+### `QUEUE_LAND_PIN_MOVED`
+
+**Meaning.** The PR head isn't the pin `land --pin` was given, so the READY
+doesn't describe what would merge. Nothing was merged.
+
+**Fix.** The lane runs /ship and `ready --pr <n> --no-screen` at the new head
+and sends a new READY; land that pin.
+
+<a id="queue-land-checks"></a>
+### `QUEUE_LAND_CHECKS`
+
+**Meaning.** A check at the pin is red or pending, or a required check never
+ran there. Nothing was merged.
+
+**Fix.** Pending: `gstack-pr-wait <n> --until green`, then rerun land. Red:
+the lane fixes it at a new head (a flaky case gets its one rerun under rule
+16). Missing: dispatch that workflow on the branch, then rerun land.
+
+<a id="queue-land-not-clean"></a>
+### `QUEUE_LAND_NOT_CLEAN`
+
+**Meaning.** GitHub doesn't report the PR `MERGEABLE` and `CLEAN`. Nothing
+was merged.
+
+**Fix.** `CONFLICTING`: the lane merges the base into its branch, resolves,
+runs /ship and `ready` at the new head. `UNKNOWN`: GitHub is still
+computing, so rerun land in a minute. `BLOCKED` or `BEHIND`: meet the branch
+rule it names.
+
+<a id="queue-land-unverified"></a>
+### `QUEUE_LAND_UNVERIFIED`
+
+**Meaning.** GitHub merged the PR, but the base branch's merge commit tree
+isn't the pin merged onto that commit's parent, so something besides the
+reviewed pin reached main. No land note was written.
+
+**Fix.** Compare the merge commit with `git merge-tree --write-tree <parent>
+<pin>`, revert what doesn't belong to the PR, and report it to the Captain.
+
 <a id="queue-train-stamp-mismatch"></a>
 ### `QUEUE_TRAIN_STAMP_MISMATCH`
 

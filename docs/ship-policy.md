@@ -63,6 +63,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
+| `merge` | `train` \| `direct` | `train` | `direct` lands each READY PR at its own green head with [`land --pr <n> --pin <sha>`](#land-direct): no train and no stamp commit, and `train build` refuses. A PR then leaves VERSION, the `package.json` version and the CHANGELOG at its merge base, and the release sets them. Needs `changelog_fragments`, and the stamping `land --pr <n>` refuses under it. `train` keeps merge trains. Read from the base revision only. Needs `min_gstack_version`. |
 | `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version. `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
 
@@ -1896,6 +1897,42 @@ command:
 
 `--dry-run` merges and stamps in a scratch worktree and prints the version and
 tree, taking no lock and pushing nothing.
+
+<a id="land-direct"></a>
+### `land --pin`: merge at the PR's own green head (`merge: direct`)
+
+Under `"merge": "direct"` in the base policy, the Captain merges one READY PR
+at a time with `gstack-ship-queue land --pr <n> --pin <sha>`, where `<sha>`
+is the head the READY names. There's no train, no stamp commit, no base merge
+and no extra CI round. GitHub's required checks plus `--match-head-commit`
+stay the gate. Versions aren't set per PR: a PR carries only its
+`changelog.d` fragment, VERSION stays where it is, and the release stamps the
+version and folds the fragments. Land refuses, and merges nothing, unless all
+of these hold:
+
+| Check | Refusal |
+|---|---|
+| the base policy sets `merge: direct` | `QUEUE_NOT_READY` |
+| the PR is open, on the base, from this repository | `QUEUE_NOT_READY`, `QUEUE_TRAIN_UNTRUSTED` |
+| the PR head is the pin | [`QUEUE_LAND_PIN_MOVED`](troubleshooting.md#queue-land-pin-moved) |
+| the PR body's /ship receipt is bound to the pin | `QUEUE_RECEIPT_MISSING`, `QUEUE_RECEIPT_STALE` |
+| a READY note from `ready` exists at the pin | `QUEUE_NOT_READY` |
+| no freeze is active and no land lock is held | `QUEUE_TRAIN_FROZEN`, `QUEUE_LAND_LOCKED` |
+| VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
+| every check at the pin is green with none pending, and each `changelog_fragments.required_checks` entry passed there | [`QUEUE_LAND_CHECKS`](troubleshooting.md#queue-land-checks) |
+| GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
+
+Release outputs (the agents digest) are checked by the Version Gate, which must
+be green at the pin: it accepts an output only when it equals what the release
+tool generates at the merge base's VERSION. If the base moved and GitHub still
+reports the PR clean, land merges it as it is. Then it runs `gh pr merge
+--squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),
+reads the merge commit, and checks that its tree is the pin merged onto the
+merge commit's parent ([`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified)
+if not). Last, it writes a `land` note on `refs/notes/gstack-trains`. A rerun
+after GitHub merged goes straight to the tree check. `--dry-run` runs every
+check and merges nothing. Under `merge: direct`, `train build` refuses and
+names this command.
 
 <a id="migrating-to-fragments"></a>
 ### Migrating to fragments
