@@ -23,8 +23,8 @@ afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, 
 const BASE = ['Bars', 'Decoys', 'Stop rules', 'Held-out exposure'].map(s => `## ${s}\n- filled in\n`).join('\n');
 const ARMS = (...ids: string[]) => `\n## Arms\n${ids.map(id => `- ${id} default settings, $0.01 per item`).join('\n')}\n`;
 const LOADED = '\n## Comparison\nstack: loaded\n';
-const NO_GSTACK = (o: Partial<Record<'arms' | 'inputs' | 'prompt' | 'panel' | 'report', string>> = {}) => {
-  const v = { arms: 'claude-opus-5-5#no-gstack', inputs: 'the same rows and fixture as the variants', prompt: 'the task text only; no SKILL.md, preamble, hooks or installed skills', panel: 'behavior, 3 trials, the same judge and labels', report: 'one row beside the variants in the results table', ...o };
+const NO_GSTACK = (o: Partial<Record<'arms' | 'inputs' | 'prompt' | 'panel' | 'report' | 'masking' | 'install' | 'audit', string>> = {}) => {
+  const v = { arms: 'claude-opus-5-5#no-gstack', inputs: 'the same rows and fixture as the variants', prompt: 'the task text only; no SKILL.md, preamble, hooks or installed skills', panel: 'behavior, 3 trials, the same judge and labels', report: 'one row beside the variants in the results table', masking: 'an empty directory bind-mounted over ~/.capy/drive/user-garry-tan and ~/.capy/drive/org-gstack-gbrain before the run agent starts', install: 'no gstack at ~/.local/share/gstack or ~/.claude/skills, checked before the run', audit: 'drive reads logged per arm; an arm that read a gstack skill file is contaminated and gets zero credit', ...o };
   return `\n## No-gstack arm\n${Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => `${k}: ${x}`).join('\n')}\n`;
 };
 const VARIANTS = ARMS('claude-opus-5-5#review-g', 'claude-opus-5-5#review-h', 'claude-opus-5-5#no-gstack');
@@ -71,6 +71,24 @@ describe('the No-gstack arm section', () => {
       }
     });
   }
+
+  for (const key of ['masking', 'install', 'audit'] as const) {
+    test(`masked arms: a missing, blank or "none" ${key}: line fails naming it`, () => {
+      for (const v of [undefined, ' ']) {
+        const r = checkPrereg(BASE + VARIANTS + LOADED + NO_GSTACK({ [key]: v } as Record<string, string>));
+        expect(r.ok).toBe(false);
+        expect(r.no_gstack.problems).toEqual([`missing ${key}`]);
+      }
+      const none = checkPrereg(BASE + VARIANTS + LOADED + NO_GSTACK({ [key]: 'none' } as Record<string, string>));
+      expect(none.ok).toBe(false);
+      expect(none.no_gstack.problems).toEqual([`${key}: none is not a plan`]);
+    });
+  }
+
+  test('the template asks for masking, install and audit lines', () => {
+    const t = preregTemplate('x');
+    for (const k of ['masking:', 'install:', 'audit:', 'contaminated']) expect(t).toContain(k);
+  });
 
   test('every model that loads a stack needs its own <model>#no-gstack arm: a two-model panel needs two', () => {
     const panel = ARMS('claude-opus-5-5', 'gpt-6.1-sol', 'claude-opus-5-5#no-gstack');
@@ -178,6 +196,13 @@ describe('gstack-eval-plan prereg --check', () => {
     expect(r.err).toContain('missing section');
     expect(r.err).toContain('(PREREG_NO_GSTACK_ARM)');
     expect(r.err).not.toContain('(PREREG_INCOMPLETE)');
+  });
+
+  test('an arm without a mask is refused with PREREG_NO_GSTACK_ARM naming the line', () => {
+    const r = run(BASE + VARIANTS + LOADED + NO_GSTACK({ masking: undefined }));
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('missing masking');
+    expect(r.err).toContain('(PREREG_NO_GSTACK_ARM)');
   });
 
   test('missing sections and arm problems both print, PREREG_INCOMPLETE first', () => {

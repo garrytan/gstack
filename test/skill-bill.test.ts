@@ -47,7 +47,7 @@ describe('gstack-skill-bill', () => {
   const root = gstackRepo();
 
   test('a gstack checkout skill reports every level and its last diet', () => {
-    const r = bill(root, ['demo']);
+    const r = bill(root, ['./demo']);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('SKILL: demo (gstack-checkout)');
     expect(r.stdout).toMatch(/template\s+SKILL\.md\.tmpl/);
@@ -58,7 +58,7 @@ describe('gstack-skill-bill', () => {
 
   test('growth over 10% since the Skill-Diet commit prints DUE, and an unrendered template is RENDER_STALE', () => {
     fs.appendFileSync(path.join(root, 'demo', 'SKILL.md.tmpl'), 'y'.repeat(200));
-    const r = bill(root, ['demo', '--json']);
+    const r = bill(root, ['./demo', '--json']);
     const report = JSON.parse(r.stdout);
     expect(report.baseline.status).toBe('found');
     expect(report.baseline.due).toBe(true);
@@ -111,6 +111,41 @@ describe('gstack-skill-bill', () => {
     expect(flag.status).toBe(2);
     expect(flag.stderr).toContain("unknown argument '--jsno'");
     expect(bill(tmp, ['--help']).stdout).toContain('Usage: gstack-skill-bill');
+  });
+});
+
+describe('gstack-skill-bill EVIDENCE line (docs/inventory/evidence.json)', () => {
+  const root = path.join(tmp, 'evidence-repo');
+  const ledger = (parts: Record<string, unknown>) => {
+    fs.mkdirSync(path.join(root, 'docs', 'inventory'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'inventory', 'evidence.json'), JSON.stringify({ schema_version: 1, parts }));
+  };
+  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'SKILL.md.tmpl'), 'router');
+  fs.writeFileSync(path.join(root, 'VERSION'), '1.0.0');
+  skill(path.join(root, 'demo'), 'demo', 'body\n', 'SKILL.md.tmpl');
+
+  test('each status prints its source, plan or reason; a skill with no row says so', () => {
+    ledger({ demo: { status: 'untested', grandfathered: true, plan: 'none' } });
+    expect(bill(root, ['./demo']).stdout).toContain('EVIDENCE: untested plan: none (grandfathered)');
+    ledger({ demo: { status: 'untested', reason: 'r', plan: 'test/fixtures/skill-evals/demo/tasks.json', owner: 'GSTA-1', measure_by: '2026-12-01' } });
+    expect(bill(root, ['./demo']).stdout).toContain('EVIDENCE: untested plan: test/fixtures/skill-evals/demo/tasks.json (owner GSTA-1, measure by 2026-12-01)');
+    ledger({ demo: { status: 'helps', sources: ['run-9/results.json'], models: ['claude-opus-5-5'], prompt: 'preset', scope: 's', masked: true } });
+    expect(bill(root, ['./demo']).stdout).toContain('EVIDENCE: helps sources: run-9/results.json');
+    ledger({ demo: { status: 'safety', reason: 'blocks rm -rf' } });
+    expect(bill(root, ['./demo']).stdout).toContain('EVIDENCE: safety reason: blocks rm -rf');
+    ledger({});
+    expect(bill(root, ['./demo']).stdout).toContain('EVIDENCE: missing: no demo row in docs/inventory/evidence.json');
+    expect(JSON.parse(bill(root, ['./demo', '--json']).stdout).evidence).toMatchObject({ key: 'demo', status: 'missing' });
+    fs.writeFileSync(path.join(root, 'docs', 'inventory', 'evidence.json'), '{bad');
+    const broken = bill(root, ['./demo']).stdout;
+    expect(broken).toContain('EVIDENCE: unreadable: cannot read docs/inventory/evidence.json');
+    expect(broken).not.toContain('add one');
+  });
+
+  test('the real checkout: a guard prints its safety reason', () => {
+    const r = spawnSync(BIN, ['careful'], { cwd: path.resolve(import.meta.dir, '..'), encoding: 'utf-8', timeout: 30_000 });
+    expect(r.stdout).toMatch(/^EVIDENCE: safety reason: .+/m);
   });
 });
 

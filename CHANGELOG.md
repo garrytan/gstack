@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.94.29.0] - 2026-11-03
+
+**Every part of gstack now has to earn its place.** Garry, 2026-11-02: "Also work this principle of only include it if it is beneficial and good into gstack". A new skill, step, instruction, check or default needs evidence that it helps on frontier models, or a reason, an owner and a dated plan to measure it. The first inventory reads untested almost everywhere: one part, `/investigate`, has a fair no-effect result (a CUT-CANDIDATE, measured on Opus 5.5 only), 3 have a fair test under way, 14 more have one proposed, and 5 safety guards stay on their stated reason.
+
+### Added
+- **ETHOS.md principle 9, Earn Its Place.** A fair test is Claude Code's own `claude_code` system prompt, frontier models (today Opus 5.5 and GPT-6.1 Sol) and a masked no-gstack arm. A part a fair test shows doesn't help gets one "Why null?" cycle, then is kept, fixed or cut. Measure the biggest parts first. The Capy factory page cites it in item 8, still under its 3,300-byte budget.
+- **`docs/inventory/evidence.json`, the evidence ledger, and `bin/gstack-inventory`.** One row per part: every skill folder plus seven shared parts (preamble, catalog, the two Capy files, the /ship review panel and docs audit, the /autoplan phases), 71 keys in all. Each status has its own required fields (`helps`, `no-effect` and `hurts` need sources, frontier models, the preset prompt, a scope and a masked no-gstack arm, and the last two an R48 verdict; a new `untested` part needs a reason, a concrete plan, an owner and a `measure_by` date; `safety` needs a reason). Rows present today are grandfathered, seeded from the gstack-evals evidence table with their sources, plans and earlier results that don't count yet; no part added later can claim that (`test/fixtures/inventory-grandfathered.json`). `gstack-inventory` writes `docs/inventory.md` (parts ranked by load per run, a "measure next" order, preamble tiers, paid dispatches per run for /ship and /autoplan quoted from their own docs); `--check` validates the ledger; `--json` prints it. It works on the git repo you run it in and never writes into a gstack install.
+- **`gstack-skill-bill` prints `EVIDENCE:`**, the skill's ledger row, and `/write-skill`'s edit ladder step 2 is now the evidence rule, with an `Evidence:` commit line beside `Skill-Size:`.
+- **`/autoplan`'s CEO phase lists each part a plan adds to gstack** with its evidence or owned, dated plan; a missing one is a finding.
+
+### Changed
+- **No-gstack arms must be masked.** `gstack-eval-plan prereg --check` now also requires `masking:`, `install:` and `audit:` in `## No-gstack arm` and refuses a blank or `none` value (`PREREG_NO_GSTACK_ARM`). On Capy, run agents inherit the instruction to load the user-drive gstack skill, so the arm hides the Capy drives and checks that no gstack is installed. An arm that read a gstack skill file is contaminated and gets zero credit (docs/TESTING_INTERNALS.md#no-gstack-arm).
+
+### For contributors
+- CONTRIBUTING.md "Adding a new skill" adds the ledger row; `test/inventory.test.ts` fails on a skill without a valid row.
+
 ## [1.94.28.0] - 2026-11-03
 
 **`gstack-ship-preflight --timeout` reaches Step 5's pregate (GST-1196).** Preflight ran `gstack-pregate` with no way to pass `--timeout`, so on a repo whose `.gstack/pregate.json` sets no `timeout_s`, a test group longer than 600 s always stopped with `PREGATE_INCOMPLETE`. The only workaround was a separate `gstack-pregate --timeout 1800` before finish (gstack-evals #176 and #179).

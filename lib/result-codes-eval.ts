@@ -22,8 +22,8 @@ export const EVAL_RESULT_CODES = {
   // Garry, 2026-10-31: "all of our head to head tests have to test no gstack from here".
   PREREG_NO_GSTACK_ARM: {
     anchor: 'prereg-no-gstack-arm',
-    summary: 'the Comparison says stack: loaded and the No-gstack arm section is missing, lacks a key, or does not give every model its own <model>#no-gstack Arms line',
-    fix: 'add `## No-gstack arm` with arms:, inputs:, prompt:, panel: and report:, and list each <model>#no-gstack arm under Arms; when no arm loads a skill stack, say stack: none with a why: line',
+    summary: 'the Comparison says stack: loaded and the No-gstack arm section is missing, lacks a key (masking:, install: and audit: included), says none for a masking key, or does not give every model its own <model>#no-gstack Arms line',
+    fix: 'add `## No-gstack arm` with arms:, inputs:, prompt:, panel:, report:, masking:, install: and audit:, and list each <model>#no-gstack arm under Arms; when no arm loads a skill stack, say stack: none with a why: line',
   },
   EVAL_REPORT_NO_GSTACK_ROW: {
     anchor: 'eval-report-no-gstack-row',

@@ -910,8 +910,12 @@ gstack's own templates and for any skill folder you own.
   add nothing a fresh session already does; edit the line that covers the idea instead of appending; put the fact on the
   lowest level that reaches the agent in time (description, SKILL.md, `references/`, the tool's `--help`, the tool's
   errors); write the rule and put the story in the commit message.
+- **Evidence.** A new skill, step, instruction, check or default needs evidence that it helps on frontier models, or a
+  dated plan to measure it ([ETHOS.md: 9. Earn Its Place](../ETHOS.md#9-earn-its-place)). Commits carry an `Evidence:`
+  line, and every gstack skill has a row in the evidence ledger, `docs/inventory/evidence.json`, which
+  [docs/inventory.md](inventory.md) ranks by load per run.
 - **Size.** `gstack-skill-bill` prints bytes and estimated tokens per level, and in a gstack checkout the skill's eval
-  task file (`EVAL TASKS:`). Commits carry
+  task file (`EVAL TASKS:`) and its ledger row (`EVIDENCE:`). Commits carry
   `Skill-Size: <before>→<after> bytes`; a skill more than 10% over its last `Skill-Diet:` commit is DUE, and a red
   context-budget ratchet means diet, not a higher ceiling.
 - **Drift.** `test/skill-bin-drift.test.ts` fails when a template or rendered skill calls a gstack bin or flag that

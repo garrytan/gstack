@@ -594,6 +594,15 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     expect(citationProblems(text)).toEqual([]);
   });
 
+  test('item 8 cites ETHOS.md principle 9, Earn Its Place, which states the fair test, the Why-null cycle and the safety exception', () => {
+    const item8 = fs.readFileSync(FACTORY, 'utf8').split('\n').find(l => l.startsWith('8. '))!;
+    expect(item8).toContain('[ETHOS.md: 9. Earn Its Place]');
+    const ethos = fs.readFileSync(path.join(REPO, 'ETHOS.md'), 'utf8');
+    const p9 = ethos.slice(ethos.indexOf('## 9. Earn Its Place'), ethos.indexOf('## How They Work Together'));
+    expect(p9.length).toBeGreaterThan(200);
+    for (const words of ['only include it if it is beneficial and good', 'claude_code', 'Opus 5.5', 'GPT-6.1 Sol', 'masked', 'Why null?', 'Safety and security guards', 'biggest', 'docs/inventory.md']) expect(p9).toContain(words);
+  });
+
   test('negative controls: a missing file, a missing heading and an unknown skill are each caught', () => {
     expect(citationProblems('[docs/no-such-page.md: Anything]')).toEqual(['missing file docs/no-such-page.md']);
     expect(citationProblems('[docs/captain.md: No Such Heading]')).toEqual(['missing heading docs/captain.md: No Such Heading']);
