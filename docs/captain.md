@@ -299,7 +299,10 @@ through an urgent one-PR train (or `train build --repair` while the queue is fro
 refuses `--urgent`); all prefixes green earns exactly one unchanged rebuild;
 anything else goes to a repair lane. An infra-only census earns one re-dispatch. A
 backstop gate runs on every push to the base branch and freezes the queue when it finds
-a tree no green train covered; one repair PR at its exact head clears the freeze.
+a tree no green train covered; one repair PR at its exact head clears the freeze. A
+policy with a `release_gate` block swaps that per-push backstop for one full gate on main
+every 8 hours, whose red verdict holds the stable release instead of freezing the queue
+([ship-policy.md#release-gate](ship-policy.md#release-gate)).
 
 **Wave PRs when the queue is long.** Every slot pays its own
 stamp, its own round of required checks and its own version, one after another. When more

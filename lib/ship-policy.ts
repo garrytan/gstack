@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
+import { RELEASE_GATE_EXPLANATION, releaseGateErrors, type ReleaseGatePolicy } from './release-gate-policy';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { reviewErrors, type ReviewPolicy } from './ship-policy-review';
 import { cmpVersion, parseVersion } from './version-source';
@@ -86,6 +87,8 @@ export interface ShipPolicy {
   docs: { caps: Array<{ path: string; max_bytes: number }> } | null;
   /** How /ship reproduces a Step 5 failure on the base branch before calling it base-red (docs/ship-policy.md#base-red); null never calls one base-red. */
   base_red: BaseRedPolicy | null;
+  /** The release gate on the base branch (docs/ship-policy.md#release-gate); null keeps the per-push main backstop. */
+  release_gate: ReleaseGatePolicy | null;
 }
 
 /** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */
@@ -177,6 +180,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   train: null,
   docs: null,
   base_red: null,
+  release_gate: null,
 };
 
 export type PolicyKey = Exclude<keyof ShipPolicy, '$schema'>;
@@ -210,6 +214,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   train: '{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? } (the gstack-evals gate) or { gates, land, max_size, fill_hours } (any repo: gates lists { kind: workflows, workflows, required_jobs, record?, post_merge_checks? } and { kind: command, command, timeout_sec, spend_cap_usd, pass_env? }, each GREEN on every prefix; land is { merge_method: squash|merge|rebase, required_checks? }) or null: turns on merge trains in gstack-ship-queue (train build|status|verdict|land|watch|init|doctor|prune, ready --screen|--no-screen, verify --train). gates and land need min_gstack_version at the release that reads them (validate names it). null keeps today\'s per-PR queue unchanged.',
   docs: '{ caps: [{ path, max_bytes }] } or null: documentation files with a byte cap. /ship Step 14.5 runs `gstack-ship-receipt docs-caps` before the verification gate and prints one DOCS_CAP: line per cap; a file over its cap (or absent) blocks the ship until the doc is trimmed or the cap raised on the base branch. null declares none.',
   base_red: '{ setup, select, timeout_sec } or null: how /ship Step 5 proves a failure is the base branch\'s own (docs/ship-policy.md#base-red). gstack-base-red checks out the base head and the PR head in scratch worktrees, runs setup (dependency install, or null), then select with the failing test files in its {files} slot; only the same failures in both, in files the PR does not touch, are base-red, and /ship then pauses before READY instead of failing. Read from the base branch only. null keeps every failure in-branch.',
+  release_gate: RELEASE_GATE_EXPLANATION,
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
 
@@ -248,6 +253,7 @@ export const BASE_RED_KEY_VERSION = '1.91.374.0';
 export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
 export const STAMP_PLACEHOLDERS_KEY_VERSION = '1.94.16.0';
 export const REVIEW_EXCLUDE_KEY_VERSION = '1.93.33.0';
+export const RELEASE_GATE_KEY_VERSION = '1.95.0.0';
 export const REVIEW_POLICY_KEY_VERSION = '1.94.30.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
@@ -256,7 +262,7 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   migrations: '1.91.98.0', gate_command: SHIP_QUEUE_KEYS_VERSION, full_e2e: SHIP_QUEUE_KEYS_VERSION, min_gstack_version: SHIP_QUEUE_KEYS_VERSION,
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
-  base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION, review: REVIEW_POLICY_KEY_VERSION,
+  base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION, review: REVIEW_POLICY_KEY_VERSION, release_gate: RELEASE_GATE_KEY_VERSION,
   stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION,
 };
 
@@ -509,6 +515,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('docs' in obj && obj.docs !== null) docsErrors(obj.docs, errors);
   if ('changelog_fragments' in obj && obj.changelog_fragments !== null) fragmentsErrors(obj.changelog_fragments, errors);
   if ('base_red' in obj && obj.base_red !== null) baseRedErrors(obj.base_red, errors);
+  if ('release_gate' in obj && obj.release_gate !== null) errors.push(...releaseGateErrors(obj.release_gate));
   if ('stamp_paths' in obj) listErrors('stamp_paths', obj.stamp_paths, errors, globError);
   for (const key of ['changelog', 'mirror'] as const) {
     if (!(key in obj) || obj[key] === null) continue;
@@ -775,22 +782,4 @@ export function stampFilesInTree(repoRoot: string, treeish: string, globs: reado
   return listTreeFiles(repoRoot, treeish).filter(e => e.mode !== '120000' && matchesAny(globs, e.path)).map(e => e.path);
 }
 
-/**
- * A working-tree path a stamp may write: inside `root` after realpath (a
- * symlink out of the repository is refused even when the glob matched).
- */
-export function assertInsideRoot(root: string, rel: string): string | null {
-  const realRoot = fs.realpathSync(root);
-  const abs = path.resolve(realRoot, rel);
-  if (abs !== realRoot && !abs.startsWith(realRoot + path.sep)) return `${rel} resolves outside ${root}`;
-  let probe = abs;
-  while (!fs.existsSync(probe)) {
-    const parent = path.dirname(probe);
-    if (parent === probe) break;
-    probe = parent;
-  }
-  let real: string;
-  try { real = fs.realpathSync(probe); } catch { return null; }
-  if (real !== realRoot && !real.startsWith(realRoot + path.sep)) return `${rel} resolves through a symlink to outside ${root}`;
-  return null;
-}
+export { assertInsideRoot } from './path-containment';

@@ -166,7 +166,8 @@ jobs:
       pull-requests: read
     outputs:
       mode: ${{ steps.route.outputs.mode }}
-      record_artifact: ${{ steps.policy.outputs.record_artifact }}
+      # A release bisect (gstack-release-gate) names its own prefix-record artifact; everything else uses the train block's.
+      record_artifact: ${{ steps.route.outputs.record_artifact || steps.policy.outputs.record_artifact }}
       full_gate_check: ${{ steps.policy.outputs.full_gate_check }}
       screen_head: ${{ steps.screen.outputs.head_sha }}
       screen_base: ${{ steps.screen.outputs.base_sha }}
@@ -218,10 +219,23 @@ jobs:
             echo "::warning::the train block at ${base} names no valid record_artifact and full_gate_check; this run routes as before"
           fi
 
+      # The release gate's bisect (gstack-release-gate) routes only under a
+      # release_gate block at the same base revision; git and jq only.
+      - name: Read the release gate policy (base revision)
+        id: release_policy
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          policy=$(git show "${BASE_SHA:-origin/${DEFAULT_BRANCH}}:.gstack/ship-policy.json" 2>/dev/null || echo null)
+          release=$(jq -r 'if (.release_gate | type) == "object" then "true" else "false" end' <<<"$policy" 2>/dev/null || echo false)
+          echo "release=${release}" >> "$GITHUB_OUTPUT"
+
       - name: Route this run
         id: route
         env:
           TRAIN_POLICY: ${{ steps.policy.outputs.train }}
+          RELEASE_POLICY: ${{ steps.release_policy.outputs.release }}
           NONCE: ${{ inputs.nonce }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           EVALS_ALL: ${{ inputs.evals_all }}

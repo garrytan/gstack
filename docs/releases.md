@@ -29,11 +29,12 @@ it has completed and none failed, and `refs/notes/gstack-trains` holds no
 active freeze. A cancelled check run counts as red. A commit with a check run
 still going is skipped and the next older one is considered, back through 7
 days or 200 first-parent commits. The workflow runs no tests and no paid evals
-of its own; it only reads what the trains and the backstop already recorded.
+of its own; it only reads what the trains, the backstop and the release gate
+already recorded.
 With nothing green in the window it fails and lists why each commit was
 skipped.
 
-**Gated** means one of two pieces of evidence. The first is the
+**Gated** means one of three pieces of evidence. The first is the
 `main-backstop` check run: the Main backstop gate workflow publishes it on
 each push to main from a job of its own, success when a green train record
 covers the tree or the backstop gated it green, neutral when main moved past
@@ -45,11 +46,17 @@ its tree: those entries are the main commits `gstack-ship-queue verify
 --train` confirmed, so a commit a green train merged is gated even when trains
 merged faster than the backstop could settle and its own backstop run ended
 neutral or never ran. The `CANDIDATE` line says which: `gated by
-main-backstop` or `gated by train <nonce>`. Train evidence relaxes nothing
+main-backstop` or `gated by train <nonce>`. The third is a GREEN release
+record (kind `release`) on the commit, written by the release gate
+([docs/ship-policy.md#release-gate](ship-policy.md#release-gate)) when the
+policy declares `release_gate`; the line then says `gated by release gate run
+<id>`. A RED release record with no GREEN one on a later commit that
+contains it refuses the cut like a freeze. Train evidence relaxes nothing
 else: a red backstop run, a failed or missing `free-tests` run, any other red
 check run or a run still going keeps the commit out, and a record in any other
 state (`red`, `superseded`, `free-green`, …) is not evidence. A commit with
-neither a successful backstop run nor a train record is not released: a
+none of the three (no successful backstop run, train record or GREEN release
+record) is not released: a
 dependabot push, a policy without a train block, or a tree that was never
 gated.
 
@@ -240,6 +247,10 @@ overrides the key for one command. The resolution lives in one helper,
 - `bin/gstack-upgrade` and `/gstack-upgrade`: they fast-forward to the channel
   ref (`UPSTREAM_REF=origin/stable` in the skill's output) and say which channel
   they followed.
+- `capy/skill/gstack/scripts/install.sh`, the Capy skill's installer (wrapper
+  revision 4): a fresh clone or a floor upgrade follows `stable` when the channel
+  resolves to it and `stable` meets the support floor, and follows main
+  otherwise. `--revision` still pins an exact commit.
 
 Two edge cases are handled on purpose:
 
@@ -302,11 +313,12 @@ is exercised against real check runs before it merges.
 
 | Line | Meaning |
 |---|---|
-| `CANDIDATE: <sha> (<date>) gated by main-backstop|train <nonce>` | the commit that will be (or was) released, and which evidence gated it (`[hotfix: --ref]` before `gated by` on a `--ref` cut) |
+| `CANDIDATE: <sha> (<date>) gated by main-backstop|train <nonce>|release gate run <id>` | the commit that will be (or was) released, and which evidence gated it (`[hotfix: --ref]` before `gated by` on a `--ref` cut) |
 | `NOTHING_NEW: origin/main <sha> is already released as v<X>` | nothing merged since the last release; exit 0 |
 | `NO_GREEN_COMMIT: ...` with `SKIPPED:` lines | nothing in the window passed the gate; exit 1 (a dry run exits 0: the skips are its answer) |
 | `REFUSED: non-fast-forward: ...` | the candidate is behind stable; stable only moves forward |
 | `REFUSED: queue frozen since train ...` | the main backstop froze the queue; clear it first (docs/ship-policy.md) |
+| `REFUSED: release gate red on <sha> (<cases>) and no gate on a later commit is green; ...` | the release gate's hold: land the revert or fix-forward, then `gstack-release-gate run --ignore-cadence` ([docs/ship-policy.md#release-gate](ship-policy.md#release-gate)) |
 | `REFUSED: tag v<X> already names <other sha>` | a version was stamped twice; needs a look before anything is cut |
 | `REFUSED_FLOOR: stable moved to v<X> at <time>, <h> h ago; ...` | inside the 72-hour floor; nothing changed. Exit 1 by hand, 0 on the schedule or a dry run |
 | `NEXT_ALLOWED: <time> for a hand-run cut; <time> for a scheduled run` | follows every `REFUSED_FLOOR` (and `FLOOR_UNKNOWN`, where it says why there is no time) |

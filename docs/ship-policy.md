@@ -1120,6 +1120,88 @@ every lane to the per-PR queue at once. `--urgent` ships one PR alone,
 `--no-screen` skips the paid screen, `--broad` widens it to the full PR selection,
 and `train build --prs <list without it>` drops a PR at any step.
 
+<a id="release-gate"></a>
+## `release_gate`: one full gate on main every 8 hours
+
+Trains gate each batch of PRs, and the main backstop gates every push. The
+release gate replaces the backstop with one full paid gate on main's head at
+most every `cadence_hours`, and only when main moved since the last gate. It
+feeds the stable release (docs/releases.md) and never writes `stable` itself:
+`scripts/release-cut.ts` stays the only writer, with its 72-hour floor and its
+security and regression exceptions unchanged.
+
+The surface is off unless main's `.gstack/ship-policy.json` declares the
+block, with `min_gstack_version` at least the release that introduced the key
+(validation names it):
+
+```json
+"release_gate": {
+  "cadence_hours": 8, "gate_workflow": "evals.yml", "branch": "main",
+  "stable_ref": "stable", "check_name": "main-backstop",
+  "on_red": "hold-release", "bisect_spend_cap_usd": 40
+}
+```
+
+Every field is required. `cadence_hours` runs from 8 (the workflow's
+schedule) to 168. `check_name` is the check run release-cut reads as gated,
+so gstack keeps `main-backstop`. `bisect_spend_cap_usd` caps one red gate's
+bisect (0 skips it).
+
+**What runs.** `.github/workflows/release-gate.yml` fires every 8 hours and
+on a manual dispatch from main. Without the block it stops after a git-and-jq
+policy read, so no paid work starts and nothing is written. With the block it runs
+`gstack-release-gate run`, which:
+
+1. first finishes an open gate on an older commit (a run that outlived its
+   budget, or a red gate's unfinished bisect), so main moving never orphans a
+   verdict; only then does it look at main's head. An open gate older than
+   three cadences stops holding up the head;
+2. skips when main has not moved since `stable` or since the last gate, or
+   when the last gate is younger than `cadence_hours` (`--ignore-cadence`
+   overrides only the age);
+3. writes a `release` record (`gstack-trains:release:<repo>:<sha>`) to
+   `refs/notes/gstack-trains` before it dispatches, so a lost run resumes;
+4. dispatches the full gate on that sha and reads its verdict and flake
+   records. A case that failed once and passed its one rule-16 rerun is green
+   and is listed as flaky;
+5. records GREEN, RED or INCOMPLETE. An INCOMPLETE gate is re-dispatched once
+   by the next run, then left for a person;
+6. on RED, bisects the red cases over main's first-parent commits since the
+   last green gate (at most 4 rounds, within the spend cap) and records the
+   first bad commit;
+7. publishes `check_name` on the gated commit from a separate job that holds
+   `checks: write` and runs no repository code: success for a green gate,
+   failure for a red one, and neutral when the gate has no verdict yet (still
+   running at the budget, or incomplete), so a later green on the same commit
+   is not undercut by an earlier failure.
+
+**What release-cut reads.** A GREEN release record on a commit counts as
+gated, the same as a successful `main-backstop` check run. A RED record
+with no GREEN record on a later commit that contains it holds every cut, like a
+queue freeze: the `REFUSED` line names the red sha and cases. Land the revert
+or the fix-forward, then gate again with `gstack-release-gate run
+--ignore-cadence` (or dispatch the workflow). Nothing else clears a hold.
+
+**The per-push backstop stands down.** `evals-main-backstop.yml` keeps its
+push trigger. While the block is set, its policy step reports `train=false`,
+so a push dispatches no gate, freezes nothing and publishes no check run. Main
+is never gated twice. Trains keep running until the train lane retires them.
+
+```bash
+gstack-release-gate run [--dry-run] [--sha <sha>] [--ignore-cadence]
+gstack-release-gate status     # the newest record, the hold if any, pending commits
+gstack-release-gate bisect [--sha <sha>] [--spend-cap <usd>] [--dry-run]
+```
+
+Common flags: `--repo`, `--policy <file>` (read the block from a file instead
+of main, for a dry run or a proof before adoption), `--remote`,
+`--summary`, `--outputs`, `--poll-seconds`, `--budget-minutes`. Every line
+starts with `RELEASE:`. Exit 0 means gated, skipped, inert or a dry run; 1
+means held (red), failed, incomplete or a refused policy; 2 is a usage error.
+
+**Escape hatch.** Remove the block on main. The per-push backstop gates the
+next push again, and release-cut reads its check runs as before.
+
 <a id="ship"></a>
 ## What `/ship` reads from it
 
