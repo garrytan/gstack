@@ -35,10 +35,10 @@ export interface ScopeFinding {
 export interface ScopedFinding extends ScopeFinding { locus: Locus; kind: Kind; blocking: boolean; scope: ScopeAction; raised_by?: string }
 
 /** Who can raise a finding: the core checklist, QA probes, a specialist by name and the review-depth roles; anything else is `unknown`. */
-const RAISERS: readonly string[] = ['core', 'qa', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', ...SPECIALISTS];
+const RAISERS: readonly string[] = ['core', 'qa', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', 'targeted', ...SPECIALISTS];
 const RAISER_ALIASES: Record<string, string> = { adversarial: 'adversarial-native' };
-/** Reviewers that read after pass 1 finished (Step 11's voices, a fix-check): only a blocking finding of theirs is ever `fix`. */
-const AFTER_PASS_RAISERS: readonly string[] = ['adversarial-native', 'outside-voice', 'fix-check'];
+/** Reviewers that read after pass 1 finished (Step 11's voices and the targeted reader, a fix-check): only a blocking finding of theirs is ever `fix`. */
+const AFTER_PASS_RAISERS: readonly string[] = ['adversarial-native', 'outside-voice', 'fix-check', 'targeted'];
 
 /** The reviewer that raised a finding, for attributing passes later (GSTA-152 D6): its `raised_by` when known, else its `specialist` tag, else `unknown`. */
 export function raisedBy(finding: ScopeFinding): string {
@@ -297,7 +297,7 @@ export interface ReviewLoopSummary {
   passes: number; blocking_found: number; deferred: number; noted: number; fixed: number; scope: ReviewScopePolicy | 'unknown';
   /** One-reviewer re-checks of a fix (docs/review-policy.md#transitions); never passes. */
   fix_checks?: number;
-  /** Reviewer dispatches of this invocation by role (specialist, red-team, adversarial-native, outside-voice, fix-check). */
+  /** Reviewer dispatches of this invocation by role (specialist, red-team, adversarial-native, outside-voice, fix-check, targeted). */
   dispatches?: Record<string, number>;
   /** Prompt plus diff bytes the dispatches read, / 4: a relative estimate, never a bill. */
   est_input_tokens?: number;

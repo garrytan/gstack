@@ -412,7 +412,7 @@ describe('capy skill: the session hands the installer GSTACK_CAPY_BEHIND', () =>
     const r = spawnSync('bash', ['-c', script, 'run', path.join(f.root, 'bin/gstack-lease'), f.root, BOOT, leaseDir, process.execPath], { cwd: f.host.home, encoding: 'utf8', env: { ...f.host.env, GSTACK_CAPY_ROOT: f.root, GSTACK_CAPY_REPO: `file://${f.bare}`, WRAP_LOG: path.join(f.host.base, 'wrap.log'), GSTACK_LEASE_DIR: leaseDir }, timeout: 120_000 });
     const [inRun, aged] = r.stdout.split(/^exit=0$/m);
     expect(r.stdout.match(/^exit=0$/gm), r.stdout + r.stderr).toHaveLength(2);
-    expect(inRun).toMatch(/^SELF_UPGRADE: skipped \(a gstack run in this session holds a workflow lease on this installation: pid \d+ \(0m bash\), so the upgrade waits until the lease is 120 minutes old; fix: .+bin\/gstack-upgrade once the run ends \(UPGRADE_BUSY\)\)$/m);
+    expect(inRun).toMatch(/^SELF_UPGRADE: skipped \(a gstack run in this session holds a workflow lease on this installation: pid \d+ \(0m bash\), so the upgrade waits until the lease is 120 minutes old; fix: .+bin\/gstack-upgrade once the lease is 120 minutes old, or GSTACK_UPGRADE_FORCE=1 .+bin\/gstack-upgrade when no other session uses this checkout \(UPGRADE_BUSY\)\)$/m);
     expect(inRun).not.toContain('SELF_UPGRADE: done');
     expect(inRun).toMatch(/blocked=a gstack run in this session holds a workflow lease .+ \(UPGRADE_BUSY\)$/m);
     expect(aged).toContain(f.b);
@@ -424,7 +424,7 @@ describe('capy skill: the session hands the installer GSTACK_CAPY_BEHIND', () =>
   // shared checkout and rewrote the verdict to for=review-voice, so the lane's next autoplan
   // admission refused (INSTALL_UNVERIFIED). A review-voice install never moves the checkout.
   describe('--for review-voice never self-upgrades a shared checkout', () => {
-    const blocked = (root: string) => `review-voice never self-upgrades a shared checkout; fix: ${root}/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED)`;
+    const blocked = (root: string) => `review-voice never self-upgrades a shared checkout; fix: GSTACK_UPGRADE_FORCE=1 ${root}/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED)`;
     const behindFixture = () => {
       const f = fixture({ cloneAt: 'B' });
       write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);
@@ -464,12 +464,40 @@ describe('capy skill: the session hands the installer GSTACK_CAPY_BEHIND', () =>
       expect(r.last).toBe('gstack: ok 1.0.2 for=autoplan behind=none to=none fix=none');
     });
 
+    // GST-395: below the supported minimum every session's trailer on this checkout fails, so the
+    // bootstrapper's fast-forward applies to a reviewer too; only above the floor does review-voice hold still.
+    test('install mode below the floor: the bootstrapper fast-forwards to the minimum even for review-voice, and the session then has nothing to do', () => {
+      const f = fixture();
+      const r = f.run(['--for', 'review-voice']);
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(r.stdout).toContain('gstack-capy-skill: upgraded 1.0.0 -> 1.0.1');
+      expect(r.stdout).toMatch(/^SELF_UPGRADE: none \(current\)$/m);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
     test('--check behind origin: the fix is gstack-upgrade, not the install rerun (which would not move a review-voice checkout)', () => {
       const f = behindFixture();
       const r = f.run(['--check', '--for', 'review-voice']);
       expect(r.last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 to=1.0.2 fix=${f.root}/bin/gstack-upgrade`);
       expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
     });
+  });
+
+  // GST-396: gstack-upgrade now counts a fresh capy-server lease, but the session's own #3571 arm still decides first on Capy.
+  test('install mode under a capy-server harness holding a fresh lease: the #3571 deferral message still wins (live keeps its meaning for the session)', () => {
+    const f = fixture({ cloneAt: 'B' });
+    write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);
+    f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+    const leaseDir = path.join(f.host.base, 'leases');
+    const harness = path.join(f.host.base, 'harness', 'capy-server');
+    fs.mkdirSync(path.dirname(harness), { recursive: true });
+    fs.copyFileSync(fs.realpathSync(spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8', timeout: 30_000 }).stdout.trim()), harness);
+    fs.chmodSync(harness, 0o755);
+    const script = ['bash "$1" touch --pid $$ --root "$2" || exit 9', 'bash "$3" --for document-release; echo "exit=$?"'].join('\n');
+    const r = spawnSync(harness, ['-c', script, 'run', path.join(f.root, 'bin/gstack-lease'), f.root, BOOT], { cwd: f.host.home, encoding: 'utf8', env: { ...f.host.env, GSTACK_CAPY_ROOT: f.root, GSTACK_CAPY_REPO: `file://${f.bare}`, WRAP_LOG: path.join(f.host.base, 'wrap.log'), GSTACK_LEASE_DIR: leaseDir }, timeout: 120_000 });
+    expect(r.stdout, r.stdout + r.stderr).toContain('exit=0');
+    expect(r.stdout).toMatch(/^SELF_UPGRADE: skipped \(a gstack run in this session holds a workflow lease on this installation: pid \d+ \(0m capy-server\), so the upgrade waits until the lease is 120 minutes old; fix: .+ \(UPGRADE_BUSY\)\)$/m);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
   });
 
   test('an older bootstrapper handing --for none to the session in install mode: the session certifies nothing and moves nothing (no self-upgrade, HEAD unchanged), and reports behind like --check', () => {
