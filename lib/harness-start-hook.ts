@@ -22,14 +22,14 @@ export const START_NOTE_MAX = 300;
 export const START_NOTE = 'gstack: if you use a gstack skill this turn, first run the gstack-skill-start command in its Preamble section exactly as written, with no pipe, head, || true or ; echo. Read its output, then follow the skill.';
 
 export type HookTarget = 'openclaw' | 'hermes';
-export type HookState = 'active' | 'written' | 'disabled' | 'unchecked' | 'off';
+export type HookState = 'active' | 'written' | 'disabled' | 'unknown' | 'unchecked' | 'off';
 export interface HookResult { state: HookState; fix?: string; detail?: string; profile?: string; root?: string }
 type Env = Record<string, string | undefined>;
 
 const MANAGED = "Managed by gstack-harness: it rewrites this file. Turn the hook off: gstack-harness register %s --no-start-hook";
 const SPECS = {
   openclaw: {
-    profileVar: 'OPENCLAW_STATE_DIR', home: '.openclaw', sub: 'extensions', skills: ['skills'],
+    profileVar: 'OPENCLAW_STATE_DIR', home: '.openclaw', sub: 'extensions', skills: ['skills'], name: 'OpenClaw', config: 'openclaw.json', setup: 'openclaw onboard',
     activate: [['config', 'set', 'plugins.entries.' + HOOK_ID + '.hooks.allowConversationAccess', 'true'], ['config', 'set', 'plugins.entries.' + HOOK_ID + '.enabled', 'true']],
     files: (): Record<string, string> => ({
       'index.js': [
@@ -55,7 +55,7 @@ const SPECS = {
     }),
   },
   hermes: {
-    profileVar: 'HERMES_HOME', home: '.hermes', sub: 'plugins', skills: ['skills', 'gstack'],
+    profileVar: 'HERMES_HOME', home: '.hermes', sub: 'plugins', skills: ['skills', 'gstack'], name: 'Hermes', config: 'config.yaml', setup: 'hermes setup',
     activate: [['plugins', 'enable', HOOK_ID]],
     files: (): Record<string, string> => ({
       'plugin.yaml': ['# ' + MANAGED.replace('%s', 'hermes'), 'name: ' + HOOK_ID, 'version: 1.0.0', "description: Puts gstack's start-command note on each user turn (managed by gstack-harness).", ''].join('\n'),
@@ -91,6 +91,51 @@ export const hookRoot = (t: HookTarget, profile: string) => path.join(profile, S
 /** The skills folder a registration must use for the hook to go into that profile. */
 export const profileSkills = (t: HookTarget, profile: string) => path.join(profile, ...SPECS[t].skills);
 const activateCommands = (t: HookTarget, profile: string) => SPECS[t].activate.map(a => SPECS[t].profileVar + '=' + JSON.stringify(profile) + ' ' + t + ' ' + a.join(' ')).join(' && ');
+/** The harness's own config file in a profile: the file activation edits through the harness CLI. */
+export const hookConfig = (t: HookTarget, profile: string) => path.join(profile, SPECS[t].config);
+
+function canonical(p: string): string {
+  try { return fs.realpathSync(p); } catch {}
+  const parent = path.dirname(p);
+  return parent === p ? p : path.join(canonical(parent), path.basename(p));
+}
+/** The config OPENCLAW_CONFIG_PATH names when it is not the profile's own openclaw.json (compared after realpath), else ''. */
+export function foreignOpenclawConfig(env: Env, profile: string): string {
+  const v = env.OPENCLAW_CONFIG_PATH;
+  if (!v) return '';
+  const named = path.resolve(v);
+  return canonical(named) === canonical(hookConfig('openclaw', profile)) ? '' : named;
+}
+
+/** A profile with no harness config yet: turning the plugin on through the harness CLI would create a config holding only that setting, so gstack waits for the harness's own setup. */
+function noConfig(t: HookTarget, profile: string): HookResult | null {
+  const cfg = hookConfig(t, profile);
+  if (fs.existsSync(cfg)) return null;
+  const s = SPECS[t];
+  return { state: 'written', detail: 'no ' + s.name + ' config at ' + cfg + ' yet, and turning the plugin on would create one holding only that setting', fix: 'run ' + s.name + "'s own setup first (" + s.profileVar + '=' + JSON.stringify(profile) + ' ' + s.setup + '), then gstack-harness refresh' };
+}
+
+/** Reads the hook from the harness's config file when its CLI is not on PATH (a harness's own terminal tool often lacks it). */
+function inspectConfig(t: HookTarget, profile: string, fix: string): HookResult {
+  const why = t + ' is not on PATH';
+  const written: HookResult = { state: 'written', detail: why + ', so gstack could not turn the plugin on or check it', fix };
+  const cfg = hookConfig(t, profile);
+  const missing = noConfig(t, profile);
+  if (missing) return { ...missing, detail: why + ' and ' + missing.detail };
+  let plugins: any;
+  try { plugins = ((t === 'hermes' ? Bun.YAML.parse(fs.readFileSync(cfg, 'utf8')) : JSON.parse(fs.readFileSync(cfg, 'utf8'))) as any)?.plugins ?? {}; }
+  catch { return { state: 'unknown', detail: why + ' and ' + cfg + ' could not be parsed, so gstack could not check the plugin', fix: 'gstack-harness status from a shell where ' + t + ' is on PATH' }; }
+  if (t === 'hermes') {
+    const listed = (k: string) => Array.isArray(plugins[k]) && plugins[k].includes(HOOK_ID);
+    if (listed('disabled')) return { state: 'disabled', detail: 'turned off in Hermes (plugins.disabled in ' + cfg + '); gstack leaves it off', fix };
+    if (listed('enabled') && fs.existsSync(path.join(hookRoot(t, profile), 'plugin.yaml'))) return { state: 'active', detail: 'read from plugins.enabled in ' + cfg + ' (' + why + ')' };
+    return written;
+  }
+  const entry = plugins.entries?.[HOOK_ID] ?? {};
+  if (entry.enabled === false) return { state: 'disabled', detail: 'turned off in openclaw.json (plugins.entries.' + HOOK_ID + '.enabled false); gstack leaves it off', fix };
+  if (entry.enabled === true && entry.hooks?.allowConversationAccess === true) return { state: 'unknown', detail: cfg + ' turns it on, but ' + why + ', so gstack could not check that OpenClaw loads it', fix: 'gstack-harness status from a shell where openclaw is on PATH' };
+  return written;
+}
 
 /** The plugin's files (absolute path -> bytes): fixed code plus note.txt, which the code reads at each turn. */
 export function hookFiles(t: HookTarget, root: string): Map<string, Buffer> {
@@ -124,6 +169,8 @@ const onPath = (bin: string, env: Env) => (env.PATH ?? '').split(path.delimiter)
 /** Turns the plugin on in the harness. Returns the first failure, or ''. */
 export function activateHook(t: HookTarget, profile: string, env: Env, home: string): string {
   if (!onPath(t, env)) return t + ' is not on PATH';
+  const missing = noConfig(t, profile);
+  if (missing) return missing.detail!;
   for (const a of SPECS[t].activate) {
     const r = runHarness(t, profile, a, env, home, 60_000);
     if (!r.ok) return t + ' ' + a.join(' ') + ' failed (' + r.why + ')';
@@ -136,12 +183,14 @@ function parseJson(s: string): any {
   return null;
 }
 
-/** Reads the hook back from the harness: active (configured for new sessions), disabled by the user, or written (with the fix). */
+/** Reads the hook back from the harness: active (configured for new sessions), disabled by the user, written (with the fix), or unknown (no CLI and a config that cannot settle it). Runs no harness command while the profile has no harness config. */
 const READ_TIMEOUT = 15_000;
 
 export function inspectHook(t: HookTarget, profile: string, env: Env, home: string): HookResult {
   const fix = activateCommands(t, profile);
-  if (!onPath(t, env)) return { state: 'written', detail: t + ' is not on PATH, so gstack could not turn the plugin on or check it', fix };
+  if (!onPath(t, env)) return inspectConfig(t, profile, fix);
+  const missing = noConfig(t, profile);
+  if (missing) return missing;
   if (t === 'hermes') {
     const r = runHarness(t, profile, ['plugins', 'list', '--json'], env, home, READ_TIMEOUT);
     const row = (parseJson(r.stdout) ?? []).find?.((p: any) => p?.name === HOOK_ID);
