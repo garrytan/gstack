@@ -28,6 +28,35 @@ describe('HARN-1 false triggers (harness-evals#231 on 1.93.7.0): data, config an
     expect([c.class, c.risk]).toEqual(['docs', []]);
     expect(classifyDiff({ paths: ['src/logs/rotate.ts'], gateTagged: 0 }).class).toBe('code');
   });
+  // Value: protects=a directory name or a data extension never downgrades an executable (GSTA-258 L7 Addendum 1 and 7);
+  //   fails_when=scripts/logs/prune or an executable .out classes as docs; seam=collector executables -> classifyDiff
+  test('an executable (exec bit or shebang) under logs/ or named .out stays code; plain logs stay docs', () => {
+    const exe = ['scripts/logs/prune', 'tools/build/runner.out'];
+    const c = classifyDiff({ paths: [...exe, 'logs/run.txt'], gateTagged: 0, executables: exe });
+    expect(c.class).toBe('code');
+    expect(c.reasons).toEqual(expect.arrayContaining(['code: scripts/logs/prune']));
+    for (const p of exe) expect(classifyDiff({ paths: [p], gateTagged: 0, executables: [p] }).class).toBe('code');
+    const txt = 'scripts/logs/prune.txt';
+    const printsKey = classifyDiff({ paths: [txt], gateTagged: 0, executables: [txt], added: { [txt]: ['curl -H "Authorization: Bearer abcdefgh12345678"'] } });
+    expect([printsKey.class, printsKey.risk]).toEqual(['code', ['security']]);
+    expect(classifyDiff({ paths: ['logs/run.txt', 'docs/r/logs/ready'], gateTagged: 0, executables: [] }).class).toBe('docs');
+  });
+  // Value: protects=sealed custody and outside-model prompt egress plan full depth (GST-1177: harness-evals#237, gstack #3921);
+  //   fails_when=scripts/sealed/seal.ts or the #3921 secret-egress lines class light with no risk; seam=matchRisk path and line rules
+  test('sealed custody and code that redacts or ships repo content to an outside model are security', () => {
+    const sec = (p: string, lines: string[] = ['export const x = 1;']) => matchRisk({ codePaths: [p], added: { [p]: lines }, scopeAuth: false }).has('security');
+    expect(sec('scripts/sealed/seal.ts')).toBe(true);
+    expect(sec('lib/eval-custody.ts')).toBe(true);
+    expect(sec('lib/autoplan-lean.ts', ["import { redactFindingSpans } from './redact-engine';"])).toBe(true);
+    expect(sec('lib/autoplan-lean.ts', ['  const redacted = (patch: string) => redactFindingSpans(patch) ?? "";'])).toBe(true);
+    expect(sec('lib/autoplan-lean.ts', ['const SECRET_NAME = /(^|\\/)(\\.env[^/]*)$/i;'])).toBe(true);
+    expect(sec('lib/review-x.ts', ["import { runOutsideVoice } from './outside-voice-runner';"])).toBe(true);
+    for (const l of ['out = redact_secrets(text)', 'from gstack.redact import scrub', "import './outside-voice';", 'SECRET_PATTERNS = [/sk-[a-z]+/]', 'const CREDENTIAL_RE = new RegExp(src);']) expect(sec('lib/x.ts', [l])).toBe(true);
+    expect(sec('lib/autoplan-lean.ts', ['const INLINE_DRAFT_BYTES = 64_000;'])).toBe(false);
+    expect(sec('lib/x.ts', ['const SECRET_COUNT = total / 2;', "import { readFile } from 'node:fs';"])).toBe(false);
+    expect(sec('lib/seasonal.ts')).toBe(false);
+    expect(classifyDiff({ paths: ['scripts/sealed/seal.ts'], gateTagged: 0 }).risk).toContain('security');
+  });
   test('a sqlite file is data even when a script names it', () => {
     const c = classifyDiff({ paths: [sqlite, 'scripts/load.py'], gateTagged: 0, perPath: [{ path: sqlite, lines: 0, binary: true }, { path: 'scripts/load.py', lines: 4, binary: false }], consumed: [sqlite] });
     expect([c.class, c.errors.map(e => e.code), c.runtimeLines]).toEqual(['code', [], 4]);
@@ -221,6 +250,17 @@ describe('C7 merged reader brief and the outside voice reading its diff from dis
     expect(s.text).toContain('b/b.ts');
     expect(sliceNote(s, 100)).toMatch(/2 of 3 files.*big\.json/);
     expect(sliceDiff(sec('a.ts', 10), 100).sliced).toBe(false);
+  });
+  // Value: protects=no file leaves the outside voice's slice unnamed (GSTA-258 L7 Addendum 1.2); fails_when=a git-quoted header
+  //   before the first plain one is dropped unlisted, or glued onto the file before it; seam=sliceDiff headers
+  test('a git-quoted or spaced filename is its own file in the slice and is named when left out', () => {
+    const quoted = (p: string, n: number) => `diff --git "a/${p}" "b/${p}"\n+${'x'.repeat(n)}\n`;
+    const sec = (p: string, n: number) => `diff --git a/${p} b/${p}\n+${'x'.repeat(n)}\n`;
+    const s = sliceDiff(quoted('t\\303\\251st.sql', 500) + sec('a.ts', 10) + quoted('tab\\there.ts', 10), 100);
+    expect([s.files, s.kept, s.left]).toEqual([3, 2, ['"t\\303\\251st.sql"']]);
+    expect(s.text).toContain('tab\\there.ts');
+    const spaced = sliceDiff(sec('my notes/big data.csv', 500) + sec('a.ts', 10), 100);
+    expect(spaced.left).toEqual(['my notes/big data.csv']);
   });
   test('the outside voice gets a path and a hash, not the pasted diff', () => {
     const text = renderBrief('outside-voice', { diff_base: sha, diff_file: '/tmp/o/outside-voice.diff', diff_sha256: 'd'.repeat(64), diff_bytes: '1234' }, t);

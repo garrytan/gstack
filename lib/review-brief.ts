@@ -43,14 +43,21 @@ export class BriefError extends Error {}
  */
 export function sliceDiff(text: string, cap: number): { text: string; sliced: boolean; files: number; kept: number; bytes: number; total: number; left: string[] } {
   const total = Buffer.byteLength(text);
-  const starts = [...text.matchAll(/^diff --git a\/(\S+)/gm)];
+  const starts = [...text.matchAll(/^diff --git (.*)$/gm)];
+  const name = (rest: string) => {
+    const quoted = /^"a\/((?:[^"\\]|\\.)*)"/.exec(rest);
+    if (quoted) return `"${quoted[1]}"`;
+    const half = (rest.length - 1) / 2;
+    if (rest.startsWith('a/') && rest.slice(half) === ` b/${rest.slice(2, half)}`) return rest.slice(2, half);
+    return rest.startsWith('a/') ? rest.slice(2).split(' b/')[0]! : rest;
+  };
   if (total <= cap || !starts.length) return { text, sliced: false, files: starts.length, kept: starts.length, bytes: total, total, left: [] };
   let out = '', bytes = 0;
   const left: string[] = [];
   starts.forEach((m, k) => {
     const section = text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length);
     const n = Buffer.byteLength(section);
-    if (bytes + n <= cap) { out += section; bytes += n; } else left.push(m[1]!);
+    if (bytes + n <= cap) { out += section; bytes += n; } else left.push(name(m[1]!));
   });
   return { text: out, sliced: true, files: starts.length, kept: starts.length - left.length, bytes, total, left };
 }
