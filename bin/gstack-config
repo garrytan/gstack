@@ -316,6 +316,7 @@ lookup_default() {
     skill_prefix) echo "false" ;;
     explain_level) echo "default" ;;
     plan_mode_preamble) echo "on" ;; # on | off — off drops the plan-mode preamble on the next ./setup (#3168)
+    claude_loadout) echo "full" ;; # a modules/loadouts.json name — written by ./setup --loadout (docs/loadouts.md)
     codex_reviews) echo "enabled" ;;
     design_detector) echo "auto" ;; # auto | off — impeccable engine pre-pass in the design skills
     design_detector_install_prompted) echo "false" ;; # true once the user answered the one-time engine install offer with "never ask again"
@@ -790,6 +791,10 @@ $_gstack_legacy_root"
           ;;
       esac
     fi
+    if [ "$KEY" = "claude_loadout" ] && ! printf '%s' "$VALUE" | grep -Eq '^[a-z0-9-]{1,40}$'; then
+      echo "Warning: claude_loadout must be a loadout name such as lite or full. Using full." >&2
+      VALUE="full"
+    fi
     if [ "$KEY" = "plan_mode_preamble" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
       echo "Warning: plan_mode_preamble '$VALUE' not recognized. Valid values: on, off. Using on." >&2
       VALUE="on"
@@ -1105,7 +1110,7 @@ $_gstack_legacy_root"
     echo "# ─── Active values (including defaults for unset keys) ───"
     report_root_disagreement
     for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
-               skill_prefix explain_level plan_mode_preamble \
+               skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
@@ -1130,7 +1135,7 @@ $_gstack_legacy_root"
   defaults)
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
-               skill_prefix explain_level plan_mode_preamble \
+               skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
@@ -1163,6 +1168,7 @@ $_gstack_legacy_root"
     . "$SCRIPT_DIR/gstack-render-claude.sh" 2>/dev/null || { echo "$0: $SCRIPT_DIR/gstack-render-claude.sh is missing. fix: reinstall with ./setup or /gstack-upgrade" >&2; exit 1; }
     _PLAN_MODE_ARG=""
     [ "$("$0" get plan_mode_preamble 2>/dev/null || true)" != off ] || _PLAN_MODE_ARG="--plan-mode=off"
+    gstack_claude_loadout_arg "$0"
     DETECT_BIN="$SCRIPT_DIR/gstack-gbrain-detect"
     DETECTION_FILE="$STATE_DIR/gbrain-detection.json"
     mkdir -p "$STATE_DIR"
@@ -1231,7 +1237,7 @@ $_gstack_legacy_root"
           gstack_claude_overlay "$INSTALL_DIR" "$0"
           RENDER_TMP="$RENDER_DIR.tmp.$$"
           rm -rf "$RENDER_TMP"
-          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} >/dev/null 2>&1 ); then
+          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} >/dev/null 2>&1 ); then
             gstack_render_lock "$RENDER_DIR"
             _swap_in_render "$RENDER_DIR" "$RENDER_TMP"
             gstack_render_unlock "$RENDER_DIR"
@@ -1257,7 +1263,7 @@ $_gstack_legacy_root"
         # brain blocks, so removing gbrain keeps the chosen overlay.
         INSTALL_DIR="$HOME/.claude/skills/gstack"
         RENDER_DIR="${GSTACK_USER_RENDER_DIR:-$STATE_DIR/render/claude}"
-        if { [ -d "$RENDER_DIR" ] || "$0" has claude_overlay_model || [ -n "$_PLAN_MODE_ARG" ]; } \
+        if { [ -d "$RENDER_DIR" ] || "$0" has claude_overlay_model || [ -n "$_PLAN_MODE_ARG" ] || [ -n "$_LOADOUT_ARG" ]; } \
           && [ -d "$INSTALL_DIR" ] && [ ! -L "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/VERSION" ] && [ -f "$INSTALL_DIR/package.json" ]; then
           if ! command -v bun >/dev/null 2>&1; then
             echo "Skip: bun not on PATH — the Claude render at $RENDER_DIR was not refreshed. Install bun, then re-run 'gstack-config gbrain-refresh'."

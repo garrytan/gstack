@@ -206,6 +206,7 @@ the new defaults.
 | Validate periodic cases plus the weekly gate census on a branch | `gh workflow run evals-periodic.yml --ref <branch> -f include_gate_census=true` | CI runners + API spend | Pushed branch, `gh` with workflow rights |
 | Run the opt-in ML, gitleaks and Swift checks | `gh workflow run platform-qualification.yml --ref <branch>` | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Render one module loadout as an eval arm ([loadouts](docs/loadouts.md)) | `bin/gstack-modules render --host claude --modules full,-section:<skill>/<id> --out-dir <dir>` (`--loadout full` for the control) | Free, about a second per host | Bun 1.4.2 |
+| See which loadout a model gets, or publish it as Capy would ([loadouts](docs/loadouts.md#how-gstack-picks-a-loadout)) | `bin/gstack-modules resolve --model <id>`; `bin/gstack-modules install --model <id> --full-root ~/.claude/skills --store <dir>` | Free, under a second | Bun 1.4.2 |
 | Look at past local eval runs | `bun run eval:list` / `eval:compare` / `eval:summary` | Free | Local eval history |
 | See a case's pass rate across recent weekly runs | `bun run eval:pass-rates --case <case-id>` | Free | `gh` with repo read access |
 | Measure one red case alone against the ship bar (MEETS 9/10) | `bun run scripts/ship-measure.ts measure --case <case-id> --round baseline` ([bar](docs/TESTING_INTERNALS.md#ship-measure)) | API spend for 10 trials (12 for behavior); asks above $2/trial, stops at $25/case | Same as paid coverage |

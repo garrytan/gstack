@@ -53,6 +53,8 @@ export interface LoadoutsManifest {
   rungs: Record<(typeof RUNGS)[number], string[]>;
   pinned: string[];
   loadouts: Record<string, LoadoutDef>;
+  /** Exact model id to loadout, checked before rungs (a dated snapshot or -latest also matches). */
+  models?: Record<string, string>;
   default: Record<Rung, string>;
 }
 
@@ -106,6 +108,18 @@ export function normalizeModelId(raw: string): string {
   return raw.trim().toLowerCase().replace(/\[[^\]]*\]$/, '').trim().replace(/^[a-z0-9-]+\//, '');
 }
 
+/** Model ids that may reach generated shell or a launch file; anything else resolves to full. */
+export const MODEL_ID_RE = /^[a-z0-9][a-z0-9._-]{0,79}$/;
+
+/** An exact id, or the same id plus a dated snapshot (-YYYYMMDD) or -latest; a point release never matches. */
+export const modelKeyMatches = (key: string, id: string) => id === key || (id.startsWith(`${key}-`) && /^(\d{8}|latest)$/.test(id.slice(key.length + 1)));
+
+/** The manifest.models key a model id matches and the loadout it names, or undefined when none matches. */
+export function loadoutForModel(manifest: LoadoutsManifest, id: string): { key: string; loadout: string } | undefined {
+  const key = Object.keys(manifest.models ?? {}).find(k => modelKeyMatches(k, id));
+  return key === undefined ? undefined : { key, loadout: manifest.models![key] };
+}
+
 const matches = (pattern: string, id: string) => (pattern.endsWith('*') ? id.startsWith(pattern.slice(0, -1)) : id === pattern);
 
 /** The rung a model id belongs to: aliases first, then the first rung whose pattern matches. */
@@ -147,6 +161,13 @@ export function validateLoadouts(manifest: LoadoutsManifest, catalog: ModuleEntr
       if (seen.has(at)) { problems.push(`loadouts.${name} has a base cycle through ${at}`); break; }
       seen.add(at);
     }
+  }
+  const modelKeys = Object.keys(manifest.models ?? {});
+  for (const [key, name] of Object.entries(manifest.models ?? {})) {
+    if (!MODEL_ID_RE.test(key)) problems.push(`models key ${clamp(key)} must be an exact model id matching ${MODEL_ID_RE.source}`);
+    if (!has(name)) problems.push(`models.${key} names no loadout (${clamp(String(name))})`);
+    const overlap = modelKeys.find(other => other !== key && modelKeyMatches(other, key));
+    if (overlap) problems.push(`models key ${key} is also matched by ${overlap}`);
   }
   for (const rung of [...RUNGS, 'unknown'] as const) {
     if (!has(manifest.default?.[rung])) problems.push(`default.${rung} names no loadout (${clamp(String(manifest.default?.[rung]))})`);

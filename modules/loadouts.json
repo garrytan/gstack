@@ -50,7 +50,27 @@
     "full": {
       "include": "*",
       "note": "Every module: today's render."
+    },
+    "lite": {
+      "base": "full",
+      "exclude": [
+        "preamble:voice",
+        "preamble:writing-style",
+        "preamble:completeness",
+        "preamble:confusion",
+        "preamble:evidence",
+        "preamble:context-health",
+        "preamble:question-tuning",
+        "preamble:search-before-building",
+        "preamble:repo-mode",
+        "preamble:brain-health",
+        "preamble:context-recovery"
+      ],
+      "note": "Opus 5.5 only (GSTA-161). Drops eleven coaching preamble pieces and keeps upgrade-check and brain-sync. Evidence: the GSTA-161 office-hours preamble run (handoffs/GSTA-161/preamble-measurement.md) and the three-arm land-and-deploy confirmation cited in docs/loadouts.md."
     }
+  },
+  "models": {
+    "claude-opus-5-5": "lite"
   },
   "default": {
     "frontier": "full",

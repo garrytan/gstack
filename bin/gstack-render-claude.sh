@@ -18,6 +18,10 @@
 # plan_mode_preamble is off (#3168); empty or unset means on. The committed
 # files carry the preamble, so with it off the default install is rendered.
 #
+# Callers set _LOADOUT_ARG with gstack_claude_loadout_arg (claude_loadout,
+# written by ./setup --loadout; GSTA-161): a non-full loadout is rendered
+# into the render dir like a pinned overlay, and the checkout stays full.
+#
 # Callers define `_swap_in_render` (setup and bin/gstack-config each keep
 # their tested copy) and may define `log` and `bun_cmd`; plain echo and bun
 # are used otherwise.
@@ -54,6 +58,23 @@ gstack_claude_overlay() {
   _GSTACK_OVERLAY=claude
   _GSTACK_OVERLAY_NOTE="claude_overlay_model '$_GSTACK_OVERLAY_ID' no longer resolves to a Claude overlay ($(printf '%s\n' "$out" | sed -n 2p)); using the generic claude overlay. Fix: ./setup --claude-model <claude-model-id>, or ./setup --claude-model claude."
   _gstack_render_say "  note: $_GSTACK_OVERLAY_NOTE"
+}
+
+# gstack_claude_loadout_arg CONFIG_BIN — set _LOADOUT_ARG to --loadout=<name>
+# for a saved non-full claude_loadout, else empty. A malformed value is
+# ignored with a note, so the full skills are served.
+gstack_claude_loadout_arg() {
+  local CONFIG_BIN="$1" value
+  _LOADOUT_ARG=""
+  value="$("$CONFIG_BIN" get claude_loadout 2>/dev/null || true)"
+  case "$value" in
+    ''|full) return 0 ;;
+  esac
+  if printf '%s' "$value" | grep -Eq '^[a-z0-9-]{1,40}$'; then
+    _LOADOUT_ARG="--loadout=$value"
+  else
+    _gstack_render_say "  note: claude_loadout is not a loadout name; serving the full skills. Fix: ./setup --loadout full"
+  fi
 }
 
 # gstack_claude_overlay_field RECORD KEY — one field of an activation record.
@@ -94,10 +115,11 @@ gstack_render_unlock() {
 gstack_claude_render_action() {
   local render_dir="$1" gbrain="$2" previous
   if [ "$gbrain" = ok ]; then _GSTACK_RENDER_ACTION=user; return 0; fi
-  if [ "$_GSTACK_OVERLAY" != claude ] || [ -n "${_PLAN_MODE_ARG:-}" ]; then _GSTACK_RENDER_ACTION=plain; return 0; fi
+  if [ "$_GSTACK_OVERLAY" != claude ] || [ -n "${_PLAN_MODE_ARG:-}" ] || [ -n "${_LOADOUT_ARG:-}" ]; then _GSTACK_RENDER_ACTION=plain; return 0; fi
   previous="$(gstack_claude_overlay_field "$render_dir.overlay" overlay)"
   if [ "$gbrain" = unknown ] && [ "${previous:-claude}" = claude ] \
-    && [ -z "$(gstack_claude_overlay_field "$render_dir.overlay" plan_mode)" ]; then
+    && [ -z "$(gstack_claude_overlay_field "$render_dir.overlay" plan_mode)" ] \
+    && [ -z "$(gstack_claude_overlay_field "$render_dir.overlay" loadout)" ]; then
     _GSTACK_RENDER_ACTION=keep
   else
     _GSTACK_RENDER_ACTION=remove
@@ -110,8 +132,8 @@ gstack_claude_render_plain() {
   local src="$1" RENDER_DIR="$2" RENDER_TMP out rc=0
   RENDER_TMP="$RENDER_DIR.tmp.$$"
   rm -rf "$RENDER_TMP"
-  _gstack_render_say "Rendering Claude skills with the $_GSTACK_OVERLAY overlay${_PLAN_MODE_ARG:+ and no plan-mode preamble} into $RENDER_DIR (source checkout stays clean)..."
-  out="$(cd "$src" && _gstack_render_bun run gen:skill-docs --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} 2>&1)" || rc=$?
+  _gstack_render_say "Rendering Claude skills with the $_GSTACK_OVERLAY overlay${_PLAN_MODE_ARG:+ and no plan-mode preamble}${_LOADOUT_ARG:+ and the ${_LOADOUT_ARG#--loadout=} loadout} into $RENDER_DIR (source checkout stays clean)..."
+  out="$(cd "$src" && _gstack_render_bun run gen:skill-docs --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} 2>&1)" || rc=$?
   if [ "$rc" -ne 0 ]; then
     rm -rf "$RENDER_TMP"
     printf '%s\n' "$out" | tail -3
@@ -162,6 +184,7 @@ gstack_claude_render_settle() {
       printf 'overlay=%s\nsource=%s\nmodel=%s\nversion=%s\ngbrain=%s\nrender=%s\n' \
         "$served" "$_GSTACK_OVERLAY_SOURCE" "$_GSTACK_OVERLAY_ID" "${version:-unknown}" "$gbrain" "$render_kind"
       [ "$render_kind" != user ] || [ -z "${_PLAN_MODE_ARG:-}" ] || printf 'plan_mode=off\n'
+      [ "$render_kind" != user ] || [ -z "${_LOADOUT_ARG:-}" ] || printf 'loadout=%s\n' "${_LOADOUT_ARG#--loadout=}"
     } > "$record.tmp.$$" && mv "$record.tmp.$$" "$record"
   fi
   gstack_render_unlock "$render_dir"
