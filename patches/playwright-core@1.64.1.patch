@@ -1,8 +1,8 @@
 diff --git a/lib/coreBundle.js b/lib/coreBundle.js
-index d9041dd0f009072511a7d808dec83121ff29e127..542acd31dd7e8ae084de952dc42ec63d0caba849 100644
+index 6893f1cf133efec2c5dccc35c77cc7a53870ccbc..7990e202c5b574ca5ea4c3e73c15c2da43a5b980 100644
 --- a/lib/coreBundle.js
 +++ b/lib/coreBundle.js
-@@ -8906,6 +8906,10 @@ async function launchProcess(options) {
+@@ -10031,6 +10031,10 @@ async function launchProcess(options) {
      env: options.env,
      cwd: options.cwd,
      shell: options.shell,
@@ -13,16 +13,7 @@ index d9041dd0f009072511a7d808dec83121ff29e127..542acd31dd7e8ae084de952dc42ec63d
      stdio
    };
    const spawnedProcess = childProcess.spawn(options.command, options.args || [], spawnOptions);
-@@ -8985,7 +8989,7 @@ async function launchProcess(options) {
-       options.log(`[pid=${spawnedProcess.pid}] <will force kill>`);
-       try {
-         if (process.platform === "win32") {
--          const taskkillProcess = childProcess.spawnSync(`taskkill /pid ${spawnedProcess.pid} /T /F`, { shell: true });
-+          const taskkillProcess = childProcess.spawnSync(`taskkill /pid ${spawnedProcess.pid} /T /F`, { shell: true, windowsHide: true });
-           const [stdout2, stderr2] = [taskkillProcess.stdout.toString(), taskkillProcess.stderr.toString()];
-           if (stdout2)
-             options.log(`[pid=${spawnedProcess.pid}] taskkill stdout: ${stdout2}`);
-@@ -34634,7 +34638,10 @@ var init_chromiumSwitches = __esm({
+@@ -36204,7 +36208,10 @@ var init_chromiumSwitches = __esm({
        // Disables forced sign-in in Edge.
        "msForceBrowserSignIn",
        // Disables updating the preferred version in LaunchServices preferences on mac.

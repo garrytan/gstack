@@ -251,7 +251,7 @@ describe('cookie-import domain validation', () => {
       reset: 'not_requested', verification: { verified: false, reason: 'not_requested' }, message: 'Cookie copy complete.',
     });
     let currentUrl = 'https://example.test';
-    const page = { url: () => currentUrl, isClosed: () => false };
+    const page = { url: () => currentUrl, isClosed: () => false } as any;
     const session = { getPage: () => page, getActiveFrameOrPage: () => page, getFrame: () => null } as any;
     const manager = { trackCookieImportDomains() {} } as any;
     try {
