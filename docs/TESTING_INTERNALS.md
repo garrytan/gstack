@@ -1644,6 +1644,51 @@ lower-case words in path components under `test/fixtures/`; a substring match
 separate change with its own touchfile updates; the list is here so that change
 can be scoped.
 
+## No-gstack arm
+
+Garry, 2026-10-31: "all of our head to head tests have to test no gstack from
+here so that that case is tested obviously Do it for science". A variant that
+beats another variant can still lose to the plain model, and only a no-gstack
+arm shows that.
+
+**Scope.** Every preregistered comparison where any arm loads gstack or another
+skill stack: review variants, preamble loadouts, skill diets scored by behavior
+evals, and model panels run under gstack or under another stack. The
+preregistration says which kind it is in `## Comparison`: `stack: loaded`, or
+`stack: none` with a `why:` line (a scorer calibration, for example, where no
+arm loads any skill text). `gstack-eval-plan prereg --check` refuses a loaded
+comparison without the arm (`PREREG_NO_GSTACK_ARM`).
+
+**How the arm is built.** One arm per model in the comparison, named
+`<model>#no-gstack` in the Arms section and listed on the `arms:` line of
+`## No-gstack arm`. Arm identities are `<model>[#<loadout>]` and are priced by
+the model, so the pilot reserves the no-gstack arm beside its variants under its
+own attempts. The arm gets:
+
+- the same model, settings, inputs, fixture and tools as the variants;
+- a plain prompt: the task text only, with no SKILL.md, preamble, hooks,
+  installed skills or routing lines from gstack or any other stack;
+- the same panel: the same `E2E_KINDS` kind and trial count, the same judge and
+  rubric, and the same blinding labels (the judge reads it as `A` or `B` like
+  any other arm, per [Candidate-side blinding](#candidate-side-blinding));
+- the same budget treatment: it is priced and reserved in the pilot like every
+  other arm.
+
+**Reporting.** The no-gstack result is one row beside the variants in every
+results table and every verdict, including when it wins. A comparison that
+drops the row has not reported its result. The prereg check cannot see the
+report, so the `report:` line states where the row goes and the reviewer of
+the result holds the author to it.
+
+**Precedent and its gaps.** `test/helpers/arm-benchmark-harness.ts` already has
+a `without-skill` arm beside `with-skill`, and it is the closest existing
+control. It falls short of this rule in three ways: each arm and task runs
+once rather than as a panel; the judge (`armJudge` in
+`test/helpers/llm-judge.ts`) scores each diff on its own, without `A`/`B`
+labels; and the candidate's temporary folder is named after the arm
+(`arm-<fixture>-<arm>-*`). Existing paid cases are not retrofitted by the
+change that added this rule; an audit of them is tracked separately.
+
 ## Running evals as an agent: detach
 
 Moved verbatim from CLAUDE.md (#2096 size limit). The short rule stays in

@@ -3644,13 +3644,43 @@ parentheses; grep the code.
 ### `PREREG_INCOMPLETE`
 
 **Meaning.** `gstack-eval-plan prereg --check <file>` found a required
-preregistration section missing or empty: `## Bars`, `## Arms`, `## Decoys`,
-`## Stop rules` or `## Held-out exposure` (every held-out set the plan
-touches, its prior exposure and the reservation on it).
+preregistration section missing or empty: `## Bars`, `## Arms`,
+`## Comparison`, `## Decoys`, `## Stop rules` or `## Held-out exposure`
+(every held-out set the plan touches, its prior exposure and the reservation
+on it). It also fires when `## Comparison` has no `stack:` line, a value other
+than `loaded` or `none`, or `stack: none` without a `why:` line, and when a
+`## Diagnostics` declaration is malformed.
 
 **Fix.** Fill the named sections before any priced call. A plan that cannot
 name its stop rule or its held-out exposure is not preregistered; the pilot
 refuses to start without a passing check.
+
+<a id="prereg-no-gstack-arm"></a>
+### `PREREG_NO_GSTACK_ARM`
+
+**Meaning.** The preregistration says `stack: loaded` (some arm loads gstack or
+another skill stack) and its `## No-gstack arm` section is missing, lacks one
+of `arms:`, `inputs:`, `prompt:`, `panel:` or `report:`, lists an arm that
+is not a `<model>#no-gstack` Arms line, or leaves a model in the comparison
+without its own no-gstack arm. Arms match on whole identities, so
+`claude-opus-5#no-gstack` does not cover `claude-opus-5-5`.
+
+**Fix.** Add one `<model>#no-gstack` line per model under `## Arms`, list them
+on the `arms:` line, and fill the other four keys: the same inputs, a plain
+prompt with no skill text, the same panel and judge, and where the result row
+goes beside the variants. When no arm loads a skill stack, write
+`stack: none` with a `why:` line instead. The rule is in
+[docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
+
+<a id="eval-arm-duplicate"></a>
+### `EVAL_ARM_DUPLICATE`
+
+**Meaning.** `gstack-eval-plan pilot start --arms` named the same arm identity
+twice, so two arms would share one set of pilot attempts.
+
+**Fix.** Give each arm its own identity: `<model>` or `<model>#<loadout>`, for
+example `claude-opus-5-5` and `claude-opus-5-5#no-gstack`. Nothing was
+reserved.
 
 <a id="eval-price-missing"></a>
 ### `EVAL_PRICE_MISSING`

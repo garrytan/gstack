@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.91.373.0] - 2026-10-31
+
+- **No-gstack arm in every head-to-head eval.** `/eval-plan` preregistrations now say in a required `## Comparison` section whether any arm loads gstack or another skill stack (`stack: loaded`) or none does (`stack: none` with a `why:` line). A loaded comparison must add a `## No-gstack arm` section and one `<model>#no-gstack` arm per model. That arm uses the same model and inputs, a plain prompt with no skill text, and the same panel and judge, and its result is reported beside the variants. `gstack-eval-plan prereg --check` refuses a loaded comparison without it (`PREREG_NO_GSTACK_ARM`). Arms are now identities `<model>[#<loadout>]`, priced by the model, so the pilot reserves a variant and its no-gstack arm on the same model separately; a repeated identity is refused (`EVAL_ARM_DUPLICATE`). The rule is written up in `docs/TESTING_INTERNALS.md`.
+
 ## [1.91.372.0] - 2026-10-31
 
 **A test that fails once in CI and passes when run again no longer turns the job red, and every such flake is recorded for the daily flaky-fix pass.** `gstack-flaky run` wraps any test command that writes a JUnit report (Playwright, `bun test`, jest, vitest, pytest). When a few tests fail, it runs the command once more. A test that failed and then passes is a flaky pass, so the job stays green, an Actions `::warning` and a step-summary row name it, and one line goes on a ledger. A rerun counts only when the runner itself reports a full green run, so a real failure, a coverage threshold, a test the first run never reached, a crash or a cancelled job stays red. Before this, each one-off flake meant rerunning the whole CI job by hand (five times in Truther's last evidence window, three of them for one test).
