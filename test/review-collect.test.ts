@@ -100,6 +100,67 @@ describe('collectCommit: git objects only', () => {
   });
 });
 
+describe('GSTA-258 L7 Addendum 1 and 7: executables among data-named paths', () => {
+  // Value: protects=an exec bit or a shebang keeps a logs/ or .out path code in both collectors; fails_when=scripts/logs/prune
+  //   or an executable .out reaches classifyDiff as data (docs, light); seam=collectCommit/collectLive -> depthOfCommitInput
+  test('the exec bit or a shebang lists the path as executable; a plain log does not', () => {
+    const r = repo({});
+    r.write({ 'scripts/logs/prune': '#!/bin/sh\nrm -rf "$1"\n', 'bin/tool.out': 'ELF-ish\n', 'logs/run.txt': 'ok\n', 'docs/r/logs/ready': 'yes\n' });
+    fs.chmodSync(path.join(r.dir, 'bin/tool.out'), 0o755);
+    const head = r.commit({});
+    const c = collectCommit(r.dir, r.baseSha, head);
+    expect(c.executables).toEqual(['bin/tool.out', 'scripts/logs/prune']);
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('code');
+    r.write({ 'docs/r/logs/later': '#!/usr/bin/env bash\necho\n' });
+    expect(collectLive(r.dir, 'main').executables).toEqual(['bin/tool.out', 'docs/r/logs/later', 'scripts/logs/prune']);
+    const plain = repo({});
+    const ph = plain.commit({ 'logs/run.txt': 'ok\n', 'docs/r/logs/ready': 'yes\n', 'docs/r/agent.out': 'done\n' });
+    const pc = collectCommit(plain.dir, plain.baseSha, ph);
+    expect(pc.executables).toEqual([]);
+    expect(depthOfCommitInput({ ...pc, gateTagged: 0 }).class).toBe('docs');
+  });
+  // Value: protects=a deleted log is absent, not unreadable, and an unrelated large blob never forces the fail-closed default;
+  //   fails_when=removing logs/run classes as gate, or a big text file in the diff makes r.log executable; seam=executablesAt
+  test('a deleted log is not executable, and only candidates are read (two bytes each)', () => {
+    const r = repo({ 'logs/run': 'ok\n', 'r.log': 'ok\n', 'big.txt': 'a'.repeat(1024 * 1024) });
+    const del = r.commit({ 'logs/run': null, 'r.log': 'ok2\n', 'big.txt': 'b' + 'a'.repeat(1024 * 1024) });
+    const c = collectCommit(r.dir, r.baseSha, del);
+    expect(c.executables).toEqual([]);
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('docs');
+    r.write({ 'r.log': null });
+    expect(collectLive(r.dir, 'main').executables).toEqual([]);
+  });
+  // Value: protects=a docs or config name never hides an executable's lines, and a symlink is never opened (outside voice on #3972);
+  //   fails_when=a 755 prune.txt or prune.json with rm -rf classes light with no security, or a logs/ symlink is read through;
+  //   seam=collectors -> classifyDiff -> matchRisk
+  test('executable .txt and .json scripts are code with security lines; a symlink counts as executable without being read', () => {
+    const r = repo({});
+    const script = '#!/bin/sh\nrm -rf "$1"\n';
+    r.write({ 'scripts/logs/prune.txt': script, 'tools/prune.json': script });
+    for (const p of ['scripts/logs/prune.txt', 'tools/prune.json']) fs.chmodSync(path.join(r.dir, p), 0o755);
+    fs.mkdirSync(path.join(r.dir, 'logs'));
+    fs.symlinkSync('/dev/null', path.join(r.dir, 'logs/run'));
+    const head = r.commit({});
+    for (const c of [collectCommit(r.dir, r.baseSha, head), collectLive(r.dir, 'main')]) {
+      expect(c.executables).toEqual(['logs/run', 'scripts/logs/prune.txt', 'tools/prune.json']);
+      const d = depthOfCommitInput({ ...c, gateTagged: 0 });
+      expect([d.class, d.risk.includes('security'), d.depth]).toEqual(['code', true, 'full']);
+    }
+  });
+  // Value: protects=collectLive never opens a symlinked SVG (GStack Minder second exception on #3972); fails_when=a tracked
+  //   art.svg linked to a FIFO blocks the drawing read; seam=drawingsAmong's live reader
+  test('a symlinked SVG is not read as a drawing in collectLive', () => {
+    const r = repo({});
+    const fifo = path.join(r.dir, '.git', 'fifo');
+    spawnSync('mkfifo', [fifo], { timeout: 5_000 });
+    fs.symlinkSync(fifo, path.join(r.dir, 'art.svg'));
+    r.commit({});
+    const t0 = Date.now();
+    expect(collectLive(r.dir, 'main').drawings).toEqual([]);
+    expect(Date.now() - t0).toBeLessThan(20_000);
+  }, 30_000);
+});
+
 describe('collectLive: the working tree', () => {
   test('tracked uncommitted edits and untracked files count per path; scratch under .gstack/tmp/ does not', () => {
     const r = repo({ 'src/a.ts': lines(1) });
