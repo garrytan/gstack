@@ -175,7 +175,7 @@ describe('gstack-pregate init drafts a policy from the repo (#3268)', () => {
     expect(r.out).toContain('PREGATE_CONFIG_WRITTEN: .gstack/pregate.json');
     expect(r.out).toMatch(/PREGATE_INIT: languages python \d+, javascript \d+/);
     expect(r.out).toContain('python tests detected at run time: python3 -m pytest {files}');
-    expect(r.out).toContain('a selection mixing these languages needs runner set');
+    expect(r.out).not.toContain('needs runner set');
     expect(r.out).not.toContain('TODO src/version.js');
     expect(r.out).toContain('TODO tools/release.py: no test lane and no nearby test');
     expect(r.out).not.toContain('TODO orders/services.py');

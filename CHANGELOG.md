@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.93.15.0] - 2026-11-02
+
+**Pregate stops blaming a clean branch for a missing pytest, Playwright specs and mixed-language root tests, and the literals check stops flagging stray digits (#3598, #3492, gstack-evals#97).** A machine without pytest reported "fix the in-branch failure". Playwright specs in a vitest repo went to vitest, which found no tests and failed. Root tests in `.mjs` and `.py` got no runner at all. And any lone `2` in a file that named a changed constant (a comment, a `$2` in a shell stub, a fixture) failed `literals`. A wrapper bump from 3 to 4 would have raised 5 false hits here, and gstack-evals#97 hit 11. Rewritten from outside PRs #3639 and #3600 by @vilano93 and #3629 by @nfitzsimmons.
+
+### Fixed
+- **Missing pytest is the machine's gap.** Before planning `python3 -m pytest`, `lanes` asks that python3 whether it can import pytest (10 s probe, from the repo root). If it can't, the file is unclaimed and the lane is `PREGATE_ENVIRONMENT` (missing-binary, `pytest` or `python3`): "install pytest on this machine and rerun, or run the lane remotely; the diff is not at fault".
+- **Playwright specs run under Playwright.** A JS/TS test file that imports `@playwright/test` at the start of a line runs as `<pm exec> playwright test --reporter=list` from its nearest package. Other tests keep their runner. A declared `runner` still takes every file. Playwright's summary is read count line by count line. Failed and interrupted count as failed, flaky and passed as passed, and skipped as not run. A run where every test fails and Playwright says its browser is not installed is `PREGATE_ENVIRONMENT` naming `npx playwright install`.
+- **Mixed-language root tests each get a runner.** A repo's bun, vitest or jest now claims only JS/TS files. When no one runner fits every root test, they are split by language and each part is detected on its own. So `.mjs` with `.py` runs `node --test` and pytest, and a `.py` test in a vitest repo gets pytest instead of vitest. `gstack-pregate init` drops its "a selection mixing these languages needs runner set" note.
+- **`literals` binds a one-character old value to its statement.** The value counts on a line that names the constant, or on up to three lines that continue that statement, never on a comment line. Version-history rows count as before. A lowercase call-site name (`attempts`, `limit`) also needs the changed module named in the file. Values of two or more characters are unchanged.
+
+### Changed
+- **docs/pregate.md** describes the new detection and the literals binding. **docs/troubleshooting.md** names the Playwright missing-browsers case under `PREGATE_ENVIRONMENT`. **docs/state-root.md** lists `pregate/runs/<run id>/`.
+
 ## [1.93.14.0] - 2026-11-02
 
 Free Tests no longer goes red with no named file when one test hangs. Each `free-suite` job's GitHub timeout used to be a fixed 20 minutes, shorter than the runner's own wall for a 10-shard plan (about 37 minutes), so GitHub killed the job before the runner could name the hung file or retry it, and no shard result was uploaded. The plan now emits each shard's job timeout as its runner wall plus the flaky-retry pass plus the job's measured setup (`--ci-plan --job-setup-seconds`), 49 minutes per shard today, and fails loudly above 90 minutes instead of truncating. See docs/TESTING_INTERNALS.md#runners-how-the-suites-execute-2026-08-overhaul. Closes #3850.
