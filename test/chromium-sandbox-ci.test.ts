@@ -75,3 +75,57 @@ test('the actual CI setup requires root ownership, setuid mode, and unchanged he
     expect(calls).not.toBeNull();
   }
 });
+
+const NAMESPACE_STEP = 'Let the bundled Chromium create its sandbox namespaces';
+const PROFILE = '/etc/apparmor.d/gstack-playwright-chromium';
+
+function grantNamespaces(command: string, options: { outside?: boolean } = {}) {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'chromium-userns-'));
+  fixtures.push(fixture);
+  const bin = path.join(fixture, 'bin');
+  const home = path.join(fixture, 'home');
+  const directory = options.outside ? path.join(fixture, 'outside') : path.join(home, '.cache/ms-playwright/chromium-1234/chrome-linux64');
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(directory, { recursive: true });
+  const executable = path.join(directory, 'chrome');
+  const receipt = path.join(fixture, 'sudo.jsonl');
+  writeFileSync(executable, 'synthetic browser');
+  writeFileSync(path.join(bin, 'bun'), '#!/bin/sh\nprintf "%s\\n" "$FIXTURE_CHROME"\n', { mode: 0o755 });
+  writeFileSync(path.join(bin, 'sudo'), `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const stdin = args[0] === 'tee' ? fs.readFileSync(0, 'utf8') : null;
+fs.appendFileSync(process.env.FIXTURE_RECEIPT, JSON.stringify({ args, stdin }) + '\\n');
+`, { mode: 0o755 });
+  const result = spawnSync('/bin/bash', ['-c', command], {
+    cwd: root, encoding: 'utf8', timeout: 10_000,
+    env: { ...process.env, HOME: home, PATH: bin + path.delimiter + process.env.PATH, FIXTURE_CHROME: executable, FIXTURE_RECEIPT: receipt },
+  });
+  const calls = existsSync(receipt) ? readFileSync(receipt, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
+  return { result, executable, calls };
+}
+
+for (const [job, suiteStep] of [['free-suite', 'Run free suite'], ['quick-bun-default', 'Run the quick free tier on the install-default Bun']]) {
+  const jobSteps = workflow.jobs[job].steps;
+  const at = jobSteps.findIndex((step: any) => step.name === NAMESPACE_STEP);
+  const grant = jobSteps[at]?.run;
+
+  test(`${job} grants user namespaces to the resolved bundled Chromium alone, after its helper and before its tests`, () => {
+    expect(typeof grant).toBe('string');
+    expect(at).toBeGreaterThan(jobSteps.findIndex((step: any) => step.name === 'Configure the bundled Chromium sandbox helper'));
+    expect(at).toBeLessThan(jobSteps.findIndex((step: any) => step.name === suiteStep));
+    expect(grant).not.toMatch(/--no-sandbox|chromiumSandbox:\s*false|sysctl|apparmor_restrict/);
+    const { result, executable, calls } = grantNamespaces(grant);
+    expect(result.status).toBe(0);
+    expect(calls).toEqual([
+      { args: ['tee', PROFILE], stdin: `abi <abi/4.0>,\ninclude <tunables/global>\nprofile gstack-playwright-chromium ${executable} flags=(unconfined) {\n  userns,\n}\n` },
+      { args: ['apparmor_parser', '-r', PROFILE], stdin: null },
+    ]);
+  });
+
+  test(`${job} refuses to grant namespaces to an unexpected Chromium path`, () => {
+    const { result, calls } = grantNamespaces(grant, { outside: true });
+    expect(result.status).not.toBe(0);
+    expect(calls).toEqual([]);
+  });
+}

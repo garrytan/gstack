@@ -22,10 +22,12 @@ import { baseOverlapLine } from './pr-wait';
 import { versionAtRef, versionFiles } from './restamp';
 import type { LoadedPolicy, ShipPolicy, TrainPolicy } from './ship-policy';
 import { loadBasePolicy, type QueueContext } from './ship-queue';
+import { mergeManifest } from './ship-queue-land';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { git, sha256, withIndex, type QueueFailure } from './ship-queue-gate';
 import { recordVerdict, screenVerdict, verdictLines } from './ship-queue-screen';
 import { stackTestLine, stackTests } from './ship-queue-stack-tests';
+import { stampChain } from './ship-queue-train-stamp';
 import { asRun, execFor, newestBranchRun, prInfo, remoteBranchSha, repoSlug, runView, checkRun } from './ship-queue-train-github';
 import {
   TERMINAL_STATES, activeFreeze, attemptsOf, listTrains, loadBisect, loadReady, loadTrain, nowIso, persist, rebuildFromNotes, repoIdentity, trainFile,
@@ -100,22 +102,22 @@ export const pinList = (slots: Array<{ pr: string; head: string }>) => slots.map
 export const prsArgs = (slots: Array<{ pr: string; head: string }>, explicit?: boolean) => `--prs ${pinList(slots)}${explicit ? ` --order ${slots.map(s => s.pr).join(',')}` : ''}`;
 
 /**
- * Slot order: screened PRs first, then unscreened, each in READY order;
- * enough unscreened PRs form their own train. An explicit order (`--order`,
+ * Slot order: screened PRs first, then unscreened PRs fill the remaining
+ * seats, each in READY order (GSTA-165: most PRs ride unscreened, so a
+ * screened-only train would hold the pool). An explicit order (`--order`,
  * every admitted PR once) replaces that rule: slots follow it, the first
  * `max` ride and the rest are held.
  */
-export function orderSlots(slots: TrainSlot[], max: number, explicit?: readonly string[]): { train: TrainSlot[]; held: TrainSlot[]; split: boolean } {
+export function orderSlots(slots: TrainSlot[], max: number, explicit?: readonly string[]): { train: TrainSlot[]; held: TrainSlot[] } {
   if (explicit) {
     const all = explicit.map(pr => slots.find(s => s.pr === pr)!);
-    return { train: all.slice(0, max), held: all.slice(max), split: false };
+    return { train: all.slice(0, max), held: all.slice(max) };
   }
   const byReady = (a: TrainSlot, b: TrainSlot) => a.ready_at.localeCompare(b.ready_at) || Number(a.pr) - Number(b.pr);
   const screened = slots.filter(s => s.screen.choice === 'screen').sort(byReady);
   const unscreened = slots.filter(s => s.screen.choice !== 'screen').sort(byReady);
-  if (screened.length && unscreened.length >= max) return { train: screened.slice(0, max), held: [...screened.slice(max), ...unscreened], split: true };
   const all = [...screened, ...unscreened];
-  return { train: all.slice(0, max), held: all.slice(max), split: false };
+  return { train: all.slice(0, max), held: all.slice(max) };
 }
 
 /** When a train under its size may dispatch: its oldest READY plus the fill time; null when it may dispatch now. */
@@ -143,7 +145,8 @@ function unionChangelog(ours: string, theirs: string): string {
 
 /**
  * One train merge, in object storage: the PR head onto the previous prefix.
- * Version files take the prefix's side; the CHANGELOG merges by section (the
+ * VERSION takes the prefix's side, a manifest merges three-way with the prefix's
+ * version (mergeManifest), and the CHANGELOG merges by section (the
  * gate-ahead rule with the merge base, which also carries a stacked child
  * past its released parent, else a union of sections, since each heading is
  * restamped at merge; the union takes the carried side too, so a prefix that
@@ -184,7 +187,14 @@ export function mergeStep(repoRoot: string, pred: string, head: string, policy: 
       const own = (base && carryReleasedParent(text(ours), text(theirs), text(base))?.text) || text(ours);
       const blob = git(repoRoot, ['hash-object', '-w', '--stdin'], undefined, merged ?? unionChangelog(own, text(theirs)));
       if (blob.ok) resolved.push({ path: file, blob: blob.out }); else conflicts.push(file);
-    } else if (stampFiles.includes(file)) resolved.push({ path: file, blob: theirs });
+    } else if (file === stampFiles[0]) resolved.push({ path: file, blob: theirs });
+    else if (stampFiles.includes(file)) {
+      const base = entry.get(1);
+      const text = (sha: string) => git(repoRoot, ['cat-file', 'blob', sha]).out + '\n';
+      const merged = base ? mergeManifest(text(base), text(ours), text(theirs)) : null;
+      const blob = merged === null ? null : git(repoRoot, ['hash-object', '-w', '--stdin'], undefined, merged);
+      if (blob?.ok) resolved.push({ path: file, blob: blob.out }); else conflicts.push(file);
+    }
     else conflicts.push(file);
   }
   if (conflicts.length) return { conflicts: conflicts.sort() };
@@ -321,6 +331,8 @@ export interface BuildOptions {
   pins?: string; order?: string; resume?: string; dryRun: boolean; urgent: boolean; repair: boolean; freeTimeoutSec: number; pollMs: number;
   /** `--dry-run --stack-tests`: run each PR's new test files on its integrated prefix (lib/ship-queue-stack-tests.ts); the command's words when `--stack-tests-command` names one. */
   stackTests?: string[] | true;
+  /** Stamping S_i runs the base policy's restamp_command or release_tool (changelog_fragments trains). */
+  allowRepoCommands?: boolean;
 }
 
 /** `--order <pr>,<pr>,...`: every pinned PR exactly once (a leading # allowed). */
@@ -353,6 +365,7 @@ function admitSlots(env: TrainEnv, pins: Array<{ pr: string; sha: string }>, dry
     }
     const shipped = bindShippedReceipt(ctx.repoRoot, `refs/remotes/${env.remote}/${ctx.base}`, info.body, p.pr, [info.headRefOid]);
     if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, [shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : [])], `#${p.pr}'s lane runs /ship, then ${Q} ready --pr ${p.pr} --screen|--no-screen; then ${Q} train build --prs <pins>`, 'none');
+    lines.push(`${shipped.targetedLine} pr=${p.pr}`);
     const ready = loadReady(env.repo.keys, p.pr, info.headRefOid);
     if (!ready) return outRefused({ code: 'QUEUE_NOT_READY', message: `no READY receipt for #${p.pr} at ${info.headRefOid.slice(0, 12)} (local state or ${'refs/notes/gstack-trains'})` }, [], `the lane runs ${Q} ready --pr ${p.pr} --screen|--no-screen`, 'none');
     let screen = ready.screen;
@@ -389,7 +402,7 @@ async function newTrain(env: TrainEnv, o: BuildOptions): Promise<{ t: TrainRecor
   const lines = [
     ...admitted.lines,
     `ORDER: ${order.train.map((s, i) => `${i + 1}:#${s.pr}(${s.screen.choice === 'screen' ? 'screened' : 'unscreened'})`).join(' ')}${explicit ? ' (explicit --order)' : ''}`,
-    ...(order.held.length ? [`HELD: ${order.held.map(s => '#' + s.pr).join(',')} (${order.split ? 'unscreened PRs form their own train' : `over the train size ${env.train.max_size}`})`] : []),
+    ...(order.held.length ? [`HELD: ${order.held.map(s => '#' + s.pr).join(',')} (over the train size ${env.train.max_size})`] : []),
   ];
   const baseSha = git(env.ctx.repoRoot, ['rev-parse', `${env.remote}/${env.ctx.base}`]).out;
   const key = sha256(JSON.stringify({ base: baseSha, slots: order.train.map(s => `${s.pr}@${s.head}`) }));
@@ -412,13 +425,17 @@ async function newTrain(env: TrainEnv, o: BuildOptions): Promise<{ t: TrainRecor
   if (due && !o.dryRun) return outPending({ code: 'QUEUE_TRAIN_WAITING', message: `${order.train.length} of ${env.train.max_size} PRs; the oldest READY dispatches at ${due}` }, lines, `${Q} train build ${prsArgs(order.train, !!explicit)} (after ${due}, or with more PRs, or --urgent for one)`, 'none');
   const live = listTrains(env.repo.keys).find(t => t.key === key && !TERMINAL_STATES.includes(t.state) && t.state !== 'red' && t.state !== 'unattributed');
   if (live) return { t: Object.assign(live, { held: order.held.map(s => s.pr) }), lines };
-  const head = chain.prefixes.at(-1)!;
+  const policy = env.policy.policy;
+  const stamped = policy.changelog_fragments ? stampChain({ repoRoot: env.ctx.repoRoot, base: env.ctx.base, policy, policyLabel: env.policy.source.label, baseSha, slots: order.train, plain: chain.prefixes, allowRepoCommands: !!o.allowRepoCommands, now: new Date(nowIso()) }) : null;
+  if (stamped && 'code' in stamped) return outFailed(stamped, lines, `${Q} train build ${prsArgs(order.train, !!explicit)} --allow-repo-commands (after the named slot is fixed or dropped)`, 'none');
+  if (stamped) lines.push(...stamped.lines);
+  const head = stamped ? stamped.stamped.at(-1)! : chain.prefixes.at(-1)!;
   const nonce = makeNonce('gate', head.commit, baseSha, randomBytes(3).toString('hex'), { purpose: 'train' });
   const now = nowIso();
   return { lines, t: {
     schema: 1, kind: 'train', nonce, key, repo_key: env.repo.key, repo: env.repo.url, base: { ref: env.ctx.base, sha: baseSha }, policy: env.policy.source.label,
     slots: order.train, held: order.held.map(s => s.pr), prefixes: chain.prefixes, head: head.commit, tree: head.tree, branch: `train/${nonce}`,
-    urgent: o.urgent, repair: o.repair, ...(explicit ? { explicit_order: true } : {}), state: 'built', free: null, attempts: [], merged: [], superseded_by: null, effects: [], error: null,
+    urgent: o.urgent, repair: o.repair, ...(explicit ? { explicit_order: true } : {}), ...(stamped ? { stamped: stamped.stamped } : {}), state: 'built', free: null, attempts: [], merged: [], superseded_by: null, effects: [], error: null,
     created_at: now, updated_at: now,
   } };
 }
