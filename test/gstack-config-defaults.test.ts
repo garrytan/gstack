@@ -28,7 +28,7 @@
  *      depend on receiving "" successfully.
  *
  * The reverse direction is pinned too: every key in the DEFAULTS table must
- * be read by code (bin/, lib/, scripts/, browse/src/, setup, or a .tmpl), or be listed in
+ * be read by code (bin/, lib/, scripts/, browse/src/, hosts/, setup, or a .tmpl), or be listed in
  * PROSE_ONLY_KEYS with a reason. A documented setting no code reads is a
  * switch that does nothing, which is how a consent choice once went unread.
  */
@@ -38,6 +38,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { SWITCH_DEFAULT } from '../lib/skill-route';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const CONFIG_BIN = path.join(ROOT, 'bin', 'gstack-config');
@@ -120,7 +121,7 @@ function keysReadInTree(root = ROOT): string[] {
  */
 const PROSE_ONLY_KEYS: Record<string, string> = {};
 
-const READER_DIRS = ['bin', 'lib', 'scripts', 'browse/src'];
+const READER_DIRS = ['bin', 'lib', 'scripts', 'browse/src', 'hosts'];
 const READER_FILES = ['setup'];
 
 /**
@@ -176,7 +177,7 @@ function isReadInCorpus(arm: string, corpus: string): boolean {
   const re = new RegExp([
     `(?:gstack-config|\\$\\{?[A-Z_]*CONF[A-Z_]*\\}?)["']?[ \\t]+(?:get|has)[ \\t]+["']?${k}`,
     `['"](?:get|has)['"]\\s*,\\s*['"]${k}`,
-    `(?:readConfigKey|readConfigKeyWithRoot|readGstackConfigYamlKey|configValue|configGet|gstack_read_config_key|gstack_config_select)\\(?[ \\t]*['"\`]?${k}`,
+    `(?:readConfigKey|readConfigKeyWithRoot|readGstackConfigYamlKey|readSkillSwitch|configValue|configGet|gstack_read_config_key|gstack_config_select)\\(?[ \\t]*['"\`]?${k}`,
     `\\^${k}${wildcard ? '' : ':'}`,
   ].join('|'));
   return re.test(corpus);
@@ -226,7 +227,7 @@ describe('gstack-config defaults (gate, free)', () => {
     if (unread.length > 0) {
       throw new Error(
         `DEFAULTS keys with no reader: ${unread.join(', ')}. Fix one of two ways: ` +
-          `add the code that reads the key (gstack-config get/has <key> in bin/, lib/, scripts/, setup or a .tmpl), ` +
+          `add the code that reads the key (gstack-config get/has <key> in bin/, lib/, scripts/, hosts/, setup or a .tmpl), ` +
           `or add it to PROSE_ONLY_KEYS in ${SELF} with the reason it has no reader.`,
       );
     }
@@ -250,14 +251,15 @@ describe('gstack-config defaults (gate, free)', () => {
         "spawnSync(bin, ['get', 'key_three'], { timeout: 2000 })",
         "readConfigKey('key_four')",
         "readGstackConfigYamlKey('key_eight')",
+        "readSkillSwitch('key_nine')",
         'grep -E "^key_five_${hash}:" "$F"',
       ].join('\n'));
       fs.writeFileSync(path.join(root, 'docs', 'prose.md'), 'gstack-config get key_six\n');
       fs.writeFileSync(path.join(root, 'skill.md.tmpl'), 'gstack-config get key_seven\n');
       const corpus = readerCorpus(root);
-      const read = ['key_one', 'key_two', 'key_three', 'key_four', 'key_five_*', 'key_six', 'key_seven', 'key_eight', 'key_one_more']
+      const read = ['key_one', 'key_two', 'key_three', 'key_four', 'key_five_*', 'key_six', 'key_seven', 'key_eight', 'key_nine', 'key_one_more']
         .filter((k) => isReadInCorpus(k, corpus));
-      expect(read).toEqual(['key_one', 'key_two', 'key_three', 'key_four', 'key_five_*', 'key_seven', 'key_eight']);
+      expect(read).toEqual(['key_one', 'key_two', 'key_three', 'key_four', 'key_five_*', 'key_seven', 'key_eight', 'key_nine']);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -317,6 +319,18 @@ describe('design_detector (auto|off, rejecting validator)', () => {
     expect(get('design_detector').out).toBe('off');
     spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector', 'auto'], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
     expect(get('design_detector').out).toBe('auto');
+  });
+});
+
+describe('skill_routing and skill_contracts (on|off, default SWITCH_DEFAULT)', () => {
+  test('get, list and defaults report SWITCH_DEFAULT for both', () => {
+    for (const key of ['skill_routing', 'skill_contracts'] as const) expect(get(key)).toEqual({ out: SWITCH_DEFAULT[key], code: 0 });
+    for (const verb of ['list', 'defaults']) {
+      const r = spawnSync('bash', [CONFIG_BIN, verb], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toMatch(new RegExp(`skill_routing:\\s+${SWITCH_DEFAULT.skill_routing}`));
+      expect(r.stdout).toMatch(new RegExp(`skill_contracts:\\s+${SWITCH_DEFAULT.skill_contracts}`));
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 # Skill routing and skill contracts
 
-Two opt-in Claude Code hooks that help a model actually run gstack's skills (GST-1088). Both are **off by default**, and with both off nothing changes.
+Two Claude Code hooks that help a model actually run gstack's skills (GST-1088). Each has one default, `SWITCH_DEFAULT` in `lib/skill-route.ts`; `gstack-config defaults` prints it. With both off nothing changes.
 
 - **Skill routing** (`skill_routing`, a UserPromptSubmit hook). When a prompt matches an installed skill's `triggers:`, the hook adds one line of context naming that skill, for example "this request fits /investigate. Run /investigate with the Skill tool before you start".
 - **Skill contracts** (`skill_contracts`, a Stop hook). A skill can declare the outputs that must exist before it is done. When the model tries to stop without them, the hook blocks once and names what is missing.
@@ -12,9 +12,9 @@ Each switch resolves in this order, and the first one set wins:
 1. The `./setup` flag: `--skill-routing` / `--no-skill-routing` and `--skill-contracts` / `--no-skill-contracts` (also `--skill-routing=on|off`). A flag is saved to config, so it survives upgrades.
 2. The environment: `GSTACK_SKILL_ROUTING` and `GSTACK_SKILL_CONTRACTS` (`on` or `off`). Not saved.
 3. Config: `gstack-config set skill_routing on|off` and `gstack-config set skill_contracts on|off`.
-4. The default: off.
+4. The default: `SWITCH_DEFAULT` in `lib/skill-route.ts`, the only place it is written. Setup, the hooks, `gstack-config get|list|defaults` and `gstack-skill-route --default <switch>` all read it.
 
-`on` also accepts yes, true and 1; `off` accepts no, false and 0. Setup warns about any other value, uses off for that run, and does not save it.
+`on` also accepts yes, true and 1; `off` accepts no, false and 0. Setup warns about any other value, uses the default for that run, and does not save it; the hooks also use the default for such a value. A config file that exists but cannot be read turns both hooks off in setup and in the hooks, whatever the default, because it may hold an `off` you set.
 
 Setup registers a hook only when its switch is on, prints one line the first time it registers it, and removes the registration when the switch is off (or with `--no-team`). The hooks also read the switch every time they run, so this takes effect on the next prompt without re-running setup:
 
@@ -73,7 +73,7 @@ Every item has an `id` (lowercase letters, digits, `.`, `_`, `-`) and a `kind`, 
 | kind | Fields | Met when |
 |---|---|---|
 | `report_labels` | `heading`, `labels[]` | The last assistant message containing the heading has a `Label: value` line for every label, and no value is empty or a placeholder (`[...]`, `<...>`, TBD, TODO, `...`, or a template like `DONE \| BLOCKED`) |
-| `check_after_last_edit` | optional `match` (regular expression) | No Edit, Write, MultiEdit or NotebookEdit happened, or a Bash test or repro command ran after the last one. By default a command counts when, with quoted text removed, one of its parts (split on `&&`, `\|\|`, `;`, `\|`) starts with a test runner, build tool or interpreter (bun, npm, pytest, go, cargo, make, node, python, curl, ...) or a script whose name says test, spec, repro, check, verify or lint, directly or behind a wrapper (`bundle exec rspec`, `uv run pytest`, `docker compose run app pytest`, `xvfb-run npm test`, `bash scripts/test.sh`). `git commit --no-verify`, `cat test/a.test.ts` and the shell's `test -f` do not count |
+| `check_after_last_edit` | optional `match` (regular expression) | No Edit, Write, MultiEdit or NotebookEdit happened, or a Bash test or repro command ran after the last one. By default a command counts when, with quoted text removed, one of its parts (split on `&&`, `\|\|`, `;`, `\|`) runs a test runner (pytest, jest, vitest, rspec, tsc, ...), a test or check verb (`npm test`, `go test`, `cargo run`, `make check`, `bun run lint`), code through an interpreter (`node repro.js`, `python -c ...`, `bun scripts/repro.ts`), `curl` against a URL, or a script whose name says test, spec, repro, check, verify or lint, directly or behind a wrapper (`bundle exec rspec`, `uv run pytest`, `docker compose run app pytest`, `xvfb-run npm test`, `bash scripts/test.sh`). Installs, builds, cleans and version probes (`bun install`, `npm install`, `go build`, `make clean`, `node --version`), `git commit --no-verify`, `cat test/a.test.ts` and the shell's `test -f` do not count |
 | `selected_specialists_dispatched` | optional `marker`, `empty_marker` | The selection line was printed in an assistant message or a Bash result (never a fetched page or file), its names are plain (letters, digits, spaces, `_`, `.`, `-`, at most 40 characters), and each specialist it names has an Agent dispatch that mentions it. The marker is literal text in which a whole-word N stands for a number; the default is `Dispatching N specialists:`. N = 0 (`Dispatching 0 specialists: (small diff)`) or a "specialists skipped" line means zero specialists were selected, which passes. Text in parentheses is not a name (`Dispatching 1 specialists: State Machines (small diff)` selects State Machines) |
 | `agent_dispatch` | `match` (regular expression, case-insensitive), optional `marker` | The `marker` line (literal text, like /review's `Dispatching adversarial pass: native`) was printed and an Agent dispatch follows it; otherwise, as the fallback, an Agent dispatch's description or prompt matches `match` |
 
@@ -109,13 +109,13 @@ The hook checks the most recently loaded skill that declares a contract, and onl
 - the session is headless or unattended (`gstack-session-kind`), or
 - the turn does not end on a question to the user (a last paragraph ending in "?", an AskUserQuestion call, or `NEEDS_CONTEXT`).
 
-So an interactive session that pauses to ask a question is never blocked. When Claude Code says a Stop hook already continued this turn (`stop_hook_active`), the hook never blocks: after its own block it records the result (`met_after_block` or `miss`). It also allows the stop while Agent dispatches are still running (no result yet, or launched in the background with no completion notice naming that agent), because their outputs may still arrive. Because Claude Code can fire Stop before the turn's last message reaches the transcript file, the hook reads the payload's `last_assistant_message` as the turn's final text.
+So an interactive session that pauses to ask a question is never blocked. When Claude Code says a Stop hook already continued this turn (`stop_hook_active`), the hook never blocks: after its own block it records the result (`met_after_block` or `miss`). On a final turn it also allows the stop while Agent dispatches are still running (no result yet, or launched in the background with no completion notice naming that agent), because their outputs may still arrive, and records the run as `deferred`. Once the same agents have been running for 10 minutes since the stop that first saw them, they count as stalled and the contract is checked at the next stop. Because Claude Code can fire Stop before the turn's last message reaches the transcript file, the hook reads the payload's `last_assistant_message` as the turn's final text.
 
 It blocks at most once per skill run. If the model stops again with the contract still unmet, the stop is allowed and the run is recorded as a miss.
 
 ### Records
 
-Each Claude Code session has one record, `$GSTACK_STATE_ROOT/skill-contracts/<session id>.json`, written atomically (mode 0600) before any block. Each skill run in it has an outcome: `met`, `met_waived`, `blocked`, `met_after_block` or `miss`. The hook's decisions also go to `$GSTACK_STATE_ROOT/hooks/skill-contract.log`.
+Each Claude Code session has one record, `$GSTACK_STATE_ROOT/skill-contracts/<session id>.json`, written atomically (mode 0600) before any block. Each skill run in it has an outcome: `met`, `met_waived`, `blocked`, `met_after_block`, `miss` or `deferred` (stopped while its agents were still running, not yet checked; `report` re-checks it against its transcript). The hook's decisions also go to `$GSTACK_STATE_ROOT/hooks/skill-contract.log`.
 
 ## Commands
 

@@ -2,13 +2,15 @@
  * lib/skill-route.ts, the skill-route hook and gstack-skill-route --explain
  * (GST-1088, lane A): deterministic scoring against installed triggers, one
  * additionalContext line when it fires, nothing at all (exit 0, no stderr) on
- * every error, and off by default.
+ * every error. Nothing here assumes a default: tests set the switch, or read
+ * the expected result from SWITCH_DEFAULT (the pins live in
+ * test/setup-skill-hooks-gate.test.ts).
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { PROMPT_MAX_CHARS, ROUTED_SKILLS, ROUTE_THRESHOLD, firstStep, hintLine, readSkillSwitch, routePrompt, scanInstalledSkills, scorePrompt, stem } from '../lib/skill-route';
+import { PROMPT_MAX_CHARS, ROUTED_SKILLS, ROUTE_THRESHOLD, SWITCH_DEFAULT, firstStep, hintLine, readSkillSwitch, routePrompt, scanInstalledSkills, scorePrompt, stem } from '../lib/skill-route';
 import { ROOT, ROUTE_HOOK, SKILLS, hookEnv, runHook, skillsDir, tmpDir } from './helpers/skill-contract-fixture';
 
 let state = '', skills = '';
@@ -75,12 +77,17 @@ describe('scorer', () => {
     expect(firstStep(SKILLS.investigate)).toBe('Reproduce the failure before you change code, then fix it and prove the fix.');
   });
 
-  test('switch precedence: env over config over default off; typos read as off', () => {
-    expect(readSkillSwitch('skill_routing', { GSTACK_STATE_ROOT: state })).toEqual({ on: false, source: 'default' });
+  test('switch precedence: env over config over SWITCH_DEFAULT; a typo takes the default; an unreadable config is off', () => {
+    expect(readSkillSwitch('skill_routing', { GSTACK_STATE_ROOT: state })).toEqual({ on: SWITCH_DEFAULT.skill_routing === 'on', source: 'default' });
     fs.writeFileSync(path.join(state, 'config.yaml'), 'skill_routing: on\nskill_contracts: maybe\n');
     expect(readSkillSwitch('skill_routing', { GSTACK_STATE_ROOT: state })).toEqual({ on: true, source: 'config skill_routing' });
     expect(readSkillSwitch('skill_routing', { GSTACK_STATE_ROOT: state, GSTACK_SKILL_ROUTING: 'off' })).toEqual({ on: false, source: 'env GSTACK_SKILL_ROUTING' });
-    expect(readSkillSwitch('skill_contracts', { GSTACK_STATE_ROOT: state })).toEqual({ on: false, source: 'config skill_contracts', invalid: 'maybe' });
+    expect(readSkillSwitch('skill_contracts', { GSTACK_STATE_ROOT: state })).toEqual({ on: SWITCH_DEFAULT.skill_contracts === 'on', source: 'config skill_contracts', invalid: 'maybe' });
+    fs.rmSync(path.join(state, 'config.yaml'));
+    fs.mkdirSync(path.join(state, 'config.yaml'));
+    for (const name of ['skill_routing', 'skill_contracts'] as const) {
+      expect(readSkillSwitch(name, { GSTACK_STATE_ROOT: state })).toEqual({ on: false, source: 'config unreadable' });
+    }
   });
 });
 
@@ -101,8 +108,10 @@ describe('skill-route hook', () => {
       .toContain('Done means: a DEBUG REPORT with Symptom, Root cause, Fix, Evidence; a test or repro run after your last edit.');
   });
 
-  test('off by default, off in config, and off in env over config on', () => {
-    expect(route(prompt('fix this bug'), {})).toEqual(silent);
+  test('with nothing set SWITCH_DEFAULT decides; off in config, and off in env over config on', () => {
+    const unset = route(prompt('fix this bug'), {});
+    if (SWITCH_DEFAULT.skill_routing === 'on') expect(expectHookSchema(unset.stdout)).toContain('/investigate');
+    else expect(unset).toEqual(silent);
     fs.writeFileSync(path.join(state, 'config.yaml'), 'skill_routing: off\n');
     expect(route(prompt('fix this bug'), {})).toEqual(silent);
     fs.writeFileSync(path.join(state, 'config.yaml'), 'skill_routing: on\n');
@@ -136,7 +145,7 @@ describe('skill-route hook', () => {
     expect(traceLog()).toContain('event=skill-problems problems="broken: malformed triggers" failures=1');
   });
 
-  test('unreadable config and an unwritable state root: still exit 0 and silent', () => {
+  test('an unreadable config is off whatever the default; an unwritable state root still routes when on', () => {
     fs.mkdirSync(path.join(state, 'config.yaml'));
     expect(route(prompt('fix this bug'), {})).toEqual(silent);
     const file = path.join(state, 'root-is-a-file');
@@ -158,10 +167,10 @@ describe('skill-route hook', () => {
 describe('gstack-skill-route --explain', () => {
   const explain = (...args: string[]) => spawnSync(path.join(ROOT, 'bin', 'gstack-skill-route'), args, { env: hookEnv(state, skills), encoding: 'utf8', timeout: 20_000 });
 
-  test('prints the switch, threshold, candidates with scores, the route and the hint (a dry run with the switch off)', () => {
+  test('prints the switch, threshold, candidates with scores, the route and the hint (a dry run whatever the switch)', () => {
     const r = explain('--explain', 'this test fails, fix it');
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('switch: skill_routing off (default)');
+    expect(r.stdout).toContain(`switch: skill_routing ${SWITCH_DEFAULT.skill_routing} (default)`);
     expect(r.stdout).toContain('threshold: 0.66');
     expect(r.stdout).toContain('1.00  /investigate  "this test fails"');
     expect(r.stdout).toContain('route: /investigate');
