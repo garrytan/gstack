@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.7.0] - 2026-11-03
+
+Two opt-in Claude Code hooks so a model actually runs gstack's skills, both off by default (GST-1088). `./setup --skill-routing` adds a UserPromptSubmit hook that names the gstack skill a prompt fits, scored against each installed skill's `triggers:` with no model call. `./setup --skill-contracts` adds a Stop hook that blocks once when a skill with a `contract:` block ends without its required outputs (a report with real values, a test after the last edit, the specialist and adversarial dispatches). `gstack-skill-route --explain` shows how a prompt scores; `gstack-skill-contract check|report|waive` checks a transcript, lists misses and acknowledges a waiver. Turn either off with `gstack-config set skill_routing off` or `gstack-config set skill_contracts off`. Docs: docs/skill-routing-and-contracts.md.
+
 ## [1.94.6.0] - 2026-11-03
 
 **A declared placeholder restamped to the new version is a stamp, and a carried receipt names the head's version (GST-1026, GST-1030).** gbrain writes a PR's own BEHAVIOR_CHANGES row as `since: 'TBD'` and its `release:restamp` fills in the version. Finish refused that receipt ("behavior, tests or build inputs changed since review"), and the receipt carry and the tree receipt would have refused the same row (gbrain #8444). Separately, a receipt carried after a main merge and a restamp kept the version of the head it was written at (GGST-1).
