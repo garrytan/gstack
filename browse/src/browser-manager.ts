@@ -2215,7 +2215,11 @@ export class BrowserManager {
       // STEALTH_LAUNCH_ARGS the handed-off browser kept the AutomationControlled
       // tell that the other two paths strip.
       const launchArgs: string[] = ['--hide-crash-restore-bubble', ...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs(), ...this.proxyLaunchArgs()];
-      if (extensionPath) {
+      if (extensionPath && isCustomChromium()) {
+        // Same rule as launchHeaded(): a build that bakes the extension in
+        // crashes when it is loaded twice.
+        console.log('[browse] Handoff: custom Chromium bakes in the extension — skipping --load-extension');
+      } else if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
         // Auth token is served via POST /extension-token (pinned-origin
@@ -2234,27 +2238,31 @@ export class BrowserManager {
       fs.mkdirSync(userDataDir, { recursive: true });
       cleanSingletonLocks(userDataDir);
 
-      // Self-heal probe (#2242): handoff always launches the Playwright-cache
-      // bundle (this launchPersistentContext call passes no executablePath),
-      // so a bundle poisoned by the old in-place rebrand would GPU-crash here
-      // exactly like launchHeaded(). Same probe, same contract: a
-      // GSTACK_CHROMIUM_PATH bundle is never passed in. The rethrown typed
-      // error surfaces through the outer catch as the actionable
-      // "Cannot open headed browser" message, headless browser untouched.
-      try {
-        probePoisonedChromiumBundle(chromium.executablePath());
-      } catch (err: unknown) {
-        if (err instanceof PoisonedBundleError) throw err;
-        // Probe failures (no bundle yet, EACCES) fall through to launch.
+      // #3907: same custom-binary support as launch()/launchHeaded().
+      const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
+
+      // Self-heal probe (#2242): without a custom path, handoff launches the
+      // Playwright-cache bundle, so a bundle poisoned by the old in-place
+      // rebrand would GPU-crash here exactly like launchHeaded(). Same probe,
+      // same contract: a GSTACK_CHROMIUM_PATH bundle is never probed. The
+      // rethrown typed error surfaces through the outer catch as the
+      // actionable "Cannot open headed browser" message, headless browser
+      // untouched.
+      if (!executablePath) {
+        try {
+          probePoisonedChromiumBundle(chromium.executablePath());
+        } catch (err: unknown) {
+          if (err instanceof PoisonedBundleError) throw err;
+          // Probe failures (no bundle yet, EACCES) fall through to launch.
+        }
       }
 
       // T1: same automation-tell-stripping defaults as launchHeaded().
       // The handoff path (headless → headed re-launch) takes the same
       // anti-detection posture.
       const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
-      // XProtect self-heal wrapper (P0 #2554): handoff always launches the
-      // Playwright-cache bundle (no executablePath), so the heal applies
-      // exactly as in launch()/launchHeaded().
+      // XProtect self-heal wrapper (P0 #2554), scoped exactly as in
+      // launch()/launchHeaded(): never heals a GSTACK_CHROMIUM_PATH bundle.
       newContext = await launchWithXProtectHeal(() => chromium.launchPersistentContext(userDataDir, {
         headless: false,
         ...(this.xvfb ? { env: { ...process.env, DISPLAY: this.xvfb.display } } : {}),
@@ -2268,10 +2276,11 @@ export class BrowserManager {
         chromiumSandbox: shouldEnableChromiumSandbox(),
         args: launchArgs,
         viewport: null,
+        ...(executablePath ? { executablePath } : {}),
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
         ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
         timeout: 15000,
-      }));
+      }), { usesCustomExecutable: Boolean(executablePath) });
       if (this.closing) {
         await newContext.close().catch(() => {});
         throw new Error('Browser is shutting down');

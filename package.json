@@ -77,7 +77,7 @@
     "html-to-docx": "1.8.0",
     "html-to-vdom": "0.7.0",
     "marked": "^18.1.1",
-    "playwright": "^1.62.1",
+    "playwright": "^1.64.1",
     "sharp": "^0.35.4",
     "socks": "^2.8.10",
     "xterm": "^5.3.0",
@@ -115,6 +115,6 @@
     "sharp": "0.35.5"
   },
   "patchedDependencies": {
-    "playwright-core@1.62.1": "patches/playwright-core@1.62.1.patch"
+    "playwright-core@1.64.1": "patches/playwright-core@1.64.1.patch"
   }
 }
