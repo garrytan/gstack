@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { classifyOutsideReview, validateOutsideReview, type OutsideGate } from '../lib/outside-review-result';
+import { classifyOutsideReview, usageFromEvents, validateOutsideReview, type OutsideGate } from '../lib/outside-review-result';
 import { gateOutcomeLine, type GateReason } from '../lib/gate-outcomes';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -259,6 +259,36 @@ describe('B1: a review whose sandbox could not start is unavailable, not clean',
     expect(r.status).toBe(1);
     expect(r.stdout).toContain('REASON: sandbox_unavailable');
     expect(r.stderr).toStartWith(`Codex outside review unavailable: Codex's sandbox could not start here (${BWRAP}`);
+  });
+});
+
+describe('Codex token usage from --json events (#2948)', () => {
+  const turn = (usage: Record<string, number>) => JSON.stringify({ type: 'turn.completed', usage });
+
+  test('one turn: every counter the event carries, nothing invented', () => {
+    expect(usageFromEvents(turn({ input_tokens: 12016, cached_input_tokens: 0, cache_write_input_tokens: 12013, output_tokens: 5, reasoning_output_tokens: 0 })))
+      .toEqual({ input_tokens: 12016, cached_input_tokens: 0, cache_write_input_tokens: 12013, output_tokens: 5, reasoning_output_tokens: 0, usd: 'unknown' });
+  });
+
+  test('the latest turn wins (codex reports the running session total); malformed and unrelated lines are skipped', () => {
+    const events = [turn({ input_tokens: 100, output_tokens: 10 }), 'not json', '{"type":"item.completed","item":{"type":"agent_message"}}', turn({ input_tokens: 150, output_tokens: 15, reasoning_output_tokens: 2 })].join('\n');
+    expect(usageFromEvents(events)).toEqual({ input_tokens: 150, output_tokens: 15, reasoning_output_tokens: 2, usd: 'unknown' });
+  });
+
+  test('a cumulative total_token_usage snapshot wins over per-turn usage, latest first', () => {
+    const snap = (n: number) => JSON.stringify({ msg: { type: 'token_count', info: { total_token_usage: { input_tokens: n, output_tokens: n / 10, total_tokens: n * 1.1 } } } });
+    expect(usageFromEvents([turn({ input_tokens: 7 }), snap(100), snap(300)].join('\n'))).toEqual({ input_tokens: 300, output_tokens: 30, total_tokens: 330, usd: 'unknown' });
+  });
+
+  test('the CLI prints OUTSIDE_USAGE only when given --events, on every verdict', () => {
+    const events = path.join(TMP, 'usage-events.jsonl');
+    fs.writeFileSync(events, turn({ input_tokens: 1200, cached_input_tokens: 200, output_tokens: 340 }) + '\n');
+    const withEvents = cli(['--events', events, 'review', file('No issues found.')]);
+    expect(withEvents.stdout).toContain('OUTSIDE_USAGE: input=1200 cached_input=200 output=340\n');
+    const empty = path.join(TMP, 'no-usage.jsonl');
+    fs.writeFileSync(empty, '{"type":"thread.started"}\n');
+    expect(cli(['--events', empty, 'review', file('')]).stdout).toContain('OUTSIDE_USAGE: unknown\n');
+    expect(cli(['--verdict', 'review', file('No issues found.')]).stdout).not.toContain('OUTSIDE_USAGE');
   });
 });
 
