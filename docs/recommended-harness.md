@@ -139,7 +139,9 @@ harness-generic; only the thread and the PR tool are Capy.
    default branch.
 4. **Run `/ship` unattended** with the `GSTACK_LAUNCH` assignments
    exported: it runs the pregate (on a machine under 8 cores the test tier
-   needs `gstack-pregate --stage tests --remote`, about $0.06 on a Ubicloud VM
+   clears from a verified CI run at the pushed tree when the base declares
+   `remote_gate_runs` ([CI carry](pregate.md#ci-carry)); otherwise it needs
+   `gstack-pregate --stage tests --remote`, about $0.06 on a Ubicloud VM
    or free locally for small selections), both reviews, the gate-integrity
    list, the docs audit, and writes the ship receipt into the PR body
    (`gstack-ship-receipt write --pr <n>`). With `queue_mode:

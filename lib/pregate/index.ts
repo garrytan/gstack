@@ -10,6 +10,7 @@
  * land: `guards` (field wave CD1); ratchets, lint, links, hermetic, patches
  * and integrator later.
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -17,7 +18,8 @@ import { ARTIFACT_SCHEMAS, checkSchema, type PregateFile, type PregateReceiptSub
 import { wtreeFingerprint, type WtreeResult } from '../script-invocation';
 import { resolveStateRoot } from '../state-root';
 import { guardsCheck } from './checks/guards';
-import { clearHint, lanesCheck, parseRemoteReport, REMOTE_GATE_LANE, remoteReportProblem, treeMismatch } from './checks/lanes';
+import { findCarry } from '../ci-carry';
+import { clearHint, fromRunProfiles, lanesCheck, parseRemoteReport, REMOTE_GATE_LANE, remoteReportProblem, treeMismatch } from './checks/lanes';
 import { literalsCheck } from './checks/literals';
 import { regenCheck } from './checks/regen';
 import { secretsCheck } from './checks/secrets';
@@ -26,6 +28,7 @@ import { timingCheck } from './checks/timing';
 import { NON_DOWNGRADABLE, PREGATE_CONFIG_PATH, userPolicyAbsent } from './config';
 import { sha256, withFingerprint } from './context';
 import { baseBranchOf, baseMismatchFix, describeSubstitution, substituteStampOnlyTree } from './remote-receipt';
+import { buildRunCheck } from './run-check';
 import { resolveBaseBranch } from '../ship-policy';
 import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiJob, type ApiRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
@@ -47,8 +50,40 @@ export function applyDowngrades(ctx: PregateContext, result: CheckResult, def: C
   return { ...result, status: 'warn', detail: `${result.detail} (downgraded to warn by ${ctx.configLabel})` };
 }
 
+/**
+ * The tests stage's automatic `--from-run` (GSTA-258): when the base branch declares run profiles and no run was named,
+ * the newest verified CI run at HEAD's clean tree under a profile for this OS becomes `ctx.fromRun`, so its tree.json
+ * files count as passed and only the rest run (on a small machine, an all-covered selection records no remote gate
+ * obligation). Returns the CI_CARRY line, or null when the base declares no profiles. Security scans, guards and the
+ * preflight stage are never carried.
+ */
+export function autoCarry(ctx: PregateContext): string | null {
+  if (ctx.fromRun || ctx.ciCarry === false || !Object.keys(ctx.config.run_profiles).length) return null;
+  const none = (why: string) => `CI_CARRY: none (${why.length > 300 ? `${why.slice(0, 300)}…` : why})`;
+  const tree = git(ctx.repoRoot, ['rev-parse', 'HEAD^{tree}']);
+  if (!tree || ctx.wtree !== tree) return none(`dirty_tree: the working tree ${ctx.wtree.slice(0, 12)} is not HEAD's committed tree; only a clean, committed tree carries`);
+  const check = buildRunCheck(ctx.repoRoot, null, ctx.allowRepoCommands, ctx.base);
+  if ('error' in check) return none(`profiles_unavailable: ${check.error}`);
+  const names = fromRunProfiles(ctx, check.profiles);
+  if (!names.length) return none('no_profile: no base run profile for this OS covers a lane this machine runs');
+  const wtree = () => { const fp = wtreeFingerprint({ cwd: ctx.repoRoot }); return 'tree' in fp ? fp.tree : null; };
+  const refusals: string[] = [];
+  for (const name of names) {
+    const v = findCarry(check, { profiles: [name], head: ctx.head, tree, wtree });
+    if (v.ok) { ctx.fromRun = { ref: String(v.runs[0]!.run_id), check }; return `CI_CARRY: accepted ${v.receipt}`; }
+    refusals.push(`${v.reason}: ${v.detail}`);
+  }
+  return none(refusals.join(' | '));
+}
+
+const git = (cwd: string, args: string[]): string | null => {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
+  return r.status === 0 ? r.stdout.trim() || null : null;
+};
+
 export async function runPregate(ctx: PregateContext, o: RunOptions): Promise<PregateFile> {
   const selected = CHECKS.filter(c => (o.stage === 'all' || c.stage === o.stage) && (!o.only || o.only.includes(c.id)));
+  if (selected.some(c => c.id === 'lanes')) { const line = autoCarry(ctx); if (line) ctx.progress(line); }
   const checks: CheckResult[] = [];
   const clocks: Record<Stage, number> = { preflight: 0, tests: 0 };
   for (const def of selected) {
@@ -68,7 +103,28 @@ export async function runPregate(ctx: PregateContext, o: RunOptions): Promise<Pr
     requires_remote: remote,
   };
   file.verdict = verdictOf(file);
+  const gateLine = carryGate(ctx, file);
+  if (gateLine) ctx.progress(gateLine);
   return file;
+}
+
+/**
+ * After a verified run carried part of the tests stage, that run clears the remote gate obligation under `clear --run`'s
+ * own checks (remote_gate_runs profiles, inventory coverage, skipped files). The obligation is checked as the carried
+ * files plus the rest: without that, a remainder of only gate-skipped files (gstack's paid evals) is refused paid_only,
+ * and the gate itself reports tests=0 for it, so nothing could ever clear it.
+ */
+function carryGate(ctx: PregateContext, file: PregateFile): string | null {
+  const gate = file.requires_remote?.find(r => r.lane === REMOTE_GATE_LANE && !r.receipt);
+  const carried = file.checks.find(c => c.id === 'lanes')?.from_run?.files;
+  if (!gate || !carried?.length || !ctx.fromRun || !('inventory' in ctx.fromRun.check)) return null;
+  const check = ctx.fromRun.check as RunCheck;
+  if (!check.gateRuns) return null;
+  const view: PregateFile = { ...file, requires_remote: file.requires_remote!.map(r => (r === gate ? { ...r, tests: [...new Set([...carried, ...r.tests])] } : r)) };
+  const d = clearByRuns(view, REMOTE_GATE_LANE, [ctx.fromRun.ref], check, ctx.repoRoot);
+  if (!('receipt' in d)) return `CI_CARRY: ${REMOTE_GATE_LANE} stays uncleared (${d.message})`;
+  clearObligation(file, REMOTE_GATE_LANE, d.receipt, 'ci-carry', d.substitution);
+  return `CI_CARRY: cleared ${REMOTE_GATE_LANE} ${d.receipt}`;
 }
 
 /** `pass`, `warn`, `requires-remote`, `incomplete` or `fail`: the worst status across checks, with uncleared obligations counted. */

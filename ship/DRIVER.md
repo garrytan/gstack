@@ -7,8 +7,8 @@ Read this, not `ship/SKILL.md`, when a parent agent runs /ship
 the `GSTACK_LAUNCH` assignments your installer printed (`. <its GSTACK_LAUNCH_FILE>`), never
 `export $(...)`, `env`, `printenv` or a bare `set` in a tool fence.
 
-**Rules.** Each phase below is one call: one program (Capy: an execute program; else a
-script) that runs the bins, reads, dispatches and waits, returning only result lines and reader
+**Rules.** Each phase below is one call: one program (Capy: an execute program; else a script)
+that runs the bins, reads, dispatches and waits, returning only result lines and reader
 outputs, printed verbatim. The model keeps only lead judgment, fixes, CHANGELOG, PR prose,
 gates, the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
 the next act. Read a section only when a phase or the list at the end sends you, never
@@ -21,7 +21,7 @@ start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Releas
 version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (every phase: the next act).
 
 **Reviewers are the sections' own.** Every reviewer brief, its severity and confidence rules
-and gates come from its section verbatim (placeholders filled); this file
+and gates come from its section verbatim; this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
 file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 14.5) cannot block, so each runs at low effort on a small model,
 Step 14.5 once on Sonnet 5.5; findings go to the PR body.
@@ -60,17 +60,15 @@ Install check, this file.
 ## 2. Preflight, tests, evals and reads: Steps 0.9, 1, 2, 3, 4, 5, 6, 6.5, 10
 
 `gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] --reading R --credits C`, then
-`gstack-ship-preflight --base <base> --lane <label>=<command>...` (AGENTS.md or CLAUDE.md test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
-line. A lane passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a failed lane; `unknown`
+`gstack-ship-preflight --base <base> --lane <label>=<command>...` (repo test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
+line. `ship_lanes_from`: push early (`sections/tests.md#ci-carry`). A lane passes on `tests_ran: N` with exit 0; `0` is ZERO-RUN (failed); `unknown`
 is `count unavailable`. In-branch failures stop; after a repair rerun `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
 harness changed, start the eval selector and pre-merge command (detached past 30 min); else
 record `evals: none affected`. Step 6.5 runs only if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
 (`CONTEXT:`) and the TODOS.md items naming touched paths (`TODOS:`), and prints the coverage map,
-plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`. Programs read the todos and
-commits files and `sections/test-coverage.md` or `sections/plan-completion.md` only when its reader is
-`needed`.
+plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`; read a section only when its reader is `needed`.
 Never read TODOS.md or the full diff into the parent. A `PERSIST:` hint never replaces Step 9.
 
 ## 3. Audits and review: Steps 7, 8, 9, 9.1, 9.2, 9.2.1
@@ -112,7 +110,8 @@ Commit in bisectable chunks; `gstack-ship-release finish --base <base> --reviewe
 --docs-post <post> --lane ... [--build <cmd>] --trailer '<t>'`: `ROUTE:`, `DOCS:`, `EVIDENCE:` (FRESH;
 STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` and each `tests_ran`. Then
 `gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `PUSH:`
-(pushed, ALREADY_PUSHED). Unattended, push defers the pre-push offer; else its STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`). Never force-push.
+(pushed, ALREADY_PUSHED). `EVIDENCE: DEFERRED`: the `accept` its `NEXT:` names; final-head
+repo gates run beside CI. Unattended, push defers the pre-push offer; else its STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`). Never force-push.
 
 ## 8. Publish: Steps 18, 19, 19-C, 20, 21, 22
 

@@ -19,7 +19,9 @@ import { parseReviewLoopException, type ReviewLoopException } from './ship-recei
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
-import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
+import { waitForRun } from './ci-carry';
+import { buildRunCheck } from './pregate/run-check';
+import { bin, carryLane, carryNoneLine, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
@@ -33,8 +35,15 @@ export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (s
       each lane's receipt run once if stale) and the pregate on the stamped tree; --reviewed-base (the merge base
       saved with the reviewed tree) routes paths only the base moved as base=, and an adjacent base edit as context=;
       --review-loop-exception (the record write takes) routes paths the branch touched at fix_check.head (narrowed to fix_check.files when listed) and changed since as accepted=
-  push --branch <branch-name> [--gate-open <n>] [--gate-open-approved]
-      Step 17 after its guard block: the saved-branch check, the open-gate check, the sealed guard, the idempotency check, git push -u
+      A lane the base branch maps in .gstack/pregate.json ship_lanes_from is carried from a verified CI run at this exact
+      tree, else deferred (EVIDENCE: DEFERRED): the pregate then runs its preflight stage here and its tests stage in accept
+  push --branch <branch-name> [--gate-open <n>] [--gate-open-approved] [--early [--base <base>]]
+      Step 17 after its guard block: the saved-branch check, the open-gate check, the sealed guard, the idempotency check, git push -u;
+      --early (the Phase 2 push before review, so CI runs beside it) also runs pregate's secrets scan on the commits first
+  accept --base <base> --lane <label>=<command>... [--wait <s>]
+      after push: final-tree CI acceptance. Waits up to --wait seconds (default 170) for the CI run of each mapped profile at
+      the pushed HEAD, carries each mapped lane from that run (a clean tree equal to the run's), reuses or runs the rest,
+      checks every lane FRESH and reruns the pregate on the final tree (its tests stage carries the same run)
 
 At most 30 lines each; STOP: names what the agent must decide or repair, and nothing after it ran.
 Exit codes: 0 ok · 2 usage · 3 STOP`;
@@ -366,10 +375,19 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
   const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;
+  const mapped = mappedLanes(cwd, base, list);
+  const deferred: string[] = [];
   for (const l of list) {
     let e = check(l);
     if (!/EVIDENCE: FRESH/.test(e)) {
-      const ran = laneLine((await runLanes(cwd, [l]))[0]!);
+      const m = mapped.get(l.label);
+      const res = m ? carryLane(cwd, base, l) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
+      if (m && !res.carried) {
+        r.add(`EVIDENCE: DEFERRED label=${l.label} (${short([res.carryNone ?? 'not carried'], 1).slice(0, 160)}): CI at the pushed head carries it in accept`);
+        deferred.push(l.label);
+        continue;
+      }
+      const ran = laneLine(res);
       r.add(ran.line);
       if (!ran.ok) return r.stop(`lane ${l.label} failed or ran zero tests: STOP publication; run Steps 5-15 from Step 5's triage, then Step 16 stage 1`);
       e = check(l);
@@ -377,6 +395,15 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
     const line = /^EVIDENCE: .*$/m.exec(e)?.[0] ?? `EVIDENCE: unreadable label=${l.label}`;
     r.add(line.replace(/ log=\S+/, ''));
     if (!/EVIDENCE: FRESH/.test(line)) return r.stop(`lane ${l.label} is not FRESH after one rerun: Step 16 stage 4 recovery`);
+  }
+  const laneArgs = list.map(l => `--lane '${l.label}=${l.command.replace(/'/g, `'\\''`)}'`).join(' ');
+  if (deferred.length) {
+    const out = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', 'gstack/pregate-finish-preflight.json']).stdout.trim() || '.git/gstack/pregate-finish-preflight.json');
+    const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--stage', 'preflight', '--out', out], 3_600_000);
+    const verdict = /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
+    r.add(`PREGATE: preflight ${verdict} on the stamped tree (the tests stage runs in accept, carried from CI)`);
+    if (!/^(pass|warn)/.test(verdict)) return r.stop(`pregate preflight ${verdict} on the stamped tree: fix it, then rerun finish`);
+    return r.next(`Step 16 stage 5, then Step 17's guard block and gstack-ship-release push; then gstack-ship-release accept --base ${base} ${laneArgs} carries ${deferred.join(', ')} from CI at the pushed head${loop ? '; Step 18 records the same exception with gstack-ship-receipt write --review-loop-exception' : ''}`);
   }
   const v = bin(cwd, 'gstack-pregate', ['verify'], 60_000);
   if (v.status === 0) r.add('PREGATE: verify ok on the stamped tree');
@@ -387,6 +414,57 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
     if (!/^(pass|warn|requires-remote cleared)/.test(verdict)) return r.stop(`pregate ${verdict} on the stamped tree: fix it${/uncleared/.test(verdict) ? ', or gstack-pregate clear with the remote run URL' : ''}, then rerun finish`);
   }
   return r.next(`Step 16 stage 5: paste these results and the two-line honesty inventory, then run Step 17's guard block and gstack-ship-release push${loop ? '; Step 18 records the same exception with gstack-ship-receipt write --review-loop-exception' : ''}`);
+}
+
+/**
+ * Final-tree CI acceptance (design fix A1): after push, each mapped lane is carried only from a green run at the pushed
+ * HEAD's exact, clean tree; the rest are reused or run; every lane must be FRESH, and the pregate reruns on that tree.
+ */
+export async function accept(argv: readonly string[], cwd: string): Promise<Report> {
+  const { flag } = flagReader(argv);
+  const base = flag('--base')!;
+  const list = lanes(argv) as { label: string; command: string }[];
+  const r = new Report();
+  const branch = git(cwd, ['branch', '--show-current']).stdout.trim();
+  if (!branch) return r.stop('detached HEAD: accept needs the feature branch');
+  const head = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
+  const remote = git(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`], 120_000);
+  if (remote.status !== 0) return r.stop(`cannot read origin/${branch} (${firstLine(remote.stderr)}): restore access, then rerun accept`);
+  if (remote.stdout.split(/\s/)[0] !== head) return r.stop(`HEAD ${head.slice(0, 12)} is not origin/${branch}: run gstack-ship-release push first; accept carries only a run at the pushed head`);
+  const mapped = mappedLanes(cwd, base, list);
+  if (!mapped.size) return r.stop(`no --lane command is a key of origin/${base}'s .gstack/pregate.json ship_lanes_from: nothing comes from CI, so finish runs every lane here`);
+  const runCheck = buildRunCheck(cwd, null, true, base);
+  if ('error' in runCheck) return r.stop(`run profiles unavailable (${runCheck.error}): carry needs them; fix it, or run the lanes here with gstack-ship-preflight --tests-only`);
+  const waitS = Number(flag('--wait') ?? '170');
+  if (!Number.isFinite(waitS) || waitS < 0 || waitS > 3600) return r.stop(`--wait ${flag('--wait')} is not 0-3600 seconds`);
+  for (const name of [...new Set([...mapped.values()].flatMap(m => m.profiles))]) {
+    const p = runCheck.profiles[name];
+    if (!p) return r.stop(`ship_lanes_from names ${name}, which is not a run_profiles entry on origin/${base}`);
+    const w = await waitForRun(runCheck.deps, { workflow: p.workflow, events: p.events, head, timeoutMs: waitS * 1000, intervalMs: 15_000, sleep: ms => new Promise(res => setTimeout(res, ms)), clock: Date.now });
+    r.add(`CI_WAIT: ${w.state} ${name} ${'run' in w ? `run=${w.run.id}/${w.run.run_attempt}` : w.reason}`);
+    if (w.state === 'running') return r.stop(`${p.workflow} run ${w.run.id} at ${head.slice(0, 12)} is still running: rerun accept (or gstack-ci-carry wait --base ${base} in the background, then accept)`);
+    if (w.state === 'red') return r.stop(`${p.workflow} run ${w.run.id} failed (${short(w.failing, 4) || 'no failing job named'}): Step 5 triage on its logs; fix, commit, push, then accept again`);
+    if (w.state === 'none') return r.stop(`${w.reason}: push the branch (a pull_request or workflow_dispatch run must exist at HEAD), then accept again`);
+  }
+  for (const l of list) {
+    const m = mapped.get(l.label);
+    const res = m ? carryLane(cwd, base, l) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
+    if (m && !res.carried) { r.add(carryNoneLine(res)!); return r.stop(`lane ${l.label} was not carried from the green run (${short([res.carryNone ?? ''], 1).slice(0, 120)}): fix the cause, or run it here with gstack-ship-preflight --tests-only`); }
+    const ran = laneLine(res);
+    r.add(ran.line);
+    if (!ran.ok) return r.stop(`lane ${l.label} failed or ran zero tests: Step 5 triage, then push and accept again`);
+    const e = bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24'], 60_000).stdout;
+    const line = /^EVIDENCE: .*$/m.exec(e)?.[0] ?? `EVIDENCE: unreadable label=${l.label}`;
+    r.add(line.replace(/ log=\S+/, ''));
+    if (!/EVIDENCE: FRESH/.test(line)) return r.stop(`lane ${l.label} is not FRESH at the pushed head: Step 16 stage 4 recovery`);
+  }
+  const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base], 3_600_000);
+  const verdict = /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
+  const carried = /^CI_CARRY: .*$/m.exec(pg.stdout + pg.stderr)?.[0];
+  if (carried) r.add(carried.length > 240 ? `${carried.slice(0, 240)}…` : carried);
+  r.add(`PREGATE: ${verdict} (final tree)`);
+  if (!/^(pass|warn|requires-remote cleared)/.test(verdict)) return r.stop(`pregate ${verdict} on the final tree: fix it, then rerun accept`);
+  return r.next('Step 18: the receipt records ci_carried from the ledger');
 }
 
 export function push(argv: readonly string[], cwd: string): Report {
@@ -411,6 +489,13 @@ export function push(argv: readonly string[], cwd: string): Report {
   r.add(`SEALED: ${sealed.status === 0 ? 'clear' : sealed.status === 1 ? 'refused' : `not checked (exit ${sealed.status})`}`);
   if (sealed.status === 1) return r.stop(`sealed output would be published: ${firstLine(sealed.stderr)}; remove it from the commits, then repeat Step 16`);
   if (sealed.status !== 0) return r.stop(`the sealed-output guard did not run (exit ${sealed.status}: ${firstLine(sealed.stderr || sealed.stdout)}); repair it, then rerun push`);
+  if (has('--early')) {
+    const out = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', 'gstack/pregate-early-push.json']).stdout.trim() || '.git/gstack/pregate-early-push.json');
+    const scan = bin(cwd, 'gstack-pregate', ['--stage', 'preflight', '--only', 'secrets', '--out', out, ...(flag('--base') ? ['--base', flag('--base')!] : [])], 600_000);
+    const verdict = /^PREGATE: (.+?) tree=/m.exec(scan.stdout + scan.stderr)?.[1] ?? `unreadable (exit ${scan.status})`;
+    r.add(`SECRETS: ${verdict} (early push)`);
+    if (scan.status !== 0 || !/^(pass|warn)/.test(verdict)) return r.stop(`the secrets scan did not pass before the early push (${firstLine(scan.stderr) || verdict}): remove the finding from the commits, then rerun push --early`);
+  }
   const local = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
   const remote = git(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`], 120_000);
   if (remote.status !== 0) return r.stop(`cannot verify the remote branch (${firstLine(remote.stderr)}): restore access before pushing`);
@@ -431,11 +516,12 @@ export async function release(argv: readonly string[], cwd: string): Promise<{ t
   const usage = (m: string) => ({ text: `gstack-ship-release: ${m}\n`, exit: 2 });
   if (cmd !== 'push' && !flag('--base')) return usage(`${cmd} needs --base <base>`);
   if (cmd === 'push' && !flag('--branch')) return usage('push needs --branch <the branch Step 1 saved>');
+  if (cmd === 'accept' && !(lanes(rest) as unknown[]).length) return usage('accept needs at least one --lane <label>=<command> (the Step 5 lanes)');
   if (typeof lanes(rest) === 'string') return usage(lanes(rest) as string);
   const answer = flag('--answer');
   if (has('--answer') && (!answer?.trim() || answer.startsWith('--') || /[\r\n]/.test(answer) || answer.length > 200)) return usage('--answer needs the owner\'s words: one non-empty line of at most 200 characters');
   if (cmd === 'finish' && (!flag('--reviewed-tree') || !flag('--docs-post'))) return usage('finish needs --reviewed-tree <the tree saved before Step 12> and --docs-post <Step 14.5\'s post-audit snapshot>');
-  const r = cmd === 'version' ? version(rest, cwd) : cmd === 'finish' ? await finish(rest, cwd) : cmd === 'push' ? push(rest, cwd) : null;
+  const r = cmd === 'version' ? version(rest, cwd) : cmd === 'finish' ? await finish(rest, cwd) : cmd === 'push' ? push(rest, cwd) : cmd === 'accept' ? await accept(rest, cwd) : null;
   if (!r) return usage(`unknown command ${cmd}; run gstack-ship-release --help`);
   return { text: r.render(), exit: r.exit };
 }
