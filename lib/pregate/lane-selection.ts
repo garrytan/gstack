@@ -165,7 +165,7 @@ function removedPath(ctx: PregateContext, graph: Graph, gone: ReadonlySet<string
   const uncovered = namedBy(ctx, file).filter(f => !gone.has(f)).filter(n => {
     const m = testsFor(graph, n, ctx.config.dependencies);
     for (const t of m.tests) namerSuite.add(t);
-    return !m.tests.length;
+    return !m.tests.length && !m.declaredNone;
   });
   if (uncovered.length) return { refused: `removed, but still named by ${shown(uncovered)}, which no test covers` };
   const namerNote = namerSuite.size ? `files naming it run: ${shown([...namerSuite].sort())}` : '';
@@ -211,6 +211,11 @@ export function selectLanes(ctx: PregateContext): Selection {
   const stampOnly: string[] = [];
   const seeds = new Map<string, string>();
   const touchedByPath = new Map(touched.map(t => [t.path, t]));
+  const waive = (file: string, r: { removed: Removed; suite: string[] }) => {
+    removed.push(r.removed);
+    for (const t of r.suite) tests.add(t);
+    provenance.push(`${file}: removed (no lane owed) — ${r.removed.note}`);
+  };
   for (const t of touched) { seeds.set(t.path, t.status === 'D' ? 'deleted' : 'touched'); if (t.renamedFrom) seeds.set(t.renamedFrom, `renamed to ${t.path}`); }
   for (const e of ctx.registry.entries) {
     if (!touched.some(t => matchesAny(e.inputs, t.path) || matchesAny(e.outputs, t.path))) continue;
@@ -221,8 +226,11 @@ export function selectLanes(ctx: PregateContext): Selection {
     for (const t of m.tests) tests.add(t);
     provenance.push(...m.provenance.map(p => `${p} [${why}]`));
     if (m.tests.length || why.startsWith('generated')) continue;
-    // An explicit `[]` already cleared the file. Label it docs/no-tests only when it is that class.
+    // An explicit `[]` already cleared the file. A removed test still runs its owning suite; label the rest docs/no-tests only when it is that class.
     if (m.declaredNone) {
+      const r = gone.includes(file) ? removedPath(ctx, graph, goneSet, file) : null;
+      if (r && 'removed' in r) { waive(file, r); continue; }
+      if (r) provenance.push(`${file}: ${r.refused}; cleared by its [] declaration`);
       if (isDocsEmptyLane(file, ctx.config.empty_lanes ?? [])) emptyLane.push(file);
       continue;
     }
@@ -259,12 +267,7 @@ export function selectLanes(ctx: PregateContext): Selection {
     }
     if (gone.includes(file)) {
       const r = removedPath(ctx, graph, goneSet, file);
-      if ('removed' in r) {
-        removed.push(r.removed);
-        for (const t of r.suite) tests.add(t);
-        provenance.push(`${file}: removed (no lane owed) — ${r.removed.note}`);
-        continue;
-      }
+      if ('removed' in r) { waive(file, r); continue; }
       provenance.push(`${file}: ${r.refused}; no lane until declared`);
     }
     noLane.push(file);

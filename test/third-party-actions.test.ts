@@ -454,6 +454,17 @@ describe("NEEDS_ASIDE: Darwin download pitch detector", () => {
     expect(asideDownloadPitchCount('It may be downloaded from aside.com (macOS 15+); open, sign in, re-run.')).toBe(1);
   });
 
+  test("a negation counts against the passive pitch only inside the download predicate's own coordinate clause", () => {
+    for (const text of ['Aside is not installed but can be downloaded at aside.com.', 'Probe: Aside is not running yet and can be downloaded from aside.com.',
+      'Aside is not installed but it can be downloaded at aside.com (macOS 15+).', 'It is not on this Mac yet but can be downloaded at aside.com.'])
+      expect(asideDownloadPitchCount(text), text).toBe(1);
+    for (const text of ['Aside is not installed but cannot be downloaded at aside.com.', 'Aside is not installed and is not available to download at aside.com.',
+      "Aside isn't installed and can't be downloaded at aside.com.", 'Aside is not installed but it never can be downloaded at aside.com.',
+      'Aside is not installed but is not something that can be downloaded at aside.com.', 'Aside is not installed but can not be downloaded at aside.com.',
+      'Aside is not installed; the policy says it can be downloaded at aside.com.'])
+      expect(asideDownloadPitchCount(text), text).toBe(0);
+  });
+
   test("short forms count only at a sentence start; negated canonical phrases never count", () => {
     expect('Download it (macOS 15+) at aside.com; open, sign in, re-run.').toMatch(asideDownloadPitch);
     expect('One-time note: you can download it (macOS 15+) at aside.com.').toMatch(asideDownloadPitch);
