@@ -553,8 +553,9 @@ describe('gstack-pregate on a Dart repo with a committed policy', () => {
   }, 30_000);
 
   // Value: protects=a touched device test (integration_test/) is never run locally, fails with a fix naming .gstack/pregate.json and the
-  //   `[]` remedy, and that documented declaration clears it; fails_when=the docs' remedy stops working or the fix loses the device hint;
-  //   why_new=device tests were only checked at isTestFile; seam=none; no_claim=CI running the device test
+  //   `[]` remedy, and that documented declaration clears it once it is on the base (a branch-only [] under --policy-from head is refused,
+  //   GST-419); fails_when=the docs' remedy stops working, the fix loses the device hint, or a head [] runs; why_new=device tests were only
+  //   checked at isTestFile; seam=none; no_claim=CI running the device test
   test('a touched integration test (root or nested package) has no local lane until declared []', () => {
     const repo = dartRepo();
     commit(repo, { 'integration_test/app_test.dart': "import 'package:integration_test/integration_test.dart';\nvoid main() {}\n" });
@@ -570,7 +571,14 @@ describe('gstack-pregate on a Dart repo with a committed policy', () => {
     expect(stuck.out).toContain('FAIL lanes — packages/core/integration_test/core_it_test.dart has no test lane');
     expect(stuck.out).toContain('in .gstack/pregate.json; pregate does not run device tests, so declare "**/integration_test/**": []');
     commit(repo, { '.gstack/pregate.json': JSON.stringify({ ...DART_PREGATE, dependencies: { ...DART_PREGATE.dependencies, '**/integration_test/**': [] } }) + '\n' });
-    const declared = run(repo, env, ['--policy-from', 'head']);
+    const headOnly = run(repo, env, ['--policy-from', 'head']);
+    expect(headOnly.status).toBe(EXIT.refused);
+    expect(headOnly.err).toContain('a [] declaration must land on main first');
+    expect(headOnly.err).toContain('(PREGATE_HEAD_POLICY_LOOSENS');
+    repo.git('push', '-q', 'origin', 'HEAD:main');
+    repo.git('fetch', '-q', 'origin');
+    commit(repo, { 'integration_test/app_test.dart': "import 'package:integration_test/integration_test.dart';\nvoid main() {  }\n", 'packages/core/integration_test/core_it_test.dart': "void main() { }\n" });
+    const declared = run(repo, env);
     expect(declared.status).toBe(EXIT.ok);
     expect(declared.out).not.toContain('has no test lane');
     expect(declared.out).toContain('nothing touched selects a test');

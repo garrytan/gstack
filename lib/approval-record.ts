@@ -219,16 +219,20 @@ export function cell(text: string, cap = 400): string {
     .replace(/(approved)(\s+)(by)/gi, '$1&#32;$3');
 }
 
+/** The rendered table's header row and the footer's closing words; lib/ship-receipt-prose.ts recognizes the block by them. */
+export const APPROVALS_TABLE_HEADER = '| Date | Asked | Exact words | Outcome | Covers | Still pending |';
+export const APPROVALS_FOOTER_END = '(display only; not an approval citation).';
+
 export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?: boolean } = {}): string {
   const head = o.heading === false ? [] : ['## Approvals', ''];
   if (read.state === 'unavailable') return [...head, `Record unavailable on this machine: no approval record for branch ${cell(loc.branch)} here, and the state root is ephemeral with no Drive mirror, so this is not proof that nothing was approved.`, ''].join('\n');
   if (!read.rows.length) return [...head, `No approvals recorded for branch ${cell(loc.branch)}.`, ''].join('\n');
-  const lines = ['| Date | Asked | Exact words | Outcome | Covers | Still pending |', '|---|---|---|---|---|---|'];
+  const lines = [APPROVALS_TABLE_HEADER, '|---|---|---|---|---|---|'];
   for (const r of read.rows) {
     const outcome = r.outcome === 'standing' ? 'standing approval' : r.outcome;
     lines.push(`| ${r.date} | ${cell(r.ask)} | “${cell(r.words, 280)}” (${cell(r.by)}) | ${outcome} | ${cell(r.scope)} | ${cell(r.pending)} |`);
   }
-  return [...head, ...lines, '', `Source: gstack-approvals record for ${cell(loc.branch)} (display only; not an approval citation).`, ''].join('\n');
+  return [...head, ...lines, '', `Source: gstack-approvals record for ${cell(loc.branch)} ${APPROVALS_FOOTER_END}`, ''].join('\n');
 }
 
 interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; carried_from?: string; label?: string; chosen_text?: string;

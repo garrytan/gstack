@@ -1,5 +1,93 @@
 # Changelog
 
+## [1.91.365.0] - 2026-10-31
+
+**An unclosed code fence in an outside review no longer hides a later `[P1]` or not-ready verdict (GST-436).** Before, an outside-voice reply that said no issues were found, opened a code fence it never closed, and then listed a `[P1]` finding or ended with `Verdict: not ready` was classified clean, because everything after the fence was treated as quoted code. Now a P0 or P1 severity or a last `Verdict: not ready` after an unclosed fence still blocks. Text inside that fence still can't make a reply clean, so a quoted `Verdict: ready`, `[P3]` or `No issues found.` there is ignored, as before.
+
+### Fixed
+- `lib/outside-review-result.ts` reads the reply after an unclosed fence's opening line for severities (P0 and P1, or Critical and High words, block), an unparsed label (which makes the review `unverified`) and a last `Verdict: not ready`. The evidence for clean (a parsed severity, the last verdict line, the no-findings conclusion) keeps that text blanked. Closed fences still hide quoted severities.
+- Fence matching is one pass, and an opener counts only when a later marker of its kind is at least as long. A reply with thousands of unmatched fences classifies in milliseconds instead of rescanning the rest once per fence.
+
+### Tests
+- `test/outside-review-unclosed-fence.test.ts` covers:
+  - a `[P1]` and a `Verdict: not ready` after an unclosed fence
+  - a closed fence that still hides a quoted `[P1]`
+  - a quoted `Verdict: ready`, `[P3]` or `No issues found.` inside an unclosed fence, which stays findings or unverified
+  - 3,000 unmatched fences
+
+## [1.91.364.0] - 2026-10-31
+
+**`--policy-from head` now only adds test lanes, and the repo can set pregate's per-process timeout.** Two /ship tooling gaps cost other crews a rerun each. GEVA-2 (gstack-evals#93) had a PR that added its own pregate lane, but `gstack-ship-preflight` could not pass `--policy-from head`, so Step 5 failed with `PREGATE_NO_LANE` and the lane called runLanes by hand (GST-419). HARN-1 (HARN-12) had lanes of about 780 s, while preflight and the `finish` fallback ran pregate at its 600 s default, so the result was always `PREGATE: incomplete` (GST-420). There was also a hole behind the first gap: `--policy-from head` took the branch's whole `.gstack/pregate.json`, so a branch could delete its own lanes.
+
+### Added
+- **`timeout_s` in `.gstack/pregate.json`** (1 to 3600 s): gstack-pregate's per-process timeout when `--timeout` is not passed, so preflight, `finish` and plain runs all pick it up. The remote gate gets the same value as `PREGATE_TIMEOUT_S`. A timed-out lane names where its timeout came from (`--timeout`, `timeout_s from <policy>` or the 600 s default).
+- **`gstack-ship-preflight --policy-from head`** forwards to Step 5's pregate. When pregate does not pass, preflight prints up to three `PREGATE_DETAIL:` lines with pregate's own reasons, and a refusal reads `PREGATE: refused (<code>)` instead of `unreadable`.
+
+### Changed
+- **A head policy may only add test lanes** (`PREGATE_HEAD_POLICY_LOOSENS`). It may add a `dependencies` glob with at least one test, or add tests to a glob the trusted policy already maps. Anything else that differs from the trusted policy refuses the run and names each difference. The trusted policy is the base copy, or the user-owned file when the base has none. A branch behind its base is measured from the copy at its merge base and runs the base tip's policy plus its additions. A head file with no trusted policy anywhere is still a bootstrap.
+- **`--remote` works with `--policy-from head`** once that check passes, so a lane on a machine with under 8 cores can clear its obligation. It still runs the trusted copy's `remote_gate`. With no trusted policy at all, `--remote` under head is refused, because a bootstrap head file's own `remote_gate` would be clearing its own obligation.
+- **Under `--policy-from head`, an invalid user-owned policy now refuses** (`PREGATE_CONFIG_INVALID`) instead of being ignored, because it is the policy the head file is compared with.
+- **A `[]` declaration added only on the branch is refused under `--policy-from head`**, the Dart device-test workaround included: declare `"**/integration_test/**": []` on the base branch first. The `PREGATE_NO_LANE` fix line and docs say so.
+
+### Tests
+- `test/pregate-head-policy.test.ts`: a head policy that adds a lane passes; one that removes or swaps a lane, adds `[]`, changes the runner, downgrades a check, allowlists a finding or deletes the file is refused; reorders are not changes; a stale branch keeps the base's newer lanes; the user-owned policy is compared when the base has none; a bootstrap still runs; `timeout_s` bounds each runner process, `--timeout` overrides it, and out-of-range values are invalid.
+- `test/ship-preflight.test.ts`: `--policy-from head` reaches pregate, a removed lane stops with `PREGATE_HEAD_POLICY_LOOSENS`, and `timeout_s` reaches preflight's pregate with the cause printed.
+- `test/pregate-remote.test.ts`: `--remote` under head runs the base gate with the `timeout_s` deadline (or `--timeout`), and a head policy that changes the gate is refused. `test/pregate-dart.test.ts` and `test/pregate-user-policy.test.ts` follow the two behavior changes above.
+
+## [1.91.363.0] - 2026-10-31
+
+**A passing test lane that leaves Bun's `.bun/` folder behind now grades FRESH, `--check-prose` no longer reads the Approvals table as a claim, and `gstack-post pr-body` drops a stale intro.** Three /ship false alarms from GST-421 and GST-412 (HARN-1, HARN-12, GSTA-2, GEVA-69, gstack-evals#90).
+
+### Fixed
+- **GST-421: `gstack-wtree` leaves an untracked `.bun/` folder at the repo root out of the fingerprint.** A test that created it made `gstack-evidence` treat the run as a mid-run edit, so `check` graded the lane STALE with "record has no content fingerprint" and named no file. Tracked files under `.bun/` still count, and a tree without that folder hashes exactly as before.
+- **GST-421: `gstack-evidence` names what changed during a run.** When the fingerprint before and after a run differ, the record stores up to five changed paths as `wtree_changed`, the stderr warning lists them, and `check` grades STALE with `content changed during the run: <paths>`. A record without them (or with entries that are not plain paths) still says "record has no content fingerprint".
+- **GST-412: `gstack-ship-receipt read --check-prose` skips the `## Approvals` block `gstack-approvals` renders** (the heading, the table and its `Source: gstack-approvals record` line), so "one Step 11 pass" in the owner's quoted words is no longer read as `gate.<lane>.pass body=11`. Text after that block, a row the renderer would not write, a hand-written Approvals list and an example inside a code fence are still checked, the text on either side of the block never joins into a new claim, and CRLF bodies work.
+
+### Changed
+- **GST-412: `gstack-post pr-body` manages the text above the first heading when the file has a `## ` section.** The current body's opening text, any text between the receipt and the first heading, or a whole body with no `## ` heading, is replaced by the file's own text above its first heading, or dropped when the file has none. The stderr line names each dropped piece with its first line (`; dropped leading text ("…")`), or withholds that line when the redaction scan flags it, so a removed secret never reaches the terminal. A receipt-only or text-only file merges as before, and reposting the same body gives the same bytes.
+
+### Tests
+- `test/evidence.test.ts`: a lane that writes `.bun/x` grades FRESH; one that writes `src/new.ts` grades STALE naming it; a tracked file under `.bun/` still moves the fingerprint; a tree without `.bun/` hashes like a plain `git add -A`.
+- `test/ship-receipt-prose.test.ts`: the rendered Approvals table, text after its footer, a fenced example, a hand-written list and a CRLF body.
+- `test/gstack-post.test.ts`: stale lead text and stale text under the receipt are dropped and named; receipt-only and text-only files keep the old merge; reposts are byte-identical; an attribution callout is never doubled.
+
+## [1.91.362.0] - 2026-10-31
+
+**A /ship review pass on Capy is one call to a checked-in program, and reviewer briefs no longer pass through the model.** In the GSTA-189 replay one pass took about 10 parent calls to plan, render, create, check and poll its readers, and the Red Team brief went out wrong twice because a file read cut its long lines. What reviewers see, which reviewers run, their depth and the blocking floor are unchanged, and the new path renders all 16 briefs of that replay byte for byte.
+
+### Added
+- **`gstack-review-dispatch pass`** plans a pass and writes a staged manifest: audits marked first, then specialists with QA and the other audits, then the Red Team, then Step 11's voices. Each brief is rendered once its inputs exist, and the Red Team's findings file is the specialists' collected lines byte for byte.
+- **Briefs travel in chunks** (`gstack-review-dispatch chunk`) of at most 65,536 characters, so a brief over 1 MB, or one whose diff has invalid UTF-8, reaches the reader whole and is checked by `sent` before the reader starts.
+- **The Capy pass program** (`lib/capy-review-pass.js`, served by `gstack-review-dispatch program`) runs plan, review-log start, dispatch, poll, collect, the Red Team and the budget note in one call, returning within 200 s; the gstack Capy skill carries the loader. Each reader's intent is saved before its subagent is created, so a rerun after a lost create result finds the reader by title instead of starting it twice, and an unclear outcome stops the pass. A failed reader stops every rerun instead of leaving it polling, and a review-log start that failed is retried before any reader goes out.
+
+### Fixed
+- **The pass program takes its input as the Capy skill writes it.** `extras` may be JSON in the input, not only a file path, and `cwd` names the checkout its commands run in. A reader that reports done a moment before its summary arrives is collected on a later poll instead of stopping the pass. Replay C2-34 (GSTA-193) lost 7 of its 15 calls to these three issues.
+- **The targeted reader runs in the pass.** When the plan dispatches it for money, gate, auth or secret code, it is staged with Step 11's voices on the merge base. Its brief matches `gstack-review-dispatch render --role targeted` byte for byte, and its ledger row carries the classes, rules, brief and patch the receipt's targeted record reads.
+
+## [1.91.361.0] - 2026-10-31
+
+**A reviewer's install no longer rewrites the lane's launch environment, and a hand-run `gstack-upgrade` on Capy no longer moves a checkout under another session.** These are follow-ups to the v1.91.356.0 fix that stopped reviewer installs from upgrading the shared checkout.
+
+### Fixed
+- **A `--for review-voice` install that keeps the lane's fuller install verdict now borrows that install's launch environment.** It writes no launch file and announces the lane's own `GSTACK_LAUNCH_FILE` and `GSTACK_LAUNCH_PATH`. Before, it rewrote the lane's `<verdict>.env` and could repoint `<verdict>.launch/bun` at gstack's minimum Bun instead of the project's pinned Bun. A reviewer's own launch directory now lives under `<verdict>.profile/review-voice.launch` (mode 0700), and a failing review-voice check removes `<verdict>.profile/`.
+- **`bin/gstack-upgrade` on Capy counts a fresh `capy-server` lease as another session's.** Every session on a Capy machine runs under one `capy-server` process, so its own-session exclusion used to drop a sibling's lease and move the checkout at once. It now refuses with `a shared harness (capy-server, pid <p>) holds a lease <n>m old; … (UPGRADE_BUSY)` until that lease is 120 minutes old. `GSTACK_UPGRADE_FORCE=1` still overrides. `gstack-lease live` keeps its meaning for the session start and the team-mode hook; only `gstack-upgrade` passes the new `--count-shared-harness` flag.
+- **Fix hints after a skipped upgrade name the 120-minute wait or `GSTACK_UPGRADE_FORCE=1`** instead of a bare `bin/gstack-upgrade`, which on Capy now refuses while a lease is fresh.
+- **The /autoplan reviewer prompt no longer says its install fast-forwards the checkout.** It clones when absent and otherwise uses the checkout as it is.
+
+### Changed
+- **Documented: the bootstrapper still fast-forwards a checkout below the supported minimum, for a reviewer too.** Below it, every session's trailer on that checkout fails, and the minimum rises only for install-honesty or security fixes. A test locks this rule.
+
+## [1.91.360.0] - 2026-10-31
+
+**A PR's changelog.d fragment no longer brings back every paid gate case.** Since fragments became the way every PR records its CHANGELOG entry (v1.91.342.0), the PR eval selector read each `changelog.d/<slug>.md` as an unknown dependency and restored the full gate, so it saved nothing on any PR (GST-400, found on #3668).
+
+### Fixed
+- **`scripts/test-pr-profile.ts`** treats a `.md` file directly in the ship policy's `changelog_fragments.dir` as having no eval dependents. Other files in that folder, nested files, and a touchfile that names a fragment still select as before.
+- **`test/helpers/test-selection.ts`** lists both paths of a renamed file, so moving a file into `changelog.d/` or `docs/` still selects the cases its old path fed.
+
+### Tests
+- `test/test-pr-profile.test.ts` covers a fragment-only PR (no full fallback, no cases), other files in the folder, and a touchfile that names a fragment; `test/changed-files-union.test.ts` covers a rename.
+
 ## [1.91.359.0] - 2026-10-31
 
 **New `/verify` skill: run the repo's own checks and the tests `/ship`'s pre-gate would pick, fix what breaks, and repeat until green, then hand off to `/ship`.** `/verify` is the loop an agent runs while building. It never calls a change green when it cannot tell which tests cover it, and it asks once before running any repo command. It never reviews, bumps a version, pushes or opens a PR. GST-116, PR 1 of 2; moving `/health` onto the same detector is PR 2.

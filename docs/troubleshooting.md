@@ -1558,7 +1558,7 @@ branch), then re-run `bin/gstack-upgrade`. A reinstall that failed after the
 fast-forward is completed by the next run (`reinstall pending from <version>`).
 
 <a id="upgrade-busy"></a>
-### `gstack-upgrade: live gstack sessions hold this installation: pid <p> (<age>m), ...; nothing was changed; fix: ... (UPGRADE_BUSY)`
+### `gstack-upgrade: live gstack sessions hold this installation: pid <p> (<age>m), ...; nothing was changed; fix: ... (UPGRADE_BUSY)` / `gstack-upgrade: a shared harness (capy-server, pid <p>) holds a lease <n>m old; ... (UPGRADE_BUSY)`
 
 **Meaning.** Several agents share this checkout (Capy subagents on one
 machine, say). Each session start writes a workflow lease,
@@ -1571,20 +1571,27 @@ process has exited never blocks, and neither does a stale one: each lease
 records its process's start identity, so a pid reused after a reboot or a
 machine wake (GBRA-105's lease named pid 379, which had become dbus-daemon)
 is reclaimed instead of blocking. The upgrader's own session (the pid chain it
-runs under) never counts for `bin/gstack-upgrade` run by hand. A Capy install
+runs under) never counts for `bin/gstack-upgrade` run by hand, except under a
+shared harness: on Capy every tool call of every session runs under one
+`capy-server`, so a `capy-server` lease in the caller's chain may be a
+sibling's. `bin/gstack-upgrade` counts it until it is 120 minutes old, counted
+from the last renewal by any session on the machine (`a shared harness
+(capy-server, pid <p>) holds a lease <n>m old; …`, GST-396). A Capy install
 in install mode (`bin/gstack-capy-session`) counts it while that lease is under
 120 minutes old: an install run from inside a workflow that holds the lease
 (/ship's docs step, #3571) prints `SELF_UPGRADE: skipped (a gstack run in this
 session holds a workflow lease on this installation: pid <p> (<age>m
 <command>), so the upgrade waits until the lease is 120 minutes old; fix:
-<checkout>/bin/gstack-upgrade once the run ends (UPGRADE_BUSY))` and leaves the
+<checkout>/bin/gstack-upgrade once the lease is 120 minutes old, or
+GSTACK_UPGRADE_FORCE=1 <checkout>/bin/gstack-upgrade when no other session uses
+this checkout (UPGRADE_BUSY))` and leaves the
 checkout where the run started. Each `gstack-skill-start` renews the lease.
 
 **Fix.** Wait for those sessions to finish (`bin/gstack-lease list` shows
 every lease with its age and `alive|dead|stale`; a holder is named as
 `pid <p> (<age>m <command>)`), then re-run `bin/gstack-upgrade`. For the
-session's own run, run the printed `bin/gstack-upgrade` after the run ends.
-When you know they are idle, `GSTACK_UPGRADE_FORCE=1 bin/gstack-upgrade`
+session's own run, or a shared-harness lease, re-run once the lease is 120
+minutes old. When you know no other session uses the checkout, `GSTACK_UPGRADE_FORCE=1 bin/gstack-upgrade`
 proceeds. At a Capy session start the same refusal appears as
 `SELF_UPGRADE: skipped (live gstack sessions hold this installation: ...)`,
 the doctor adds `WARN behind — … (UPGRADE_BUSY)` and the trailer stays
@@ -2514,11 +2521,19 @@ section instead of overwriting it: a section in the file replaces the
 same-titled section (title compared case-insensitively), the
 ````gstack-ship-receipt```` block is a section of its own so a receipt
 rewrite replaces only the receipt, sections the file does not rewrite stay in
-place, new sections are appended after them, and a current body with no
-`## ` headings is kept as the leading text. One stderr line names what was
-replaced, kept and added (`gstack-post: pr-body merged by section: replaced
-What changed; kept ship receipt, Why, Approvals; added Tests`). A body file
-holding only its first section therefore no longer wipes the rest of the PR.
+place, and new sections are appended after them. The text above the first
+`## ` heading belongs to the file whenever the file has a `## ` section: the
+current body's text there (the opening lines, and any lines between the receipt
+and the first heading, or the whole body when it has no `## ` heading) is
+replaced by the file's own text above its first heading, or dropped when the
+file has none. A file with no `## ` section (a receipt-only or text-only post)
+leaves that text alone. One stderr line names what was replaced, kept, added
+and dropped, a dropped piece with its first line, or with that line withheld
+when the redaction scan flags it (`gstack-post: pr-body merged
+by section: replaced What changed; kept ship receipt, Why, Approvals; added
+Tests; dropped leading text ("Draft from gh pr create")`). A body file holding
+only its first section therefore no longer wipes the rest of the PR, and an
+old intro no longer sits above a fresh /ship body.
 The redaction scan runs on the merged bytes, so a MEDIUM or HIGH finding can
 come from a kept section; the `RULE:` line's `LINE:` is in the merged text.
 When the current body cannot be read (`gh pr view --json body` fails) nothing
@@ -3365,7 +3380,10 @@ for files with no behaviour) under `dependencies` in `.gstack/pregate.json` (or 
 Other non-Markdown documentation goes in `empty_lanes` on the base branch.
 Dart files under `integration_test/` or `test_driver/` need a device, so pregate
 never runs them: declare `"**/integration_test/**": []` (and
-`"**/test_driver/**": []`) under `dependencies` and let CI run them.
+`"**/test_driver/**": []`) under `dependencies` on the base branch and let CI run
+them. A `[]` declaration added only on the branch is refused under
+`--policy-from head` ([`PREGATE_HEAD_POLICY_LOOSENS`](#pregate-head-policy-loosens)),
+so land it in its own PR first.
 With no policy anywhere (no base copy, no user-owned file) an unmapped file is
 the warning [`PREGATE_NO_POLICY`](#pregate-no-policy) with a starter policy
 printed, not this error; `gstack-pregate init` writes that draft and lists the
@@ -3389,13 +3407,33 @@ two routes:
 
 1. Land the policy change in its own PR first (the reviewed route), then merge
    the base into this branch and rerun.
-2. Rerun with `--policy-from head --allow-repo-commands`. The run reads the
-   branch's copy and its record says `policy head (unreviewed)`, so a
-   reviewer sees that the gate ran under a policy nobody has reviewed yet;
-   `gstack-ship-queue` never accepts a head-policy run as a remote mirror.
+2. Rerun with `--policy-from head --allow-repo-commands` (in /ship,
+   `gstack-ship-preflight --tests-only --policy-from head`). The run uses the
+   trusted policy plus the lanes the branch adds, and its record says
+   `policy head (unreviewed)`, so a reviewer sees that the gate ran under a
+   policy nobody has reviewed yet; `gstack-ship-queue` never accepts a
+   head-policy run as a remote mirror. A head policy that does anything but add
+   test lanes is refused ([`PREGATE_HEAD_POLICY_LOOSENS`](#pregate-head-policy-loosens)).
 
-An allowlist entry the branch adds to its own `pregate.json` is read the same
-way: it clears a finding only once it is on the base.
+An allowlist entry or a `[]` declaration the branch adds to its own
+`pregate.json` counts only once it is on the base.
+
+<a id="pregate-head-policy-loosens"></a>
+### `PREGATE_HEAD_POLICY_LOOSENS`
+
+**Meaning.** Under `--policy-from head`, the branch's `.gstack/pregate.json`
+does more than add test lanes over the trusted policy (the base branch's copy,
+or the user-owned file when the base has none). The message lists each
+difference: a `dependencies` glob removed, a test dropped from a glob, a new
+`[]` declaration, a deleted file, or another key (`runner`, `guards`, `warn`,
+`allowlist`, `timeout_s`, `remote_gate`, ...) that differs. A branch behind
+its base is compared with the copy at its merge base, so a lane the base added
+later is not a difference. Nothing ran and no record was written.
+
+**Fix.** Keep every key of the trusted policy as it is and only add
+`dependencies` globs with at least one test, or tests on an existing glob. Land
+any other change, a `[]` declaration included, in its own PR on the base branch
+first, then merge the base into this branch and rerun.
 
 <a id="pregate-lane-failed"></a>
 ### `PREGATE_LANE_FAILED`
@@ -5063,7 +5101,8 @@ body that names a counter the receipt records (`passes=3` against
 `review_loop.passes: 2`, `1 deferred` against `deferred: 2`, `passed: 40`
 against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
-run did not produce. The `PROSE:` line names each field with both values.
+run did not produce. The `PROSE:` line names each field with both values. The
+`## Approvals` table `gstack-approvals` renders is never read as a claim.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten
