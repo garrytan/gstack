@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.19.0] - 2026-11-03
+
+**The Windows-safe test subset is green again on current main.** `test/qa-report-dir.test.ts` expected `ENOTDIR` when `.gstack` is a file, but Windows reports `ENOENT` for the same mistake, so the test failed on every Windows run (windows-free-tests run 41607809007 at f6d6215). The test now accepts either code on Windows and still requires `ENOTDIR` everywhere else. With Windows checks now running by path, a red subset test would block any pull request that touches it.
+
 ## [1.94.18.0] - 2026-11-03
 
 **/investigate, /review, /qa and /verify now say when to use them, and /investigate and /review declare what "done" means (GST-1088 lane B).** Untold, Opus 5.5 never opened /investigate in 252 trials (Run D, gstack-evals#140). A when-to-use description raised GPT-6.1 Sol's open rate from 9.5% to 27.0% in the same run. Claude Code's catalog shows only a description's first sentence, so each of the four now opens with a "Use when ..." sentence. The routing hook and the contract check that read the new frontmatter ship separately (lane A), both off by default.
