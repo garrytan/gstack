@@ -170,7 +170,7 @@ function verifiedElsewhere(env: TrainEnv, t: TrainRecord, mainSha: string): stri
  * plain refusal (nothing was published). A GitHub state that cannot be read
  * is neither: the verify refuses and asks to be rerun, never "nothing merged".
  */
-async function stopped(env: TrainEnv, t: TrainRecord, code: 'QUEUE_TRAIN_TREE_MISMATCH' | 'QUEUE_TRAIN_MOVED', message: string, mainSha: string, lines: string[], fetched: boolean): Promise<TrainOut> {
+export async function stopped(env: TrainEnv, t: TrainRecord, code: 'QUEUE_TRAIN_TREE_MISMATCH' | 'QUEUE_TRAIN_MOVED', message: string, mainSha: string, lines: string[], fetched: boolean): Promise<TrainOut> {
   const run = trainFile(t.nonce);
   // One GitHub read per unverified slot decides both the freeze and its record.
   const states = new Map(t.slots.filter(s => !t.merged.some(m => m.pr === s.pr)).map(s => [s.pr, prState(env.ctx, s.pr)] as const));
@@ -197,6 +197,7 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   const run = trainFile(t.nonce);
   const i = t.slots.findIndex(s => s.pr === o.pr);
   if (i < 0) return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} does not include #${o.pr}` }, [], nextFor(t), run);
+  if (t.stamped) return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} has stamped prefixes; its slots publish S_i exactly through train land, never a hand stamp checked modulo stamps` }, [], `${Q} train land --train ${t.nonce} --pr ${o.pr}`, run);
   const gate = attemptsOf(t).filter(a => a.purpose !== 'bisect').at(-1);
   if (gate?.outcome !== 'GREEN' || !['green', 'merging', 'merged'].includes(t.state)) {
     return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} has no green record (state ${t.state}, last gate ${gate?.outcome ?? 'none'})` }, [], nextFor(t), run);
@@ -230,7 +231,7 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   `merge #${o.pr} with expected head ${head.slice(0, 12)} (gstack-restamp stamps at merge), then ${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
 }
 
-function confirmMerged(env: TrainEnv, t: TrainRecord, pr: string, main: string, index: number, lines: string[]): TrainOut {
+export function confirmMerged(env: TrainEnv, t: TrainRecord, pr: string, main: string, index: number, lines: string[]): TrainOut {
   const run = trainFile(t.nonce);
   if (!t.merged.some(m => m.pr === pr)) t.merged.push({ pr, sha: main, tree: git(env.ctx.repoRoot, ['rev-parse', `${main}^{tree}`]).out, at: nowIso() });
   t.state = t.merged.length === t.slots.length ? 'merged' : 'merging';

@@ -270,6 +270,13 @@ loop, per train:
    `gh pr merge --match-head-commit`; `verify --train` again.
 4. `train prune` when every slot has merged.
 
+Under `changelog_fragments` ([ship-policy.md](ship-policy.md#train-land)) lanes READY with a
+fragment (`changelog.d/<slug>.md`) instead of an `[Unreleased]` section, there is no slot
+call and no lane stamp, and step 3 is one command per slot: `train land --train <nonce> --pr
+<n>` commits the stamped prefix S_i on [pin, main], pushes it, waits for checks, merges and
+confirms main is S_i exactly. Outside a train, `gstack-ship-queue land --pr <n>` is the same
+step for one PR ([ship-policy.md](ship-policy.md#land)).
+
 A red train: `train bisect` on the red cases over every prefix. An attributed PR leaves
 the train and goes back to its lane; red on the base branch itself is fixed forward
 through an urgent one-PR train (or `train build --repair` while the queue is frozen, which

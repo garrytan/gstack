@@ -60,8 +60,9 @@ export function parseFragment(rel: string, text: string): Fragment | FragmentErr
  * stacked pin's parent): a path present there with the same blob is skipped, a path present there
  * with other bytes is an error. With `changelog`, a fragment whose lines appear whole and in order in a released
  * section of that file at `exclude` is an error too: a landed PR's fragment carried back in by stacked history.
+ * `onReleased: 'skip'` drops such a fragment instead: a merge-step stamp commit never folds it.
  */
-export function readFragments(cwd: string, treeish: string | null, dir: string, exclude?: string | null, changelog?: string | null): FragmentSet {
+export function readFragments(cwd: string, treeish: string | null, dir: string, exclude?: string | null, changelog?: string | null, onReleased: 'error' | 'skip' = 'error'): FragmentSet {
   const prefix = dir.replace(/\/+$/, '') + '/';
   const list = (t: string | null) => {
     const r = t === null ? git(cwd, ['ls-files', '-s', '-z', '--', prefix]) : git(cwd, ['ls-tree', '-r', '-z', '--full-tree', t, '--', prefix]);
@@ -98,7 +99,7 @@ export function readFragments(cwd: string, treeish: string | null, dir: string, 
     if (!blob.ok) { err('blob unreadable'); continue; }
     const parsed = parseFragment(e.path, blob.out);
     if ('code' in parsed) errors.push(parsed);
-    else if (isReleased(parsed.body)) err(`its text is already released in ${changelog} on the base (a landed PR's fragment carried in by stacked history); delete it from this branch`);
+    else if (isReleased(parsed.body)) { if (onReleased === 'error') err(`its text is already released in ${changelog} on the base (a landed PR's fragment carried in by stacked history); delete it from this branch`); }
     else fragments.push(parsed);
   }
   return { fragments, errors };

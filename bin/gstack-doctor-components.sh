@@ -281,6 +281,7 @@ gstack_result_anchor() {
     QUEUE_TRAIN_BISECT_CAPPED) printf '%s' 'queue-train-bisect-capped' ;;
     QUEUE_TRAIN_PREFIX_INVALID) printf '%s' 'queue-train-prefix-invalid' ;;
     QUEUE_TRAIN_REBUILD_REFUSED) printf '%s' 'queue-train-rebuild-refused' ;;
+    QUEUE_TRAIN_STAMP_MISMATCH) printf '%s' 'queue-train-stamp-mismatch' ;;
     QUEUE_TRAIN_TREE_MISMATCH) printf '%s' 'queue-train-tree-mismatch' ;;
     QUEUE_TRAIN_STALE) printf '%s' 'queue-train-stale' ;;
     QUEUE_TRAIN_FROZEN) printf '%s' 'queue-train-frozen' ;;

@@ -148,12 +148,12 @@ export function latestRunPerName<T extends { name?: unknown; id?: unknown; statu
 }
 
 /** CI at one exact SHA: the latest check run per name (as GitHub's rollup counts) and every commit-status context; unreadable or incomplete is unknown, never green. */
-export function ciAtHead(ctx: QueueContext, sha: string): { line: string; green: boolean; none: boolean; checks: Array<{ name: string; status: string; conclusion: string | null }> } {
+export function ciAtHead(ctx: QueueContext, sha: string): { line: string; green: boolean; none: boolean; checks: Array<{ name: string; status: string; conclusion: string | null }>; contexts: Array<{ name: string; state: string }> } {
   const at = sha.slice(0, 12);
   const runs = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/check-runs`, 'check_runs');
-  if ('error' in runs) return { line: `unknown at ${at} (${runs.error})`, green: false, none: false, checks: [] };
+  if ('error' in runs) return { line: `unknown at ${at} (${runs.error})`, green: false, none: false, checks: [], contexts: [] };
   const statuses = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/status`, 'statuses');
-  if ('error' in statuses) return { line: `unknown at ${at} (${statuses.error})`, green: false, none: false, checks: [] };
+  if ('error' in statuses) return { line: `unknown at ${at} (${statuses.error})`, green: false, none: false, checks: [], contexts: [] };
   const checks = latestRunPerName(runs.items).map(c => ({ name: String(c.name ?? ''), status: String(c.status ?? ''), conclusion: c.conclusion === undefined || c.conclusion === null ? null : String(c.conclusion) }));
   const verdicts = [
     ...checks.map(c => c.status !== 'completed' ? 'pending' : c.conclusion === 'success' ? 'passed' : c.conclusion === 'skipped' || c.conclusion === 'neutral' ? 'skipped' : 'failed'),
@@ -162,7 +162,7 @@ export function ciAtHead(ctx: QueueContext, sha: string): { line: string; green:
   const count = (v: string) => verdicts.filter(x => x === v).length;
   const [passed, failed, pending, skipped] = [count('passed'), count('failed'), count('pending'), count('skipped')];
   const green = verdicts.length > 0 && pending === 0 && failed === 0;
-  return { line: `${green ? 'green' : pending ? 'pending' : verdicts.length ? 'red' : 'none'} at ${at} (passed=${passed} failed=${failed} pending=${pending} skipped=${skipped})`, green, none: verdicts.length === 0, checks };
+  return { line: `${green ? 'green' : pending ? 'pending' : verdicts.length ? 'red' : 'none'} at ${at} (passed=${passed} failed=${failed} pending=${pending} skipped=${skipped})`, green, none: verdicts.length === 0, checks, contexts: statuses.items.map(s => ({ name: String(s.context ?? ''), state: String(s.state ?? '') })) };
 }
 
 /**

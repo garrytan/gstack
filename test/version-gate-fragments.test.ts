@@ -97,6 +97,32 @@ describe('version gate: changelog fragments', () => {
     expect(wrong.out).toContain('must carry v1.3.0.0');
   });
 
+  test('a stacked child\'s stamp counts only its own fragment once its parent has landed', () => {
+    const r = fixture();
+    const release = (version: string, line: string) => write(r, 'CHANGELOG.md', fs.readFileSync(path.join(r.work, 'CHANGELOG.md'), 'utf8').replace('# Changelog\n\n', '# Changelog\n\n## [' + version + '] - 2026-10-29\n\n' + line + '\n\n'));
+    r.git('checkout', '-q', '-b', 'p');
+    write(r, 'changelog.d/p.md', '---\nbump: minor\n---\n- p\n');
+    commit(r, 'p');
+    r.git('checkout', '-q', '-b', 'c');
+    write(r, 'changelog.d/c.md', '- c\n');
+    const child = commit(r, 'c');
+    r.git('checkout', '-q', '-B', 'main', 'origin/main');
+    write(r, 'VERSION', '1.3.0.0\n');
+    release('1.3.0.0', '- p');
+    commit(r, 'v1.3.0.0 (#p)');
+    r.git('push', '-q', 'origin', 'main');
+    r.git('checkout', '-q', '-f', '--detach', child);
+    fs.rmSync(path.join(r.work, 'changelog.d'), { recursive: true });
+    r.git('checkout', 'origin/main', '--', 'CHANGELOG.md');
+    write(r, 'VERSION', '1.3.1.0\n');
+    release('1.3.1.0', '- c');
+    r.git('add', '-A');
+    const stamp = r.git('commit-tree', r.git('write-tree'), '-p', child, '-p', r.git('rev-parse', 'origin/main'), '-m', 'v1.3.1.0 stamp');
+    const res = run(r, stamp);
+    expect(res.code, res.out).toBe(0);
+    expect(res.out).toContain('carries v1.3.1.0');
+  });
+
   test('the workflow runs on every PR (no path filter), so a PR without a release file still proves its fragment', () => {
     const workflow = Bun.YAML.parse(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'version-gate.yml'), 'utf8')) as any;
     expect(workflow.on.pull_request.paths).toBeUndefined();

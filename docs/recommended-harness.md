@@ -129,8 +129,9 @@ A lane (one crew thread, one branch) does this, in order. Every command is
 harness-generic; only the thread and the PR tool are Capy.
 
 1. **Branch from the default branch, build, test with focused checks.** Write
-   the CHANGELOG entry under `## [Unreleased]`; leave VERSION at main's value.
-   Never pre-pick a version.
+   the CHANGELOG entry under `## [Unreleased]` (under `changelog_fragments`, a
+   fragment in the policy's fragment directory instead); leave VERSION at
+   main's value. Never pre-pick a version.
 2. **Push the final head.** Everything below binds to the pushed head; a later
    push invalidates the receipt, the pregate record and the review binding.
 3. **Open the PR** with the host's PR tool (Capy: `tools.pr.create`, never
@@ -182,6 +183,11 @@ reference:
    <sha>`, or `--merge` where the repository keeps merge commits), and
    verifies again. A stamp commit that holds anything beyond the stamp files
    fails `verify --train`, freezes the queue and costs a backstop gate.
+   Under `changelog_fragments` there is no slot call and no lane stamp: the
+   controller runs `gstack-ship-queue train land --train <nonce> --pr 41` per
+   slot, which pushes the stamped prefix the gate covered, waits for checks,
+   merges and confirms main
+   ([ship-policy.md#train-land](ship-policy.md#train-land)).
 4. `train prune` when every slot has merged.
 
 **Who merges.** One controller, never the lane. Both crews that ran this
@@ -321,7 +327,7 @@ the Captain's Drive holds the longer history behind these numbers; from here on
 | Running a workflow | the SKILL.md files, `GSTACK_SESSION_KIND=unattended`, `GSTACK_RESULT:` lines | the `GSTACK_LAUNCH` assignments, `GSTACK_CAPY=1` and the `capy-asks` block, no enforced hooks (safety skills are advisory) |
 | Approvals | `gstack-approvals`, `gstack-owner-brief render --captain`, the `## Approvals` table | the Captain relay (`needs_you`), the Captain drive `approvals/` mirror |
 | Pull requests | `/ship`, the ship receipt, `gstack-pr-shots` | `tools.pr.create` (callbacks), `tools.pr.uploadAsset` (before/after images) |
-| Merging | `gstack-ship-queue` (ready, train build, verdict, verify), `gstack-restamp`, `gh pr merge --match-head-commit` | the controller is a Captain thread; slot calls are thread messages |
+| Merging | `gstack-ship-queue` (ready, train build, verdict, verify; train land and land under `changelog_fragments`), `gstack-restamp`, `gh pr merge --match-head-commit` | the controller is a Captain thread; slot calls are thread messages |
 | Flaky pass | the rerun rule, `flake-records-a*` and `flake-ledger-*` artifacts, `test:health` | the daily automation and the ledger in the Captain's Drive |
 | Release | `release-cut`, `weekly-release.yml`, the `stable` channel | nothing |
 | Scorecard | `gstack-factory-scorecard`, `/retro` Step 7.5 | nothing (the CSV can be kept in the Captain's Drive) |

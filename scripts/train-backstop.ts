@@ -53,8 +53,11 @@ function noteRecords<T extends { kind: string; repo_key?: string }>(git: Git, ki
   });
 }
 
-/** The newest green-train record whose prefix trees include this digest, with its run; null when none. */
-export function coveringRecord(gh: GhRunner, repo: string, train: TrainPolicy, digest: string, lines: string[]): { run: Run; record: TrainRecord; index: number } | null {
+/**
+ * The newest green-train record with a prefix covering main, with its run; null when none. A plain prefix T_i
+ * covers main's tree modulo stamps (its digest); a stamped prefix S_i covers only main's exact tree.
+ */
+export function coveringRecord(gh: GhRunner, repo: string, train: TrainPolicy, main: { digest: string | null; tree: string }, lines: string[]): { run: Run; record: TrainRecord; index: number; exact: boolean } | null {
   const runs = json<{ workflow_runs?: Run[] }>(gh(['api', '-X', 'GET', `repos/${repo}/actions/workflows/${train.gate_workflow}/runs`, '-f', 'event=workflow_dispatch', '-f', 'status=success', '-f', 'per_page=50'], GH_MS));
   if (!runs) { lines.push('cannot list the train gate runs; the backstop gates main'); return null; }
   const trains = (runs.workflow_runs ?? []).map(run => ({ run, nonce: /\[eval-bg ([A-Za-z0-9._-]+)\]/.exec(run.display_title ?? '')?.[1] ?? '' }))
@@ -69,7 +72,7 @@ export function coveringRecord(gh: GhRunner, repo: string, train: TrainPolicy, d
       try { record = file ? JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as TrainRecord : null; } catch { record = null; }
       if (!record || record.kind !== 'train-gate' || record.verdict !== 'GREEN' || record.census?.complete !== true || record.nonce !== nonce
         || record.head_sha !== run.head_sha || !Array.isArray(record.prefixes)) continue;
-      const hit = record.prefixes.find(p => p.stamp_free_tree === digest);
+      const hit = record.prefixes.find(p => p.exact ? p.tree === main.tree : main.digest !== null && p.stamp_free_tree === main.digest);
       if (!hit) continue;
       const checks = json<{ check_runs?: Array<{ name?: string; conclusion?: string | null }> }>(
         gh(['api', `repos/${repo}/commits/${run.head_sha}/check-runs?check_name=${encodeURIComponent(train.full_gate_check)}`], GH_MS));
@@ -77,7 +80,7 @@ export function coveringRecord(gh: GhRunner, repo: string, train: TrainPolicy, d
         lines.push(`train ${nonce} (run ${run.id}) lists this tree but its ${train.full_gate_check} check run is not a success`);
         continue;
       }
-      return { run, record, index: hit.index };
+      return { run, record, index: hit.index, exact: !!hit.exact };
     }
     return null;
   } finally {
@@ -150,9 +153,10 @@ export function runBackstop(o: BackstopOptions): { action: BackstopAction; lines
   }
   const digest = stampFreeTree(git, o.sha, o.repoRoot, loaded.policy);
   if (typeof digest !== 'string') { lines.push(`BACKSTOP: no tree modulo stamps (${digest.error}); gating main`); }
-  const covered = typeof digest === 'string' ? coveringRecord(gh, o.repo, train, digest, lines) : null;
+  const tree = git(['rev-parse', `${o.sha}^{tree}`]).out;
+  const covered = coveringRecord(gh, o.repo, train, { digest: typeof digest === 'string' ? digest : null, tree }, lines);
   if (covered) {
-    lines.push(`BACKSTOP: covered: main ${o.sha.slice(0, 12)} is T${covered.index} of green train ${covered.record.nonce} (run ${covered.run.id}, tree modulo stamps ${String(digest).slice(0, 12)}); no gate`);
+    lines.push(`BACKSTOP: covered: main ${o.sha.slice(0, 12)} is ${covered.exact ? `S${covered.index}` : `T${covered.index}`} of green train ${covered.record.nonce} (run ${covered.run.id}, ${covered.exact ? `exact tree ${tree.slice(0, 12)}` : `tree modulo stamps ${String(digest).slice(0, 12)}`}); no gate`);
     return done('covered');
   }
   const owned = noteRecords<FreezeRecord>(git, 'freeze', repoKey).find(f => !f.cleared_at && f.main.sha === o.sha && f.backstop);

@@ -122,6 +122,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the rebuild is not allowed: the bisect was not all green, the train was already rebuilt (or re-dispatched), or there is no bisect or INFRA record',
     fix: 'route the red cases to a repair lane; the train is rebuilt only once the repair merges (a changed train)',
   },
+  QUEUE_TRAIN_STAMP_MISMATCH: {
+    anchor: 'queue-train-stamp-mismatch',
+    summary: 'a stamped train prefix S_i is not the merge of S_(i-1) and its pin modulo stamps, or differs from the plain prefix T_i outside release paths, or could not be stamped; nothing was pushed',
+    fix: 'read the named slot and files: a stamp hook writing product files is fixed in the hook; otherwise rebuild the train without that slot and report it',
+  },
   QUEUE_TRAIN_TREE_MISMATCH: {
     anchor: 'queue-train-tree-mismatch',
     summary: 'main’s tree is neither the train’s prefix before this PR nor after it (modulo stamps), so the merge does not publish what the gate tested',

@@ -42,7 +42,7 @@ export interface ShipPolicy {
   /** The CHANGELOG re-headed on a restamp; null for repos without one. */
   changelog: string | null;
   /** Unversioned CHANGELOG fragments (`<dir>/<slug>.md`) a PR adds instead of an `[Unreleased]` section; null keeps `[Unreleased]`. */
-  changelog_fragments: { dir: string } | null;
+  changelog_fragments: { dir: string; required_checks?: string[] } | null;
   /** Path of a paired repo to restamp identically (tier 2). */
   mirror: string | null;
   /** `merge-only` refuses a squash or rebase plan in /ship. */
@@ -134,7 +134,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   release_outputs: 'Globs the release tool may write beyond the version files, lockfiles, CHANGELOG and stamp_paths. Any other output refuses the restamp.',
   stamp_paths: 'Globs (repo-relative, no `..`) where exact `(was X)`, `since: X` and `vX` mentions of the old version are rewritten.',
   changelog: 'CHANGELOG path re-headed on a restamp (the PR’s `[Unreleased]` or old-version section moves to the top under the new version). null to skip.',
-  changelog_fragments: '{ dir } or null: a PR adds one unversioned `<dir>/<slug>.md` fragment (optional `bump: minor|major` front matter) instead of an `[Unreleased]` section and leaves VERSION, the manifest version and released CHANGELOG sections at its merge base; the restamp folds every fragment under the allocated version and deletes the files (docs/ship-policy.md#changelog-fragments). null keeps `[Unreleased]`.',
+  changelog_fragments: '{ dir, required_checks? } or null: a PR adds one unversioned `<dir>/<slug>.md` fragment (optional `bump: minor|major` front matter) instead of an `[Unreleased]` section and leaves VERSION, the manifest version and released CHANGELOG sections at its merge base; the restamp folds every fragment under the allocated version and deletes the files (docs/ship-policy.md#changelog-fragments). `required_checks` lists the check runs or status contexts `train land` requires present and green on a stamp commit. null keeps `[Unreleased]`.',
   mirror: 'Relative path of a paired repo to restamp identically; writes are confined to it. null to skip.',
   history: 'merge-only | squash-ok. merge-only makes /ship refuse a squash or rebase plan.',
   preregistration_shas: 'Commits that must be ancestors of HEAD before push (preregistered evals); checked by `gstack-evidence ancestor`.',
@@ -450,8 +450,10 @@ function docsErrors(raw: unknown, errors: PolicyError[]): void {
 
 function fragmentsErrors(raw: unknown, errors: PolicyError[]): void {
   const d = raw as Record<string, unknown> | null;
-  if (!d || typeof d !== 'object' || Array.isArray(d)) { errors.push({ code: 'POLICY_INVALID', path: 'changelog_fragments', message: 'must be { dir } or null' }); return; }
-  for (const k of Object.keys(d)) if (k !== 'dir') errors.push({ code: 'POLICY_INVALID', path: `changelog_fragments.${k}`, message: 'unknown key' });
+  if (!d || typeof d !== 'object' || Array.isArray(d)) { errors.push({ code: 'POLICY_INVALID', path: 'changelog_fragments', message: 'must be { dir, required_checks? } or null' }); return; }
+  const rc = d.required_checks;
+  if (rc !== undefined && (!Array.isArray(rc) || rc.length > 50 || new Set(rc).size !== rc.length || rc.some(n => typeof n !== 'string' || !/^[^\n]{1,100}$/.test(n)))) errors.push({ code: 'POLICY_INVALID', path: 'changelog_fragments.required_checks', message: `${JSON.stringify(rc)} must be up to 50 distinct check names of 1-100 characters` });
+  for (const k of Object.keys(d)) if (k !== 'dir' && k !== 'required_checks') errors.push({ code: 'POLICY_INVALID', path: `changelog_fragments.${k}`, message: 'unknown key' });
   const why = typeof d.dir === 'string' ? containedRelative(d.dir) ?? (/[*?[\]{}]/.test(d.dir) || d.dir.replace(/\/+$/, '') === '.' ? 'must be one directory, not a glob or the repository root' : null) : 'must be a string';
   if (why) errors.push({ code: 'POLICY_CONTAINMENT', path: 'changelog_fragments.dir', message: `${JSON.stringify(d.dir)} ${why}` });
 }

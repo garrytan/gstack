@@ -292,6 +292,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   },
   // GSTA-49 T1 (merge trains): the train lib logic runs on Windows in test/ship-queue-train-logic.test.ts.
   {
+    file: 'test/ship-queue-train-land.test.ts',
+    reason: 'drives train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for test/ship-queue-train.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
+  },
+  {
     file: 'test/ship-queue-train.test.ts',
     reason: 'drives bin/gstack-ship-queue against the stateful #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard run 39152702056)',
   },

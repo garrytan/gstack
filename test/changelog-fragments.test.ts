@@ -87,6 +87,11 @@ describe('policy key', () => {
     expect(validatePolicy({ ...POLICY, changelog_fragments: { dir: '../x' } }).map(e => e.path)).toContain('changelog_fragments.dir');
     expect(validatePolicy({ ...POLICY, changelog_fragments: { dir: 'changelog.d/*' } }).map(e => e.path)).toContain('changelog_fragments.dir');
     expect(validatePolicy({ ...POLICY, changelog_fragments: { dir: 'd', glob: '*' } }).map(e => e.path)).toContain('changelog_fragments.glob');
+    expect(validatePolicy({ ...POLICY, changelog_fragments: { dir: 'd', required_checks: ['free-tests', 'windows-free-shard'] } })).toEqual([]);
+    for (const bad of [[], ['a', 'a'], [''], ['x\ny'], 'free-tests']) {
+      if (Array.isArray(bad) && !bad.length) continue;
+      expect(validatePolicy({ ...POLICY, changelog_fragments: { dir: 'd', required_checks: bad } }).map(e => e.path)).toContain('changelog_fragments.required_checks');
+    }
     const { min_gstack_version: _drop, ...noMin } = POLICY;
     expect(validatePolicy(noMin).map(e => e.path)).toContain('changelog_fragments');
   });

@@ -35,6 +35,13 @@ function linkedSegment(wt: string, rel: string): string | null {
   return at < 0 ? null : segs.slice(0, at + 1).join('/');
 }
 
+/** A release file the merge step writes that is a symlink, or sits under one, in the checkout `wt`; null when none. */
+export function linkedReleaseFile(wt: string, policy: ShipPolicy, versionRel: string): string | null {
+  const exact = [versionRel, ...MANIFESTS, ...(policy.changelog ? [policy.changelog] : [])];
+  return git(wt, ['ls-files', '-s', '-z']).out.split('\0').filter(rec => rec.startsWith('120000 ')).map(rec => rec.slice(rec.indexOf('\t') + 1))
+    .find(rel => exact.includes(rel) || matchesAny([...policy.release_outputs, ...policy.stamp_paths], rel)) ?? exact.map(rel => linkedSegment(wt, rel)).find(Boolean) ?? null;
+}
+
 export interface LandJournal {
   schema_version: 1; pr: string; branch: string;
   reviewed_pin: string; last_pushed_head: string | null; stamp_commit: string | null; stamp_tree: string | null;
@@ -91,25 +98,35 @@ export function resolveReleaseConflicts(wt: string, conflicts: string[], policy:
       if (!git(wt, ['checkout', '--theirs', '--', rel]).ok) { left.push(rel); continue; }
     } else if (MANIFESTS.includes(base)) {
       const sides = [1, 2, 3].map(n => stage(n, rel));
-      if (sides.some(s => !s.ok)) { left.push(rel); continue; }
-      const theirs = JSON.parse(sides[2]!.out);
-      const pin = (text: string) => {
-        const o = JSON.parse(text);
-        if ('version' in o) o.version = theirs.version;
-        if (o.packages?.[''] && theirs.packages?.['']) o.packages[''].version = theirs.packages[''].version;
-        const indent = /^\{\n( +|\t)/.exec(text)?.[1] ?? 2;
-        return JSON.stringify(o, null, indent) + '\n';
-      };
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-merge-'));
-      const [b, o, t] = ['base', 'ours', 'theirs'].map((n, i) => { const f = path.join(tmp, n); fs.writeFileSync(f, pin(sides[i === 0 ? 0 : i]!.out)); return f; });
-      const m = spawnSync('git', ['merge-file', '-p', o!, b!, t!], { encoding: 'utf8', timeout: 30_000 });
-      fs.rmSync(tmp, { recursive: true, force: true });
-      if (m.status !== 0) { left.push(rel); continue; }
-      fs.writeFileSync(path.join(wt, rel), m.stdout);
+      const merged = sides.every(s => s.ok) ? mergeManifest(sides[0]!.out, sides[1]!.out, sides[2]!.out) : null;
+      if (merged === null) { left.push(rel); continue; }
+      fs.writeFileSync(path.join(wt, rel), merged);
     } else { left.push(rel); continue; }
     git(wt, ['add', '--', rel]);
   }
   return left;
+}
+
+/** Three-way merge of a JSON manifest with every side's release version set to theirs'; null when anything else conflicts. */
+export function mergeManifest(base: string, ours: string, theirs: string): string | null {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-merge-'));
+  try {
+    const want = JSON.parse(theirs);
+    const pin = (text: string) => {
+      const o = JSON.parse(text);
+      if ('version' in o) o.version = want.version;
+      if (o.packages?.[''] && want.packages?.['']) o.packages[''].version = want.packages[''].version;
+      const indent = /^\{\n( +|\t)/.exec(text)?.[1] ?? 2;
+      return JSON.stringify(o, null, indent) + '\n';
+    };
+    const [b, o, t] = [base, ours, theirs].map((text, i) => { const f = path.join(tmp, String(i)); fs.writeFileSync(f, pin(text)); return f; });
+    const m = spawnSync('git', ['merge-file', '-p', o!, b!, t!], { encoding: 'utf8', timeout: 30_000 });
+    return m.status === 0 ? m.stdout : null;
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -192,9 +209,7 @@ function buildStamp(ctx: QueueContext, policy: ShipPolicy, o: { pin: string; bas
       }
     }
     if (!git(wt, ['commit', '-q', '--no-verify', '--allow-empty', '-m', `land #${o.pr}: merge origin/${ctx.base}`]).ok) return { code: 'QUEUE_LAND_CONFLICT', message: 'cannot commit the merge in the scratch worktree' };
-    const exact = [versionRel, ...MANIFESTS, ...(policy.changelog ? [policy.changelog] : [])];
-    const linked = git(wt, ['ls-files', '-s', '-z']).out.split('\0').filter(rec => rec.startsWith('120000 ')).map(rec => rec.slice(rec.indexOf('\t') + 1))
-      .find(rel => exact.includes(rel) || matchesAny([...policy.release_outputs, ...policy.stamp_paths], rel)) ?? exact.map(rel => linkedSegment(wt, rel)).find(Boolean);
+    const linked = linkedReleaseFile(wt, policy, versionRel);
     if (linked) return { code: 'QUEUE_LAND_CONFLICT', message: `${linked} is a symlink in the merged tree; the merge step writes release files only inside the repository` };
     const r = restamp({ repoRoot: wt, base: ctx.base, next: true, policyFrom: 'base', allowRepoCommands: o.allowRepoCommands, dryRun: false, now: o.now, env: process.env });
     if (r.status !== 'stamped' && r.status !== 'noop') return { code: r.code ?? 'QUEUE_LAND_CONFLICT', message: `restamp ${r.status}: ${r.message ?? ''}`, fix: r.fix };
@@ -216,7 +231,7 @@ function prInfo(ctx: QueueContext, pr: string): PrInfo | QueueFailure {
 }
 
 /** Poll the stamp commit's checks (the same read as the pin's) until they are green, one is red, or the time runs out. */
-function waitChecks(ctx: QueueContext, sha: string, minutes: number): void {
+export function waitChecks(ctx: QueueContext, sha: string, minutes: number): void {
   const deadline = Date.now() + minutes * 60_000;
   for (let ci = ciAtHead(ctx, sha); !ci.green && !ci.line.startsWith('red') && Date.now() < deadline; ci = ciAtHead(ctx, sha)) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30_000);

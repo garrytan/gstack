@@ -4244,12 +4244,18 @@ HEAD is not the PR's pushed head (read through `gh pr view`), CI at that
 exact head is not green (failed, pending or unreadable), or the pregate result
 is missing, failed or recorded on another tree (`PREGATE_STALE`). Under
 `--dispatch-ci` it is also a dispatched workflow run that concluded red (a red
-run clears no pregate lane) or a `gh workflow run` that failed.
+run clears no pregate lane) or a `gh workflow run` that failed. `train land`
+uses it while a slot cannot merge yet: checks on the stamp commit are not
+green, a name in `changelog_fragments.required_checks` is missing or not green
+there, the PR's base is no longer the train's base, the stamp push failed while
+the branch still read the pin, `gh pr merge` refused, or the merge is not yet
+visible on main.
 
 **Fix.** Commit and push, wait for CI on that head, rerun
 `gstack-pregate run --allow-repo-commands` when the tree changed, then rerun
 `gstack-ship-queue ready --pr <n>`. The block it prints before refusing shows
-which line is not yet true.
+which line is not yet true. For `train land`, do what `NEXT:` says, then rerun
+the same `train land` command; it adopts its own journaled stamp commit.
 
 <a id="queue-proof-missing"></a>
 ### `QUEUE_PROOF_MISSING`
@@ -4265,8 +4271,10 @@ train still building, running or merging, `train watch` on an unknown record,
 unreadable run), `verify --pr <n> --train <nonce>` when main's tree mismatches
 and whether a slot merged on GitHub cannot be read (so whether the queue must
 freeze is unknown; it never answers "nothing merged" from an unreadable
-state), and `ready --screen` when the scratch merge branch cannot be
-pushed. Nothing was written unless the `QUEUE_STAMP_REFUSED:` line says
+state), `train land` when the base or the train branch cannot be fetched or
+the record's T0 and S_1..S_k are not the gated head's first-parent chain
+(each S_i's second parent slot i's pin), and `ready --screen` when the
+scratch merge branch cannot be pushed. Nothing was written unless the `QUEUE_STAMP_REFUSED:` line says
 `committed=yes`.
 
 **Fix.** Supply the named input (fetch the gated head, pass the current base
@@ -4305,7 +4313,9 @@ predecessor PR moved after the gate.
 **Meaning.** The ship policy sets `full_e2e: true`, and no passing full-gate
 result is bound to the tree being stamped or verified: no recorded gate-ahead
 attempt for that gated head, no `--gate-exit 0 --gate-log <file>` from a run
-on it, or the recorded run exited non-zero.
+on it, or the recorded run exited non-zero. The train commands use it too: a
+PR that is not in the train, a train without a green gate, `verify --train` on
+a stamped train and `train land` on a plain one (each names the other).
 
 **Fix.** Run the gate the policy's `gate_command` names in the gate-ahead
 worktree and bind it with `gstack-ship-queue gate-ahead --record`, or pass the
@@ -4343,7 +4353,7 @@ a `train` block with `min_gstack_version` on the base branch first
 **Meaning.** A pinned PR's head repository is not the base repository. The
 train branch and its dispatches run with repository secrets, so fork work
 never rides a train. `ready --dispatch-ci` refuses a fork head for the same
-reason and dispatches nothing.
+reason and dispatches nothing, and `train land` refuses one and pushes nothing.
 
 **Fix.** Run the printed `train build --prs <list without it>`; the fork PR
 stays on the trusted-branch path.
@@ -4407,13 +4417,28 @@ the two allowed restamps, so `land` stopped instead of restamping again.
 it), then rerun `gstack-ship-queue land --pr <n>`; the lock was released and
 the rerun restamps from the pin.
 
+<a id="queue-train-stamp-mismatch"></a>
+### `QUEUE_TRAIN_STAMP_MISMATCH`
+
+**Meaning.** While building a stamped train (`changelog_fragments`), a prefix
+S_i could not be stamped, or it is not the merge of S_(i-1) and its pin
+modulo stamps, or it rewrote an earlier release entry, or it differs from the
+plain prefix T_i outside release paths. Nothing was pushed or dispatched. See
+[stamped trains](ship-policy.md#train-land).
+
+**Fix.** Read the named slot and files. A stamp hook (`restamp_command`,
+`release_tool`) that writes product files is fixed in the hook; an invalid
+fragment goes back to its lane. Otherwise rebuild the train without that slot
+and report it.
+
 <a id="queue-train-moved"></a>
 ### `QUEUE_TRAIN_MOVED`
 
 **Meaning.** A PR's head is no longer the SHA the train pinned (at build, or
 past its pin beyond stamps at verify), so the train would not test what
 merges. At verify after earlier slots merged, the queue also freezes
-(`QUEUE_TRAIN_FROZEN`).
+(`QUEUE_TRAIN_FROZEN`). At `train land` it is a PR head or branch that moved
+off the pin (or off land's own stamp commit); land never overwrites it.
 
 **Fix.** Ask the lane for a fresh READY on the new head, then build the train
 with the new pin (`train build --prs <n>@<new sha>,…`).
@@ -4566,6 +4591,10 @@ tested. After a merge, a main that differs from the prefix after the PR in
 the CHANGELOG alone, while being its own first parent's CHANGELOG plus the
 PR's own entry (the rule the pre-merge verify applied to the head), is not a
 mismatch ([one CHANGELOG rule, before and after](ship-policy.md#run-a-merge-train)).
+For a stamped train, `train land` compares exact trees: main must be S_(i-1)
+before the merge, must not move during the slot's checks, and must be S_i
+after it ([stamped trains](ship-policy.md#train-land)); main equal to an
+earlier prefix refuses without freezing and names the slot to land first.
 
 **Fix.** Stop merging. If a PR of the train merged (verified, or reported
 MERGED by GitHub without a verified tree, slot 1's own squash included), the

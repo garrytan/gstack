@@ -57,7 +57,7 @@ export interface RestampOptions {
   repoRoot: string; base: string; version?: string; next?: boolean; bump?: Bump; queueMode?: QueueMode;
   after?: { pr: string; ref?: string }; pr?: string; expectBase?: string; expectOrder?: string[]; was?: string;
   policyFrom: 'base' | 'head'; allowRepoCommands: boolean; dryRun: boolean; now?: Date; env?: NodeJS.ProcessEnv;
-  gh?: (args: string[]) => { ok: boolean; out: string }; failAfter?: string; gateWorktree?: string;
+  gh?: (args: string[]) => { ok: boolean; out: string }; failAfter?: string; gateWorktree?: string; baseRef?: string;
 }
 export interface RestampResult {
   status: 'stamped' | 'noop' | 'dry-run' | 'refused' | 'failed' | 'gate-ahead';
@@ -164,7 +164,7 @@ interface Plan {
 }
 
 function planVersions(o: RestampOptions, loaded: LoadedPolicy, policyLabel: string): Plan {
-  const baseRef = `origin/${o.base}`;
+  const baseRef = o.baseRef ?? `origin/${o.base}`;
   const baseSha = git(o.repoRoot, ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`]);
   if (!baseSha.ok) throw new Refusal('POLICY_SOURCE_UNAVAILABLE', `${baseRef} is not a resolvable commit; nothing written`, { fix: `git fetch origin ${o.base} --depth=1` });
   if (o.expectBase && !baseSha.out.startsWith(o.expectBase)) {
@@ -655,7 +655,7 @@ function applyToBranch(o: RestampOptions, staging: string, wtree: string, files:
 function fragmentsOf(o: RestampOptions, dir: string, changelog: string | null): FragmentSet {
   const fp = wtreeFingerprint({ cwd: o.repoRoot });
   if ('error' in fp) throw new Refusal('RESTAMP_CONFLICT', `cannot fingerprint the working tree (${fp.error}); nothing written`);
-  const set = readFragments(o.repoRoot, fp.tree, dir, `origin/${o.base}`, changelog);
+  const set = readFragments(o.repoRoot, fp.tree, dir, o.baseRef ?? `origin/${o.base}`, changelog);
   if (set.errors.length) throw new Refusal('CHANGELOG_FRAGMENT_INVALID', `${set.errors[0]!.path}: ${set.errors[0]!.message}; nothing written`);
   return set;
 }
