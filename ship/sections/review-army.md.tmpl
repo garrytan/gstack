@@ -19,9 +19,10 @@ reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
 `runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
 (specialists, Red Team, Step 11's voices), each at its `effort=` on the same model
-family and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
-`specialist batched` (light depth) is one subagent reading every checklist its
-`checklists=` names, Red Team included, tagging each finding with its checklist.
+family (`full` is the lane's reasoning, `medium` reasoning medium, `light` low; a
+host that cannot set it runs its default) and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
+`specialist batched` is one subagent reading every checklist its
+`checklists=` names (light adds Red Team), tagging each finding with its checklist.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
 `"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,

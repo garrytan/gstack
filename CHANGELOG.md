@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.91.350.0] - 2026-10-31
+
+**`/ship` review costs less and catches more: one batched specialist, a blocking floor in both prose voices, and data files that no code reads review as docs (GSTA-167 variant G).** The no-loss replay certified the stack before merge. Round 5 replayed 14 PRs with 29 known blockers, and the new reviewers found 24 against the control's 21, non-inferior at p=0.035. Round 6 pooled 41 blockers (the 29 plus 12 confirmed units from GSTA-2): 33 against 27, non-inferior at p=0.0055. The free re-score for the classifier and state-matrix change lost 0 blockers.
+
+### Changed
+- **One batched specialist reads every checklist at each depth.** It always reads Testing and Security on code and gate diffs, and adds State-machines, Data-migration, API-contract and Design when scope asks for them. Maintainability, Performance and Simplification run only when forced, and `gstack-review-plan` names them on a `SKIP:` line. The Red Team reads the batched reader's merged findings.
+- **Specialists run at medium reasoning effort.** The Red Team, the native adversarial pass and the fix-check stay at full effort. `--no-tiers` (or `review_effort_tiers off`) runs specialists at the host default.
+- **Both prose voices carry the blocking floor.** The native adversarial and outside-voice prompts say a finding blocks only if it would fail a test, break production, or lose data or secrets, and end each finding with `Severity:` and `Blocks: yes|no`. A finding is CRITICAL when its old label rule says so or it says `Blocks: yes`, and `Blocks: no` never lowers one. `gstack-review-dispatch collect` records a `Blocks: yes` finding as CRITICAL, so `judge` refuses a lead judgment that keeps it below the floor.
+- **A JSON, CSV, TSV or raster data file that no code names counts as docs, not runtime lines.** `classifyDiff` finds code consumers with `git grep`; YAML, TOML, SVG and config files stay code, and path-only callers (the receipt's gate scan, the release route) keep data files code. `gstack-ship-preflight`'s `RUNTIME_LINES` now comes from the same function.
+- **An untested state-matrix cell is a test gap below the floor.** A wrong row or collapsed kinds stays CRITICAL, and the state-machines checklist itself is unchanged.
+
+### Fixed
+- **`gstack-review-dispatch render --checklists` takes the plan's checklist names** as well as paths, and refuses an unknown one. The outside-voice brief no longer adds a separate severity line, since the prompt now asks for Severity and Blocks itself.
+- **`collect` keeps one finding per id in the layout the prompts ask for.** A `Severity:` or `Blocks:` line below a finding joins that finding, an inline `Blocks: yes` with no label still collects as CRITICAL, and the native voice's FIXABLE collects as CRITICAL even beside a lower `Severity:`. When the layout is unclear, `collect` merges findings rather than dropping one.
+- **The data-file consumer scan reads `git grep` the same way under any git config.** `grep.lineNumber`, `grep.column` and `color.grep` no longer hide a consumer, and a failed scan keeps every data file code with `consumer_scan_failed`.
+
+### Tests
+- `test/prose-voice-floor.test.ts` renders both prose prompts for the claude and codex hosts and checks the floor sentence and the Blocks line. `test/review-depth.test.ts` covers the batched reader on the captured fixtures, effort per role and the data-file rule. `test/review-dispatch.test.ts` covers `Blocks: yes` collection and batched checklist names. `test/review-packets-removed.test.ts` repins the changed briefs to their no-loss replays (PR-a, G1, L).
+
 ## [1.91.349.0] - 2026-10-31
 
 **Nine flaky tests from the 2026-10-30 flaky pass stop failing correct runs.** Two paid detectors missed correct replies, one paid case lost the evidence of its own failure, five free tests raced their own fixtures or paid a cold start inside a timed call, and two Windows failures came from real defects: a lost IPC receipt in the QA deadline worker and a Chromium feature that fails loopback connections.

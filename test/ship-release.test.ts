@@ -208,3 +208,16 @@ describe('gstack-ship-release push: branch names', () => {
     expect(fs.existsSync(path.join(f.work, 'PWNED'))).toBe(false);
   });
 });
+
+describe('GSTA-167 part 4a: the post-review route stays path-only', () => {
+  // Value: protects=F1/F2, a data file edited after review sends the ship back through review even when no code names it,
+  //   because the route never applies the data rule; fails_when=a JSON edit after review takes the docs-rechecked route; seam=classifyPath
+  test('a JSON edited after review is a behavior change, not docs', () => {
+    const f = fx();
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    f.write({ 'wiki/post/data.json': '{"a": 1}\n' }); f.commit('late data');
+    const r = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
+    expect(r.stdout).toContain('STOP: behavior, tests or build inputs changed since review (wiki/post/data.json)');
+  });
+});
