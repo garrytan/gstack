@@ -83,6 +83,8 @@ export interface PregateCheck {
 /** A remote_gate receipt accepted from a stamp-only predecessor tree (lib/pregate/remote-receipt.ts): the gated tree, the tree it was accepted for, the policy, and every differing path with its stamp rule. */
 export interface PregateReceiptSubstitution { gated_tree: string; accepted_for: string; policy: string; files: Array<{ path: string; rule: string }> }
 export interface PregateRemote { lane: string; platform: string; workflow: string; job: string; tests: string[]; receipt: string | null; cleared_by?: string; command?: string; substitution?: PregateReceiptSubstitution }
+/** An owner-granted flaky exception (lib/pregate/flaky-exception.ts): the runs, cases and grant that cleared one obligation, bound to one head and tree. */
+export interface PregateException { lane: string; repo: string; pr: number; head: string; tree: string; runs: string[]; cases: string[]; grant: string; by: string; words: string; binding: string }
 export interface PregateFile {
   schema_version: 1; tree: string; checks: PregateCheck[]; run?: string; stage1_ms?: number; stage2_ms?: number;
   // C-pregate (C8): head/base identity, the policy sources, persisted requires-remote obligations and the one-line verdict.
@@ -93,6 +95,8 @@ export interface PregateFile {
   policy_user_path?: string;
   /** This run's scratch directory under the state root (logs, scan files). */
   scratch?: string;
+  /** Obligations cleared from runs with failures under an owner's grant (`clear --flaky-exception`). */
+  exceptions?: PregateException[];
 }
 export interface ShipReceipt {
   schema_version: 1; head: string; base: string; pr?: number; version?: string; gated_tree?: string;
@@ -123,6 +127,8 @@ export interface ShipReceipt {
   review_targeted?: { classes: string[]; rules: string; brief_sha: string; product_patch_id: string; status: 'done' | 'failed' | 'not-run'; findings: number; raised_by: string };
   /** Step 5 failures gstack-base-red proved are the base's own (lib/base-red.ts): a conditional receipt the queue refuses until /ship --resume rewrites it without this block. */
   base_red?: { cases: string[]; files: string[]; base: string; lane: string; expires_at: string };
+  /** The pregate's owner-granted flaky exceptions (gstack-pregate clear --flaky-exception): pregate only, never a required CI check. */
+  flaky_exception?: Array<{ lane: string; runs: string[]; cases: string[]; grant: string; by: string }>;
   /** The base policy's review_exclude_paths at the reviewed head (lib/review-exclude.ts); absent when the base declares none. Carry and the queue compare `digest`. */
   review_exclude?: { source: string; patterns: string[]; applied: string[]; excluded: number; excluded_bytes: number; kept: number; gate_tagged: string[]; patterns_sha256: string; list_sha256: string; digest: string };
 }
@@ -234,6 +240,7 @@ export const ARTIFACT_SCHEMAS = {
       head: str, base: str, generated_at: str, policy: str, policy_digest: str, policy_user_path: str, registry: str, verdict: str, scratch: str,
       requires_remote: { type: 'array', items: { type: 'object', required: ['lane', 'platform', 'tests', 'receipt'], properties: { lane: str, platform: str, workflow: str, job: str, tests: strList, receipt: nullableStr, cleared_by: str, command: str,
         substitution: { type: 'object', required: ['gated_tree', 'accepted_for', 'policy', 'files'], properties: { gated_tree: str, accepted_for: str, policy: str, files: { type: 'array', items: { type: 'object', required: ['path', 'rule'], properties: { path: str, rule: str } } } } } } } },
+      exceptions: { type: 'array', items: { type: 'object', required: ['lane', 'repo', 'pr', 'head', 'tree', 'runs', 'cases', 'grant', 'by', 'words', 'binding'], properties: { lane: str, repo: str, pr: { type: 'integer' }, head: str, tree: str, runs: strList, cases: strList, grant: str, by: str, words: str, binding: str } } },
     },
   },
   'ship-receipt': {
@@ -250,6 +257,7 @@ export const ARTIFACT_SCHEMAS = {
       carry: { type: 'object', required: ['from', 'reason', 'product_patch_id'], properties: { from: str, reason: str, product_patch_id: str, changed_paths: strList, merge_commits: { type: 'integer', minimum: 0 }, range_diff: str, covers: strList, reruns: strList, trees: strList, ancestry: { enum: ['linear', 'rewritten'] } } },
       head_tree: str, product_patch_id: str, gstack_version: str,
       base_red: { type: 'object', required: ['cases', 'files', 'base', 'lane', 'expires_at'], properties: { cases: strList, files: strList, base: str, lane: str, expires_at: str } },
+      flaky_exception: { type: 'array', items: { type: 'object', required: ['lane', 'runs', 'cases', 'grant', 'by'], properties: { lane: str, runs: strList, cases: strList, grant: str, by: str } } },
       review_depth: { type: 'object', required: ['depth', 'class', 'runtime_lines', 'rules', 'base', 'gate_scan'], properties: { depth: { enum: ['light', 'standard', 'full'] }, class: { enum: ['docs', 'tests', 'code', 'gate'] }, runtime_lines: { type: 'integer', minimum: 0 }, rules: str, base: str, registry: nullableStr, gate_scan: { type: 'object', required: ['tagged', 'head'], properties: { tagged: { type: ['integer', 'null'], minimum: 0 }, head: str } }, reasons: strList, risk: { type: 'array', items: { enum: ['money', 'auth', 'secret', 'security', 'data'] } } } },
       review_targeted: { type: 'object', required: ['classes', 'rules', 'brief_sha', 'product_patch_id', 'status', 'findings', 'raised_by'], properties: { classes: { type: 'array', items: { enum: ['money', 'gate', 'auth', 'secret'] } }, rules: str, brief_sha: str, product_patch_id: str, status: { enum: ['done', 'failed', 'not-run'] }, findings: { type: 'integer', minimum: 0 }, raised_by: str } },
       review_exclude: { type: 'object', required: ['source', 'patterns', 'applied', 'excluded', 'excluded_bytes', 'kept', 'gate_tagged', 'patterns_sha256', 'list_sha256', 'digest'], properties: { source: str, patterns: strList, applied: strList, excluded: { type: 'integer', minimum: 0 }, excluded_bytes: { type: 'integer', minimum: 0 }, kept: { type: 'integer', minimum: 0 }, gate_tagged: strList, patterns_sha256: str, list_sha256: str, digest: str } },

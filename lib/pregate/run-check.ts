@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ghRunDeps, runInventory } from '../run-evidence';
+import { ghArtifactDeps, ghRunDeps, runInventory } from '../run-evidence';
 import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';
 import { normalizeRemoteUrl } from '../ship-queue-train-record';
@@ -31,7 +31,7 @@ export function buildRunCheck(root: string, lane: string | null, allowRepoComman
   const repo = /^https:\/\/github\.com\/(.+)$/.exec(normalizeRemoteUrl(origin.status === 0 ? origin.stdout.trim() : ''))?.[1];
   if (!repo) return { error: 'origin is not a github.com repository; run evidence is read from GitHub Actions', profiled: lane === null ? false : lane === REMOTE_GATE_LANE ? !!loaded.config.remote_gate_runs : !!loaded.config.run_profiles[lane] };
   return {
-    repo, deps: ghRunDeps(repo, root), profiles: loaded.config.run_profiles, gateRuns: loaded.config.remote_gate_runs, now: new Date(),
+    repo, deps: ghRunDeps(repo, root), failures: ghArtifactDeps(repo), profiles: loaded.config.run_profiles, gateRuns: loaded.config.remote_gate_runs, now: new Date(),
     inventory: (command, tree, selected) => {
       if (!allowRepoCommands) return { error: 'the inventory command is a pin-file command; pass --allow-repo-commands' };
       const at = () => { const fp = wtreeFingerprint({ cwd: root }); return 'tree' in fp ? fp.tree : null; };

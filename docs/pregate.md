@@ -1059,6 +1059,91 @@ and without it every push falls back to the full run. Windows Free Tests now
 runs nightly and by hand only (docs/support-tiers.md), never on a push, so its
 `reuse` job is always skipped and every nightly run takes the strict path.
 
+<a id="flaky-exception"></a>
+## Owner-granted flaky exception
+
+A timing flake in a test file the pull request never touched can keep a remote
+gate obligation red: the rerun hits the same 5 s timeout on a loaded runner,
+and nothing in the diff can fix it. `clear --flaky-exception` lets the owner
+accept named cases for one head, on the run's own records:
+
+```bash
+gstack-pregate clear --remote pregate.json/remote_gate --run <id|url> \
+  --flaky-exception "test/docsync-fault-interface-legacy.test.ts::rejects legacy-third" \
+  --pr <n> --allow-repo-commands
+```
+
+The first call checks everything below and then refuses with
+`reason=grant_needed`, printing the exact `gstack-approvals add` command to run
+once the owner says yes: its `--scope` is `flaky-exception:<sha256>`, a digest of
+the repository, PR, head, tree, lane, every run with its attempt, and the sorted
+cases. Record the owner's exact words in that row, then rerun the same clear with
+`--grant <the row id>`. The obligation clears only when all of this holds:
+
+- **Every failure is named from the run's own records.** A red run uploads no
+  `tree.json`, so the clear reads the strict shard runner's artifacts instead
+  (`free-plan`, `free-result-<n>` and `free-test-shard-logs-<n>` in
+  `free-tests.yml`; the `windows-` names in `windows-free-tests.yml`; any other
+  workflow refuses with `no_shard_results`). Every job of the attempt is
+  reconciled: only the shard jobs (`free-suite (<n>)`) and the aggregate that
+  needs them may fail, every job the profile requires must pass, and any other
+  failed or cancelled job refuses (`unnamed_failure`). Every planned shard needs
+  its result; a missing result, a timed-out shard or a missing summary is
+  `shard_incomplete`. A failure the runner could not attribute to a test file,
+  an unhandled error between tests, or a `(fail)` line in a failed shard's log
+  that its result does not record refuses. A retry that passed is a recovered
+  flake; a retry that failed again keeps its own failures.
+- **The cases are exactly the failures.** At most three, written as
+  `<test file>::<test name>` the way the run printed them. A failure no
+  `--flaky-exception` names refuses (`unnamed_failure`), and so does a named
+  case that did not fail (`case_not_failed`). The refusal lists the run's
+  failures in that form.
+- **The files are not the PR's business.** A named file in the PR's diff
+  (`case_in_diff`), or one the import graph reaches from any changed path
+  (`case_in_closure`, lib/pregate/import-graph.ts with the base branch's
+  `dependencies`), refuses. The closure follows imports only: a test that reads a
+  changed doc, template or workflow through the file system is not reached, so
+  required CI stays the check on it. A paid test file (`case_paid`) and a
+  security test (`case_security`: a file name with cso, secrets, gitleaks, sealed,
+  redact or redaction, osv, security, sanitize or inject) are never excepted. Security scans themselves are pregate checks and CI jobs,
+  not test cases, so no exception can reach them.
+- **One head, one grant.** The runs must have tested pregate.json's own head and
+  tree, with no stamp-only substitution (`head_mismatch`); the PR must be open with
+  that head (`pr_mismatch`); no newer run of the workflow may exist on the head
+  (`newer_run`), and the run may not move to another attempt during the check
+  (`run_changed`). The grant row must carry this exception's scope
+  (`grant_mismatch` otherwise), record `approved` (`grant_not_approved`) and be
+  the owner's words, not an agent's (`grant_not_owner`). That last check reads
+  the row's `by` field, which `gstack-approvals add --by` takes as written, so it
+  only catches a row honestly labeled `agent:`. The record is as trustworthy as
+  whoever writes it, the same as every gstack approval. A new head needs a new
+  run and a new grant; a grant is never rebound: `ready` and the ship receipt
+  refuse an exception granted for another PR or head, even when the tree matches.
+
+pregate.json records the grant under `exceptions` (lane, repository, PR, head,
+tree, runs, cases, grant id, who said it, their words and the binding), and the
+obligation's receipt adds `exception=<grant> cases=<n>` to the usual run fields.
+The verdict becomes `pass-with-exception`. `verify` re-checks offline that each
+exception receipt has its entry, bound to this head and tree, with a binding that
+still matches its fields, and prints
+`PREGATE: pass-with-exception (<cases>; grant <id>)`. `gstack-ship-queue ready`
+accepts it and prints one `FLAKY_EXCEPTION:` line per exception in the READY
+block, and `gstack-ship-receipt write` records `flaky_exception` (lane, runs,
+cases, grant, who).
+
+**Pregate only.** The exception clears the pregate obligation and nothing else.
+It never waives a red required CI check: `ready` still needs every required check
+green at the exact head, so a red Free Tests check on the pull request needs its
+own rerun to pass. Changing that contract is a separate decision for the owner.
+
+**Why not `base_red`.** `base_red` (docs/ship-policy.md#base-red) proves a
+failure belongs to the base by reproducing it there, at the base head and at the
+PR head. A timing flake usually passes on the base (the 2026-11-02 docsync case
+passed in 3.5 s on main and failed at 5 s on the PR's tree), so `base_red`
+returns `IN_BRANCH` and refuses. The exception path asks a different question:
+not "is the base broken?" but "is every failure named, outside this PR, and
+accepted by the owner?"
+
 <a id="guards"></a>
 ## Guards and the lane-done rule
 
