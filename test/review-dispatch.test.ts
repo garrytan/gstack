@@ -224,6 +224,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('r', 'FIXABLE: race in a.ts:3\nINVESTIGATE: odd lock\nRecommendation: Fix the race because x\n').map(f => f.label)).toEqual(['FIXABLE', 'INVESTIGATE']);
     const m: MergedLine[] = [{ id: 'r#1', reader: 'r', label: 'FIXABLE', raw: 'x', output_sha256: 'h' }];
     expect(judge(m, [{ id: 'r#1', severity: 'severe' }]).invalid).toEqual(['r#1']);
+    // Replay C1-34 (GSTA-193): a judged line with "severity": null crashed judge with a TypeError; it is an invalid line.
+    expect(judge(m, [{ id: 'r#1', severity: null as unknown as string }, { id: 'lead#1' } as unknown as { id: string; severity: string }]).invalid).toEqual(['r#1', 'lead#1']);
     expect(judge(m, [{ id: 'r#1', severity: 'INFORMATIONAL', reason: 'a real defect' }]).ok).toBe(true);
   });
 
