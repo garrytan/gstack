@@ -3,7 +3,9 @@
  * (test/helpers/capy-host.ts): Bun 1.3.14 first on PATH unless a command is
  * launched with the GSTACK_LAUNCH PATH (verified Bun 1.4.2 first), no codex,
  * an ephemeral home, GSTACK_CAPY=1 and an install verdict for this checkout.
- * Every spawn carries a timeout.
+ * A first `next` that names no kind gets `--full`, so tests of the full run keep
+ * their phases and voices on Capy; `leanDefault` leaves it off to test the R65
+ * lean default itself (test/autoplan-lean.test.ts). Every spawn carries a timeout.
  */
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -27,7 +29,7 @@ export interface CapyRunner {
 }
 
 /** A launched command on the Capy host: GSTACK_LAUNCH PATH, unattended, GSTACK_CAPY=1, an ok verdict for this HEAD. */
-export function capyRunner(o: { launched?: boolean; verdict?: Partial<InstallVerdict> | null } = {}): CapyRunner {
+export function capyRunner(o: { launched?: boolean; verdict?: Partial<InstallVerdict> | null; leanDefault?: boolean } = {}): CapyRunner {
   const host = capyHost({ verifiedBun: '1.4.2' });
   const verdict = path.join(host.stateRoot, 'install-verdict');
   const env: Record<string, string> = {
@@ -49,7 +51,7 @@ export function capyRunner(o: { launched?: boolean; verdict?: Partial<InstallVer
     spawnSync('bun', args, { cwd: ROOT, env: { ...env, ...extra }, encoding: 'utf8', timeout: 120_000 });
   return {
     host, env, verdict, writeVerdict,
-    ap: (args, extra) => run([AUTOPLAN, ...args], extra),
+    ap: (args, extra) => run([AUTOPLAN, ...args, ...(o.leanDefault || args[0] !== 'next' || !args.includes('--plan') || args.includes('--kind') || args.includes('--full') ? [] : ['--full'])], extra),
     review: (prompt, extra) => run([REVIEWER, prompt], extra),
     validate: out => run([path.join(ROOT, 'bin', 'gstack-artifact'), 'validate', path.join(out, 'run.json')]),
     cleanup: host.cleanup,

@@ -50,6 +50,8 @@ export interface PhaseState {
   deferred?: DeferredClose;
   /** A confirm round (r > 1): the revision this phase last reviewed. */
   confirm?: { round: number; previous_sha256?: string; added: number; removed: number };
+  /** A lean run's draft code: the diff against the base hashed in snapshot_dir/draft.diff, or why there is none (lib/autoplan-lean.ts). */
+  draft?: import('./autoplan-lean').DraftInput;
   /** Revisions bound to this phase without re-review: every incorporated decision was below High (lib/autoplan-revise.ts). */
   rebound?: Array<{ k: number; from: string; to: string; decisions: string[]; at: string }>;
 }
@@ -74,6 +76,8 @@ export interface RunState extends RunManifest {
   carry_forward?: boolean; carry_check_cap_usd?: number; carry?: import('./autoplan-carry').CarryRecord;
   /** `next --ceo-only` (lib/autoplan-ceo-only.ts): the CEO phase alone, no gate, ends `reviewed`; never set by a scope marker. */
   ceo_only?: boolean;
+  /** The R65 lean run (lib/autoplan-lean.ts): eng alone, one merged native reviewer, one round, one gate revision; fixed at init. */
+  lean?: import('./autoplan-lean').LeanMode;
   /** Shadow mode (lib/autoplan-shadow.ts): fixed at init from GSTACK_AUTOPLAN_SHADOW or autoplan_shadow and never re-read; absent reads off. */
   shadow?: import('./autoplan-shadow').ShadowSwitch;
 }

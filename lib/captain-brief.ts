@@ -138,7 +138,7 @@ export function renderCaptainBrief(inputs: BriefInputs, o: { outDir: string; cap
   const trailer = `_For the relaying agent, not the person:_ run ${list.run}, gate_rev=${list.gate_rev}, rec_hash=${hash}; rec resolves to ${tokens}; "do it" answers as rec;${letters ? ` letters: ${letters}; a named option answers as \`--reply "rec except <token>"\`${example >= 0 ? ` (${letter(example)}2 = rec except ${asked[example]!.id}${ordered(asked[example]!)[1]!.key})` : ''};` : ''} plan ${plan.file ?? '(missing)'} (sha256 ${plan.sha}). Answer with ` +
     `\`gstack-autoplan answer --out ${o.outDir} --gate-rev ${list.gate_rev} --reply rec --rec-hash ${hash} --by agent:<id> --owner-reply "<their exact words>"\`, then \`gstack-approvals import --autoplan ${o.outDir} --by <name>\`.`;
   // The price sits above the trailer: the relaying agent sends everything above that line, so the person approving sees it.
-  const cost = inputs.run ? ['### Cost', '', gateCostSentence(gateCost(o.outDir, list, { phase_order: inputs.run.phase_order ?? [], outside_enabled: inputs.run.outside_enabled !== false, spend_cap_usd: inputs.run.spend_cap_usd ?? null, scope_flags: inputs.run.scope_flags })), ''] : [];
+  const cost = inputs.run ? ['### Cost', '', gateCostSentence(gateCost(o.outDir, list, { phase_order: inputs.run.phase_order ?? [], outside_enabled: inputs.run.outside_enabled !== false, spend_cap_usd: inputs.run.spend_cap_usd ?? null, scope_flags: inputs.run.scope_flags, lean: inputs.run.lean })), ''] : [];
   const text = [...urgent, ...header, '', ...body, ...need, ...cost, '---', '', trailer, ''].join('\n');
   return { text, missing, pending, recHash: hash };
 }

@@ -28,9 +28,11 @@ export interface GateCost {
   per_voice_usd: number;
   /** The reopen estimate: voices × per-voice. */
   rec_more_usd: number;
+  /** A lean run (R65): accepted plan changes apply without re-review, so they reopen nothing. */
+  lean?: boolean;
 }
 
-export interface GateCostRun { phase_order: string[]; outside_enabled: boolean; spend_cap_usd: number | null; scope_flags?: Record<string, boolean | undefined> }
+export interface GateCostRun { phase_order: string[]; outside_enabled: boolean; spend_cap_usd: number | null; scope_flags?: Record<string, boolean | undefined>; lean?: unknown }
 
 const usd = (n: number) => n.toFixed(2);
 
@@ -45,10 +47,11 @@ const usd = (n: number) => n.toFixed(2);
  * pin off is counted (`--no-ui` keeps Design out, `--no-dx` keeps DX out). A round grant (`cap`
  * item, option `b`) reopens its phase and Eng. Phases already at their cap are not reopened by
  * revise, but the bound does not subtract them: the gate lists their delta as its own item instead.
+ * A lean run's revise applies accepted changes without re-review (one gate revision), so a plan change reopens nothing.
  */
-export function recReopens(list: GateList, run: Pick<GateCostRun, 'phase_order' | 'scope_flags'>, prior: Record<string, string> = {}): string[] {
+export function recReopens(list: GateList, run: Pick<GateCostRun, 'phase_order' | 'scope_flags' | 'lean'>, prior: Record<string, string> = {}): string[] {
   const flags = run.scope_flags ?? {};
-  const bound = PHASES.filter(p => run.phase_order.includes(p) || (p === 'design' ? flags.ui !== false : p === 'dx' ? flags.dx !== false : true));
+  const bound = run.lean ? [] : PHASES.filter(p => run.phase_order.includes(p) || (p === 'design' ? flags.ui !== false : p === 'dx' ? flags.dx !== false : true));
   // The effective choice is parseReply's: an answer recorded at this gate, else the carried choice, else the recommendation.
   const choiceOf = (item: GateList['items'][number]) => prior[item.id] ?? item.carried?.chosen ?? item.recommended;
   const plan = list.items.find(i => i.id === 'p1');
@@ -81,7 +84,7 @@ export function gateCost(outDir: string, list: GateList, run: GateCostRun, o: { 
   const reopens = recReopens(list, run, priorChoices(outDir, list.gate_rev));
   const voices = reopens.length * (run.outside_enabled ? 2 : 1);
   const shadow_usd = Math.round([...ledger.settled.filter(s => !voice(s)).map(s => (s.usd === 'unknown' ? s.reserved_usd : s.usd)), ...ledger.reserved.filter(r => !voice(r)).map(r => r.estimate_usd)].reduce((a, b) => a + b, 0) * 1e6) / 1e6;
-  return { summary, attempts: settled.length + reserved.length, shadow_usd, reopens, voices, per_voice_usd, rec_more_usd: Math.round(voices * per_voice_usd * 100) / 100 };
+  return { summary, attempts: settled.length + reserved.length, shadow_usd, reopens, voices, per_voice_usd, rec_more_usd: Math.round(voices * per_voice_usd * 100) / 100, ...(run.lean ? { lean: true } : {}) };
 }
 
 /** The two printed lines: the ledger at this gate, and the price of `rec`. */
@@ -95,7 +98,7 @@ export function renderGateCost(c: GateCost): string[] {
     `GATE_SPEND: spent=${usd(s.spent_usd)} worst_case=${usd(s.worst_case_usd)} cap=${cap} headroom=${headroom} attempts=${c.attempts}${c.shadow_usd ? ` shadow=${c.shadow_usd.toFixed(4)}` : ''}${unknown}`,
     c.reopens.length
       ? `GATE_REC_COST: rec reopens up to ${c.reopens.join(',')} ≈ ${c.voices} voice(s) × ${usd(c.per_voice_usd)} = +${usd(c.rec_more_usd)} at most (the run's per-voice reservation)${after}`
-      : 'GATE_REC_COST: rec reopens nothing (no recommended option changes the plan): +0.00',
+      : `GATE_REC_COST: rec reopens nothing (${c.lean ? 'lean run: accepted changes apply without re-review' : 'no recommended option changes the plan'}): +0.00`,
   ];
 }
 

@@ -35,6 +35,7 @@ import { familyConflict, modelFamily } from './outside-voice-runner';
 import { SpendCapExceeded, release, renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
 import { DEFAULT_MAX_ROUNDS, attemptEstimate, overCap, resumeStop, roundCap, roundOf, roundsLine, stopForBudget, stopLines } from './autoplan-budget';
 import { annotateConfirm, confirmBlock } from './autoplan-confirm';
+import { LEAN_SKIPPED, captureDraft, checkDraftReceipt, draftLine, leanLine, leanMode, leanPrompt, type AutoplanKind } from './autoplan-lean';
 
 /** An unreadable run.lock younger than this is a lock some other gstack is still writing, never a stale one. */
 const LOCK_WRITE_GRACE_MS = 30_000;
@@ -78,7 +79,9 @@ export function withRunLock<T>(out: string, fn: () => T, opts: { steal?: boolean
 // ---------------------------------------------------------------------------
 // init
 // ---------------------------------------------------------------------------
-export interface InitOptions { plan: string; out: string; cwd: string; scope?: ScopeFlags; ceoOnly?: boolean; shadow?: ShadowSwitch; planHeading?: string; outsideEnabled?: boolean; spendCap?: number | null; sessionKind?: string; deadlineMin?: number; light?: boolean; runId?: string; scaffold?: boolean; maxRounds?: number; carryForward?: boolean; carryCheckCapUsd?: number }
+export interface InitOptions { plan: string; out: string; cwd: string; scope?: ScopeFlags; ceoOnly?: boolean; shadow?: ShadowSwitch; planHeading?: string; outsideEnabled?: boolean; spendCap?: number | null; sessionKind?: string; deadlineMin?: number; light?: boolean; runId?: string; scaffold?: boolean; maxRounds?: number; carryForward?: boolean; carryCheckCapUsd?: number;
+  /** R65 (lib/autoplan-lean.ts): --kind, --full and the draft's --base; a lean run is eng alone with one merged native reviewer. */
+  kind?: AutoplanKind; full?: boolean; base?: string }
 
 /** `lines` receives what init itself reports (SCAFFOLDED:). A plan with one section heading missing refuses, or with `scaffold` is reviewed from a scaffolded copy. */
 export function initRun(o: InitOptions, lines: string[] = []): RunState {
@@ -109,29 +112,30 @@ export function initRun(o: InitOptions, lines: string[] = []): RunState {
   const restore = path.join(out, FILES.restore);
   const init = snapshotTool(['init', source, active, restore], o.cwd);
   const scope = detectScope(active, o.cwd, o.scope ?? {}, path.resolve(o.plan));
-  const order: Phase[] = o.ceoOnly ? ['ceo'] : phaseOrder(scope);
+  const sessionKind = o.sessionKind ?? process.env.GSTACK_SESSION_KIND ?? 'unattended';
+  const lean = leanMode({ kind: o.kind, full: o.full, ceoOnly: o.ceoOnly, base: o.base, sessionKind, env: process.env });
+  const order: Phase[] = o.ceoOnly ? ['ceo'] : lean ? ['eng'] : phaseOrder(scope);
   const run = o.runId ?? `${path.basename(out)}-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`;
   // codex_reviews gates the outside voice here, before any dispatch: a refusal is a terminal not_run outcome per phase.
-  const consent = (o.outsideEnabled ?? true) ? outsideConsent({ userInvoked: false }) : undefined;
+  const consent = (o.outsideEnabled ?? true) && !lean ? outsideConsent({ userInvoked: false }) : undefined;
   const consentMissing = consent && !consent.allowed ? consent.lines[0] : undefined;
-  const sessionKind = o.sessionKind ?? process.env.GSTACK_SESSION_KIND ?? 'unattended';
   const phases: Record<string, PhaseState> = {};
-  for (const p of PHASES) if (!order.includes(p)) phases[p] = { skipped: o.ceoOnly ? 'ceo-only run' : scope.docs_only ? 'docs-only plan' : p === 'design' ? 'no UI scope detected' : 'no developer-facing scope detected', native: { status: 'skipped' }, outside: { status: 'skipped' } };
+  for (const p of PHASES) if (!order.includes(p)) phases[p] = { skipped: o.ceoOnly ? 'ceo-only run' : lean ? LEAN_SKIPPED : scope.docs_only ? 'docs-only plan' : p === 'design' ? 'no UI scope detected' : 'no developer-facing scope detected', native: { status: 'skipped' }, outside: { status: 'skipped' } };
   const state: RunState = {
     schema_version: 1, run, status: 'running', required_phases: order, phases, artifacts: {}, revision: 0, out,
     plan_source: init.sourcePlan, active_plan: init.activePlan, restore: init.restorePath, scope, phase_order: order,
-    outside_enabled: (o.outsideEnabled ?? true) && !consentMissing, attempt_counter: 0, spend_cap_usd: o.spendCap ?? null,
+    outside_enabled: (o.outsideEnabled ?? true) && !consentMissing && !lean, attempt_counter: 0, spend_cap_usd: o.spendCap ?? null,
     ...(consentMissing ? { outside_not_run: { reason: 'consent_missing', detail: consentMissing } } : {}),
-    session_kind: sessionKind, host: 'gstack-autoplan', max_rounds: o.maxRounds ?? (sessionKind === 'unattended' ? DEFAULT_MAX_ROUNDS : null), history: [], created_at: now(), updated_at: now(),
+    session_kind: sessionKind, host: 'gstack-autoplan', max_rounds: o.maxRounds ?? (lean ? 1 : sessionKind === 'unattended' ? DEFAULT_MAX_ROUNDS : null), history: [], created_at: now(), updated_at: now(),
     deviations: ['autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)'],
     ...(o.deadlineMin ? { deadline_at: new Date(Date.now() + o.deadlineMin * 60_000).toISOString() } : {}),
     ...(o.light ? { light: true } : {}),
     ...(o.ceoOnly ? { ceo_only: true } : {}), ...(o.shadow ? { shadow: o.shadow } : {}), gstack_version: GSTACK_VERSION, plan_input: input, scope_flags: { ...(o.scope ?? {}) },
     ...(o.planHeading ? { plan_heading: o.planHeading } : {}), ...(scaffolded ? { scaffolded: true } : {}),
-    ...(o.carryForward === false ? { carry_forward: false } : {}), ...(o.carryCheckCapUsd !== undefined ? { carry_check_cap_usd: o.carryCheckCapUsd } : {}),
+    ...(o.carryForward === false || lean ? { carry_forward: false } : {}), ...(lean ? { lean } : {}), ...(o.carryCheckCapUsd !== undefined ? { carry_check_cap_usd: o.carryCheckCapUsd } : {}),
   };
   fs.writeFileSync(path.join(out, 'timing.json'), JSON.stringify({ schema_version: 1, run, phases: [], started_at: now(), session_kind: state.session_kind }, null, 2) + '\n');
-  journal(out, { event: 'init', run, plan_source: source, scope, phase_order: order, ...(o.ceoOnly ? { ceo_only: true } : {}), ...(o.shadow ? { shadow: o.shadow } : {}), ...(consentMissing ? { outside: 'not_run', reason: 'consent_missing' } : {}) });
+  journal(out, { event: 'init', run, plan_source: source, scope, phase_order: order, ...(o.ceoOnly ? { ceo_only: true } : {}), ...(lean ? { lean } : {}), ...(o.shadow ? { shadow: o.shadow } : {}), ...(consentMissing ? { outside: 'not_run', reason: 'consent_missing' } : {}) });
   writeState(state);
   return state;
 }
@@ -175,17 +179,21 @@ function openPhase(state: RunState, phase: Phase, cwd: string): void {
   const decided = (state.gate_rev ?? 0) >= 1 ? readDecisions(state.out).filter(r => r.chosen != null && r.status !== 'pending')
     .map(r => `r${r.gate_rev} ${(r.label ?? r.id).toLowerCase()}${r.chosen} ${r.title}${r.chosen_text ? ` -> ${r.chosen_text}` : ''}`) : [];
   const confirm = confirmBlock(state, phase, snap.snapshotPath, roundOf(state, phase));
-  const prompts = writePrompts({ phase, snapshot: { nativePrompt: snap.nativePrompt, snapshotPath: snap.snapshotPath, sha256: snap.sha256 }, outDir: state.out, priorConsensus: prior, sections, decided, confirm: confirm?.text });
+  const draft = state.lean ? captureDraft(cwd, path.dirname(snap.snapshotPath), state.out, state.lean.base) : undefined;
+  const lean = draft ? leanPrompt(state, draft, path.dirname(snap.snapshotPath)) : undefined;
+  const prompts = writePrompts({ phase, snapshot: { nativePrompt: snap.nativePrompt, snapshotPath: snap.snapshotPath, sha256: snap.sha256 }, outDir: state.out, priorConsensus: prior, sections, decided, confirm: confirm?.text, lean });
   if (confirm) ps.confirm = confirm.confirm;
+  if (draft) ps.draft = draft; else delete ps.draft;
   ps.snapshot = snap.sha256; ps.snapshot_dir = path.dirname(snap.snapshotPath); ps.snapshot_path = snap.snapshotPath; ps.methodology = methodology.methodologyPath; ps.opened_at = now();
   ps.sections = { loaded: sections.loaded, skipped: sections.skipped, checklist: !!sections.checklist };
   ps.native = { status: 'pending', attempts: [] };
   const notRun = state.outside_not_run as { reason: string; detail: string } | undefined;
-  ps.outside = phase === 'ceo' && state.scope.docs_only ? { status: 'disabled', outcome: 'not_run', reason: 'docs_only', detail: 'docs-only plan: CEO runs the native voice only; Eng keeps both voices' }
+  ps.outside = state.lean ? { status: 'disabled', outcome: 'not_run', reason: 'lean', detail: 'lean run (R65): one native reviewer; --full adds the outside voice' }
+    : phase === 'ceo' && state.scope.docs_only ? { status: 'disabled', outcome: 'not_run', reason: 'docs_only', detail: 'docs-only plan: CEO runs the native voice only; Eng keeps both voices' }
     : state.outside_enabled ? { status: 'pending', attempts: [] }
     : notRun ? { status: 'disabled', outcome: 'not_run', reason: notRun.reason, detail: notRun.detail } : { status: 'disabled' };
   ps.prompts = prompts;
-  journal(state.out, { event: 'phase_opened', phase, snapshot: snap.sha256, prompts: Object.fromEntries(Object.entries(prompts).map(([k, p]) => [k, path.relative(state.out, p)])) });
+  journal(state.out, { event: 'phase_opened', phase, snapshot: snap.sha256, ...(draft ? { draft } : {}), prompts: Object.fromEntries(Object.entries(prompts).map(([k, p]) => [k, path.relative(state.out, p)])) });
 }
 
 /** The first next's price line: the most the review can reserve at this scope and round cap (a reservation total, not a spend ceiling). */
@@ -224,8 +232,10 @@ export function nextStep(o: NextOptions): NextResult {
   lines.push(`PHASE: ${phase} snapshot=${ps.snapshot} order=${state.phase_order.join(',')}`);
   const drift = driftLine(state, 'PLAN_CHANGED');
   if (drift) lines.push(drift);
-  if (first) lines.push(...scopeLines(state.scope), `DRIVER: ${driverFile()}`);
+  if (first) lines.push(...scopeLines(state.scope), ...(state.lean ? [leanLine(state)] : []), `DRIVER: ${driverFile()}`);
+  if (ps.draft) lines.push(draftLine(ps.draft));
   if (ps.outside?.reason === 'consent_missing') lines.push(`OUTSIDE: ${phase} not_run reason=consent_missing`, String(ps.outside.detail));
+  if (ps.outside?.reason === 'lean') lines.push(`OUTSIDE: ${phase} not_run reason=lean (native voice only)`);
   if (ps.outside?.reason === 'docs_only') lines.push(`OUTSIDE: ${phase} not_run reason=docs_only (native voice only)`);
   if (ps.sections) lines.push(`Skipped sections: ${ps.sections.skipped.length ? ps.sections.skipped.join(',') : 'none'} (scope: ui=${state.scope.ui ? 'yes' : 'no'},dx=${state.scope.dx ? 'yes' : 'no'},source=${scopeSourceLabel(state.scope)}; checklist=${ps.sections.checklist ? 'loaded' : 'none'})`);
   const prompts = ps.prompts!;
@@ -358,6 +368,7 @@ export function submitResult(o: SubmitOptions): SubmitResult {
     if (!parsed.fenceFound || parsed.errors.length) throw new RunError('RESULT_FINDINGS_MISSING', parsed.errors.join('; '));
     bind = { findings: parsed.findings, source: 'fence', receipt: 'verified' };
   }
+  if (state.lean && ps.draft && bind.receipt === 'verified') checkDraftReceipt(text, ps.draft);
   const model = o.model!;
   let conflict: string | undefined;
   if (o.voice === 'outside') conflict = familyConflict(model, state.native_model);
@@ -385,7 +396,7 @@ export function submitResult(o: SubmitOptions): SubmitResult {
   settle(path.join(state.out, FILES.spend), open.attempt, o.usageUsd ?? 'unknown');
   open.state = 'submitted'; open.terminal_at = now();
   Object.assign(v, { status: 'completed', model, provider, output: path.basename(bound), result_sha256: sha, findings: rows.length, attempt: open.attempt, usage: { usd: o.usageUsd ?? 'unknown' }, ...receipt } satisfies Partial<VoiceState>);
-  if (bind.receipt === 'attested') (state.deviations ??= []).push(`receipt attested: ${phase} ${o.voice} ${open.attempt} bound from a hand-run record without a reviewer receipt (snapshot ${ps.snapshot.slice(0, 12)}; reason: ${o.attest})`);
+  if (bind.receipt === 'attested') (state.deviations ??= []).push(`receipt attested: ${phase} ${o.voice} ${open.attempt} bound from a hand-run record without a reviewer receipt (snapshot ${ps.snapshot.slice(0, 12)}${state.lean && ps.draft ? `, draft ${(ps.draft.sha256 ?? 'none').slice(0, 12)} not bound` : ''}; reason: ${o.attest})`);
   state.artifacts[path.basename(bound)] = { path: path.basename(bound), sha256: sha };
   if (o.voice === 'native') state.native_model = model; else state.outside_model = model;
   const lines = [`BOUND: ${open.attempt} phase=${phase} voice=${o.voice} model=${model} findings=${rows.length} sha256=${sha.slice(0, 12)} receipt=${bind.receipt}${confirm ? ` round=${round} correlated=${confirm.correlated} settled=${confirm.settled}` : ''}`];
