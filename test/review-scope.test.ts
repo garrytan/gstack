@@ -288,6 +288,10 @@ describe('gstack-review-scope (bin)', () => {
     const badRender = runBin(repo, 'gstack-review-scope', ['render', '--deferred', d]);
     expect(badRender.status).toBe(EXIT.fail);
     expect(badRender.err).toContain('expected the JSON array defer --out writes');
+    fs.writeFileSync(d, '{"deferred":[]}');
+    const wrapped = runBin(repo, 'gstack-review-scope', ['render', '--deferred', d]);
+    expect(wrapped.status, wrapped.err).toBe(EXIT.ok);
+    expect(wrapped.out).toBe('');
   });
 
   test('classify sees a non-ASCII changed path under its own name, so a CRITICAL finding there is fixed, not deferred to an issue', () => {

@@ -43,7 +43,8 @@ export function recordSent(ledger: string, reader: string, sentText: string): { 
 
 /** Severity ranks across the voices' vocabularies; a label with no severity (FIXABLE, INVESTIGATE) ranks 0. */
 const RANKS: Record<string, number> = { critical: 4, p0: 4, high: 3, p1: 3, medium: 2, p2: 2, informational: 2, low: 1, p3: 1, fixable: 0, investigate: 0 };
-export function rank(label: string): number | null {
+export function rank(label: unknown): number | null {
+  if (typeof label !== 'string') return null;
   const r = RANKS[label.trim().replace(/^\[|\]$/g, '').toLowerCase()];
   return r === undefined ? null : r;
 }
