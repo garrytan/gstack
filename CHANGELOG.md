@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.95.3.0] - 2026-11-03
+
+### Fixed
+
+- **`gstack-evidence passed` skips the tree hash when the ledger has nothing to match.** Before pregate runs a guard, it asks `gstack-evidence passed` whether that exact command already passed at this tree (#3929). Each check hashed the working tree (`gstack-wtree`) before it looked at the ledger. Usually the ledger has no row for the command at all, so that hash was wasted. Each check took 0.19 s idle and 0.74 to 0.94 s on a busy 4-core machine, once per guard. Now the ledger is read first, and the tree is hashed only when a local row names the command. The answer is the same. Only the no-row message drops its "at tree …" suffix.
+- **Two local test cases no longer run out of time at Bun's default 5 s.** `test/pregate-guards.test.ts`'s guard-timeout case ran two full pregates, each waiting out a real 1 s guard timeout. It is now two cases, one with several guards together and one with a lone timed-out guard. Its fixture also writes the manifest into the base commit instead of making a second commit. On a 4-core machine it went from 4.1 s to 2.0 s and 1.75 s idle. With every core busy (busy loops at nice 10), it went from 0 of 3 runs passing to 10 of 10. `test/spec-quality-gate-secret-sink.test.ts` rendered every host's skill docs in `beforeAll` but reads only the claude and codex output. It now renders just those two, which are byte-identical to the full render: 1.38 s down to 0.37 s. With 16 busy loops, that hook went from timing out in 3 of 3 runs to passing 3 of 3. That is the hook timeout the macOS named-regressions job hit on #3926.
+
 ## [1.95.2.0] - 2026-11-03
 
 ### Tests
