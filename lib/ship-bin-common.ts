@@ -7,6 +7,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fragmentSlug } from './changelog-fragments';
 import { parseUnifiedDiff, stampOnlyLine, versionAtRef } from './restamp';
@@ -150,13 +151,32 @@ export class Report {
   }
 }
 
-/** Run each lane through gstack-evidence run in parallel and read its recorded line. */
-export async function runLanes(cwd: string, list: { label: string; command: string }[]): Promise<{ label: string; exit: number | null; testsRan: string; log: string }[]> {
-  return Promise.all(list.map(async l => {
-    const r = await binAsync(cwd, 'gstack-evidence', ['run', '--label', l.label, '--', l.command]);
-    const m = /gstack-evidence: recorded label=\S+ exit=(\S+) tests_ran=(\S+) log=(\S+)/.exec(r.stderr);
-    return { label: l.label, exit: r.status, testsRan: m?.[2] ?? 'unknown', log: m?.[3] ?? '-' };
-  }));
+/**
+ * How many lanes run at once (GST-851): `--lanes serial` one, `--lanes parallel` all; unset, one on a machine with 4 or fewer
+ * cores (six lanes at once took 4-core machines down on gstack-evals) and all above that. Any other value is a usage error.
+ */
+export function laneConcurrency(mode: string | undefined, cpus = os.availableParallelism()): number | string {
+  if (mode === 'serial') return 1;
+  if (mode === 'parallel') return Infinity;
+  if (mode !== undefined) return `--lanes ${mode} is not serial or parallel`;
+  return cpus <= 4 ? 1 : Infinity;
+}
+
+/** Run each lane through gstack-evidence run, at most `concurrency` at a time, and read its recorded line; results keep the lanes' order. */
+export async function runLanes(cwd: string, list: { label: string; command: string }[], concurrency = Infinity): Promise<{ label: string; exit: number | null; testsRan: string; log: string }[]> {
+  const out: { label: string; exit: number | null; testsRan: string; log: string }[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length) {
+      const i = next++;
+      const l = list[i]!;
+      const r = await binAsync(cwd, 'gstack-evidence', ['run', '--label', l.label, '--', l.command]);
+      const m = /gstack-evidence: recorded label=\S+ exit=(\S+) tests_ran=(\S+) log=(\S+)/.exec(r.stderr);
+      out[i] = { label: l.label, exit: r.status, testsRan: m?.[2] ?? 'unknown', log: m?.[3] ?? '-' };
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, list.length)) }, worker));
+  return out;
 }
 
 /** Step 5's lane verdict: a lane passes on its runner count, never exit 0 alone. */

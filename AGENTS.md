@@ -281,6 +281,9 @@ Agents poll `eval:bg:*` logs for the `### gstack-detach EXIT=<code> ###` sentine
 
 ## Platform support
 
+Support tiers (full: macOS, Linux; minimal: Windows, Gemini models) are in
+[docs/support-tiers.md](docs/support-tiers.md).
+
 - **macOS** + **Linux**: full test suite supported.
 - **Windows**: minimal support; [docs/support-tiers.md](docs/support-tiers.md)
   says what is promised. Every PR must pass the `windows-smoke` check (`./setup`,
