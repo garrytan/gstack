@@ -92,6 +92,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/design-ui-focus-capture-40664336141.json': ['test/plan-design-with-ui-fixture.test.ts'],
   'test/fixtures/design-ui-focus-capture-41178131219.json': ['test/plan-design-with-ui-fixture.test.ts'],
   'test/fixtures/design-ui-focus-capture-41186376825.json': ['test/plan-design-with-ui-fixture.test.ts'],
+  'test/fixtures/design-ui-focus-capture-41414111284.json': ['test/plan-design-with-ui-fixture.test.ts'],
   'test/fixtures/design-ui-focus-capture.json': ['test/plan-design-with-ui-fixture.test.ts'],
   'test/fixtures/detector-corpora/auto-decide-preserved/**': ['test/detector-corpus-auto-decide-preserved.test.ts'],
   'test/fixtures/detector-corpora/plan-ceo-section-loading/**': ['test/detector-corpus-plan-ceo-section-loading.test.ts'],

@@ -98,7 +98,7 @@ describe('native executable shared-code checker evidence', () => {
     const start = scenario.indexOf(marker) + marker.length;
     const body = scenario.slice(start, scenario.indexOf('\n        });', start));
     const verify = new Function('deps', 'result', new Bun.Transpiler({ loader: 'ts' }).transformSync(`const {
-      change, questions, expect, toolCommandTrace, reviewRecords, createHash, path, f, current,
+      change, questions, expect, toolCommandTrace, reviewRecords, createHash, path, f, current, sources,
       fixtureGit, fixtureWorkingTree, hasTrustedReviewStartRead, hasTrustedSharedLibsCheck, SHARED_LIBS_ROOT,
       resumed, prerequisites, checkPathReviewPrerequisites, hasPathReviewPrerequisiteReceipt
     } = deps; ${body}`));
@@ -106,7 +106,7 @@ describe('native executable shared-code checker evidence', () => {
       .map((event: any) => ({ tool: event.message.content[0].name, input: event.message.content[0].input })) };
     let checks = 0;
     verify({ change, questions: run.questions, expect, toolCommandTrace, reviewRecords, createHash, path,
-      f: run.f, current: run.current, fixtureGit, fixtureWorkingTree, hasTrustedReviewStartRead, SHARED_LIBS_ROOT,
+      f: run.f, current: run.current, sources: run.expected.sources, fixtureGit, fixtureWorkingTree, hasTrustedReviewStartRead, SHARED_LIBS_ROOT,
       resumed: run.resumed, prerequisites: run.prerequisites, checkPathReviewPrerequisites, hasPathReviewPrerequisiteReceipt,
       hasTrustedSharedLibsCheck: (events: unknown[], expected: any) => {
         checks++;

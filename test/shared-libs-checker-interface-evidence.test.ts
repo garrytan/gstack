@@ -144,7 +144,7 @@ describe('native executable shared-code checker evidence', () => {
     const start = scenario.indexOf(marker) + marker.length;
     const body = scenario.slice(start, scenario.indexOf('\n        });', start));
     const verify = new Function('deps', 'result', new Bun.Transpiler({ loader: 'ts' }).transformSync(`const {
-      change, questions, expect, toolCommandTrace, reviewRecords, createHash, path, f, current,
+      change, questions, expect, toolCommandTrace, reviewRecords, createHash, path, f, current, sources,
       fixtureGit, fixtureWorkingTree, hasTrustedReviewStartRead, hasTrustedSharedLibsCheck, SHARED_LIBS_ROOT,
       resumed, prerequisites, checkPathReviewPrerequisites, hasPathReviewPrerequisiteReceipt
     } = deps; ${body}`));
@@ -153,7 +153,7 @@ describe('native executable shared-code checker evidence', () => {
       .map((event: any) => ({ tool: event.message.content[0].name, input: event.message.content[0].input })) };
     let checks = 0;
     const deps = { change, questions: change === 'unchanged' ? [] : [{}], expect, toolCommandTrace,
-      reviewRecords, createHash, path, f: run.f, current: run.current, fixtureGit, fixtureWorkingTree,
+      reviewRecords, createHash, path, f: run.f, current: run.current, sources: run.expected.sources, fixtureGit, fixtureWorkingTree,
       hasTrustedReviewStartRead, SHARED_LIBS_ROOT, resumed: run.resumed, prerequisites: run.prerequisites,
       checkPathReviewPrerequisites, hasPathReviewPrerequisiteReceipt, hasTrustedSharedLibsCheck: (events: unknown[], expected: any) => {
         checks++;
@@ -180,6 +180,43 @@ describe('native executable shared-code checker evidence', () => {
     }
     expect(() => verify({ ...deps, questions: change === 'unchanged' ? [{}] : [] }, native)).toThrow();
     expect(() => verify({ ...deps, reviewRecords: () => [] }, native)).toThrow();
+  });
+
+  test('an errored batched caller read counts only when its output holds the whole source, and the registered filtered callback passes the sources (red 40737741454)', () => {
+    const run = replay('filtered');
+    const [file, next] = run.current.evidence_paths;
+    expect(call(run, 2).input.command).toBe(`cat ${shellQuote(file)}`);
+    const whole = result(run, 2).content;
+    call(run, 2).input.command = `cat ${file}; echo ===ROUTE; cat ${next}; cat missing.ts`;
+    Object.assign(result(run, 2), { is_error: true, content: `Exit code 1\n${whole}\n===ROUTE\ncat: missing.ts: No such file or directory` });
+    expect(hasTrustedSharedLibsCheck(run.events, run.expected)).toBe(true);
+    expect(hasTrustedSharedLibsCheck(run.events, { ...run.expected, sources: undefined })).toBe(false);
+    const truncated = structuredClone(run);
+    result(truncated, 2).content = `Exit code 1\n${whole.slice(0, Math.floor(whole.length / 2))}`;
+    expect(hasTrustedSharedLibsCheck(truncated.events, truncated.expected)).toBe(false);
+    const single = structuredClone(run);
+    call(single, 2).input.command = `cat ${file}`;
+    expect(hasTrustedSharedLibsCheck(single.events, single.expected)).toBe(false);
+    const scenario = source.slice(source.indexOf("test('shared-libs-review-revalidation'"));
+    const marker = '}, result => {';
+    const start = scenario.indexOf(marker) + marker.length;
+    const body = scenario.slice(start, scenario.indexOf('\n        });', start));
+    const verify = new Function('deps', 'result', new Bun.Transpiler({ loader: 'ts' }).transformSync(`const {
+      change, questions, expect, toolCommandTrace, reviewRecords, createHash, path, f, current, sources,
+      fixtureGit, fixtureWorkingTree, hasTrustedReviewStartRead, hasTrustedSharedLibsCheck, SHARED_LIBS_ROOT,
+      resumed, prerequisites, checkPathReviewPrerequisites, hasPathReviewPrerequisiteReceipt
+    } = deps; ${body}`));
+    const native = { events: run.events, toolCalls: run.events.filter((event: any) => event.type === 'assistant')
+      .map((event: any) => ({ tool: event.message.content[0].name, input: event.message.content[0].input })) };
+    let passed: unknown[] = [];
+    verify({ change: 'filtered', questions: [{}], expect, toolCommandTrace, reviewRecords, createHash, path, f: run.f,
+      current: run.current, sources: run.expected.sources, fixtureGit, fixtureWorkingTree, hasTrustedReviewStartRead,
+      SHARED_LIBS_ROOT, resumed: run.resumed, prerequisites: run.prerequisites, checkPathReviewPrerequisites,
+      hasPathReviewPrerequisiteReceipt, hasTrustedSharedLibsCheck: (events: unknown[], expected: any) => {
+        passed = Object.keys(expected.sources ?? {});
+        return hasTrustedSharedLibsCheck(events, expected);
+      } }, native);
+    expect(passed.sort()).toEqual([...run.current.evidence_paths].sort());
   });
 
   test.each(pathKinds)('the actual %s callback consumes false proof and enforces final excluded coverage', async kind => {
