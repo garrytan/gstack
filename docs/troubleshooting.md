@@ -2915,6 +2915,34 @@ fetching it cannot create that ref, so pass a branch that exists on `origin`
 (`git branch -r --list 'origin/*'` lists them). `gstack-pregate` says so in
 its fix instead of suggesting the fetch.
 
+<a id="history-read-failed"></a>
+### `cannot read <path> at <ref>. <cause> (git version <v>). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)`
+
+**Meaning.** A CI job or a local release tool read a file at an older commit
+and git could not produce it. The PR and train path jobs (Free Tests' plan, the Version Gate,
+and E2E Evals' route, screen summary, planner, slices, reruns, bisect and
+report) check out blobless clones (`filter: blob:none`): every commit and
+tree is there, but an older file's contents are fetched from GitHub the first
+time something reads them. When that fetch fails three times (a GitHub outage,
+a network drop), or the ref does not resolve at all, the read fails here
+instead of counting as "the file is absent". A file the commit really does not
+have still reads as absent, as before. No ship policy at the base means no
+train, and no VERSION means `0.0.0.0`. The route and backstop policy reads (inline
+in their workflows), `.github/scripts/history-read.sh` (the Version Gate's base
+`VERSION`) and `lib/history-read.ts` (the Version Gate's train classification)
+print this line. The Version Gate prints the same code when
+`git fetch origin <base>` fails three times. `gstack-restamp` and
+`gstack-ship-queue land` print it too when they cannot read the base branch's
+CHANGELOG, which they check fragments against (`lib/changelog-fragments.ts`
+reads it through `lib/history-read.ts`); outside a partial clone they do not
+retry.
+
+**Fix.** Rerun the failed job once GitHub is reachable. If it fails the same
+way on a healthy network, check that the ref exists on `origin` and that the
+runner's git supports partial clone (`git --version` 2.22 or newer; the eval
+image asserts it at build time in `.github/docker/Dockerfile.ci`). For a local
+tool, run `git fetch origin <base>` and rerun it.
+
 <a id="policy-invalid"></a>
 ### `POLICY_INVALID`
 
@@ -5548,10 +5576,36 @@ retargeted stacked PR the parent branch and the base.
 **Fix.** Run /ship on the new head. The receipt carries only across a
 conflict-only base merge, a test-only change, release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
-the recorded product diff, or a stacked PR's retarget once its parent fully
-landed on the base, which the
+the recorded product diff, a stacked PR's retarget once its parent fully
+landed on the base, or base context next to unchanged hunks after a clean
+scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
+
+<a id="receipt-carry-scoped-review"></a>
+### `RECEIPT_CARRY_SCOPED_REVIEW`
+
+**Meaning.** Every product path the branch touches has the reviewed +/- lines
+in the same places, but the base edited context lines next to some of them, so
+the 3-line patches differ (GST-384: main reworded the line above the PR's
+hunk). The merge may have spliced the two, as in a JSON entry where the branch
+changed one key and the base the next, so the receipt does not carry silently.
+The refusal names the paths and a packet file with the hunks that differ and
+the base's own change. The same lines moved somewhere else are
+`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code.
+
+**Fix.** Dispatch one fix-check reviewer
+([review-policy.md](review-policy.md)) on the packet. When it comes back clean,
+write `{"head":"<HEAD>","paths":[...],"reviewer":"<model>","verdict":"clean"}`
+and rerun `gstack-ship-receipt carry ... --scoped-review <record.json>`; the
+carry reason records the reviewer and the paths. A blocking finding means /ship
+on the new head. `gstack-ship-release finish` stops the same way with
+`context=N` and takes `--context-reviewed <record.json>` bound to the tree;
+write that record beside the packet, outside the worktree, so it does not change
+the tree it is bound to. Finish also stops this way for test code changed since
+review with no gate edit (`tests=N`): the packet holds those test hunks, and the
+reviewer checks that each test still tests what it did. A packet that cannot be
+written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the path.
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`

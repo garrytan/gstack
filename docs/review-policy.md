@@ -376,7 +376,8 @@ The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
 receipt carried across a base merge or a test-only fix
 ([ship-policy.md#receipt-carry](ship-policy.md#receipt-carry)) keeps these
-counters, because the reviewed product diff is unchanged.
+counters, because the reviewed product diff is unchanged or its only
+difference passed a scoped review.
 
 ## The scope knob
 
