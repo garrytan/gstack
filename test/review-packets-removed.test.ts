@@ -74,6 +74,7 @@ const NO_LOSS_REPLAYS = {
   'GST-967': "GST-967 dispatch-superset no-loss check (test/review-depth.test.ts, 'GST-967 dispatch-superset no-loss check'): over 1,440 planReview cases the branch plans exactly what main planned at 1022f4f except the 71 gate-class stops before Step 11, which add only Step 11's adversarial, outside and targeted voices, so no reviewer main dispatches is dropped or re-efforted; the brief bodies lib/review-brief.ts cuts from the ship sections hash to main's; only the lead's repeat-decision and Step 11 instructions changed; reviewer text is unchanged",
   'GST-508+GST-464+GST-967': "wave review-53cfb5bfe011 merge of main 68410828f into #3852: ship/sections/review-army.md and adversarial.md are main's GST-967 bytes plus exactly the GST-508+GST-464 lines (the merged file minus main equals the wave minus fc292e22f, line for line), so GST-967's dispatch-superset no-loss check and GST-508's no-loss replay both hold; merged-head checks in GStack Minder drive handoffs/GSTA-202/merge-6841-checks.md",
   'GST-508+R51+GST-911+GST-967': "wave review-53cfb5bfe011 merge of main 68410828f into #3852: lib/review-depth.ts is main's GST-967 bytes plus exactly the GST-508+R51+GST-911 lines (the merged file minus main equals the wave minus fc292e22f, line for line); GST-967's dispatch-superset no-loss check (test/review-depth.test.ts) passes on the merged file, and the GST-508+R51+GST-911 checks are rerun at the merged head (GStack Minder drive handoffs/GSTA-202/merge-6841-checks.md)",
+  'GST-940': "GST-940 verdict no-loss check: svgDrawing reads a style element's opening tag as quoted pairs with ASCII whitespace, walks its body over the raw text, refuses any & in it, reads comments as CSS and refuses a non-ASCII element or attribute name; on 62,805 unique SVG files (21,658 with a style element) it gives the same verdict as main at 4bbad2422 on every file, and the planner over the last 100 first-parent main commits to 4bbad2422 changes no commit's depth, class or risk classes; the only verdicts it changes are the GST-940 cases in test/review-planner-misreads.test.ts; rerun on the merge with main at 8f08cb76a (GST-967 merged), with the same results; rerun on the merge with main at 5f705f367 (#3852 and #3864 merged), with the same results",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
@@ -95,7 +96,7 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: 'd76a9afcfadfe0a95b15428c04e6f7a88c6b0fa75591201c45f023fec2bb90db', replay: 'GST-508+R51+GST-911+GST-967' },
+    'lib/review-depth.ts': { sha: '25050a7a61f81df649d1df0d0237dbf961671356395317c6a527741f5bb56877', replay: 'GST-940' },
     'lib/review-risk.ts': { sha: '08464b78a723ee463ca3a28d0abbc4eb8f4f512192061c703743707b66b5a311', replay: 'GST-942' },
 };
 
