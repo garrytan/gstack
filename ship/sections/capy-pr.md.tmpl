@@ -37,7 +37,8 @@ commit themes; do not repeat the captions.
 6. **`## Blast radius`:** the body template's item, written once, here: what else the change touches and
    the one fact that makes that safe, with the evidence-ladder rung it reached (the `/investigate` skill's Blast radius section, when present).
 7. **`## Approvals`:** the output of `~/.claude/skills/gstack/bin/gstack-approvals render`, verbatim. It
-   escapes its cells, and the receipt never reads it as an approval citation. On
+   escapes its cells, and the receipt never reads it as an approval citation. A public repo (or unknown
+   visibility) gets only `Approved: yes|no (record <id>)`; never pass `--full` for a PR body. On
    `APPROVAL_RECORD_UNAVAILABLE` keep its text and say so in the READY report. Never type rows by hand.
 8. **READY report:** attach the key image's PNG to the report you send (Capy's message
    attachments) and give its uploaded URL, so the Captain can show it inline.

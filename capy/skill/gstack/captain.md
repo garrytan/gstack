@@ -60,7 +60,8 @@ gstack-approvals render                                    # the ## Approvals se
   Drive folder. `gstack-approvals path` prints the chosen mirror and `READ_ALSO:` roots, which reads still
   merge. `GSTACK_APPROVALS_MIRROR=0` turns the mirror off, and `gstack-approvals sync` restores the local copy.
 - **The durable copies** are the `## Approvals` sections in the thread's report and in the PR body. Paste
-  `render` output into them; never type rows by hand.
+  `render` output into them; never type rows by hand. On a public repository (or unknown visibility)
+  `render` prints only `Approved: yes|no (record <id>)`; `gstack-approvals list` shows the full record.
 - **Secret-free.** Every field passes gstack's secret scanner before it is written. A hit refuses the row
   (`APPROVAL_RECORD_SECRET`, which names the field and rule, never the text). Write `[redacted]` in place of
   the secret, or ask the person to restate.
