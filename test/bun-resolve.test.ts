@@ -138,4 +138,33 @@ describe('one Bun resolution contract, two twins', () => {
     expect(viaLaunch.dir).toBe(launch);
     expect(viaLaunch.env.PATH?.split(path.delimiter)[0]).toBe(launch);
   });
+
+  // GST-1233: a docs child's install replaced the shared verdict and republished the shared launch
+  // directory with its own Bun; the finish pregate admits from ship's own record and launches ship's Bun.
+  test("launchRuntime admits /ship from its own record when another workflow's install replaced the shared verdict, and never launches that install's Bun", () => {
+    const l = layout({ storeVersions: ['1.4.4'] });
+    const { installVerdictPath } = require('../lib/install-verdict') as typeof import('../lib/install-verdict');
+    const checkout = fs.realpathSync(ROOT);
+    const file = installVerdictPath(checkout, l.state, null);
+    const head = spawnSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const childBun = path.join(bunStore(l.state), '1.4.4/bun');
+    const launch = file.replace(/\.json$/, '.launch');
+    fs.mkdirSync(launch, { recursive: true });
+    fs.symlinkSync(childBun, path.join(launch, 'bun'));
+    const record = { schema_version: 2, checkout, project: '', head, pins_planning_only: false, ok: true, min_revision: '', launch_path: launch, time: '' };
+    fs.writeFileSync(file, JSON.stringify({ ...record, for: 'document-release', required: ['claude'], trailer: 'gstack: ok for=document-release', bun_path: fs.realpathSync(childBun), bun_version: '1.4.4' }));
+    const refused = launchRuntime(ROOT, l.env);
+    expect(refused.refusal).toMatchObject({ code: 'INSTALL_UNVERIFIED' });
+    expect(refused.refusal?.detail).toContain('certified for=document-release');
+    const own = file.replace(/\.json$/, '.for/ship.json');
+    fs.mkdirSync(path.dirname(own), { recursive: true });
+    fs.writeFileSync(own, JSON.stringify({ ...record, for: 'ship', required: ['claude', 'codex', 'patch'], trailer: 'gstack: ok for=ship', bun_path: REAL_BUN, bun_version: Bun.version }));
+    const r = launchRuntime(ROOT, l.env);
+    expect(r.refusal).toBeNull();
+    expect(r.verdict).toBe('ok');
+    expect(r.label).toBe(`bun ${Bun.version} at ${REAL_BUN} (recorded by the install verdict)`);
+    expect(r.dir).toBe(path.dirname(REAL_BUN));
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), ok: false, trailer: 'gstack: fail setup — ./setup failed' }));
+    expect(launchRuntime(ROOT, l.env).refusal?.detail).toBe('install verdict: the install verdict says: gstack: fail setup — ./setup failed');
+  });
 });
