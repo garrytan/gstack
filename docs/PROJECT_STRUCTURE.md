@@ -96,7 +96,7 @@ gstack/
 ├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
 ├── lib/             # Shared libraries (aside-render.ts = local-HTML rendering, Aside first, engine fallback; design-catalog.ts = the typed design anti-pattern catalog every design skill renders from; design-lint/ = the static and render tiers behind bin/gstack-design-lint, ported from hallmark's sloplint; design-detect-contract.ts = detector sentinel vocabulary; design-md.ts = open DESIGN.md reader/writer; dom-dump-script.ts + generated dom-dump.js = rendered-DOM dump for the detector; review-evidence.ts = review-start receipt binding, computed freshness and shared-code snapshot eligibility; frontend-scope.ts; claude-bin.ts, error-handling.ts, worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
 │   └── diagram-render/  # Vendored mermaid + excalidraw runtimes, built into one offline bundle the renderer loads
-├── patches/         # bun `patchedDependencies` patches (playwright-core windowsHide)
+├── patches/         # bun `patchedDependencies` patches (playwright-core windowsHide, TcpPortRandomizationWin disabled on Windows)
 ├── docs/designs/    # Design documents (incl. IMPECCABLE_INTEROP.md = the design detector / catalog / open DESIGN.md record, and fork-port-residual-2026-09/ evaluation evidence)
 ├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
 ├── .github/         # CI workflows + shared composite actions (.github/actions/) + Docker image (claude CLI pinned)

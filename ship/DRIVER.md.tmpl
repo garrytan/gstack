@@ -95,8 +95,8 @@ prints `ADVERSARIAL: skipped (review plan)`).
 Judge the voices; missing outside coverage is `unavailable`, never clean; queued fixes rerun Phases
 3-4. Then `gstack-review-dispatch verify` (`VERIFY: clean`) and `gstack-review-read`: the final Step 9 row and Step 11 native row (or `CURRENT` freshness
 after a planned skip) agree on `wtree`, `start_wtree`, `end_wtree`; save that reviewed tree. Then
-`gstack-ship-release version --base <base> [--bump micro|patch] --why '<line>'`; MINOR or MAJOR is a
-question; `VERSION: skipped (policy: ...)`: write no version.
+`gstack-ship-release version --base <base> [--bump micro|patch] --why '<line>'`; MINOR, MAJOR, `BUMP_ANSWER_REQUIRED`:
+approvals; `VERSION: skipped|kept`: no write.
 
 ## 6. Notes and documentation: Steps 13, 14, 14.5
 

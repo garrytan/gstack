@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { closePacketReadAfterNotice, prepareGuardSession, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
+import { closePacketReadAfterNotice, dispatchPromptDelta, prepareGuardSession, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
 
 const base = '/home/runner/.cache/gstack-paid-shard-x/tmp/ap-guard-pty-y';
 
@@ -62,5 +62,25 @@ test('the scripted actor keeps going through the phase boundary: nothing between
     // The publication and the Phase 2 entry stay in separate messages: the guard's boundary is unchanged.
     expect(step(7)).toContain('make exactly one tool call in that same message: the Bash command `true autoplan-published ceo`');
     for (const n of [6, 7, 8, 9]) expect(step(n)).not.toMatch(/end your turn(?! after it)|wait for (its|a) completion/i);
+  } finally { s.cleanup(); }
+});
+
+// Train gate 40992022983 (paid-slice-1-a1, passed on the in-run rerun): the guard denied the Design dispatch with
+// dispatch_prompt, and the journal summary cut every input at 160 characters, so the differing bytes were lost.
+test('a dispatch_prompt deny names the bytes the actor changed, read from the journal before cleanup', () => {
+  const s = prepareGuardSession(undefined);
+  try {
+    const design = '[DESIGN] Native phase review\nRead file: /p/native-prompt.md\nApply every criterion.\nReturn findings.\n';
+    fs.writeFileSync(path.join(s.project, '.gstack', 'tmp', 'autoplan', 'dispatch-design.txt'), design);
+    const journal = path.join(s.config, 'projects', 'p');
+    fs.mkdirSync(journal, { recursive: true });
+    const sent = design.replace('every criterion', 'all criteria');
+    fs.writeFileSync(path.join(journal, 'session.jsonl'), JSON.stringify({ message: { content: [
+      { type: 'tool_use', name: 'Agent', input: { description: 'Design review', prompt: sent } }] } }) + '\n');
+    const [delta] = s.dispatchPromptDeltas();
+    expect(delta).toContain(`Design review: expected ${design.length} chars, sent ${sent.length}; first difference at offset ${design.indexOf('every')}`);
+    expect(delta).toContain('Apply every criterion.');
+    expect(delta).toContain('Apply all criteria.');
+    expect(dispatchPromptDelta(design, design)).toBe(`identical (${design.length} chars)`);
   } finally { s.cleanup(); }
 });

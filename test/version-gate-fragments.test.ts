@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { BUMP_NEVER_KEY_VERSION } from '../lib/ship-policy';
 import { BASE_POLICY, cleanup, makeFixtureRepo, ROOT, type FixtureRepo } from './helpers/restamp-fixture';
 
 const SCRIPT = path.join(ROOT, 'scripts', 'compare-pr-version.ts');
@@ -23,6 +24,24 @@ function run(r: FixtureRepo, head: string, extra: Record<string, string> = {}, c
   const out = Bun.spawnSync([process.execPath, 'run', SCRIPT, next, '3600'], { cwd: r.work, env: { ...process.env, ...r.env, PR_VERSION: prVersion, BASE_REF: 'main', HEAD_SHA: head, PR_AUTHOR: 'garrytan', ...extra }, timeout: 30_000, stdout: 'pipe', stderr: 'pipe' });
   return { code: out.exitCode, out: out.stdout.toString() + out.stderr.toString() };
 }
+
+describe('version gate: bump never', () => {
+  // Value: protects=under bump never the Version Gate passes a head that keeps VERSION, and a release head that moves it goes through the ordinary bump and collision rules; fails_when=the gate rejects every kept-version PR as "VERSION not bumped", or rejects every release PR;
+  //   why_new=GST-380 added bump never (outside-voice review, fix-check); seam=classifyTrainHead, scripts/compare-pr-version.ts; no_claim=who may open a release PR
+  test('a kept VERSION passes; a moved VERSION takes the ordinary rules', () => {
+    const r = makeFixtureRepo({ policy: { ...BASE_POLICY, queue_mode: 'claim-at-open', release_tool: null, release_outputs: [], bump: 'never', min_gstack_version: BUMP_NEVER_KEY_VERSION }, prefix: 'version-gate-never-' });
+    repos.push(r);
+    r.git('checkout', '-q', '-b', 'k');
+    write(r, 'k.txt', 'k\n');
+    const kept = run(r, commit(r, 'k'));
+    expect([kept.code, kept.out.includes('as the base\'s ship policy (bump never) requires')]).toEqual([0, true]);
+    write(r, 'VERSION', '1.2.4.0\n');
+    const moved = run(r, commit(r, 'bump'));
+    expect([moved.code, moved.out.includes('bump never')]).toEqual([0, false]);
+    const collides = run(r, r.git('rev-parse', 'HEAD').trim(), {}, [{ pr: 7, branch: 'other', version: '1.2.4.0' }]);
+    expect([collides.code, collides.out.includes('VERSION collision')]).toEqual([1, true]);
+  });
+});
 
 describe('version gate: changelog fragments', () => {
   test('a fragment head passes, a dependency or script edit beside it too', () => {
