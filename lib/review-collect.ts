@@ -10,6 +10,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { resolveBase, type ResolvedBase } from './gate-diff/git';
 import { GENERATED_PATH, parseRegistry } from './regen';
 import { RESULT_CODES } from './result-codes';
 import { classifyPath, dataCandidate, svgCandidate, svgDrawing, type ClassInput, type DepthError, type PathLines, type RegistryInfo } from './review-depth';
@@ -31,6 +32,8 @@ export interface Collected extends ClassInput {
   untracked: string[];
   consumed: string[] | 'all';
   drawings: string[];
+  /** collectLive only: the ref resolveBase read for the base name (GST-1036), null when nothing resolved. */
+  base?: ResolvedBase | null;
 }
 
 function git(root: string, args: string[]): { ok: boolean; status: number | null; out: string; err: string } {
@@ -255,16 +258,20 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
   return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [], consumed, drawings });
 }
 
-/** The working tree against the merge base with origin/<base> (or <base>; a remote-qualified base reads refs/remotes/<base> only), untracked files counted per path; the registry is the base ref's commit. */
+/**
+ * The working tree against the merge base with the base resolveBase reads (lib/gate-diff/git.ts: a bare name is
+ * origin/<base> when it shares history with HEAD, else the local branch; a remote-qualified base reads
+ * refs/remotes/<base> only), untracked files counted per path; the registry is the base ref's commit.
+ */
 export function collectLive(root: string, base: string): Collected {
   const errors: DepthError[] = [];
-  const qualified = base.startsWith('origin/') || git(root, ['remote']).out.split('\n').some(r => r && base.startsWith(`${r}/`));
-  const ref = (qualified ? [`refs/remotes/${base}`] : [`refs/remotes/origin/${base}`, `refs/heads/${base}`]).find(r => git(root, ['rev-parse', '--verify', '-q', `${r}^{commit}`]).ok) ?? base;
+  const resolved = resolveBase(base, root, 'HEAD');
+  const ref = resolved?.sha ?? base;
   const registry = loadRegistryAt(root, ref);
   const mb = git(root, ['merge-base', ref, 'HEAD']);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || `no merge base with ${ref}`), input: `git merge-base ${ref} HEAD`, repair: `fetch the base first (git fetch origin ${base})` });
-    return result({ perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
+    return { ...result({ perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' }), base: resolved };
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase], errors);
@@ -284,5 +291,5 @@ export function collectLive(root: string, base: string): Collected {
   const drawings = drawingsAmong(diff.perPath, root, p => {
     try { return fs.statSync(path.join(root, p)).size <= DRAWING_READ_CAP ? fs.readFileSync(path.join(root, p)) : null; } catch { return null; }
   });
-  return result(diff, { root, registry, errors, mergeBase, untracked, consumed, drawings });
+  return { ...result(diff, { root, registry, errors, mergeBase, untracked, consumed, drawings }), base: resolved };
 }

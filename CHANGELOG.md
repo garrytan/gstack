@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.94.13.0] - 2026-11-03
+
+- **A bare `--base main` reads origin/main in every review and ship bin (GST-1036).** `gstack-review-plan` now prints `REVIEW_BASE: <ref> <sha>` and names a lagging local base on stderr. `gstack-banned-terms`, `gstack-prose-lint --base`, `gstack-docs-candidate`, `gstack-design-detect.ts scan --changed` and `gstack-pr-shots --base` no longer merge against a stale local main and report lines the branch only inherited. They all use the one resolver gstack-gate-diff already used.
+- **`gstack-diff-scope` stops treating authorship files as auth (GST-1065).** `author-spec.md`, `AUTHORS`, `authority.ts` and `coauthors.ts` no longer raise a docs diff to gate class. Every other name with auth in it still does, including `auth.ts`, `/auth/`, `oauth`, `nextauthmiddleware.ts` and camelCase names like `useAuth.ts`.
+
 ## [1.94.12.0] - 2026-11-03
 
 ### Fixed

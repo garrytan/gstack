@@ -17,6 +17,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { resolveBase } from './gate-diff/git';
 import { findSection } from './markdown-sections';
 import { scan } from './redact-engine';
 import type { ResultCodeName } from './result-codes';
@@ -55,9 +56,11 @@ export function readCapture(file: string, roots: string[], what: string): string
   return cleanText(fs.readFileSync(real), `${what} file`);
 }
 
-/** Resolve `ref` to a commit sha without letting it be read as an option. */
+/** Resolve `ref` to a commit sha without letting it be read as an option; a bare branch name reads origin's tracking branch first (resolveBase, GST-1036). */
 export function resolveCommit(cwd: string, ref: string): string | ShotError {
   if (!ref || ref.startsWith('-') || /\s/.test(ref)) return { code: 'PR_SHOTS_INPUT_REFUSED', message: `ref ${JSON.stringify(ref)} is not a plain ref` };
+  const base = resolveBase(ref, cwd, 'HEAD');
+  if (base) return base.sha;
   const r = git(cwd, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`]);
   return r.status === 0 ? r.stdout.trim() : { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: `base ref ${ref}` };
 }
