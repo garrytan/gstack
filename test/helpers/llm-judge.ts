@@ -437,7 +437,8 @@ Rules:
  * modes. See docs/designs/PLAN_TUNING_V1.md and the V1.1 mode-posture fix.
  *
  * The generator model is whatever the skill runs with (often Opus for
- * plan-ceo-review). The judge is always Sonnet via callJudge() for cost.
+ * plan-ceo-review). The judge is the default eval judge (CLAUDE_JUDGE_EVAL_MODEL)
+ * via callJudge().
  */
 export async function judgePosture(mode: PostureMode, text: string, signal?: AbortSignal): Promise<PostureScore> {
   const rubrics: Record<PostureMode, { axis_a: string; axis_b: string; context: string }> = {

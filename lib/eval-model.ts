@@ -26,8 +26,9 @@ export const CLAUDE_CAPTURE_EVAL_MODEL = newestModel("opus");
 /**
  * The judge is the ruler, not the model under test, and it is the newest Fable
  * (Garry, 2026-11-24: "gstack should always be using latest astra, sol, fable or
- * opus"). The calibration fixtures in test/fixtures/judge-calibration record
- * the earlier Fable they were measured on.
+ * opus"). Its check on claude-fable-5-2 against labelled controls is recorded in
+ * test/fixtures/judge-calibration/README.md; the arm benchmark keeps its own
+ * pinned judge (ARM_JUDGE_MODEL in test/helpers/llm-judge.ts).
  */
 export const CLAUDE_JUDGE_EVAL_MODEL = newestModel("fable");
 export const DEFAULT_JUDGE_MAX_TOKENS = 8192;

@@ -74,3 +74,32 @@ request failed to parse 2 of 144 samples; the new one 0 of 72. The failed landin
 triggers the UC3 prose step, which is deferred to TODOS. Its `manifest.json` entry was priced
 separately (`priced_at`, `funding`) and is maintained by hand: the `manifest` command rewrites
 the whole file, so keep that entry when regenerating.
+
+## Default judge on `claude-fable-5-2` (GST-3801, 2026-11-25)
+
+The default judge (`CLAUDE_JUDGE_EVAL_MODEL`, `lib/eval-model.ts`) moved from
+`claude-fable-5-1` to `claude-fable-5-2` in #4811. None of this directory's live
+corpora served it: `arm` and `arm-pair` belong to the arm benchmark, whose judge
+stays pinned to `claude-fable-5-1` (`ARM_JUDGE_MODEL`) for its frozen
+preregistration, and the other corpora serve no configuration. So the check on
+5.2 used the labelled controls that already exist next to the default judge's callers:
+
+| Labelled controls | Items | `claude-fable-5-2` | `claude-fable-5-1` |
+|---|---|---|---|
+| `plan-decision-classification` (`test/fixtures/plan-decision-classification.ts`) | 4 calibrations | PASS 1/1 (4 judge calls, each recorded as `claude-fable-5-2`) | not rerun |
+| `plan-devex-peer-comparison-classification` (`test/fixtures/devex-peer-comparison-classification.ts`) | 3 calibrations | PASS 1/1 | not rerun |
+| `test/redact-semantic-pass.eval.ts` | 5 flag, 5 clean, 1 injection | 11/11 | 11/11 (same items, `GSTACK_EVAL_MODEL_JUDGE`) |
+
+Every input agreed with its label on 5.2: 18 labelled inputs (4 + 3 + 11), one sample
+each, and the 11 redaction inputs also agreed on 5.1 when run as a pair. That is not
+a kappa estimate: it shows the new judge did not move on these controls and says
+nothing finer. The runs were local (run id `gsta856-judge52`, 2026-11-25), outside CI.
+
+The remaining callers of the default judge have no labelled outputs to replay, so
+they were not recalibrated: `safety-ship-stale-evidence` (gate tier),
+`outcomeJudge` (`qa-b6/b7/b8`), `judgePosture` (office-hours and plan-ceo energy
+cases), the DESIGN.md quality judge, `diagram-authoring-quality`,
+`safety-design-risk-stop`, the planning-wave judges, `office-hours-section-loading`
+and `plan-ceo-split-overflow` (periodic or marathon). Calibrating any of them means
+building a labelled corpus first. `test/helpers/benchmark-judge.ts` scores
+`gstack-model-benchmark --judge` output for people and gates no test.
