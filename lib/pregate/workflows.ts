@@ -8,6 +8,7 @@
  * runner-owned selection manifest `.gstack/pregate.json` declares for it, or
  * it is reported as an unsupported expression and treated conservatively.
  */
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { laneOf, type Lane as Platform } from '../runtime-pins';
@@ -181,6 +182,54 @@ export function parseWorkflow(file: string, text: string, platform: NodeJS.Platf
       matrixExpression, tier, runsTests: commands.some(c => TEST_COMMAND.test(c)), manual, source: `.github/workflows/${file}:${job.line}`,
     };
   });
+}
+
+/** A workflow's `on:` trigger names, from `on: x`, `on: [x, y]`, `on: { x: {}, y: {} }` or its keys and list items. */
+function triggers(top: Block[]): string[] {
+  const on = top.find(b => /^['"]?on['"]?$/.test(b.key));
+  if (!on) return [];
+  return [...on.value.replace(/\s+#.*$/, '').split(/[\s,[\]{}:]+/), ...on.children.map(c => c.key)].map(s => s.trim()).filter(Boolean);
+}
+
+/** A `name:` or `uses:` value without its trailing comment and quotes. */
+function scalar(value: string): string { return value.replace(/\s+#.*$/, '').trim().replace(/^['"]|['"]$/g, ''); }
+
+/**
+ * `workflow`'s workflow_dispatch trigger, the display name of its job `job`, and the workflow files with a job that calls it as
+ * a local reusable workflow (`uses: ./.github/workflows/<workflow>`), each with its own workflow_dispatch trigger and the display
+ * names of its calling jobs, all read from git `tree` (pregate.json's recorded tree), never the working tree. A workflow_call
+ * run reports its caller's file and its jobs as `<calling job> / <job>`, so a caller's run is a run of the lane (GST-971).
+ * Display names keep `${{ … }}` expressions as written; an unreadable tree or file has no trigger and no callers.
+ */
+export function workflowCallers(repoRoot: string, tree: string, workflow: string, job: string): { dispatch: boolean; jobName: string; callers: Array<{ file: string; dispatch: boolean; jobs: string[] }> } {
+  const git = (args: string[]) => spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+  const ls = git(['ls-tree', '--name-only', `${tree}:.github/workflows`]);
+  const names = ls.status === 0 ? ls.stdout.split('\n').filter(n => /\.ya?ml$/.test(n)).sort() : [];
+  const want = `./.github/workflows/${workflow}`;
+  let dispatch = false;
+  let jobName = job;
+  const callers: Array<{ file: string; dispatch: boolean; jobs: string[] }> = [];
+  for (const n of names) {
+    const show = git(['show', `${tree}:.github/workflows/${n}`]);
+    if (show.status !== 0) continue;
+    const top = outline(show.stdout);
+    const jobs = find(top, 'jobs')?.children ?? [];
+    const canDispatch = triggers(top).includes('workflow_dispatch');
+    if (n === workflow) {
+      dispatch = canDispatch;
+      const own = find(jobs, job);
+      jobName = own ? scalar(find(own.children, 'name')?.value ?? '') || job : job;
+      continue;
+    }
+    const calling = jobs.filter(j => scalar(find(j.children, 'uses')?.value ?? '') === want).map(j => scalar(find(j.children, 'name')?.value ?? '') || j.key);
+    if (calling.length) callers.push({ file: n, dispatch: canDispatch, jobs: calling });
+  }
+  return { dispatch, jobName, callers };
+}
+
+/** A regex source matching a display name GitHub renders from `name`: each `${{ … }}` expression matches any text without ` / `. */
+export function displayNamePattern(name: string): string {
+  return name.split(/\$\{\{.*?\}\}/).map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('(?:(?! / ).)+?');
 }
 
 /** Every job of every workflow, in file order. */
