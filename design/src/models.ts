@@ -63,6 +63,49 @@ export function imageToolModel(env: Record<string, string | undefined> = process
   return override;
 }
 
+/**
+ * Gemini defaults (checked against https://ai.google.dev/gemini-api/docs/models,
+ * 2026-10-31): Nano Banana 2.1 is Google's current image generation and
+ * editing workhorse; Gemini 3.8 Flash reads images on the OpenAI-compatible
+ * endpoint. On Gemini, GSTACK_DESIGN_IMAGE_MODEL sets the image model and
+ * GSTACK_DESIGN_MODEL only the vision model (there is no orchestrator).
+ */
+export const GEMINI_DEFAULT_MODELS: Readonly<Record<DesignCall, string>> = {
+  image: "gemini-nano-banana-2.1",
+  vision: "gemini-3.8-flash",
+};
+
+export const GEMINI_MODEL_PATTERN = /^gemini-[a-z0-9][a-z0-9.-]{0,40}$/;
+
+/**
+ * The Gemini model for one call type. An override that is not a gemini-…
+ * name (an OpenAI model left in the environment, say) fails before any
+ * request, naming the variable.
+ */
+export function geminiModel(call: DesignCall, env: Record<string, string | undefined> = process.env): string {
+  const variable = call === "image" ? DESIGN_IMAGE_MODEL_ENV : DESIGN_MODEL_ENV;
+  const override = env[variable]?.trim();
+  if (!override) return GEMINI_DEFAULT_MODELS[call];
+  if (!GEMINI_MODEL_PATTERN.test(override)) {
+    throw new Error(`${variable}=${JSON.stringify(override.slice(0, 80))} is not a Gemini model name, and the design provider is gemini.\n` +
+      `Fix: unset it or set a gemini-… model (on Gemini, ${DESIGN_IMAGE_MODEL_ENV} sets the image model and ${DESIGN_MODEL_ENV} the vision model). See docs/troubleshooting.md#design-image-model-invalid`);
+  }
+  return override;
+}
+
+/** The OpenAI image sizes the design commands use, as Gemini aspect ratios (Gemini picks the pixel size; --quality has no Gemini meaning). */
+export const GEMINI_ASPECT_RATIOS: Readonly<Record<string, string>> = {
+  "1536x1024": "3:2",
+  "1024x1024": "1:1",
+  "1024x1536": "2:3",
+};
+
+export function geminiAspectRatio(size: string): string {
+  const ratio = GEMINI_ASPECT_RATIOS[size];
+  if (!ratio) throw new Error(`--size ${size} has no Gemini aspect ratio; use one of ${Object.keys(GEMINI_ASPECT_RATIOS).join(", ")}.`);
+  return ratio;
+}
+
 /** Reasoning allowance added to every vision call's visible-answer budget. */
 export const REASONING_HEADROOM_TOKENS = 8192;
 

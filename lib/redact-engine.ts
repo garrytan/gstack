@@ -26,6 +26,7 @@
 import {
   PATTERNS,
   PATTERNS_BY_ID,
+  clearStringSpanCache,
   isPlaceholderSpan,
   type RedactPattern,
   type Tier,
@@ -472,6 +473,7 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
       }
     }
   }
+  clearStringSpanCache();
 
   // Environment values, by exact value: a credential that is already in the
   // process environment needs no shape to be recognized.
