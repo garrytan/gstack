@@ -248,6 +248,24 @@ describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => 
     const e = finish(edited.f, edited.reviewed, edited.post, ['--reviewed-base', edited.reviewedBase]);
     expect([e.status, lineOf(e.stdout, 'STOP')]).toEqual([3, behaviorStop]);
   });
+
+  // Value: protects=with a kept VERSION claim, the restamp's move of the branch's own fork-version row routes as metadata,
+  //   and a base row moved the same way still stops (GST-980); fails_when=stampedFiles returns nothing at equal versions
+  //   and finish routes the row as behavior; seam=lib/ship-bin-common.ts stampedFiles
+  test('a kept VERSION claim: the moved fork-version row is metadata; a moved base row stops (GST-980)', () => {
+    const kept = (rows: [string, string][]) => {
+      const f = fx({ '.gstack/ship-policy.json': policy, VERSION: '1.0.0.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.0.0', 'base']) },
+        { VERSION: '1.0.1.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.0.0', 'base'], ['1.0.0.0', 'mine']) });
+      const reviewed = wtree(f);
+      const post = snapshot(f);
+      f.write({ 'src/notice.ts': notice(...rows) }); f.commit('stamp, VERSION kept');
+      return finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+    };
+    const own = kept([['0.9.0.0', 'old'], ['1.0.0.0', 'base'], ['1.0.1.0', 'mine']]);
+    expect(lineOf(own.stdout, 'ROUTE')).toEqual(expect.stringMatching(/ behavior=0 docs=0 metadata=1 tests=0 /));
+    const base = kept([['0.9.0.0', 'old'], ['1.0.1.0', 'base'], ['1.0.0.0', 'mine']]);
+    expect([base.status, lineOf(base.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+  });
 });
 
 describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {

@@ -244,7 +244,7 @@ function allowedOutput(plan: Plan, root: string, rel: string): boolean {
   return matchesAny(p.stamp_paths, rel) || matchesAny(p.stamp_files, rel) || matchesAny(p.release_outputs, rel);
 }
 
-interface Hunk { removed: string[]; added: string[]; at: number; addedAt: number[] }
+interface Hunk { removed: string[]; added: string[]; at: number; addedAt: number[]; removedAt: number[] }
 export interface FileDiff { path: string; binary: boolean; hunks: Hunk[]; status: 'M' | 'A' | 'D' | 'R'; modeChanged?: boolean }
 
 /**
@@ -252,13 +252,15 @@ export interface FileDiff { path: string; binary: boolean; hunks: Hunk[]; status
  * File headers come only before a file's first hunk: inside a hunk every `-`/`+` line is content, so a
  * body line that begins `--` or `++` (`---`/`+++` in the diff) is never dropped as a header.
  * `addedAt` holds each added line's 1-based position on the new side, counted through any context
- * line the hunk carries (`diff.interHunkContext` can join hunks under `--unified=0`).
+ * line the hunk carries (`diff.interHunkContext` can join hunks under `--unified=0`), and `removedAt` each removed
+ * line's position on the old side, counted the same way.
  */
 export function parseUnifiedDiff(text: string): FileDiff[] {
   const files: FileDiff[] = [];
   let cur: FileDiff | null = null;
   let hunk: Hunk | null = null;
   let cursor = 0;
+  let oldCursor = 0;
   for (const line of text.split('\n')) {
     if (line.startsWith('diff --git ')) {
       const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
@@ -271,10 +273,13 @@ export function parseUnifiedDiff(text: string): FileDiff[] {
     else if (!hunk && (line.startsWith('old mode ') || line.startsWith('new mode '))) cur.modeChanged = true;
     else if (line.startsWith('rename to ')) cur.status = 'R';
     else if (line.startsWith('Binary files')) cur.binary = true;
-    else if (line.startsWith('@@')) { hunk = { removed: [], added: [], at: Number(/^@@ -\d+(?:,\d+)? \+(\d+)/.exec(line)?.[1] ?? 0), addedAt: [] }; cursor = hunk.at; cur.hunks.push(hunk); }
-    else if (hunk && line.startsWith('-')) hunk.removed.push(line.slice(1));
+    else if (line.startsWith('@@')) {
+      const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
+      hunk = { removed: [], added: [], at: Number(m?.[2] ?? 0), addedAt: [], removedAt: [] }; cursor = hunk.at; oldCursor = Number(m?.[1] ?? 0); cur.hunks.push(hunk);
+    }
+    else if (hunk && line.startsWith('-')) { hunk.removed.push(line.slice(1)); hunk.removedAt.push(oldCursor); oldCursor += 1; }
     else if (hunk && line.startsWith('+')) { hunk.added.push(line.slice(1)); hunk.addedAt.push(cursor); cursor += 1; }
-    else if (hunk && line.startsWith(' ')) cursor += 1;
+    else if (hunk && line.startsWith(' ')) { cursor += 1; oldCursor += 1; }
   }
   return files;
 }
