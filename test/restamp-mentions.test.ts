@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
 import type { GitFixtureTemplate } from './helpers/git-fixture-template';
-import { BASE_POLICY, cleanup, cloneFixture, fixtureTemplate, makePr, mergeMain, mergeToMain, readFile, restamp, type FixtureRepo } from './helpers/restamp-fixture';
+import { BASE_POLICY, cleanup, cloneFixture, fixtureTemplate, makePr, mergeMain, mergeToMain, readFile, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
@@ -88,6 +88,11 @@ const notice = (rows: string[]) => ['export const ROWS = [', ...rows, '];', ''].
 function policy(templates: boolean) {
   return { ...BASE_POLICY, release_tool: null, stamp_files: ['VERSION', 'package.json', 'CHANGELOG.md', NOTICE], ...(templates ? { stamp_patterns: ["since: '{version}'"] } : {}) };
 }
+/** The policy plus the lockfile --next stamps, so the tree receipt's stamp_files allowlist covers the whole stamp commit. */
+function receiptPolicy(templates: boolean) {
+  const p = policy(templates);
+  return { ...p, stamp_files: [...p.stamp_files, 'package-lock.json'] };
+}
 function write(repo: FixtureRepo, rel: string, text: string): void {
   fs.mkdirSync(path.dirname(path.join(repo.work, rel)), { recursive: true });
   fs.writeFileSync(path.join(repo.work, rel), text);
@@ -157,7 +162,7 @@ describe('a PR whose VERSION already equals the base (gbrain #7640)', () => {
     expect(r.status).toBe(EXIT.ok);
     const sp = stageDetail(r.out, 'stamp_paths')!;
     expect(sp[1]).toBe('skipped');
-    expect(sp[2]).toBe('no tentative mention newer than the fork version 1.2.3.0 and none of base 1.2.3.0 on a line this branch added; VERSION equals base 1.2.3.0, so 1.2.3.0 moved only on lines this branch added and stayed on the base\'s own lines (src/notice.ts: 0 moved, 1 kept)');
+    expect(sp[2]).toBe('no tentative mention at or newer than the fork version 1.2.3.0 and none of base 1.2.3.0 on a line this branch added; VERSION equals base 1.2.3.0, so 1.2.3.0 moved only on lines this branch added and stayed on the base\'s own lines (src/notice.ts: 0 moved, 1 kept)');
     expect(readFile(repo, NOTICE)).toBe(notice([row('1.2.3.0', 'base_row'), "  { since: 'TBD', id: 'mine', text: 'mine' },"]));
     expect(r.out).not.toMatch(/^[-+]  \{ since: '1\.2\.3\.0'/m);
   });
@@ -243,6 +248,18 @@ describe('a PR whose VERSION already equals the base (gbrain #7640)', () => {
     expect(JSON.parse(readFile(repo, '.gstack/tmp/restamp-journal.json')).status).toBe('complete');
   });
 
+  // Value: protects=the lost-slot stamp the stage writes is one the train's tree receipt accepts (GST-963 review: one bound
+  //   for the writer and the checks); fails_when=the tree receipt reads the moved own row as a product change; seam=stampOnlyLine
+  test('the lost-slot stamp passes the tree receipt', () => {
+    const repo = makeFixtureRepo({ prefix: 'restamp-mentions-receipt-', policy: receiptPolicy(true) }); repos.push(repo);
+    lostSlot(repo);
+    const gated = repo.git('rev-parse', 'HEAD');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp mine');
+    const receipt = runBin(repo, 'gstack-tree-receipt', ['--gated', gated, '--base', 'main']);
+    expect(receipt.out, receipt.err).toContain('TREE: same-modulo-stamps');
+  });
+
   test('--was still rewrites every line, the base\'s rows included: it is not the fix for this state', () => {
     const repo = makeFixtureRepo({ prefix: 'restamp-mentions-was-', policy: policy(true) }); repos.push(repo);
     lostSlot(repo);
@@ -250,5 +267,66 @@ describe('a PR whose VERSION already equals the base (gbrain #7640)', () => {
     expect(r.status).toBe(EXIT.ok);
     expect(stageDetail(r.out, 'stamp_paths')![2]).toBe('2 mention(s) in 1 file(s) (1.2.4.0 -> 1.2.5.0)');
     expect(readFile(repo, NOTICE)).toBe(notice([row('1.2.5.0', 'other'), row('1.2.3.0', 'base_row'), '', '', '', row('1.2.5.0', 'mine')]));
+  });
+});
+
+describe('a branch-added row left at the fork version after the base moved (GST-963, GBRA-277, gbrain #8425)', () => {
+  // Value: protects=a stamp-form row the branch added at its fork version (not a tentative next version) is its own
+  //   stale stamp once the base has moved past the fork, so --next moves it; the base's rows at that version, and a
+  //   branch-added row older than the fork, stay; fails_when=the stage skips with "no tentative mention newer than the
+  //   fork version" and leaves the row at the fork version (gbrain #8425), or moves a base row or a pre-fork row;
+  //   seam=lib/restamp.ts rewriteStampPaths; no_claim=finish's route (test/ship-rereview-triggers.test.ts)
+  test.each([['with the since: template', true], ['built-in quoted form alone', false]])('%s: the fork-version row moves, the base rows and an older branch row stay', (_, templates) => {
+    const repo = makeFixtureRepo({ prefix: 'restamp-fork-row-', policy: receiptPolicy(templates) }); repos.push(repo);
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row')]));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'notice rows'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-mine');
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row'), '', row('1.2.2.0', 'older'), '', row('1.2.3.0', 'mine')]));
+    repo.git('commit', '-qam', 'mine: a row at the fork version');
+    makePr(repo, 'pr-other');
+    write(repo, NOTICE, notice([row('1.2.4.0', 'other'), row('1.2.3.0', 'base_row')]));
+    repo.git('commit', '-qam', 'other row');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp other');
+    mergeToMain(repo, 'pr-other');
+    repo.git('checkout', '-q', 'pr-mine');
+    mergeMain(repo);
+    expect(readFile(repo, 'VERSION')).toBe('1.2.4.0\n');
+    const gated = repo.git('rev-parse', 'HEAD');
+    const r = restamp(repo, ['--next']);
+    expect(r.status).toBe(EXIT.ok);
+    expect(stageDetail(r.out, 'stamp_paths')![1]).toBe('done');
+    expect(readFile(repo, NOTICE)).toBe(notice([row('1.2.4.0', 'other'), row('1.2.3.0', 'base_row'), '', row('1.2.2.0', 'older'), '', row('1.2.5.0', 'mine')]));
+    repo.git('commit', '-qam', 'stamp mine');
+    const receipt = runBin(repo, 'gstack-tree-receipt', ['--gated', gated, '--base', 'main']);
+    expect(receipt.out, receipt.err).toContain('TREE: same-modulo-stamps');
+  });
+
+  // Value: protects=the four stamp checks share one bound, so a stamp the writer makes is one the train accepts;
+  //   fails_when=the tree receipt (stamp, verify, gate-ahead replay) reads a moved fork-version row, or a base row at that
+  //   version moved by hand, the same way; seam=lib/stamp-only.ts stampOnlyLine with the branch side
+  test('the tree receipt accepts the moved branch row and refuses the same move on a base row', () => {
+    const repo = makeFixtureRepo({ prefix: 'restamp-fork-row-receipt-', policy: receiptPolicy(true) }); repos.push(repo);
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row')]));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'notice rows'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-mine');
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row'), '', row('1.2.3.0', 'mine')]));
+    repo.git('commit', '-qam', 'mine: a row at the fork version');
+    makePr(repo, 'pr-other');
+    write(repo, 'other.txt', 'other\n');
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'other');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp other');
+    mergeToMain(repo, 'pr-other');
+    repo.git('checkout', '-q', 'pr-mine');
+    mergeMain(repo);
+    const gated = repo.git('rev-parse', 'HEAD');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    write(repo, NOTICE, readFile(repo, NOTICE).replace(row('1.2.3.0', 'base_row'), row('1.2.5.0', 'base_row')));
+    repo.git('commit', '-qam', 'stamp mine, and move the base row by hand');
+    const receipt = runBin(repo, 'gstack-tree-receipt', ['--gated', gated, '--base', 'main']);
+    expect(receipt.out).toContain('TREE: changed');
+    expect(receipt.out).toContain("id: 'base_row'");
+    expect(receipt.out).not.toContain("id: 'mine'");
   });
 });

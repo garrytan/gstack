@@ -10,7 +10,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fragmentSlug } from './changelog-fragments';
-import { branchAddedLines, forkVersion, parseUnifiedDiff, stampMentions, stampOnlyLine, versionAtRef } from './restamp';
+import { parseUnifiedDiff, versionAtRef } from './restamp';
+import { branchSides, stampOnlyLine } from './stamp-only';
 import { matchesAny } from './ship-policy';
 import { extractVersion } from './version-source';
 import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
@@ -109,8 +110,8 @@ export function releasePaths(policy: Record<string, any> | null, cwd: string, re
  * old version for the new one under a built-in form or a `stamp_patterns` template (lib/tree-receipt.ts classifyFile).
  * A moved version is floored at `ref`'s VERSION, except on a line the branch added itself (gstack-restamp's own rule:
  * added since the merge base with origin/<base>, and not added by the base since): after a lost slot and a merge of the
- * base its stale stamp is older than `ref`'s VERSION, so it must be newer than the fork point's version instead, the
- * bound gstack-restamp's stamp_paths stage uses (GST-895).
+ * base its stale stamp is older than `ref`'s VERSION, so it must be at or newer than the fork point's version instead,
+ * the bound gstack-restamp's stamp_paths stage uses (GST-895; the fork version itself since GST-963).
  */
 export function stampedFiles(policy: Record<string, any> | null, cwd: string, ref: string, base: string): string[] {
   const globs = Array.isArray(policy?.stamp_files) ? policy.stamp_files.filter((s: unknown): s is string => typeof s === 'string') : [];
@@ -123,25 +124,8 @@ export function stampedFiles(policy: Record<string, any> | null, cwd: string, re
   const templates = Array.isArray(policy?.stamp_patterns) ? policy.stamp_patterns.filter((s: unknown): s is string => typeof s === 'string') : [];
   const diff = git(cwd, ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', ref]);
   if (diff.status !== 0) return [];
-  let fork: string | undefined;
-  let since: string | undefined;
-  const own = new Map<string, Set<string>>();
-  const ownLines = (rel: string): Set<string> => {
-    if (own.has(rel)) return own.get(rel)!;
-    since ??= git(cwd, ['merge-base', `origin/${base}`, 'HEAD']).stdout.trim();
-    let lines = new Set<string>();
-    if (since) {
-      try { lines = branchAddedLines(cwd, since, [rel], ref, branchAddedLines(cwd, since, [rel], `origin/${base}`)).get(rel)?.text ?? lines; } catch {}
-    }
-    own.set(rel, lines);
-    return lines;
-  };
-  const stamp = (rel: string, removed: string, added: string): boolean => {
-    if (stampOnlyLine(removed, added, before.version, after, templates)) return true;
-    if (!ownLines(rel).has(removed)) return false;
-    fork ??= forkVersion(cwd, `origin/${base}`, before.version);
-    return stampOnlyLine(removed, added, fork, after, templates) && (!stampMentions(removed, templates).has(fork) || stampMentions(added, templates).has(fork));
-  };
+  const side = branchSides(cwd, `origin/${base}`, 'HEAD', before.version, ref);
+  const stamp = (rel: string, removed: string, added: string): boolean => stampOnlyLine(removed, added, before.version, after, templates, side(rel));
   return parseUnifiedDiff(diff.stdout).filter(f => f.status === 'M' && !f.binary && !f.modeChanged && matchesAny(globs, f.path) && f.hunks.length > 0 &&
     f.hunks.every(h => h.removed.length === h.added.length && h.removed.every((line, i) => stamp(f.path, line, h.added[i]!)))).map(f => f.path);
 }

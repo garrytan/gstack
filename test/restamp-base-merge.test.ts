@@ -17,7 +17,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { mergeChangelogs } from '../lib/changelog-check';
-import { branchAddedLines, stampOnlyLine } from '../lib/restamp';
+import { branchAddedLines } from '../lib/restamp';
+import { stampOnlyLine } from '../lib/stamp-only';
 import { gitArgvIn } from './helpers/scratch-repo';
 import { BASE_POLICY, cleanup, makeFixtureRepo, makePr, readFile, restamp, type FixtureRepo } from './helpers/restamp-fixture';
 

@@ -66,7 +66,7 @@ export function receiptDigest(r: TreeReceipt): string {
 }
 
 function treeReceipt(ctx: QueueContext, policy: LoadedPolicy, gated: string, current: string): TreeReceipt | QueueFailure {
-  const r = buildReceipt({ repoRoot: ctx.repoRoot, gated, current, policy: policy.policy, policyLabel: policy.source.label });
+  const r = buildReceipt({ repoRoot: ctx.repoRoot, gated, current, policy: policy.policy, policyLabel: policy.source.label, baseRef: `${ctx.remote ?? 'origin'}/${ctx.base}` });
   return 'error' in r ? { code: 'QUEUE_PROOF_MISSING', message: r.error } : r;
 }
 
