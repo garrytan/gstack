@@ -1,0 +1,15 @@
+**A test that keeps flaking while someone fixes it can be quarantined instead of skipped, and it still can't turn a red run green.** `gstack-flaky quarantine add` puts the test in `.gstack/quarantine.json` with an owner, a ledger link and an expiry. The test keeps running on every run and is never counted as a pass. When every test an attempt failed is quarantined, the whole command may run again, up to 3 attempts, and the run is green only when an attempt gets the runner's own full green verdict, so a coverage threshold or another failure outside the report stays red. Before this, a test that flaked every few runs either went red on every PR or got skipped and forgotten.
+
+### Added
+- **Quarantine registry, `gstack-flaky quarantine add|renew|release|check|report`** (`.gstack/quarantine.json`, GSTA-158 P2): a quarantined test that fails all 3 attempts is a `hard-break` (red), a quarantined id missing from a run that included its file is red, and quarantined tests are listed (`FLAKY_RESULT … quarantined=<n>`) and ledgered (`quarantined-pass`, `quarantined-fail`, `hard-break`) on every run. Tests that are not quarantined keep their one rerun.
+- **Entries are owned and expire**: owner, ledger link, class (`detector`, `harness`, `timing`, `model-latency`; `product` and `infra` refused), evidence, 7 days by default and 14 at most, one renewal of up to 7 days with new evidence and the owner named again. An expired entry stops applying with no edit and prints the renew and release commands. Live entries are capped at 10% of the suite (at least 1, and 5 under 50 tests).
+- **`run --base <ref>`** reads the registry from the base branch, so a change cannot quarantine the test it breaks. **`check --base`** refuses an entry added in the change that edits its test's file, an entry removed without a release record, a removed release record and rewritten history. **`report --ledger <file|dir>`** lists entries soonest-expiring first and marks those with 10 consecutive clean passes ready to release. gstack's own `CASE_QUARANTINE` / `EVAL_POLICY` is unchanged and shares no schema with it.
+
+### Docs
+- `docs/flaky.md#quarantine`: commands, rules, expiry, cap, classes, the `CASE_QUARANTINE` separation and the daily-pass `gh run download` + `report` loop. `captain/templates/automation-flaky-pass.md` and `docs/captain.md` run `report` and fix expiring entries first.
+
+### Tests
+- `test/quarantine.test.ts`: add refusals (cap, more than 14 days, no evidence, product or infra class, unknown id), one renewal and future-dated renewals, release, `check --base` against git fixtures (non-ASCII paths included), expiry, a hard break across 3 attempts, the false-green regression (exit 1 from outside the report while only a quarantined test fails stays red), missing ids with their file present or absent, and the registry read from the base branch.
+
+### Gate integrity
+- `test/flaky-run.test.ts`: the exact `FLAKY_RESULT` line it expects gains the new `quarantined=0` field. No other assertion, threshold or skip changed.

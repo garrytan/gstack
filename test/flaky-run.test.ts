@@ -160,7 +160,7 @@ describe('runFlaky', () => {
     expect(r.outcomes.map(o => [o.status, o.attempts.join(',')])).toEqual([['flaky-pass', 'fail,pass']]);
     expect(r.ledger).toHaveLength(1);
     expect(r.ledger[0]).toMatchObject({ kind: 'flaky-pass', id: 'a.test.ts::::b', rerun_by: 'gstack-flaky', attempts: ['fail', 'pass'], excerpt: ['boom'] });
-    expect(renderResult(r, '/l.jsonl').at(-1)).toBe('FLAKY_RESULT: tests=2 failed=0 flaky=1 reruns=1 command_exit=1 verdict=pass ledger=/l.jsonl');
+    expect(renderResult(r, '/l.jsonl').at(-1)).toBe('FLAKY_RESULT: tests=2 failed=0 flaky=1 quarantined=0 reruns=1 command_exit=1 verdict=pass ledger=/l.jsonl');
     expect(stepSummary(r)).toContain('a.test.ts::::b');
   });
 
