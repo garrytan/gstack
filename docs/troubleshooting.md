@@ -2517,11 +2517,19 @@ section instead of overwriting it: a section in the file replaces the
 same-titled section (title compared case-insensitively), the
 ````gstack-ship-receipt```` block is a section of its own so a receipt
 rewrite replaces only the receipt, sections the file does not rewrite stay in
-place, new sections are appended after them, and a current body with no
-`## ` headings is kept as the leading text. One stderr line names what was
-replaced, kept and added (`gstack-post: pr-body merged by section: replaced
-What changed; kept ship receipt, Why, Approvals; added Tests`). A body file
-holding only its first section therefore no longer wipes the rest of the PR.
+place, and new sections are appended after them. The text above the first
+`## ` heading belongs to the file whenever the file has a `## ` section: the
+current body's text there (the opening lines, and any lines between the receipt
+and the first heading, or the whole body when it has no `## ` heading) is
+replaced by the file's own text above its first heading, or dropped when the
+file has none. A file with no `## ` section (a receipt-only or text-only post)
+leaves that text alone. One stderr line names what was replaced, kept, added
+and dropped, a dropped piece with its first line, or with that line withheld
+when the redaction scan flags it (`gstack-post: pr-body merged
+by section: replaced What changed; kept ship receipt, Why, Approvals; added
+Tests; dropped leading text ("Draft from gh pr create")`). A body file holding
+only its first section therefore no longer wipes the rest of the PR, and an
+old intro no longer sits above a fresh /ship body.
 The redaction scan runs on the merged bytes, so a MEDIUM or HIGH finding can
 come from a kept section; the `RULE:` line's `LINE:` is in the merged text.
 When the current body cannot be read (`gh pr view --json body` fails) nothing
@@ -5066,7 +5074,8 @@ body that names a counter the receipt records (`passes=3` against
 `review_loop.passes: 2`, `1 deferred` against `deferred: 2`, `passed: 40`
 against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
-run did not produce. The `PROSE:` line names each field with both values.
+run did not produce. The `PROSE:` line names each field with both values. The
+`## Approvals` table `gstack-approvals` renders is never read as a claim.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten

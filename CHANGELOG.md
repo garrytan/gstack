@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.91.363.0] - 2026-10-31
+
+**A passing test lane that leaves Bun's `.bun/` folder behind now grades FRESH, `--check-prose` no longer reads the Approvals table as a claim, and `gstack-post pr-body` drops a stale intro.** Three /ship false alarms from GST-421 and GST-412 (HARN-1, HARN-12, GSTA-2, GEVA-69, gstack-evals#90).
+
+### Fixed
+- **GST-421: `gstack-wtree` leaves an untracked `.bun/` folder at the repo root out of the fingerprint.** A test that created it made `gstack-evidence` treat the run as a mid-run edit, so `check` graded the lane STALE with "record has no content fingerprint" and named no file. Tracked files under `.bun/` still count, and a tree without that folder hashes exactly as before.
+- **GST-421: `gstack-evidence` names what changed during a run.** When the fingerprint before and after a run differ, the record stores up to five changed paths as `wtree_changed`, the stderr warning lists them, and `check` grades STALE with `content changed during the run: <paths>`. A record without them (or with entries that are not plain paths) still says "record has no content fingerprint".
+- **GST-412: `gstack-ship-receipt read --check-prose` skips the `## Approvals` block `gstack-approvals` renders** (the heading, the table and its `Source: gstack-approvals record` line), so "one Step 11 pass" in the owner's quoted words is no longer read as `gate.<lane>.pass body=11`. Text after that block, a row the renderer would not write, a hand-written Approvals list and an example inside a code fence are still checked, the text on either side of the block never joins into a new claim, and CRLF bodies work.
+
+### Changed
+- **GST-412: `gstack-post pr-body` manages the text above the first heading when the file has a `## ` section.** The current body's opening text, any text between the receipt and the first heading, or a whole body with no `## ` heading, is replaced by the file's own text above its first heading, or dropped when the file has none. The stderr line names each dropped piece with its first line (`; dropped leading text ("…")`), or withholds that line when the redaction scan flags it, so a removed secret never reaches the terminal. A receipt-only or text-only file merges as before, and reposting the same body gives the same bytes.
+
+### Tests
+- `test/evidence.test.ts`: a lane that writes `.bun/x` grades FRESH; one that writes `src/new.ts` grades STALE naming it; a tracked file under `.bun/` still moves the fingerprint; a tree without `.bun/` hashes like a plain `git add -A`.
+- `test/ship-receipt-prose.test.ts`: the rendered Approvals table, text after its footer, a fenced example, a hand-written list and a CRLF body.
+- `test/gstack-post.test.ts`: stale lead text and stale text under the receipt are dropped and named; receipt-only and text-only files keep the old merge; reposts are byte-identical; an attribution callout is never doubled.
+
 ## [1.91.362.0] - 2026-10-31
 
 **A /ship review pass on Capy is one call to a checked-in program, and reviewer briefs no longer pass through the model.** In the GSTA-189 replay one pass took about 10 parent calls to plan, render, create, check and poll its readers, and the Red Team brief went out wrong twice because a file read cut its long lines. What reviewers see, which reviewers run, their depth and the blocking floor are unchanged, and the new path renders all 16 briefs of that replay byte for byte.
