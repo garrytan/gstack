@@ -4,6 +4,7 @@
  */
 import type { PregateCheck } from '../headless-artifacts';
 import type { Registry } from '../regen';
+import type { RunSource } from '../run-evidence';
 import type { PregateConfig } from './config';
 import type { Lane } from './workflows';
 
@@ -35,6 +36,8 @@ export interface PregateContext {
   configLabel: string;
   /** Where the policy came from: the base branch, the unreviewed head, the user-owned file, or nowhere (defaults). */
   configKind: 'base' | 'head' | 'user' | 'none';
+  /** The active policy has a `dependencies`, `empty_lanes`, `selection` or `local` key (config LANE_KEYS); false keeps the no-policy lane verdicts. Absent counts as declared. */
+  policyDeclaresLanes?: boolean;
   /** This run's scratch directory under the state root (lib/pregate/run-scratch.ts): logs and scan files, never os.tmpdir(). */
   scratch: string;
   /** The policy file to edit: the user-owned path when it is the active policy, else `.gstack/pregate.json`. */
@@ -59,6 +62,8 @@ export interface PregateContext {
   cores: number;
   testBackend: string;
   policyFrom: 'base' | 'head';
+  /** `--from-run`: a Free Tests run whose tree.json files count as passed for this tree (lanes, lib/run-evidence.ts verifyFromRun), with the base branch's run check or why it could not be built. */
+  fromRun?: { ref: string; check: RunSource | { error: string } };
   /** `--remote`: run the declared remote gate now, under this spend cap. */
   remote: { spendCapUsd: number } | null;
   env: NodeJS.ProcessEnv;

@@ -1,5 +1,120 @@
 # Changelog
 
+## [1.92.43.0] - 2026-11-01
+
+**New page: [docs/support-tiers.md](docs/support-tiers.md) says what gstack supports fully and what it supports minimally.** macOS and Linux, with Claude and OpenAI models, get full support: the whole free suite and the paid evals. Windows (Git Bash or MSYS) and Gemini models get minimal support: install and the core skills (`/ship`, `/review`, `/qa-only`, `/investigate`, `/browse` on gstack's own browser) work without errors, checked on Windows by the `windows-smoke` job, which replaces the six-shard suite as the required Windows check when it lands, and by hand or one cheap smoke run on Gemini. Windows-only and Gemini-only reports that don't break install, startup or a core workflow close as won't fix with a link to the page.
+
+### Documentation
+- `docs/support-tiers.md`: the two tiers, what we stop doing, the Windows CI shape today (the six-shard `windows-free-tests` suite required on every pull request) and once `windows-smoke` lands (`windows-smoke` required, the six-shard suite nightly on main and non-blocking) and what doesn't change (eval models, the cross-family review voice).
+- README's platform notes and AGENTS.md's platform support section link to it.
+
+## [1.92.42.0] - 2026-11-01
+
+**A /ship review pass that only left notes now binds at Step 11.5.** A pass whose findings were all fixed, deferred or noted has no open defect, but a driver could still log it as `issues_found`. Step 11.5 then refused it, and the only way out was an extra rebind pass (CAPY-2, qm#2837). When the tree changes during a pass, the refusal now names the start and end trees and the cheapest repair (GST-430).
+
+**Receipt carry and write handle results PRs with thousands of files (GST-448).** A PR that adds about 8,300 run receipts (harness-evals#147) refused every carry with `git could not compute HEAD's product patch-id: git diff … failed`, and every base move cost it about 3 hours of /ship. The name-only listing ran past a 1 MB output buffer.
+
+### Fixed
+- **`gstack-ship-receipt carry` and `write`** read git's path listings with a 256 MB buffer instead of the 1 MB default, so a large PR's `product_patch_id` is recorded and carried. The product patch-id streams `git diff` through a file under the git directory (`.git/gstack-patch-id`) into `git patch-id --verbatim` and no longer holds the diff in memory; a directory a killed run left is removed after an hour. The per-path walk compares only touched paths that changed at either head or either base, so a 6,000-path PR refuses or carries in seconds.
+- **/ship Step 1's carry check takes the scoped-review route (GST-442).** When the base edited context next to a reviewed hunk, `gstack-ship-preflight` now prints `NEXT: carry route`: fix what the base merge broke, commit and push, write the packet, one fix-check, then `carry --scoped-review`, instead of running the full loop. `carry --dry-run` writes no packet and offers this route only when none of carry's other checks would refuse.
+- **Step 16 names finish's scoped-review STOP and the `--docs-requested` fix (GST-444).** Stage 2 sends a STOP that names a scoped-review packet to its fix-check and `--context-reviewed` rerun, and stage 3 offers a fix the audit's result named before a re-audit or a named risk. The RECEIPT_CARRY_PRODUCT_CHANGED fix text points to the scoped-review refusal. Trims in Steps 3, 12 and 16 keep ship/SKILL.md under its cap.
+- **`gstack-tree-receipt`** fails closed (`EVIDENCE_IDENTITY_UNKNOWN`) when git cannot produce the diff between the gated and current heads, and names git's reason. Before, it read a failed diff as no changes.
+- **`gstack-review-log`** records a completed `review` or `review-fix-check` row claimed as `issues_found` as `clean` with zero counts when every finding's logger-stamped action is `fixed` or `auto-fixed`, or `deferred` or `noted` on a finding marked `blocking: false` that is not CRITICAL, and the findings account for the claimed issue and critical counts. A skipped finding, a gate finding left open, a CRITICAL or blocking note, a finding with no action, or an incomplete pass keeps the claimed status.
+- **Findings files** (`--findings`) count `auto-fixed` as resolved, the same as `fixed`, and `deferred` or `noted` only below the floor. Their gate rows are stamped like inline ones, so an unattended run's gate stays open whatever its status or disposition says.
+- **`review_freshness`** reads a claimed clean row as UNVERIFIED when a finding is a gate left `open`, a CRITICAL or blocking deferral or note, or any other unresolved CRITICAL finding.
+- **`review_freshness`** for a pass whose tree moved now reads `content changed during review: the tree moved from <start> to <end> while <skill> ran …`, followed by the repair: keep the checkout frozen until every reviewer returns, then rerun on the frozen tree (docs/troubleshooting.md#review-content-changed).
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: preflight on a founderstar-style adjacent edit prints the scoped-review `NEXT: carry route`, and its dry run writes no packet. `test/ship-control-flow.test.ts`: Step 1.4 and Step 16 stages 2 and 3 name the routes.
+- `test/ship-receipt-carry-large-diff.test.ts`: a PR that adds 6,000 receipts under a long directory name writes a receipt with its product patch-id and carries across a base merge. Negative control: one rescored receipt still refuses with `RECEIPT_CARRY_PRODUCT_CHANGED`.
+- `test/review-notes-only-pass.test.ts`: a pass with three notes is recorded clean and reads CURRENT. Negative controls: a skipped finding, an open gate finding (also under a caller's resolved status), a CRITICAL or blocking note, a note with no `blocking` field, counts the findings do not cover, a finding with no action, and an incomplete pass keep `issues_found`. A claimed clean row with an open gate, a CRITICAL deferral, or a skipped or action-less CRITICAL finding is not CURRENT, while kept and restored gates, skipped advisories and an INFORMATIONAL deferral stay CURRENT. A `--findings` gate row stays open in an unattended run. Also checks the reason a pass gets when its tree moved.
+- `test/ship-receipt-carry-large-diff.test.ts` also: the patch-id file lives under the git directory (an unwritable TMPDIR still carries; an unwritable spot refuses by name), and a stale directory is swept. `test/train-gate.test.ts`: a diff git cannot produce refuses the tree receipt with git's reason. `test/ship-rereview-triggers.test.ts`: a dry run the receipt would refuse anyway names that refusal.
+
+## [1.92.41.0] - 2026-11-01
+
+**The Ubicloud runner works on macOS and on a project with no VMs (#3680, #3679, #3678).** On a Mac, `gstack-ubi pack` failed, so every `sync`, `run` and `verify` broke after the VM was already created, and `gstack-ubi usage` was a syntax error that also switched off the vCPU quota check. On any machine, an empty Ubicloud project made `reap` and every `up` die. All three were reported by Jared.
+
+### Fixed
+- **`pack` on macOS.** macOS's tar read pack's options as file names and shipped an archive holding only `.git`. Pack now builds the archive in two steps that work with both macOS and GNU tar, and keeps macOS tar from adding hidden `._*` copies of files that carry extended attributes. (#3680)
+- **`usage` and the quota check on macOS.** One line of the usage report was a syntax error for macOS's awk. `usage` now also exits 1 instead of printing a partial count when Ubicloud can't list the VMs or read a size, and skips a VM destroyed between the two reads. When usage can't be read, the quota check retries while `UBI_QUOTA_WAIT` has time left, then says so in the log and leaves the decision to Ubicloud. (#3679)
+- **`reap` and `up` on an empty project.** An empty VM list was read as one VM named `-`, so they died with `invalid VM name '-'`. (#3678)
+
+## [1.92.40.0] - 2026-11-01
+
+**A subagent's /ship cost now says it is an upper bound.** A Capy subagent cannot read its own jam counter, so its /ship read `"this"`, the root thread, whose counter also holds every sibling lane. BUDGET_FINAL and the notes printed that total as if it were the run's own cost.
+
+### Added
+- **`gstack-ship-budget start --meter-scope self|tree`.** A run started with `tree`, or with `--subagent` (or `GSTACK_SHIP_SUBAGENT=1`) and `--reading-from this`, is tree-scoped: every BUDGET, NOTE, BUDGET_FINAL and BUDGET_TIMELINE line it prints is followed by `METER: tree (root counter, upper bound)`.
+- **`METER_SCOPE_PARENT`.** A subagent reading `"this"` that asks for `--meter-scope self` is refused with exit 2 and the fix `--meter-scope tree` (docs/troubleshooting.md#meter-scope-parent).
+
+### Changed
+- The Capy skill and docs/ship-budget.md tell a subagent to start with `--subagent --reading-from this --meter-scope tree`, and say exact per-run cost comes from a root replay thread. The driver's Step 22 carries the `METER: tree` line into the report.
+
+### Tests
+- `test/ship-budget-meter-scope.test.ts`: tree runs label every cost line, self runs print none, the refusal and its troubleshooting anchor, and the docs pointers.
+
+## [1.92.39.0] - 2026-11-01
+
+**A push to main no longer runs Free Tests and Windows Free Tests again on a tree its pull request already passed.** 22 of 22 merges in 30 hours (Oct 27–29) reran both suites on the identical tree, about 66 Linux shard-minutes and 44 Windows minutes each. Now a `reuse` job, on main pushes only, finds the merged pull request, requires its head's tree to equal the pushed tree, and verifies that head's newest green `pull_request` or `workflow_dispatch` run with the same checks `gstack-pregate clear --run` uses. When it verifies, every suite job is skipped and the required check links the reused run. Anything else runs every job as before. The same verifier backs a new `--from-run` flag for the pregate tests stage.
+
+### Added
+- **Main-push reuse** in `free-tests.yml` and `windows-free-tests.yml` (`scripts/ci-tree-reuse.ts`, docs/pregate.md#ci-reuse). The `reuse` job is the only one with `actions: read`, and it reads at most 10 pull requests and 10 candidate runs. A newer red run on the head vetoes an older green one. A run that reused another run never counts. Pull request and dispatch runs never consume, and a skipped or failed `reuse` job runs every job exactly as before. The required `free-tests` and `windows-free-tests` aggregates pick their path before any download, and the strict path is unchanged.
+- **`tested-tree` records.** Both aggregates upload `tree.json` only after strict verification passes: run, attempt, event, sha, head, tree, workflow, OS list, every planned test file and the test count.
+- **`gstack-pregate --stage tests --from-run <run id|url>`** (docs/pregate.md#from-run). The selected local test files a verified Free Tests run on this exact tree lists count as passed and are recorded under `from_run` with the run receipt, and the rest still run. A refused run prints `REUSE: refused reason=<code>` and runs everything. It changes only the tests stage; `--stage all` still runs every preflight check, the secrets scan included.
+- **gstack's run profiles** in `.gstack/pregate.json`: `ci-reuse/free-tests` (the complete Free Tests run) and `ci-reuse/windows-free-tests`. Neither is named after a lane, so macOS and Windows lane clears and `gstack-ship-queue ready --dispatch-ci` keep recording the run URL. Lane profiles and dispatch-ci verification wait until open pull requests carry the `tested-tree` producer (GST-555).
+
+### Changed
+- **Run profiles may accept `pull_request` runs.** Such a run counts only when its `tree.json` names the head and the merge commit, and the merge commit's tree equals the head's tree, which means the head already held its base. `tree.json` may list every OS its test jobs ran on, and the profile's OS must be one of them.
+- **`free-durations-record.yml` grants its Windows caller job `contents: read` and `actions: read`.** That job calls `windows-free-tests.yml`, whose new `reuse` job asks for `actions: read`, and a called workflow can't hold more than its caller grants. Without the grant, GitHub rejects the scheduled duration run before it starts.
+- **A run whose `tree.json` lists no test files or zero tests never counts** for `--from-run` or main-push reuse (`no_tests`).
+
+### Tests
+- `test/ci-tree-reuse.test.ts`: candidate discovery with fake GitHub data (pull request found or missing, unmerged, fork head, tree mismatch, reused record, newer red run veto, dispatch and pull_request candidates, the 10-run bound, API errors), the `tree.json` producer, and the CLI refusing every event but a main push.
+- `test/ci-reuse-workflow-wiring.test.ts`: both workflows. It covers the push-only reuse job and its permissions, each suite job's condition evaluated for a skipped, failed and successful reuse, and status functions on every downstream job. It also covers pregate still requiring every test lane, the aggregate's route step run under bash for each input, and the profiles naming real jobs and never a lane.
+- `test/cso-distribution.test.ts`: the `free-tests` aggregate still requires `cso-docker-integration` on its strict path, and only a verified reuse skips that job.
+- `test/pregate-from-run.test.ts` failed on the old code. `test/run-evidence.test.ts` adds the `pull_request` and OS-list cases and `verifyFromRun`, including the zero-test refusal, which failed on the old code.
+- `test/free-durations-record-workflow.test.ts` pins the Windows caller grant, and `test/ci-reuse-workflow-wiring.test.ts` requires every caller of either workflow to grant `actions: read`; it failed without the grant.
+
+## [1.92.38.0] - 2026-11-01
+
+**brain-sync no longer gets stuck in `push_failed` when another machine changed a file you have edited locally.** After a rejected push, brain-sync fetches and merges the other machine's commits. Git refuses that merge when a file it would update has uncommitted local edits. brain-sync hid git's error and hit the same refusal on every run, so cross-machine sync stopped for good (#3704).
+
+### Fixed
+- **The retry merge sets aside local edits to the files it changes and puts them back** (`bin/gstack-brain-sync`). Other local edits stay where they are, file names are never read as patterns, and only the stash entry this run made is put back. A failed merge is aborted, so it never leaves conflict markers or a half-finished merge in `~/.gstack`.
+- **When a local edit conflicts with the other machine's change, the other machine's version stays.** The local edit is kept in a git stash. The status names the stash and the exact `git -C ~/.gstack --literal-pathspecs restore --source=<stash> -- <path>` command that brings it back. A later sync never pushes the old local copy over the other machine's change. Files with a merge driver (`*.jsonl`, the union-merged plans) merge as before.
+- **`push_failed` now says why.** It carries git's merge reason (for example `CONFLICT (content): Merge conflict in developer-profile.json`) and the real push error line instead of git's `To <remote>` banner.
+
+### Tests
+- `test/brain-sync.test.ts`: a dirty file the remote didn't touch, a dirty file the remote also changed (including a second sync and the restore command), local-delete/remote-edit, local-edit/remote-delete, a conflicting file whose name looks like a pattern, a file that never checks out clean, a stash push that saves nothing, and a committed conflict. Five of the eight fail on main.
+
+## [1.92.37.0] - 2026-11-01
+
+- **A Red Team finding that quotes `origin/<base>` no longer stops `/ship`'s review** (`lib/review-brief.ts`, GST-797). The renderer checked each finished brief for unfilled slots like `<base>`, `<diff-base>` and `<exclude>` after the reviewers' findings and past learnings had been pasted in, so a finding that quoted one failed the render with `BRIEF_RENDER_FAILED: red-team: unfilled placeholder <base>` (seen on #3795). A quoted `<diff-base>` was also quietly swapped for the commit sha. The check now runs on the brief before that text goes in, and the quoted text reaches the reader exactly as written. A slot the section really leaves open still fails the render. A brief whose findings and learnings quote no slot name renders the same bytes as before.
+
+## [1.92.36.0] - 2026-11-01
+
+**/ship's review collector keeps every severity label again, so a blocker named after "no CRITICAL issues except" is no longer lost.** v1.92.29.0 (GST-766) skipped any severity word that followed "no", "nothing", "none" and similar words, to stop a reviewer's closing line like "found nothing CRITICAL" from counting as a finding. That also threw away real blockers named in an exception clause: "No CRITICAL issues except the token leak in log.ts:3", "Nothing CRITICAL apart from the auth bypass (auth.ts:9)" and four more wordings collected nothing at all, so the gate never saw them. The collector now reads labels exactly as it did before v1.92.29.0. The reviewer's own Severity and Blocks fields are still recorded beside the label (`stated`), as in v1.92.29.0.
+
+### Known
+- **A reviewer's closing summary collects at its label again.** Lines like "found nothing CRITICAL" or "Neither finding is CRITICAL." collect as CRITICAL, the same as before v1.92.29.0. They are known phantoms. Each stays CRITICAL in the judged set (lead judgment can fold it only into a finding at least as severe), so it counts toward what blocks. A lost blocker costs more than an extra one.
+
+### Tests
+- `test/review-dispatch.test.ts`: the six exception-clause wordings collect CRITICAL for every reader. GST-766's test that a negated label collects nothing now checks that each of those lines keeps its label. GST-435's label-keeping probes (table rows, FIXABLE, negated subjects, closing summaries kept as known phantoms) are added with their HARN-15 and GEVA-77 fixtures under `test/fixtures/review-ledger/`.
+
+### Docs
+- `docs/review-policy.md` (collect) says a negated severity word still collects at its label.
+
+## [1.92.35.0] - 2026-11-01
+
+- **A `.gstack/pregate.json` that only raises `timeout_s` no longer changes lane verdicts, `warn: ["lanes"]` no longer lets a failing test pass, and a `[]` declaration no longer skips a deleted test's suite** (GST-775, from gbrain-evals #272 and GBEV-22).
+  - Before, any policy file, even `{"timeout_s": 1800}`, made a touched file with no test lane a hard `PREGATE_NO_LANE` that stopped before any test ran. Now only a policy that declares lanes (a `dependencies`, `empty_lanes`, `selection` or `local` key, even an empty one) does that. A policy with none of them keeps the no-policy verdict: `warn` `PREGATE_NO_POLICY` with a starter, the selected tests run, and a red test is still `PREGATE_LANE_FAILED`. A hand-written policy that sets only `runner`, `guards`, `strays`, `allowlist` or `remote_gate` moves from the hard failure to that warning; add `dependencies` to keep unmapped files failing. See docs/pregate.md#lane-requirements.
+  - `warn: ["lanes"]` used to downgrade the missing-lane failure before the tests ran, so a red test beside an unmapped file passed. Now the selected tests run first. A red lane is `fail`, an unfinished one `incomplete`, a test only a platform lane runs stays `requires-remote`, and only a green run becomes `warn` `PREGATE_NO_LANE` naming the unmapped files.
+  - A `[]` declaration that matches a deleted test (the `"**": []` catch-all) used to clear it before the removed-test handling, so its owning suite did not run. Now the deleted test still runs its owning suite, and a file naming it that a `[]` covers, such as a durations list, counts as covered.
+
+## [1.92.34.0] - 2026-11-01
+
+- `gstack-ship-queue wave plan` no longer packs the whole READY queue into one area. Shared files now link two PRs into one group only when `git merge-tree` finds a real conflict between them in a code file or skill template. PRs of the same area still pack together as before. Docs, other Markdown and JSON ledgers never link PRs, since most PRs add to them. Before, any shared file linked two PRs, so `docs/troubleshooting.md` and a few ledgers chained 55 READY PRs into eight waves all labeled `setup`. With this change, the 57-PR queue later that day gives five groups split by area. A READY head whose CI is red or still running now prints `NOT_GREEN: #<n> (...)` and stays out of the plan, as `ready` would refuse it. A head whose CI cannot be read fails the plan with `QUEUE_PROOF_MISSING`, the same as an unreadable PR. Renamed files are compared by their real paths (GST-770).
+
 ## [1.92.33.0] - 2026-11-01
 
 **Eleven flaky tests from the 2026-10-31 flaky pass stop failing correct runs, and six more now name their cause when they fail.** Three paid detectors missed correct replies, one product script copied a file git was rewriting, and the free-test reds came from a binary's slow first launch on a fresh Windows runner, a fixture written in two steps and a cleanup that raced the runner's own scanner.
