@@ -20,7 +20,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
-import { cleanMarkers, collect, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
+import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 import { runScriptSync } from '../lib/script-invocation';
@@ -329,10 +329,12 @@ function main(): number {
       process.stdout.write(`COLLECT_UNAVAILABLE: reader=${reader} sha256=${r.sha} reason=${JSON.stringify(why)} (missing outside coverage: unavailable, never clean)\n`);
       return EXIT.ok;
     }
-    const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable, tree);
+    const mf = flag('--manifest');
+    let plan: ReturnType<typeof readManifest> | undefined;
+    try { plan = mf ? readManifest(mf) : undefined; } catch (e) { process.stderr.write(`gstack-review-dispatch collect: ${(e as Error).message}; native FIXABLE collects as CRITICAL\n`); }
+    const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable, tree, fixableRaises(plan && path.resolve(plan.ledger) === path.resolve(ledger) ? plan.plan_lines : undefined));
     if (tree && !tree.ok) {
-      const mf = flag('--manifest');
-      if (mf) { const m = readManifest(mf); markReader(m, reader, 'failed', { output: outFile, error: `reviewed another tree: ${tree.reported}` }); writeManifest(mf, m); }
+      if (mf && plan) { markReader(plan, reader, 'failed', { output: outFile, error: `reviewed another tree: ${tree.reported}` }); writeManifest(mf, plan); }
       process.stdout.write(wrongTree(reader, tree));
       return EXIT.fail;
     }

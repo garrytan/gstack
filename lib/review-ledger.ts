@@ -55,9 +55,11 @@ const ANY_LABEL = new RegExp(`(?<![A-Za-z0-9])(${LABELS})(?![A-Za-z0-9])`);
 const LABEL_HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(${LABELS})(?:\\s+(?:findings?|severity|issues?))?\\s*:?\\**\\s*$`);
 const HEADING = /^(?:#{1,6}\s|\*\*[^*]+\*\*:?$)/;
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
+const NUMBERED_HEAD = /^(?:#{1,6}\s+|\*\*\s*)\d+[.)]\s/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
+const BLOCKS_NO = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*no(?![A-Za-z0-9-])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
@@ -102,9 +104,11 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
  * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An inline
  * `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
+ * With fixableRaises false (a code or docs review with no risk, error, history or floor reason, GST-987) a native FIXABLE finding that
+ * states `Blocks: no` collects at its own Severity field; one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL.
  */
-export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
-  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string };
+export function parseFindings(reader: string, output: string, fixableRaises = true): Array<{ label: string; raw: string }> {
+  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean };
   const out: Finding[] = [];
   let section: string | null = null;
   let current: Finding | null = null;
@@ -115,9 +119,9 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
   const strongest = (t: string) => strongestOf([...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)));
-  const fieldOf = (t: string) => { const ls = [...t.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 ? ls[0] : undefined; };
-  const critical = (t: string) => BLOCKS_YES.test(t) || (role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
-  const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined ? undefined : named(l); };
+  const fieldOf = (t: string) => { const ls = [...t.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 && (fixableRaises || role !== 'adversarial-native' || rank(ls[0]!)) ? ls[0] : undefined; };
+  const critical = (t: string) => BLOCKS_YES.test(t) || (fixableRaises && role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
+  const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
   const labelOf = (t: string) => {
     const field = fieldOf(t);
     if (field === undefined) return strongest(t);
@@ -150,7 +154,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
       continue;
     }
     const heading = LABEL_HEADING.exec(t);
-    if (heading) { section = named(heading[1]!); current = null; head = ''; continue; }
+    if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; current = null; head = ''; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
       try {
@@ -160,12 +164,20 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
+    if (afterGap && current?.heading && !current.fields.size && !LIST_ITEM.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t) && !LEAD_LABEL.test(t) && !LOCUS.test(t)) {
+      current.raw += ` | ${t}`;
+      if (blocks) current.label = 'CRITICAL';
+      else if (label) current.label = stronger(current.label, label);
+      continue;
+    }
     const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
     if (fresh) { current = null; head = t; }
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
     if (found) {
       current = push(blocks ? 'CRITICAL' : found, t, [], strongestOf([leadOf(t), inherited, fieldOf(t)]));
+      current.fixable = inherited?.toUpperCase() === 'FIXABLE';
+      current.heading = !indented && NUMBERED_HEAD.test(t);
       if (!indented) head = t;
       continue;
     }
@@ -176,7 +188,20 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     }
     if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
   }
-  return out.map(({ label, raw }) => ({ label, raw }));
+  const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || BLOCKS_NO.test(f.raw);
+  return out.map(f => ({ label: unblocked(f) ? f.label : 'CRITICAL', raw: f.raw }));
+}
+
+/**
+ * Whether the native voice's FIXABLE raises a finding with its own Severity field to CRITICAL (GST-987): true on the gate class, on any
+ * risk reason (security, secret, auth, money, user data), a depth error, a history or floor escalation, and whenever the plan's
+ * REVIEW_CLASS or REVIEW_DEPTH reasons cannot be read: only a code or docs plan whose every reason is `runtime=<n>` relaxes it.
+ */
+export function fixableRaises(planLines?: readonly string[]): boolean {
+  const cls = planLines?.map(l => /^REVIEW_CLASS: (\S+)/.exec(l)?.[1]).find(Boolean);
+  const reasons = planLines?.map(l => /^REVIEW_DEPTH: .*?\breasons=(\S+)/.exec(l)?.[1]).find(Boolean);
+  if (!cls || !reasons) return true;
+  return !['code', 'docs'].includes(cls) || !reasons.split(',').every(r => /^runtime=\d+$/.test(r));
 }
 
 /**
@@ -201,17 +226,17 @@ const hasCleanMarker = (reader: string, output: string) => output.replace(/\r\n/
  * review: false. With unavailable (the outside voice only) the output is its failure text, recorded as missing coverage. With a
  * failed tree check (GST-482: the reply reviewed another checkout, or names none) nothing is merged and the output is no review.
  */
-export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string, unavailable?: string, tree?: TreeCheck): { sha: string; lines: MergedLine[]; review: boolean } {
+export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string, unavailable?: string, tree?: TreeCheck, raises = true): { sha: string; lines: MergedLine[]; review: boolean } {
   const sha = promptHash(output);
   const prior = readLedger(ledger).filter(e => e.event === 'output' && e.reader === reader).length;
   const wrongTree = !unavailable && tree !== undefined && !tree.ok;
-  const lines = unavailable || wrongTree ? [] : parseFindings(reader, output).map((f, i) => {
+  const lines = unavailable || wrongTree ? [] : parseFindings(reader, output, raises).map((f, i) => {
     const s = stated(f.raw);
     return { id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, ...(s ? { stated: s } : {}), raw: f.raw, output_sha256: sha };
   });
   const review = !unavailable && !wrongTree && (lines.length > 0 || hasCleanMarker(reader, output));
   fs.appendFileSync(mergedFile, lines.map(l => JSON.stringify(l) + '\n').join(''), { mode: 0o600 });
-  appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id), review, ...(unavailable ? { unavailable } : {}),
+  appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id), review, ...(unavailable ? { unavailable } : {}), ...(raises ? {} : { fixable_raises: false }),
     ...(tree && !unavailable ? { tree: tree.expected, reported_tree: tree.reported, tree_ok: tree.ok } : {}) });
   return { sha, lines, review };
 }
@@ -408,7 +433,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
       notes.push(typeof o.file === 'string' ? 'output_file_missing' : 'output_file_unrecorded');
       differs.push(...ids);
     } else if (promptHash(text) === o.sha256) {
-      const parsed = parseFindings(reader, text);
+      const parsed = parseFindings(reader, text, o.fixable_raises !== false);
       const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw; });
       if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
       else if (!unavailableOutput(o)) {

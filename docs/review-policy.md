@@ -326,7 +326,8 @@ fix-checks run at `full` effort (the lane's reasoning); specialists run at
 batched specialist, which carries the Red Team prompt and stays `full`. The
 outside voice and the native adversarial pass carry the floor sentence and end
 each finding with `Severity:` and `Blocks: yes|no`; a finding is CRITICAL when
-its label rule says so (native FIXABLE, outside Critical or High) or it says
+its label rule says so (native FIXABLE, except as the collect step below
+relaxes it on a runtime-only code or docs plan; outside Critical or High) or it says
 `Blocks: yes`, and `Blocks: no` never lowers one (`gstack-review-dispatch collect`). Work that cannot block (the Step 7 coverage audit, the Step 8
 plan-completion audit, the Step 14.5 docs audit, decision-trail reviewers,
 watchers) runs at `light`: the same model at a lower reasoning effort, never a
@@ -564,7 +565,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    second line for the same field starts another: `Severity` sets its label (a label leading the finding stays its floor),
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
-   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). An unnumbered, unlabeled bullet with no file:line
+   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167) unless collect `--manifest` names this
+   ledger's pass and its plan is the code or docs class with only `runtime=<n>` depth reasons (no `risk:`, `error:`,
+   `history:` or `floor:` reason). On such a plan a native finding's own `Severity` field decides and FIXABLE beside it
+   raises nothing once it also states `Blocks: no`; a native FIXABLE finding without `Blocks: no`, with no `Severity` field,
+   or whose field names only FIXABLE or INVESTIGATE still collects as CRITICAL (GST-987). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
    A negated severity word still collects at its label ("found nothing CRITICAL", "No P0/P1 issues"), so a reader's
