@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { normalizeChangelog } from './changelog-check';
+import { foldIntoUnreleased, parseFragment, type Fragment } from './changelog-fragments';
 import { compareIdentity, executionIdentity, normalizeLockfile, readBundle, type EvidenceBundle, type ExecutionIdentity } from './evidence-bundle';
 import { parseUnifiedDiff, stampOnlyLine, versionAtRef, type FileDiff, type GateAheadRecord } from './restamp';
 import type { ResultCodeName } from './result-codes';
@@ -50,6 +51,30 @@ function blob(cwd: string, treeish: string, rel: string): string | null {
 }
 
 /**
+ * Every file's verdict for one gated/current pair, with the changelog_fragments fold: a fragment deleted
+ * between the two is a stamp only when the CHANGELOG change is exactly those fragments folded under the new
+ * heading. gstack-tree-receipt and gstack-pregate clear both classify through this, so their rules agree.
+ */
+export function classifyFiles(repoRoot: string, fileDiffs: FileDiff[], gated: string, current: string, policy: ShipPolicy, versionRel: string, oldV: string | null, newV: string | null): FileVerdict[] {
+  const prefix = policy.changelog_fragments ? policy.changelog_fragments.dir.replace(/\/+$/, '') + '/' : null;
+  const folded = new Map<string, Fragment>();
+  for (const f of fileDiffs) {
+    if (!prefix || f.status !== 'D' || f.binary || f.modeChanged || !f.path.startsWith(prefix) || f.path.slice(prefix.length).includes('/') || !f.path.endsWith('.md')) continue;
+    const text = blob(repoRoot, gated, f.path);
+    const parsed = text === null ? null : parseFragment(f.path, text);
+    if (parsed && !('code' in parsed)) folded.set(f.path, parsed);
+  }
+  const fragments = [...folded.values()].sort((a, b) => (a.path < b.path ? -1 : 1));
+  const changelogVerdict = (f: FileDiff) => classifyFile(repoRoot, f, gated, current, policy, versionRel, oldV, newV, fragments);
+  const clDiff = fileDiffs.find(f => policy.changelog && f.path === policy.changelog);
+  const clStamp = !!clDiff && changelogVerdict(clDiff).verdict === 'stamp';
+  return fileDiffs.map((f): FileVerdict => {
+    if (!folded.has(f.path)) return f === clDiff ? changelogVerdict(f) : classifyFile(repoRoot, f, gated, current, policy, versionRel, oldV, newV);
+    return clStamp ? { path: f.path, rule: 'changelog_fragments', verdict: 'stamp' } : { path: f.path, rule: 'changelog_fragments', verdict: 'changed', residual: `deleted without its text folded under the new heading in ${policy.changelog ?? 'the CHANGELOG'}` };
+  });
+}
+
+/**
  * Every removed/added pair differs only by stamp rewrites to the new version:
  * the old version, or a tentative one (newer than it) the stamp_paths stage
  * moved (#3512), each in a stamp form (`stampOnlyLine`).
@@ -71,7 +96,7 @@ function jsonEqualModuloVersion(a: string | null, b: string | null, name: string
   return normalizeLockfile(name, a) === normalizeLockfile(name, b);
 }
 
-export function classifyFile(repoRoot: string, f: FileDiff, gated: string, current: string, policy: ShipPolicy, versionRel: string, oldV: string | null, newV: string | null): FileVerdict {
+export function classifyFile(repoRoot: string, f: FileDiff, gated: string, current: string, policy: ShipPolicy, versionRel: string, oldV: string | null, newV: string | null, folded: readonly Fragment[] = []): FileVerdict {
   const changed = (rule: string, residual: string, line = f.hunks[0]?.at): FileVerdict => ({ path: f.path, rule, verdict: 'changed', residual, line });
   const stamp = (rule: string): FileVerdict => ({ path: f.path, rule, verdict: 'stamp' });
   if (f.binary) return changed('binary', 'binary content differs');
@@ -98,7 +123,8 @@ export function classifyFile(repoRoot: string, f: FileDiff, gated: string, curre
     return changed('manifest', 'a field other than version changed');
   }
   if (policy.changelog && f.path === policy.changelog) {
-    return before !== null && after !== null && normalizeChangelog(before) === normalizeChangelog(after) ? stamp('changelog-heading') : changed('changelog', 'entry text changed (only a heading move or re-heading is a stamp)');
+    if (before !== null && after !== null && normalizeChangelog(foldIntoUnreleased(before, folded)) === normalizeChangelog(after)) return stamp(folded.length ? 'changelog-fragments' : 'changelog-heading');
+    return changed('changelog', folded.length ? 'entry text is not exactly the deleted fragments folded under the new heading' : 'entry text changed (only a heading move or re-heading is a stamp)');
   }
   const rule = matchesAny(policy.stamp_paths, f.path) ? 'stamp_paths' : matchesAny(policy.release_outputs, f.path) ? 'release_outputs' : matchesAny(policy.stamp_files, f.path) ? 'stamp_files' : null;
   if (oldV && newV && oldV !== newV && rule) {
@@ -145,7 +171,7 @@ export function buildReceipt(o: ReceiptOptions): TreeReceipt | { error: string; 
   const oldV = 'version' in gv ? gv.version : null;
   const newV = 'version' in cv ? cv.version : null;
   const diffText = git(o.repoRoot, ['diff', '--unified=0', '--no-color', '--no-ext-diff', gatedHead, currentHead]) ?? '';
-  const files = parseUnifiedDiff(diffText).map(f => classifyFile(o.repoRoot, f, gatedHead, currentHead, o.policy, versionRel, oldV, newV));
+  const files = classifyFiles(o.repoRoot, parseUnifiedDiff(diffText), gatedHead, currentHead, o.policy, versionRel, oldV, newV);
   const residual = files.filter(f => f.verdict === 'changed').map(f => f.path);
   const stampFiles = files.filter(f => f.verdict === 'stamp').map(f => f.path);
   const stampDiff = stampFiles.length ? (git(o.repoRoot, ['diff', '--no-color', '--no-ext-diff', gatedHead, currentHead, '--', ...stampFiles]) ?? '') : '';

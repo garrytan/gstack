@@ -277,7 +277,10 @@ Branch on the exit code of either block:
   output back into the body file and rerun the block, which scans again. Only when the
   user accepts the findings as they are, rerun the same block with
   `--confirm <confirm-token>` added to the command that printed it; any edit needs a new token.
-- **3** `gh`/`glab` failed, or **64** no usable remote or CLI: print the error, the
+- **64** with stderr saying the current body holds a title `more than once`: nothing was
+  posted. STOP and report the duplicated titles; never rerun with `--replace` yourself,
+  since a human picks which copy stays (docs/troubleshooting.md#gstack-post-pr-body-merge).
+- **3** `gh`/`glab` failed, or any other **64** (no usable remote or CLI): print the error, the
   branch name, the remote URL and the block for posting by hand. Do not stop — the code
   is pushed — but never report a PR that was not created. With open gate findings,
   also say the gate edits were not disclosed and leave the Step 16 open-items report

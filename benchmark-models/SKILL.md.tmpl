@@ -4,7 +4,8 @@ preamble-tier: 1
 version: 1.0.0
 description: |
   Cross-model benchmark for gstack skills. Runs the same prompt through Claude,
-  GPT (via Codex CLI), and Gemini side-by-side — compares latency, tokens, cost,
+  GPT (via Codex CLI), Gemini, and (through OpenRouter in Claude Code) particle-1
+  and DeepSeek V4.1 Flash side-by-side — compares latency, tokens, cost,
   and optionally quality via LLM judge. Answers "which model is actually best
   for this skill?" with data instead of vibes. Separate from /benchmark, which
   measures web page performance. Use when: "benchmark models", "compare models",
@@ -71,12 +72,14 @@ If C: ask for the path. Verify it exists. Use as positional argument.
 ## Step 2: Choose providers
 
 ```bash
-"$BIN" --prompt "unused, dry-run" --models claude,gpt,gemini --dry-run
+"$BIN" --prompt "unused, dry-run" --models claude,gpt,gemini,particle,deepseek --dry-run
 ```
 
 Show the dry-run output. The "Adapter availability" section tells the user which providers will actually run (OK) vs skip (NOT READY — remediation hint included).
 
-If ALL three show NOT READY: stop with a clear message — benchmark can't run without at least one authed provider. Suggest `claude login`, `codex login`, or `gemini login` / `export GOOGLE_API_KEY`.
+If every provider shows NOT READY: stop with a clear message — benchmark can't run without at least one authed provider. Suggest `claude login`, `codex login`, `gemini login` / `export GOOGLE_API_KEY`, or `export OPENROUTER_API_KEY` for particle and deepseek (they run in Claude Code, so they also need the `claude` CLI).
+
+particle and deepseek send the prompt and the working directory's files the model reads to OpenRouter and the model vendor. They load no Claude Code settings files (so a key in a settings.json `env` block is never sent) and run with the user's environment minus Anthropic credentials. Say so before including them.
 
 If at least one is OK: AskUserQuestion:
 - **Simplify:** "Which models should we include? The dry-run above showed which are authed. Unauthed ones will be skipped cleanly — they won't abort the batch."

@@ -5,7 +5,7 @@ gate codes in the body. `gstack-owner-brief render --captain --out <run dir>` pr
 shape from an autoplan run; write it by hand for any other plan.
 
 ```text
-Decision needed on <thread>: <one-line title>. Reply **rec** to take every recommendation.
+Decision needed on <thread>: <one-line title>. Reply **do it** to take every recommendation.
 
 ## ELI5
 <5-10 plain sentences: what changes, for whom, and what it costs>
@@ -25,10 +25,19 @@ output, a screen, a cost or time number>
 2. …
 
 ## What we need from you
-<one decision>: <option 1> (<cost>) · <option 2> (<cost>) · our pick: <option>, reply **rec**.
+<Captain name>
+- A: <code> hit problem <p>, which happens when <h>. We could fix it in these ways: 1) <x> (<cost>); 2) <y> (<cost>); 3) <z> (<cost>). Recommendation: <x> because <why>. A1 to take recommendation.
+- B: …
 
-**do it** = take every recommendation above at full scope, including <the follow-ons
-named: docs, trains, cleanups>, and carry them through to done with no further ask.
+**do it** = take every recommendation in this list at full scope, including <the follow-ons
+named: docs, trains, cleanups>, and carry them through to done with no further ask. A named
+option ("A2") takes that option instead.
+
+<only when the owner must act; the exact link, never a menu path (a Capy app page: its exact path and field)>
+- C: <code> needs you to <action>, because <why>. Open <exact URL>, then:
+  1. Click <button>.
+  2. Type <value> in <field>.
+  3. Reply **done**.
 ```
 
 When the answer comes back, record it before the work starts. For an autoplan gate:

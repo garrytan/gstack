@@ -1,0 +1,43 @@
+Adversarial review (native) of `1b68e637c07c..0a8efed`. HEAD is still `0a8efeda8f79`, the working tree is clean and the same 10 files changed, so the findings below are the ones I reported earlier, rechecked against this range.
+
+**Coverage:** I read the full diffs of the non-fixture source: `.github/workflows/{ci,sealed,train-gate}.yml`, `scripts/gate.ts`, `gate/manifest.json`, `package.json` and `README.md`. **I reviewed the test files in summary mode only**, so their coverage of the review is reduced:
+- `tests/ci/gate.test.ts` is new (+299). It covers the train chain walk, `routeDispatch` refusals, `publishable` binding and the gate-surface rule, and `runCases`/junit judging.
+- `tests/ci/sealed-workflow.test.ts` (+19/−6) adds the push trigger.
+- `tests/ci/workflow-hygiene.test.ts` is new (+85). It covers SHA pins, read-only tokens, no secrets, the checksummed Bun install, the gstack pin and parity between the manifest and ci.yml.
+
+**1. A PR in the train controls the workflow that judges the train (INVESTIGATE).** `workflow_dispatch` runs the copy of `train-gate.yml` at the dispatched ref, `train/<nonce>`, and that copy contains every train PR's edits. So a PR that edits `train-gate.yml` changes the `route`, `test` and `publish` jobs themselves.
+- It can drop the call to the base's `gate.ts publish`. It can also post the `full_gate_check` check run unconditionally with the publish job's `checks: write`, or give itself more `permissions:` and use repository secrets.
+- The header says "a pull request in the train cannot change how the train is judged". In practice only the case list and `gate.ts` come from the base.
+- The "a gate surface PR rides alone" rule (`publishable`, `slots > 1`) is enforced by the publish job, which is code the PR can rewrite. So the rule holds only against PRs that don't break it.
+- `ci.yml`'s new `workflow_dispatch` has the same property.
+- Real mitigations would run the judging workflow from the default branch, for example `repository_dispatch` or a dispatch on `main` that takes the train head as an input, or have gstack verify which workflow file produced the check. Either one changes the protocol with gstack.
+- Today an attacker needs a malicious workflow edit to pass review and READY, and no workflow references a secret.
+
+Severity: High. Blocks: no.
+
+**2. A case timeout leaks processes and can lose the record (FIXABLE).** `runCases` calls `spawnSync(..., { timeout })` (`scripts/gate.ts:252`), which kills only the `bash` wrapper. Grandchildren such as `bun test` survive with inherited stdio and keep running into later cases.
+- A 20-minute case timeout (`CASE_TIMEOUT_MS`) plus the other cases can go past the job's 30-minute `timeout-minutes`.
+- GitHub then kills `gate.ts` before it writes `train-record.json`. That run has no record and fails as infrastructure, not as a red verdict.
+- Fix: spawn each case detached and kill its whole process group on timeout, and keep the per-case cap well under the job limit (or size the job to cases × cap).
+
+Severity: Low. Blocks: no.
+
+**3. Local `run` hides a broken train chain (FIXABLE).** In `gate.ts run` (`:386`), when `trainBase` returns `{ error }`, the code falls back to `merge-base HEAD origin/<default>` without saying so. A malformed train run locally is judged against the wrong base.
+- CI always passes `--base`, so this affects only local `bun run gate`.
+- Fix: fail on an error result, the way `route` and `publish` already do.
+
+Severity: Low. Blocks: no.
+
+**4. No train policy is on the base, so trains cannot run yet (INVESTIGATE).** `.gstack/ship-policy.json` does not exist at HEAD. Until a commit with a `train` block lands on main, `route` refuses every train and bisect dispatch with "needs a train block". The workflow cannot gate a train at merge, and this PR does not add the file.
+- Related: `bun.lock` is not in `gate_surface`. A multi-PR train can change resolved dependency versions within `package.json` ranges, for example `@types/bun ^1.4.4`, which changes what `typecheck` and `unit` run against.
+
+Severity: Low. Blocks: no.
+
+**Ruled out:**
+- `grep -q` after `tee` in the sealed case is not a SIGPIPE risk. `SEALED:` is the last and only line on gstack-pregate's stdout.
+- The empty wiki `--base` on dispatch is safe: `resolveBase` falls back to `origin/HEAD`.
+- `Bun.Glob("**/tsconfig*.json")` matches `tsconfig.json` at the repository root.
+- The bisect artifact name matches gstack's `bisectArtifact`.
+- `route` refuses when the bash T1 lookup and `trainBase` disagree.
+
+Recommendation: Ship as-is and send finding 1 to the train-protocol owner because the strongest issue, a train PR rewriting `train-gate.yml` to post `full_gate_check` itself, needs a malicious workflow edit to pass review, and fixing it means changing the dispatch protocol with gstack, not this diff.

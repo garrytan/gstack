@@ -14,12 +14,15 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 **Review plan.** Pass 1 runs `~/.claude/skills/gstack/bin/gstack-review-plan
 --base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
 gave `--depth-floor <d>` (it only raises); a repeat uses the plan run that picked it.
+A `scoped` repeat is a full pass on the range: its `fix-check` is decision 3.5's
+reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
 `runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
 (specialists, Red Team, Step 11's voices), each at its `effort=` on the same model
-family and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
-`specialist batched` (light depth) is one subagent reading every checklist its
-`checklists=` names, Red Team included, tagging each finding with its checklist.
+family (`full` is the lane's reasoning, `medium` reasoning medium, `light` low; a
+host that cannot set it runs its default) and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
+`specialist batched` is one subagent reading every checklist its
+`checklists=` names (light adds Red Team), tagging each finding with its checklist.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
 `"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,
@@ -89,7 +92,9 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
 
 0. **Scope the findings.** Write the unmatched or reopened findings from Step 9.3
    (all sources, queued Steps 10–11 included) as a JSON array to
-   `.gstack/tmp/review-findings-p$PASS.json` with your file-write tool, then:
+   `.gstack/tmp/review-findings-p$PASS.json` with your file-write tool, each with
+   `raised_by` (`core`, `qa`, a specialist, `red-team`, `adversarial-native`,
+   `outside-voice` or `fix-check`), then:
    `~/.claude/skills/gstack/bin/gstack-review-scope classify --base <base> --pass $PASS --range-base $RANGE_BASE --findings .gstack/tmp/review-findings-p$PASS.json --json > .gstack/tmp/review-classified-p$PASS.json`
    (omit `--range-base` on pass 1). Every Step 9.4 scratch file lives under
    `.gstack/tmp/` (gitignored): `<classified>` below is this pass's classified
@@ -190,6 +195,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
   else `issues_found`. N counts unresolved defects now, not original totals; missing
   coverage, deferred and noted findings are not defects. `SCOPE` is the policy
   (`frozen`, `diff-plus-blocking` or `all`); `RANGE_BASE_OR_NULL` is `"<sha>"` from pass 2, else `null`.
+- A `scoped` pass adds `"scope":"scoped"`; it is a full-pass row and counts toward the cap.
 - `REVIEW_START`: this pass's Step 9 token captured before reading the diff;
   never recapture at persistence to certify unreviewed fixes.
 - `COMPLETED`: checklist and dispatched specialists/Red Team finish, and all required probes pass.
@@ -205,7 +211,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
   `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`.
   ACTION: `"auto-fixed"`, `"fixed"` (approved), `"skipped"` (explicit Skip),
   `"deferred"` (with `issue`, the filed number or `null`) or `"noted"`. Copy
-  `locus`, `kind` and `blocking` from the classified output onto every finding.
+  `locus`, `kind`, `blocking` and `raised_by` from the classified output onto every finding.
   Merge revalidated invocation decisions by identity and advisory/defect kind;
   preserve `advisory`, `evidence_paths` and `helper_target`.
   Gate findings add `gate` (RH tag), `gate_id` (the tool's hunk identity), `reason`
@@ -223,8 +229,9 @@ Decision 1 always applies first. Then, under `frozen`, run `gstack-review-plan -
 with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open`,
 `--touched-gate` for a fix to an item 2.5 path, `--critical-found` when this pass
 logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--reviewed-numbers <fp>`,
-`--depth-floor <d>` when given);
+`--depth-floor <d>` when given), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
 its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4.
+`scoped` is 3 too. A full pass 1 always gets a full pass 2.
 Other scopes apply decisions 2–4 in order.
 
 1. **Dispatched reviewer output missing:** STOP and name each failed specialist or
