@@ -19,7 +19,8 @@ const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
 const DECISIONS = '## Decisions\nif the skill arm passes more items: keep the skill\nif there is no difference: cut the skill\n';
-const SCORING = (judge = 'gpt-6-astra', extra = 'labels: 40\nagreement: 0.6\npaired: yes\ninterval: 95%\nmdd: 3 of 20 items\n') => `## Scoring\njudge: ${judge}\n${extra}`;
+const LOOP = '\n## Pilot\nshare: 10%\ncounted: no\nran: the part under test shows in each arm\'s own transcripts\njudge: labels checked on each arm\'s pilot outputs\nsupply: three development rows per arm at the planned rate\nunits: every task type, one each\nseed: 7, independent of the number of workers\n\n## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger\n\n## Held-out exposure\n- filled in\nanswers: other git refs and build caches checked on each task machine\n';
+const SCORING = (judge = 'gpt-6-astra', extra = 'labels: 40\nagreement: 0.6\nper-arm: yes\neffort: high\npaired: yes\ninterval: 95%\nmdd: 3 of 20 items\n') => `## Scoring\njudge: ${judge}\n${extra}`;
 const prereg = (o: { decisions?: string; scoring?: string; frozen?: string; diagnostics?: string } = {}) => [
   o.frozen ? `frozen: ${o.frozen}\n` : '',
   '## Bars\n- pass rate, higher is better\n',
@@ -27,11 +28,12 @@ const prereg = (o: { decisions?: string; scoring?: string; frozen?: string; diag
   '## Arms\n- claude-opus-5-5 the skill installed\n- claude-opus-5-5#plain no skill\n',
   '## Comparison\nstack: none\nwhy: the scorer calibration compares prompts, not skill stacks\n',
   o.scoring ?? SCORING(),
-  ...['Decoys', 'Stop rules', 'Held-out exposure'].map(s => `## ${s}\n- filled in\n`),
+  ...['Decoys', 'Stop rules'].map(s => `## ${s}\n- filled in\n`),
+  LOOP,
   o.diagnostics ?? '',
 ].join('\n');
 const labels = (n: number, disagree = 0, cls = (i: number) => (i % 2 ? 'pass' : 'fail')) =>
-  Array.from({ length: n }, (_, i) => JSON.stringify({ id: `item-${i}`, human: cls(i), judge: i < disagree ? (cls(i) === 'pass' ? 'fail' : 'pass') : cls(i) })).join('\n') + '\n';
+  Array.from({ length: n }, (_, i) => JSON.stringify({ id: `item-${i}`, arm: i < n / 2 ? 'claude-opus-5-5' : 'claude-opus-5-5#plain', human: cls(i), judge: i < disagree ? (cls(i) === 'pass' ? 'fail' : 'pass') : cls(i) })).join('\n') + '\n';
 const table = (header: string, ...rows: string[]) => [header, header.replace(/[^|]+/g, '---'), ...rows].join('\n') + '\n';
 
 describe('## Decisions', () => {
@@ -89,6 +91,7 @@ describe('judge labels', () => {
     expect(checkJudgeLabels(scoring, labels(40, 4))).toMatchObject({ ok: true, n: 40, kappa: 0.8 });
     expect(checkJudgeLabels(scoring, labels(39)).problems).toEqual(['39 labelled outputs, needs 40']);
     expect(checkJudgeLabels(scoring, labels(40, 10)).problems).toEqual(['kappa 0.50 is below the bar 0.6']);
+    expect(checkJudgeLabels({ ...scoring, per_arm: true }, labels(40, 10)).problems.map(p => p.split(':')[0])).toEqual(['kappa 0.50 is below the bar 0.6', 'arm claude-opus-5-5']);
     expect(checkJudgeLabels(scoring, labels(40, 0, () => 'pass')).problems[0]).toContain('one class');
     expect(checkJudgeLabels(scoring, labels(40) + labels(1)).problems).toContain('id item-0 is labelled twice');
     expect(checkJudgeLabels({ ...scoring, labels: 60 }, labels(40)).problems).toEqual(['40 labelled outputs, needs 60']);
@@ -158,10 +161,10 @@ describe('gstack-eval-plan judge --check and results --labels', () => {
   test('judge --check prints JUDGE_AGREEMENT and exits 1 with EVAL_JUDGE_UNCHECKED below the bar', () => {
     const ok = run(['judge', '--check', 'prereg.md', '--labels', 'labels.jsonl'], { 'prereg.md': prereg(), 'labels.jsonl': labels(40, 4) });
     expect(ok.code, ok.err).toBe(0);
-    expect(ok.out).toBe('JUDGE_AGREEMENT: ok judge=gpt-6-astra n=40/40 kappa=0.80 bar=0.6\n');
+    expect(ok.out).toBe('JUDGE_ARM: claude-opus-5-5 n=20 kappa=0.60 bar=0.6\nJUDGE_ARM: claude-opus-5-5#plain n=20 kappa=1.00 bar=0.6\nJUDGE_AGREEMENT: ok judge=gpt-6-astra n=40/40 kappa=0.80 bar=0.6\n');
     const low = run(['judge', '--check', 'prereg.md', '--labels', 'labels.jsonl'], { 'prereg.md': prereg(), 'labels.jsonl': labels(20) });
     expect(low.code).toBe(1);
-    expect(low.out).toBe('JUDGE_AGREEMENT: unchecked judge=gpt-6-astra n=20/40 kappa=1.00 bar=0.6\n');
+    expect(low.out).toBe('JUDGE_ARM: claude-opus-5-5 n=10 kappa=1.00 bar=0.6\nJUDGE_ARM: claude-opus-5-5#plain n=10 kappa=1.00 bar=0.6\nJUDGE_AGREEMENT: unchecked judge=gpt-6-astra n=20/40 kappa=1.00 bar=0.6\n');
     expect(low.err).toContain('(EVAL_JUDGE_UNCHECKED)');
     expect(run(['judge', '--check', 'prereg.md', '--labels', 'labels.jsonl'], { 'prereg.md': prereg({ scoring: SCORING('none') }), 'labels.jsonl': labels(40) }).code).toBe(2);
   });
@@ -170,7 +173,7 @@ describe('gstack-eval-plan judge --check and results --labels', () => {
     const files = { 'prereg.md': prereg(), 'results.md': table('| arm | failures |', '| claude-opus-5-5 | 3 |', '| claude-opus-5-5#plain | 0 |'), 'labels.jsonl': labels(40) };
     const r = run(['results', '--check', 'prereg.md', '--labels', 'labels.jsonl', 'results.md'], files);
     expect(r.code).toBe(1);
-    expect(r.out).toBe('RESULTS: incomplete no_gstack_rows=0/0 rows=0/0 file=results.md\nJUDGE_AGREEMENT: ok judge=gpt-6-astra n=40/40 kappa=1.00 bar=0.6\n');
+    expect(r.out).toBe('RESULTS: incomplete no_gstack_rows=0/0 rows=0/0 file=results.md\nJUDGE_ARM: claude-opus-5-5 n=20 kappa=1.00 bar=0.6\nJUDGE_ARM: claude-opus-5-5#plain n=20 kappa=1.00 bar=0.6\nJUDGE_AGREEMENT: ok judge=gpt-6-astra n=40/40 kappa=1.00 bar=0.6\n');
     expect(r.err).toContain('(EVAL_REPORT_UNPLANTED_ZERO)');
     expect(r.err).toContain('(EVAL_REPORT_NO_ANSWER_ONLY)');
     expect(r.err).not.toContain('(EVAL_REPORT_NO_GSTACK_ROW)');

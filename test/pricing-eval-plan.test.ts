@@ -39,7 +39,7 @@ describe('lib/pricing', () => {
   });
 
   test('the default eval-arms tier (smart) is priced out of the box', () => {
-    for (const model of ['claude-opus-5-5', 'gpt-6.1-sol']) expect(hasPricing(model)).toBe(true);
+    for (const model of ['claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.2-sol', 'gpt-6.2-astra']) expect(hasPricing(model)).toBe(true);
   });
 
   test('claude-haiku-5-5, gpt-6-luna and gemini-4-argon are priced (#3640)', () => {
@@ -59,7 +59,10 @@ describe('preregistration', () => {
     expect(PREREG_SECTIONS).toContain('Comparison');
     const filled = t.replace(/^(##\s+.+)$/gm, '$1\n- filled in').replace('## Comparison\n- filled in', '## Comparison\nstack: none\nwhy: one arm, no skill stack')
       .replace('## Decisions\n- filled in', '## Decisions\nif the bar is met: run the full set\nif the bar is missed: stop and fix the scorer')
-      .replace('## Scoring\n- filled in', '## Scoring\njudge: none');
+      .replace('## Scoring\n- filled in', '## Scoring\njudge: none')
+      .replace('## Pilot\n- filled in', '## Pilot\nshare: 10%\ncounted: no\nran: shown in each arm\'s outputs\nsupply: three rows per arm\nunits: every task type\nseed: 7')
+      .replace('## Cost\n- filled in', '## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger')
+      .replace('## Held-out exposure\n- filled in', '## Held-out exposure\nanswers: other git refs and build caches checked');
     expect(checkPrereg(filled)).toMatchObject({ ok: true, missing: [], empty: [] });
     expect(checkPrereg('# nothing here\n').missing).toEqual([...PREREG_SECTIONS]);
   });
@@ -140,7 +143,7 @@ describe('dry run', () => {
     expect(small.checks.frontier).toMatchObject({ ok: false, small_tier: ['claude-haiku-4-5', 'claude-sonnet-5-5#no-gstack'], tier_question: null });
     const avgIn = Math.ceil((estimateTokens('hello world') + estimateTokens('second row')) / 2);
     expect(small.checks.frontier.recost_usd['claude-opus-5-5']).toBe(2 * 2 * estimateCostUsd({ input: avgIn, output: REASONING_OUTPUT_FLOOR }, 'claude-opus-5-5'));
-    expect(small.checks.frontier.recost_usd['gpt-6.1-sol']).toBeGreaterThan(0);
+    expect(small.checks.frontier.recost_usd['gpt-6.2-sol']).toBeGreaterThan(0);
     expect(renderDryRun(small)).toContain('CHECK: frontier refused');
     const asked = dryRun({ input: rows, arms: ['claude-haiku-4-5'], retryPrompt: retry, tierQuestion: 'does the diet hold on Haiku' });
     expect(asked.pass).toBe(true);
