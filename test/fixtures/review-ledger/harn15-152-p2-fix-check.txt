@@ -1,0 +1,17 @@
+The fixes are sound. None of them breaks a caller, opens or closes a guard wrongly, or changes behaviour with the option off, so there's nothing at CRITICAL. I have two INFORMATIONAL findings. The first is the one worth acting on: the tap half of the blank-bearer test never reaches the fixed line.
+
+```
+{"severity":"INFORMATIONAL","path":"tests/gbrain-tap-provider.test.ts","line":299,"summary":"The tap half of the blank-bearer test can't catch the bug it targets. Header normalization turns 'Bearer ' + ' ' into \"Bearer\", so the regex gives a null bearer and the old line (bearer !== null) also answers 401. I put the old line back in a scratch copy and the test still passed. An input that does reach the fix is 'Bearer \\u00a0' with tokens [''], because HTTP header normalization keeps U+00A0 while trim() strips it. With that input the old line authenticates the request as the provider, and the fixed line answers 401 (checked both ways in a scratch copy). The setGbrain half of the test does pin the server guard."}
+{"severity":"INFORMATIONAL","path":"world/services/gbrain-tap.ts","line":404,"summary":"Fix 3 covers provider calls only. A model call whose HTTP status is not 2xx but whose body carries a JSON-RPC result still gets qmDelivery(result) with facts set to true. trialProviderMechanism (scripts/v03/mechanism.ts:117 on) counts model_returned and model_delivered without checking the call's outcome, so a model call QM's client would have thrown on counts as delivering the needed fact. This was already there before these commits, and the input is rare: gbrain would have to answer 500 with a result body."}
+```
+
+**What I checked:**
+- **Blank bearer, fix 1:** `!!bearer` changes only the empty-string case. In the model path, `resolveActor` is unchanged. The `setGbrain` guard throws before `gbrain = u`, so a refused upstream leaves no partial state. The trial.ts:194 caller never sets `provider`, so it never reaches the new check.
+- **Dropped calls, fix 2:** The `delivery?.dropped` skip comes after the `provider_searches++` count, so a dropped search still counts as a search. A dropped recall already had `delivered_chars` 0. Only the provider path ever sets `dropped`, so model calls aren't affected.
+- **Failed calls, fix 3:** `ok` is `d.outcome === 'ok'` at both call sites, the all-denied branch included. Scope denials already came back as an `isError` result, so they were tool_error before this change as well. Without `provider`, `tagged` still returns `{}`, so events with the option off are unchanged.
+- **Null content entry, fix 4:** `c?.type` short-circuits before `c.text` is read. The structuredContent paths don't iterate `content`.
+- **Tests for fixes 2 to 5:** I traced the tests for fixes 2 to 4 and the code before these commits would fail each one. For the per-row test (fix 5), I worked through the sums: `provider_searches` is 2 from t2's two calls without `max_chars`, `model_calls` is 2 from the search plus the remember, and `provider_recalls` is 2, all from t1.
+
+I didn't rerun the full suite. The 41 passing tests and the clean tsc run are your results; I ran only the blank-bearer test and a scratch U+00A0 test, both in a scratch copy I've since removed. Your checkout is untouched.
+
+gstack: ok 1.91.346.0 (`--check` only, no workflow run; 2 behind latest 1.91.348.0)

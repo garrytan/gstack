@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.92.39.0] - 2026-11-01
+
+**A push to main no longer runs Free Tests and Windows Free Tests again on a tree its pull request already passed.** 22 of 22 merges in 30 hours (Oct 27–29) reran both suites on the identical tree, about 66 Linux shard-minutes and 44 Windows minutes each. Now a `reuse` job, on main pushes only, finds the merged pull request, requires its head's tree to equal the pushed tree, and verifies that head's newest green `pull_request` or `workflow_dispatch` run with the same checks `gstack-pregate clear --run` uses. When it verifies, every suite job is skipped and the required check links the reused run. Anything else runs every job as before. The same verifier backs a new `--from-run` flag for the pregate tests stage.
+
+### Added
+- **Main-push reuse** in `free-tests.yml` and `windows-free-tests.yml` (`scripts/ci-tree-reuse.ts`, docs/pregate.md#ci-reuse). The `reuse` job is the only one with `actions: read`, and it reads at most 10 pull requests and 10 candidate runs. A newer red run on the head vetoes an older green one. A run that reused another run never counts. Pull request and dispatch runs never consume, and a skipped or failed `reuse` job runs every job exactly as before. The required `free-tests` and `windows-free-tests` aggregates pick their path before any download, and the strict path is unchanged.
+- **`tested-tree` records.** Both aggregates upload `tree.json` only after strict verification passes: run, attempt, event, sha, head, tree, workflow, OS list, every planned test file and the test count.
+- **`gstack-pregate --stage tests --from-run <run id|url>`** (docs/pregate.md#from-run). The selected local test files a verified Free Tests run on this exact tree lists count as passed and are recorded under `from_run` with the run receipt, and the rest still run. A refused run prints `REUSE: refused reason=<code>` and runs everything. It changes only the tests stage; `--stage all` still runs every preflight check, the secrets scan included.
+- **gstack's run profiles** in `.gstack/pregate.json`: `ci-reuse/free-tests` (the complete Free Tests run) and `ci-reuse/windows-free-tests`. Neither is named after a lane, so macOS and Windows lane clears and `gstack-ship-queue ready --dispatch-ci` keep recording the run URL. Lane profiles and dispatch-ci verification wait until open pull requests carry the `tested-tree` producer (GST-555).
+
+### Changed
+- **Run profiles may accept `pull_request` runs.** Such a run counts only when its `tree.json` names the head and the merge commit, and the merge commit's tree equals the head's tree, which means the head already held its base. `tree.json` may list every OS its test jobs ran on, and the profile's OS must be one of them.
+- **`free-durations-record.yml` grants its Windows caller job `contents: read` and `actions: read`.** That job calls `windows-free-tests.yml`, whose new `reuse` job asks for `actions: read`, and a called workflow can't hold more than its caller grants. Without the grant, GitHub rejects the scheduled duration run before it starts.
+- **A run whose `tree.json` lists no test files or zero tests never counts** for `--from-run` or main-push reuse (`no_tests`).
+
+### Tests
+- `test/ci-tree-reuse.test.ts`: candidate discovery with fake GitHub data (pull request found or missing, unmerged, fork head, tree mismatch, reused record, newer red run veto, dispatch and pull_request candidates, the 10-run bound, API errors), the `tree.json` producer, and the CLI refusing every event but a main push.
+- `test/ci-reuse-workflow-wiring.test.ts`: both workflows. It covers the push-only reuse job and its permissions, each suite job's condition evaluated for a skipped, failed and successful reuse, and status functions on every downstream job. It also covers pregate still requiring every test lane, the aggregate's route step run under bash for each input, and the profiles naming real jobs and never a lane.
+- `test/cso-distribution.test.ts`: the `free-tests` aggregate still requires `cso-docker-integration` on its strict path, and only a verified reuse skips that job.
+- `test/pregate-from-run.test.ts` failed on the old code. `test/run-evidence.test.ts` adds the `pull_request` and OS-list cases and `verifyFromRun`, including the zero-test refusal, which failed on the old code.
+- `test/free-durations-record-workflow.test.ts` pins the Windows caller grant, and `test/ci-reuse-workflow-wiring.test.ts` requires every caller of either workflow to grant `actions: read`; it failed without the grant.
+
+## [1.92.38.0] - 2026-11-01
+
+**brain-sync no longer gets stuck in `push_failed` when another machine changed a file you have edited locally.** After a rejected push, brain-sync fetches and merges the other machine's commits. Git refuses that merge when a file it would update has uncommitted local edits. brain-sync hid git's error and hit the same refusal on every run, so cross-machine sync stopped for good (#3704).
+
+### Fixed
+- **The retry merge sets aside local edits to the files it changes and puts them back** (`bin/gstack-brain-sync`). Other local edits stay where they are, file names are never read as patterns, and only the stash entry this run made is put back. A failed merge is aborted, so it never leaves conflict markers or a half-finished merge in `~/.gstack`.
+- **When a local edit conflicts with the other machine's change, the other machine's version stays.** The local edit is kept in a git stash. The status names the stash and the exact `git -C ~/.gstack --literal-pathspecs restore --source=<stash> -- <path>` command that brings it back. A later sync never pushes the old local copy over the other machine's change. Files with a merge driver (`*.jsonl`, the union-merged plans) merge as before.
+- **`push_failed` now says why.** It carries git's merge reason (for example `CONFLICT (content): Merge conflict in developer-profile.json`) and the real push error line instead of git's `To <remote>` banner.
+
+### Tests
+- `test/brain-sync.test.ts`: a dirty file the remote didn't touch, a dirty file the remote also changed (including a second sync and the restore command), local-delete/remote-edit, local-edit/remote-delete, a conflicting file whose name looks like a pattern, a file that never checks out clean, a stash push that saves nothing, and a committed conflict. Five of the eight fail on main.
+
+## [1.92.37.0] - 2026-11-01
+
+- **A Red Team finding that quotes `origin/<base>` no longer stops `/ship`'s review** (`lib/review-brief.ts`, GST-797). The renderer checked each finished brief for unfilled slots like `<base>`, `<diff-base>` and `<exclude>` after the reviewers' findings and past learnings had been pasted in, so a finding that quoted one failed the render with `BRIEF_RENDER_FAILED: red-team: unfilled placeholder <base>` (seen on #3795). A quoted `<diff-base>` was also quietly swapped for the commit sha. The check now runs on the brief before that text goes in, and the quoted text reaches the reader exactly as written. A slot the section really leaves open still fails the render. A brief whose findings and learnings quote no slot name renders the same bytes as before.
+
+## [1.92.36.0] - 2026-11-01
+
+**/ship's review collector keeps every severity label again, so a blocker named after "no CRITICAL issues except" is no longer lost.** v1.92.29.0 (GST-766) skipped any severity word that followed "no", "nothing", "none" and similar words, to stop a reviewer's closing line like "found nothing CRITICAL" from counting as a finding. That also threw away real blockers named in an exception clause: "No CRITICAL issues except the token leak in log.ts:3", "Nothing CRITICAL apart from the auth bypass (auth.ts:9)" and four more wordings collected nothing at all, so the gate never saw them. The collector now reads labels exactly as it did before v1.92.29.0. The reviewer's own Severity and Blocks fields are still recorded beside the label (`stated`), as in v1.92.29.0.
+
+### Known
+- **A reviewer's closing summary collects at its label again.** Lines like "found nothing CRITICAL" or "Neither finding is CRITICAL." collect as CRITICAL, the same as before v1.92.29.0. They are known phantoms. Each stays CRITICAL in the judged set (lead judgment can fold it only into a finding at least as severe), so it counts toward what blocks. A lost blocker costs more than an extra one.
+
+### Tests
+- `test/review-dispatch.test.ts`: the six exception-clause wordings collect CRITICAL for every reader. GST-766's test that a negated label collects nothing now checks that each of those lines keeps its label. GST-435's label-keeping probes (table rows, FIXABLE, negated subjects, closing summaries kept as known phantoms) are added with their HARN-15 and GEVA-77 fixtures under `test/fixtures/review-ledger/`.
+
+### Docs
+- `docs/review-policy.md` (collect) says a negated severity word still collects at its label.
+
 ## [1.92.35.0] - 2026-11-01
 
 - **A `.gstack/pregate.json` that only raises `timeout_s` no longer changes lane verdicts, `warn: ["lanes"]` no longer lets a failing test pass, and a `[]` declaration no longer skips a deleted test's suite** (GST-775, from gbrain-evals #272 and GBEV-22).
