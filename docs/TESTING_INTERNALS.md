@@ -648,15 +648,36 @@ this checkout to read it)`.
 samples, rationale}` entry per failing dimension (since EVAL_POLICY v3 `mean`
 holds the panel's gating median), each part capped at 200
 characters. `sessions[]` (at most 32) summarizes the trial's session-ledger
-rows. `cost_known: false` marks a record or trial whose harness captured no
-billing: PTY and Codex sessions never bill, and an SDK session bills only with a
-terminal `total_cost_usd`. It also marks a trial no result record could be
-attributed to: a record named by the case id or carrying `case_id` is that
-case's, and a record named by a display label (`/qa fix loop`) is the shard's
-only case's when the shard ran one case, so a multi-case shard whose records
-carry display labels leaves those trials cost-unknown rather than guessing
-which case paid (`junitCensus` in `scripts/lib/paid-report.ts`). An absent
-field means known. Census and marathon cost lines print the known sum and
+rows. `cost_known: false` marks a record or trial whose cost is not fully
+known; an absent field means known. A record carries it when its harness
+captured no billing (a Codex session that completed no turn or whose model has
+no price row). A rule case's trial in the JUnit census (`caseCost` in
+`scripts/lib/paid-report.ts`) costs its records' sum plus what no record
+carries: each ledger session without a terminal result (`billed: false`) adds
+its `streamed_cost_usd`, and a trial with no record adds each billed session's
+own `cost_usd` (Codex). The trial is cost-unknown when any record says
+`cost_known: false`, when any of those sessions has no priced cost (every PTY
+session, a `claude -p` session that ended without a result, an aborted Agent
+SDK session with no usage or an unpriced model), or when it has neither records
+nor sessions. A case in `MODEL_FREE_CASES` (`timeline-event-flow`, which runs
+no model) with neither is a known $0. A panel trial (`behavior`, `judge`) from
+an isolated trial shard keeps the older rule (`trialCostKnown` in
+`test/helpers/eval-store.ts`): known only with at least one record and every
+session billed, and streamed cost is not added.
+
+Records are attributed to a case this way: a record named by the case id or
+carrying `case_id` is that case's, and a record named by a display label
+(`/qa fix loop`) is the shard's only case's when the shard ran one case. In a
+multi-case shard, a display-label record whose `runSkillTest` test name is a
+registered case id carries `cost_case_id` (`recordE2E`), and the census adds
+its cost to that case only: the failed record, failure class and model still
+come from the records named by case id, so no verdict changes. A display-label
+record without `cost_case_id` in a multi-case shard is not attributed rather
+than guessed, and its case is cost-unknown when nothing else prices it
+(`junitCensus`). The report's headline `cost $<x>` adds the streamed session
+cost no collector record carries, so a newly priced trial counts once.
+
+Census and marathon cost lines print the known sum and
 `N of M trial(s) cost unknown`, and a train verdict's `ATTEMPT:` line prints
 `cost=$<known> known + <n> of <m> case(s) cost unknown` when some but not
 every case in the train record has a cost (a record with no priced case prints
@@ -668,13 +689,21 @@ including `runSharedInteractive`, the PTY session and `runRecordedCodexEval`)
 appends one best-effort line per armed session to
 `$GSTACK_EVAL_DIR/session-ledger.jsonl` (`test/helpers/session-ledger.ts`):
 a stable key `<runner>:<label>#n`, the exact `budget_ms` it armed, monotonic
-`elapsed_ms`, the `end` reason, sanitized evidence, `billed`, and a compact
+`elapsed_ms`, the `end` reason, sanitized evidence, `billed`, the billed
+`model`, `cost_usd` and token classes of a Codex session, and a compact
 liveness summary (longest in-request silence, the last event kind, any tool open
 at the end). `claude -p` sessions stream partial messages for this summary;
 transcripts keep their shape and size (full stream diagnostics only with
 `publicStreamDiagnostics`). A failed ledger write never fails a trial; a trial
 without ledger rows has no `sessions` and its headroom is `unknown`, never
-scored. The ledger rides in each slice artifact beside the shard results.
+scored. An Agent SDK session that ends without a terminal result (aborted,
+thrown) also records `streamed_cost_usd`: its streamed assistant usage priced
+by `streamedUsageCostUsd` (`lib/pricing.ts`), each message id once at its
+largest output, subagent turns included, `<synthetic>` messages skipped,
+5-minute cache writes at 1.25x and 1-hour writes at 2x the input rate. The
+field is absent when no message carries usage or any message's model has no
+price row, so an unpriced session stays cost-unknown, never $0. The ledger
+rides in each slice artifact beside the shard results.
 
 **Quarantine** (`CASE_QUARANTINE`, same file). An entry needs: a per-trial rate
 below 95% over at least 10 post-policy trials of the case's current input

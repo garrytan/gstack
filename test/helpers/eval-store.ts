@@ -86,6 +86,9 @@ export interface EvalTestEntry {
   // TRIAL_ENV variables the paid runner sets on an isolated trial shard.
   /** Registry id (E2E_TIERS / LLM_JUDGE_TOUCHFILES key) this record belongs to. */
   case_id?: string;
+  /** Registry id whose cost this record carries (runSkillTest's testName) when its name is a display label;
+   *  the report binds cost by it, never the failed record or its failure class. */
+  cost_case_id?: string;
   kind?: EvalCaseKind;
   /** 1-based trial index within the case's panel. */
   trial?: number;

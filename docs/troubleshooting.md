@@ -2520,12 +2520,21 @@ case with `bun run eval:pass-rates --headroom --case <id>`.
 <a id="cost-unknown"></a>
 ### `cost unknown (no billing captured for any of <N> trial(s))` / `cost $<x> known + <N> of <M> trial(s) cost unknown`
 
-**Meaning.** PTY and Codex sessions record no billing, so their cost is
-unknown. So is a trial in a multi-case shard whose result records are named by
-a display label rather than the case id, because no record can be attributed
-to it (a one-case shard's records are its case's). Only the known sum is
-shown. A train verdict's `ATTEMPT:` line reports the same as `cost=$<x> known
-+ <n> of <m> case(s) cost unknown`, a bare `cost=$<x>` only when every case
+**Meaning.** Some trials' cost was not captured, so only the known sum is
+shown. A trial is cost-unknown when it ran a PTY session (PTY sessions record
+no billing), a Codex session that completed no turn or whose model has no price
+row, a `claude -p` session that ended without a result, or an aborted Agent
+SDK session whose streamed usage could not be priced (no usage, or a model with
+no price row). An aborted Agent SDK session with priced usage counts its
+`streamed_cost_usd` instead. A trial is also unknown when no record and no
+session can be attributed to it, for example a multi-case shard's
+display-label record without `cost_case_id` (a one-case shard's records are
+its case's); a model-free case (`timeline-event-flow`) is a known $0. A panel
+trial (`behavior`, `judge`) is unknown whenever any of its sessions billed
+nothing, even one with a priced `streamed_cost_usd`. The rules are in
+[Failure causes and details](TESTING_INTERNALS.md#failure-causes). A train
+verdict's `ATTEMPT:` line reports the same as `cost=$<x> known + <n> of <m>
+case(s) cost unknown`, a bare `cost=$<x>` only when every case
 in the train record is priced, and no cost at all when none is.
 
 **Fix.** None needed; this is informational.

@@ -37,6 +37,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { resolveClaudeBinary as resolveClaudeBinaryShared } from '../../lib/claude-bin';
 import { resolveEvalModel } from '../../lib/eval-model';
+import { streamedUsageCostUsd } from '../../lib/pricing';
 import { SessionObserver, appendSessionLedger, sessionKey, type SessionEnd } from './session-ledger';
 import { hermeticChildEnv } from './hermetic-env';
 import type { SkillTestResult } from './session-runner';
@@ -353,11 +354,12 @@ export async function runAgentSdkTest(
       const budget = typeof opts.sessionBudgetMs === 'function' ? opts.sessionBudgetMs() : opts.sessionBudgetMs;
       const aborted = controller.signal.aborted || opts.signal?.aborted === true;
       const structured = observer.verdict();
+      const streamed = observer.billed ? undefined : streamedUsageCostUsd(assistantTurns, model);
       const end: SessionEnd = aborted ? (budget !== undefined && elapsed + 1000 >= budget ? 'session_timeout' : 'aborted') : structured?.end ?? fallback;
       appendSessionLedger({ key: sessionKey('agent-sdk', opts.testName), ...(opts.testName ? { test_name: opts.testName } : {}), runner: 'agent-sdk',
         started_at: startedAt, ...(budget !== undefined ? { budget_ms: budget } : {}), elapsed_ms: elapsed, end,
         ...(end === 'session_timeout' ? { evidence: `armed ${budget}ms session timeout fired` } : structured && !aborted ? { evidence: structured.evidence } : {}),
-        liveness: observer.summary(performance.now()), billed: observer.billed });
+        liveness: observer.summary(performance.now()), billed: observer.billed, ...(streamed !== undefined ? { streamed_cost_usd: streamed } : {}) });
     };
     const controller = new AbortController();
     let activeQuery: ReturnType<QueryProvider> | undefined;

@@ -149,3 +149,66 @@ export function estimateCostUsd(
   const outputCost = tokens.output * row.output_per_mtok / 1_000_000;
   return +(inputCost + cachedCost + outputCost).toFixed(6);
 }
+
+/** Token classes of one Anthropic Messages usage block, as Claude Code's stream-json and session transcripts carry it. */
+export interface AnthropicUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number };
+}
+
+/** Anthropic bills a prompt-cache write at 1.25x input for the 5-minute TTL and 2x for the 1-hour TTL. */
+export const CACHE_WRITE_MULTIPLIER = { ephemeral_5m: 1.25, ephemeral_1h: 2 } as const;
+
+/**
+ * Cost of one usage block at its model's row, prompt-cache writes included
+ * (unlike estimateCostUsd). Undefined when the model has no price row: an
+ * unpriced model's usage is unknown cost, never zero.
+ */
+export function anthropicUsageCostUsd(usage: AnthropicUsage, model: string | undefined): number | undefined {
+  const row = pricingRow(model);
+  if (!row) return undefined;
+  const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+  const oneHour = count(usage.cache_creation?.ephemeral_1h_input_tokens);
+  const fiveMinute = typeof usage.cache_creation?.ephemeral_5m_input_tokens === 'number'
+    ? count(usage.cache_creation.ephemeral_5m_input_tokens) : Math.max(0, count(usage.cache_creation_input_tokens) - oneHour);
+  const cachedRate = row.cached_input_per_mtok ?? row.input_per_mtok * 0.1;
+  return (count(usage.input_tokens) * row.input_per_mtok
+    + count(usage.cache_read_input_tokens) * cachedRate
+    + fiveMinute * row.input_per_mtok * CACHE_WRITE_MULTIPLIER.ephemeral_5m
+    + oneHour * row.input_per_mtok * CACHE_WRITE_MULTIPLIER.ephemeral_1h
+    + count(usage.output_tokens) * row.output_per_mtok) / 1_000_000;
+}
+
+/**
+ * Billed cost of a session's assistant messages, subagent (sidechain) turns
+ * included. A message streams as several events sharing one message id whose
+ * usage grows, so each id counts once at its largest output. Each message is
+ * priced at its own model, else `fallbackModel`. Undefined when no message
+ * carries usage or any message's model has no price row.
+ */
+export function streamedUsageCostUsd(
+  events: ReadonlyArray<{ message?: { id?: unknown; model?: unknown; usage?: unknown } } | null | undefined>,
+  fallbackModel?: string,
+): number | undefined {
+  const byId = new Map<string, { model?: string; usage: AnthropicUsage }>();
+  for (const event of events) {
+    const message = event?.message;
+    const usage = message?.usage as AnthropicUsage | undefined;
+    if (!usage || typeof usage !== 'object' || typeof message!.id !== 'string' || message!.model === '<synthetic>') continue;
+    const seen = byId.get(message!.id);
+    if (!seen || (usage.output_tokens ?? 0) >= (seen.usage.output_tokens ?? 0)) {
+      byId.set(message!.id, { model: typeof message!.model === 'string' ? message!.model : fallbackModel, usage });
+    }
+  }
+  if (byId.size === 0) return undefined;
+  let total = 0;
+  for (const { model, usage } of byId.values()) {
+    const cost = anthropicUsageCostUsd(usage, model);
+    if (cost === undefined) return undefined;
+    total += cost;
+  }
+  return +total.toFixed(6);
+}
