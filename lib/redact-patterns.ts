@@ -661,13 +661,27 @@ const SCHEMA_FIELD_VALUE = /^[a-z][a-z0-9]*(?:[_.-][a-z][a-z0-9]*)+$/;
 function isSchemaFieldIdentifier(span: string, match: RegExpExecArray): boolean {
   return SCHEMA_FIELD_NAME.test(match[0]) && SCHEMA_FIELD_VALUE.test(span);
 }
+/**
+ * GST-1064: the first argument of a lookup call (`get`, `getenv`, `read`,
+ * `load`, `loads`, `open`, `pop`, `fetch`) that is a lowercase file name
+ * (`files.get("key.json")`) or a snake_case key of two or three words
+ * (`resp.json().get("access_token")`) names what the call reads. Eight distinct
+ * letters already reach 3.0 bits, so entropy alone cannot tell it from a
+ * secret. Any other callee (`make_password("orange_monkey_pass")`), a grouping
+ * paren, a later argument or a fallback (`os.getenv("X", "orange_monkey_pass")`)
+ * is a value and is still checked, and so is a first argument with a digit, an
+ * uppercase letter, kebab words or four or more snake_case words.
+ */
+const LOOKUP_ARGUMENT =
+  /(?<![\w$])(get|getenv|read|load|loads|open|pop|fetch)\([ \t]*(["'])(?:[a-z]+(?:_[a-z]+){1,2}|[a-z]+(?:[_-][a-z]+)*\.(?:json|ya?ml|toml|ini|cfg|conf|env|pem|crt|cer|key|txt|csv|xml|cookie))\2/g;
 function isCallExpression(span: string, match: RegExpExecArray): boolean {
   if (!CALL_SHAPED_VALUE.test(span)) return false;
   const { start } = spanBounds(match);
   if (match.input[start - 1] === '"' || match.input[start - 1] === "'") return false;
   const call = match.input.slice(start + span.indexOf("(")).split("\n", 1)[0];
   if (!call.includes(")") && call.trim() !== "(") return false;
-  return !carriesSecretLiteral(call);
+  const line = match.input.slice(start).split("\n", 1)[0];
+  return !carriesSecretLiteral(line.replace(LOOKUP_ARGUMENT, "$1("));
 }
 
 /**

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.94.1.0] - 2026-11-03
+
+### Fixed
+- **The secrets check no longer reads a file name or dict key inside a call as a credential (GST-1064).** `key = json.loads(files.get("key.json", ""))` failed pregate with `PREGATE_SECRETS` (`env.kv`): eight distinct letters in `"key.json"` reach the entropy bar, so the call's argument looked like a secret. So did `token = resp.json().get("access_token")`. The first argument of a lookup call (`get`, `getenv`, `read`, `load`, `loads`, `open`, `pop`, `fetch`) that is a lowercase file name or a snake_case key of two or three words now counts as a name. Any other call still reports a password-shaped literal (`make_password("orange_monkey_pass")`, `bcrypt.hashpw(...)`), and so do a later argument or fallback (`os.getenv("SECRET_KEY", "orange_monkey_pass")`), a real key in quotes or in a `.env` line, and a kebab passphrase (`decrypt("prod-signing-key")`). The entropy bar is unchanged.
+
 ## [1.94.0.0] - 2026-11-03
 
 - CI is now the one full test run. When a verified CI run already passed at the exact, clean tree, `gstack-pregate`'s tests stage and /ship's test lanes use it instead of running the suite again (GSTA-258, R65 item 1). The tests stage looks up the newest verified run at HEAD under the base branch's `run_profiles` by itself (`CI_CARRY: accepted …`; `--no-ci-carry` turns it off). A /ship lane carries only when the base branch's `.gstack/pregate.json` maps its exact command in the new `ship_lanes_from` key, and only when the run's `tree.json` covers the lane's inventory; gstack maps `bun run test` to its Free Tests run. A carried lane prints `LANE: <label> carried run=<id>/<attempt>` and is recorded as an explicit CI-sourced evidence row (`gstack-evidence record-ci`), never as a local run. Dirty trees, fork runs, stale runs and a newer red or running run never carry.
