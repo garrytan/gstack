@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.93.4.0] - 2026-11-02
+
+**/ship's finding collector reads severity from a finding's own Severity field, so a severity word in the finding's text no longer raises it.**
+
+### Fixed
+
+- When a reader's finding carries its own `Severity:` field, the collector uses that field. A word like "P0" in the finding's text (a plan phase name, for example) no longer makes it a blocker the reader marked `Blocks: no`. A label leading the line (`CRITICAL:`, `[P0]`, `- High:`, a label heading) still sets the floor, `Blocks: yes` still makes a finding CRITICAL, and the native voice's FIXABLE still collects as CRITICAL. A field that names more than one label ("High/Critical") counts as no field, and a lowercase `severity:` keeps its label. Lines with no Severity field collect as before. (GST-976)
+
 ## [1.93.3.0] - 2026-11-02
 
 **The queue now refuses a head whose required targeted review is missing or failed (GST-966).** On gstack-evals#140, the receipt showed `REVIEW_TARGETED: required=auth receipt=legacy verdict=missing` and `gstack-ship-queue ready` still exited 0, so a skipped required reader looked the same as a clean one.
