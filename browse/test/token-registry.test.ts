@@ -30,6 +30,11 @@ describe('token-registry', () => {
       expect(() => createToken({ clientId: '  root  ' })).toThrow(ReservedClientIdError);
     });
 
+    it('createToken rejects the session: prefix agent sessions own tabs under', () => {
+      expect(() => createToken({ clientId: 'session:agent-1234' })).toThrow(ReservedClientIdError);
+      expect(() => createToken({ clientId: 'Session:x' })).toThrow(ReservedClientIdError);
+    });
+
     it('createToken rejects empty / whitespace clientId', () => {
       expect(() => createToken({ clientId: '' })).toThrow(ReservedClientIdError);
       expect(() => createToken({ clientId: '   ' })).toThrow(ReservedClientIdError);

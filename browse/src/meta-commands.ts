@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { TEMP_DIR } from './platform';
+import { reassertDevice, refuseWhileDevice, screenshotTab } from './device-emulation';
 import { resolveConfig } from './config';
 import { filterSessionCookies } from './session-persist';
 import type { Frame } from 'playwright';
@@ -265,7 +266,7 @@ export async function handleMetaCommand(
     case 'tabs': {
       const tabs = await bm.getTabListWithTitles();
       return tabs.map(t =>
-        `${t.active ? '→ ' : '  '}[${t.id}] ${t.busy ? '(not responding)' : t.title || '(untitled)'} — ${t.url}`
+        `${t.active ? '→ ' : '  '}[${t.id}] ${t.busy ? '(not responding)' : t.title || '(untitled)'} — ${t.url}${t.owner ? ` (${t.owner})` : ''}`
       ).join('\n');
     }
 
@@ -511,10 +512,11 @@ export async function handleMetaCommand(
           const resolved = await bm.resolveRef(targetSelector);
           const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
           buffer = await locator.screenshot({ timeout: 5000 });
+          await reassertDevice(bm.getActiveSession());
         } else if (clipRect) {
-          buffer = await page.screenshot({ clip: clipRect });
+          buffer = await screenshotTab(bm.getActiveSession(), { clip: clipRect });
         } else {
-          buffer = await page.screenshot({ fullPage: !viewportOnly });
+          buffer = await screenshotTab(bm.getActiveSession(), { fullPage: !viewportOnly });
           // Guard the most common API-bricking case (fullPage). Element /
           // clip captures usually stay within the cap; we still guard the
           // path-mode below for fullPage writes.
@@ -530,15 +532,16 @@ export async function handleMetaCommand(
         const resolved = await bm.resolveRef(targetSelector);
         const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
         await locator.screenshot({ path: outputPath, timeout: 5000 });
+        await reassertDevice(bm.getActiveSession());
         return `Screenshot saved (element): ${outputPath}`;
       }
 
       if (clipRect) {
-        await page.screenshot({ path: outputPath, clip: clipRect });
+        await screenshotTab(bm.getActiveSession(), { path: outputPath, clip: clipRect });
         return `Screenshot saved (clip ${clipRect.x},${clipRect.y},${clipRect.width},${clipRect.height}): ${outputPath}`;
       }
 
-      await page.screenshot({ path: outputPath, fullPage: !viewportOnly });
+      await screenshotTab(bm.getActiveSession(), { path: outputPath, fullPage: !viewportOnly });
       if (!viewportOnly) await guardScreenshotPath(outputPath);
       return `Screenshot saved${viewportOnly ? ' (viewport)' : ''}: ${outputPath}`;
     }
@@ -574,6 +577,7 @@ export async function handleMetaCommand(
     }
 
     case 'responsive': {
+      refuseWhileDevice(bm.getActiveSession(), 'responsive');
       const page = bm.getPage();
       const prefix = args[0] || `${TEMP_DIR}/browse-responsive`;
       validateOutputPath(prefix);
@@ -921,12 +925,13 @@ export async function handleMetaCommand(
 
       if (action === 'save') {
         const state = await bm.saveState();
+        const activeId = bm.getActiveTabId();
         // V1: cookies + URLs only (not localStorage — breaks on load-before-navigate)
         const saveData = {
           version: 1,
           savedAt: new Date().toISOString(),
           cookies: state.cookies,
-          pages: state.pages.map(p => ({ url: p.url, isActive: p.isActive })),
+          pages: state.pages.map(p => ({ url: p.url, isActive: p.tabId === activeId })),
         };
         writeSecureFile(statePath, JSON.stringify(saveData, null, 2));
         return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages)\n⚠️  Cookies stored in plaintext. Delete when no longer needed.`;
