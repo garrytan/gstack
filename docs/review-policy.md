@@ -400,8 +400,19 @@ The brief states the blocking floor in one sentence, and its money block cites
 the checklist's Forced-CRITICAL rule on uncapped spend, so a money finding can
 block without new floor words. The reader is read-only, and `NO FINDINGS` is a
 result. `gstack-review-dispatch render --role targeted --classes <classes>`
-renders its brief; `verify --targeted-out <file>` writes the record that
-`gstack-ship-receipt write --review-targeted @<file>` puts in the receipt.
+renders its brief; `verify --targeted-out .gstack/tmp/targeted.json` writes the record that
+`gstack-ship-receipt write --review-targeted @.gstack/tmp/targeted.json` puts in the receipt
+(Step 19, the handoff and the driver pass it when the file exists). The record is `done` when
+the reader got its brief verbatim and its reply was collected on a committed diff, whatever
+happened to HEAD after, and it names the commit it read (`head`). `write` binds it only while
+that commit is an ancestor of HEAD, its product patch is the receipt's, and nothing changed
+after it carries a targeted class, with the gate scan run over that range: any product change
+after the read refuses with `RECEIPT_INVALID`, docs and TODOS.md commits included, and so
+does a test edit the gate scan tags (a skipped case). Every verify
+removes `--targeted-out` before it writes a record, so an earlier run's record never reaches
+Step 19. `write` and `carry` (which rescans the gate at the new head) also
+refuse a receipt whose head needs a class no `done` record covers (`RECEIPT_INVALID`,
+`RECEIPT_CARRY_REFUSED`). The queue refuses the same receipts at `ready` (#3859).
 `gstack-ship-queue ready`, `train build` and `land` print
 `REVIEW_TARGETED: required=<classes|none> receipt=<classes|none|legacy>
 verdict=ok|missing|failed` and refuse
@@ -430,11 +441,11 @@ puts in the receipt:
 | `review_loop.noted` | below-floor findings listed in the PR body |
 | `review_loop.fixed` | findings fixed in this PR |
 | `review_loop.scope` | the `review_scope` the loop ran under |
-| `review_loop.fix_checks` | fix-checks this ship ran (never passes) |
+| `review_loop.fix_checks` | fix-checks this ship ran (never passes): the larger of the `review-fix-check` rows and the ledgers holding a fix-check reader's review. When fix-checks ran without their rows, a blocker no row disposes counts as fixed once a later fix-check ledger followed it (decision 3.5 runs one only after the fixes) |
 | `review_loop.rounds` | passes plus fix-checks (R51 caps it at 2; the queue's `REVIEW_DEPTH:` line prints it) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
-| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its output collected and the committed diff it was rendered on still the one at verify, else `failed`; absent when write got no record, which the queue reports as `legacy`), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
+| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
 diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,

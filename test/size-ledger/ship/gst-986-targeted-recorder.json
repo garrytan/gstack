@@ -1,0 +1,4 @@
+{
+  "bytes": 232,
+  "why": "GST-986: Step 11 verify writes the targeted record to .gstack/tmp/targeted.json (adversarial.md lead instruction); merged over GST-967"
+}

@@ -49,7 +49,7 @@ import {
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
-import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptDepthAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
+import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptDepthAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
@@ -96,9 +96,11 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   "Review-loop exception: …" line verbatim; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
   review_depth: the depth HEAD needs, recomputed from the committed range (--head must be HEAD; a dirty checkout or an
   unreadable input records full).
-  --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by}: gstack-review-dispatch verify
-  --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id. Without it the receipt has no
-  review_targeted, which the queue reports as legacy.
+  --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by, head}: gstack-review-dispatch verify
+  --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id, and refused (RECEIPT_INVALID) when the
+  commit the reader read (head) is not an ancestor or a change since it carries a targeted class (gate scan included). write and carry
+  refuse a receipt whose head needs a targeted class (money, gate, auth, secret) that no done pass covers, as the queue's
+  targeted verdict does (#3859) (RECEIPT_INVALID, RECEIPT_CARRY_REFUSED).
   --approval-run <autoplan run dir> (repeatable; resolves plan-sha citations) (W2: a class declared in origin/<base>'s
   .gstack/approval-classes.json with hits needs a citation that resolves and binds to its effects: APPROVAL_CITATION_MISSING)
   --out <file> --body <pr-body.md>. Defaults: head=HEAD, base=origin/HEAD's branch, version=the
@@ -222,7 +224,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   const product = reviewedProduct(repoRoot, base, head, pregateFile);
   let targeted: ReturnType<typeof parseReviewTargeted> | undefined;
   if (flag(rest, '--review-targeted') !== undefined) {
-    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none'); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
+    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
   }
   if (targeted && !targeted.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targeted.message}; nothing written`) + '\n'); return EXIT.fail; }
   const approval = approvalForReceipt({ repoRoot, base, head, citationText: [bodyText, ...flags(rest, '--approval')].join('\n'), runDirs: flags(rest, '--approval-run') });
@@ -265,6 +267,12 @@ function cmdWrite(rest: string[], json: boolean): number {
   if (errors.length) {
     for (const e of errors) process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${e.message} at ${e.path}`) + '\n');
     process.stderr.write('gstack-ship-receipt write: nothing written\n');
+    return EXIT.fail;
+  }
+  const targetedVerdict = receiptTargetedAtHead(repoRoot, `origin/${base.replace(/^origin\//, '')}`, receipt, receipt.head);
+  if (targetedVerdict.line.includes('(unchecked: ')) process.stderr.write(targetedVerdict.line + '\n');
+  if (!targetedVerdict.ok) {
+    process.stderr.write(`${targetedVerdict.line}\n${resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targetedVerdict.message}; run the targeted reader on HEAD and pass its record (--review-targeted @<gstack-review-dispatch verify --targeted-out file>); nothing written`)}\n`);
     return EXIT.fail;
   }
   const body = bodyFile;
@@ -734,6 +742,8 @@ function cmdCarry(rest: string[], json: boolean): number {
   const carried = carryReceipt(rebound, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
   const errors = validateReceipt(carried);
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
+  const targetedVerdict = receiptTargetedAtHead(repoRoot, baseRef, carried, head);
+  if (!targetedVerdict.ok) return refused('RECEIPT_CARRY_REFUSED', `${targetedVerdict.line}: ${targetedVerdict.message}, so the queue refuses it too (#3859); run /ship on ${head.slice(0, 12)}`);
   const newBody = placeReceiptFirst(body, carried);
   const line = receiptSummaryLine(carried);
   if (scopedDryRun) return refused('RECEIPT_CARRY_SCOPED_REVIEW', scopedDryRun);

@@ -8,7 +8,9 @@ import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { sectionTexts } from '../lib/review-brief';
 
 const ROOT = path.join(import.meta.dir, '..');
 const REMOVED = [
@@ -57,6 +59,7 @@ const NO_LOSS_REPLAYS = {
   'L': "GSTA-167 variant G Arm L: live no-loss replay of one batched reader (testing and security plus scoped checklists) and the Red Team on its findings, 2 passes, scored L∘G1 against G1 on the paired rule (part 2)",
   'GST-257': "GST-257 PR 1 dispatch-superset no-loss check (test/review-targeted.test.ts): on every fixture diff the branch dispatches main's reviewers at 8be7f21 unchanged plus only the targeted reader, and over the last 100 non-release commits on main it lost none; adds the targeted role and brief to the G1 and L bytes, whose existing reviewer text is unchanged",
   'GST-850': "GST-850 dispatch-superset no-loss check: on the 26 GSTA-167 no-loss units the branch plan (wider security and money classes, write-up text in the batched diff) drops no reviewer role main dispatches, so no saved blocker can be lost, and over the last 100 main commits no commit with a gate or risk class drops depth (test/review-risk-routing.test.ts, test/review-risk-linear.test.ts); reviewer text is unchanged",
+  'GST-986': "GST-986 brief-identity no-loss check (the brief-body test below): every reviewer brief lib/review-brief.ts cuts from ship/sections/adversarial.md is byte-identical to the bodies at the GST-257 pin; only the lead's Step 11 instruction naming the targeted record's path changed, outside the cut spans",
   'GST-911-redos': "GST-911 ReDoS fix verdict-identity no-loss check (wave review-e7b551ebd865): SVG_REFUSED's url() entry, rewritten to run in linear time, refuses exactly the strings #3838's pattern refused (test/review-risk-redos.test.ts: 60,000 seeded strings and the hand-picked edges, and every SVG blob in the repository's history, with zero differences); SVG_MARKUP now refuses a DOCTYPE naming any document but W3C's SVG DTD (test/review-planner-misreads.test.ts), which only keeps more SVGs code and so drops no reviewer; GST-911's no-loss replay holds unchanged; reviewer text is unchanged",
   'GST-911': "GST-911 no-loss replay (GSTA-249/13): the planner over the last 100 first-parent main commits to f5cb6ec1e, origin/main's code against this branch, gate scan fixed at 0, changes no commit's depth, class, risk classes, targeted classes or SCOPE_AUTH; the three misreads (a drawing-only SVG, a session-named data file, a bare base) are proven on fixtures (test/review-planner-misreads.test.ts), where every SVG that can run script stays code with the security class; reviewer text is unchanged",
   'R51': "R51 risk-tier routing no-loss re-score (GSTA-167): the saved panel findings (349 records over 24 of the 26 no-loss units) re-scored against the branch's plan lose no blocker whose only finders are roles it drops, and every gate, security, user-data and money fixture keeps main's reviewers plus the full panel (test/review-targeted.test.ts, test/review-risk-routing.test.ts); reviewer text is unchanged",
@@ -66,7 +69,7 @@ const NO_LOSS_REPLAYS = {
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'ship/sections/review-army.md': { sha: '7c58dfd1bf1f16f967186a4872191cb16ebff3be81a50ebbf19067020af3ec53', replay: 'GST-967' },
-    'ship/sections/adversarial.md': { sha: '5d712bb568573931108a79b1bd40b74db6189610f47c547099c13098ef67bef8', replay: 'GST-967' },
+    'ship/sections/adversarial.md': { sha: 'f492e2c1663b81f503872543e1ba616ff092ffeed23e7d993bd2f4d1bfcd5d9e', replay: 'GST-986' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
     'review/checklist.md': { sha: '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699', replay: '#3638' },
@@ -87,7 +90,34 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'lib/review-risk.ts': { sha: '126eff0f1de6982e03dc24d8017c67e6807c91dfa518b18d2db3aa910aac911f', replay: 'GST-911' },
 };
 
+/** The reviewer brief bodies lib/review-brief.ts cuts out of the ship sections, at the bytes replays L and GST-257 admitted. */
+const BRIEF_BODIES: Record<string, string> = {
+  specialist: '1ebe47ddb3291a9e4fe90b5a260eb57e328144959549bc95c119b68d23652cb5',
+  framing: 'aad667b5ea4c6d23d930dafffa38178c04be388cd4364fb73759fc92af17bb63',
+  fixtures: '9517c86befe773e76acbf30a0642ed828e211b8ecb524325702072b26429ef16',
+  redTeam: '1cca7957d13f9da08434870290b92958f37750207047b92c9aa52a802da789e8',
+  native: 'ddb1041ec1e4dd373c3e4ab9017e49316e78c230055c1ef3db1bbba518b143a2',
+  outside: 'bd96406da28b03742384560425a333b6d6d7ed2be95bd2026c90e0039632cee2',
+};
+
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {
+  // Value: protects=the GST-986 repin of ship/sections/adversarial.md admits only a lead-instruction edit: every brief a reviewer
+  //   reads renders byte-identical to the no-loss-tested bodies; fails_when=an edit inside a cut span changes a brief while the
+  //   section pin moves; seam=sectionTexts, the function every render uses; no_claim=the checklists (pinned by file hash below)
+  test('every reviewer brief cut from the ship sections is byte-identical to its pinned body', () => {
+    const hashes = (root: string) => Object.fromEntries(Object.entries(sectionTexts(root)).map(([k, v]) => [k, createHash('sha256').update(v).digest('hex')]));
+    expect(hashes(ROOT)).toEqual(BRIEF_BODIES);
+    const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'brief-bodies-'));
+    try {
+      fs.cpSync(path.join(ROOT, 'ship', 'sections'), path.join(copy, 'ship', 'sections'), { recursive: true });
+      const adversarial = path.join(copy, 'ship', 'sections', 'adversarial.md');
+      fs.writeFileSync(adversarial, fs.readFileSync(adversarial, 'utf8').replace('Recommendation:', 'Recommendation (short):'));
+      expect(hashes(copy)).not.toEqual(BRIEF_BODIES);
+    } finally {
+      fs.rmSync(copy, { recursive: true, force: true });
+    }
+  });
+
   test('every pinned reviewer brief, checklist and depth rule hashes to its pin', () => {
     const drift = Object.entries(REVIEWER_BRIEFS).filter(([file, pin]) => {
       const text = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');

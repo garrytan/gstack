@@ -36,6 +36,7 @@ const KEPT: Record<string, string> = {
   'ship-gate.json': '/ship handoff gate record',
   'issues.json': '/ship issue links',
   'docs-audit.json': '/ship documentation audit record',
+  'targeted.json': '/ship Step 11 targeted reader record (gstack-review-dispatch verify --targeted-out)',
   'tree-receipt.json': 'gstack-tree-receipt output',
   'base-red.json': '/ship base-red record',
   'review-*': '/ship review loop records',
