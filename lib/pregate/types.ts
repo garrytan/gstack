@@ -54,7 +54,7 @@ export interface PregateContext {
   timeoutMs: number;
   /** Where timeoutMs came from: `--timeout`, `timeout_s from <policy>`, or the 600 s default. */
   timeoutSource?: string;
-  /** No output for this long kills a test-tier process group (`--stall-timeout`, `stall_timeout_s`); 0 disables. */
+  /** No output and no CPU activity for this long kills a test-tier process group (`--stall-timeout`, `stall_timeout_s`); 0 disables. */
   stallTimeoutMs: number;
   /** Live stderr lines: per-file progress, heartbeats, the stage result. */
   progress: (line: string) => void;

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.93.35.0] - 2026-11-03
+
+**pregate no longer kills a quiet test suite that is busy working.**
+
+### Fixed
+- **`lib/pregate/supervise.ts`**: the stall timeout now needs both no log output and an idle process group. Each second, supervise reads the group's CPU time (`/proc` on Linux, `ps -S` on macOS and BSDs). If it grew by at least a tenth of the wall time, the group counts as alive. Before, a parallel `check.sh` that printed nothing for 9 minutes while working ended `PREGATE_STALLED` at the 300 s default (Founderstar FOUN-63). A hang that waits on nothing still stalls. A hang that keeps using CPU now runs to `--timeout`, and either way the check is incomplete, never a pass. Windows reads no CPU time and keeps log growth alone. The `PREGATE_STALLED` detail, the guard line and the docs say what was measured. Both new tests fail on main. There a silent CPU-bound command ends `stalled` and a busy lane test ends `PREGATE_STALLED`.
+
 ## [1.93.34.0] - 2026-11-03
 
 **The docsync fault-callback replays and the runShadow deadline test stop failing on loaded remote pregate VMs.**

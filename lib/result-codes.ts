@@ -410,8 +410,8 @@ export const RESULT_CODES = {
   },
   PREGATE_STALLED: {
     anchor: 'pregate-stalled',
-    summary: 'a test command printed nothing for the stall timeout, so its process group was killed; the check is incomplete, never pass',
-    fix: 'read the lane log for the last file started, fix the hang, or raise `--stall-timeout` (`stall_timeout_s`; 0 disables) for a test that is quiet for longer, then rerun `gstack-pregate --stage tests`',
+    summary: 'a test command printed nothing for the stall timeout while its process group used under a tenth of one CPU (log growth alone on Windows), so the group was killed; the check is incomplete, never pass',
+    fix: 'read the lane log for the last file started, fix the hang, or raise `--stall-timeout` (`stall_timeout_s`; 0 disables) for a test that waits quietly for longer, then rerun `gstack-pregate --stage tests`',
   },
   PREGATE_RECEIPT_INVALID: {
     anchor: 'pregate-receipt-invalid',
