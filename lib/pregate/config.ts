@@ -40,9 +40,11 @@
  *   run_profiles  name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`:
  *                 the GitHub Actions runs `clear --run` accepts as evidence
  *                 (lib/run-evidence.ts); a profile named after a lane clears it
- *   remote_gate_runs `{ profiles, inventory }`: the run profiles that together
- *                 clear the remote gate obligation on the identical tree, and
- *                 the command listing the gate's test files they must cover
+ *   remote_gate_runs `{ profiles, inventory, skipped? }`: the run profiles that
+ *                 together clear the remote gate obligation on the identical
+ *                 tree, the command listing the gate's test files they must
+ *                 cover, and the command naming the selected files the gate
+ *                 itself never runs (gstack: paid files)
  *   allowlist     `{ finding, paths?, pattern?, reason }` entries the `secrets`
  *                 check accepts as benign: a gstack-redact finding id or a
  *                 non-secret category, scoped by path globs and/or a regex
@@ -354,7 +356,7 @@ export function explainConfig(): string {
     'timeout_s: seconds each runner process may take (the unit-file group, each serial file, each guard without its own timeout_s, and the remote gate\'s deadline) when --timeout is not passed; 1 to 3600, default 600',
     'remote_gate: the repo\'s remote test gate command; under 8 cores the test tier becomes a requires-remote obligation naming it, and gstack-pregate --remote runs it (it must print PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n>) (docs/pregate.md#remote-gate)',
     'run_profiles: name → { workflow, events, jobs, artifact, max_age_hours?, os? }; the GitHub Actions runs gstack-pregate clear --run verifies as evidence on the identical tree (docs/pregate.md#run-evidence)',
-    'remote_gate_runs: { profiles, inventory }; the run profiles that together clear the remote gate obligation, and the command listing the gate\'s test files they must cover (docs/pregate.md#run-evidence)',
+    'remote_gate_runs: { profiles, inventory, skipped? }; the run profiles that together clear the remote gate obligation, the command listing the gate\'s test files they must cover, and an optional command printing which selected files (PREGATE_FILES_FILE) the gate itself does not run, which then need no run (docs/pregate.md#run-evidence)',
     `allowlist: [{ finding, paths?, pattern?, reason }]: benign findings the secrets check accepts and names as allowlisted. finding is a gstack-redact id (env.kv, google.api_key, pii.phone.e164, …) or a category (${ALLOWLISTABLE_CATEGORIES.join(', ')}); paths are globs; pattern is a regex matched at the finding's position in the added line; one of the two is required, reason always. Never ${NON_ALLOWLISTABLE.join(' or ')} or engine.* (docs/pregate.md#allowlist)`,
     'no .gstack/pregate.json on the base: <state root>/projects/<slug>/pregate.json is read instead (state root: GSTACK_STATE_ROOT, else GSTACK_HOME, else GSTACK_STATE_DIR, else a gstack plugin data dir, else ~/.gstack, per docs/state-root.md; run --explain prints the resolved path; outside the repo, so a PR cannot reach it; a path inside the checkout is ignored)',
   ].join('\n') + '\n';
