@@ -34,7 +34,7 @@ GStack Browser Server                 Any AI agent
 
 The daemon binds two HTTP sockets. The **local listener** serves the full command surface to 127.0.0.1 only and is never forwarded. The **tunnel listener** is bound lazily on `/tunnel/start` (and torn down on `/tunnel/stop`) with a locked path allowlist. ngrok forwards only the tunnel port.
 
-A caller who stumbles onto your ngrok URL cannot reach `/health`, `/cookie-picker`, `/inspector/*`, or `/welcome` — those paths don't exist on that TCP socket. Root tokens sent over the tunnel get 403. The tunnel listener accepts only `/connect` and `/command` (with a scoped token + the 26-command browser-driving allowlist).
+A caller who stumbles onto your ngrok URL cannot reach `/health`, `/cookie-picker`, `/inspector/*`, or `/welcome` — those paths don't exist on that TCP socket. Root tokens sent over the tunnel get 403. The tunnel listener accepts only `/connect` and `/command` (with a scoped token + the 25-command browser-driving allowlist).
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md#dual-listener-tunnel-architecture-v1600) for the full endpoint table.
 
@@ -105,7 +105,7 @@ loopback Host; 403 otherwise). Not reachable over the tunnel (404).
 | `text` | `[]` | Full page text |
 | `html` | `["selector?"]` | HTML of element or full page |
 | `links` | `[]` | All links on page |
-| `screenshot` | `["/tmp/s.png"]` | Take a screenshot |
+| `screenshot` | `["--base64"]` | Take a screenshot, returned as a base64 data URL (output paths are refused over the tunnel) |
 | `url` | `[]` | Current URL |
 
 #### Interaction
@@ -152,7 +152,7 @@ CSS selectors. Always `snapshot -i` first, then use the refs.
 | `meta` | tab, diff, frame, responsive, watch |
 | `control` | stop, restart, disconnect, state, handoff — browser-wide destructive ops |
 
-Paired agents get `read+write+admin+meta` by default; the pairing ceremony is the trust boundary. `--restrict` narrows the list (it can never grant `control`). `--control` adds the control scope (`--admin` is a legacy alias). Over the tunnel, the `js`/`cookies`/`storage` commands are blocked by the command allowlist regardless of scope; `eval` works. Pair with `--restrict "read,write"` when the agent will read untrusted web content — scope caps the prompt-injection blast radius.
+Paired agents get `read+write+admin+meta` by default; the pairing ceremony is the trust boundary. `--restrict` narrows the list (it can never grant `control`). `--control` adds the control scope (`--admin` is a legacy alias). Over the tunnel, the `js`/`cookies`/`storage` commands are blocked by the command allowlist regardless of scope, and so is `eval` (it runs a file from the daemon's disk). `goto`/`newtab` take http(s) URLs only over the tunnel, `screenshot` needs `--base64`, and `snapshot` refuses `-a`, `-H` and `-o`, so a paired agent can't read local files, can't choose a path on the daemon's disk, and can't make the daemon save screenshot or snapshot images. Pair with `--restrict "read,write"` when the agent will read untrusted web content — scope caps the prompt-injection blast radius.
 
 To tighten an already-paired agent, re-pair it with the **same `--client` name** and the narrower `--restrict`/`--domain`: a reducing re-pair revokes the previous session and releases its tabs immediately (the agent must reconnect with the new key), so the old wide access never lingers. Broadening or refreshing keeps the working session with no outage. Re-pairing without `--client` mints a new agent instead. `root` and names starting with `session:` (kept for local agent sessions) are reserved client names.
 
@@ -175,7 +175,7 @@ Each agent owns the tabs it creates. Rules:
 ## Security Model
 
 - **Physical port separation.** Local listener and tunnel listener are separate TCP sockets. ngrok only forwards the tunnel port. Tunnel callers cannot reach bootstrap endpoints at all (404, wrong port).
-- **Tunnel command allowlist.** `/command` over the tunnel only accepts 26 browser-driving commands (goto, click, fill, snapshot, text, newtab, tabs, back, forward, reload, closetab, etc.). Server-management commands (tunnel, pair, token, useragent, js) are denied on the tunnel.
+- **Tunnel command allowlist.** `/command` over the tunnel only accepts 25 browser-driving commands (goto, click, fill, snapshot, text, newtab, tabs, back, forward, reload, closetab, etc.). Server-management commands (tunnel, pair, token, useragent, js) are denied on the tunnel.
 - **Root token is tunnel-blocked.** A request bearing the root token over the tunnel listener returns 403 with a pairing hint. Only scoped session tokens work over the tunnel.
 - **Setup keys** expire in 5 minutes and can only be used once.
 - **Session tokens** expire in 24 hours (configurable).
