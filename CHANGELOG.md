@@ -1,5 +1,84 @@
 # Changelog
 
+## [1.91.357.0] - 2026-10-31
+
+**pregate `literals` no longer flags a version-history table that the branch extended.** A test that keeps one row per past version of a constant (`[45, "<digest>"]`, then `[46, "<digest>"]`) used to fail `literals` on every bump, because the old row still holds the old value. Truther turned the check down to a warning over it, which also hid real stale tests.
+
+### Fixed
+- `lib/pregate/checks/literals.ts`: a row that starts with the old value is skipped when the same table holds a new-value row the branch added (the file at the merge base lacks it). Only the row itself is exempt (the old value after its closing bracket on the same line still fails), and the scan continues to the next line holding the old value, so `expect(PROOF_CHECKS).toBe(45)` below an extended table still fails. A table the branch did not extend, a file that already held a new-value row at the merge base (read through a rename git detects), and a merge base that cannot be read still fail.
+- docs/pregate.md describes the history-row rule and the table shapes it recognizes.
+
+### Tests
+- `test/pregate-selection.test.ts`: an extended table, a newest-first table and a new file pass; an unextended table, a stale assertion below an extended table, an unextended table beside an extended one, and a table that already held the new row fail at the right line; string-valued and quoted semver histories pass; a stale assertion on the same line as a history row fails; a 20,000-row table is checked in linear time; and an end-to-end `gstack-pregate --only literals` run fails before the table is extended, passes after, and still fails for a renamed file whose table already held the new row.
+
+## [1.91.356.0] - 2026-10-31
+
+**A reviewer's install no longer upgrades the gstack checkout a lane shares.** On a Capy machine, an /autoplan reviewer runs `install.sh --for review-voice` against the same checkout as the lane that dispatched it. Once the lane's workflow lease was more than 120 minutes old, that install fast-forwarded the checkout and rewrote the install verdict as `for=review-voice`. The lane's next workflow was then refused with `INSTALL_UNVERIFIED`.
+
+### Fixed
+- **`--for review-voice` never self-upgrades the checkout.** When origin is ahead, the session prints `SELF_UPGRADE: skipped (review-voice never self-upgrades a shared checkout; fix: <root>/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED))`, leaves HEAD where it was, and the trailer stays ok with a `behind=` note. This holds with or without a lease, and `GSTACK_UPGRADE_FORCE=1` does not override it. If `bin/gstack-doctor-components.sh` cannot be read, the check still treats `review-voice` as a reviewer install. The bootstrapper still fast-forwards a checkout below the supported minimum.
+- **`--check --for review-voice` names `bin/gstack-upgrade` as the fix** instead of the install rerun, which would not move a reviewer checkout.
+
+### Changed
+- **The Captain's digest drops an archived thread from In progress in the same turn** (docs/captain.md, the DIGEST.md template and /captain).
+
+## [1.91.355.0] - 2026-10-31
+
+**A driven `/ship` on Capy no longer pays one agent turn per finished reviewer, and it can count its own calls.** Replays of gstack-evals #34 and #36 (GSTA-167) made 30 to about 92 parent calls against a target of 12. In the 9-reviewer replay, 23 of 25 waits were the parent waking once per finished reviewer, because the driver told it to end its turn on `wait` while reviewers ran. What reviewers see, which reviewers run, their depth and the blocking floor are unchanged.
+
+### Changed
+- **Readers are polled inside the program** (`ship/DRIVER.md`, Capy skill). A program returns 200 s after its first line and the next call resumes the poll; the parent never ends its turn while readers run. Capy polls with one `tools.subagent.list` per tick, starts readers a create call rejected once slots free, and reports a reader stuck for 20 minutes instead of dropping it. `wait` (now 200 s) is only for tests, pregate and CI when no reader runs. Lanes, pregate and `finish` run in the background.
+- **A program returns at most 32 KB**; longer reads such as `review-army.md` split at headings, each byte once, before first use. Phase 2 used to return about 98 KB of sections at once, and truncated reads cost extra calls.
+- **A fix runs as one gated program**: the failing test, the fix, `--tests-only` and the next pass, each only if the last step passed. Step 7's audit, which may write tests, settles before the review pass reads the tree.
+- **An unattended `push` defers the one-time pre-push guard offer** (`REDACT_PREPUSH: … deferred=unattended`) instead of stopping. It writes no marker and installs no hook, so the next interactive session still gets the offer.
+
+### Added
+- **`gstack-ship-budget calls --events <file>`** counts a run's parent calls from the host's transcript items: `CALLS: total= decision= keepalive= idle_gaps_over_300s= max_gap_s=`. A wait, or a program that only reads status (plus at most one bash for its note), counts as a keep-alive.
+
+### Fixed
+- **`gstack-ship-budget note --step 9.1`** records under step 9 with the sub-step as its label. Before, it was refused, and replays lost two notes to that error.
+- **`gstack-review-scope render`** accepts `{"deferred": [...]}` as well as the bare array.
+- **`gstack-review-dispatch judge`** treats a judged line with no severity, or `"severity": null`, as invalid and prints `JUDGMENT_REJECTED`. Before, it crashed with a TypeError, and a replay spent three calls recovering.
+- **The Capy skill passes a rendered brief as bash `cat` prints it.** A file read cut the long lines of a 231,589-byte outside-voice brief, so `sent` reported `BRIEF_MISMATCH` and the reader had to be sent again.
+
+## [1.91.354.0] - 2026-10-31
+
+**On Claude Code, `/land-and-deploy` loads about 15 KB less skill text per session.** Step 7's canary instructions (the canary script, third-party dashboard actions, Aside setup and the browser fallback) moved out of `land-and-deploy/SKILL.md` into an on-demand `sections/canary.md`, which the skill reads only when it reaches the canary step or a browser or third-party site action. `SKILL.md` drops from 51,992 to 32,216 bytes. Codex and Factory renders inline every section, so they stay about the same size. In a paid before/after run (Opus 5.5, 10 tasks, 3 trials per arm; GSTA-161), mean loaded skill bytes fell from 109,334 to 93,828 (-14%), the pass rate held (after 97%, before 80%, a second before panel 87%), and mean cost per session stayed flat. Pass rates are graded on the transcript. These numbers are exploratory, from one eval suite.
+
+### Changed
+- **`land-and-deploy/sections/canary.md`** holds the post-deploy canary procedure; the routing paragraph stays in `SKILL.md`. Shared resolvers are unchanged.
+
+### Tests
+- `test/fixtures/skill-evals/land-and-deploy/` adds a 10-task eval suite (happy path, CI-red override, conflicts, already merged, dirty checkout, first run, deploy success and failure, canary without a browser, Render hook) with a `gh` stub and a state check per task.
+- Size, parity and section-loading guards re-pinned for the smaller skeleton and the new section.
+
+## [1.91.353.0] - 2026-10-31
+
+**`/ship` Step 12 now has a way through for repos whose unit PRs never change VERSION, and an unattended `/ship` no longer writes a version bump nobody approved.** On gstack-evals (no policy file, so `bump: ask`), `--keep-current`, `--version 0.0.1` and `--accept-incomplete` all stopped with `BUMP_LEVEL needed` (gstack-evals#85), and on gstack-evals#89 an unattended run took the recommended level and wrote 0.0.2 before anyone was asked (GST-380).
+
+### Added
+- **`"bump": "never"` in `.gstack/ship-policy.json`** for a repo whose unit PRs never version. Step 12 prints `VERSION: <v> kept (policy: bump never; no write)`, asks nothing and refuses `--bump`; a branch that moved VERSION stops until it is put back. `gstack-restamp --next` then needs an explicit `--bump` or `--version`. The value needs `min_gstack_version` at its introducing release and cannot be combined with `queue_mode: stamp-at-merge`, `train` or `changelog_fragments`, which stamp a version at every merge.
+
+### Fixed
+- **`gstack-ship-release version`**: on a branch whose VERSION still equals the base, `--keep-current` and `--version <current>` print `VERSION: <v> kept`, write nothing and read no queue. Passing `--bump` with either stops and names the conflict. The `BUMP_LEVEL needed` stop now names `--keep-current` too.
+- **No version write before the owner answers.** Under `bump: ask`, when `gstack-session-kind` reports anything but `interactive` (unattended, spawned, OpenClaw, headless or CI), a Step 12 call that would write a version stops with `BUMP_ANSWER_REQUIRED` and writes nothing until it is rerun with `--answer "<the owner's words>"` (one line, at most 200 characters). This covers a FRESH `--bump` and a `--version` rewrite of an already bumped branch. `bump: patch` is a standing answer and needs no `--answer`. `ship/DRIVER.md` lists the stop as an approval, so a brief's "take the recommended option" no longer answers it.
+
+## [1.91.352.0] - 2026-10-31
+
+**gstack now knows particle-1 and has measured it on its own tasks.** particle-1 (Particle AI, October 28, 2026) passed 15/15 cells on a preregistered five-task panel, the same as Sonnet 5.5 and Opus 5.5, at $0.007 per task against Sonnet 5.5's $0.037 (run `2026-10-30-0105`, Claude Code through OpenRouter). The panel is easy, so it shows no measured difference between the models, not that they are equal. Results and every cell are in [docs/evals/particle-1-2026-10.md](docs/evals/particle-1-2026-10.md).
+
+### Added
+- **particle-1 and DeepSeek V4.1 Flash in the price table.** `lib/pricing.ts` prices `particle-1` ($0.25 input, $0.03 cached, $1.00 output per million tokens) and `deepseek-v4.1-flash-1017`; provider-prefixed ids such as `particle-ai/particle-1` resolve to them.
+- **`gstack-model-benchmark --models particle,deepseek`** runs those models in Claude Code through OpenRouter (`OPENROUTER_API_KEY`). The child process gets no Anthropic credential, every Claude Code model alias is pinned to the arm's model, and a run that billed any other model is an error. `/benchmark-models` lists both and says what they send to OpenRouter.
+- **A preregistered model panel** (`test/skill-e2e-model-panel.test.ts`): five gstack-shaped tasks, four models, three trials, each cell scored by a hidden check and priced from its own tokens. It runs on demand, not in the weekly eval run, because CI has no OpenRouter key.
+
+### Changed
+- **particle-1 counts as the DeepSeek family** for outside-voice independence, because Particle built it on DeepSeek V4.1 Flash. A particle-1 voice is never treated as independent of a DeepSeek one.
+- **One provider registry** feeds the benchmark CLI, its dry run and the runner.
+
+### Fixed
+- **`--models` with no valid provider now exits 1** instead of quietly running claude.
+
 ## [1.91.351.0] - 2026-10-31
 
 **Four skill-eval check commands that gstack-evals' Lane A vendors as graders no longer pass runs that break their rule.** gstack-evals' grader audit (GST-374) showed that one agent-written `.gitignore` could hide new code from the /office-hours no-code check, and that three smaller gaps let other checks pass on the wrong files.

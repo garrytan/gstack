@@ -18,8 +18,9 @@ import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, host
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
-  version --base <base> [--bump micro|patch|minor|major] [--version <v>] [--keep-current] [--accept-incomplete] [--why <text>]
-      Step 12: classify, pick the queue-aware version, write it with --regen-digest --changelog, log the decision
+  version --base <base> [--bump micro|patch|minor|major] [--version <v>] [--keep-current] [--accept-incomplete] [--why <text>] [--answer <owner's words>]
+      Step 12: classify, pick the queue-aware version, write it with --regen-digest --changelog, log the decision;
+      --keep-current (or --version <current>) keeps VERSION; under bump ask a session no person answers needs --answer before a bump is written
   finish --base <base> --reviewed-tree <tree> --docs-post <post.json> [--lane <label>=<command>]... [--build <command>]...
          [--trailer <text>] [--docs-rechecked] [--no-lanes-approved]
       Step 15's release commit, Step 16 stages 1-4 (your builds, the reviewed-tree route, docs freshness,
@@ -31,6 +32,7 @@ At most 30 lines each; STOP: names what the agent must decide or repair, and not
 Exit codes: 0 ok · 2 usage · 3 STOP`;
 
 const LEVELS: Bump[] = ['micro', 'patch', 'minor', 'major'];
+const KEPT_NEXT = 'Step 13: no version heading (the entry stays under ## [Unreleased], or is left to the repo\'s release process); an unprefixed Step 18 title and "version":null in Step 20';
 
 function classify(cwd: string, base: string): { state?: string; json?: any; error?: string } {
   const c = bin(cwd, 'gstack-version-bump', ['classify', '--base', base], 60_000);
@@ -64,6 +66,8 @@ export function version(argv: readonly string[], cwd: string): Report {
   if (policy?.queue_mode === 'stamp-at-merge' || fragment) return r.add(`VERSION: skipped (policy: ${fragment ? 'changelog_fragments' : 'queue_mode stamp-at-merge'} replaces Step 12 items 1-4; the merge stamps it)`).next(fragment ? `Step 13: write the entry as ${fragment} (entry text only, no heading), never an [Unreleased] section` : 'Step 13: write the CHANGELOG entry under ## [Unreleased]');
   let c = classify(cwd, base);
   if (c.error) return r.stop(`a configured version file is missing, empty, unreadable or malformed: ${c.error}; fix it or its pin, then rerun (never substitute 0.0.0.0)`);
+  const never = policy?.bump === 'never';
+  if (never && (c.state === 'ALREADY_BUMPED' || c.state === 'DRIFT_STALE_PKG')) return r.stop(`VERSION moved from ${c.json.baseVersion} to ${c.json.currentVersion} but the policy says bump never: put VERSION and the manifest back to the base version, or change the policy`);
   if (c.state === 'DRIFT_STALE_PKG') {
     const rep = bin(cwd, 'gstack-version-bump', ['repair'], 60_000);
     r.add(`REPAIR: ${rep.status === 0 ? 'package manifest synced to VERSION' : `failed (${firstLine(rep.stderr)})`}`);
@@ -80,10 +84,27 @@ export function version(argv: readonly string[], cwd: string): Report {
   const fresh = c.state === 'FRESH';
   const asked = flag('--bump') as Bump | undefined;
   if (asked && !LEVELS.includes(asked)) return r.stop(`--bump ${asked} is not micro, patch, minor or major`);
+  if (never) {
+    if (asked || (explicit && cmpVersion(parseVersion(explicit)!, parseVersion(j.baseVersion)!) !== 0)) return r.stop(`policy bump never: unit PRs keep VERSION at ${j.baseVersion}; a release bump belongs to the release process (gstack-version-bump write), never Step 12`);
+    return r.add(`VERSION: ${j.baseVersion} kept (policy: bump never; no write)`).next(KEPT_NEXT);
+  }
+  const atBase = !!explicit && cmpVersion(parseVersion(explicit)!, parseVersion(j.baseVersion)!) === 0;
+  const keep = fresh && (has('--keep-current') || atBase);
+  const mover = asked ? `--bump ${asked}` : explicit && !atBase ? `--version ${explicit}` : '';
+  if (keep && mover) return r.stop(`${mover} moves VERSION and ${has('--keep-current') ? '--keep-current' : `--version ${explicit}`} keeps it: pass one`);
+  if (keep) return r.add(`VERSION: ${j.baseVersion} kept (FRESH, ${has('--keep-current') ? '--keep-current' : `--version ${explicit}`}; no write)`).next(KEPT_NEXT);
   const level = fresh ? asked ?? (policy?.bump === 'patch' ? 'patch' : undefined) : asked ?? derivedLevel(j.baseVersion, j.currentVersion) ?? undefined;
   if (!level) {
     const stat = git(cwd, ['diff', `origin/${base}`, '--shortstat']).stdout.trim();
-    return r.stop(`BUMP_LEVEL needed (FRESH, ${stat || 'no diff'}): MICRO under 50 lines, PATCH 50+ with no feature signal, MINOR/MAJOR ask first (Step 12.2); rerun with --bump <level>`);
+    return r.stop(`BUMP_LEVEL needed (FRESH, ${stat || 'no diff'}): MICRO under 50 lines, PATCH 50+ with no feature signal, MINOR/MAJOR ask first (Step 12.2); rerun with --bump <level>, or with --keep-current to leave VERSION at ${j.baseVersion}`);
+  }
+  const answer = flag('--answer');
+  if (explicit && cmpVersion(parseVersion(explicit)!, parseVersion(j.baseVersion)!) <= 0) return r.stop(`${explicit} is not above the base version ${j.baseVersion}`);
+  const rewrites = fresh ? !!asked : !!explicit && cmpVersion(parseVersion(explicit)!, parseVersion(j.currentVersion)!) !== 0;
+  if (rewrites && policy?.bump !== 'patch' && !answer) {
+    const kind = bin(cwd, 'gstack-session-kind', [], 30_000).stdout.trim() || 'unknown';
+    const pick = [asked && `--bump ${asked}`, explicit && `--version ${explicit}`].filter(Boolean).join(' ');
+    if (kind !== 'interactive') return r.stop(`BUMP_ANSWER_REQUIRED (${kind} session, bump ask): a version Step 12 writes is the owner's approval, and a brief's "take the recommended option" is not an answer. Ask: ${pick} (recommended), keep ${fresh ? j.baseVersion : j.currentVersion} (--keep-current), or stop; then rerun with ${pick} --answer "<their words>". A repo whose unit PRs never bump sets bump never; one that always takes PATCH sets bump patch`);
   }
   let q = queue(cwd, base, level, j.baseVersion);
   if (q.json?.complete === false) q = queue(cwd, base, level, j.baseVersion);
@@ -112,7 +133,7 @@ export function version(argv: readonly string[], cwd: string): Report {
   r.add(`VERSION: ${j.baseVersion} -> ${next} level=${level} state=${c.state} queue=${q.note} wrote=${wrote.wrote ?? next}`);
   if (wrote.agentsDigest === false) r.next('run bun --no-env-file --config=/dev/null scripts/gen-agents-digest.ts and stage the digest with the bump');
   const why = flag('--why') ?? `${level} bump from the diff`;
-  bin(cwd, 'gstack-decision-log', [JSON.stringify({ decision: `Ship ${next} (${level})`, rationale: why, scope: 'repo', source: 'skill', confidence: 9 })], 30_000);
+  bin(cwd, 'gstack-decision-log', [JSON.stringify({ decision: `Ship ${next} (${level})`, rationale: answer ? `${why}; owner: ${answer}` : why, scope: 'repo', source: 'skill', confidence: 9 })], 30_000);
   return r.next(`Step 13: CHANGELOG entry under ${next}`);
 }
 
@@ -200,8 +221,9 @@ export function push(argv: readonly string[], cwd: string): Report {
   if (branch !== flag('--branch')) return r.stop(`HEAD is on ${branch}, not the branch Step 1 saved (${flag('--branch')}): check out the saved branch, then rerun push`);
   const guard = bin(cwd, 'gstack-config', ['get', 'redact_prepush_hook'], 30_000).stdout.trim() || 'false';
   const prompted = fs.existsSync(path.join(resolveStateRoot(process.env), '.redact-prepush-prompted'));
-  r.add(`REDACT_PREPUSH: ${guard} prompted=${prompted ? 'yes' : 'no'}`);
-  if (guard !== 'true' && !prompted) return r.stop('Step 17\'s one-time pre-push guard offer is unanswered: run the guard block and ask it, then rerun push');
+  const deferred = guard !== 'true' && !prompted && process.env.GSTACK_SESSION_KIND === 'unattended';
+  r.add(`REDACT_PREPUSH: ${guard} prompted=${prompted ? 'yes' : 'no'}${deferred ? ' deferred=unattended' : ''}`);
+  if (guard !== 'true' && !prompted && !deferred) return r.stop('Step 17\'s one-time pre-push guard offer is unanswered: run the guard block and ask it, then rerun push');
   const gateOpen = Number(flag('--gate-open') ?? '0');
   if (gateOpen > 0) {
     if (!hostedOrigin(cwd)) return r.stop('open-PR lookup unavailable: origin is a local path, not a hosted remote gh can map; it must succeed before pushing open gate findings');
@@ -234,6 +256,8 @@ export async function release(argv: readonly string[], cwd: string): Promise<{ t
   if (cmd !== 'push' && !flag('--base')) return usage(`${cmd} needs --base <base>`);
   if (cmd === 'push' && !flag('--branch')) return usage('push needs --branch <the branch Step 1 saved>');
   if (typeof lanes(rest) === 'string') return usage(lanes(rest) as string);
+  const answer = flag('--answer');
+  if (has('--answer') && (!answer?.trim() || answer.startsWith('--') || /[\r\n]/.test(answer) || answer.length > 200)) return usage('--answer needs the owner\'s words: one non-empty line of at most 200 characters');
   if (cmd === 'finish' && (!flag('--reviewed-tree') || !flag('--docs-post'))) return usage('finish needs --reviewed-tree <the tree saved before Step 12> and --docs-post <Step 14.5\'s post-audit snapshot>');
   const r = cmd === 'version' ? version(rest, cwd) : cmd === 'finish' ? await finish(rest, cwd) : cmd === 'push' ? push(rest, cwd) : null;
   if (!r) return usage(`unknown command ${cmd}; run gstack-ship-release --help`);

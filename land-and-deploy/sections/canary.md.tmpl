@@ -1,0 +1,71 @@
+{{THIRD_PARTY_ACTIONS}}
+
+{{ASIDE_SETUP}}
+
+{{BROWSE_FALLBACK}}
+
+## Step 7 canary run
+
+Use the saved pre-merge scope and Step 5's precedence rule; URL/triggered-deploy paths
+still verify docs-only. Set `TARGET=production` unless entering from staging choice A/C.
+
+| Diff Scope | Canary Depth |
+|------------|-------------|
+| SCOPE_DOCS only | Smoke when Step 5 routes here; otherwise skipped there |
+| SCOPE_CONFIG only | Smoke: the Aside script below; `responseStatus` in `NAV=` must be 200 |
+| SCOPE_BACKEND only | Console errors + perf check |
+| SCOPE_FRONTEND (any) | Full: console + perf + screenshot |
+| Mixed scopes | Full canary |
+
+**Full canary sequence** — one `aside repl` script (console hook, load, evidence):
+
+```bash
+aside repl '
+const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()`;
+const pg = await openTab("about:blank");
+await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
+await pg.goto("<url>");
+console.log("URL=" + pg.url());
+console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
+console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
+console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
+await pg.screenshot({ path: "post-deploy.jpg", type: "jpeg", quality: 60, fullPage: true });
+const a = await annotatedScreenshot(pg);
+await fs.writeFile(path.join(pwd, "post-deploy-annotated.png"), Buffer.from(a.base64Image, "base64"));
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
+```
+
+Then copy the evidence out of the printed session directory:
+
+```bash
+mkdir -p .gstack/deploy-reports && cp "<ASIDE_DIR>/post-deploy.jpg" "<ASIDE_DIR>/post-deploy-annotated.png" .gstack/deploy-reports/
+```
+
+Read the output line by line:
+
+- `URL=` — the page loaded and stayed on the site; an `[error` line or no `GSTACK_STEP_OK` means the load failed.
+- `CONSOLE_ERRORS=` — check for critical errors: entries containing `Error`, `Uncaught`, `Failed to load`, `TypeError`, `ReferenceError`. Ignore warnings.
+- `NAV=` — `responseStatus` (the document's HTTP status) must be 200; `loadEventEnd` (load time) must be under 10 seconds.
+- `TEXT_START` / `TEXT_END` — real content, not blank or an error page.
+- `post-deploy.jpg` and the annotated `post-deploy-annotated.png` are the evidence. Read the copied screenshot so the user sees it.
+
+Assess only checks required by the selected depth; mark unperformed checks N/A.
+All required checks pass: record HEALTHY for this target. Staging returns through
+Step 5a's chosen A/C route; production goes to Step 9. Preserve deployment uncertainty.
+
+If any fail: show the evidence (screenshot path, console errors, perf numbers). Use AskUserQuestion:
+- **Re-ground:** "I found issues on the live site after the deploy: {specific issues}. They may be temporary (caches, CDN) or real."
+- **RECOMMENDATION:** Choose based on severity — B for critical (site down), A for minor (console errors).
+- A) Accept these observed issues for now — report DEGRADED, not healthy
+- B) That's broken — revert the merge and roll back
+- C) Let me investigate more — open the site and look at logs before deciding
+
+**A:** Record DEGRADED and the user's acknowledgment, then Step 9 (do not silently
+continue from failed staging to production verification). **B:** Step 8, only with
+explicit rollback approval. **C:** Inspect the page/evidence and read-only logs;
+summarize, then ask: recheck (Step 7), rollback (Step 8) or finish DEGRADED (Step 9). These investigations never modify or redeploy code.
+When `ROLLBACK=true`, failures remain ROLLBACK PENDING; offer investigation or report,
+not another revert. Keep staging/production screenshots distinct when checking both.
