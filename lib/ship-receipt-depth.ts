@@ -13,8 +13,8 @@
  * The queue recomputes the depth the head needs from git objects
  * (lib/review-collect.ts) and refuses a receipt below it.
  * `review_targeted`: the targeted pass on money, gate, auth and secret code
- * (lib/review-targeted.ts), which the queue reports beside the depth and does
- * not refuse on yet (GST-257 PR 1). Kept beside
+ * (lib/review-targeted.ts); the queue reports it beside the depth and refuses
+ * a head whose required classes the pass did not cover (GST-966). Kept beside
  * lib/ship-receipt.ts so that module stays under the size ratchet.
  */
 import { spawnSync } from 'node:child_process';
@@ -146,15 +146,24 @@ export function parseReviewTargeted(value: unknown, productPatchId: string): { o
   return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim() } };
 }
 
-/** The queue's report-only line: the classes the head needs against the classes a done targeted pass covered; never a refusal (GST-257 PR 1). */
-export function receiptTargetedLine(required: readonly TargetedClass[], r: ShipReceipt): string {
+export interface DepthVerdict { ok: boolean; line: string; message?: string }
+
+/**
+ * The classes the head needs against the classes a done targeted pass covered; a required class left uncovered (no pass,
+ * a failed or unrun pass, or a pass on other classes) is refused (GST-966). A receipt with neither gstack_version nor
+ * review_depth predates targeted receipts, as receiptDepthVerdict treats it, and is accepted as legacy.
+ */
+export function receiptTargetedVerdict(required: readonly TargetedClass[], r: ShipReceipt): DepthVerdict {
   const rt = r.review_targeted;
   const covered: readonly string[] = rt?.status === 'done' ? rt.classes : [];
-  const ok = required.every(c => covered.includes(c));
-  return `REVIEW_TARGETED: required=${classList(required)} receipt=${rt ? classList(covered) : 'legacy'} verdict=${ok ? 'ok' : 'missing'}`;
+  const missing = required.filter(c => !covered.includes(c));
+  const verdict = !missing.length ? 'ok' : rt?.status === 'failed' ? 'failed' : 'missing';
+  const line = `REVIEW_TARGETED: required=${classList(required)} receipt=${rt ? classList(covered) : 'legacy'} verdict=${verdict}`;
+  if (!missing.length) return { ok: true, line };
+  if (!rt && !r.review_depth && !r.gstack_version) return { ok: true, line: `${line} (legacy receipt, written before receipts recorded review_targeted; accepted)` };
+  const why = !rt ? 'records no targeted pass' : rt.status === 'failed' ? 'records that its targeted pass failed' : rt.status === 'not-run' ? 'records that its targeted pass did not run' : `covers ${classList(covered)} only`;
+  return { ok: false, line, message: `the head requires the targeted reader on ${missing.join(', ')}, but the receipt ${why}` };
 }
-
-export interface DepthVerdict { ok: boolean; line: string; message?: string }
 
 /** The head's committed range against the base, read once for the depth verdict and the targeted line. */
 interface HeadInputs { baseSha: { ok: boolean; out: string }; c: ReturnType<typeof collectCommit>; scope: Record<string, string> }
@@ -192,10 +201,10 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   return { ok: false, line, message: `the receipt ${why}, but head ${head.slice(0, 12)} needs ${need.depth} (${need.reasons.join(', ')}${errs ? `; ${errs}` : ''}); the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
 }
 
-/** bindReceipt plus the owner exceptions and the review depth: what READY and train build accept; the targeted line is reported, never refused on. */
+/** bindReceipt plus the owner exceptions, the review depth and the targeted pass: what READY, train build and land accept. */
 export function bindShippedReceipt(root: string, baseRef: string, body: string, pr: string | undefined, accepted: readonly string[]):
   | { ok: true; receipt: ShipReceipt; head: string; line: string; depthLine: string; targetedLine: string }
-  | { ok: false; code: ReceiptBindingCode | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID'; message: string; line: string; depthLine?: string; targetedLine?: string } {
+  | { ok: false; code: ReceiptBindingCode | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID' | 'QUEUE_RECEIPT_TARGETED_MISSING'; message: string; line: string; depthLine?: string; targetedLine?: string } {
   const b = bindReceipt(body, pr, accepted);
   if (!b.ok) return b;
   const ancestor = (commit: string) => b.receipt.carry?.ancestry === 'rewritten' || git(root, ['merge-base', '--is-ancestor', commit, b.head]).ok;
@@ -204,8 +213,9 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
   const at = headInputs(root, baseRef, b.head);
   const d = receiptDepthVerdict(root, baseRef, b.receipt, b.head, at);
   const gateTagged = boundScan(b.receipt, b.head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
-  const targetedLine = receiptTargetedLine(targetedClasses({ ...at.c, scope: at.scope, gateTagged }).classes, b.receipt);
-  if (!d.ok) return { ok: false, code: 'QUEUE_RECEIPT_DEPTH_RAISED', message: d.message!, line: b.line, depthLine: d.line, targetedLine };
-  return { ...b, depthLine: d.line, targetedLine };
+  const t = receiptTargetedVerdict(targetedClasses({ ...at.c, scope: at.scope, gateTagged }).classes, b.receipt);
+  if (!d.ok) return { ok: false, code: 'QUEUE_RECEIPT_DEPTH_RAISED', message: d.message!, line: b.line, depthLine: d.line, targetedLine: t.line };
+  if (!t.ok) return { ok: false, code: 'QUEUE_RECEIPT_TARGETED_MISSING', message: `${t.message}; the receipt is unchanged; run /ship on ${b.head.slice(0, 12)}`, line: b.line, depthLine: d.line, targetedLine: t.line };
+  return { ...b, depthLine: d.line, targetedLine: t.line };
 }
 

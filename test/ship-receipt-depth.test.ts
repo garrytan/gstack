@@ -66,8 +66,11 @@ describe('the queue refuses a receipt below the depth its head needs', () => {
     expect(receiptIn(body).review_depth).toMatchObject({ depth: 'full', runtime_lines: 80, risk: ['money'] });
     const base = repo.git('rev-parse', 'origin/main').slice(0, 12);
     const bind = (text: string) => bindShippedReceipt(repo.work, 'origin/main', text, '7', [head]);
-    const good = bind(fs.readFileSync(body, 'utf8'));
-    expect(good.ok).toBe(true);
+    const untargeted = bind(fs.readFileSync(body, 'utf8'));
+    expect(!untargeted.ok && untargeted.code).toBe('QUEUE_RECEIPT_TARGETED_MISSING');
+    expect(!untargeted.ok && untargeted.depthLine).toContain('REVIEW_DEPTH: receipt=full required=full');
+    const good = bind(rewrite(body, r => { r.review_targeted = { classes: ['money'], rules: 'r', brief_sha: 'a'.repeat(64), product_patch_id: r.product_patch_id, status: 'done', findings: 0, raised_by: 'targeted' }; }));
+    expect(good.ok, !good.ok ? good.message : '').toBe(true);
     expect(good.ok && good.depthLine).toContain('REVIEW_DEPTH: receipt=full required=full runtime_lines=80 class=code');
 
     const low = bind(rewrite(body, r => { r.review_depth.depth = 'standard'; }));
