@@ -34,7 +34,7 @@ import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '
 import { resolveBaseBranch } from '../lib/ship-policy';
 import { auditVerdict, eventsDigest, loadReaders, readersLine, scanEvents, type ToolEvent } from '../lib/review-fetch';
 import { effectiveReaders, READERS_POLICY_DEFAULT, type EffectiveReaders } from '../lib/ship-policy-readers';
-import { defaultRoots, foundLines, inventory, quarantineStage, rerunBlocked, sweepResult, type Inventory } from '../lib/review-sweep';
+import { defaultRoots, foundLines, ignoredLines, inventory, quarantineStage, rerunBlocked, sweepResult, type Inventory } from '../lib/review-sweep';
 import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff } from '../lib/review-exclude';
 import { logShipCall } from '../lib/ship-call-log';
 
@@ -113,7 +113,9 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
   sweep --manifest <f> --stage <first|specialists|red-team|voices> --phase start|end
       the fetch rule's enforcement, per stage. start records an inventory of git repositories and files of 100 MB or more under
       the roots (the checkout's parent, home and the temp dir, or GSTACK_SWEEP_ROOTS; bounded in depth, entries and time) before the stage's readers
-      start. end, once the stage's readers are collected, diffs against it: a new repository with a network remote or a new big file
+      start (a directory below a root carrying .gstack-test-fixture, a test fixture root, is not entered). end, once the stage's
+      readers are collected, diffs against it: a new fixture root, or a repository whose network remote resolves to a local path
+      through url.<base>.insteadOf, prints FETCH_IGNORED: and is not a fetch; a new repository with a network remote or a new big file
       prints FETCH_VIOLATION: per path with a KEEP: line (never a delete command: no transcript attributes the path),
       quarantines every reader of the stage (reply to <out>/quarantine/, findings out of merged.jsonl), plans one rerun per slot as
       <reader>#2 (RERUN:, not a review round) and exits 0; the same on a rerun prints FETCH_RERUN_SPENT (exit 3). A sweep that hit
@@ -264,10 +266,10 @@ function sweep(): number {
   if (s.end) { process.stdout.write(`FETCH_SWEEP: ${s.end.verdict} stage=${stage} attempt=${s.attempt} found=${s.end.found.length} (recorded)\n`); return EXIT.ok; }
   let start: Inventory | null = null;
   try { start = s.start ? JSON.parse(fs.readFileSync(s.start.file, 'utf8')) as Inventory : null; } catch { start = null; }
-  const { found, verdict, partial } = sweepResult(start, start ? inventory(start.roots, checkout) : null);
-  s.end = { at: new Date().toISOString(), verdict, found, ...(partial ? { partial } : {}) };
-  appendEvent(m.ledger, { event: 'fetch-sweep', pass: m.pass, stage, attempt: s.attempt, verdict, found, readers, ...(partial ? { partial } : {}) });
-  const lines = [`FETCH_SWEEP: ${verdict} stage=${stage} attempt=${s.attempt} found=${found.length}${partial ? ` partial=${JSON.stringify(partial)} (a note: the sweep could not cover every root)` : ''}`];
+  const { found, ignored = [], verdict, partial } = sweepResult(start, start ? inventory(start.roots, checkout) : null);
+  s.end = { at: new Date().toISOString(), verdict, found, ...(ignored.length ? { ignored } : {}), ...(partial ? { partial } : {}) };
+  appendEvent(m.ledger, { event: 'fetch-sweep', pass: m.pass, stage, attempt: s.attempt, verdict, found, ...(ignored.length ? { ignored } : {}), readers, ...(partial ? { partial } : {}) });
+  const lines = [`FETCH_SWEEP: ${verdict} stage=${stage} attempt=${s.attempt} found=${found.length}${partial ? ` partial=${JSON.stringify(partial)} (a note: the sweep could not cover every root)` : ''}`, ...ignoredLines(stage, s.attempt, ignored)];
   if (verdict !== 'violation') { writeManifest(file, m); process.stdout.write(lines.join('\n') + '\n'); return EXIT.ok; }
   lines.push(...foundLines(stage, s.attempt, found, readers));
   const q = quarantineStage(m, stage, s.attempt);

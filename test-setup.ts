@@ -15,9 +15,11 @@
  * means new tests don't have to remember the dance, and the bug class
  * stays dead.
  */
-import { afterEach, beforeAll } from 'bun:test';
+import { afterAll, afterEach, beforeAll } from 'bun:test';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { FIXTURE_MARKER } from './lib/fixture-marker';
 import { CAPY_LAUNCH_MARKERS } from './scripts/lib/shard-engine';
 
 // State-root hermeticity (docs/state-root.md). Tests isolate state with
@@ -47,6 +49,34 @@ for (const name of ['GBRAIN_DATABASE_URL', 'GBRAIN_DIRECT_DATABASE_URL', 'DATABA
   if (process.env[name] === undefined) continue;
   delete process.env[name];
   process.stderr.write(`test-setup: stripped inherited ${name}; tests must not reach a live gbrain\n`);
+}
+// One fixture root per test process (GST-1695). TMPDIR (TMP and TEMP on Windows)
+// points at it, so os.tmpdir() here, and $TMPDIR in a child spawned through
+// node:child_process or with this process's env, put each fixture inside it; a
+// Bun.spawn child given no env keeps the TMPDIR this process started with. It carries the fixture marker, so /ship's fetch sweep
+// (lib/review-sweep.ts) never reads a concurrent or leftover run's fixture
+// repositories as a reader's fetch, and this afterAll, which Bun runs once after
+// the last file even when a test timed out before its own cleanup, removes it.
+// Bun's test runner fires no process exit event; a killed run keeps the marker.
+// A `bun test` a test spawns inside an outer run's root keeps the TMPDIR it was
+// handed: the outer marker already covers it and the outer afterAll removes it.
+const markedAncestor = (dir: string): string | null => {
+  for (let d = dir; ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, FIXTURE_MARKER))) return d;
+    if (path.dirname(d) === d) return null;
+  }
+};
+const outerRoot = markedAncestor(os.tmpdir());
+if (outerRoot) process.env.GSTACK_TEST_TMP = outerRoot;
+else {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gst-'));
+  fs.writeFileSync(path.join(fixtureRoot, FIXTURE_MARKER), `gstack test fixture root of pid ${process.pid}\n`);
+  for (const name of ['GSTACK_TEST_TMP', 'TMPDIR', 'TMP', 'TEMP']) process.env[name] = fixtureRoot;
+  afterAll(() => {
+    try { fs.rmSync(fixtureRoot, { recursive: true, force: true, maxRetries: 3 }); } catch (err) {
+      process.stderr.write(`test-setup: could not remove fixture root ${fixtureRoot}: ${(err as Error).message}\n`);
+    }
+  });
 }
 process.env.GSTACK_TEST_LEGACY_ROOT = path.join(os.tmpdir(), `gstack-test-legacy-root-${process.pid}-${Date.now()}-unused`);
 // Workflow leases (bin/gstack-lease) default to the installation's git dir;

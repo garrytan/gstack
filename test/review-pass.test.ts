@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import { promptHash, sectionTexts, withWorkspace, workspaceParagraph, workspaceStep } from '../lib/review-brief';
 import { CHUNK_CHARS, PARENT_ONLY_QA, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
+import { FIXTURE_MARKER } from '../lib/fixture-marker';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
@@ -1487,6 +1488,38 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(inventories.join('')).toContain('https://github.com/me/old.git#main');
     const v = bin(dir, env, ['verify', '--ledger', m.ledger]);
     for (const text of [res, v.stdout, ...inventories, fs.readFileSync(m.ledger, 'utf8'), fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')]) expect(text).not.toMatch(/FAKETOKEN|ci-bot|bot:/);
+  }, 240_000);
+
+  // Value: protects=a test run's fixture repositories left beside a stage (a root carrying the fixture marker, ship-bin's clone whose https://github.com/fx/fx.git origin resolves locally) neither quarantine the stage nor block its rerun, while an unmarked network clone in the same stage still does both;
+  //   fails_when=a reader's own `bun test` that timed out before cleanup, or a lane's background suite, quarantines the pass and FETCH_RERUN_BLOCKED stops it on the leftover fixture; why_new=GST-1695 (three /ship passes lost on 11-06/07 to /tmp/ship-bin-YUgvjd and a background suite's fixtures);
+  //   seam=gstack-review-dispatch sweep --phase end and --phase start; no_claim=that a clone made inside a live fixture root is seen
+  test('leftover test fixtures are printed as ignored and never block the rerun; an unmarked network clone beside them still does', async () => {
+    const { dir, env } = repo();
+    made.push(dir);
+    const out = path.join(dir, '.state/run/p1');
+    const beam = path.join(dir, '.state/BEAM');
+    const fixture = path.join(dir, '.state/gst-left');
+    const shipBin = path.join(dir, '.state/ship-bin-left/work');
+    const leftovers = () => {
+      clone(path.join(fixture, 'sweep-x', 'BEAM'));
+      fs.writeFileSync(path.join(fixture, FIXTURE_MARKER), '');
+      clone(shipBin);
+      expect(spawnSync('git', ['config', `url.${path.join(dir, '.state/ship-bin-left/origin.git')}.insteadOf`, 'https://github.com/sealed-org/BEAM.git'], { cwd: shipBin, encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    };
+    const h = host(dir, env, { output: t => { if (t === 'ship f7p1 specialist-batched') { clone(beam); leftovers(); } return 'NO FINDINGS'; } });
+    const input = { base: 'main', out, pass: 'f7p1', planFlags: ['--depth-floor', 'full'] };
+    const blocked = await runPass(h, input);
+    const real = (p: string) => `'${fs.realpathSync(p)}'`;
+    expect(blocked).toContain(`FETCH_VIOLATION: stage=specialists attempt=1 kind=repo path=${real(beam)}`);
+    expect(blocked).toContain(`FETCH_IGNORED: stage=specialists attempt=1 path=${real(fixture)} reason=fixture-marker`);
+    expect(blocked).toContain(`FETCH_IGNORED: stage=specialists attempt=1 path=${real(shipBin)} reason=local-remote remote=https://github.com/sealed-org/BEAM.git`);
+    expect(blocked).toContain(`FETCH_RERUN_BLOCKED: stage=specialists attempt=2 path=${real(beam)}`);
+    expect(blocked).not.toMatch(/^FETCH_(VIOLATION|RERUN_BLOCKED): .*(gst-left|ship-bin-left)/m);
+    fs.rmSync(beam, { recursive: true, force: true });
+    const res = await runPass(h, input);
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(res).not.toContain('FETCH_RERUN_BLOCKED');
+    expect([fs.existsSync(fixture), fs.existsSync(shipBin)]).toEqual([true, true]);
   }, 240_000);
 });
 const briefDirOf = (h: ReturnType<typeof host>, title: string) => briefDir(h.creates.find(c => c.title === title)?.prompt ?? '');

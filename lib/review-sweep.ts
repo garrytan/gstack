@@ -10,11 +10,16 @@
  *
  * Nothing here deletes anything, and nothing prints a delete command: no transcript can attribute a path to a reader today,
  * so every found path is reported as KEEP for the lane to inspect and leave alone.
+ *
+ * Two kinds of new directory are not fetches and print FETCH_IGNORED instead (GST-1695): a test fixture root below a sweep
+ * root that carries FIXTURE_MARKER (test-setup.ts puts every test's temp paths under one), and a repository whose every
+ * network remote resolves to a local path through url.<base>.insteadOf (the ship fixtures' fake GitHub origin).
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { FIXTURE_MARKER } from './fixture-marker';
 import { networkTarget } from './review-fetch';
 import { appendEvent, readLedger, readerKey } from './review-ledger';
 import type { Manifest, PassReader, Stage } from './review-pass';
@@ -26,13 +31,15 @@ export const BIG_BYTES = 100 * 1024 * 1024;
 const SKIP = new Set(['node_modules', '.git']);
 const SCP = /^(?:[\w.-]+@)?[\w.-]+:(?!\/\/)[\w./-]+$/;
 
-export interface Inventory { at: number; roots: string[]; repos: Record<string, string[]>; big: Record<string, number>; partial?: string }
+export interface Inventory { at: number; roots: string[]; repos: Record<string, string[]>; big: Record<string, number>; ignored?: Record<string, Omit<Ignored, 'path'>>; partial?: string }
 export interface Found { path: string; kind: 'repo' | 'download'; remote?: string; bytes: number | null }
+/** A new directory the sweep saw and did not count: a marked test fixture root, or a repository whose remote resolves locally. */
+export interface Ignored { path: string; reason: 'fixture-marker' | 'local-remote'; remote?: string }
 export type SweepVerdict = 'clean' | 'violation' | 'partial';
 export interface StageSweep {
   attempt: number;
   start?: { at: string; file: string; partial?: string };
-  end?: { at: string; verdict: SweepVerdict; found: Found[]; partial?: string };
+  end?: { at: string; verdict: SweepVerdict; found: Found[]; ignored?: Ignored[]; partial?: string };
   /** Earlier attempts of this stage, newest last. */
   history?: Array<Omit<StageSweep, 'history'>>;
 }
@@ -66,13 +73,24 @@ export function networkRemote(v: string): boolean {
 }
 
 /**
- * A repository's network remotes as git itself reads its config (quoted values, escapes and `#` included), classified on
- * the raw value and recorded only through redactUrl.
+ * A repository's remotes as git itself reads its config (quoted values, escapes and `#` included), each rewritten by the
+ * longest matching url.<base>.insteadOf as git fetch does and classified on the rewritten raw value: `network` holds the ones git
+ * would fetch over the network, `local` the network-looking ones insteadOf sends to a local path. Recorded only through redactUrl.
  */
-function remotes(gitDir: string): string[] {
-  const r = spawnSync('git', ['config', '--file', path.join(gitDir, 'config'), '--null', '--get-regexp', '\\.url$'], { encoding: 'utf8', timeout: 5_000 });
-  if (r.status !== 0 || !r.stdout) return [];
-  return r.stdout.split('\0').flatMap(e => { const i = e.indexOf('\n'); const v = e.slice(i + 1); return i >= 0 && networkRemote(v) ? [redactUrl(v)] : []; });
+function remotes(gitDir: string): { network: string[]; local: string[] } {
+  const r = spawnSync('git', ['config', '--file', path.join(gitDir, 'config'), '--null', '--get-regexp', '\\.url$|^url\\..*\\.insteadof$'], { encoding: 'utf8', timeout: 5_000 });
+  const out = { network: [] as string[], local: [] as string[] };
+  if (r.status !== 0 || !r.stdout) return out;
+  const entries = r.stdout.split('\0').flatMap(e => { const i = e.indexOf('\n'); return i >= 0 ? [{ key: e.slice(0, i), value: e.slice(i + 1) }] : []; });
+  const rules = entries.filter(e => /^url\..*\.insteadof$/.test(e.key) && e.value).map(e => ({ from: e.value, to: e.key.slice(4, -'.insteadof'.length) }));
+  for (const { key, value } of entries) {
+    if (!/\.url$/.test(key)) continue;
+    const rule = rules.filter(x => value.startsWith(x.from)).sort((a, b) => b.from.length - a.from.length)[0];
+    const url = rule ? rule.to + value.slice(rule.from.length) : value;
+    if (networkRemote(url)) out.network.push(redactUrl(url));
+    else if (networkRemote(value)) out.local.push(redactUrl(value));
+  }
+  return out;
 }
 
 /** The git directory a directory holds: its `.git` (a directory, or a file naming one), or itself when it is a bare repository. */
@@ -90,11 +108,12 @@ function gitDirOf(dir: string, names: Set<string>): string | null {
 
 /**
  * Git repositories (with their redacted network remotes) and files of BIG_BYTES or more under the roots, to SWEEP_DEPTH, without following
- * symlinks or entering node_modules, .git or a repository other than the checkout. Past SWEEP_MAX_ENTRIES entries or
- * SWEEP_BUDGET_MS the inventory stops and says so in `partial`.
+ * symlinks or entering node_modules, .git, a repository other than the checkout or a directory below a root that carries
+ * FIXTURE_MARKER (recorded in `ignored`, like a repository whose only network-looking remotes resolve locally). Past
+ * SWEEP_MAX_ENTRIES entries or SWEEP_BUDGET_MS the inventory stops and says so in `partial`.
  */
 export function inventory(roots: readonly string[], checkout: string, skip: readonly string[] = defaultSkip(), now = Date.now()): Inventory {
-  const inv: Inventory = { at: now, roots: roots.map(r => realOr(r)), repos: {}, big: {} };
+  const inv: Inventory = { at: now, roots: roots.map(r => realOr(r)), repos: {}, big: {}, ignored: {} };
   const deadline = Date.now() + SWEEP_BUDGET_MS;
   const home = realOr(checkout);
   const seen = new Set<string>();
@@ -107,8 +126,14 @@ export function inventory(roots: readonly string[], checkout: string, skip: read
     entries += list.length;
     if (entries > SWEEP_MAX_ENTRIES) { inv.partial = `more than ${SWEEP_MAX_ENTRIES} entries`; return; }
     if (Date.now() > deadline) { inv.partial = `past ${SWEEP_BUDGET_MS / 1000}s`; return; }
+    if (depth > 0 && list.some(d => d.name === FIXTURE_MARKER && d.isFile())) { inv.ignored![dir] = { reason: 'fixture-marker' }; return; }
     const gitDir = gitDirOf(dir, new Set(list.map(d => d.name)));
-    if (gitDir) { inv.repos[dir] = remotes(gitDir); if (dir !== home) return; }
+    if (gitDir) {
+      const { network, local } = remotes(gitDir);
+      inv.repos[dir] = network;
+      if (!network.length && local.length) inv.ignored![dir] = { reason: 'local-remote', remote: local[0] };
+      if (dir !== home) return;
+    }
     for (const d of list) {
       const p = path.join(dir, d.name);
       if (d.isFile()) { try { const s = fs.statSync(p); if (s.size >= BIG_BYTES) inv.big[p] = s.size; } catch { /* gone */ } continue; }
@@ -145,11 +170,12 @@ export function sweepDiff(start: Inventory, end: Inventory): Found[] {
  * The end of a stage. With no start inventory, or one that stopped at its bounds, the sweep cannot tell a path the start
  * never reached from a new one, so what it finds is a `partial` note, never a violation.
  */
-export function sweepResult(start: Inventory | null, end: Inventory | null): { found: Found[]; verdict: SweepVerdict; partial?: string } {
+export function sweepResult(start: Inventory | null, end: Inventory | null): { found: Found[]; ignored?: Ignored[]; verdict: SweepVerdict; partial?: string } {
   const found = start && end ? sweepDiff(start, end) : [];
+  const ignored = start && end ? Object.entries(end.ignored ?? {}).filter(([p]) => !(p in (start.ignored ?? {})) && !(p in start.repos)).map(([p, i]) => ({ path: p, ...i })) : [];
   const partial = !start ? 'no start inventory' : start.partial ?? end?.partial;
   const verdict = found.length && !start?.partial ? 'violation' : partial ? 'partial' : 'clean';
-  return { found, verdict, ...(partial ? { partial } : {}) };
+  return { found, ...(ignored.length ? { ignored } : {}), verdict, ...(partial ? { partial } : {}) };
 }
 
 const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
@@ -170,6 +196,15 @@ export function foundLines(stage: Stage, attempt: number, found: readonly Found[
       `FETCH_VIOLATION: stage=${stage} attempt=${attempt} kind=${f.kind} path=${shown}${f.remote ? ` remote=${unsafe ? JSON.stringify(f.remote) : f.remote}` : ''} bytes=${f.bytes ?? 'unknown'} readers=${readers.join(',')} (attributed to the stage: Capy exposes no reader id; docs/troubleshooting.md#fetch-violation)`,
       `KEEP: ${shown} (no transcript attributes it to a reader: inspect it and leave it alone)`,
     ];
+  });
+}
+
+/** One line per new directory the sweep did not count as a fetch, with the reason. */
+export function ignoredLines(stage: Stage, attempt: number, ignored: readonly Ignored[]): string[] {
+  return ignored.map(i => {
+    const remote = i.remote ? ` remote=${control(i.remote) ? JSON.stringify(i.remote) : i.remote}` : '';
+    const why = i.reason === 'fixture-marker' ? `a test fixture root carrying ${FIXTURE_MARKER}` : 'its remote resolves to a local path through url.<base>.insteadOf';
+    return `FETCH_IGNORED: stage=${stage} attempt=${attempt} path=${shownPath(i.path)} reason=${i.reason}${remote} (${why}, so not a fetch; docs/review-policy.md#what-readers-may-fetch)`;
   });
 }
 

@@ -6,7 +6,8 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BIG_BYTES, foundLines, inventory, networkRemote, quarantineStage, redactUrl, sweepDiff, sweepResult } from '../lib/review-sweep';
+import { BIG_BYTES, foundLines, ignoredLines, inventory, networkRemote, quarantineStage, redactUrl, sweepDiff, sweepResult } from '../lib/review-sweep';
+import { FIXTURE_MARKER } from '../lib/fixture-marker';
 import { collect, ledgerBlockers } from '../lib/review-ledger';
 import { ledgerPass } from '../lib/review-scope';
 import type { Manifest } from '../lib/review-pass';
@@ -66,6 +67,44 @@ describe('review-sweep inventory diff', () => {
     expect(lines.filter(l => l.startsWith('DELETE:'))).toEqual([]);
     expect(lines.filter(l => l.startsWith('KEEP:'))).toHaveLength(2);
     expect(lines[0]).toMatch(/^FETCH_VIOLATION: stage=specialists attempt=1 kind=repo .* readers=specialist\/security \(attributed to the stage/);
+  });
+
+  // Value: protects=a test fixture root carrying the marker, or a repository whose network remote resolves to a local path through url.<base>.insteadOf, is never a fetch and is printed as ignored, while an unmarked network clone beside them, and a local remote that insteadOf sends to the network, still are;
+  //   fails_when=a concurrent or leftover `bun test` (ship-bin's https://github.com/fx/fx.git, a sweep fixture's sealed-org remote) quarantines a stage and blocks its rerun, a marker on a sweep root hides the whole root, or insteadOf hides a network remote;
+  //   why_new=GST-1695 (FETCH_RERUN_BLOCKED on /tmp/ship-bin-YUgvjd cost three /ship passes on 11-06/07); seam=inventory, sweepResult, ignoredLines; no_claim=that a clone made inside a live fixture root is seen
+  test('a marked fixture root and an insteadOf-local repository are ignored and printed; unmarked and insteadOf-network clones are still found', async () => {
+    const root = tmp();
+    const checkout = path.join(root, 'checkout');
+    repoAt(checkout);
+    fs.writeFileSync(path.join(root, FIXTURE_MARKER), '');
+    const start = inventory([root], checkout, []);
+    await Bun.sleep(30);
+    const fixture = path.join(root, 'gst-left');
+    fs.mkdirSync(fixture);
+    fs.writeFileSync(path.join(fixture, FIXTURE_MARKER), '');
+    repoAt(path.join(fixture, 'sweep-x', 'BEAM'), 'https://github.com/sealed-org/BEAM.git');
+    const config = (dir: string, key: string, value: string) => expect(spawnSync('git', ['config', key, value], { cwd: dir, encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const shipBin = path.join(root, 'ship-bin-left', 'work');
+    repoAt(shipBin, 'https://github.com/fx/fx.git');
+    config(shipBin, `url.${path.join(root, 'ship-bin-left', 'origin.git')}.insteadOf`, 'https://github.com/fx/fx.git');
+    repoAt(path.join(root, 'mirror'), 'https://github.com/fx/fx.git');
+    config(path.join(root, 'mirror'), 'url.https://example.com/m/.insteadOf', 'https://github.com/');
+    repoAt(path.join(root, 'fromlocal'), '/srv/app.git');
+    config(path.join(root, 'fromlocal'), 'url.https://github.com/x/.insteadOf', '/srv/');
+    repoAt(path.join(root, 'BEAM'), 'https://github.com/sealed-org/BEAM.git');
+    const r = sweepResult(start, inventory([root], checkout, []));
+    expect(r.verdict).toBe('violation');
+    expect(r.found.map(f => [path.relative(root, f.path), f.remote]).sort()).toEqual([
+      ['BEAM', 'https://github.com/sealed-org/BEAM.git'], ['fromlocal', 'https://github.com/x/app.git'], ['mirror', 'https://example.com/m/fx/fx.git'],
+    ]);
+    expect((r.ignored ?? []).map(i => [path.relative(root, i.path), i.reason, i.remote]).sort()).toEqual([
+      ['gst-left', 'fixture-marker', undefined], [path.join('ship-bin-left', 'work'), 'local-remote', 'https://github.com/fx/fx.git'],
+    ]);
+    const lines = ignoredLines('specialists', 1, r.ignored ?? []);
+    expect(lines.sort()).toEqual([
+      expect.stringMatching(new RegExp(`^FETCH_IGNORED: stage=specialists attempt=1 path='${fixture}' reason=fixture-marker \\(`)),
+      expect.stringMatching(new RegExp(`^FETCH_IGNORED: stage=specialists attempt=1 path='${shipBin}' reason=local-remote remote=https://github.com/fx/fx.git \\(`)),
+    ]);
   });
 
   // Value: protects=a start walk that stopped at its bounds cannot tell a repository it never reached from a new one, so what the end walk finds past it is a note, never a quarantine;
