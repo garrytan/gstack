@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { collectCommit, collectLive, loadRegistryAt } from '../lib/review-collect';
+import { collectCommit, collectLive, CONSUMER_SCAN_CAP, loadRegistryAt } from '../lib/review-collect';
 import { depthOfCommitInput } from '../lib/review-depth';
 
 const dirs: string[] = [];
@@ -116,4 +116,64 @@ describe('collectLive: the working tree', () => {
     const r = repo({});
     expect(collectLive(r.dir, 'no-such-branch').errors.map(e => e.code)).toEqual(['numstat_failed']);
   });
+});
+
+describe('GSTA-167 part 4a: which data files code names (scanConsumers)', () => {
+  const rows = Array.from({ length: 80 }, (_, i) => `{"i":${i}}`).join('\n') + '\n';
+  // Value: protects=a data file a code file names keeps review, one nothing names drops to docs, and markdown mentions do not
+  //   count; fails_when=the consumer search misses a literal reader or counts prose; seam=git grep at head and merge base
+  test('a JSON code names stays code; one only markdown names is docs', () => {
+    const r = repo({ 'src/load.ts': "export const rows = () => require('./data/rows.json');\n", 'docs/wiki.md': 'see wiki/post/data.json\n' });
+    const head = r.commit({ 'data/rows.json': rows, 'wiki/post/data.json': rows });
+    const c = collectCommit(r.dir, r.baseSha, head);
+    expect([c.consumed, c.errors]).toEqual([['data/rows.json'], []]);
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 })).toMatchObject({ class: 'code', runtimeLines: 80 });
+  });
+  test('a consumer the change deletes still counts (merge base); a data file named only by another data file follows it', () => {
+    const r = repo({ 'src/old.ts': "read('rules.json')\n", 'src/manifest.ts': "load('index.json')\n" });
+    const head = r.commit({ 'src/old.ts': null, 'assets/rules.json': rows, 'assets/index.json': '["post.json"]\n', 'assets/post.json': rows, 'orphan/list.json': '["lone.json"]\n', 'orphan/lone.json': rows });
+    const c = collectCommit(r.dir, r.baseSha, head);
+    expect(c.consumed).toEqual(['assets/index.json', 'assets/post.json', 'assets/rules.json']);
+  });
+  test('a deleted data file head code still names keeps the deletion guarded (gate class)', () => {
+    const r = repo({ 'src/a.ts': "read('table.csv')\n", 'data/table.csv': 'a,b\n' });
+    const head = r.commit({ 'data/table.csv': null, 'src/a.ts': "read('table.csv'); // moved\n" });
+    const c = collectCommit(r.dir, r.baseSha, head);
+    expect(c.consumed).toEqual(['data/table.csv']);
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('gate');
+  });
+  // Value: protects=the live plan (gstack-review-plan) and the queue recompute (collectCommit) agree on a committed tree, and
+  //   the live plan sees an untracked consumer; fails_when=a receipt and the queue disagree on depth; seam=collectLive vs collectCommit
+  test('collectLive and collectCommit compute the same consumed set on a clean tree; live counts an untracked consumer', () => {
+    const r = repo({ 'src/load.ts': "read('rows.json')\n" });
+    const head = r.commit({ 'data/rows.json': rows, 'wiki/post/data.json': rows });
+    expect(collectLive(r.dir, 'main').consumed).toEqual(collectCommit(r.dir, r.baseSha, head).consumed);
+    r.write({ 'src/new.ts': "read('post/data.json')\n" });
+    expect(collectLive(r.dir, 'main').consumed).toEqual(['data/rows.json', 'wiki/post/data.json']);
+  });
+  // Value: protects=the scan reads git grep the same way under any user grep config, and a failed grep keeps every data file
+  //   code; fails_when=grep.lineNumber/grep.column shift the NUL fields so no consumer matches, or a grep failure drops data to
+  //   docs silently; seam=git grep output and exit status
+  test('grep.lineNumber, grep.column and color.grep in git config do not change which files count as consumers', () => {
+    const r = repo({ 'src/load.ts': "export const rows = () => require('./data/rows.json');\n" });
+    r.git('config', 'grep.lineNumber', 'true'); r.git('config', 'grep.column', 'true'); r.git('config', 'color.grep', 'always');
+    const head = r.commit({ 'data/rows.json': rows, 'docs/notes.md': 'see rows.json and orphan.json\n', 'data/orphan.json': rows });
+    expect([collectCommit(r.dir, r.baseSha, head).consumed, collectLive(r.dir, 'main').consumed]).toEqual([['data/rows.json'], ['data/rows.json']]);
+  });
+  test('a git grep failure keeps every data file code and records consumer_scan_failed', () => {
+    const r = repo({ 'src/load.ts': "read('rows.json')\n" });
+    const head = r.commit({ 'data/rows.json': rows });
+    r.git('config', 'grep.lineNumber', 'not-a-bool');
+    const c = collectCommit(r.dir, r.baseSha, head);
+    expect(c.consumed).toBe('all');
+    expect(c.errors.map(e => e.code)).toEqual(['consumer_scan_failed']);
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('code');
+  });
+  test('past CONSUMER_SCAN_CAP data paths every one stays code', () => {
+    const r = repo({});
+    const head = r.commit(Object.fromEntries(Array.from({ length: CONSUMER_SCAN_CAP + 1 }, (_, i) => [`d/${i}.json`, '{}\n'])));
+    const c = collectCommit(r.dir, r.baseSha, head);
+    expect(c.consumed).toBe('all');
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('code');
+  }, 60_000);
 });
