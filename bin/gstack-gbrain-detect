@@ -45,6 +45,7 @@ import {
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
 import { gbrainConfigDir, isTransactionModePooler } from "../lib/gbrain-exec";
+import { classifyGbrainMcpEntry, classifyGbrainMcpListLine, type GbrainMcpEntry } from "../lib/gbrain-mcp-locality";
 import { resolveStateRoot } from "../lib/state-root";
 
 const STATE_DIR = resolveStateRoot();
@@ -154,7 +155,19 @@ function detectBrainGit(): boolean {
 //   1. `claude mcp get gbrain --json` — public CLI surface, structured output
 //   2. `claude mcp list` text-grep    — older claude versions without --json
 //   3. `~/.claude.json` jq read       — last resort if `claude` isn't on PATH
-function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
+//
+// #3539: an HTTP entry on a loopback host whose local gbrain config has an
+// engine and no remote_mcp marker is a resident `gbrain serve --http` of this
+// machine's own brain. It reports "local-stdio" (the local-engine mode every
+// consumer already understands: memory ingest imports, sync-gbrain skips the
+// remote trust-policy question) rather than a new value.
+type McpMode = "local-stdio" | "remote-http";
+function classify(entry: GbrainMcpEntry): McpMode | null {
+  const c = classifyGbrainMcpEntry(entry);
+  return c === "remote" ? "remote-http" : c === "local" ? "local-stdio" : null;
+}
+
+function detectMcpMode(): McpMode | "none" {
   const claudeOnPath = tryExec("sh", ["-c", "command -v claude"], 1_000) !== null;
   if (claudeOnPath) {
     // Tier 1: `claude mcp get gbrain --json`
@@ -167,11 +180,8 @@ function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
           command?: string;
           url?: string;
         };
-        const mtype = parsed.type || parsed.transport || "";
-        if (mtype === "http" || mtype === "sse") return "remote-http";
-        if (mtype === "stdio") return "local-stdio";
-        if (parsed.url) return "remote-http";
-        if (parsed.command) return "local-stdio";
+        const c = classify(parsed);
+        if (c) return c;
       } catch {
         // fall through
       }
@@ -179,34 +189,28 @@ function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
     // Tier 2: `claude mcp list` text-grep. Name-pattern generalized (#2051):
     // a gbrain server registered as e.g. "gbrain-remote" or "gbrain_work"
     // still counts. Anchored to the gbrain token so unrelated servers can't
-    // false-positive.
+    // false-positive. The exact `gbrain:` line wins over a variant, the same
+    // order as tier 3 (and memory-ingest, which reads mcpServers.gbrain):
+    // {gbrain-a: loopback, gbrain: remote} is remote-http.
     const list = tryExec("claude", ["mcp", "list"], 3_000);
     if (list) {
-      const line = list.split("\n").find((l) => /^gbrain([-_][\w-]*)?:/.test(l));
+      const lines = list.split("\n");
+      const line =
+        lines.find((l) => l.startsWith("gbrain:")) ?? lines.find((l) => /^gbrain[-_][\w-]*:/.test(l));
       if (line) {
-        if (/\b(http|HTTP)\b/.test(line)) return "remote-http";
-        return "local-stdio";
+        // The list line carries the URL for HTTP and SSE servers
+        // ("gbrain: http://127.0.0.1:3131/mcp (HTTP) - ✓ Connected"), so the
+        // loopback rule (#3539) applies here too. The whole URL token is
+        // classified, never cut at ")"; an HTTP or SSE line without a usable
+        // URL keeps the old remote-http answer.
+        return classifyGbrainMcpListLine(line) === "local" ? "local-stdio" : "remote-http";
       }
     }
   }
   // Tier 3: read ~/.claude.json directly
-  interface McpServerEntry {
-    type?: string;
-    transport?: string;
-    command?: string;
-    url?: string;
-  }
   const cj = tryReadJSON(CLAUDE_JSON) as
-    | { mcpServers?: Record<string, McpServerEntry> }
+    | { mcpServers?: Record<string, GbrainMcpEntry> }
     | null;
-  const classify = (entry: McpServerEntry): "local-stdio" | "remote-http" | null => {
-    const mtype = entry.type || entry.transport || "";
-    if (mtype === "url" || mtype === "http" || mtype === "sse") return "remote-http";
-    if (mtype === "stdio") return "local-stdio";
-    if (entry.url) return "remote-http";
-    if (entry.command) return "local-stdio";
-    return null;
-  };
   const servers = cj?.mcpServers || {};
   const exact = servers["gbrain"];
   if (exact) {
