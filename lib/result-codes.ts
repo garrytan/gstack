@@ -513,7 +513,7 @@ export const RESULT_CODES = {
   SEALED_OUTPUT_REFUSED: {
     anchor: 'sealed-output-refused',
     summary: 'a push or PR would publish sealed or eval output (a sealed path, a transcript, a quoted answer, a seed or a local home path) to a public or unknown destination, or the sealed policy is unreadable',
-    fix: 'remove it from every published commit, or add one reviewed `rule<TAB>path<TAB>sha<TAB>reason` line to the base branch\'s .gstack/sealed-allow.tsv; a private destination sets sealed.visibility "private" in the base branch\'s .gstack/pregate.json',
+    fix: 'remove it from every published commit, or add one reviewed `rule<TAB>path<TAB>full-commit-sha<TAB>reason` line to the base branch\'s .gstack/sealed-allow.tsv (a shortened sha is ignored); a private destination sets sealed.visibility "private" in the base branch\'s .gstack/pregate.json',
   },
   EVAL_GATE_UNPRICED: {
     anchor: 'eval-gate-unpriced',

@@ -843,7 +843,12 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   `git ls-remote <remote> <ref>`. A malformed or
   unreadable policy refuses. Waivers come only from the base branch's
   `.gstack/sealed-allow.tsv` (`rule<TAB>path<TAB>sha<TAB>reason`) and are
-  listed on every push.
+  listed on every push. A waiver counts only when `sha` is the finding's full
+  commit sha (40 hex characters, 64 in a SHA-256 repository); a shortened or
+  mistyped one is ignored, so the finding still refuses, and stderr names it
+  (`ignored waiver <rule>  <path>  sha <value> (...)`) with the finding's full
+  commit, which needs a review before anyone waives it.
+  `--json` lists them as `ignoredWaivers`.
 - **Visibility.** `sealed.visibility` from the base branch, else a cache under
   the state root (`sealed-visibility.json`: a `public` answer for 24 hours, a
   `private` one for 1 hour before it may turn a refusal into a warning), else
