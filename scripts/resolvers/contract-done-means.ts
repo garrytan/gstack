@@ -116,8 +116,8 @@ function plainWords(item: ContractItem): string {
 /** Whether bin/gstack-skill-contract ships. The PR that adds it flips this, regenerates and re-pins; test/skill-descriptions.test.ts fails while the two disagree. */
 export const CONTRACT_CHECKER_SHIPPED = true;
 
-/** The list; checker adds the check and waive commands, which only a tree that ships the checker may mention. */
-export function renderDoneMeans(contract: SkillContract, checker = CONTRACT_CHECKER_SHIPPED): string {
+/** The list; checker adds the check and waive commands (run through the host's binDir), which only a tree that ships the checker may mention. */
+export function renderDoneMeans(contract: SkillContract, binDir: string, checker = CONTRACT_CHECKER_SHIPPED): string {
   if (contract.items.length === 0) return '';
   return [
     '## Done means',
@@ -125,8 +125,8 @@ export function renderDoneMeans(contract: SkillContract, checker = CONTRACT_CHEC
     'Finish only when each of these exists (contract v1):',
     '',
     ...contract.items.map(item => '- ' + code(item.id) + ': ' + plainWords(item) + '.'),
-    ...(checker ? ['', code('gstack-skill-contract check') + ' reads them from the transcript (docs/skill-routing-and-contracts.md). ' +
-      'For an item that truly does not apply, run ' + code('gstack-skill-contract waive <item> --reason "<why>"') + ' (this session only; it counts as a miss).'] : []),
+    ...(checker ? ['', code(binDir + '/gstack-skill-contract check') + ' reads them from the transcript (docs/skill-routing-and-contracts.md). ' +
+      'For an item that truly does not apply, run ' + code(binDir + '/gstack-skill-contract waive <item> --reason "<why>"') + ' (this session only; it counts as a miss).'] : []),
   ].join('\n');
 }
 
@@ -138,5 +138,5 @@ export function generateContractDoneMeans(ctx: TemplateContext): string {
     const backing = BACKED_BY[item.kind];
     return !backing || (!suppressed.has(backing.resolver) && !ctx.modules?.excluded.has('section:' + ctx.skillName + '/' + backing.section));
   };
-  return renderDoneMeans({ ...contract, items: contract.items.filter(shown) });
+  return renderDoneMeans({ ...contract, items: contract.items.filter(shown) }, ctx.paths.binDir);
 }
