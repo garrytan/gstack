@@ -1,5 +1,122 @@
 # Changelog
 
+## [1.92.55.0] - 2026-11-02
+
+- **`/ship` finish no longer stops on a branch whose restamp moved its own stale stamp after a lost slot** (`gstack-ship-release finish`, GST-895). When a branch loses its merge slot, merges main and runs `gstack-restamp --next`, the restamp moves the branch's own `since:` rows from the lost version to the new one. Finish only accepted a moved version at or above the reviewed tree's VERSION, which now came from main, so it read those rows as a behavior change and stopped with "insert 5–11.5 → 12–14 → 16" (gbrain #8134 on 1.92.46.0). Now a line the branch added itself, by the same rule restamp uses (added since the merge base with main, and not added by main), may move any version newer than the branch's fork point, and finish routes it as release metadata. A row main carries, a row main edited after the merge, and a branch row at or before the fork point still stop. Only `stamp_files` paths count, and nothing else on the line may change.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: after a lost slot, a merge of main and a restamp, the branch's moved row routes as metadata; moving main's own row, a merged main row that main later edited, a branch row at the fork version, or one older than the fork point each stop. The first case fails on main with `behavior=1`.
+
+## [1.92.54.0] - 2026-11-02
+
+**`train land` and a single-PR `land` can no longer publish onto main at the same time, and a slot that forgot its version bump can no longer merge (#3599, #3531; GSTA-157).** Before, `train land` took no lock, so it and `land` could both read the same main and publish a combined tree neither tested. And train 33's `verify --train` said "may merge" for #3527's head after a bare commit dropped the stamp that restamp had written but not staged, so #3527 shipped under #3526's version.
+
+### Fixed
+- **`train land` takes the shared land lock** (`refs/notes/gstack-land`, now in lib/ship-queue-land-lock.ts) as `train <nonce> slot <i> (#<pr>)`. Whichever of `land` and `train land` starts second refuses with `QUEUE_LAND_LOCKED`, naming the holder. Once a slot has merged, the train keeps the lock in phase `between` until its last slot lands, through a refusal on the next slot too, so no single land slips in between slots and sets off a freeze. A stop that freezes the queue leaves the lock in phase `freeze`, which only the admitted repair train takes over while the freeze lasts; once the freeze is cleared, the next `land` or `train land` takes over a freeze lock whose release push failed. A lock ref deleted on origin now reads as no lock, not as this clone's cached copy.
+- **`--break-lock` prints the holder** (`LOCK_HOLDER:`), keeps land's staleness, mid-push and drift rules, never breaks a `freeze` lock, waits 10 minutes on a `between` lock, and refuses a live train run's lock unless `--break-train-lock` is also given. `train land` accepts both flags.
+- **`verify --train` checks the slot stamp itself**: the head's VERSION must be above main's and its CHANGELOG headed with that version directly above main's top release, or it refuses with the new `QUEUE_TRAIN_UNSTAMPED`, naming the rule and both versions. It prints `STAMP_VERSION:` from the head.
+- **`verify --train` calls a PR merged only when GitHub reports it MERGED.** An open release-only PR (#3530's shape) now gets the pre-merge check, and any other open or unreadable PR refuses with `QUEUE_PROOF_MISSING` without freezing the queue. So does a verify that could not read the PR's current head (`--no-fetch` or a failed fetch), instead of judging the unstamped pin.
+- **`gstack-restamp` stages the files it writes** and prints `STAGED:`. It refuses before writing when a stamp file holds unstaged edits of your own (`RESTAMP_UNSTAGED_EDITS`); when staging fails, it says `RESTAMP_NOT_STAGED` and the next run stages the files.
+- Two comments in lib/ship-queue-train-gate.ts now say "one spend cap per command gate across every prefix of the train", which is what the code does.
+
+### Tests
+- `test/ship-queue-land-lock.test.ts`: two writers racing one lock sha, the four lock read states, owner kinds, the `--break-lock` rules, and both lock directions, the between phase, refusal and resume, and the freeze lock's repair takeover through `bin/gstack-ship-queue`.
+- `test/ship-queue-train.test.ts`: the #3527 and #3530 shapes, the CHANGELOG rule, a claim-at-open pin, and no false freeze. `test/gstack-restamp-queue.test.ts`: staging after a no-commit merge, the unstaged-edits refusal, and a staging failure and its rerun.
+
+## [1.92.53.0] - 2026-11-02
+
+**`reap` and `up` now destroy only your own Ubicloud VMs (GST-573).** Before, every `up` destroyed any VM in the project whose TTL had ended, whoever created it, which broke the rule that cloud deletes stay with the owner who made the resource. Now reap destroys only the caller's own expired VMs and its own old TTL-less ones, and only counts other owners' expired VMs in its log (`reap: left N expired VMs of other owners; only their owners reap them`).
+
+### Changed
+- **Owner-scoped reap.** Another owner's VM, even an expired one, and an untagged one are never reaped. A lane's leftover VM is destroyed by that owner's own next `up` or `reap`, so a lane that never runs again leaves its VM until someone with that owner runs `reap` or `down`.
+
+## [1.92.52.0] - 2026-11-02
+
+**/ship on Capy runs Exploratory QA again.** Since v1.91.345.0 (#3648) the driver sent Step 9.2.1 out as a QA reader subagent, but the section says only the parent runs report-only discovery, so the reader refused on every pass ("parent-only") and the parent ran the probes afterward anyway, an extra reader call each pass (the C4-36 and C5-36 replays).
+
+### Fixed
+- **The parent runs Step 9.2.1's probes itself, as the section says.** Phase 3 does the section's method Reads and no probe; Phase 4's one program runs the smoke and plan checks after Step 8.1 collects the plan checks and before Scope Check, dedup and Fix-First, and the record's Checks heading carries the `Exploratory QA:` line. The call count is unchanged, and the section text is untouched.
+- **`gstack-review-dispatch pass` refuses a QA extra.** An extra named `qa`, or one whose prompt holds Step 9.2.1's "Only the parent runs report-only discovery.", stops the pass before any reader is created. A prompt file that cannot be read stops as an unreadable prompt, not a raw read error. The Capy skill lists Steps 7, 8 and 14.5 as extras, not Step 9.2.1.
+
+## [1.92.51.0] - 2026-11-01
+
+**PRs no longer wait on the six-shard Windows suite. A short `windows-smoke` check is the required Windows check, and the full suite runs nightly on main.** Windows has minimal support (docs/support-tiers.md). Since 2026-11-01 06:00 UTC, Windows Free Tests finished last on 71 of 73 PR heads, with a wall time of 892 s at p50 and 1,886 s at p90 over 71 green PR runs, and each run used about 59 Windows runner-minutes. The new smoke check finished in 198 s on this PR (run 41325664750). With smoke in its place, the slowest required check on a PR drops from 892 s to 562 s at p50 and from 1,877 s to 1,193 s at p90.
+
+### Changed
+- **New `windows-smoke.yml`** (check `windows-smoke`, on pull requests, pushes to main and by hand). It installs gstack with `./setup --host claude` into a separate home, starts /ship, /review, /qa-only, /investigate and /browse with `gstack-skill-start`, runs the installed browse chain against gstack's own browser, and runs 15 Windows-safe test files. Each file's reason is written next to it in the workflow. No cache: a cold `bun install` took 16 to 17 s, while restoring the cache took 33 to 42 s in a three-round A/B.
+- **`windows-free-tests.yml` runs nightly** (09:17 UTC) on main, and by hand. It no longer runs on pull requests or pushes and never blocks a merge. A red nightly gets a fix only when it shows a broken install, startup or core workflow. Other Windows-only failures close as won't fix with a link to docs/support-tiers.md.
+- **Bun cache removed** from `windows-free-tests.yml` and `windows-setup-e2e.yml`. The 18 cache entries on pull-request refs (8.05 GB) were deleted. Main's entries were left alone.
+- **`gstack-ship-queue ready --dispatch-ci`** skips a named workflow that main has but the PR branch predates, and prints a note instead of failing. GitHub reads the workflow file from the branch, so dispatching `windows-smoke.yml` on an older branch could only fail.
+
+### Gate integrity
+- `.gstack/ship-policy.json` `required_checks`: `windows-free-tests` is replaced by `windows-smoke`. The ci-hint, `--dispatch-ci` docs, train CLI help and `free-durations-record.yml` now name `windows-smoke.yml`.
+- `.gstack/pregate.json`: the `windows-free-tests.yml/windows-free-shard` remote lane is removed, since that suite no longer runs on PRs. Linux and macOS lanes are unchanged.
+- `scripts/test-health-report.ts` measures Windows from `windows-smoke.yml` PR runs.
+- No test file was deleted, skipped or re-tiered. `scripts/harness-version.json` records `scripts/test-pr-profile.ts` as a non-behavioral change, because it only lists `windows-smoke.yml` among files no paid case reads.
+
+## [1.92.50.0] - 2026-11-01
+
+### Fixed
+- **`/autoplan` no longer locks a Claude Code session after a snapshot init run as `cd <dir> && …` (#3651).** When that `cd` leaves the session's folder, Claude Code adds a `Shell cwd was reset to …` line to the command's output. The guard now removes exactly that one line before reading the init or checkpoint JSON; any other extra text still fails. An init whose output still can't be read now counts as a failed init with a "re-run" hint, so a later clean init in the same session works again. Before, every later phase read was denied with code `evidence` until a new session.
+
+### Fixed
+- **`/eval-plan` pilots with a subscription arm can now be approved, and the cost projection is per arm (#3653).** `gstack-eval-plan pilot start --seat-metered <arm>` declares an arm that runs on a subscription with no extra charge (for example `claude -p` on a seat). Its attempts hold none of the spend cap, settle as `unknown` (an arm that settles a real charge is projected like any priced arm), and get their own `PILOT_SEAT_METERED:` line, so the verdict covers the arms that cost money. `pilot report` now projects each arm from its own attempts (one `PILOT_ARM:` line each) and adds them up. Before, it averaged all arms together: a priced arm's cost was multiplied across arms with no price, and two arms at different prices got a band so wide that a pilot that fit the cap was told it exceeded it. The skill also says to stop a seat-metered run at its first quota or rate-limit error, with no retry (idea from #3273 by @merit-blake).
+
+**`/autoplan --ceo-only` runs the CEO review by itself and asks nothing from start to finish (GST-537).** Garry asked for a CEO review that "just automatically does the right thing", and the planning eval needed a gstack CEO arm that a harness can run without a simulated user. Before, /autoplan always ran the Eng review too and stopped at a final approval question, and standalone /plan-ceo-review asks for the mode, offers to chain to the next skill and adds a Codex voice.
+
+### Added
+- **`/autoplan --ceo-only`** (`autoplan/sections/ceo-only.md`): runs Phase 0, the outside-reviewer preflight and the CEO phase only. Every question takes its recommendation and gets an audit-trail row; consent and destructive options take the conservative choice. The review mode comes from plan-ceo-review's 0E rule. User challenges are never applied; each one is listed at the top of `<run dir>/ceo-review.md`, with scope added, conservative choices, findings and the audit trail. The run ends with `GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>` and approves nothing.
+- **`--no-outside`** with `--ceo-only` skips the outside voice, so one model does the whole review.
+- **`gstack-ceo-mode-handoff --ceo-only`** prints `Auto-selected review mode → <mode> (CEO-only run: Step 0E's rule)` instead of crediting a saved preference.
+- **`status=reviewed`** joins the `GSTACK_RESULT` statuses (`docs/unattended.md`, "CEO-only runs").
+
+### For contributors
+- The paid case `autoplan-ceo-only` fails if the mode asks anything, skips a later phase's file, or leaves new files in HOME outside its folders. It takes 6 to 16 minutes, so it runs in the weekly marathon lane, not on autoplan PRs. The mode needs Claude Code for now.
+
+**/autoplan fixes from a field report (GBRA-223): findings without a line number pair across voices, open Critical and High findings reach the gate, a spend cap binds on any host, `run` works with the API runner, and an earlier item-by-item answer carries forward.** OpenClaw's /autoplan run on a real plan hit six problems at once. We reproduced each on main with a failing test first (GST-672). A follow-up from GEVA-2 adds a record of whose words answered a gate.
+
+### Fixed
+- **Plan reviews that name a file but no line now pair across voices.** A same-file pair, with a line missing on either side, is associated as `unverified` instead of both findings counting as new. Title matching ignores a leading DX cap code (`CAP4:<path>:`) and never pairs findings on two different files. The same-file fallback runs only after every title and line match is placed, and a same-file pair never merges two findings into one gate item.
+- **DX cap findings carry real titles.** `CAP4` and `CAP6` findings are titled `CAP<n>:<path>:<item> <what fails>`, so the gate shows the problem and not only the item name.
+- **Every open Critical or High finding becomes a gate item.** `a` applies the reviewer's fix to the plan and is recommended. `b` carries it into the build as a blocking task. `rec` and `p1b` apply the fix. An unanswered item keeps the plan as written unless the reply is `p1b`, and a partial reply never locks that choice early. A finding carried with `b` stays open, so a rerun that raises it again asks again.
+- **A spend cap binds on any host.** With `--spend-cap` set and no `--estimate-usd`, each host-subagent attempt reserves the default $5 per voice, on Capy or off it, in any session kind, and so does an API call whose model has no price. `next --estimate-usd <n>` sets the reservation for the rest of the run. `run` reserves each API call's priced worst case (prompt size plus the output limit) and settles it at its real token cost, so `--spend-cap 0` refuses before any call.
+- **`gstack-autoplan run` with `--native-runner api --runner api` reaches the gate.** Results are checked as autoplan results, so they bind. A response cut off at the output limit is named `truncated` and interrupts the run instead of binding a partial review. The default output limit is 16384 tokens for both providers (OpenAI counts reasoning tokens toward it), `--max-tokens <n>` sets it, and an outside result refused at submit leaves the run native-only instead of aborting it.
+- **An earlier item-by-item answer carries forward when nothing changed.** When every item on the new gate is carried by origin, the owner's `p1` choice is replayed and their tokens are recorded verbatim as the basis. Any new or changed item still goes to the owner.
+- **A spend cap stays closed when a call fails.** For the native voice, a call cut off at its output limit is settled at what it cost, and a retry with a larger `--max-tokens` is admitted against the cap afresh. A call that timed out, dropped, was cancelled or had its result refused after it was sent is settled at its usage, or its full reservation when the usage is unknown, because the provider may have billed it. A call still in flight when the process died is charged its reservation by the next `run`, which then sends a fresh attempt. A call refused before anything was sent (no API key, for example) charges nothing, and the rerun reuses its reservation. A failed outside call is still counted at its full reservation while the phase continues native-only.
+- **A finding you chose to fix stays open until the revised plan is reviewed.** If the reviewer raises it again after a revise that missed it, it comes back to the gate instead of being treated as settled. A withdrawn fix leaves its finding open.
+- **Two findings that only sit near each other are no longer merged.** A user challenge one line away from an unrelated Critical no longer hides the Critical. Findings are merged only when their titles match or the parent says they are the same problem.
+- **A plan gate answered in an agent's own words is not owner approval.** `gstack-ship-receipt` rejects a plan-sha approval citation whose gate was answered with `--words-by agent:<id>`.
+- **A later gate answer replaces the earlier answer's authorship.** When someone else answers again, the earlier answerer's words, `words_by` and carry fields are cleared, so the approval record names who actually answered.
+
+### Added
+- **`gstack-autoplan answer --words-by agent:<id>`** records that the words came from the answering agent itself, as `answer_words` and `words_by`, never as `owner_reply`. The default stays `owner`. A later gate never carries those words forward, and `gstack-approvals import` lists that row under the agent, while `--by` names only the rows that hold the owner's words.
+
+### Tests
+- New failing-first tests in test/autoplan-pairing.test.ts, test/autoplan-gate-judgment.test.ts, test/autoplan-budget.test.ts, test/autoplan-run-api.test.ts (a local fake provider, no key or network), test/autoplan-carry.test.ts and test/approval-record.test.ts.
+
+## [1.92.49.0] - 2026-11-01
+
+**The timeline Stop hook returns within its 2-second budget even when the host keeps stdin open.** The hook read its payload with a blocking read that waits for end of input, so a host that writes the Stop payload and leaves the pipe open held the hook for as long as the pipe stayed open. A local run with the pipe held for 8 seconds took 8 seconds, past the hook's 2-second budget and on the way to Claude Code's 15-second hook window (#3628, reported on Windows). Rewritten from PR #3628 by shahab (mashtii85).
+
+### Fixed
+- **`hosts/claude/hooks/timeline-stop-hook.ts`** reads stdin for at most 500 ms and stops at the first complete JSON payload, then repairs the timeline as before. The hook still exits 0 on every path.
+
+### Tests
+- `test/timeline-stop-hook-stdin.test.ts` (runs on windows-latest): a complete payload on a pipe that never closes returns within budget and still writes the repair; an open pipe with no data returns within budget. Both failed before the fix (10 s, killed).
+
+## [1.92.48.0] - 2026-11-01
+
+**On Windows, `gstack-review-scope summary` works again, and the JSONL merge driver no longer fails on non-English text or rewrites files with CRLF.** Before, the summary started the bash script `gstack-review-read` directly, which Windows cannot run, so it always refused with an empty "gstack-review-read failed:" message and /ship could not write its review-loop file (#3541). The `jsonl-append` merge driver wrote its result with Python's `print()`, so a line the console code page could not encode (Cyrillic text under cp1250, for example) made it exit 1 and git reported a conflict with no markers, and every merge on Windows turned LF files into CRLF (#3659).
+
+### Fixed
+- **`gstack-review-scope summary`** runs `gstack-review-read` through `lib/script-invocation.ts` (Git Bash on Windows). When the helper cannot start, the refusal names the launch error instead of an empty string.
+- **`gstack-jsonl-merge`** writes UTF-8 bytes with LF line endings on every platform and code page.
+
+### Tests
+- `test/review-scope-windows-launch.test.ts` runs the summary against a seeded review log through the same launcher; it runs on windows-latest.
+- `test/jsonl-merge-encoding.test.ts` merges a Cyrillic line with `PYTHONIOENCODING=cp1252` and checks the bytes are UTF-8 with no CR. It failed before the fix on Linux too.
+- `test/script-invocation-tripwire.test.ts` now also catches a bin spawned through `path.join(path.dirname(...import.meta.url...), ...)` or `import.meta.dir`, the shape that hid #3541. `bin/gstack-ship-receipt`'s `gstack-session-kind` spawn is listed as a known site until its own follow-up.
+
 ## [1.92.47.0] - 2026-11-01
 
 - **`/ship` Step 5 runs its test lanes one at a time on machines with 4 or fewer cores, and `--lanes serial|parallel` picks the mode by hand** (`gstack-ship-preflight`, GST-851). Preflight used to start every `--lane` at once. On garrytan/gstack-evals#115 six lanes (a 1,451-test bun suite, tsc, a Docker tier and an arm tarball trial) started within 60 ms of each other on a 4-core, 16 GB machine, and running lanes together has taken machines down before (gstack-evals #101, #106, #107). Now, with no flag, preflight runs one lane at a time when `os.availableParallelism()` is 4 or less and all of them at once above that. `--lanes serial` or `--lanes parallel` overrides the default, and any other value, or `--lanes` with no value, is a usage error (exit 2). A new `LANES: serial|parallel (--lanes|<n> cores)` line before the `LANE` lines says which mode ran and why. Each lane still prints its own `LANE` line with its own `tests_ran` count, in the order the lanes were given. Serial runs take the sum of the lane times instead of the longest one. There is no ship-policy key for this: a new key needs key versioning and a `min_gstack_version` bump, and the core-count default already covers the 4-core case.

@@ -119,13 +119,13 @@ describe('the rendered table is display only', () => {
   });
 });
 
-function autoplanRun(dir: string, answers: Array<{ by: string; words?: string; at: string; p1: string }>) {
+function autoplanRun(dir: string, answers: Array<{ by: string; words?: string; at: string; p1: string; own?: boolean }>) {
   const rows = [];
   for (const a of answers) {
     for (const id of ['d1', 'p1']) rows.push({
       schema_version: 1, run: 'run-1', id: `run-1-${id}`, label: id.toUpperCase(), title: id === 'p1' ? 'Plan approval' : 'Split the CLI [run-1-ceo-native-2]',
       options: ['a', 'b'], recommended: 'a', kind: id === 'p1' ? 'approval' : 'auto', status: 'approved', gate_rev: 1,
-      chosen: id === 'p1' ? a.p1 : 'a', answered_at: a.at, reply: a.words ?? 'rec', answered_by: a.by, ...(a.by === 'human' ? {} : { owner_reply: a.words }),
+      chosen: id === 'p1' ? a.p1 : 'a', answered_at: a.at, reply: a.words ?? 'rec', answered_by: a.by, ...(a.by === 'human' ? {} : a.own ? { answer_words: a.words, words_by: a.by } : { owner_reply: a.words }),
     });
   }
   fs.writeFileSync(path.join(dir, 'decisions.jsonl'), rows.map(r => JSON.stringify(r)).join('\n') + '\n');
@@ -145,6 +145,14 @@ describe('import --autoplan', () => {
     const cwd = repo(); const state = tmp('appr-state-');
     expect(bin(['import', '--autoplan', run, '--by', 'Garry'], { cwd, env: { GSTACK_STATE_ROOT: state } }).out).toMatch(/^APPROVAL_IMPORTED: n=2 skipped=0 /);
     expect(bin(['import', '--autoplan', run, '--by', 'Garry'], { cwd, env: { GSTACK_STATE_ROOT: state } }).out).toMatch(/^APPROVAL_IMPORTED: n=0 skipped=2 /);
+  });
+
+  test("each row names its own answerer: --by names only the owner's words, an agent's own words import under the agent (GEVA-2)", () => {
+    const run = tmp('appr-run-');
+    autoplanRun(run, [{ by: 'agent:GSTA-36', words: 'Do it', at: '2026-10-20T21:35:42.697Z', p1: 'a' }, { by: 'agent:GSTA-36', words: 'Accepted on the standing approval', at: '2026-10-21T08:00:00.000Z', p1: 'a', own: true }]);
+    const rows = importAutoplan(run, 'b', 'Garry');
+    if ('code' in rows) throw new Error(rows.message);
+    expect(rows.map(r => [r.by, r.words])).toEqual([['Garry, relayed by agent:GSTA-36', 'Do it'], ["agent:GSTA-36, its own decision (not the owner's words)", 'Accepted on the standing approval']]);
   });
 
   test('a default run id whose YYYYMMDDHHMMSS stamp passes Luhn still imports (capy-captain-flow flake)', () => {

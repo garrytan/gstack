@@ -10,7 +10,7 @@ import { extractImplementationPlan, checkPhaseImplementation, acceptedBlocks, ca
 import { autoplanPhaseCompletions } from '../../lib/autoplan-phase-publication';
 import { nativePathSpelling, ownedNativePath, sameNativePath, type ClaudeParentPublicEvent } from '../../lib/claude-journal-records';
 import { ownedRecordLimit, ownedRetainedLimit, type JournalPrefix, type OwnedRead, type OwnedReadMeasure } from '../../lib/claude-owned-journal';
-import { readGuardJournal, textResult, DEDUP_REPLY } from './guard-journal';
+import { bashJson, readGuardJournal, textResult, DEDUP_REPLY } from './guard-journal';
 import { REASONS, reasonCode, reasonText, type Detail, type ReasonCode } from './guard-reasons';
 import { logGuardDecision } from './guard-log';
 import { approveOwnedRead, renderSectionBase, userRenderRoot } from './owned-read';
@@ -227,7 +227,7 @@ function checkpointResult(result: Event, tools: Tools, init: Invocation): { phas
   if (use?.name !== 'Bash' || use.order >= result.order) return;
   const text = textResult(result);
   if (text === undefined) return;
-  const output = JSON.parse(text);
+  const output = bashJson(text);
   if (!object(output) || !['ceo', 'design', 'dx', 'eng'].includes(output.phase) ||
       !ownPath(output.snapshotPath) || typeof output.nativePrompt !== 'string' || !object(output.baselineEdits)) return;
   const { nativePrompt, baselineEdits, ...identity } = output;
@@ -260,6 +260,7 @@ function initArguments(command: unknown, root: string): string[] | undefined {
 
 const INIT_MISMATCH_CAUSE = 'Snapshot init returned paths that do not match the canonical form of its own command arguments';
 const INIT_FAILED_CAUSE = 'The most recent snapshot init call failed; re-run the same init command with the same three paths';
+const INIT_UNPARSEABLE_CAUSE = 'The most recent snapshot init printed something other than its JSON result; re-run the same init command with the same three paths, without a leading cd';
 
 /** Diagnostic only, never binds: a Bash call that ran snapshot init in a shape the guard cannot bind (#3045). */
 const UNBINDABLE_INIT = /(?:gstack-autoplan-snapshot|SNAPSHOT_TOOL|\$\{?[A-Z_]+\}?"?)\S*\s+init\s/;
@@ -268,8 +269,8 @@ function invocation(events: Event[], root: string): Invocation {
   let bound: Invocation | undefined;
   let chosen: Record<string, any> | undefined;
   let unbindable = false;
-  // True while the most recent bindable init use errored (a later success clears it).
-  let lastErrored = false;
+  // The cause while the most recent bindable init use failed (a later success clears it).
+  let lastFailure: string | undefined;
   const tools = byTool(events);
   for (const use of events) {
     if (use.kind !== 'use' || use.name !== 'Bash') continue;
@@ -278,10 +279,12 @@ function invocation(events: Event[], root: string): Invocation {
     const results = tools.results(use.toolUseId).filter(x => x.order > use.order);
     if (results.length !== 1) fail('init_mismatch');
     // An errored init published nothing; a later correct init may still bind.
-    if (results[0]!.isError === true) { lastErrored = true; continue; }
+    if (results[0]!.isError === true) { lastFailure = INIT_FAILED_CAUSE; continue; }
     const text = textResult(results[0]!);
-    if (text === undefined) fail('init_failed');
-    const result = JSON.parse(text);
+    if (text === undefined) { lastFailure = INIT_FAILED_CAUSE; continue; }
+    let result: any;
+    // Output that is not the init's JSON bound nothing; a later correct init may still bind.
+    try { result = bashJson(text); } catch { lastFailure = INIT_UNPARSEABLE_CAUSE; continue; }
     // init reports canonical destinations (macOS /tmp is /private/tmp); canonicalize the argv the same way.
     let active: string, restore: string;
     try { active = canonicalDestination(args[1]!); restore = canonicalDestination(args[2]!); }
@@ -289,13 +292,13 @@ function invocation(events: Event[], root: string): Invocation {
     if (!object(result) || !samePath(result.sourcePlan, fs.realpathSync(args[0]!)) || !samePath(result.activePlan, active) ||
         !samePath(result.restorePath, restore) || typeof result.reused !== 'boolean' || !positive(result.originalBytes) ||
         !/^[a-f0-9]{64}$/.test(result.originalSha256)) fail('init_mismatch', { cause: INIT_MISMATCH_CAUSE });
-    lastErrored = false;
+    lastFailure = undefined;
     if (result.reused && bound && bound.activePlan === result.activePlan && bound.restorePath === result.restorePath) continue;
     chosen = result;
     bound = { activePlan: result.activePlan, restorePath: result.restorePath,
       originalSha256: result.originalSha256, start: results[0]!.order };
   }
-  if (lastErrored) fail('init_failed', { cause: INIT_FAILED_CAUSE });
+  if (lastFailure) fail('init_failed', { cause: lastFailure });
   if ((!chosen || !bound) && unbindable) fail('init_unbindable');
   if (!chosen || !bound) fail('init_required');
   const restore = read(bound.restorePath, true), active = read(bound.activePlan);
