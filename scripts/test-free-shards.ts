@@ -201,6 +201,24 @@ export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_
   // tighter — it keeps the per-file floor the runner has always guaranteed.
   return Math.max(baseMs, Math.ceil(predictedMs * 3), fileCount * PER_FILE_WALL_MS);
 }
+/** The flaky-retry pass re-runs at most this many failing files, once, serially, in the same CI step. */
+export const FLAKY_RETRY_CAP = 5;
+/** No free-suite GitHub job gets a longer timeout; a plan whose shard would need more fails instead. */
+export const MAX_CI_JOB_TIMEOUT_MINUTES = 90;
+/**
+ * The GitHub job timeout for one planned CI shard (#3850): the wall --ci-run
+ * gives the shard, plus the flaky-retry pass's wall, plus the job's measured
+ * setup and teardown. GitHub must never kill the job before the runner can
+ * name a hung file and retry it; that kill uploads no result.
+ */
+export function ciShardJobTimeoutMinutes(shard: { shard: number; files: string[]; predictedMs: number }, setupSeconds: number): number {
+  const runnerMs = wallTimeoutForPackedShard(shard.predictedMs, DEFAULT_WALL_TIMEOUT_MS, shard.files.length) + wallTimeoutForShard(FLAKY_RETRY_CAP);
+  const minutes = Math.ceil((runnerMs / 1000 + setupSeconds) / 60);
+  if (minutes > MAX_CI_JOB_TIMEOUT_MINUTES) {
+    throw new Error(`FREE_JOB_TIMEOUT_OVER_CAP: CI shard ${shard.shard} needs a ${minutes}-minute job (runner wall plus retry plus ${setupSeconds} s setup), over the ${MAX_CI_JOB_TIMEOUT_MINUTES}-minute cap; plan more shards or a higher --shard-jobs instead of a longer job`);
+  }
+  return minutes;
+}
 /**
  * Full-suite parallelism: use all available CPUs, with a floor of one and a
  * per-platform cap (maxFullSuiteJobs). Shards stay serial internally; separate
@@ -453,6 +471,16 @@ export function createFreeCiPlan(files: string[], count: number, durations: Reco
   return { ...body, id: planDigest(body) };
 }
 
+/**
+ * --ci-plan's stdout, the GitHub matrix. With --job-setup-seconds each entry
+ * carries the shard's job timeout (ciShardJobTimeoutMinutes); without it, the
+ * bare shard list the Windows lane reads.
+ */
+export function ciPlanMatrix(plan: FreeCiPlan, setupSeconds?: number): { shard: number[] } | { include: Array<{ shard: number; timeout_minutes: number }> } {
+  if (setupSeconds === undefined) return { shard: plan.shards.map(shard => shard.shard) };
+  return { include: plan.shards.map(shard => ({ shard: shard.shard, timeout_minutes: ciShardJobTimeoutMinutes(shard, setupSeconds) })) };
+}
+
 export function validateFreeCiPlan(plan: FreeCiPlan, files: string[], revision: string): void {
   const { id, version, shards } = plan;
   if (version !== 1 || plan.revision !== revision || !Array.isArray(shards) || !shards.length
@@ -575,6 +603,8 @@ type CliOptions = {
   jobs?: number;
   /** Set only by --shard-jobs (with --ci-plan); absent means k = 1 in every shard. */
   shardJobs?: number;
+  /** Set only by --job-setup-seconds (with --ci-plan): the matrix then carries each shard's job timeout. */
+  jobSetupSeconds?: number;
 };
 
 export function parseCliOptions(argv: string[]): CliOptions {
@@ -591,6 +621,7 @@ export function parseCliOptions(argv: string[]): CliOptions {
   let attributeHome = false;
   let jobs: number | undefined;
   let shardJobs: number | undefined;
+  let jobSetupSeconds: number | undefined;
   const paths: Record<'ciPlan' | 'ciRun' | 'ciVerify' | 'result' | 'results' | 'filesFrom', string | null> = {
     ciPlan: null, ciRun: null, ciVerify: null, result: null, results: null, filesFrom: null,
   };
@@ -616,6 +647,11 @@ export function parseCliOptions(argv: string[]): CliOptions {
     '--files-from': pathFlag('--files-from', 'filesFrom'),
     '--jobs': (next) => { jobs = parseJobsFlag(next()); },
     '--shard-jobs': (next) => { shardJobs = parseJobsFlag(next(), '--shard-jobs'); },
+    '--job-setup-seconds': (next) => {
+      const value = next() ?? '';
+      jobSetupSeconds = /^\d+$/.test(value) ? Number(value) : NaN;
+      if (!(jobSetupSeconds > 0 && jobSetupSeconds <= 3600)) throw new Error('--job-setup-seconds needs a whole number of seconds from 1 to 3600');
+    },
     '--shards': (next) => {
       const value = next();
       if (!value) throw new Error('Missing value for --shards');
@@ -641,8 +677,9 @@ export function parseCliOptions(argv: string[]): CliOptions {
   if (paths.ciVerify && !paths.results) throw new Error('--ci-verify requires --results');
   if (jobs !== undefined && !paths.ciRun) rejectJobsWithoutCiRun();
   if (shardJobs !== undefined && !paths.ciPlan) rejectShardJobsWithoutCiPlan();
+  if (jobSetupSeconds !== undefined && !paths.ciPlan) throw new Error('--job-setup-seconds applies only to --ci-plan');
   if (quick && (recordDurations || windowsOnly || shardIndex !== null)) throw new Error('--quick cannot change recording, Windows or shard selection');
-  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths, ...(jobs === undefined ? {} : { jobs }), ...(shardJobs === undefined ? {} : { shardJobs }) };
+  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths, ...(jobs === undefined ? {} : { jobs }), ...(shardJobs === undefined ? {} : { shardJobs }), ...(jobSetupSeconds === undefined ? {} : { jobSetupSeconds }) };
 }
 
 const describeLines = (lines: string[]) => `${lines.slice(0, 5).join(', ')}${lines.length > 5 ? ` (+${lines.length - 5} more)` : ''}`;
@@ -1891,7 +1928,6 @@ async function retryFailedFreeFiles(
   // Exists for syscall-supervised sandboxes (see fullSuiteJobs) where a run
   // lands 0-1 spurious browser-timing failures under an otherwise-green
   // suite. Capped so a genuinely broken tree never masquerades as flaky.
-  const RETRY_CAP = 5;
   if (
     worst !== 0
     && process.env.GSTACK_FREE_RETRY_FLAKY === '1'
@@ -1906,7 +1942,7 @@ async function retryFailedFreeFiles(
     // mask the unattributable evidence as a FLAKY-PASS.
     const allAttributed = outcomes.every((o) => hasScopedFailureAttribution(o) && (o.status === 'passed'
       || (o.failingFiles.length > 0 && o.unattributedFailures === 0)));
-    if (allAttributed && flakyFiles.length > 0 && flakyFiles.length <= RETRY_CAP) {
+    if (allAttributed && flakyFiles.length > 0 && flakyFiles.length <= FLAKY_RETRY_CAP) {
       console.log(`[test:free] flaky-retry: re-running ${flakyFiles.length} failing file(s) once, serially: ${flakyFiles.join(', ')}`);
       const retryOutcome = await runFreeShard(flakyFiles, totalShards + 1, totalShards + 1, {
         wallTimeoutMs: shardTimeout(flakyFiles.length),
@@ -1942,7 +1978,7 @@ async function retryFailedFreeFiles(
         console.error('[test:free] flaky-retry FAILED — the failures reproduce serially; not flaky.');
       }
     } else {
-      console.log(`[test:free] flaky-retry skipped: ${allAttributed ? `${flakyFiles.length} failing file(s) exceeds cap ${RETRY_CAP}` : 'failures not fully attributed'}.`);
+      console.log(`[test:free] flaky-retry skipped: ${allAttributed ? `${flakyFiles.length} failing file(s) exceeds cap ${FLAKY_RETRY_CAP}` : 'failures not fully attributed'}.`);
     }
   }
   return { exitCode: worst, retry };
@@ -1978,8 +2014,14 @@ async function main(): Promise<number> {
       warnUnseededFreeFiles(ciFiles, durations);
       const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs);
       validateFreeCiPlan(plan, ciFiles, revision);
+      const matrix = ciPlanMatrix(plan, options.jobSetupSeconds);
+      if ('include' in matrix) {
+        const line = `job timeout per shard (runner wall + flaky retry + ${options.jobSetupSeconds} s setup): ${matrix.include.map(entry => `${entry.shard}=${entry.timeout_minutes}m`).join(' ')}`;
+        console.error(`[test:free] ${line}`);
+        appendStepSummary(line);
+      }
       writeJson(options.ciPlan, plan);
-      console.log(JSON.stringify({ shard: plan.shards.map(shard => shard.shard) }));
+      console.log(JSON.stringify(matrix));
       return 0;
     }
     const plan = JSON.parse(fs.readFileSync((options.ciRun ?? options.ciVerify)!, 'utf8')) as FreeCiPlan;

@@ -206,7 +206,16 @@ GSTA-203 chose them by a 3-run A/B against 20 × `ubicloud-standard-4` at k = 1
 (the PR that set them has the table). A `workflow_dispatch` run may
 override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`),
 `free_shards` (1–40) and `free_jobs` (1–8) for runner-sizing experiments only;
-its job summary says so, and it is never cited as a PR or train Free Tests result. Each shard prints
+its job summary says so, and it is never cited as a PR or train Free Tests result.
+Each `free-suite` job's GitHub timeout comes from the plan, not a fixed number
+(#3850): `--ci-plan --job-setup-seconds $FREE_SUITE_SETUP_SECONDS` emits every
+shard's `timeout_minutes` as the shard's runner wall (the packed wall above),
+plus the flaky-retry pass's wall (at most 5 files, so the 6-minute base), plus
+the job's setup and teardown (`ciShardJobTimeoutMinutes`). So GitHub never kills
+a hung file before the runner names it and retries it. A shard that would need
+more than 90 minutes fails the plan with `FREE_JOB_TIMEOUT_OVER_CAP`; plan more
+shards or a higher k instead. The plan step prints the emitted timeouts and adds
+them to its job summary. Each shard prints
 `RESOURCES: peak_used_mib=… min_free_disk_mib=… samples=…` from a memory and
 disk sample every 2 seconds, even when the suite fails. The public
 `TREE_MUTATING` map now classifies exclusive host-state fixtures; its sole
