@@ -215,6 +215,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/shared-libs-unsupported-git-opus-reports.json': ['test/shared-libs-fixture.test.ts'],
   'test/fixtures/shared-libs-unsupported-git-requests.json': ['test/shared-libs-fixture.test.ts'],
   'test/fixtures/shared-libs/**': ['test/shared-libs-checker-interface-evidence.test.ts', 'test/shared-libs-fixture.test.ts', 'test/shared-libs-plan-actor.test.ts', 'test/shared-libs-revalidation-prompt.test.ts', 'test/shared-libs-review-start-evidence.test.ts', 'test/shared-libs-source-reads.test.ts', 'test/shared-libs-stage-actor.test.ts'],
+  'test/fixtures/ship-hook-consent-2026-10-30.json': ['test/ship-hook-actor.test.ts'],
   'test/fixtures/ship-hook-opus-replies.json': ['test/ship-hook-actor.test.ts'],
   'test/fixtures/ship-local-hook-train-replies.json': ['test/ship-hook-actor.test.ts'],
   'test/fixtures/ship-local-hook-reply.json': ['test/ship-hook-actor.test.ts'],
