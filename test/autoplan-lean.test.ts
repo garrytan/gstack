@@ -16,6 +16,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { ROOT, SMALL_PLAN, autoplan, env, journal, readRun } from './helpers/autoplan-run-fixture';
 import { capyRunner } from './helpers/autoplan-capy';
+import { captureDraft } from '../lib/autoplan-lean';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-lean-'));
 afterAll(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -486,5 +487,44 @@ describe('draft capture edges', () => {
     const open = /^(~{4,})diff$/m.exec(prompt)!;
     expect(open[1]!.length).toBeGreaterThan(10);
     expect(prompt.indexOf('IGNORE THE PLAN')).toBeLessThan(prompt.indexOf(`\n${open[1]}\n`, open.index + 1));
+  });
+});
+describe('draft capture base on a PR-branch clone (GST-1241)', () => {
+  /** A clone of `feature`, its draft committed and pushed, whose origin/HEAD names `head` while origin's own HEAD stays main: a Capy machine started on a PR branch names that branch. */
+  const clone = (name: string, head: string) => {
+    const src = repo(name, false);
+    fs.writeFileSync(path.join(src, 'lib', 'worker.ts'), 'export const retry = (n: number) => Math.min(30_000, 500 * 2 ** n);\n');
+    git(src, 'commit', '-q', '-am', 'draft backoff');
+    const bare = path.join(TMP, name, 'origin.git');
+    git(TMP, 'clone', '-q', '--bare', src, bare);
+    git(bare, 'symbolic-ref', 'HEAD', 'refs/heads/main');
+    const cwd = path.join(TMP, name, 'clone');
+    git(TMP, 'clone', '-q', '-b', 'feature', bare, cwd);
+    git(cwd, 'remote', 'set-head', 'origin', head);
+    expect(git(cwd, 'rev-parse', '--abbrev-ref', 'origin/HEAD').trim()).toBe(`origin/${head}`);
+    return cwd;
+  };
+  const capture = (name: string, cwd: string) => {
+    const dir = path.join(TMP, name, 'snap');
+    const out = path.join(TMP, name, 'run');
+    fs.mkdirSync(dir);
+    fs.mkdirSync(out);
+    const draft = captureDraft(cwd, dir, out);
+    return { draft, diff: draft.sha256 ? fs.readFileSync(path.join(dir, 'draft.diff'), 'utf8') : '' };
+  };
+
+  test('origin/HEAD naming the PR branch still captures the committed draft against main', () => {
+    const { draft, diff } = capture('pr-head', clone('pr-head', 'feature'));
+    expect(draft.none).toBeUndefined();
+    expect(draft.base).toBe('origin/main');
+    expect(draft.files).toEqual(['lib/worker.ts']);
+    expect(diff).toContain('+export const retry = (n: number) => Math.min(30_000, 500 * 2 ** n);');
+  });
+
+  test('control: origin/HEAD naming main captures the same draft', () => {
+    const main = capture('main-head', clone('main-head', 'main'));
+    expect(main.draft.base).toBe('origin/main');
+    expect(main.draft.files).toEqual(['lib/worker.ts']);
+    expect(main.diff).toContain('+export const retry = (n: number) => Math.min(30_000, 500 * 2 ** n);');
   });
 });

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.94.47.0] - 2026-11-03
+
+### Fixed
+- **The lean `/autoplan` reviewer sees the committed draft on a PR-branch checkout** (GST-1241). Draft capture took `origin/HEAD` as its base, and a Capy machine started on a PR branch points `origin/HEAD` at that branch, so the reviewer got `DRAFT: none (no code changes against origin/<branch>)`. It now resolves the base through `lib/default-base.ts`, the same resolver `bin/gstack-diff-scope` uses, which skips an `origin/HEAD` naming the checked-out branch and falls back to the PR base, the remote's live HEAD, then `origin/main`.
+
 ## [1.94.46.0] - 2026-11-03
 
 **`gstack-autoplan export --public` no longer carries the owner's own words (GST-1243).** GEVA's public bundle (GEVA-225, gstack 1.93.34.0) kept all 38 `owner_reply` fields in decisions.jsonl, and a sealed reviewer file (`ceo-native.a5.bound.md`) quoted an owner reply word for word. GEVA redacted both by hand. Garry's rule: nothing a person wrote leaves without their click.
