@@ -34,6 +34,7 @@
     { "file": "lib/design-lint/rules/index.ts", "movedFrom": "(new: the bundled design lint, GSTA-105; ported from hallmark sloplint.mjs)" },
     { "file": "lib/design-lint/rules/copy.ts", "movedFrom": "(new: the bundled design lint, GSTA-105; ported from hallmark sloplint.mjs)" },
     { "file": "lib/pricing.ts", "movedFrom": "test/helpers/pricing.ts (PRICING, estimateCostUsd; plan E1 moved the table under lib/ so bin/gstack-eval-plan can price arms)" },
+    { "file": "lib/eval-plan-report.ts", "movedFrom": "(new: the results check behind gstack-eval-plan results --check, the no-gstack row beside its variants; GST-471)" },
     { "file": "lib/eval-plan.ts", "movedFrom": "(new: preregistration check, priced arms, $0 dry run, priced pilot ledger behind bin/gstack-eval-plan, plan E1)" },
     { "file": "lib/lane-ownership.ts", "movedFrom": "(new: lane ownership check behind bin/gstack-lane-check, plan E2)" },
     { "file": "lib/coordinator-contract.ts", "movedFrom": "(new: the inherited coordinator contract text, plan E2)" },

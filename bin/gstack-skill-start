@@ -609,8 +609,26 @@ fi
 # is a quoted heredoc (markdown backticks must stay literal), so the resolved
 # bin path is substituted via sed on the __BIN__ placeholder. Under off the
 # routing rules are the auto-invocation the user turned off, so no offer.
+# Under core the heredoc's rule lines are replaced by the core rules below, so
+# the offered section routes only the four core skills.
+_CORE_ROUTING_RULES=$(cat <<'EOR'
+- Product ideas/brainstorming → invoke /office-hours
+- QA/testing site behavior → invoke /qa
+- Code review/diff check → invoke /review
+- Ship/deploy/PR → invoke /ship
+
+Do not suggest or auto-invoke other gstack skills: they run when the user types them, or when a running skill hands off to them (`gstack-config set proactive all` routes every skill).
+EOR
+)
+_routing_offer() {
+  if [ "$_PROACTIVE" = "core" ]; then
+    _GSTACK_CORE_RULES="$_CORE_ROUTING_RULES" awk '/^- .* → invoke \// { if (!done) { print ENVIRON["_GSTACK_CORE_RULES"]; done = 1 } next } { print }'
+  else
+    cat
+  fi | sed "s|__BIN__|$_BIN|g"
+}
 if [ "$_HAS_ROUTING" = "no" ] && [ "$_ROUTING_DECLINED" = "false" ] && [ "$_PROACTIVE_PROMPTED" = "yes" ] && [ "$_PROACTIVE_OFF" = "no" ]; then
-  sed "s|__BIN__|$_BIN|g" <<'EOI' | _emit_block routing-injection
+  _routing_offer <<'EOI' | _emit_block routing-injection
 gstack works best when the project CLAUDE.md includes skill routing rules. If no CLAUDE.md exists in the project root, create it. Use AskUserQuestion:
 
 > gstack works best when your project's CLAUDE.md includes skill routing rules.
