@@ -108,7 +108,11 @@ const run = async opts => {
   fixturePaths.push(opts.workingDirectory);
   captureOptions.push({ timeout: opts.timeout, maxTurns: opts.maxTurns, model: opts.model ?? null, signal: !!opts.signal });
   opts.signal?.addEventListener('abort', () => events.push('abort-' + attempt), { once: true });
-  await Bun.sleep(attempt === 1 ? captureMs + drainMs : 80);
+  if (attempt === 1) {
+    await new Promise(resolve => opts.signal.addEventListener('abort', resolve, { once: true }));
+    // gstack-timing-ok: the drain after cancellation is the behavior under test; no deadline remains during it
+    await Bun.sleep(drainMs);
+  }
   expect(fs.existsSync(opts.workingDirectory)).toBe(true);
   events.push('capture-done-' + attempt);
   if (attempt === 2) fs.writeFileSync(path.join(opts.workingDirectory, 'review-output.md'), ${JSON.stringify(validReport ? 'RED TEAM REVIEW' : 'ordinary unrelated prose')});
