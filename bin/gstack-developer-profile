@@ -564,6 +564,7 @@ function accumulateSignals(lines, QUESTIONS, SIGNAL_MAP, dims) {
   const days = new Set();
   let count = 0;
   let signalEvents = 0;
+  let hintedEvents = 0;
   for (const line of lines) {
     let e;
     try { e = JSON.parse(line); } catch { continue; }
@@ -576,16 +577,18 @@ function accumulateSignals(lines, QUESTIONS, SIGNAL_MAP, dims) {
     const day = when && !Number.isNaN(when.getTime()) ? when.toISOString().slice(0, 10) : null;
     if (day) days.add(day);
     const def = Object.hasOwn(QUESTIONS, e.question_id) ? QUESTIONS[e.question_id] : undefined;
-    const byChoice = def && def.signal_key && Object.hasOwn(SIGNAL_MAP, def.signal_key) ? SIGNAL_MAP[def.signal_key] : {};
+    const hinted = !def && typeof e.signal_key === "string" && Object.hasOwn(SIGNAL_MAP, e.signal_key);
+    const byChoice = def && def.signal_key && Object.hasOwn(SIGNAL_MAP, def.signal_key) ? SIGNAL_MAP[def.signal_key] : hinted ? SIGNAL_MAP[e.signal_key] : {};
     const deltas = Object.hasOwn(byChoice, e.user_choice) ? byChoice[e.user_choice] : [];
     if (!Array.isArray(deltas) || deltas.length === 0) continue;
     signalEvents++;
+    if (hinted) hintedEvents++;
     const key = day || "undated";
     const sums = buckets.get(key) || {};
     buckets.set(key, sums);
     for (const d of deltas) {
       sums[d.dim] = (sums[d.dim] || 0) + d.delta;
-      rows.push({ ts: e.ts, question_id: e.question_id, choice: e.user_choice, dim: d.dim, delta: d.delta });
+      rows.push({ ts: e.ts, question_id: e.question_id, choice: e.user_choice, dim: d.dim, delta: d.delta, hinted });
     }
     for (const dim of new Set(deltas.map((d) => d.dim))) contributing[dim] = (contributing[dim] ?? 0) + 1;
   }
@@ -598,7 +601,7 @@ function accumulateSignals(lines, QUESTIONS, SIGNAL_MAP, dims) {
       totals[dim] = (totals[dim] ?? 0) + bounded;
     }
   }
-  return { cap, totals, contributing, rows, capped, count, signalEvents, skills, qids, days };
+  return { cap, totals, contributing, rows, capped, count, signalEvents, hintedEvents, skills, qids, days };
 }
 '
 
@@ -635,7 +638,7 @@ do_derive() {
         lines = fs.readFileSync(eventsPath, 'utf-8').trim().split('\n').filter(Boolean);
       }
 
-      const { totals, contributing, count, signalEvents, skills, qids, days } =
+      const { totals, contributing, count, signalEvents, hintedEvents, skills, qids, days } =
         accumulateSignals(lines, QUESTIONS, SIGNAL_MAP, ALL_DIMENSIONS);
 
       const values = {};
@@ -653,6 +656,8 @@ do_derive() {
         // evidence' from 'balanced evidence': both print 0.5, which is how
         // five 0.5s sat beside sample_size 1286 (#2623).
         contributing_events: contributing,
+        // Signal events that came from an unregistered id's signal hint (#3442).
+        hinted_events: hintedEvents,
         diversity: {
           skills_covered: skills.size,
           question_ids_covered: qids.size,
@@ -712,7 +717,7 @@ do_trace() {
       } else {
         console.log('TRACE: ' + rows.length + ' events for ' + target);
         for (const r of rows) {
-          console.log('  ' + clean(r.ts).slice(0,19) + '  ' + clean(r.question_id) + '  → ' + clean(r.choice) + '  (' + signed(r.delta) + ')');
+          console.log('  ' + clean(r.ts).slice(0,19) + '  ' + clean(r.question_id) + '  → ' + clean(r.choice) + '  (' + signed(r.delta) + ')' + (r.hinted ? ' (hinted)' : ''));
         }
         for (const c of acc.capped.filter((c) => c.dim === target)) {
           console.log('  day ' + clean(c.day) + ': ' + signed(c.sum, 3) + ' capped to ' + signed(c.bounded, 3));

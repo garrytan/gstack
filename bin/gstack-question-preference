@@ -19,6 +19,8 @@
 #   --read                         → dump preferences JSON
 #   --clear [<id>]                 → clear one or all preferences
 #   --stats                        → short summary (inert one-way prefs counted separately)
+#   --signal-keys                  → one line per signal key with its option keys, the
+#                                    menu for an unregistered id's ;signal= hint (#3442)
 #
 # User-origin gate
 # ----------------
@@ -365,8 +367,22 @@ do_stats() {
   ")
 }
 
+do_signal_keys() {
+  cd "$ROOT_DIR"
+  bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
+    import('./scripts/psychographic-signals.ts').then((m) => {
+      console.log('Optional signal hint for an unregistered question_id whose answer shows one of these preferences:');
+      console.log('write <gstack-qid:{question_id};signal={signal_key}>, start each option label with one of the');
+      console.log('option keys listed after that signal key, and add a signal_key field with that key to the gstack-question-log call.');
+      console.log('Omit the hint when no line fits.');
+      for (const line of m.signalKeyLines()) console.log(line);
+    }).catch(err => { console.error('signal-keys:', err.message); process.exit(1); });
+  "
+}
+
 case "$CMD" in
   --check) do_check "$@" ;;
+  --signal-keys) do_signal_keys ;;
   --write) do_write "$@" ;;
   --read|"") do_read ;;
   --clear) do_clear "$@" ;;
