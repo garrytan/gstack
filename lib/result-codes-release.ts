@@ -341,4 +341,9 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the watcher did not start, or a local error stopped it before a verdict',
     fix: 'pass a PR number or URL the current gh login can read (--repo owner/name when the checkout is not that repository), stop the watcher the line names before starting another for the same PR, or fix the named local error',
   },
+  PREGATE_HEAD_POLICY_LOOSENS: {
+    anchor: 'pregate-head-policy-loosens',
+    summary: 'under --policy-from head, the branch’s .gstack/pregate.json removes, shrinks or loosens something the trusted policy declares; a head policy may only add test lanes',
+    fix: 'keep every key of the trusted policy as it is and only add dependencies globs with tests (or tests on an existing glob); land any other change, a [] declaration included, in its own PR on the base branch first',
+  },
 } as const satisfies Record<string, ResultCode>;

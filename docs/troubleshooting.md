@@ -3376,7 +3376,10 @@ for files with no behaviour) under `dependencies` in `.gstack/pregate.json` (or 
 Other non-Markdown documentation goes in `empty_lanes` on the base branch.
 Dart files under `integration_test/` or `test_driver/` need a device, so pregate
 never runs them: declare `"**/integration_test/**": []` (and
-`"**/test_driver/**": []`) under `dependencies` and let CI run them.
+`"**/test_driver/**": []`) under `dependencies` on the base branch and let CI run
+them. A `[]` declaration added only on the branch is refused under
+`--policy-from head` ([`PREGATE_HEAD_POLICY_LOOSENS`](#pregate-head-policy-loosens)),
+so land it in its own PR first.
 With no policy anywhere (no base copy, no user-owned file) an unmapped file is
 the warning [`PREGATE_NO_POLICY`](#pregate-no-policy) with a starter policy
 printed, not this error; `gstack-pregate init` writes that draft and lists the
@@ -3400,13 +3403,33 @@ two routes:
 
 1. Land the policy change in its own PR first (the reviewed route), then merge
    the base into this branch and rerun.
-2. Rerun with `--policy-from head --allow-repo-commands`. The run reads the
-   branch's copy and its record says `policy head (unreviewed)`, so a
-   reviewer sees that the gate ran under a policy nobody has reviewed yet;
-   `gstack-ship-queue` never accepts a head-policy run as a remote mirror.
+2. Rerun with `--policy-from head --allow-repo-commands` (in /ship,
+   `gstack-ship-preflight --tests-only --policy-from head`). The run uses the
+   trusted policy plus the lanes the branch adds, and its record says
+   `policy head (unreviewed)`, so a reviewer sees that the gate ran under a
+   policy nobody has reviewed yet; `gstack-ship-queue` never accepts a
+   head-policy run as a remote mirror. A head policy that does anything but add
+   test lanes is refused ([`PREGATE_HEAD_POLICY_LOOSENS`](#pregate-head-policy-loosens)).
 
-An allowlist entry the branch adds to its own `pregate.json` is read the same
-way: it clears a finding only once it is on the base.
+An allowlist entry or a `[]` declaration the branch adds to its own
+`pregate.json` counts only once it is on the base.
+
+<a id="pregate-head-policy-loosens"></a>
+### `PREGATE_HEAD_POLICY_LOOSENS`
+
+**Meaning.** Under `--policy-from head`, the branch's `.gstack/pregate.json`
+does more than add test lanes over the trusted policy (the base branch's copy,
+or the user-owned file when the base has none). The message lists each
+difference: a `dependencies` glob removed, a test dropped from a glob, a new
+`[]` declaration, a deleted file, or another key (`runner`, `guards`, `warn`,
+`allowlist`, `timeout_s`, `remote_gate`, ...) that differs. A branch behind
+its base is compared with the copy at its merge base, so a lane the base added
+later is not a difference. Nothing ran and no record was written.
+
+**Fix.** Keep every key of the trusted policy as it is and only add
+`dependencies` globs with at least one test, or tests on an existing glob. Land
+any other change, a `[]` declaration included, in its own PR on the base branch
+first, then merge the base into this branch and rerun.
 
 <a id="pregate-lane-failed"></a>
 ### `PREGATE_LANE_FAILED`

@@ -13,6 +13,11 @@
 - **Derive `carry.covers` from depth.** A carried receipt's `covers` is the fixed `CARRY_COVERS` list (lib/ship-receipt.ts); derive it from the recorded `review_depth` so a light review's carry does not claim the checks a full review ran (plan item 5, deferred at /ship). **Effort:** S. **Priority:** P1.
 - **Bound the queue's recompute time.** `gstack-ship-queue` recomputes each receipt's needed depth at READY and at train build; add a test that a five-PR train recomputes within a fixed budget, so a large diff cannot stall the train. **Effort:** S. **Priority:** P1.
 
+### P2/P3: pregate head-policy follow-ups (filed 2026-10-31, from the GST-419/GST-420 /ship review)
+- **`finish` fallback drops head-policy lanes (P2)** — `lib/ship-release.ts` reruns pregate on the stamped tree under the base policy, so after a version bump a lane the branch added under `--policy-from head` is gone and `finish` reports `PREGATE: fail (rerun on the stamped tree)`. GSTA-194 owns that file and has the note. **Effort:** S. **Priority:** P2.
+- **The 3600 s preflight and `finish` wrapper deadline (P3)** — it caps the whole pregate run, so several runners that each fit `timeout_s` can still be cut off together. Derive the wrapper deadline from `timeout_s` and the lane count, or document the cap. **Effort:** S. **Priority:** P3.
+- **A bootstrap head policy can still certify itself without `--remote` (P3)** — with no trusted policy, the head file may set `remote_gate: null`, or produce an obligation that `gstack-pregate clear --receipt` accepts from the branch's own gate. Decide what a bootstrap `pregate.json` may certify, then enforce it in `verify` from the recorded policy label instead of per entry point. The `--remote` refusal also prints the generic `PREGATE_HEAD_POLICY_LOOSENS` fix line, which does not apply when there is no trusted policy. **Effort:** S. **Priority:** P3.
+
 ### P3: `/codex --effort` follow-ups (filed 2026-10-11, from the #3146 autoplan review)
 
 - **Show the effort that ran.** Step 0.5 prints `CODEX_EFFORT: <level> (source: /codex --effort)` once, but the result footers do not repeat the effort, so it scrolls away. Add an `Effort:` line to the review, challenge and consult result footers. Blocked on skeleton bytes in `codex/SKILL.md` (cap 60,200). **Effort:** S. **Priority:** P3.
