@@ -94,20 +94,23 @@ describe('pass manifest', () => {
     expect(() => renderStage(d, 'specialists', texts, () => '')).toThrow(/cannot read audit\/plan's prompt file/);
   });
 
-  test('a brief over 1 MiB with invalid UTF-8 in its diff travels in bounded chunks that rejoin to the rendered sha', () => {
-    const m = manifest([{ role: 'outside-voice', name: 'outside-voice', effort: 'host', exclude: [] }]);
-    const diff = Buffer.concat([Buffer.from('+line \u00e9\n'.repeat(90_000)), Buffer.from([0xff, 0xfe, 0x0a]), Buffer.from('+"quoted" \\ back\n'.repeat(20_000))]).toString('utf8');
-    renderStage(m, 'voices', texts, () => diff);
+  // The outside voice now reads its diff from a file (test/review-depth-lean.test.ts), so a large brief here is an audit
+  // reader's prompt file carrying the same bytes.
+  test('a brief over 1 MiB with invalid UTF-8 in it travels in bounded chunks that rejoin to the rendered sha', () => {
+    const big = path.join(tmp('rp-big-'), 'plan.md');
+    fs.writeFileSync(big, Buffer.concat([Buffer.from('+line \u00e9\n'.repeat(90_000)), Buffer.from([0xff, 0xfe, 0x0a]), Buffer.from('+"quoted" \\ back\n'.repeat(20_000))]));
+    const m = manifest([], { extras: [{ name: 'plan', prompt_file: big }] });
+    renderStage(m, 'specialists', texts, () => '');
     const r = m.readers[0]!;
     const text = fs.readFileSync(r.file!, 'utf8');
     expect(Buffer.byteLength(text)).toBeGreaterThan(1024 * 1024);
     expect(r.chunks).toBe(chunkCount(text));
     let joined = '';
     for (let i = 0; i < r.chunks!; i++) {
-      const c = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['chunk', '--manifest', writeManifestFile(m), '--reader', 'outside-voice', '--index', String(i)], { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+      const c = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['chunk', '--manifest', writeManifestFile(m), '--reader', 'audit/plan', '--index', String(i)], { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
       expect(c.status, c.stderr).toBe(0);
       const [head, body] = c.stdout.split('\n');
-      expect(head).toBe('BRIEF_CHUNK: reader=outside-voice index=' + i + ' of=' + r.chunks + ' sha256=' + r.sha256);
+      expect(head).toBe('BRIEF_CHUNK: reader=audit/plan index=' + i + ' of=' + r.chunks + ' sha256=' + r.sha256);
       expect(Buffer.byteLength(body!)).toBeLessThan(1024 * 1024);
       joined += JSON.parse(body!);
     }
@@ -1024,7 +1027,9 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
     expect(redTeam).not.toContain(s.mergeBase);
     expect(bin(s.dir, s.env, ['stage', '--manifest', s.mf, '--stage', 'voices']).status).toBe(0);
     const voices = JSON.parse(fs.readFileSync(s.mf, 'utf8')) as Manifest;
-    expect(fs.readFileSync(voices.readers.find(r => r.reader === 'outside-voice')!.file!, 'utf8')).toContain('+export const v1 = 1;');
+    const outsideBrief = voices.readers.find(r => r.reader === 'outside-voice')!.file!;
+    expect(fs.readFileSync(outsideBrief, 'utf8')).toContain(`The supplied branch diff is the file ${path.join(path.dirname(outsideBrief), 'outside-voice.diff')} `);
+    expect(fs.readFileSync(path.join(path.dirname(outsideBrief), 'outside-voice.diff'), 'utf8')).toContain('+export const v1 = 1;');
     const again = bin(s.dir, s.env, s.args);
     expect(again.status, again.stdout + again.stderr).toBe(0);
     expect(again.stdout).toMatch(/^FIX_CHECK: planned effort=full /m);

@@ -50,7 +50,8 @@ import {
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
-import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
+import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
+import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
@@ -102,6 +103,11 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   RECEIPT_INVALID field=review_exclude and nothing is written; recorded as review_exclude. Carry and the queue compare that digest.
   The check binds the digest to the base policy, not to a review: write does not read the review ledger, so the expected=
   digest a refusal prints passes too. After a refusal, rerun the review and pass the digest its verify prints.
+  --declare-risk <classes> (the same list gstack-review-plan --declare-risk took): joins review_depth's risk and only raises
+  its depth; review_depth.declared and .detected record both lists (GST-1129). An unknown class is RECEIPT_INVALID.
+  --platform-review <id> (NEXT: platform's PLATFORM_REVIEW: id): records review_depth platform with capy-ai[bot]'s review <id> at HEAD;
+  refused (RECEIPT_INVALID) unless the base policy has review.platform on, HEAD needs light review of a docs or tests diff with
+  no numeric, results or prereg claims, and that review is on the PR at HEAD. review_depth.mode records lean, panel or platform.
   --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by, head}: gstack-review-dispatch verify
   --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id, and refused (RECEIPT_INVALID) when the
   commit the reader read (head) is not an ancestor or a change since it carries a targeted class (gate scan included). write and carry
@@ -232,8 +238,16 @@ function cmdWrite(rest: string[], json: boolean): number {
     const line = reviewLoopExceptionLine(loopException.exception);
     if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
   }
-  const review = receiptReviewAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), headSha ?? head);
-  const reviewDepth = review.depth;
+  const declared = (flag(rest, '--declare-risk') ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  if (rest.includes('--declare-risk') && (!declared.length || declared.some(c => !(RISK_CLASSES as readonly string[]).includes(c)))) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `--declare-risk ${flag(rest, '--declare-risk') ?? ''}: each class is one of ${RISK_CLASSES.join(', ')}; nothing written`) + '\n'); return EXIT.fail; }
+  const review = receiptReviewAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), headSha ?? head, declared as RiskClass[]);
+  let reviewDepth = review.depth;
+  const platformId = flag(rest, '--platform-review');
+  if (platformId !== undefined) {
+    const p = platformReceiptDepth(repoRoot, base, reviewDepth, headSha ?? head, platformId, flag(rest, '--pr'));
+    if (!p.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${p.message}; nothing written`) + '\n'); return EXIT.fail; }
+    reviewDepth = p.depth;
+  }
   if (review.exclude.state === 'refused') { for (const l of review.exclude.lines) process.stderr.write(`${l}; nothing written\n`); return EXIT.refused; }
   const excludeNow = review.exclude.state === 'active' ? review.exclude.record : null;
   const excludeGiven = flag(rest, '--review-exclude') ?? 'none';

@@ -14,6 +14,7 @@
  * The parent's judged set may add or promote a finding and may fold a duplicate into one at least
  * as severe; it never drops or downgrades one. verify replays every check from the ledger alone.
  */
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { checkReviewedTree, isReviewedTreeLine, promptHash, type TreeCheck } from './review-brief';
@@ -439,7 +440,10 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const collected = outputs.some(({ e }) => reviewed(e, r));
     const unavailable = !collected && outputs.some(({ e }) => unavailableOutput(e));
     const status = !sent.length ? 'NOT_SENT' : mismatched ? 'MISMATCH' : collected ? 'MATCH' : unavailable ? 'UNAVAILABLE' : 'NOT_COLLECTED';
-    const tampered = fileNow && fileNow !== r.sha256 ? ' file_changed_since_render' : '';
+    const payload = r.payload as { file?: unknown; sha256?: unknown } | undefined;
+    let payloadNow: string | null = null;
+    if (!overwritten && payload && typeof payload.file === 'string') { try { payloadNow = createHash('sha256').update(fs.readFileSync(payload.file)).digest('hex'); } catch { payloadNow = ''; } }
+    const tampered = (fileNow && fileNow !== r.sha256 ? ' file_changed_since_render' : '') + (payloadNow !== null && payloadNow !== payload!.sha256 ? ' payload_changed_since_render' : '');
     rows.push({ kind: 'BRIEF', reader: p.label, status: tampered ? 'MISMATCH' : status, detail: `rendered=${short(r.sha256)} sent=${sent.map(({ e }) => short(e.sha256)).join(',') || '-'}${epVoided ? ` voided=${epVoided}` : ''}${outputs.length && !collected && !unavailable ? ' not_reviewed' : ''}${tampered}` });
   }
   for (const [i, o] of events.entries()) {

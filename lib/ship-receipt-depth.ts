@@ -25,7 +25,10 @@ import { collectCommit } from './review-collect';
 import { reviewExclude, type Exclusion } from './review-exclude';
 import { isUnavailable } from './ship-policy';
 import { loadPolicyAt } from './ship-policy-at';
-import { depthOfCommitInput, gateScanNeeded, type Depth } from './review-depth';
+import { depthOfCommitInput, gateScanNeeded, platformFits, scanNumbers, type Depth } from './review-depth';
+import type { RiskClass } from './review-risk';
+import { platformReviewAt } from './review-platform';
+import { reviewPolicy, type ReviewPolicy } from './ship-policy-review';
 import { TARGETED_CLASSES, classList, targetedClasses, type TargetedClass } from './review-targeted';
 import { runScriptSync } from './script-invocation';
 import { bindReceipt, type ReceiptBindingCode } from './ship-receipt';
@@ -33,7 +36,7 @@ import { docsExceptionLine, parseReceiptDocs } from './ship-receipt-docs';
 
 export type ReceiptDepth = NonNullable<ShipReceipt['review_depth']>;
 export type ReviewLoopException = NonNullable<ShipReceipt['review_loop_exception']>;
-const RANK: Record<Depth, number> = { light: 0, standard: 1, full: 2 };
+const RANK: Record<Depth | 'platform', number> = { platform: -1, light: 0, standard: 1, full: 2 };
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0 && !/[\x00-\x1f\x7f]/.test(v);
 const sha = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v);
 const BIN_DIR = path.join(import.meta.dir, '..', 'bin');
@@ -70,8 +73,15 @@ function exclusionAt(root: string, ref: string, baseSha: string | null, head: st
   return reviewExclude({ root, baseSha, ref, mergeBase: c.mergeBase, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged, context });
 }
 
-/** Whether the base policy declares patterns, so the gate scan's per-path tags are worth reading. */
-const declaresExclude = (root: string, ref: string, sha: string | null) => { if (!sha) return false; const l = loadPolicyAt(root, sha, ref); return !isUnavailable(l) && l.policy.review_exclude_paths.length > 0; };
+/** The base policy's review_exclude_paths and review key (lib/ship-policy-review.ts), defaults when it cannot be read. */
+function basePolicy(root: string, ref: string, sha: string | null): { declares: boolean; review: ReviewPolicy } {
+  const l = sha ? loadPolicyAt(root, sha, ref) : null;
+  const p = l && !isUnavailable(l) ? l.policy : null;
+  return { declares: !!p && p.review_exclude_paths.length > 0, review: reviewPolicy(p) };
+}
+const riskPathsOf = (r: ReviewPolicy) => (r.risk_paths.length ? { riskPaths: r.risk_paths } : {});
+/** The mode the plan ran for this depth under the base policy's review.panel (lib/review-depth.ts planReview). */
+const modeFor = (depth: Depth, r: ReviewPolicy): 'lean' | 'panel' => (r.panel === 'all' || (r.panel === 'risk' && depth !== 'light') ? 'panel' : 'lean');
 
 /**
  * The depth record for `head`: the range from git objects (collectCommit) and
@@ -84,8 +94,11 @@ export function receiptDepthAtHead(repoRoot: string, base: string, binDir: strin
   return receiptReviewAtHead(repoRoot, base, binDir, head).depth;
 }
 
-/** receiptDepthAtHead plus the exclusion the head's review read under: the depth classifies excluded paths as docs (GST-508). */
-export function receiptReviewAtHead(repoRoot: string, base: string, binDir: string, head: string): { depth: ReceiptDepth; exclude: Exclusion } {
+/**
+ * receiptDepthAtHead plus the exclusion the head's review read under: the depth classifies excluded paths as docs (GST-508).
+ * `declared` (write --declare-risk, GST-1129) joins the detected risk classes and only raises; the record then keeps both lists.
+ */
+export function receiptReviewAtHead(repoRoot: string, base: string, binDir: string, head: string, declared: readonly RiskClass[] = []): { depth: ReceiptDepth; exclude: Exclusion } {
   const branch = base.replace(/^origin\//, '');
   const baseSha = baseCommit(repoRoot, `origin/${branch}`);
   const baseRev = baseSha.ok ? baseSha.out : branch;
@@ -93,7 +106,7 @@ export function receiptReviewAtHead(repoRoot: string, base: string, binDir: stri
   const sha = baseSha.ok ? baseSha.out : (git(repoRoot, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`]).out || null);
   const c = collectCommit(repoRoot, baseRev, head);
   const scope = scopeOfRange(repoRoot, binDir, baseRev, head);
-  const declares = declaresExclude(repoRoot, ref, sha);
+  const { declares, review } = basePolicy(repoRoot, ref, sha);
   let tagged: number | null = 0;
   let paths: Set<string> | null = declares ? new Set() : null;
   if (declares || gateScanNeeded(c.paths, c.root)) {
@@ -104,8 +117,25 @@ export function receiptReviewAtHead(repoRoot: string, base: string, binDir: stri
     paths = declares && tagged !== null ? taggedPaths(g?.stdout ?? '') : null;
   }
   const exclude = exclusionAt(repoRoot, ref, sha, head, c, paths, 'gstack-ship-receipt');
-  const d = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...(exclude.state === 'active' ? { excluded: exclude.excluded } : {}) });
-  return { depth: { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12), risk: d.risk }, exclude };
+  const d = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), declared, ...(exclude.state === 'active' ? { excluded: exclude.excluded } : {}) });
+  return { depth: { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12), risk: d.risk, mode: modeFor(d.depth, review), ...(d.declared.length ? { declared: d.declared, detected: d.detected } : {}) }, exclude };
+}
+
+/**
+ * `write --platform-review <id>` (design C6, FOUN-63): the receipt says honestly that no /ship reader ran because the platform
+ * review read this head. Allowed only under the base policy's review.platform on, on a light docs or tests diff with no numeric,
+ * results or prereg claims, with capy-ai[bot]'s review <id> on the PR at this exact head.
+ */
+export function platformReceiptDepth(repoRoot: string, base: string, depth: ReceiptDepth, head: string, id: string, pr?: string): { ok: true; depth: ReceiptDepth } | { ok: false; message: string } {
+  const branch = base.replace(/^origin\//, '');
+  const baseSha = baseCommit(repoRoot, `origin/${branch}`);
+  const { review } = basePolicy(repoRoot, baseSha.ok ? `origin/${branch}` : branch, baseSha.ok ? baseSha.out : null);
+  if (review.platform !== 'on') return { ok: false, message: `--platform-review needs review.platform on in ${branch}'s .gstack/ship-policy.json; with platform review off at least one /ship reader runs` };
+  const c = collectCommit(repoRoot, depth.base, head);
+  if (depth.depth !== 'light' || !platformFits(depth.class, c.paths, depth.runtime_lines, scanNumbers(c.added))) return { ok: false, message: `head ${head.slice(0, 12)} needs ${depth.depth} review (${depth.class} class, ${depth.runtime_lines} runtime lines): the platform depth covers only docs or tests diffs with no numeric, results or prereg claims` };
+  const found = platformReviewAt(repoRoot, head, { pr, id });
+  if (!found.ok) return { ok: false, message: `--platform-review ${id}: ${found.reason}` };
+  return { ok: true, depth: { ...depth, depth: 'platform', mode: 'platform', platform_review: found.review } };
 }
 
 /** The paths of the hunks a `gstack-gate-diff --format jsonl` run tagged. */
@@ -113,8 +143,8 @@ export function taggedPaths(jsonl: string): Set<string> {
   return new Set(jsonl.split('\n').slice(1).flatMap(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return h.path && h.tags?.length ? [h.path] : []; } catch { return []; } }));
 }
 
-export const depthBelow = (have: Depth, need: Depth) => RANK[have] < RANK[need];
-export const deeper = (a: Depth, b: Depth): Depth => (RANK[a] >= RANK[b] ? a : b);
+export const depthBelow = (have: Depth | 'platform', need: Depth | 'platform') => RANK[have] < RANK[need];
+export const deeper = <D extends Depth | 'platform'>(a: D, b: D): D => (RANK[a] >= RANK[b] ? a : b);
 
 /** `write --review-loop-exception` input and the queue's check: who accepted the stop, when, where, why, and the fix-check it followed. */
 export function parseReviewLoopException(value: unknown): { ok: true; exception: ReviewLoopException } | { ok: false; message: string } {
@@ -254,10 +284,18 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   const { baseSha, c, scope, x } = at ?? headInputs(root, baseRef, head, r);
   const tagged = boundScan(r, head);
   const scanBound = tagged !== null;
-  const need = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...(x.state === 'active' ? { excluded: x.excluded } : {}) });
+  const { review } = basePolicy(root, baseRef, baseSha.ok ? baseSha.out : null);
+  const need = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), ...(x.state === 'active' ? { excluded: x.excluded } : {}) });
   const have = rd?.depth;
   const inputs = `base@${short(baseSha.ok ? baseSha.out : null)},registry@${short(c.registry.sha)},gate_scan@${scanBound ? short(rd!.gate_scan.head) : 'missing'}`;
   const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs} rounds=${r.review_loop?.rounds ?? (r.review_loop ? r.review_loop.passes + (r.review_loop.fix_checks ?? 0) : 'none')}`;
+  if (have === 'platform') {
+    const pr = rd!.platform_review;
+    const fits = need.depth === 'light' && platformFits(need.class, c.paths, need.runtimeLines, scanNumbers(c.added));
+    const ok = review.platform === 'on' && fits && !!pr && pr.head === head.toLowerCase();
+    if (ok) return { ok: true, line: `${line} platform_review=${pr!.id}@${pr!.head.slice(0, 12)}` };
+    return { ok: false, line, message: `the receipt records the platform depth, but ${review.platform !== 'on' ? `the base policy has review.platform ${review.platform}` : !fits ? `head ${head.slice(0, 12)} needs ${need.depth} review of a diff the platform depth does not cover` : `its platform review is not at head ${head.slice(0, 12)}`}; the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
+  }
   if (have && !depthBelow(have, need.depth)) return { ok: true, line };
   const why = have ? `was reviewed at ${have} depth` : 'records no review_depth though its writer records one';
   const errs = need.errors.map(e => `${e.code} (${e.input})`).join('; ');

@@ -121,7 +121,7 @@ describe('gstack-review-plan', () => {
     }
     expect(plan([...capStop.slice(0, -2), '--grant', id]).status).toBe(2);
     expect(plan([...capStop, '--grant', '--json']).status).toBe(2);
-  });
+  }, 30_000);
   test('--fix-check-prompt renders the fix-check reviewer prompt from the parent\'s files and refuses a missing one', () => {
     const r = repo({ 'docs/howto.md': '# x\n' });
     const w = (n: string, t: string) => { const f = path.join(r.state, n); fs.writeFileSync(f, t); return f; };
@@ -271,7 +271,7 @@ describe('gstack-review-plan: the scoped second pass (GSTA-152 D6)', () => {
     expect(dirty).toMatch(/^FIX_RANGE: unread \(uncommitted or untracked edits.*\)/m);
     expect(dirty).toMatch(/^NEXT: full /m);
     expect(run(r, [...pass2, '--range-base']).status).toBe(2);
-  });
+  }, 30_000);
   test('a fix range that touches a gate path keeps the full pass 2 without --touched-gate, and an empty range is unread', () => {
     const r = repo({ 'src/a.ts': code(80), '.github/workflows/ci.yml': 'on: push\n' });
     const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });

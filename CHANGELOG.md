@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.94.30.0] - 2026-11-03
+
+**/ship sends more diffs to full review: spend-binding code, eval scorers, a repo's own risk paths and docs that print secrets now count as risk, and a lane can declare a class the matchers miss (GSTA-258 build C).** Today's reviewer panel stays the default. The one-reader shape for non-risk code ships as an opt-in (`review.panel risk`) because its no-loss replay didn't pass: with only the diff and no repository, the reader found 2 of 68 non-risk blockers, so the replay is being redone with readers working in a checkout. A repo with platform review on can skip /ship's readers on plain docs.
+
+### Added
+- **A `review` key in `.gstack/ship-policy.json`**, read from the base branch only (needs `min_gstack_version` at the release that adds it): `panel` (`all` by default, today's panel; `risk` or `off` opt in to one reader), `reader_model` (`lane` by default), `platform` (`off` by default) and `risk_paths` (globs of code paths that count as risk class `policy`).
+- **`gstack-review-plan` prints `REVIEW_MODE:`** and, under `review.platform on`, `PLATFORM_REVIEW:`. `DISPATCH:` lines name the reader's `model=` and `classes=`. New flags: `--fix-checks <n>` and `--pr <n>`.
+- **The platform depth.** Under `review.platform on`, a docs or tests diff with no numeric, results or prereg claims, whose PR carries capy-ai[bot]'s review at the exact head, plans `NEXT: platform` with a planned `SKIP:` for every reader. Step 11.5 accepts it, and `gstack-ship-receipt write --platform-review <id>` records `review_depth: platform` with that review's id and head. It never applies to runtime code, and never where platform review is off.
+- **New risk classes**: `eval` (scorer, judge and grader paths) and `policy` (`review.risk_paths`). A docs line that can print a credential (an `Authorization:` header, a bearer value, a key-shaped literal, `mcp get`) is security risk (gbrain#8417).
+- **The receipt records `review_depth.mode`** (lean, panel or platform).
+- **Declared risk classes** (GST-1129). `gstack-review-plan --declare-risk <classes>` and `gstack-ship-receipt write --declare-risk <classes>` add classes the matchers missed. A declaration only raises the depth, the plan prints `RISK_DECLARED:`, and the receipt keeps `review_depth.declared` beside `review_depth.detected`.
+- **Code that reserves, binds, leases or settles spend is money** (GST-1129): `bindCheck(ledger, …)`, `reserveSpend` or `bindCap` in a code file now plans full depth. gstack-evals#170 got its full review only because an unrelated `UBICLOUD_API_KEY` line was in the diff.
+
+### Changed
+- **Opt-in one-reader review** (`review.panel risk`): non-risk code gets one native adversarial reader at the lane's reasoning, carrying the code checklists and the Red Team checklist, and risk class keeps the full panel. One fix-check follows a fixed blocker. It isn't the default until its no-loss replay passes.
+- **Fewer false risk triggers** (harness-evals#231): committed `*.sqlite` and other binary data files count as data, never code; JSON, YAML and other config files are judged by their path, so a `lease_usd` value no longer means money; analysis scripts under `docs/`, `results/` or `benchmarks/` are judged by their path.
+- The outside voice reads its diff from a file the brief names with its sha256, instead of a diff pasted into the prompt. Past 2,000,000 bytes it reads a path-scoped slice whose brief lists the files it left out, instead of stopping the pass.
+
 ## [1.94.29.0] - 2026-11-03
 
 **Every part of gstack now has to earn its place.** Garry, 2026-11-02: "Also work this principle of only include it if it is beneficial and good into gstack". A new skill, step, instruction, check or default needs evidence that it helps on frontier models, or a reason, an owner and a dated plan to measure it. The first inventory reads untested almost everywhere: one part, `/investigate`, has a fair no-effect result (a CUT-CANDIDATE, measured on Opus 5.5 only), 3 have a fair test under way, 14 more have one proposed, and 5 safety guards stay on their stated reason.
