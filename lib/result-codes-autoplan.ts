@@ -29,4 +29,10 @@ export const AUTOPLAN_RESULT_CODES = {
     summary: 'gstack-autoplan shadow skipped a gate revision whose plan approval is unanswered or answered c (interrogate): the export pairs predictions with answers, so it waits for the owner',
     fix: 'answer the gate (gstack-autoplan answer --gate-rev <n> ...), then run gstack-autoplan shadow again; answered revisions of the same run still export',
   },
+  // GST-1243: the public copy of an autoplan run never carries the owner's own words.
+  ARTIFACT_OWNER_WORDS: {
+    anchor: 'artifact-owner-words',
+    summary: 'a public copy of an autoplan run still quotes the owner\'s own words: a relayed gate reply, carried words or a human\'s deferral reason the private run recorded',
+    fix: 'export with `gstack-autoplan export --out <run> --public <dir>`, which drops those fields and redacts quotes of them in prose; a quote inside a code span or fence in the plan is never rewritten, so edit the plan, revise, and export again',
+  },
 } as const satisfies Record<string, ResultCode>;
