@@ -680,14 +680,16 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     return [...new Set(problems)];
   }
 
-  test('it fits the 4,200-byte budget, and every citation, heading and skill it names resolves', () => {
+  test('it fits the 4,400-byte budget, and every citation, heading and skill it names resolves', () => {
     const text = fs.readFileSync(FACTORY, 'utf8');
     // 3,300 since #3634; raised to 3,450 (the page's new size, rounded up to the next 25 bytes) for point 12's
     // R68 clause (Garry, 2026-11-03: crew threads ask their Captain for new threads). Raise it only by what a rule needs.
     // 3,475 for the crew/ prefix on its four Captain-manual citations (GST-1833 moved docs/captain.md to crew/docs/; no rule text changed).
     // 3,650 for point 2's one-open-PR-per-lane rule and point 12's no-orphan and close-reason rule (GST-2077, Garry's "do it" 2026-11-09: lessons from gbrain's merge queue).
     // 4,200 for point 12's keep-the-PR-to-the-end and standing-thread rotation clause and point 14's cap of 10 finished PRs before a new fix thread (Garry's "do it" 2026-11-09, relayed by FOUN-32).
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4200);
+    // 4,400 for point 10's report shape, Failed or skipped / Unverified / Also changed lines first, and its pointer to ETHOS.md section 8 for
+    // findings write-ups (GST-1455, Garry's "do it" 2026-11-05 on R73; the clause is the wording GEVA-2's dev climb measured, so it is not trimmed).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4400);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });
