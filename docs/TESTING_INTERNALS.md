@@ -795,7 +795,9 @@ When a judge's abort signal cancels its request, `callJudge`
 (`test/helpers/llm-judge.ts`) prints one `llm-judge-aborted` JSON line to
 stderr: elapsed time, wrapper `attempts` and `retryWaitsMs` (429 waits),
 `httpRequests` and `httpStatuses` (so SDK retries show), `connectedMs`,
-`firstEventMs` and `lastEventMs`, the open `block` type, `thinkingChars` and
+`firstEventMs` and `lastEventMs`, `bytesReceived` and `lastByteMs` (every body
+byte, pings included, so a silent socket differs from a model thinking on a live
+connection), the open `block` type, `thinkingChars` and
 `textChars`, `messageId`, `requestId` and the `reason` (at most 200
 characters). It holds counts and ids only, never content, and changes no
 request, score or verdict.
