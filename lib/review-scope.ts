@@ -28,6 +28,8 @@ export const HUNK_CONTEXT_LINES = 3;
 export interface ScopeFinding {
   fingerprint?: string; path?: string; line?: number; severity?: string; category?: string; summary?: string;
   problem?: string; fix?: string; specialist?: string; advisory?: boolean; test_stub?: string;
+  /** The severity and Blocks the reviewer's own text stated, from its merged.jsonl line (GST-766); shown, never used to classify. */
+  stated?: { severity?: string; blocks?: string };
   /** The changed line that causes a defect reported elsewhere (a broken caller, a consumer of a removed export); the locus follows it. */
   cause?: { path?: string; line?: number };
   [key: string]: unknown;
@@ -252,10 +254,11 @@ export function renderDeferredIssue(f: ScopedFinding, ctx: DeferContext): { titl
   const title = `Deferred review finding: ${findingWhere(f)} — ${text}`.slice(0, 120);
   const origin = ctx.pr ? `${ctx.repo ? `${ctx.repo}#${ctx.pr}` : `PR #${ctx.pr}`}` : ctx.branch ? `branch \`${ctx.branch}\`` : 'a /ship run';
   const marker = `<!-- ${DEFERRED_MARKER}: ${oneLine(findingIdentity(f))} -->`;
+  const said = [typeof f.stated?.severity === 'string' ? `Severity: ${oneLine(f.stated.severity)}` : '', typeof f.stated?.blocks === 'string' ? `Blocks: ${oneLine(f.stated.blocks)}` : ''].filter(Boolean);
   const body = [
     `Filed by /ship's pre-landing review of ${origin}${ctx.head ? ` (head ${ctx.head.slice(0, 12)})` : ''}. The finding is in code that PR did not change, so it was deferred here instead of being fixed there (review scope frozen after pass 1).`,
     '',
-    `- **Severity:** ${oneLine(f.severity ?? 'unrated')}`,
+    `- **Severity:** ${oneLine(f.severity ?? 'unrated')}${said.length ? ` (the reviewer wrote ${said.join(', ')})` : ''}`,
     `- **Where:** \`${findingWhere(f)}\``,
     `- **Finding:** ${text}`,
     ...(f.fix ? [`- **Suggested fix:** ${oneLine(f.fix)}`] : []),
@@ -297,6 +300,8 @@ export interface ReviewLoopSummary {
   passes: number; blocking_found: number; deferred: number; noted: number; fixed: number; scope: ReviewScopePolicy | 'unknown';
   /** One-reviewer re-checks of a fix (docs/review-policy.md#transitions); never passes. */
   fix_checks?: number;
+  /** Review rounds (R51): passes plus fix-checks; the loop caps them at 2. */
+  rounds?: number;
   /** Reviewer dispatches of this invocation by role (specialist, red-team, adversarial-native, outside-voice, fix-check, targeted). */
   dispatches?: Record<string, number>;
   /** Prompt plus diff bytes the dispatches read, / 4: a relative estimate, never a bill. */
@@ -367,6 +372,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blocking.size, deferred: deferred.size, noted: noted.size, fixed: fixed.size, scope };
   const fixChecks = loopRows.filter(r => r.skill === FIX_CHECK_SKILL).length;
   if (fixChecks) out.fix_checks = fixChecks;
+  out.rounds = passes.length + fixChecks;
   const byRole: Record<string, number> = {};
   let bytes = 0; let measured = false;
   for (const row of rows.filter(r => inRun(r) && DISPATCH_SKILLS.includes(r.skill))) {

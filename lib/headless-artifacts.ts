@@ -73,6 +73,8 @@ export interface PregateCheck {
   cause?: 'diff' | 'environment'; environment?: { kind: string; evidence: string; proof?: 'launch' | 'output' };
   /** `regen`: the touched outputs the generator recreated byte-identically from a deleted copy (what a receipt carry may set aside as generated). */
   proven?: string[];
+  /** `lanes` under `--from-run`: the run receipt and the selected local test files that run already passed on this tree (not run again here). */
+  from_run?: { receipt: string; files: string[] };
 }
 /** A remote_gate receipt accepted from a stamp-only predecessor tree (lib/pregate/remote-receipt.ts): the gated tree, the tree it was accepted for, the policy, and every differing path with its stamp rule. */
 export interface PregateReceiptSubstitution { gated_tree: string; accepted_for: string; policy: string; files: Array<{ path: string; rule: string }> }
@@ -102,13 +104,13 @@ export interface ShipReceipt {
   // Related open PRs by other authors (Lane D): `supersedes` / `credit` only on the owner's confirmation.
   issues?: { fixes: number[]; refs: number[]; flakes: Array<{ issue: number; run: string }>; related?: Array<{ pr: number; repo?: string; author: string; closes: number[]; supersedes?: boolean; credit?: boolean }> };
   /** Harness lane E: the review loop's counters (gstack-review-scope summary) and the carry record when the receipt followed a head whose product diff was unchanged (gstack-ship-receipt carry). */
-  review_loop?: { passes: number; blocking_found: number; deferred: number; noted?: number; fixed?: number; scope?: string; fix_checks?: number; dispatches?: Record<string, number>; est_input_tokens?: number };
+  review_loop?: { passes: number; blocking_found: number; deferred: number; noted?: number; fixed?: number; scope?: string; fix_checks?: number; rounds?: number; dispatches?: Record<string, number>; est_input_tokens?: number };
   carry?: { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' };
   /** The reviewed head's tree and its product patch-id against the base (gstack-ship-receipt write; carry rebinds both): what a carry across rewritten history compares. */
   head_tree?: string; product_patch_id?: string;
   /** The gstack that wrote the receipt, and the review depth the reviewed head needs, recomputed at write (lib/ship-receipt-depth.ts receiptDepthAtHead). */
   gstack_version?: string;
-  review_depth?: { depth: 'light' | 'standard' | 'full'; class: 'docs' | 'tests' | 'code' | 'gate'; runtime_lines: number; rules: string; base: string; registry: string | null; gate_scan: { tagged: number | null; head: string }; reasons: string[] };
+  review_depth?: { depth: 'light' | 'standard' | 'full'; class: 'docs' | 'tests' | 'code' | 'gate'; runtime_lines: number; rules: string; base: string; registry: string | null; gate_scan: { tagged: number | null; head: string }; reasons: string[]; risk?: string[] };
   /** The owner's acceptance of a stop after a fix-check edit under frozen scope (#3559); the PR body repeats it word for word. */
   review_loop_exception?: { accepted_by: string; date: string; via: string; reason: string; fix_check: { head: string; findings: number; files?: string[] } };
   /** The targeted pass on money, gate, auth and secret code (lib/review-targeted.ts), bound to the receipt's product_patch_id; `done` only with its output collected. */
@@ -219,7 +221,7 @@ export const ARTIFACT_SCHEMAS = {
     type: 'object', required: ['schema_version', 'tree', 'checks'],
     properties: {
       schema_version: { const: 1 }, run: str, tree: str, stage1_ms: num, stage2_ms: num,
-      checks: { type: 'array', items: { type: 'object', required: ['id', 'status'], properties: { id: str, status: { enum: ['pass', 'fail', 'warn', 'incomplete', 'requires-remote', 'not_installed'] }, ms: num, detail: str, stage: { enum: ['preflight', 'tests'] }, inputs: { type: 'object' }, fix: str, code: str, lines: strList, cause: { enum: ['diff', 'environment'] }, environment: { type: 'object', required: ['kind', 'evidence'], properties: { kind: str, evidence: str } }, proven: strList } } },
+      checks: { type: 'array', items: { type: 'object', required: ['id', 'status'], properties: { id: str, status: { enum: ['pass', 'fail', 'warn', 'incomplete', 'requires-remote', 'not_installed'] }, ms: num, detail: str, stage: { enum: ['preflight', 'tests'] }, inputs: { type: 'object' }, fix: str, code: str, lines: strList, cause: { enum: ['diff', 'environment'] }, environment: { type: 'object', required: ['kind', 'evidence'], properties: { kind: str, evidence: str } }, proven: strList, from_run: { type: 'object', required: ['receipt', 'files'], properties: { receipt: str, files: strList } } } } },
       head: str, base: str, generated_at: str, policy: str, policy_digest: str, policy_user_path: str, registry: str, verdict: str, scratch: str,
       requires_remote: { type: 'array', items: { type: 'object', required: ['lane', 'platform', 'tests', 'receipt'], properties: { lane: str, platform: str, workflow: str, job: str, tests: strList, receipt: nullableStr, cleared_by: str, command: str,
         substitution: { type: 'object', required: ['gated_tree', 'accepted_for', 'policy', 'files'], properties: { gated_tree: str, accepted_for: str, policy: str, files: { type: 'array', items: { type: 'object', required: ['path', 'rule'], properties: { path: str, rule: str } } } } } } } },
@@ -234,11 +236,11 @@ export const ARTIFACT_SCHEMAS = {
       thread: str, tree: { enum: ['same-modulo-stamps', 'changed', 'not-compared'] }, gate_reuse: str, policy: str, queue_mode: str, preregistration: str, history: str,
       pregate: { ...str, description: 'pass|warn|requires-remote cleared … @<tree> from pregate.json, current for this head' }, requires_remote: strList,
       approval: { type: 'object', description: 'approval classes: { source, status: checked|unavailable, classes: [{ class, scope, effects, citation: verified|unverified, approved_by, date, via, binding, evidence }], report_only }' },
-      review_loop: { type: 'object', required: ['passes', 'blocking_found', 'deferred'], properties: { passes: { type: 'integer', minimum: 0 }, blocking_found: { type: 'integer', minimum: 0 }, deferred: { type: 'integer', minimum: 0 }, noted: { type: 'integer', minimum: 0 }, fixed: { type: 'integer', minimum: 0 }, scope: str, fix_checks: { type: 'integer', minimum: 0 }, dispatches: { type: 'object', description: 'reviewer dispatches by role' }, est_input_tokens: { type: 'integer', minimum: 0 } } },
+      review_loop: { type: 'object', required: ['passes', 'blocking_found', 'deferred'], properties: { passes: { type: 'integer', minimum: 0 }, blocking_found: { type: 'integer', minimum: 0 }, deferred: { type: 'integer', minimum: 0 }, noted: { type: 'integer', minimum: 0 }, fixed: { type: 'integer', minimum: 0 }, scope: str, fix_checks: { type: 'integer', minimum: 0 }, rounds: { type: 'integer', minimum: 0 }, dispatches: { type: 'object', description: 'reviewer dispatches by role' }, est_input_tokens: { type: 'integer', minimum: 0 } } },
       carry: { type: 'object', required: ['from', 'reason', 'product_patch_id'], properties: { from: str, reason: str, product_patch_id: str, changed_paths: strList, merge_commits: { type: 'integer', minimum: 0 }, range_diff: str, covers: strList, reruns: strList, trees: strList, ancestry: { enum: ['linear', 'rewritten'] } } },
       head_tree: str, product_patch_id: str, gstack_version: str,
       base_red: { type: 'object', required: ['cases', 'files', 'base', 'lane', 'expires_at'], properties: { cases: strList, files: strList, base: str, lane: str, expires_at: str } },
-      review_depth: { type: 'object', required: ['depth', 'class', 'runtime_lines', 'rules', 'base', 'gate_scan'], properties: { depth: { enum: ['light', 'standard', 'full'] }, class: { enum: ['docs', 'tests', 'code', 'gate'] }, runtime_lines: { type: 'integer', minimum: 0 }, rules: str, base: str, registry: nullableStr, gate_scan: { type: 'object', required: ['tagged', 'head'], properties: { tagged: { type: ['integer', 'null'], minimum: 0 }, head: str } }, reasons: strList } },
+      review_depth: { type: 'object', required: ['depth', 'class', 'runtime_lines', 'rules', 'base', 'gate_scan'], properties: { depth: { enum: ['light', 'standard', 'full'] }, class: { enum: ['docs', 'tests', 'code', 'gate'] }, runtime_lines: { type: 'integer', minimum: 0 }, rules: str, base: str, registry: nullableStr, gate_scan: { type: 'object', required: ['tagged', 'head'], properties: { tagged: { type: ['integer', 'null'], minimum: 0 }, head: str } }, reasons: strList, risk: { type: 'array', items: { enum: ['money', 'auth', 'secret', 'security', 'data'] } } } },
       review_targeted: { type: 'object', required: ['classes', 'rules', 'brief_sha', 'product_patch_id', 'status', 'findings', 'raised_by'], properties: { classes: { type: 'array', items: { enum: ['money', 'gate', 'auth', 'secret'] } }, rules: str, brief_sha: str, product_patch_id: str, status: { enum: ['done', 'failed', 'not-run'] }, findings: { type: 'integer', minimum: 0 }, raised_by: str } },
       review_loop_exception: { type: 'object', required: ['accepted_by', 'date', 'via', 'reason', 'fix_check'], properties: { accepted_by: str, date: str, via: str, reason: str, fix_check: { type: 'object', required: ['head', 'findings'], properties: { head: str, findings: { type: 'integer', minimum: 0 }, files: strList } } } },
       issues: { type: 'object', properties: { fixes: { type: 'array', items: { type: 'integer' } }, refs: { type: 'array', items: { type: 'integer' } }, flakes: { type: 'array', items: { type: 'object', required: ['issue', 'run'], properties: { issue: { type: 'integer' }, run: str } } }, related: { type: 'array', items: { type: 'object', required: ['pr', 'author', 'closes'], properties: { pr: { type: 'integer' }, repo: str, author: str, closes: { type: 'array', items: { type: 'integer' } }, supersedes: { type: 'boolean' }, credit: { type: 'boolean' } } } } } },
@@ -549,9 +551,16 @@ export interface DerivedReviewStatus {
   findings_total: number; findings_open: number; findings_resolved: number;
 }
 export function isOpenFinding(row: Record<string, unknown>): boolean {
+  if (row.action === 'open') return true;
   if (typeof row.disposition === 'string') return !RESOLVED.includes(row.disposition);
   if (typeof row.status === 'string') return !['resolved', 'fixed', 'closed'].includes(row.status);
-  return row.action !== 'fixed';
+  return isOpenByAction(row);
+}
+/** A finding's `action` alone: fixed and auto-fixed resolve it; deferred and noted resolve only one marked `blocking: false` that is not CRITICAL (review policy's floor). */
+export function isOpenByAction(row: Record<string, unknown>): boolean {
+  if (row.action === 'fixed' || row.action === 'auto-fixed') return false;
+  if (row.action === 'deferred' || row.action === 'noted') return row.blocking !== false || isCriticalFinding(row);
+  return true;
 }
 export function isCriticalFinding(row: Record<string, unknown>): boolean {
   return typeof row.severity === 'string' && row.severity.toLowerCase() === 'critical';

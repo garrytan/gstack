@@ -3,7 +3,7 @@
  * the dependencies are fakes, so nothing here reaches GitHub.
  */
 import { describe, expect, test } from 'bun:test';
-import { parseRunReceipt, parseRunRef, runInventory, runProfileErrors, runReceiptFields, uncoveredFiles, verifyRun, type ApiJob, type ApiRun, type RunDeps, type RunProfile, type TreeRecord } from '../lib/run-evidence';
+import { parseRunReceipt, parseRunRef, runInventory, runProfileErrors, runReceiptFields, uncoveredFiles, verifyFromRun, verifyRun, type ApiJob, type ApiRun, type RunDeps, type RunProfile, type TreeRecord } from '../lib/run-evidence';
 
 const REPO = 'garrytan/gbrain';
 const HEAD = 'a'.repeat(40);
@@ -159,7 +159,7 @@ describe('runInventory', () => {
 describe('profiles, coverage and receipts', () => {
   test('runProfileErrors accepts a well-formed pair and names every malformed field', () => {
     expect(runProfileErrors({ test: PROFILE, e2e: { ...PROFILE, workflow: 'e2e.yml', jobs: ['e2e-full-suite'], artifact: 'e2e-full-suite-tree', os: 'Linux', max_age_hours: 12 } }, { profiles: ['test', 'e2e'], inventory: 'bash scripts/pregate-remote-gate.sh --list' })).toEqual([]);
-    const errors = runProfileErrors({ bad: { workflow: '../x.yml', events: ['pull_request'], jobs: [], artifact: '', max_age_hours: 0, os: 'BeOS', extra: 1 } }, { profiles: ['missing'], inventory: 'a\nb' }).map(e => e.path);
+    const errors = runProfileErrors({ bad: { workflow: '../x.yml', events: ['pull_request_target'], jobs: [], artifact: '', max_age_hours: 0, os: 'BeOS', extra: 1 } }, { profiles: ['missing'], inventory: 'a\nb' }).map(e => e.path);
     expect(errors).toEqual(expect.arrayContaining(['run_profiles["bad"].extra', 'run_profiles["bad"].workflow', 'run_profiles["bad"].events', 'run_profiles["bad"].jobs', 'run_profiles["bad"].artifact', 'run_profiles["bad"].max_age_hours', 'run_profiles["bad"].os', 'remote_gate_runs.profiles', 'remote_gate_runs.inventory']));
     expect(runProfileErrors({ test: PROFILE }, { profiles: ['test', 'test'], inventory: 'true' })).toEqual([{ path: 'remote_gate_runs.profiles', message: 'names each profile once' }]);
   });
@@ -179,5 +179,71 @@ describe('profiles, coverage and receipts', () => {
     expect(parseRunReceipt(receipt)).toEqual({ runs: ['100/1'], profiles: ['test'], tree: TREE.slice(0, 12) });
     expect(parseRunReceipt(`remote-gate tree=${TREE.slice(0, 12)} tests=3 receipt=/x sha256=abc`)).toBeNull();
     expect(parseRunRef('123', REPO)).toBe(123);
+  });
+});
+
+describe('pull_request runs (P3b)', () => {
+  const MERGE = 'e'.repeat(40);
+  const PR_PROFILE: RunProfile = { ...PROFILE, events: ['pull_request', 'workflow_dispatch'] };
+  const pr = (over: Partial<TreeRecord> = {}, trees: Record<string, string | null> = { [HEAD]: TREE, [MERGE]: TREE }) => {
+    const base = world();
+    return world({ run: { ...base.run, event: 'pull_request' }, artifact: { ...(base.artifact as TreeRecord), event: 'pull_request', sha: MERGE, head_sha: HEAD, ...over }, trees });
+  };
+  const prReason = (w: World) => reason(w, { profile: PR_PROFILE });
+
+  test('a pull_request run counts when its merge commit tested its head tree', () => {
+    const v = check(pr(), { profile: PR_PROFILE });
+    expect(v).toMatchObject({ ok: true, evidence: { event: 'pull_request', head_sha: HEAD, tree: TREE } });
+  });
+
+  test('a pull_request run is refused when the merge tree is not the head tree, or the record names no merge commit or another head', () => {
+    expect(prReason(pr({}, { [HEAD]: TREE, [MERGE]: 'f'.repeat(40) }))).toBe('tree_mismatch');
+    const behind = check(pr({}, { [HEAD]: TREE, [MERGE]: 'f'.repeat(40) }), { profile: PR_PROFILE });
+    expect(!behind.ok && behind.detail).toContain('the pull request was behind its base');
+    expect(prReason(pr({ sha: undefined }))).toBe('artifact_mismatch');
+    expect(prReason(pr({ sha: 'not-a-sha' }))).toBe('artifact_mismatch');
+    expect(prReason(pr({ head_sha: undefined }))).toBe('artifact_mismatch');
+    expect(prReason(pr({ head_sha: MERGE }))).toBe('artifact_mismatch');
+    expect(prReason(pr({}, { [HEAD]: TREE }))).toBe('api_error');
+    expect(prReason(pr({ tree: 'f'.repeat(40) }))).toBe('tree_mismatch');
+  });
+
+  test('a profile without pull_request still refuses a pull_request run, and validation accepts pull_request but nothing else new', () => {
+    expect(reason(pr())).toBe('event_mismatch');
+    expect(runProfileErrors({ p: PR_PROFILE }, undefined)).toEqual([]);
+    expect(runProfileErrors({ p: { ...PR_PROFILE, events: ['pull_request_target'] } }, undefined).map(e => e.path)).toEqual(['run_profiles["p"].events']);
+  });
+
+  test('a record may name every OS its test jobs ran on; the profile OS must be one of them', () => {
+    const base = world();
+    const multi = (os: unknown) => world({ artifact: { ...(base.artifact as TreeRecord), os } });
+    expect(reason(multi(['Linux', 'macOS', 'Windows']), { profile: { ...PROFILE, os: 'macOS' } })).toBe('ok');
+    expect(reason(multi(['Linux']), { profile: { ...PROFILE, os: 'macOS' } })).toBe('os_mismatch');
+    expect(reason(multi('Windows'), { profile: { ...PROFILE, os: 'Windows' } })).toBe('ok');
+  });
+});
+
+describe('verifyFromRun (P3b --from-run)', () => {
+  const src = (w: World, profiles: Record<string, RunProfile> = { 'test.yml/unit': PROFILE }) => ({ repo: REPO, deps: deps(w), profiles, now: NOW });
+  test('a run on exactly this tree is evidence with a run receipt naming its files', () => {
+    const v = verifyFromRun(src(world()), '100', ['test.yml/unit'], TREE, HEAD);
+    expect(v).toEqual({ ok: true, evidence: expect.objectContaining({ run_id: 100, files: ['test/a.test.ts', 'test/b.test.ts'] }), receipt: `run tree=${TREE.slice(0, 12)} tests=12 runs=100/1 profiles=test.yml/unit heads=${HEAD.slice(0, 12)} verified=2026-10-29T12:00:00.000Z` });
+  });
+  test('another tree, no profile, an empty file list, zero tests and a failed run each refuse with their reason', () => {
+    const why = (v: ReturnType<typeof verifyFromRun>) => (v.ok ? 'ok' : v.reason);
+    const base = world();
+    expect(why(verifyFromRun(src(world()), '100', ['test.yml/unit'], 'c'.repeat(40), HEAD))).toBe('tree_mismatch');
+    expect(why(verifyFromRun(src(world()), '100', [], TREE, HEAD))).toBe('no_profile');
+    expect(why(verifyFromRun(src(world({ artifact: { ...(base.artifact as TreeRecord), files: [] } })), '100', ['test.yml/unit'], TREE, HEAD))).toBe('no_tests');
+    expect(why(verifyFromRun(src(world({ artifact: { ...(base.artifact as TreeRecord), tests: 0 } })), '100', ['test.yml/unit'], TREE, HEAD))).toBe('no_tests');
+    expect(why(verifyFromRun(src(world({ run: { ...base.run, conclusion: 'failure' } })), '100', ['test.yml/unit'], TREE, HEAD))).toBe('run_not_success');
+    const two = verifyFromRun(src(world({ run: { ...base.run, conclusion: 'failure' } }), { a: PROFILE, b: PROFILE }), '100', ['a', 'b'], TREE, HEAD);
+    expect(two).toMatchObject({ ok: false, reason: 'no_verified_run', detail: expect.stringContaining('a: run 100') });
+  });
+  test('a newer red run on the consumer\'s own head vetoes', () => {
+    const base = world();
+    const OWN = 'c'.repeat(40);
+    const red: ApiRun = { ...base.run, id: 101, head_sha: OWN, conclusion: 'failure', created_at: '2026-10-29T11:00:00Z' };
+    expect(verifyFromRun(src(world({ others: [red] })), '100', ['test.yml/unit'], TREE, OWN)).toMatchObject({ ok: false, reason: 'newer_run_vetoes' });
   });
 });
