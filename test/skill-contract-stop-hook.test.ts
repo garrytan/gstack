@@ -12,7 +12,8 @@ import {
   CONTRACT_HOOK, DEBUG_REPORT, INTERACTIVE_TURNS, J1_TRANSCRIPT, ROOT, hookEnv, result, runHook, say, skillsDir, slash, tmpDir, tool, user,
 } from './helpers/skill-contract-fixture';
 
-const PINNED = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-contract', 'block-message.txt'), 'utf8').trimEnd();
+const BIN = path.join(ROOT, 'bin', 'gstack-skill-contract');
+const PINNED = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-contract', 'block-message.txt'), 'utf8').trimEnd().replace('{bin}', BIN);
 const STATE_ERROR = /^gstack-skill-contract: SKILL_CONTRACT_STATE_ERROR .+: .+; stop allowed, miss not recorded \(see docs\/skill-routing-and-contracts\.md#state-error\)\n$/;
 
 test('the state error line keeps its doc anchor (d9)', () => {
@@ -54,6 +55,16 @@ describe('block once, with the pinned text', () => {
     const run = Object.values(record().runs)[0] as any;
     expect(run).toMatchObject({ skill: 'investigate', outcome: 'blocked', missing: ['debug-report', 'repro-after-fix'] });
     expect(fs.statSync(path.join(state, 'skill-contracts', 'sess-1.json')).mode & 0o777).toBe(0o600);
+  });
+
+  test('GST-1242: the block names the waive command by the path this install resolves, not a bare name off PATH', () => {
+    const reason: string = JSON.parse(stop(transcript(J1_TRANSCRIPT)).stdout).reason;
+    expect(reason).not.toMatch(/run gstack-skill-contract waive/);
+    const named = /run '([^']+)' waive <item>/.exec(reason)?.[1];
+    expect(named).toBe(BIN);
+    const { spawnSync } = require('node:child_process') as typeof import('node:child_process');
+    const waive = spawnSync(named!, ['waive', 'repro-after-fix', '--reason', 'docs-only change'], { env: hookEnv(state, skills), encoding: 'utf8', timeout: 20_000 });
+    expect(waive.status).toBe(0);
   });
 
   test('stop_hook_active with no block of ours this run: allowed, no record written', () => {

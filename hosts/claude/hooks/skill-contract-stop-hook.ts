@@ -25,7 +25,7 @@
  *   - Every decision is one line in $GSTACK_STATE_ROOT/hooks/skill-contract.log.
  * Docs: docs/skill-routing-and-contracts.md.
  */
-import { runBin } from './spawn-bin';
+import { binPath, runBin } from './spawn-bin';
 import { appendHookTrace, installedSkillsDir, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
 import {
   StateError, UnknownShape, blockMessage, bumpCanary, checkContract, lookupContract, nextOutcome, parseTranscript,
@@ -124,7 +124,7 @@ async function main(): Promise<void> {
   writeRecord(file, record);
   trace({ event: outcome, skill: t.skill, missing, waived: result.waived.join(',') || '-' });
   if (block) {
-    const out = JSON.stringify({ decision: 'block', reason: blockMessage(result) });
+    const out = JSON.stringify({ decision: 'block', reason: blockMessage(result, binPath('gstack-skill-contract')) });
     await new Promise<void>(resolve => process.stdout.write(out, () => resolve()));
   }
 }
