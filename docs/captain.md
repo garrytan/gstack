@@ -144,7 +144,7 @@ this rule shipped cites this section by name.
 
 **What the lane sends.** The plan and its gate in plain language a person outside the
 project can follow: what changes, why now, what the change does, what it costs, the lane's
-pick, and the recommended one-word reply. `gstack-owner-brief render --captain --out <run dir>`
+pick, and the choices as lettered ask lines ([the ask format](#the-ask-format)). `gstack-owner-brief render --captain --out <run dir>`
 prints that from the plan's `## ELI5`, `## Before → after`, `## Why it matters`,
 `## What caused this work` and `## Big decisions` sections (also saved as `eli5` in
 `gate.json`, so `gstack-gate render` opens with them), with the cost lines
@@ -153,10 +153,10 @@ section exits `CAPTAIN_BRIEF_INCOMPLETE`, so the lane adds the section and rende
 ([capy/skill/gstack/captain.md](../capy/skill/gstack/captain.md) § 3 lists them). The lane
 sends it whole, as a needs-you report, and builds nothing yet.
 
-**What the controller relays.** One ask to the owner in shape B below: the recommended
-reply (every recommendation, plan changes included) as the one-word default and a "do it"
-reply that takes every recommendation at full scope, follow-ons included. The plan as
-first written is never the default.
+**What the controller relays.** One ask to the owner in shape B below, its choices in
+[the ask format](#the-ask-format): "do it" (every recommendation, plan changes included,
+at full scope, follow-ons included) is the default, and a named option such as "A2" takes
+that option instead. The plan as first written is never the default.
 
 **The build gate.** The lane builds only after the owner's word has come back through the
 controller and been answered into the run
@@ -329,19 +329,51 @@ owner pre-approved (train gates, screens, bisects, the backstop, focused paid ca
 the owner's date and words and the cap per rerun; anything over the cap is a fresh ask.
 
 **B. The plan ask** ([template](../captain/templates/plan-ask.md)): before → after, why it
-matters, what caused this work, the big decisions, what we need from you with the
-recommended one-word reply as the default, and a closing "do it" reply that takes every
-recommendation at full scope. `gstack-owner-brief render --captain` prints it from an
+matters, what caused this work, the big decisions, and what we need from you in the ask
+format below, closed by "do it", which takes every recommendation at full scope.
+`gstack-owner-brief render --captain --captain-name "<Captain name>"` prints it from an
 autoplan run.
 
 **C. The merge ask** ([template](../captain/templates/merge-ask.md)): captioned
 before/after images, why, blast radius, the Approvals table, and the evidence. /ship writes the PR
 body in this shape on Capy; the controller's merge report shows the key image inline.
 
+## The ask format
+
+Every ask to the owner, from a plan gate to a merge question to the digest, is written so a
+five-year-old could follow it: the Captain's name, then one lettered line per decision, with
+letters unique across the list.
+
+```text
+<Captain name>
+- A: <code> hit problem <p>, which happens when <h>. We could fix it in these ways: 1) <x>; 2) <y>; 3) <z>. Recommendation: <x> because <why>. A1 to take recommendation.
+- B: …
+```
+
+The recommendation is always option 1. "do it" takes every recommendation in the last
+list; a named option ("A2") takes that option instead. `<code>` is the issue, PR or thread
+the decision is about. An ask that cannot be put this way is not ready to send.
+
+**When the owner has to do something** (create a token, approve a deployment, accept an
+invite, change a setting), the line carries the exact link to the page where it happens, a
+full URL and never a menu path like "Settings → Tokens", then numbered steps in the
+simplest words: what to click, what to type, what to name it, and the one word to reply
+when it is done. A page inside the Capy app is the one exception, because it has no stable
+link: name the exact path and field instead ("Settings → Integrations → Slack, the Channel
+field").
+
+```text
+<Captain name>
+- A: <code> needs you to <action>, because <why>. Open <exact URL>, then:
+  1. Click <button>.
+  2. Type <value> in <field> and name it <name>.
+  3. Reply **done**.
+```
+
 ## The digest
 
 `DIGEST.md` is rewritten every controller turn: **Needs you** (decisions only the owner
-can make, each with its one-word default; empty is the goal), **New** (what landed or
+can make, in [the ask format](#the-ask-format); empty is the goal), **New** (what landed or
 changed, newest first), **In progress** (every lane, what it owns, its state, the age of
 its last report). Ages turn stalls into the controller's next action.
 

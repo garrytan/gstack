@@ -119,7 +119,7 @@ explains how the Captain runs a day. Drop the templates in, replace the
 placeholders (repository, crew login list, gate workflow name, minimum
 revision, who may approve what), and the crew has its rules before its first
 thread starts. The approvals shape itself (plan asks with before → after, why,
-cause, big decisions and a one-word default; a `## Approvals` table in every
+cause, big decisions, and the choices as lettered ask lines closed by "do it"; a `## Approvals` table in every
 report and PR body) is the harness-generic part and is documented in
 [capy/skill/gstack/captain.md](../capy/skill/gstack/captain.md).
 
