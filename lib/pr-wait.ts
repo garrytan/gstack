@@ -165,6 +165,13 @@ export function parsePrTarget(raw: string | undefined, repo?: string): { repo?: 
   return { repo: resolved, pr };
 }
 
+/** The configured bot that owns a login: the longest name the lowercased login starts with (greptile-apps[bot] is greptile, notgreptile is nobody). Check names keep botOf's first-match rule. */
+export function botOwning(login: string | null | undefined, bots: readonly string[]): string | null {
+  const lowered = (login ?? '').toLowerCase();
+  if (!lowered) return null;
+  return bots.filter(bot => bot !== '' && lowered.startsWith(bot)).sort((a, b) => b.length - a.length)[0] ?? null;
+}
+
 function botList(value: string | null, fallback: string[]): string[] {
   if (value === null) return fallback;
   return value.split(',').map(s => s.trim().toLowerCase()).filter(s => s && s !== 'none');
@@ -291,8 +298,10 @@ export class Watcher {
 
   /** The configured bot a check name mentions, or (for a login) that the login starts with: greptile-apps[bot] is greptile, notgreptile is nobody. */
   private botOf(text: string, login = false): string | null {
+    const bots = [...this.bots.gating, ...this.bots.advisory];
+    if (login) return botOwning(text, bots);
     const lowered = text.toLowerCase();
-    return [...this.bots.gating, ...this.bots.advisory].find(bot => login ? lowered.startsWith(bot) : lowered.includes(bot)) ?? null;
+    return bots.find(bot => lowered.includes(bot)) ?? null;
   }
 
   private isAdvisory(name: string): boolean {

@@ -131,8 +131,8 @@ determined leaker (a CHANGELOG line that does would fail a hostile screenshotter
   → glab → unknown(=public-strict). Public repos get STERNER per-finding
   confirmation (no batch-acknowledge, no silent-proceed); MEDIUM is never
   auto-promoted to HIGH.
-- **Tool-attributed fences:** wrap Codex/Greptile/eval output in ` ```codex-review `
-  / ` ```greptile ` fences so example credentials those tools quote WARN-degrade
+- **Tool-attributed fences:** wrap Codex/review-bot/Greptile/eval output in ` ```codex-review `
+  / ` ```review-bot ` / ` ```greptile ` fences so example credentials those tools quote WARN-degrade
   instead of blocking. A live-format credential inside the fence still blocks.
 - **Config keys:** `redact_repo_visibility` (public|private|unknown, local-only
   override for repos gh/glab can't read), `redact_prepush_hook` (true|false).

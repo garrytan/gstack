@@ -546,10 +546,10 @@ test('review clarity: settlement gates edits separately from incomplete required
   expectMentions(fix, [['stop', 'without', 'edits']], 'fix');
 });
 
-test('review clarity: Greptile reply choices never substitute for Fix-First approval', () => {
+test('review clarity: review bot reply choices never substitute for Fix-First approval', () => {
   const fix = skill.slice(skill.indexOf('## Step 5: Fix-First Review'), skill.indexOf('{{CROSS_REVIEW_DEDUP}}'));
-  expect(fix).toContain('VALID & ACTIONABLE Greptile findings');
-  const greptile = skill.slice(skill.indexOf('### Greptile comment resolution'), skill.indexOf('## Step 5.8:'));
+  expect(fix).toContain('VALID & ACTIONABLE review bot findings');
+  const greptile = skill.slice(skill.indexOf('### Review bot comment resolution'), skill.indexOf('## Step 5.8:'));
   const flat = greptile.replace(/\s+/g, ' ');
   expectMentions(flat, [['not', 'decisions', 'approval']], 'flat');
   expect(flat).toContain('B) Propose a code change');

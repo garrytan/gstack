@@ -57,22 +57,30 @@ const NO_LOSS_REPLAYS = {
   'PR-a': "GSTA-167 variant G Arm 4: structural plan identity at the 14 cohort heads and the free exact re-score of saved C, D and A' findings (parts 4a and 4b)",
   'G1': "GSTA-167 variant G Arm G1: live no-loss replay of both prose voices with part 1's prompts, 2 passes, normalizer v2, paired rule against pooled C' (parts 1 and 3; specialists at medium as in C and C2)",
   'L': "GSTA-167 variant G Arm L: live no-loss replay of one batched reader (testing and security plus scoped checklists) and the Red Team on its findings, 2 passes, scored L∘G1 against G1 on the paired rule (part 2)",
+  'GST-508': "GST-508 (#3744, GSTA-202) preregistered no-loss replay of review_exclude_paths at ef2760f: Arm V found 33 of 41 blockers vs R 33 of 41, exact sign flip with delta 4, p_NI 0.0279 (pass); Arm P identical depth, dispatch and reader sets on 26 of 26 units (GStack Minder drive handoffs/GSTA-202/noloss-results.md)",
   'GST-257': "GST-257 PR 1 dispatch-superset no-loss check (test/review-targeted.test.ts): on every fixture diff the branch dispatches main's reviewers at 8be7f21 unchanged plus only the targeted reader, and over the last 100 non-release commits on main it lost none; adds the targeted role and brief to the G1 and L bytes, whose existing reviewer text is unchanged",
+  'GST-464': "GST-464 brief-identity no-loss check (the brief-body test below): every reviewer brief lib/review-brief.ts cuts from ship/sections/review-army.md and adversarial.md is byte-identical to the bodies at the L and GST-257 pins; only lead instructions outside the cut spans changed",
   'GST-850': "GST-850 dispatch-superset no-loss check: on the 26 GSTA-167 no-loss units the branch plan (wider security and money classes, write-up text in the batched diff) drops no reviewer role main dispatches, so no saved blocker can be lost, and over the last 100 main commits no commit with a gate or risk class drops depth (test/review-risk-routing.test.ts, test/review-risk-linear.test.ts); reviewer text is unchanged",
+  'GSTA-224 H1': 'GSTA-224 H1 preregistered no-loss run: the PR-type checklist against main\'s checklist and a no-gstack arm (Opus 5.5, 81 calls), 5 behavior cases, 10 Round 7 application blockers and 2 clean controls; every bar passed (handoffs/GSTA-224/h1-noloss-results.md)',
+  'R51': "R51 risk-tier routing no-loss re-score (GSTA-167): the saved panel findings (349 records over 24 of the 26 no-loss units) re-scored against the branch's plan lose no blocker whose only finders are roles it drops, and every gate, security, user-data and money fixture keeps main's reviewers plus the full panel (test/review-targeted.test.ts, test/review-risk-routing.test.ts); reviewer text is unchanged",
+  'GST-508+R51': "wave review-53cfb5bfe011 merge of #3744 into main: lib/review-depth.ts keeps both admitted changes, the GST-508 no-loss replay of review_exclude_paths (Arm V 33 of 41 blockers vs R 33 of 41, p_NI 0.0279; GStack Minder drive handoffs/GSTA-202/noloss-results.md) and the R51 risk-tier re-score with GST-850's dispatch-superset no-loss check: excluded paths sit beside the added and removed line maps, and the exclusion filter keeps the publishes-docs rule",
+  'GST-508+GST-464': "wave review-53cfb5bfe011 merge of #3744 into main: ship/sections/review-army.md and adversarial.md carry the GST-508 no-loss-replayed exclude pathspec placeholders inside the brief bodies (handoffs/GSTA-202/noloss-results.md) and the GST-464 lead-instruction edits outside the cut spans, which its brief-identity no-loss check admitted",
   'GST-986': "GST-986 brief-identity no-loss check (the brief-body test below): every reviewer brief lib/review-brief.ts cuts from ship/sections/adversarial.md is byte-identical to the bodies at the GST-257 pin; only the lead's Step 11 instruction naming the targeted record's path changed, outside the cut spans",
   'GST-911-redos': "GST-911 ReDoS fix verdict-identity no-loss check (wave review-e7b551ebd865): SVG_REFUSED's url() entry, rewritten to run in linear time, refuses exactly the strings #3838's pattern refused (test/review-risk-redos.test.ts: 60,000 seeded strings and the hand-picked edges, and every SVG blob in the repository's history, with zero differences); SVG_MARKUP now refuses a DOCTYPE naming any document but W3C's SVG DTD (test/review-planner-misreads.test.ts), which only keeps more SVGs code and so drops no reviewer; GST-911's no-loss replay holds unchanged; reviewer text is unchanged",
   'GST-911': "GST-911 no-loss replay (GSTA-249/13): the planner over the last 100 first-parent main commits to f5cb6ec1e, origin/main's code against this branch, gate scan fixed at 0, changes no commit's depth, class, risk classes, targeted classes or SCOPE_AUTH; the three misreads (a drawing-only SVG, a session-named data file, a bare base) are proven on fixtures (test/review-planner-misreads.test.ts), where every SVG that can run script stays code with the security class; reviewer text is unchanged",
-  'R51': "R51 risk-tier routing no-loss re-score (GSTA-167): the saved panel findings (349 records over 24 of the 26 no-loss units) re-scored against the branch's plan lose no blocker whose only finders are roles it drops, and every gate, security, user-data and money fixture keeps main's reviewers plus the full panel (test/review-targeted.test.ts, test/review-risk-routing.test.ts); reviewer text is unchanged",
+  'GST-508+R51+GST-911': "wave review-53cfb5bfe011 merge of main 3d99c2249 (#3848) into #3852: lib/review-depth.ts keeps GST-508's review_exclude_paths (no-loss replay, GStack Minder drive handoffs/GSTA-202/noloss-results.md), R51 with GST-850's dispatch-superset no-loss check, and GST-911's SVG drawings with GST-911-redos (no-loss replay: 0 of 100 main commits changed, reports/GSTA-249-911-decisions.tsv; test/review-planner-misreads.test.ts, test/review-risk-redos.test.ts); lib/review-risk.ts is main's GST-911 bytes. Merged-head checks (handoffs/GSTA-202/merge-3d99c22-checks.md): Arm P on unit 3593 differs only in the exclude pathspec and the disclosure line, the same brief diff as before the merge, and GST-911 panel unit f5cb6ec1e plans, dispatches and renders byte-identical briefs under 3d99c2249 and the merged head",
   'GST-898': "GST-898 verdict-identity no-loss check: the linear rm rule, and the rmSync rule (which also raises security on any call with more than 500 characters before its closing parenthesis), give the same verdict as R51's on every changed line of the last 100 main commits (69,023 lines, a563f47 back 100 first-parent commits) and on 60,000 seeded lines per rule (test/review-risk-redos.test.ts), and no commit changes depth, class or risk class, so every diff dispatches main's reviewers unchanged; reviewer text is unchanged",
   'GST-967': "GST-967 dispatch-superset no-loss check (test/review-depth.test.ts, 'GST-967 dispatch-superset no-loss check'): over 1,440 planReview cases the branch plans exactly what main planned at 1022f4f except the 71 gate-class stops before Step 11, which add only Step 11's adversarial, outside and targeted voices, so no reviewer main dispatches is dropped or re-efforted; the brief bodies lib/review-brief.ts cuts from the ship sections hash to main's; only the lead's repeat-decision and Step 11 instructions changed; reviewer text is unchanged",
+  'GST-508+GST-464+GST-967': "wave review-53cfb5bfe011 merge of main 68410828f into #3852: ship/sections/review-army.md and adversarial.md are main's GST-967 bytes plus exactly the GST-508+GST-464 lines (the merged file minus main equals the wave minus fc292e22f, line for line), so GST-967's dispatch-superset no-loss check and GST-508's no-loss replay both hold; merged-head checks in GStack Minder drive handoffs/GSTA-202/merge-6841-checks.md",
+  'GST-508+R51+GST-911+GST-967': "wave review-53cfb5bfe011 merge of main 68410828f into #3852: lib/review-depth.ts is main's GST-967 bytes plus exactly the GST-508+R51+GST-911 lines (the merged file minus main equals the wave minus fc292e22f, line for line); GST-967's dispatch-superset no-loss check (test/review-depth.test.ts) passes on the merged file, and the GST-508+R51+GST-911 checks are rerun at the merged head (GStack Minder drive handoffs/GSTA-202/merge-6841-checks.md)",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
-    'ship/sections/review-army.md': { sha: '7c58dfd1bf1f16f967186a4872191cb16ebff3be81a50ebbf19067020af3ec53', replay: 'GST-967' },
-    'ship/sections/adversarial.md': { sha: 'f492e2c1663b81f503872543e1ba616ff092ffeed23e7d993bd2f4d1bfcd5d9e', replay: 'GST-986' },
+    'ship/sections/review-army.md': { sha: 'de3e0d35f2af56492c42fd287b6868fbe19bce96b86321e74a4947ba909b74eb', replay: 'GST-508+GST-464+GST-967' },
+    'ship/sections/adversarial.md': { sha: '0142d6bc3f2a5bceb9f8b2adef1d3a206e5836c99a0667fe995568da2e80a5a6', replay: 'GST-508+GST-464+GST-967' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
-    'review/checklist.md': { sha: '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699', replay: '#3638' },
+    'review/checklist.md': { sha: 'a32963ef38d9d3613c58c805e8517cd2e593c63769b30dd7d40e2592fa48fc78', replay: 'GSTA-224 H1' },
     'review/design-checklist.md': { sha: 'b9205f88313cc64902c0b13e9685722ab8138d3dcc58916154f47274abda7d83', replay: '#3638' },
     'review/gate-integrity.md': { sha: 'f570db344c9a01df633bcaa281d6017f4f12420fd3e0aa3078c1ce06e0df8332', replay: '#3638' },
     'review/specialists/api-contract.md': { sha: '263d23ac119dd601d315c191dbdbd503d47c00264c9c0ca81959559ca11d4e95', replay: '#3638' },
@@ -86,17 +94,22 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: 'c5fd958b6c9a1116be9fc3418844239c01168476abb72c1db85bc26ab0adf4b4', replay: 'GST-967' },
-    'lib/review-risk.ts': { sha: '126eff0f1de6982e03dc24d8017c67e6807c91dfa518b18d2db3aa910aac911f', replay: 'GST-911' },
+    'lib/review-depth.ts': { sha: 'd76a9afcfadfe0a95b15428c04e6f7a88c6b0fa75591201c45f023fec2bb90db', replay: 'GST-508+R51+GST-911+GST-967' },
+    'lib/review-risk.ts': { sha: '126eff0f1de6982e03dc24d8017c67e6807c91dfa518b18d2db3aa910aac911f', replay: 'GST-508+R51+GST-911' },
 };
 
-/** The reviewer brief bodies lib/review-brief.ts cuts out of the ship sections, at the bytes replays L and GST-257 admitted. */
+/**
+ * The reviewer brief bodies lib/review-brief.ts cuts out of the ship sections, at the bytes replays L and GST-257
+ * admitted, except fixtures, redTeam and native, which carry the exclude pathspec placeholders the GST-508 replay
+ * admitted (byte-identical to #3744 at 995e442). A section repin under GST-464 or GST-986 is valid only while every
+ * body still hashes here: the section may change outside the cut spans, never inside them.
+ */
 const BRIEF_BODIES: Record<string, string> = {
   specialist: '1ebe47ddb3291a9e4fe90b5a260eb57e328144959549bc95c119b68d23652cb5',
   framing: 'aad667b5ea4c6d23d930dafffa38178c04be388cd4364fb73759fc92af17bb63',
-  fixtures: '9517c86befe773e76acbf30a0642ed828e211b8ecb524325702072b26429ef16',
-  redTeam: '1cca7957d13f9da08434870290b92958f37750207047b92c9aa52a802da789e8',
-  native: 'ddb1041ec1e4dd373c3e4ab9017e49316e78c230055c1ef3db1bbba518b143a2',
+  fixtures: 'fbe52f3a9e0f4442eb755f1747a95944b373b439bd05c61f3eb68345d1061a5b',
+  redTeam: '6dd670ea040535ca6cceab81c29a395bb67ce5a2ab8fa2b81e51bc4711e4aada',
+  native: 'a7cc08fb31b6ca65932a316d589f0b09677426d193d63f88ec74fee6d93ce053',
   outside: 'bd96406da28b03742384560425a333b6d6d7ed2be95bd2026c90e0039632cee2',
 };
 

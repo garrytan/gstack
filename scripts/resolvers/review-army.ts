@@ -12,7 +12,7 @@
 import type { TemplateContext } from './types';
 import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
 import { learningsCapture, LEARNINGS_VERDICT } from './learnings';
-import { DEFENSIVE_REVIEW_FRAMING, FIXTURE_SUMMARY_MODE } from './defensive-review';
+import { DEFENSIVE_REVIEW_FRAMING, fixtureSummaryMode } from './defensive-review';
 
 function generateSpecialistSelection(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
@@ -133,8 +133,8 @@ If learnings are found, include them: "Past learnings for this domain: {learning
 
 4. **Defensive framing (Security specialist and the Red Team below only).** Begin the prompt with:
 "${DEFENSIVE_REVIEW_FRAMING}"
-and replace its full-diff command with: "${FIXTURE_SUMMARY_MODE}"
-Every other specialist, including Testing, reads the full diff with fixtures.
+and replace its full-diff command with: "${fixtureSummaryMode(ctx.skillName === 'ship')}"
+Every other specialist, including Testing, reads the full diff with fixtures.${ctx.skillName === 'ship' ? ' In that command `<exclude>` is the `:(top,exclude,glob)` items on the reader\'s `DIFF_CMD:` line (the base policy\'s review_exclude_paths), empty when it has none; gstack-review-dispatch fills it.' : ''}
 
 5. Instructions:
 
@@ -325,7 +325,7 @@ The Red Team subagent receives:
 
 Prompt, after the defensive framing and fixture handling from item 4 of the specialist dispatch: "You are a red team reviewer. The code has already been reviewed by N specialists
 who found the following issues: {merged findings summary}. Your job is to find what they
-MISSED. Read the checklist at {red-team checklist path}, list changed files with \`${diffBase(ctx)} && git diff --name-status "$DIFF_BASE"\`, read them as that fixture handling says, and look for gaps.
+MISSED. Read the checklist at {red-team checklist path}, list changed files with \`${diffBase(ctx)} && git diff --name-status "$DIFF_BASE"${ctx.skillName === 'ship' ? '<list-exclude>' : ''}\`, read them as that fixture handling says, and look for gaps.
 Output findings as JSON objects (same schema as the specialists), or \`NO FINDINGS\` alone, the expected result when they missed nothing. Focus on cross-cutting
 concerns, integration boundary issues, and failure modes that specialist checklists
 don't cover."

@@ -154,10 +154,11 @@ describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; 
  * the four fix flags; Step 11 run or not), main's planReview at 1022f4f (v1.92.81.0) hashes to MAIN_PLANS. The branch's plan,
  * with each voices step read back as main's stop (its reason is the parenthesised tail, no dispatch), hashes to the same value,
  * and every voices step is a gate-class stop before Step 11 that adds exactly Step 11's three voices. No grant is passed (main
- * takes none). The brief bodies lib/review-brief.ts cuts from the ship sections hash to MAIN_SECTIONS, main's value.
+ * takes none). The brief bodies lib/review-brief.ts cuts from the ship sections hash to MAIN_SECTIONS: main's bodies plus
+ * GST-508's exclude-pathspec placeholders (replay 'GST-508+GST-464+GST-967': the merged bodies minus main's are the wave's minus fc292e22f).
  */
 const MAIN_PLANS = '9d13d6bae86bfc9207ce7e0cec8da5b33db2518c1653e8e009160a98b0f04c89';
-const MAIN_SECTIONS = 'a2b999aa2de2c4cdbb953aeb0a4fac6a67e01a2c5d74121e191b95781e68e345';
+const MAIN_SECTIONS = 'cec8872ff5a4aacb610133294706e452952b172fbe9c4891039679e98d895f62';
 describe('GST-967 dispatch-superset no-loss check', () => {
   // Value: protects=the no-loss rule for review-depth changes: GST-967 drops, renames and re-efforts no reviewer main dispatches on any grid case, and changes no brief body; fails_when=a non-stop plan changes, a voices step appears off gate class or after Step 11, it dispatches anything but the three voices, or a brief body moves;
   //   why_new=GST-967; seam=planReview, sectionTexts; no_claim=what the added voices find (they only add coverage)

@@ -83,13 +83,13 @@ describe('gstack-ship-parts next under loss and odd inputs (PR #3670 review)', (
   //   why_new=Step 11 findings on #3670 (outside voice 1-3, adversarial 5, QA); seam=none; no_claim=the host noticing that a return was lost
   test('a lost return is sent again with --resend, and a plain next promotes it to returned', () => {
     const dir = tmp();
-    const first = run(['next', '--run', dir, '--phase', '3', '--room', '4000']);
+    const first = run(['next', '--run', dir, '--phase', '3', '--room', '6000']);
     const ids = [...first.stdout.matchAll(/^PART: (\S+) /gm)].map(m => m[1]!);
     expect(ids.length).toBeGreaterThan(0);
-    const again = run(['next', '--run', dir, '--phase', '3', '--room', '4000', '--resend']);
+    const again = run(['next', '--run', dir, '--phase', '3', '--room', '6000', '--resend']);
     expect(again.status, again.stderr).toBe(0);
     expect([...again.stdout.matchAll(/^PART: (\S+) /gm)].map(m => m[1]!)).toEqual(ids);
-    const later = run(['next', '--run', dir, '--phase', '3', '--room', '4000']);
+    const later = run(['next', '--run', dir, '--phase', '3', '--room', '6000']);
     expect([...later.stdout.matchAll(/^PART: (\S+) /gm)].map(m => m[1]!).filter(id => ids.includes(id))).toEqual([]);
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'parts', 'state.json'), 'utf8')).returned).toEqual(expect.arrayContaining(ids));
   });

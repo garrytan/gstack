@@ -55,8 +55,8 @@
     {
       "id": "greptile",
       "file": "greptile.md",
-      "title": "Address Greptile review comments",
-      "trigger": "addressing Greptile review comments when a PR exists (Step 10)"
+      "title": "Address review bot comments",
+      "trigger": "addressing review bot comments when a PR exists (Step 10)"
     },
     {
       "id": "adversarial",
