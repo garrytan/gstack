@@ -226,8 +226,8 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (info.headRefOid !== head) return fail({ code: 'QUEUE_NOT_READY', message: `HEAD ${head.slice(0, 12)} is not PR #${o.pr}'s pushed head ${info.headRefOid.slice(0, 12)}` }, [], run);
   const atHead = versionAtRef(ctx.repoRoot, head);
   const baseSha = git(ctx.repoRoot, ['rev-parse', `origin/${ctx.base}`]).out;
-  const atBase = versionAtRef(ctx.repoRoot, baseSha);
-  const version = 'version' in atHead && 'version' in atBase && atHead.version !== atBase.version ? atHead.version : 'unstamped';
+  const atFork = versionAtRef(ctx.repoRoot, git(ctx.repoRoot, ['merge-base', baseSha, head]).out || baseSha);
+  const version = 'version' in atHead && 'version' in atFork && atHead.version !== atFork.version ? atHead.version : 'unstamped';
   const ci = ciAtHead(ctx, head);
   const pregateFile = path.resolve(ctx.repoRoot, o.pregate ?? PREGATE_OUT_REL);
   let pregateLine = `PREGATE: missing (${path.relative(ctx.repoRoot, pregateFile)}; run gstack-pregate run --allow-repo-commands)`;
