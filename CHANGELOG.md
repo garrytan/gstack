@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.20.0] - 2026-11-03
+
+**The Windows-safe test subset is green again on current main.** `test/qa-report-dir.test.ts` expected `ENOTDIR` when `.gstack` is a file, but Windows reports `ENOENT` for the same mistake, so the test failed on every Windows run (windows-free-tests run 41607809007 at f6d6215). The test now accepts either code on Windows and still requires `ENOTDIR` everywhere else. With Windows checks now running by path, a red subset test would block any pull request that touches it.
+
 ## [1.94.19.0] - 2026-11-03
 
 Follow-ups to the skill routing and contract hooks (GST-1088). `gstack-ship-queue ready` no longer misreads files a PR adds as deleted when the installed gstack is older than the checkout: the paid-case selector now derives dependencies from the checkout under review. Each of the two hook switches now has one default, `SWITCH_DEFAULT` in `lib/skill-route.ts` (both still off), which setup, both hooks, `gstack-config get|list|defaults` and the new `gstack-skill-route --default <switch>` all read, so changing a default is a one-line edit; `gstack-config list` and `defaults` now show both switches, an unrecognized value takes the default in the hooks as it already did in setup, and a config file that exists but cannot be read turns both hooks off in setup and in the hooks whatever the default. The contract checker no longer counts installs, builds or version probes (`bun install`, `go build`, `node --version`, `make clean`) as a test run after an edit, while option values (`make -C web test`, `pnpm --filter app test`) and `node --test` still count, and the Stop hook lets a final stop through while Agent dispatches are still running, recording the run as `deferred`, then checks the contract once the same agents have been running for 10 minutes; `gstack-skill-contract report` re-checks deferred runs.
