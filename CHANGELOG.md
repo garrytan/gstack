@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.91.360.0] - 2026-10-31
+
+**A PR's changelog.d fragment no longer brings back every paid gate case.** Since fragments became the way every PR records its CHANGELOG entry (v1.91.342.0), the PR eval selector read each `changelog.d/<slug>.md` as an unknown dependency and restored the full gate, so it saved nothing on any PR (GST-400, found on #3668).
+
+### Fixed
+- **`scripts/test-pr-profile.ts`** treats a `.md` file directly in the ship policy's `changelog_fragments.dir` as having no eval dependents. Other files in that folder, nested files, and a touchfile that names a fragment still select as before.
+- **`test/helpers/test-selection.ts`** lists both paths of a renamed file, so moving a file into `changelog.d/` or `docs/` still selects the cases its old path fed.
+
+### Tests
+- `test/test-pr-profile.test.ts` covers a fragment-only PR (no full fallback, no cases), other files in the folder, and a touchfile that names a fragment; `test/changed-files-union.test.ts` covers a rename.
+
 ## [1.91.359.0] - 2026-10-31
 
 **New `/verify` skill: run the repo's own checks and the tests `/ship`'s pre-gate would pick, fix what breaks, and repeat until green, then hand off to `/ship`.** `/verify` is the loop an agent runs while building. It never calls a change green when it cannot tell which tests cover it, and it asks once before running any repo command. It never reviews, bumps a version, pushes or opens a PR. GST-116, PR 1 of 2; moving `/health` onto the same detector is PR 2.
