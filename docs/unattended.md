@@ -385,9 +385,17 @@ The example above is the full run. The first `next` also takes `--kind`:
   hashed into `run.json` (`phases.eng.draft`) and the `phase_opened` journal
   row. With no code yet, the run says so: `DRAFT: none (<why>)`. A git
   command that fails is `DRAFT: none (draft capture failed: …)`, never a
-  partial draft. An untracked file whose name looks like a secret (`.env*`,
-  `*.pem`, `*.key`, `id_rsa`, `credentials*`, `*secret*`) is left out with a
-  note, and the `DRAFT:` line names the checkout it diffed (`root=`). The prompt inlines the diff in a fence longer than any tilde
+  partial draft. The draft goes to a model provider, so a file whose name
+  looks like a secret (the whole `.env*` family, `.envrc` included, `*.pem`,
+  `*.key`, `*.p12`, `id_rsa` and the other SSH private keys, `.netrc`,
+  `.npmrc`, `.pgpass`, `*credentials*`, `*secret*`) is never read, tracked or
+  untracked, and is left out with a note; so is either side of a rename or
+  copy git detects in the branch's commits or staged changes. A secret moved
+  without `git add`, copied unchanged, or renamed and heavily edited reaches
+  the draft under its new name, guarded only by the content check. Every other file's patch goes
+  through the redact engine (`lib/redact-engine.ts`), so a key in an ordinary
+  file reaches the reviewer as `<REDACTED-…>`; a patch it can't redact safely
+  is left out with a note. The `DRAFT:` line names the checkout it diffed (`root=`). The prompt inlines the diff in a fence longer than any tilde
   run inside it, cut at 100,000 bytes (`shown=` on the `DRAFT:` line) with a
   note asking the reviewer to name what it didn't see. The reviewer's
   line after INPUT names the draft (`DRAFT: <sha256>` or `DRAFT: none`), or

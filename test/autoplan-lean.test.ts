@@ -21,9 +21,11 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-lean-'));
 afterAll(() => fs.rmSync(TMP, { recursive: true, force: true }));
 const sha256 = (b: string | Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 const OFF_CAPY = { GSTACK_CAPY: '' };
+const GIT_ISOLATED = { GIT_CONFIG_GLOBAL: path.join(TMP, 'empty-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+fs.writeFileSync(GIT_ISOLATED.GIT_CONFIG_GLOBAL, '');
 
 function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', timeout: 30_000 });
+  const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...GIT_ISOLATED } });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
   return r.stdout;
 }
@@ -323,8 +325,9 @@ describe('which runs are lean', () => {
 });
 
 describe('draft capture edges', () => {
+  const isolated = { ...OFF_CAPY, ...GIT_ISOLATED };
   const lean = (name: string, cwd: string, out = path.join(TMP, name, 'run'), base = 'main') => {
-    const r = run(['next', '--kind', 'feature', '--base', base, '--out', out, '--plan', plan(name), '--no-ui'], cwd);
+    const r = run(['next', '--kind', 'feature', '--base', base, '--out', out, '--plan', plan(name), '--no-ui'], cwd, isolated);
     if (r.status !== 0) throw new Error(`${r.stderr}\n${r.stdout}`);
     return { r, ps: readRun(out).phases.eng, prompt: fs.readFileSync(path.join(out, 'eng-native-prompt.md'), 'utf8') };
   };
@@ -386,6 +389,79 @@ describe('draft capture edges', () => {
       expect(text).toContain('# draft: untracked credentials.json left out (its name looks like a secret)');
     }
     expect(diff).toContain('+export const attempts = new Map');
+  });
+
+  const FAKE_KEY = ['sk', 'ant', 'api03', 'C'.repeat(93) + 'AA'].join('-');
+
+  test('the whole .env family and other secret files are left out before they are read (GST-1164, #3914)', () => {
+    const cwd = repo('envrc', true);
+    const files = ['.envrc', '.env-production', '.env_local', 'config/credentials-prod.json', '.ssh/id_ed25519_sk', '_netrc', '.git-credentials', '.pgpass'];
+    for (const f of files) {
+      fs.mkdirSync(path.dirname(path.join(cwd, f)), { recursive: true });
+      fs.writeFileSync(path.join(cwd, f), `export ANTHROPIC_API_KEY=${FAKE_KEY}\n`);
+    }
+    const { ps, prompt } = lean('envrc', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain(FAKE_KEY.slice(0, 20));
+      for (const f of files) expect(text).toContain(`# draft: untracked ${f} left out (its name looks like a secret)`);
+    }
+    expect(diff).toContain('+export const attempts = new Map');
+  });
+
+  test('a secret file committed or edited on the branch is left out of the tracked diff too', () => {
+    const cwd = repo('tracked-envrc', true);
+    fs.writeFileSync(path.join(cwd, '.envrc'), `export ANTHROPIC_API_KEY=${FAKE_KEY}\n`);
+    git(cwd, 'add', '.envrc');
+    git(cwd, 'commit', '-q', '-m', 'direnv');
+    fs.appendFileSync(path.join(cwd, '.envrc'), 'export MORE=1\n');
+    const { ps, prompt } = lean('tracked-envrc', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain(FAKE_KEY.slice(0, 20));
+      expect(text).not.toContain('MORE=1');
+      expect(text).toContain('# draft: .envrc left out (its name looks like a secret)');
+    }
+    expect(ps.draft.files).toContain('.envrc');
+    expect(diff).toContain('+export const JITTER = 0.1;');
+  });
+
+  test('a secret file renamed on the branch stays out under both names', () => {
+    const cwd = repo('rename-envrc', false);
+    git(cwd, 'checkout', '-q', 'main');
+    fs.writeFileSync(path.join(cwd, '.envrc'), 'dotenv_if_exists marker-zz9-old\n');
+    fs.writeFileSync(path.join(cwd, '.pgpass'), 'db.example.com:5432:app:bot:marker-zz9-pg\n');
+    git(cwd, 'add', '.envrc', '.pgpass');
+    git(cwd, 'commit', '-q', '-m', 'direnv');
+    git(cwd, 'checkout', '-q', 'feature');
+    git(cwd, 'merge', '-q', 'main');
+    git(cwd, 'mv', '.envrc', '.envrc.local');
+    fs.appendFileSync(path.join(cwd, '.envrc.local'), 'dotenv_if_exists marker-zz9-new\n');
+    git(cwd, 'mv', '.pgpass', 'pg.txt');
+    git(cwd, 'mv', 'lib/worker.ts', 'lib/retry.ts');
+    const { ps, prompt } = lean('rename-envrc', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain('marker-zz9');
+      expect(text).toContain('# draft: .envrc -> .envrc.local left out (a rename or copy of a file whose name looks like a secret)');
+      expect(text).toContain('# draft: .pgpass -> pg.txt left out (a rename or copy of a file whose name looks like a secret)');
+    }
+    expect(diff).toContain('rename from lib/worker.ts\nrename to lib/retry.ts');
+  });
+
+  test('a key inside an ordinary file is redacted, untracked or edited in the working tree', () => {
+    const cwd = repo('redact', true);
+    fs.writeFileSync(path.join(cwd, 'lib', 'client.ts'), `export const KEY = '${FAKE_KEY}';\n`);
+    fs.appendFileSync(path.join(cwd, 'lib', 'worker.ts'), `const fallback = '${FAKE_KEY}';\n`);
+    const { ps, prompt } = lean('redact', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain(FAKE_KEY.slice(0, 20));
+      expect(text).toMatch(/^\+export const KEY = '<REDACTED-[^>]+>';$/m);
+      expect(text).toMatch(/^\+const fallback = '<REDACTED-[^>]+>';$/m);
+    }
+    expect(diff).toContain('+export const JITTER = 0.1;');
+    expect(ps.draft.sha256).toBe(sha256(fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'))));
   });
 
   test('the DRAFT line and the prompt name the checkout that was diffed', () => {

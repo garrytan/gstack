@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.94.5.0] - 2026-11-03
+
+**Security: the lean /autoplan reviewer no longer gets `.envrc`, `.env-production` or a key pasted into an ordinary file (GST-1164, #3914).** Since v1.93.36.0 (#3897), the lean run puts the branch's draft code into a prompt that goes to an outside model provider. It left out only some secret-named untracked files: `.env` and `.env.*`, but not `.envrc` or `.env-production`. It applied no name rule to tracked files and no content check at all. So a direnv `.envrc`, a `.env-production`, a committed or edited secret file, or a key sitting in any source file could reach the provider.
+
+### Fixed
+- **`lib/autoplan-lean.ts` `captureDraft`:** the secret-name rule now covers the whole `.env*` family, `.envrc` included, every `*credentials*` name, `_netrc`, `.pgpass`, `*.jks` and `id_*_sk` keys. Matching files are never diffed, tracked or untracked, and the draft names each one it left out. A secret-named file that git sees renamed or copied on the branch stays out under both names, even when the new name looks ordinary. A secret moved without `git add`, copied unchanged, or renamed and heavily edited still reaches the draft under its new name, guarded only by the content check. Every other file's patch goes through gstack's redact engine (`redactFindingSpans`), so a key in an ordinary file reaches the reviewer as `<REDACTED-…>`. A patch the engine can't redact safely, including one over 1 MiB, is left out with a note.
+
+### Tests
+- `test/autoplan-lean.test.ts`: an untracked `.envrc`, `.env-production` and six other secret files stay out of `draft.diff` and the prompt; a committed and edited `.envrc` stays out of the tracked diff, and so do an `.envrc` renamed to `.envrc.local` and a `.pgpass` renamed to `pg.txt`; a fake key in an untracked file and in a working-tree edit to a tracked file comes out redacted. All four fail on main at b42ad1e.
+
+Thanks to the /ship pre-landing review of #3901, which filed the finding.
+
 ## [1.94.4.0] - 2026-11-03
 
 - The captain skill, the CREW template, the lane brief, docs/captain.md and the Capy gstack skill now follow R65 instead of telling a lane that every fix needs a one-round, eng-only plan. A bug fix is exempt from plan review (`gstack-autoplan next --kind fix`; the brief's reason is `bug fix (R65)`), and its PR carries a repro on current main or a failing test written first. A feature gets the lean run (`--kind feature`): one reviewer reading the plan and the draft code together. The S1 and audited-problem-list exemptions are unchanged.
