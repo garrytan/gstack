@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.94.45.0] - 2026-11-03
+
+- Pushes from /ship now stop on leftover merge conflict markers. A new `conflict-markers` guard reads every line the branch adds, in the commit being pushed and in the working tree, and refuses one that starts with `<<<<<<<` or `>>>>>>>`, or is exactly `=======`, even inside a template literal that still parses and passes its tests (GST-1190, seen on #3927). Markdown code blocks that show git output (an unlabeled, `text` or `diff` fence) are skipped, while a conflict inside a `bash` or `ts` fence is still refused. A fixture that shows markers on purpose declares `gstack-conflict-markers: fixture` on a line of its own near the top.
+
+### Tests
+- `test/conflict-markers.test.ts`: a marker inside a template literal is refused (it failed before the guard existed); a Markdown code block that shows a marker passes while the same lines outside a fence or in a bash fence are refused; unchanged lines, declared fixtures, untracked files, quoted file names, git prefix settings and a committed conflict hidden by an unstaged repair are handled.
+
 ## [1.94.44.0] - 2026-11-03
 
 ### Fixed
