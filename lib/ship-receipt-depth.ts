@@ -40,6 +40,9 @@ function git(root: string, args: string[]): { ok: boolean; out: string } {
   return { ok: r.status === 0, out: (r.stdout ?? '').trim() };
 }
 
+/** A base as a commit; origin/<branch> reads refs/remotes/origin/<branch> by its full name, so a tag named origin/main cannot stand in for it (GST-884). */
+const baseCommit = (root: string, ref: string) => git(root, ['rev-parse', '--verify', '--quiet', `${/^origin\//.test(ref) ? `refs/remotes/${ref}` : ref}^{commit}`]);
+
 /** gstack-diff-scope on the committed range `base`...`head` (`--head`): the same signals at write, carry and the queue. */
 function scopeOfRange(root: string, binDir: string, base: string, head: string): Record<string, string> {
   const sr = runScriptSync(path.join(binDir, 'gstack-diff-scope'), [base, '--head', head], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
@@ -58,7 +61,7 @@ function scopeOfRange(root: string, binDir: string, base: string, head: string):
  */
 export function receiptDepthAtHead(repoRoot: string, base: string, binDir: string, head: string): ReceiptDepth {
   const branch = base.replace(/^origin\//, '');
-  const baseSha = git(repoRoot, ['rev-parse', '--verify', '--quiet', `origin/${branch}^{commit}`]);
+  const baseSha = baseCommit(repoRoot, `origin/${branch}`);
   const baseRev = baseSha.ok ? baseSha.out : branch;
   const c = collectCommit(repoRoot, baseRev, head);
   const scope = scopeOfRange(repoRoot, binDir, baseRev, head);
@@ -156,7 +159,7 @@ export interface DepthVerdict { ok: boolean; line: string; message?: string }
 /** The head's committed range against the base, read once for the depth verdict and the targeted line. */
 interface HeadInputs { baseSha: { ok: boolean; out: string }; c: ReturnType<typeof collectCommit>; scope: Record<string, string> }
 function headInputs(root: string, baseRef: string, head: string): HeadInputs {
-  const baseSha = git(root, ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`]);
+  const baseSha = baseCommit(root, baseRef);
   const baseRev = baseSha.ok ? baseSha.out : baseRef;
   return { baseSha, c: collectCommit(root, baseRev, head), scope: scopeOfRange(root, BIN_DIR, baseRev, head) };
 }
