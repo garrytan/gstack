@@ -205,7 +205,7 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     mode = 'ok';
     calls = 0;
     const kind = ['GSTACK', 'SESSION', 'KIND'].join('_');
-    const r = await run('unpriced', ['--spend-cap', '1'], { ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test', [kind]: 'spawned' }, 'anthropic/claude-haiku-5-5');
+    const r = await run('unpriced', ['--spend-cap', '1'], { ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test', [kind]: 'spawned' }, 'anthropic/claude-unpriced-test-0');
     expect(r.status).toBe(3);
     expect(r.stdout + r.stderr).toContain('SPEND_CAP_EXCEEDED');
     expect(calls).toBe(0);
