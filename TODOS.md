@@ -4,7 +4,6 @@
 
 ### P3: GST-421 and GST-412 follow-ups (filed 2026-10-31, from the PR B /ship review)
 
-- **Partial `gstack-post pr-body` posts drop the intro.** Since GST-412, any body file with a `## ` section replaces the text above the current body's first heading, so a lane that posts only `## Screenshots` deletes a human intro or a `Review-loop exception:` line written there (stderr names it; GitHub's edit history keeps it). Decide whether the preamble should be managed only when the file brings its own lead text or a receipt, or have /ship put the exception line under a named section. **Priority:** P3.
 - **Check the Approvals table's own cells.** `--check-prose` skips the whole rendered Approvals block, including the Asked, Covers and Still pending cells the lane types. Narrow the skip to the Exact words column. **Priority:** P3.
 - **The root `.bun/` blind spot.** `gstack-wtree` leaves every untracked file under a root `.bun/` out of the fingerprint, so an edit there never makes evidence STALE. Narrow the exclusion to Bun's cache subfolder if anything starts loading code from it. **Priority:** P3.
 
