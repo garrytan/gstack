@@ -49,7 +49,17 @@ jobs:
       - name: Read the train policy (main)
         id: policy
         run: |
-          train=$(git show "${GITHUB_SHA}:.gstack/ship-policy.json" 2>/dev/null | jq -c 'if (.train | type) == "object" then .train else null end' 2>/dev/null || true)
+          ref="$GITHUB_SHA" file=.gstack/ship-policy.json policy=null
+          read_failed() { echo "::error::cannot read ${file} at ${ref}. $1 ($(git --version)). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)" >&2; exit 1; }
+          listed=$(git ls-tree --full-tree "$ref" -- "$file") || read_failed "git ls-tree failed"
+          if [ -n "$listed" ]; then
+            for try in 1 2 3; do
+              policy=$(git show "${ref}:${file}") && break
+              if [ "$try" = 3 ]; then read_failed "git show failed 3 times"; fi
+              sleep $((try * 2))
+            done
+          fi
+          train=$(jq -c 'if (.train | type) == "object" then .train else null end' <<<"$policy") || { echo "::error::${GITHUB_SHA}:.gstack/ship-policy.json is not valid JSON; fix the policy file" >&2; exit 1; }
           if [ -z "$train" ] || [ "$train" = null ]; then
             echo "train=false" >> "$GITHUB_OUTPUT"
             echo "- Backstop inert: main's .gstack/ship-policy.json declares no train block; per-PR gates cover main" >> "$GITHUB_STEP_SUMMARY"

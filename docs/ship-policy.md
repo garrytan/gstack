@@ -1341,7 +1341,8 @@ other `CARRY_TEST_GLOBS` in `lib/ship-receipt.ts`; an `openapi.spec.yaml` is
 product) or release metadata (`CHANGELOG.md`, `agents-digest/**`, each
 `<changelog_fragments.dir>/<slug>.md` fragment when the base policy sets
 `changelog_fragments` (not the directory's README.md or a nested path; a README
-change also makes the range's fragments product), and `VERSION`
+change the branch itself makes also makes the range's fragments product, while one
+a base merge brings in does not), and `VERSION`
 or `package.json` only while the change is a version stamp and nothing else: a
 dependency, a script or a new key makes them product). A path the policy's
 `stamp_files`, `stamp_paths` or `release_outputs` name is metadata only while
