@@ -1,1 +1,0 @@
-- `gstack-review-dispatch pass` takes the readers' diff base from the merge base with `origin/<base>`, the same base the review plan scores and the targeted reader checks. Before, a local `<base>` branch that lagged `origin/<base>` gave every brief the stale merge base, so reviewers read upstream commits the branch only inherited (GST-716).
