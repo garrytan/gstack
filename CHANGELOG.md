@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+- **Plan first has two narrow fix exemptions.** An S1 emergency (a broken install or upgrade, a red main, a security bug) and a fix from a problem list that was already diagnosed and audited can be built without an `/autoplan` run. Every other fix, a one-line bug fix included, gets a one-round, eng-only plan. `docs/captain.md` § Plan before build says how, and `captain/SKILL.md`, `captain/templates/CREW.md` rule 24 and the Capy skill's SKILL.md list the same exemptions.
+
+## [Unreleased]
+
 **A repository can now assign its version when a PR merges instead of inside the PR: PRs carry unversioned CHANGELOG fragments and `gstack-ship-queue land` stamps, pushes and merges.** Today every PR picks a version before it merges, so each merge makes the next PR's version stale and its lane redoes the stamp (a median 14.5 minutes from stamp commit to merge over 30 slots, Oct 27-29; the queue froze on hand-made stamps in #3422 and #3487). With `changelog_fragments` on, two PRs cut from one base cannot collide, and nobody stamps by hand. gstack's own policy does not turn it on in this release (docs/ship-policy.md#changelog-fragments).
 
 ### Added

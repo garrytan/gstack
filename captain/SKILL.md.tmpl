@@ -283,7 +283,9 @@ a plan; relay it whole. Template: `captain/templates/plan-ask.md`.
 its first act after the session-start check and sends the controller the plan ask above; the controller relays it, and the
 lane builds only after the owner's word is answered into the run and it reports `APPROVED`.
 New scope taken on part-way gets its own plan. Read-only lanes, the flaky pass's repairs,
-slot stamps, CHANGELOG resolves and cap re-pins under a grant are exempt. The brief a
+slot stamps, CHANGELOG resolves, cap re-pins under a grant, S1 emergencies (broken install
+or upgrade, red main, a security bug) and fixes from an already-diagnosed, audited problem
+list are exempt; every other fix gets a one-round, eng-only plan. The brief a
 controller hands a lane, with its `Plan: required | approved | exempt` line, is
 `captain/templates/brief.md`; the rule is `docs/captain.md` (Plan before build).
 

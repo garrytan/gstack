@@ -53,7 +53,7 @@ Every Capy thread that uses gstack follows these for new work, under a Captain o
 - **/ship before ready.** Run /ship at the final pushed head before a PR is called ready; `SHIP_RECEIPT: pr=<n> head=<head>` must name that head, and a later push needs a new /ship. The review inside /ship, like the autoplan, is sized to the change.
 - **No merge without the owner's word.** A thread never merges on its own; under a Captain the controller merges on a recorded standing approval, and a thread with no Captain asks the person.
 
-Exempt from the plan step: read-only work, the daily flaky pass's repairs, slot stamps, CHANGELOG-only resolves and cap re-pins under a written grant.
+Exempt from the plan step: read-only work, the daily flaky pass's repairs, slot stamps, CHANGELOG-only resolves, cap re-pins under a written grant, S1 emergencies (a broken install or upgrade, a red main, a security bug) and fixes from an already-diagnosed, audited problem list. Every other fix gets a one-round, eng-only plan.
 
 ## Working under a Captain
 
