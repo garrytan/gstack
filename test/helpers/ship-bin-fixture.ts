@@ -57,7 +57,7 @@ export function shipFixture(base: Record<string, string> = {}, feat: Record<stri
   writeIn(work, feat);
   must(gitIn(work, ['add', '-A']), 'add feat'); must(gitIn(work, ['commit', '-qm', 'feat']), 'feat commit');
   const env = { ...process.env, PATH: `${stub}:${process.env.PATH}`, GSTACK_STATE_ROOT: state, GSTACK_HOME: state, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com',
-    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com', GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig') };
+    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com', GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GSTACK_SESSION_KIND: 'interactive' };
   fs.writeFileSync(path.join(root, 'gitconfig'), '[commit]\n\tgpgsign = false\n');
   const fx: ShipFx = {
     root, work, origin, state,
