@@ -48,8 +48,9 @@ describe('modules/loadouts.json', () => {
     expect(Object.values(manifest.default)).toEqual(['full', 'full', 'full', 'full', 'full']);
   });
 
-  test('lite drops the eleven coaching pieces, keeps upgrade-check and brain-sync, and only Opus 5.5 maps to it', () => {
-    const coaching = ['voice', 'writing-style', 'completeness', 'confusion', 'evidence', 'context-health', 'question-tuning', 'search-before-building', 'repo-mode', 'brain-health', 'context-recovery'];
+  test('lite drops ten coaching pieces, keeps upgrade-check, brain-sync and the pinned Claims Need Evidence rule, and only Opus 5.5 maps to it', () => {
+    expect(manifest.pinned).toContain('preamble:evidence');
+    const coaching = ['voice', 'writing-style', 'completeness', 'confusion', 'context-health', 'question-tuning', 'search-before-building', 'repo-mode', 'brain-health', 'context-recovery'];
     expect(manifest.loadouts.lite).toMatchObject({ base: 'full', exclude: coaching.map(id => `preamble:${id}`) });
     expect(manifest.models).toEqual({ 'claude-opus-5-5': 'lite' });
     const s = selectModules({ loadout: 'lite' })!;
