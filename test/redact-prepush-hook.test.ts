@@ -761,4 +761,16 @@ describe("#3048: the pushed diff is scanned per file, so TS/JSX source syntax is
     const yamlHead = git(["rev-parse", "HEAD"]);
     expect(mediums(runHook(`refs/heads/main ${yamlHead} refs/heads/main ${tsHead}\n`).stderr)).toBe(1);
   });
+  // #3630: the hook sees added lines alone, so a Python line added inside an existing """ block has no opener in view;
+  // Dart and Python lines are scanned without their path and still warn.
+  test("a line added inside an existing Python triple-quoted block still warns", () => {
+    fs.writeFileSync(path.join(repo, "settings.py"), 'CONFIG = """\nhost: db\n"""\n');
+    git(["add", "settings.py"]);
+    git(["commit", "-q", "-m", "base"]);
+    const base = git(["rev-parse", "HEAD"]);
+    fs.writeFileSync(path.join(repo, "settings.py"), 'CONFIG = """\nhost: db\npassword: VelvetRiverOrbitSunset\n"""\n');
+    git(["add", "settings.py"]);
+    git(["commit", "-q", "-m", "secret"]);
+    expect(mediums(runHook(`refs/heads/main ${git(["rev-parse", "HEAD"])} refs/heads/main ${base}\n`).stderr)).toBe(1);
+  });
 });
