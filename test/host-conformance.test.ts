@@ -31,9 +31,10 @@ const DISCOVERY: Record<string, string> = {
   cursor: '.cursor/skills',
   copilot: '.copilot/skills',
   agy: '.gemini/antigravity-cli/skills',
+  gemini: '.gemini/skills',
 };
-/** Every directory any host (or a shared agents layout) reads; .gemini/skills is Gemini CLI's. */
-const ALL_DISCOVERY_DIRS = [...Object.values(DISCOVERY), '.agents/skills', '.copilot/skills', '.hermes/skills', '.gemini/skills'];
+/** Every directory any host (or a shared agents layout) reads. */
+const ALL_DISCOVERY_DIRS = [...Object.values(DISCOVERY), '.agents/skills', '.hermes/skills'];
 
 /** Harness hosts (install.registration 'harness') register through gstack-harness: test/harness-register.test.ts certifies them. */
 const installable = ALL_HOST_CONFIGS.filter(c => c.tier !== 'instruction-only' && c.install.registration !== 'harness').map(c => c.name);

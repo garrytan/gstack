@@ -24,6 +24,7 @@ import {
   cursor,
   openclaw,
   agy,
+  gemini,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
@@ -37,8 +38,8 @@ const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 12 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(12);
+  test('ALL_HOST_CONFIGS has 13 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(13);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -61,6 +62,7 @@ describe('hosts/index.ts', () => {
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
     expect(agy.name).toBe('agy');
+    expect(gemini.name).toBe('gemini');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -83,6 +85,7 @@ describe('hosts/index.ts', () => {
     expect(resolveHostArg('agents')).toBe('codex');
     expect(resolveHostArg('droid')).toBe('factory');
     expect(resolveHostArg('antigravity')).toBe('agy');
+    expect(resolveHostArg('gemini-cli')).toBe('gemini');
   });
 
   test('resolveHostArg throws on unknown alias', () => {
@@ -514,10 +517,11 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('Codex renders the GPT overlay, Antigravity the Gemini overlay, every other host the Claude overlay', () => {
+  test('Codex renders the GPT overlay, Antigravity and Gemini CLI the Gemini overlay, every other host the Claude overlay', () => {
     expect(codex.defaultModel).toBe('gpt');
     expect(agy.defaultModel).toBe('gemini');
-    for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex' && h.name !== 'agy')) {
+    expect(gemini.defaultModel).toBe('gemini');
+    for (const host of ALL_HOST_CONFIGS.filter(h => !['codex', 'agy', 'gemini'].includes(h.name))) {
       expect(host.defaultModel).toBe('claude');
     }
   });
@@ -798,6 +802,50 @@ describe('Antigravity CLI host render', () => {
     expect(glossary).toBeLessThan(md.indexOf('Read the echoed `KEY: value` STATUS lines'));
     const line = md.slice(glossary, md.indexOf('\n', glossary));
     expectTokens(line, ['`ask_question`', '`run_command`', '`view_file`', '`write_to_file`', '`replace_file_content`', '`grep_search`', '`find_by_name`', '`invoke_subagent`']);
+  });
+
+  test('frontmatter keeps only name and description, and every name equals its directory', () => {
+    const names = fs.readdirSync(dir).filter(d => fs.existsSync(path.join(dir, d, 'SKILL.md')));
+    expect(names.length).toBeGreaterThan(20);
+    for (const name of names) {
+      const fm = read(name).split('\n---\n')[0];
+      expect(fm.match(/^name:\s*(\S+)/m)![1]).toBe(name);
+      expect(fm.split('\n').filter(l => /^[a-z-]+:/.test(l)).map(l => l.split(':')[0])).toEqual(['name', 'description']);
+    }
+  });
+});
+
+describe('Gemini CLI host render', () => {
+  const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gemini-'));
+  beforeAll(() => {
+    const r = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'gemini', '--out-dir', OUT], { cwd: ROOT, timeout: 120_000 });
+    if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+  });
+  afterAll(() => fs.rmSync(OUT, { recursive: true, force: true }));
+  const dir = path.join(OUT, '.gemini-cli', 'skills');
+  const read = (skill: string) => fs.readFileSync(path.join(dir, skill, 'SKILL.md'), 'utf8');
+
+  test('paths name the Gemini CLI install, never Claude, Codex or Antigravity skill dirs', () => {
+    for (const skill of ['gstack-review', 'gstack-ship', 'gstack-careful', 'gstack-upgrade']) {
+      const md = readSkillStartup(path.join(dir, skill, 'SKILL.md'));
+      expect(md).not.toContain('~/.claude/skills/gstack');
+      expect(md).not.toContain('$HOME/.claude/skills/gstack');
+      expect(md).not.toContain('.codex/skills');
+      expect(md).not.toContain('antigravity-cli/skills');
+    }
+    expect(read('gstack-review')).toContain('_r=~/.gemini/skills/gstack');
+    expect(read('gstack-upgrade')).toContain('$HOME/.gemini/skills/gstack/.source-path');
+    expect(read('gstack-upgrade')).toContain('./setup --host gemini --refresh-registered');
+  });
+
+  test('the tool-name glossary names Gemini CLI 0.66.0 tools and Antigravity\'s, ahead of the preamble STATUS rules', () => {
+    const md = read('gstack-review');
+    const glossary = md.indexOf('**Gemini CLI tool names:**');
+    expect(glossary).toBeGreaterThan(-1);
+    expect(glossary).toBeLessThan(md.indexOf('Read the echoed `KEY: value` STATUS lines'));
+    const line = md.slice(glossary, md.indexOf('\n', glossary));
+    expectTokens(line, ['`ask_user`', '`run_shell_command`', '`read_file`', '`write_file`', '`replace`', '`grep_search`', '`glob`', '`invoke_agent`', '`exit_plan_mode`', '`activate_skill`']);
+    expectTokens(line, ['Antigravity', '`run_command`', '`view_file`', '`ask_question`']);
   });
 
   test('frontmatter keeps only name and description, and every name equals its directory', () => {

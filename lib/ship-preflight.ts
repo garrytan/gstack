@@ -67,9 +67,22 @@ const forkPoint = (cwd: string, base: string) => git(cwd, ['merge-base', `origin
 
 function merge(cwd: string, base: string, r: Report): boolean {
   const policy = shipPolicy(cwd, base);
-  if (policy?.queue_mode === 'stamp-at-merge') r.add('MERGE: skipped (queue_mode stamp-at-merge: the slot stamp merges the base; docs/ship-policy.md#ship-before-ready)');
-  else if (!git(cwd, ['ls-files', '-u']).stdout.trim() && ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'].every(ref => git(cwd, ['rev-parse', '-q', '--verify', ref]).status !== 0)
-    && git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) r.add('MERGE: up to date');
+  const stampAtMerge = policy?.queue_mode === 'stamp-at-merge';
+  const pending = stampAtMerge ? undefined : ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'].find(ref => {
+    const p = git(cwd, ['rev-parse', '--git-path', ref]);
+    return p.status === 0 && !!p.stdout.trim() && fs.existsSync(path.resolve(cwd, p.stdout.trim()));
+  });
+  const unmerged = stampAtMerge ? [] : git(cwd, ['diff', '--name-only', '--diff-filter=U']).stdout.split('\n').filter(Boolean);
+  if (pending) {
+    r.stop(`an unfinished ${pending.replace(/_HEAD$/, '').toLowerCase().replace('_', '-')} is in progress (${pending}${unmerged.length ? `, conflicts in ${short(unmerged, 8)}` : ''}): resolve and commit it, or abort it, then rerun (Step 3)`);
+    return false;
+  }
+  if (unmerged.length) {
+    r.stop(`unresolved conflicts in ${short(unmerged, 8)} with no merge, cherry-pick or revert in progress: resolve them (git add) or restore the files, then rerun (Step 3)`);
+    return false;
+  }
+  if (stampAtMerge) r.add('MERGE: skipped (queue_mode stamp-at-merge: the slot stamp merges the base; docs/ship-policy.md#ship-before-ready)');
+  else if (git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) r.add('MERGE: up to date');
   else {
     const before = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
     const m = git(cwd, ['merge', `origin/${base}`, '--no-edit'], 300_000);
