@@ -190,7 +190,7 @@ export const DOCS_CAPS_KEY_VERSION = '1.91.270.0';
 export const CHANGELOG_FRAGMENTS_KEY_VERSION = '1.91.336.0';
 /** `bump: never` is a value of an older key, so the per-key floor check misses it; compatErrors checks it by value. */
 export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
-export const BASE_RED_KEY_VERSION = '1.92.0.0';
+export const BASE_RED_KEY_VERSION = '1.91.374.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
