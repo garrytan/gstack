@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.38.0] - 2026-11-03
+
+- **A /ship receipt now survives a changelog-fragment conversion (GST-1210).** When a PR moved to a `changelog.d` fragment after review, `VERSION`, `package.json` and `CHANGELOG.md` went back to main's content, and if main had also changed `package.json` beyond its version, `gstack-ship-receipt carry` read that as the branch's change and refused with `RECEIPT_CARRY_PRODUCT_CHANGED` (HARN-1, harness-evals#206). A stamp file the branch changes by no more than a stamp against each head's base now carries as release metadata. A non-stamp `package.json` change, a logic edit, or a stamp file whose entry can't be read still refuses.
+
 ## [1.94.37.0] - 2026-11-03
 
 - **Pull requests reuse a green Free Tests run they can't control** (`scripts/ci-tree-reuse.ts find --pull-request`, docs/pregate.md#ci-reuse-pr). A pull request run skips the suite when a push or dispatch run on main, or a dispatch run on its own branch, already passed on the merge commit's exact tree, and the pull request leaves the workflow, the reuse script and `lib/run-evidence.ts` unchanged. A pull request run is never a source, so a pull request never certifies itself.
