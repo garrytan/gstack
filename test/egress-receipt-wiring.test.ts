@@ -107,6 +107,10 @@ const MODULE_SINKS = [
   // vendor CLI. hosts/ has no curl/fetch for the scanner to see, so the
   // receipt wiring is pinned here explicitly.
   'hosts/claude/hooks/memorable-user-prompt-hook.ts',
+  // GSTA-156 P1: the sealed guard lists and fetches the destination's own
+  // refs/pull/<n>/head for squashes on its base, to skip commits it already
+  // holds; PR numbers leave the machine, sink 'sealed-guard' (fail-open).
+  'lib/sealed-guard.ts',
 ];
 
 /** Shell sinks: must source the shared lib; every network op receipted. */

@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.92.83.0] - 2026-11-02
+
+**The sealed guard no longer rescans commits the destination already holds, so a stacked branch retargeted after its parent squash-landed stops being refused for the parent's history.** gstack-evals#22 listed its parent #6's seven commits after #6 landed as one squash. One of them had added and later deleted a held-out file, so the guard refused a push whose every byte GitHub already had as `refs/pull/6/head`, and the queue sat blocked for about 50 minutes until a waiver landed.
+
+### Changed
+- **`lib/sealed-guard.ts`** (`evaluateSealed`, shared by the pre-push hook and `gstack-pregate sealed`): a listed commit is skipped when it is an ancestor of the destination's own `refs/pull/<n>/head` for a squash `(#n)` on the base since the merge-base (at most 50 refs, a 20-second budget, an egress receipt per remote call, fetched refs deleted afterwards), or when its own `git patch-id --verbatim` and diff equal a base commit's (off above 2,000 base or 400 listed commits; a landed commit still gets the `sealed.label_join` check, which reads the whole file). Nothing is matched against a combined diff, and any failed lookup scans everything with one line saying why. docs/pregate.md#sealed-skip.
+- **`gstack-pregate sealed`**: the `SEALED:` line gains `skipped=<n>` (and `commits=` counts the commits scanned), stderr names each skipped group, and `--no-skip` scans every listed commit.
+
+### Tests
+- `test/sealed-skip.test.ts`: the #22 shape is clear with seven commits skipped as `refs/pull/6/head`, the hook and the preflight agree, `--no-skip` refuses, no fetched ref is left behind and the egress ledger records the lookup. The same parent never published refuses although its squash equals the combined diff. An unreachable remote scans everything and says so. A cherry-pick that landed on the base is skipped and named. A whitespace near-miss (`/home/alice/` against `/home/ alice/`) is scanned and refuses, and so is a landed commit that differs only in bytes that aren't valid UTF-8.
+
 ## [1.92.82.0] - 2026-11-02
 
 **`gstack-review-dispatch verify` now catches a merged findings file edited after collect.** Verify used to compare only output hashes and line counts. So a `merged.jsonl` row whose label was lowered, or whose text was replaced with another line's summary, passed with `VERIFY: clean` once the judge agreed with the edited row. Verify now re-parses each reader's unchanged output and checks every merged row against the finding at its index, label and raw text byte for byte. A mismatch prints `merged_line_differs` on the OUTPUT and JUDGE rows, and verify is dirty. A missing output file or an output event with no file recorded (even for a reply with no findings), a judgment run on a copy of the merged file, merged rows that collect never wrote, and an output whose finding count no longer matches its recorded ids are dirty too. A reply refused for naming the wrong checkout is still allowed to hold findings collect never merged, but only when verify re-checks its tree line and finds it wrong.
