@@ -69,6 +69,7 @@ import {
   withErrorContext,
 } from "../lib/gstack-memory-helpers";
 import { execGbrainText, gbrainConfigDir, spawnGbrain, spawnGbrainAsync } from "../lib/gbrain-exec";
+import { classifyGbrainMcpEntry, type GbrainMcpEntry } from "../lib/gbrain-mcp-locality";
 import { constrainSourceId, parseSourcesList } from "../lib/gbrain-sources";
 import {
   BISECT_AFTER_REFUSALS,
@@ -427,9 +428,19 @@ function fileSha256(path: string): string {
   }
 }
 
+/**
+ * #3539: a page staged for a remote brain's pull (`staged` / `remote-http`)
+ * was never imported here. Once the brain is local (a loopback serve, or the
+ * entry switched back to stdio), that page has not landed, so it must be
+ * prepared again instead of counting as unchanged.
+ */
+function stagedForRemotePull(entry: StateEntry | undefined): boolean {
+  return !!entry && entry.status === "staged" && entry.source_id === "remote-http" && !isRemoteHttpMcpMode();
+}
+
 function fileChangedSinceState(path: string, state: IngestState, verifyHash = false): boolean {
   const entry = state.sessions[path];
-  if (isRetryable(entry)) return true;
+  if (isRetryable(entry) || stagedForRemotePull(entry)) return true;
   try {
     const st = statSync(path);
     const mtimeNs = Math.floor(st.mtimeMs * 1e6);
@@ -1418,7 +1429,7 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
     totalBytes += size;
 
     const entry = state.sessions[path];
-    if (!entry) newCount++;
+    if (!entry || stagedForRemotePull(entry)) newCount++;
     else if (fileChangedSinceState(path, state, args.scanSecrets)) updatedCount++;
     else unchangedCount++;
   }
@@ -1800,23 +1811,27 @@ function makePersistentTranscriptDir(): string {
  *
  * Reads ~/.claude.json directly (same fallback chain as gstack-gbrain-detect
  * Tier 3). Cheap: one fs read, no fork-exec.
+ *
+ * #3539: an HTTP entry on a loopback host that reaches this machine's own
+ * gbrain engine (a resident `gbrain serve --http`) is not remote; see
+ * lib/gbrain-mcp-locality.ts. Memoized: the change check consults it per
+ * state entry, and ~/.claude.json can be megabytes.
  */
+let remoteHttpMcpMode: boolean | undefined;
 function isRemoteHttpMcpMode(): boolean {
+  remoteHttpMcpMode ??= readRemoteHttpMcpMode();
+  return remoteHttpMcpMode;
+}
+
+function readRemoteHttpMcpMode(): boolean {
   const home = process.env.HOME || homedir();
   const claudeJsonPath = join(home, ".claude.json");
   if (!existsSync(claudeJsonPath)) return false;
   try {
     const parsed = JSON.parse(readFileSync(claudeJsonPath, "utf-8")) as {
-      mcpServers?: {
-        gbrain?: { type?: string; transport?: string; url?: string };
-      };
+      mcpServers?: { gbrain?: GbrainMcpEntry };
     };
-    const entry = parsed.mcpServers?.gbrain;
-    if (!entry) return false;
-    const mtype = entry.type || entry.transport || "";
-    if (mtype === "url" || mtype === "http" || mtype === "sse") return true;
-    if (entry.url) return true;
-    return false;
+    return classifyGbrainMcpEntry(parsed.mcpServers?.gbrain) === "remote";
   } catch {
     return false;
   }
