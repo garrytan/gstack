@@ -237,6 +237,10 @@ and for browser tests `xvfb` plus
 `bun run test:ubicloud` (the free suite with the CI lane's environment) and
 `gstack-pregate --stage tests --remote` under 8 cores.
 
+A long verify can list `tiers: [{"name": "unit", "command": "make unit"}]`
+for `command`. A rerun reuses recent passes (`UBI_VERIFY_RESUME:`), reruns a
+fail only with `--rerun-failed`, and ends with `UBI_VERIFY: …`.
+
 ---
 
 ## Step 4: Read the result
@@ -266,9 +270,15 @@ is visible: a `standard-16` run is billed from create to confirmed teardown.
 
 ## Resume checklist after a wake or a machine swap
 
-1. `$U records` and `$U list --mine`, then `$U down` anything of yours that is
-   still running without a live runner.
-2. A background log without its exit sentinel after the VM is gone is an
-   interrupted run, not a pass; rerun it.
-3. Measure before/after pairs on the same size and location, never one side
+1. Rerun the same command first: a run whose runner died or detached
+   (`UBI_DETACHED`, exit 129 after a HUP) reattaches to its live VM and skips a
+   finished setup (`UBI_ATTACH_BUSY`: another runner owns it; exit 125
+   `UBI_ATTACH_LOST`: no status; `UBI_REATTACH_TTL_SHORT`: a fresh VM took over).
+2. `$U records` and `$U list --mine`, then `$U down` anything of yours that no
+   rerun will reattach to.
+3. After a machine swap nothing reattaches; tier checkpoints on a Drive
+   (`UBI_CHECKPOINT_DIR`) still count.
+4. A background log with no exit sentinel and no VM is an interrupted run, not
+   a pass; rerun it.
+5. Measure before/after pairs on the same size and location, never one side
    local and the other remote.

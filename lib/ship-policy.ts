@@ -75,7 +75,12 @@ export interface ShipPolicy {
   train: TrainPolicy | null;
   /** Documentation caps /ship Step 14.5 checks before the verification gate (`gstack-ship-receipt docs-caps`); null declares none. */
   docs: { caps: Array<{ path: string; max_bytes: number }> } | null;
+  /** How /ship reproduces a Step 5 failure on the base branch before calling it base-red (docs/ship-policy.md#base-red); null never calls one base-red. */
+  base_red: BaseRedPolicy | null;
 }
+
+/** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */
+export interface BaseRedPolicy { setup: string | null; select: string; timeout_sec: number }
 
 /** The `train` block: the gate workflow trains dispatch and how its verdict is read. */
 export interface TrainPolicy {
@@ -121,6 +126,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
+  base_red: null,
 };
 
 export type PolicyKey = Exclude<keyof ShipPolicy, '$schema'>;
@@ -150,6 +156,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   full_e2e: 'true: every merge needs a passing full-gate result (gstack-ship-queue gate-ahead --record, or the lane\'s --gate-exit 0 --gate-log on the gated head) bound to a tree equal to the merging one modulo stamps; ready, stamp and verify refuse without one (QUEUE_GATE_MISSING).',
   train: '{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd } or null: turns on merge trains in gstack-ship-queue (train build|status|verdict|bisect|rebuild|prune, ready --screen|--no-screen, verify --train). null keeps today\'s per-PR queue unchanged.',
   docs: '{ caps: [{ path, max_bytes }] } or null: documentation files with a byte cap. /ship Step 14.5 runs `gstack-ship-receipt docs-caps` before the verification gate and prints one DOCS_CAP: line per cap; a file over its cap (or absent) blocks the ship until the doc is trimmed or the cap raised on the base branch. null declares none.',
+  base_red: '{ setup, select, timeout_sec } or null: how /ship Step 5 proves a failure is the base branch\'s own (docs/ship-policy.md#base-red). gstack-base-red checks out the base head and the PR head in scratch worktrees, runs setup (dependency install, or null), then select with the failing test files in its {files} slot; only the same failures in both, in files the PR does not touch, are base-red, and /ship then pauses before READY instead of failing. Read from the base branch only. null keeps every failure in-branch.',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
 
@@ -183,6 +190,7 @@ export const DOCS_CAPS_KEY_VERSION = '1.91.270.0';
 export const CHANGELOG_FRAGMENTS_KEY_VERSION = '1.91.336.0';
 /** `bump: never` is a value of an older key, so the per-key floor check misses it; compatErrors checks it by value. */
 export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
+export const BASE_RED_KEY_VERSION = '1.91.374.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
@@ -190,6 +198,7 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   migrations: '1.91.98.0', gate_command: SHIP_QUEUE_KEYS_VERSION, full_e2e: SHIP_QUEUE_KEYS_VERSION, min_gstack_version: SHIP_QUEUE_KEYS_VERSION,
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
+  base_red: BASE_RED_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -373,6 +382,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('train' in obj && obj.train !== null) trainErrors(obj.train, errors);
   if ('docs' in obj && obj.docs !== null) docsErrors(obj.docs, errors);
   if ('changelog_fragments' in obj && obj.changelog_fragments !== null) fragmentsErrors(obj.changelog_fragments, errors);
+  if ('base_red' in obj && obj.base_red !== null) baseRedErrors(obj.base_red, errors);
   if ('stamp_paths' in obj) listErrors('stamp_paths', obj.stamp_paths, errors, globError);
   for (const key of ['changelog', 'mirror'] as const) {
     if (!(key in obj) || obj[key] === null) continue;
@@ -455,6 +465,21 @@ function docsErrors(raw: unknown, errors: PolicyError[]): void {
     if (why) errors.push({ code: 'POLICY_CONTAINMENT', path: `docs.caps[${i}].path`, message: `${JSON.stringify(c.path)} ${why}` });
     if (!Number.isInteger(c.max_bytes) || (c.max_bytes as number) < 1) errors.push({ code: 'POLICY_INVALID', path: `docs.caps[${i}].max_bytes`, message: 'must be an integer >= 1' });
   });
+}
+
+function baseRedErrors(raw: unknown, errors: PolicyError[]): void {
+  const b = raw as Record<string, unknown> | null;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) { errors.push({ code: 'POLICY_INVALID', path: 'base_red', message: 'must be { setup, select, timeout_sec } or null' }); return; }
+  for (const k of Object.keys(b)) if (!['setup', 'select', 'timeout_sec'].includes(k)) errors.push({ code: 'POLICY_INVALID', path: `base_red.${k}`, message: 'unknown key' });
+  const command = (key: string, value: unknown, nullable: boolean) => {
+    if (nullable && value === null) return;
+    if (typeof value !== 'string' || !value.trim()) errors.push({ code: 'POLICY_INVALID', path: `base_red.${key}`, message: `must be a non-empty string${nullable ? ' or null' : ''}` });
+    else if (value.length > MAX_COMMAND || /[\0\r\n]/.test(value)) errors.push({ code: 'POLICY_CONTAINMENT', path: `base_red.${key}`, message: `must be one line under ${MAX_COMMAND} characters` });
+  };
+  command('setup', b.setup, true);
+  command('select', b.select, false);
+  if (typeof b.select === 'string' && !b.select.includes('{files}')) errors.push({ code: 'POLICY_INVALID', path: 'base_red.select', message: 'needs a {files} slot for the failing test files' });
+  if (!Number.isInteger(b.timeout_sec) || (b.timeout_sec as number) < 10 || (b.timeout_sec as number) > 7200) errors.push({ code: 'POLICY_INVALID', path: 'base_red.timeout_sec', message: 'must be an integer from 10 to 7200' });
 }
 
 function fragmentsErrors(raw: unknown, errors: PolicyError[]): void {

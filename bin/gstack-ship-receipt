@@ -7,6 +7,7 @@
  *                             [--session-kind <k>] [--artifacts-consumed <n>/<m>] [--run <id>] [--thread <id>]
  *                             [--receipt <tree-receipt.json>] [--policy <label>] [--preregistration <text>] [--history <text>]
  *                             [--pregate <pregate.json>] [--issues <json|@file>] [--approval <line>]... [--approval-run <dir>]...
+ *                             [--base-red <pause.json>]
  *                             [--out <file>] [--body <pr-body.md>] [--json]
  *   gstack-ship-receipt read --pr <n> [--repo <owner/repo>] [--check-prose] [--json]
  *   gstack-ship-receipt read --body <file> [--json]
@@ -47,11 +48,13 @@ import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from 
 import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptDepthAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
+import { readPause, receiptBaseRed } from '../lib/base-red';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
 
 const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block (docs/ship-policy.md#ship-receipt)
 
-  write [flags]                       compose, validate and print the block; --body <file> puts it first in that PR body
+  write [flags]                       compose, validate and print the block; --body <file> puts it first in that PR body;
+                                      --base-red <pause.json> makes it conditional (gstack-base-red classify --pause)
   read --pr <n> [--repo <r>]          parse the block from the PR body through gh (RECEIPT_MISSING / RECEIPT_INVALID)
   read --body <file>                  parse the block from a file
   read … --check-prose                also compare every counter the body quotes (passes=2, 1 deferred, passed: 41)
@@ -184,6 +187,8 @@ function cmdWrite(rest: string[], json: boolean): number {
     if (!read.ok) { for (const e of read.errors) process.stderr.write(resultLine('gstack-ship-receipt write', e.code, `${e.message}; nothing written`) + '\n'); return EXIT.fail; }
     pregate = read.field;
   }
+  const pause = flag(rest, '--base-red') ? readPause(flag(rest, '--base-red')!) : undefined;
+  if (typeof pause === 'string') { process.stderr.write(`gstack-ship-receipt write: --base-red: ${pause}; nothing written\n`); return EXIT.usage; }
   const base = flag(rest, '--base') ?? resolveBaseBranch(repoRoot);
   const bodyFile = flag(rest, '--body');
   const bodyText = bodyFile && fs.existsSync(bodyFile) ? fs.readFileSync(bodyFile, 'utf8').replace(/```gstack-ship-receipt[\s\S]*?\n```/g, '') : '';
@@ -247,6 +252,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
       review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...product,
       gstack_version: runningGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
+      base_red: pause ? receiptBaseRed(pause) : undefined,
     };
   } catch (e: any) { process.stderr.write(`gstack-ship-receipt write: ${e.message}\n`); return EXIT.usage; }
   if (input.pr !== undefined && !Number.isInteger(input.pr)) { process.stderr.write('gstack-ship-receipt write: --pr must be an integer\n'); return EXIT.usage; }
@@ -355,13 +361,16 @@ function cmdResult(rest: string[], json: boolean): number {
     }
     source = `PR #${pr}${repo ? ` (${repo})` : ''}`;
   } else { process.stderr.write(`gstack-ship-receipt result: --pr <n> or --body <file> is required\n${HELP}\n`); return EXIT.usage; }
-  const bound = bindReceipt(body, pr, [head]);
+  const bound = bindReceipt(body, pr, [head], { conditional: true });
   if (!bound.ok) return refused(bound.code, bound.message);
-  return writeRunRecord({ receipt: bound.receipt, head, pr, source, repoRoot, out: flag(rest, '--out'), json, line: bound.line, incomplete });
+  const red = bound.receipt.base_red;
+  if (red) process.stderr.write(`SHIP_PAUSED: base-red cases=${red.cases.length} base=${red.base.slice(0, 12)} lane=${red.lane} expires=${red.expires_at}; gstack-base-red wait --pause <file>, then /ship --resume <record>\n`);
+  return writeRunRecord({ receipt: bound.receipt, head, pr, source, repoRoot, out: flag(rest, '--out'), json, line: bound.line, incomplete, status: red ? 'incomplete' : 'complete' });
 }
 
 /** The run record under <state>/ship/runs/ and the terminal line, shared by `result` and `carry`. */
-function writeRunRecord(a: { receipt: ShipReceipt; head: string; pr: string | undefined; source: string; repoRoot: string | undefined; out: string | undefined; json: boolean; line: string; incomplete: (why: string) => number; extra?: Record<string, unknown> }): number {
+function writeRunRecord(a: { receipt: ShipReceipt; head: string; pr: string | undefined; source: string; repoRoot: string | undefined; out: string | undefined; json: boolean; line: string; incomplete: (why: string) => number; extra?: Record<string, unknown>; status?: 'complete' | 'incomplete' }): number {
+  const status = a.status ?? 'complete';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const dir = a.out ? path.resolve(a.out) : path.join(resolveStateRoot(), 'ship', 'runs', `${stamp}-${a.head.slice(0, 12)}`);
   const receiptPath = path.join(dir, 'ship-receipt.md');
@@ -370,15 +379,15 @@ function writeRunRecord(a: { receipt: ShipReceipt; head: string; pr: string | un
     fs.writeFileSync(receiptPath, renderReceiptBlock(a.receipt));
   } catch (e) { return a.incomplete(`cannot write the run record under ${dir}: ${e instanceof Error ? e.message : String(e)}`); }
   const run = {
-    schema_version: 1, skill: 'ship', status: 'complete', head: a.head, pr: a.receipt.pr ?? (a.pr ? Number(a.pr) : null), base: a.receipt.base, version: a.receipt.version ?? null,
+    schema_version: 1, skill: 'ship', status, head: a.head, pr: a.receipt.pr ?? (a.pr ? Number(a.pr) : null), base: a.receipt.base, version: a.receipt.version ?? null,
     queue_mode: a.receipt.queue_mode ?? null, session_kind: a.receipt.session_kind ?? process.env.GSTACK_SESSION_KIND ?? null,
     receipt: receiptPath, receipt_source: a.source, branch: a.repoRoot ? git(['rev-parse', '--abbrev-ref', 'HEAD'], a.repoRoot) ?? null : null, created_at: new Date().toISOString(),
     ...(a.extra ?? {}),
   };
   try { fs.writeFileSync(path.join(dir, 'ship-run.json'), JSON.stringify(run, null, 2) + '\n'); } catch (e) { return a.incomplete(`cannot write ${path.join(dir, 'ship-run.json')}: ${e instanceof Error ? e.message : String(e)}`); }
   process.stderr.write(a.line + '\n');
-  process.stdout.write(a.json ? JSON.stringify({ ...run, run: dir }) + '\n' : `GSTACK_RESULT: skill=ship status=complete run=${dir}\n`);
-  return EXIT.ok;
+  process.stdout.write(a.json ? JSON.stringify({ ...run, run: dir }) + '\n' : `GSTACK_RESULT: skill=ship status=${status} run=${dir}\n`);
+  return status === 'complete' ? EXIT.ok : EXIT.fail;
 }
 
 /**
@@ -497,7 +506,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (!repoRoot) { process.stderr.write('gstack-ship-receipt carry: run it inside the git checkout whose head carries the receipt\n'); return EXIT.usage; }
   const head = (flag(rest, '--head') ?? git(['rev-parse', 'HEAD'], repoRoot))?.toLowerCase();
   if (!head || !/^[0-9a-f]{40,64}$/.test(head)) { process.stderr.write('gstack-ship-receipt carry: cannot resolve HEAD\n'); return EXIT.usage; }
-  const refused = (code: 'QUEUE_RECEIPT_MISSING' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_TREE_MISMATCH' | 'RECEIPT_GIT_TOO_OLD' | 'RECEIPT_CARRY_PREGATE_STALE', message: string) => {
+  const refused = (code: 'QUEUE_RECEIPT_MISSING' | 'QUEUE_RECEIPT_CONDITIONAL' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_TREE_MISMATCH' | 'RECEIPT_GIT_TOO_OLD' | 'RECEIPT_CARRY_PREGATE_STALE', message: string) => {
     process.stderr.write(resultLineWithDocs('gstack-ship-receipt carry', code, message) + '\n');
     process.stdout.write(json ? JSON.stringify({ skill: 'ship', status: 'refused', run: '-', code, message }) + '\n' : `CARRY: refused (${code})\nGSTACK_RESULT: skill=ship status=refused run=-\n`);
     return EXIT.refused;
@@ -529,6 +538,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (!ex.receipt || ex.errors.length) return refused('QUEUE_RECEIPT_MISSING', `${source}'s ship receipt is invalid (${ex.errors[0]?.message ?? 'invalid'}); run /ship`);
   const receipt = ex.receipt;
   if (pr !== undefined && receipt.pr !== undefined && String(receipt.pr) !== pr) return refused('RECEIPT_CARRY_REFUSED', `the receipt names pr=${receipt.pr}, not this PR`);
+  if (receipt.base_red) return refused('QUEUE_RECEIPT_CONDITIONAL', 'the receipt is paused on a red base, so there is nothing passing to carry; /ship --resume <record> re-runs Step 5 and writes a full receipt');
   const from = receipt.head.toLowerCase();
   if (!/^[0-9a-f]{40,64}$/.test(from)) return refused('RECEIPT_CARRY_REFUSED', `the receipt's head ${receipt.head.slice(0, 12)} is not a full commit id`);
   if (from === head) {
