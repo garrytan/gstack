@@ -85,7 +85,7 @@ function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B' } = {}) {
   if ((opts.cloneAt ?? 'A') === 'A') git(['clone', '-q', '--single-branch', '--depth', '1', `file://${bare}`, root], host.base);
   write(path.join(seed, 'VERSION'), '1.0.1\n');
   write(path.join(seed, 'capy/support.env'), `GSTACK_MIN_REVISION=1.0.1\nGSTACK_CAPY_MIN_WRAPPER=${opts.minWrapper ?? 1}\n`);
-  for (const rel of ['capy/skill/gstack/scripts/install.sh', 'capy/skill/gstack/SKILL.md', 'bin/gstack-capy-session', 'bin/gstack-install-verdict.sh', ...UPGRADE_DEPS]) {
+  for (const rel of ['capy/skill/gstack/scripts/install.sh', 'capy/skill/gstack/SKILL.md', 'bin/gstack-capy-session', 'bin/gstack-install-verdict.sh', 'bin/gstack-doctor-components.sh', ...UPGRADE_DEPS]) {
     if (fs.existsSync(path.join(REPO, rel))) write(path.join(seed, rel), fs.readFileSync(path.join(REPO, rel), 'utf8'), 0o755);
   }
   write(path.join(seed, 'bin/gstack-capy-install'), STUB_INSTALLER, 0o755);
@@ -418,6 +418,58 @@ describe('capy skill: the session hands the installer GSTACK_CAPY_BEHIND', () =>
     expect(aged).toContain(f.b);
     expect(aged).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
     expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
+  });
+
+  // GST-290: a dispatched reviewer's install ran with no lease of its own, fast-forwarded the
+  // shared checkout and rewrote the verdict to for=review-voice, so the lane's next autoplan
+  // admission refused (INSTALL_UNVERIFIED). A review-voice install never moves the checkout.
+  describe('--for review-voice never self-upgrades a shared checkout', () => {
+    const blocked = (root: string) => `review-voice never self-upgrades a shared checkout; fix: ${root}/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED)`;
+    const behindFixture = () => {
+      const f = fixture({ cloneAt: 'B' });
+      write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);
+      f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+      return f;
+    };
+
+    test('install mode behind origin with no lease: skipped with the reason, HEAD stays, and the installer gets behind, gstack-upgrade as the fix and the blocked reason', () => {
+      const f = behindFixture();
+      const r = f.run(['--for', 'review-voice']);
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(r.stdout).toContain(`SELF_UPGRADE: skipped (${blocked(f.root)})\n`);
+      expect(r.stdout).not.toContain('SELF_UPGRADE: done');
+      expect(r.last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 to=1.0.2 fix=${f.root}/bin/gstack-upgrade blocked=${blocked(f.root)}`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+      expect(f.run(['--for', 'review-voice'], { GSTACK_UPGRADE_FORCE: '1' }).stdout).toContain(`SELF_UPGRADE: skipped (${blocked(f.root)})\n`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
+    test('install mode behind origin with bin/gstack-doctor-components.sh missing: still skipped (the profile check fails closed for review-voice)', () => {
+      const f = behindFixture();
+      f.git(['update-index', '--assume-unchanged', 'bin/gstack-doctor-components.sh']);
+      fs.rmSync(path.join(f.root, 'bin/gstack-doctor-components.sh'));
+      const r = f.run(['--for', 'review-voice']);
+      expect(r.stdout).toContain(`SELF_UPGRADE: skipped (${blocked(f.root)})\n`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
+    test('install mode on a current checkout: none (current), and no blocked reason', () => {
+      const f = fixture({ cloneAt: 'B' });
+      f.git(['fetch', '-q', 'origin', 'main']);
+      f.git(['merge', '--ff-only', '-q', 'FETCH_HEAD']);
+      write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);
+      f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+      const r = f.run(['--for', 'review-voice']);
+      expect(r.stdout).toMatch(/^SELF_UPGRADE: none \(current\)$/m);
+      expect(r.last).toBe('gstack: ok 1.0.2 for=autoplan behind=none to=none fix=none');
+    });
+
+    test('--check behind origin: the fix is gstack-upgrade, not the install rerun (which would not move a review-voice checkout)', () => {
+      const f = behindFixture();
+      const r = f.run(['--check', '--for', 'review-voice']);
+      expect(r.last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 to=1.0.2 fix=${f.root}/bin/gstack-upgrade`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
   });
 
   test('an older bootstrapper handing --for none to the session in install mode: the session certifies nothing and moves nothing (no self-upgrade, HEAD unchanged), and reports behind like --check', () => {
