@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.93.32.0] - 2026-11-02
+
+- **`bin/dev-setup` works in a fresh clone again.** It installed dependencies, then setup refused with "project-local Codex destination overlaps the source tree" and exited 1, because setup's overlap guard read gstack's own `.agents/skills` as a foreign project's skills directory pointing into the checkout. Setup now allows that one layout, where the project is the gstack checkout itself and its Codex skills directory is that checkout's own `.agents/skills`. Every other overlap is still refused. That includes a user project whose `.agents/skills` leads into a gstack checkout, a checkout whose `.agents/skills` points at its own root, and `--host codex` run from a dev checkout, which the Codex preflight still stops before any write. test/dev-setup-fresh-clone.test.ts covers the fresh clone and all three refusals (GST-768).
+
 ## [1.93.31.0] - 2026-11-02
 
 **A CSO hardening test now fails at the Git step that broke instead of passing without testing anything.** `fixtureGit` in `test/cso-git-hardening.test.ts` threw only on a non-zero exit status. When Git was killed by its 30-second timeout or could not start, `spawnSync` returned a `null` status, and the helper treated that as success. If that happened to the `git replace` step, the test that checks a security snapshot ignores replaced history would pass without a replacement in place. The helper now throws on a spawn error or any status other than 0, and the message names the Git arguments, the status and the signal. The stricter helper showed that the file's warm-up step had been calling `/usr/bin/git` on Windows, where it doesn't exist, on every run. It was passing only because the error was swallowed. Every test in the file already skips on Windows, so the warm-up now skips there too.
