@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.95.4.0] - 2026-11-03
+
+### Fixed
+- **The lean `/autoplan` reviewer sees the committed draft on a PR-branch checkout** (GST-1241). Draft capture took `origin/HEAD` as its base, and a Capy machine started on a PR branch points `origin/HEAD` at that branch, so the reviewer got `DRAFT: none (no code changes against origin/<branch>)`. It now resolves the base through `lib/default-base.ts`, the same resolver `bin/gstack-diff-scope` uses, which skips an `origin/HEAD` naming the checked-out branch and falls back to the PR base, the remote's live HEAD, then `origin/main`.
+
 ## [1.95.3.0] - 2026-11-03
 
 **A crew thread no longer creates threads itself. It asks its Captain, so every new thread joins a crew from the start (R68). docs/captain.md also warns that `tools.capy.read` returns a cut-down view of long files.**
