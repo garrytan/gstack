@@ -4,6 +4,7 @@
 
 import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
+import { validateUrl } from './url-validation';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 
@@ -152,6 +153,8 @@ export async function handleMetaCommand(
     case 'diff': {
       const [url1, url2] = args;
       if (!url1 || !url2) throw new Error('Usage: browse diff <url1> <url2>');
+      validateUrl(url1);
+      validateUrl(url2);
 
       // Get text from URL1
       const page = bm.getPage();

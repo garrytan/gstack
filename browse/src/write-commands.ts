@@ -6,6 +6,7 @@
  */
 
 import type { BrowserManager } from './browser-manager';
+import { validateUrl } from './url-validation';
 
 export async function handleWriteCommand(
   command: string,
@@ -18,6 +19,7 @@ export async function handleWriteCommand(
     case 'goto': {
       const url = args[0];
       if (!url) throw new Error('Usage: browse goto <url>');
+      validateUrl(url);
       const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const status = response?.status() || 'unknown';
       return `Navigated to ${url} (${status})`;

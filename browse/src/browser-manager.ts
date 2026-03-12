@@ -9,6 +9,7 @@
 
 import { chromium, type Browser, type BrowserContext, type Page, type Locator } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, networkBuffer, type LogEntry, type NetworkEntry } from './buffers';
+import { validateUrl } from './url-validation';
 
 export class BrowserManager {
   private browser: Browser | null = null;
@@ -66,6 +67,7 @@ export class BrowserManager {
     this.wirePageEvents(page);
 
     if (url) {
+      validateUrl(url);
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
     }
 
