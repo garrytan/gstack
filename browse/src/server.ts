@@ -2,10 +2,12 @@
  * gstack browse server — persistent Chromium daemon
  *
  * Architecture:
- *   Bun.serve HTTP on localhost → routes commands to Playwright
+ *   HTTP server on localhost → routes commands to Playwright
  *   Console/network buffers: in-memory (all entries) + disk flush every 1s
  *   Chromium crash → server EXITS with clear error (CLI auto-restarts)
  *   Auto-shutdown after BROWSE_IDLE_TIMEOUT (default 30 min)
+ *
+ * Runtime: works under both Bun and Node (uses node:http/node:net)
  */
 
 import { BrowserManager } from './browser-manager';
@@ -15,6 +17,8 @@ import { handleMetaCommand } from './meta-commands';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 
 // ─── Auth (inline) ─────────────────────────────────────────────
 const AUTH_TOKEN = crypto.randomUUID();
@@ -25,11 +29,6 @@ const BROWSE_PORT = process.env.CONDUCTOR_PORT
 const INSTANCE_SUFFIX = BROWSE_PORT ? `-${BROWSE_PORT}` : '';
 const STATE_FILE = process.env.BROWSE_STATE_FILE || `/tmp/browse-server${INSTANCE_SUFFIX}.json`;
 const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
-
-function validateAuth(req: Request): boolean {
-  const header = req.headers.get('authorization');
-  return header === `Bearer ${AUTH_TOKEN}`;
-}
 
 // ─── Buffer (from buffers.ts) ────────────────────────────────────
 import { consoleBuffer, networkBuffer, addConsoleEntry, addNetworkEntry, consoleTotalAdded, networkTotalAdded, type LogEntry, type NetworkEntry } from './buffers';
@@ -107,28 +106,32 @@ const META_COMMANDS = new Set([
   'url', 'snapshot',
 ]);
 
+// Check if a port is available using node:net (works in both Bun and Node)
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createNetServer();
+    server.once('error', () => resolve(false));
+    server.listen(port, '127.0.0.1', () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
 // Find port: deterministic from CONDUCTOR_PORT, or scan range
 async function findPort(): Promise<number> {
   // Deterministic port from CONDUCTOR_PORT (e.g., 55040 - 45600 = 9440)
   if (BROWSE_PORT) {
-    try {
-      const testServer = Bun.serve({ port: BROWSE_PORT, fetch: () => new Response('ok') });
-      testServer.stop();
+    if (await isPortAvailable(BROWSE_PORT)) {
       return BROWSE_PORT;
-    } catch {
-      throw new Error(`[browse] Port ${BROWSE_PORT} (from CONDUCTOR_PORT ${process.env.CONDUCTOR_PORT}) is in use`);
     }
+    throw new Error(`[browse] Port ${BROWSE_PORT} (from CONDUCTOR_PORT ${process.env.CONDUCTOR_PORT}) is in use`);
   }
 
   // Fallback: scan range
   const start = parseInt(process.env.BROWSE_PORT_START || '9400', 10);
   for (let port = start; port < start + 10; port++) {
-    try {
-      const testServer = Bun.serve({ port, fetch: () => new Response('ok') });
-      testServer.stop();
+    if (await isPortAvailable(port)) {
       return port;
-    } catch {
-      continue;
     }
   }
   throw new Error(`[browse] No available port in range ${start}-${start + 9}`);
@@ -208,43 +211,65 @@ async function start() {
   await browserManager.launch();
 
   const startTime = Date.now();
-  const server = Bun.serve({
-    port,
-    hostname: '127.0.0.1',
-    fetch: async (req) => {
-      resetIdleTimer();
 
-      const url = new URL(req.url);
+  // Collect full request body from node:http IncomingMessage
+  function readBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', (chunk: Buffer) => { data += chunk; });
+      req.on('end', () => resolve(data));
+      req.on('error', reject);
+    });
+  }
 
-      // Health check — no auth required
-      if (url.pathname === '/health') {
-        const healthy = browserManager.isHealthy();
-        return new Response(JSON.stringify({
-          status: healthy ? 'healthy' : 'unhealthy',
-          uptime: Math.floor((Date.now() - startTime) / 1000),
-          tabs: browserManager.getTabCount(),
-          currentUrl: browserManager.getCurrentUrl(),
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
+  // Send a Response object through node:http ServerResponse
+  async function sendResponse(res: ServerResponse, response: Response) {
+    const body = await response.text();
+    const headers: Record<string, string> = {};
+    response.headers.forEach((v, k) => { headers[k] = v; });
+    res.writeHead(response.status, headers);
+    res.end(body);
+  }
 
-      // All other endpoints require auth
-      if (!validateAuth(req)) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
+  const server = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
+    resetIdleTimer();
 
-      if (url.pathname === '/command' && req.method === 'POST') {
-        const body = await req.json();
-        return handleCommand(body);
-      }
+    const url = new URL(req.url!, `http://127.0.0.1:${port}`);
 
-      return new Response('Not found', { status: 404 });
-    },
+    // Health check — no auth required
+    if (url.pathname === '/health') {
+      const healthy = browserManager.isHealthy();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        status: healthy ? 'healthy' : 'unhealthy',
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+        tabs: browserManager.getTabCount(),
+        currentUrl: browserManager.getCurrentUrl(),
+      }));
+      return;
+    }
+
+    // All other endpoints require auth
+    if (req.headers['authorization'] !== `Bearer ${AUTH_TOKEN}`) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    if (url.pathname === '/command' && req.method === 'POST') {
+      const bodyStr = await readBody(req);
+      const body = JSON.parse(bodyStr);
+      const response = await handleCommand(body);
+      await sendResponse(res, response);
+      return;
+    }
+
+    res.writeHead(404);
+    res.end('Not found');
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, '127.0.0.1', () => resolve());
   });
 
   // Write state file
@@ -253,7 +278,7 @@ async function start() {
     port,
     token: AUTH_TOKEN,
     startedAt: new Date().toISOString(),
-    serverPath: path.resolve(import.meta.dir, 'server.ts'),
+    serverPath: path.resolve(import.meta.dir ?? __dirname, 'server.ts'),
   };
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
 

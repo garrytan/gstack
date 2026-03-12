@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn as nodeSpawn } from 'node:child_process';
 
 const PORT_OFFSET = 45600;
 const BROWSE_PORT = process.env.CONDUCTOR_PORT
@@ -19,6 +20,8 @@ const BROWSE_PORT = process.env.CONDUCTOR_PORT
 const INSTANCE_SUFFIX = BROWSE_PORT ? `-${BROWSE_PORT}` : '';
 const STATE_FILE = process.env.BROWSE_STATE_FILE || `/tmp/browse-server${INSTANCE_SUFFIX}.json`;
 const MAX_START_WAIT = 8000; // 8 seconds to start
+
+const IS_WINDOWS = process.platform === 'win32';
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -29,8 +32,8 @@ export function resolveServerScript(
     return env.BROWSE_SERVER_SCRIPT;
   }
 
-  // Dev mode: cli.ts runs directly from browse/src
-  if (metaDir.startsWith('/') && !metaDir.includes('$bunfs')) {
+  // Dev mode: cli.ts runs directly from browse/src (Unix paths start with /, Windows with drive letter)
+  if (!metaDir.includes('$bunfs')) {
     const direct = path.resolve(metaDir, 'server.ts');
     if (fs.existsSync(direct)) {
       return direct;
@@ -46,10 +49,34 @@ export function resolveServerScript(
   }
 
   // Legacy fallback for user-level installs
-  return path.resolve(env.HOME || '/tmp', '.claude/skills/gstack/browse/src/server.ts');
+  return path.resolve(env.HOME || env.USERPROFILE || '/tmp', '.claude/skills/gstack/browse/src/server.ts');
+}
+
+/**
+ * On Windows, Bun's subprocess management hangs when Playwright spawns Chromium.
+ * Use a pre-bundled server.js with Node instead. On Unix, Bun works fine.
+ */
+export function resolveServerBundle(
+  env: Record<string, string | undefined> = process.env,
+  execPath: string = process.execPath
+): string | null {
+  if (!IS_WINDOWS) return null;
+
+  // Look for compiled server.js next to the browse binary
+  if (execPath) {
+    const bundled = path.resolve(path.dirname(execPath), 'server.js');
+    if (fs.existsSync(bundled)) return bundled;
+  }
+
+  // Fallback: check user-level install
+  const fallback = path.resolve(env.HOME || env.USERPROFILE || '/tmp', '.claude/skills/gstack/browse/dist/server.js');
+  if (fs.existsSync(fallback)) return fallback;
+
+  return null;
 }
 
 const SERVER_SCRIPT = resolveServerScript();
+const SERVER_BUNDLE = resolveServerBundle();
 
 interface ServerState {
   pid: number;
@@ -84,13 +111,29 @@ async function startServer(): Promise<ServerState> {
   try { fs.unlinkSync(STATE_FILE); } catch {}
 
   // Start server as detached background process
-  const proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env },
-  });
+  // On Windows, Bun + Playwright hangs on chromium.launch(), so use Node with
+  // a pre-bundled server.js. On Unix, Bun runs the .ts source directly.
+  // We also use node:child_process on Windows for proper detaching (Bun.spawn
+  // + unref doesn't fully detach on Windows, causing the server to die with the CLI).
+  const useNode = IS_WINDOWS && SERVER_BUNDLE;
+  const spawnCmd = useNode ? 'node' : 'bun';
+  const spawnArgs = useNode ? [SERVER_BUNDLE] : ['run', SERVER_SCRIPT];
 
-  // Don't hold the CLI open
-  proc.unref();
+  if (IS_WINDOWS) {
+    // node:child_process with detached:true properly orphans on Windows
+    const child = nodeSpawn(spawnCmd, spawnArgs, {
+      stdio: 'ignore',
+      detached: true,
+      env: { ...process.env },
+    });
+    child.unref();
+  } else {
+    const proc = Bun.spawn([spawnCmd, ...spawnArgs], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env },
+    });
+    proc.unref();
+  }
 
   // Wait for state file to appear
   const start = Date.now();
@@ -102,17 +145,6 @@ async function startServer(): Promise<ServerState> {
     await Bun.sleep(100);
   }
 
-  // If we get here, server didn't start in time
-  // Try to read stderr for error message
-  const stderr = proc.stderr;
-  if (stderr) {
-    const reader = stderr.getReader();
-    const { value } = await reader.read();
-    if (value) {
-      const errText = new TextDecoder().decode(value);
-      throw new Error(`Server failed to start:\n${errText}`);
-    }
-  }
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
 

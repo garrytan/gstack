@@ -8,7 +8,7 @@
     "browse": "./browse/dist/browse"
   },
   "scripts": {
-    "build": "bun build --compile browse/src/cli.ts --outfile browse/dist/browse",
+    "build": "bun build --compile browse/src/cli.ts --outfile browse/dist/browse && bun build browse/src/server.ts --outfile browse/dist/server.js --target node --packages external --format esm",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
     "test": "bun test",
