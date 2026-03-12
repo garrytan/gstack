@@ -1,6 +1,7 @@
 ---
 name: browse
 version: 1.0.0
+model: sonnet
 description: |
   Fast web browsing for Claude Code via persistent headless Chromium daemon. Navigate to any URL,
   read page content, click elements, fill forms, run JavaScript, take screenshots,

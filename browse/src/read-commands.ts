@@ -8,6 +8,27 @@
 import type { BrowserManager } from './browser-manager';
 import { consoleBuffer, networkBuffer } from './buffers';
 import * as fs from 'fs';
+import * as path from 'path';
+
+/**
+ * Validates that a file path is within allowed directories to prevent path traversal.
+ * Allowed directories: /tmp, CWD, and subdirectories of CWD.
+ */
+function validateFilePath(filePath: string): void {
+  // Reject absolute paths outside /tmp
+  if (path.isAbsolute(filePath) && !filePath.startsWith('/tmp/')) {
+    throw new Error(`Security: Absolute paths must be within /tmp. Received: ${filePath}`);
+  }
+  
+  // Resolve the path and check for traversal
+  const resolvedPath = path.resolve(filePath);
+  const cwd = process.cwd();
+  const tmpDir = '/tmp';
+  
+  if (!resolvedPath.startsWith(tmpDir + '/') && !resolvedPath.startsWith(cwd + '/')) {
+    throw new Error(`Security: File must be within /tmp or the current working directory. Received: ${filePath}`);
+  }
+}
 
 export async function handleReadCommand(
   command: string,
@@ -98,6 +119,7 @@ export async function handleReadCommand(
     case 'eval': {
       const filePath = args[0];
       if (!filePath) throw new Error('Usage: browse eval <js-file>');
+      validateFilePath(filePath);
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const code = fs.readFileSync(filePath, 'utf-8');
       const result = await page.evaluate(code);
