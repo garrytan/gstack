@@ -42,8 +42,12 @@ export async function handleWriteCommand(
       const selector = args[0];
       if (!selector) throw new Error('Usage: browse click <selector>');
       const resolved = bm.resolveRef(selector);
-      if ('locator' in resolved) {
-        await resolved.locator.click({ timeout: 5000 });
+      if ('handle' in resolved) {
+        try {
+          await resolved.handle.click({ timeout: 5000 });
+        } catch (err) {
+          bm.rethrowIfStaleRef(selector, err);
+        }
       } else {
         await page.click(resolved.selector, { timeout: 5000 });
       }
@@ -55,10 +59,14 @@ export async function handleWriteCommand(
     case 'fill': {
       const [selector, ...valueParts] = args;
       const value = valueParts.join(' ');
-      if (!selector || !value) throw new Error('Usage: browse fill <selector> <value>');
+      if (!selector || args.length < 2) throw new Error('Usage: browse fill <selector> <value>');
       const resolved = bm.resolveRef(selector);
-      if ('locator' in resolved) {
-        await resolved.locator.fill(value, { timeout: 5000 });
+      if ('handle' in resolved) {
+        try {
+          await resolved.handle.fill(value, { timeout: 5000 });
+        } catch (err) {
+          bm.rethrowIfStaleRef(selector, err);
+        }
       } else {
         await page.fill(resolved.selector, value, { timeout: 5000 });
       }
@@ -68,10 +76,14 @@ export async function handleWriteCommand(
     case 'select': {
       const [selector, ...valueParts] = args;
       const value = valueParts.join(' ');
-      if (!selector || !value) throw new Error('Usage: browse select <selector> <value>');
+      if (!selector || args.length < 2) throw new Error('Usage: browse select <selector> <value>');
       const resolved = bm.resolveRef(selector);
-      if ('locator' in resolved) {
-        await resolved.locator.selectOption(value, { timeout: 5000 });
+      if ('handle' in resolved) {
+        try {
+          await resolved.handle.selectOption(value, { timeout: 5000 });
+        } catch (err) {
+          bm.rethrowIfStaleRef(selector, err);
+        }
       } else {
         await page.selectOption(resolved.selector, value, { timeout: 5000 });
       }
@@ -82,8 +94,12 @@ export async function handleWriteCommand(
       const selector = args[0];
       if (!selector) throw new Error('Usage: browse hover <selector>');
       const resolved = bm.resolveRef(selector);
-      if ('locator' in resolved) {
-        await resolved.locator.hover({ timeout: 5000 });
+      if ('handle' in resolved) {
+        try {
+          await resolved.handle.hover({ timeout: 5000 });
+        } catch (err) {
+          bm.rethrowIfStaleRef(selector, err);
+        }
       } else {
         await page.hover(resolved.selector, { timeout: 5000 });
       }
@@ -108,8 +124,12 @@ export async function handleWriteCommand(
       const selector = args[0];
       if (selector) {
         const resolved = bm.resolveRef(selector);
-        if ('locator' in resolved) {
-          await resolved.locator.scrollIntoViewIfNeeded({ timeout: 5000 });
+        if ('handle' in resolved) {
+          try {
+            await resolved.handle.scrollIntoViewIfNeeded({ timeout: 5000 });
+          } catch (err) {
+            bm.rethrowIfStaleRef(selector, err);
+          }
         } else {
           await page.locator(resolved.selector).scrollIntoViewIfNeeded({ timeout: 5000 });
         }
@@ -124,8 +144,12 @@ export async function handleWriteCommand(
       if (!selector) throw new Error('Usage: browse wait <selector>');
       const timeout = args[1] ? parseInt(args[1], 10) : 15000;
       const resolved = bm.resolveRef(selector);
-      if ('locator' in resolved) {
-        await resolved.locator.waitFor({ state: 'visible', timeout });
+      if ('handle' in resolved) {
+        try {
+          await resolved.handle.waitForElementState('visible', { timeout });
+        } catch (err) {
+          bm.rethrowIfStaleRef(selector, err);
+        }
       } else {
         await page.waitForSelector(resolved.selector, { timeout });
       }
@@ -142,16 +166,28 @@ export async function handleWriteCommand(
 
     case 'cookie': {
       const cookieStr = args[0];
-      if (!cookieStr || !cookieStr.includes('=')) throw new Error('Usage: browse cookie <name>=<value>');
+      if (!cookieStr || !cookieStr.includes('=')) throw new Error('Usage: browse cookie <name>=<value> [origin]');
       const eq = cookieStr.indexOf('=');
       const name = cookieStr.slice(0, eq);
       const value = cookieStr.slice(eq + 1);
-      const url = new URL(page.url());
+      let cookieUrl: string;
+      if (args[1]) {
+        try {
+          cookieUrl = new URL(args[1]).origin;
+        } catch {
+          throw new Error('Usage: browse cookie <name>=<value> [origin]');
+        }
+      } else {
+        const currentUrl = page.url();
+        if (currentUrl === 'about:blank') {
+          throw new Error('Usage: browse cookie <name>=<value> [origin]');
+        }
+        cookieUrl = new URL(currentUrl).origin;
+      }
       await page.context().addCookies([{
         name,
         value,
-        domain: url.hostname,
-        path: '/',
+        url: cookieUrl,
       }]);
       return `Cookie set: ${name}=${value}`;
     }

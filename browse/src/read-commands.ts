@@ -35,8 +35,12 @@ export async function handleReadCommand(
       const selector = args[0];
       if (selector) {
         const resolved = bm.resolveRef(selector);
-        if ('locator' in resolved) {
-          return await resolved.locator.innerHTML({ timeout: 5000 });
+        if ('handle' in resolved) {
+          try {
+            return await resolved.handle.innerHTML();
+          } catch (err) {
+            bm.rethrowIfStaleRef(selector, err);
+          }
         }
         return await page.innerHTML(resolved.selector);
       }
@@ -108,12 +112,16 @@ export async function handleReadCommand(
       const [selector, property] = args;
       if (!selector || !property) throw new Error('Usage: browse css <selector> <property>');
       const resolved = bm.resolveRef(selector);
-      if ('locator' in resolved) {
-        const value = await resolved.locator.evaluate(
-          (el, prop) => getComputedStyle(el).getPropertyValue(prop),
-          property
-        );
-        return value;
+      if ('handle' in resolved) {
+        try {
+          const value = await resolved.handle.evaluate(
+            (el, prop) => getComputedStyle(el as Element).getPropertyValue(prop),
+            property
+          );
+          return value;
+        } catch (err) {
+          bm.rethrowIfStaleRef(selector, err);
+        }
       }
       const value = await page.evaluate(
         ([sel, prop]) => {
@@ -130,15 +138,19 @@ export async function handleReadCommand(
       const selector = args[0];
       if (!selector) throw new Error('Usage: browse attrs <selector>');
       const resolved = bm.resolveRef(selector);
-      if ('locator' in resolved) {
-        const attrs = await resolved.locator.evaluate((el) => {
-          const result: Record<string, string> = {};
-          for (const attr of el.attributes) {
-            result[attr.name] = attr.value;
-          }
-          return result;
-        });
-        return JSON.stringify(attrs, null, 2);
+      if ('handle' in resolved) {
+        try {
+          const attrs = await resolved.handle.evaluate((el) => {
+            const result: Record<string, string> = {};
+            for (const attr of (el as Element).attributes) {
+              result[attr.name] = attr.value;
+            }
+            return result;
+          });
+          return JSON.stringify(attrs, null, 2);
+        } catch (err) {
+          bm.rethrowIfStaleRef(selector, err);
+        }
       }
       const attrs = await page.evaluate((sel) => {
         const el = document.querySelector(sel);

@@ -18,7 +18,10 @@ const BROWSE_PORT = process.env.CONDUCTOR_PORT
   : parseInt(process.env.BROWSE_PORT || '0', 10);
 const INSTANCE_SUFFIX = BROWSE_PORT ? `-${BROWSE_PORT}` : '';
 const STATE_FILE = process.env.BROWSE_STATE_FILE || `/tmp/browse-server${INSTANCE_SUFFIX}.json`;
+// Serialize startup so parallel agent shells don't spawn duplicate daemons.
+const LOCK_FILE = `${STATE_FILE}.lock`;
 const MAX_START_WAIT = 8000; // 8 seconds to start
+const LOCK_STALE_MS = 30_000;
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -59,6 +62,11 @@ interface ServerState {
   serverPath: string;
 }
 
+interface StartLock {
+  pid: number;
+  createdAt: number;
+}
+
 // ─── State File ────────────────────────────────────────────────
 function readState(): ServerState | null {
   try {
@@ -78,12 +86,74 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-// ─── Server Lifecycle ──────────────────────────────────────────
-async function startServer(): Promise<ServerState> {
-  // Clean up stale state file
-  try { fs.unlinkSync(STATE_FILE); } catch {}
+function readLock(): StartLock | null {
+  try {
+    return JSON.parse(fs.readFileSync(LOCK_FILE, 'utf-8')) as StartLock;
+  } catch {
+    return null;
+  }
+}
 
-  // Start server as detached background process
+function tryAcquireStartLock(): boolean {
+  try {
+    fs.writeFileSync(
+      LOCK_FILE,
+      JSON.stringify({ pid: process.pid, createdAt: Date.now() } satisfies StartLock),
+      { flag: 'wx', mode: 0o600 }
+    );
+    return true;
+  } catch (err: any) {
+    if (err.code === 'EEXIST') return false;
+    throw err;
+  }
+}
+
+function clearOwnedStartLock() {
+  const lock = readLock();
+  if (lock?.pid === process.pid) {
+    try { fs.unlinkSync(LOCK_FILE); } catch {}
+  }
+}
+
+function clearStaleStartLock() {
+  const lock = readLock();
+  if (!lock) return;
+  if (!isProcessAlive(lock.pid) || Date.now() - lock.createdAt > LOCK_STALE_MS) {
+    try { fs.unlinkSync(LOCK_FILE); } catch {}
+  }
+}
+
+async function fetchHealth(state: ServerState, timeout = 2000): Promise<{ status: string } | null> {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${state.port}/health`, {
+      signal: AbortSignal.timeout(timeout),
+    });
+    if (!resp.ok) return null;
+    return await resp.json() as { status: string };
+  } catch {
+    return null;
+  }
+}
+
+async function getHealthyState(): Promise<ServerState | null> {
+  const state = readState();
+  if (!state || !isProcessAlive(state.pid)) {
+    return null;
+  }
+  const health = await fetchHealth(state);
+  if (health?.status === 'healthy') {
+    return state;
+  }
+  return null;
+}
+
+// ─── Server Lifecycle ──────────────────────────────────────────
+async function spawnServerProcess(): Promise<ServerState> {
+  const existing = readState();
+  if (existing && !isProcessAlive(existing.pid)) {
+    try { fs.unlinkSync(STATE_FILE); } catch {}
+  }
+
   const proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env },
@@ -92,18 +162,18 @@ async function startServer(): Promise<ServerState> {
   // Don't hold the CLI open
   proc.unref();
 
-  // Wait for state file to appear
   const start = Date.now();
   while (Date.now() - start < MAX_START_WAIT) {
     const state = readState();
     if (state && isProcessAlive(state.pid)) {
-      return state;
+      const health = await fetchHealth(state, 1000);
+      if (health?.status === 'healthy') {
+        return state;
+      }
     }
     await Bun.sleep(100);
   }
 
-  // If we get here, server didn't start in time
-  // Try to read stderr for error message
   const stderr = proc.stderr;
   if (stderr) {
     const reader = stderr.getReader();
@@ -116,29 +186,59 @@ async function startServer(): Promise<ServerState> {
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
 
-async function ensureServer(): Promise<ServerState> {
-  const state = readState();
+async function startServer(): Promise<ServerState> {
+  const start = Date.now();
+  while (Date.now() - start < MAX_START_WAIT) {
+    const healthy = await getHealthyState();
+    if (healthy) return healthy;
 
-  if (state && isProcessAlive(state.pid)) {
-    // Server appears alive — do a health check
-    try {
-      const resp = await fetch(`http://127.0.0.1:${state.port}/health`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (resp.ok) {
-        const health = await resp.json() as any;
-        if (health.status === 'healthy') {
-          return state;
-        }
+    // Another CLI process may already be starting the daemon. Wait for it
+    // unless the lock is stale, then take over.
+    clearStaleStartLock();
+    if (tryAcquireStartLock()) {
+      try {
+        const healthyAfterLock = await getHealthyState();
+        if (healthyAfterLock) return healthyAfterLock;
+        return await spawnServerProcess();
+      } finally {
+        clearOwnedStartLock();
       }
-    } catch {
-      // Health check failed — server is dead or unhealthy
     }
+
+    await Bun.sleep(100);
   }
 
-  // Need to (re)start
+  const healthy = await getHealthyState();
+  if (healthy) return healthy;
+  throw new Error('[browse] Timed out waiting for server startup');
+}
+
+async function ensureServer(): Promise<ServerState> {
+  const healthy = await getHealthyState();
+  if (healthy) {
+    return healthy;
+  }
+
   console.error('[browse] Starting server...');
   return startServer();
+}
+
+async function waitForServerStop(pid: number, timeout = MAX_START_WAIT): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const alive = isProcessAlive(pid);
+    const stateExists = fs.existsSync(STATE_FILE);
+    if (!alive && !stateExists) {
+      return;
+    }
+    await Bun.sleep(100);
+  }
+  throw new Error('[browse] Timed out waiting for server shutdown');
+}
+
+function writeCommandOutput(text: string) {
+  process.stdout.write(text);
+  if (!text.endsWith('\n')) process.stdout.write('\n');
 }
 
 // ─── Command Dispatch ──────────────────────────────────────────
@@ -169,19 +269,38 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     const text = await resp.text();
 
     if (resp.ok) {
-      process.stdout.write(text);
-      if (!text.endsWith('\n')) process.stdout.write('\n');
-    } else {
-      // Try to parse as JSON error
-      try {
-        const err = JSON.parse(text);
-        console.error(err.error || text);
-        if (err.hint) console.error(err.hint);
-      } catch {
-        console.error(text);
+      writeCommandOutput(text);
+
+      if (command === 'stop') {
+        // "stop" returns success before the server exits. Wait for the daemon
+        // and state file to disappear so the CLI only exits green on a real stop.
+        await waitForServerStop(state.pid);
+        return;
       }
-      process.exit(1);
+
+      if (command === 'restart') {
+        // "restart" is "clean stop, then ensure a fresh daemon exists" — not
+        // "drop the socket and hope the next command recovers it."
+        await waitForServerStop(state.pid);
+        const newState = await ensureServer();
+        if (newState.pid === state.pid) {
+          throw new Error('[browse] Restart did not replace the server process');
+        }
+        return;
+      }
+
+      return;
     }
+
+    // Try to parse as JSON error
+    try {
+      const err = JSON.parse(text);
+      console.error(err.error || text);
+      if (err.hint) console.error(err.hint);
+    } catch {
+      console.error(text);
+    }
+    process.exit(1);
   } catch (err: any) {
     if (err.name === 'AbortError') {
       console.error('[browse] Command timed out after 30s');
@@ -220,7 +339,7 @@ Snapshot:       snapshot [-i] [-c] [-d N] [-s sel]
 Compare:        diff <url1> <url2>
 Multi-step:     chain (reads JSON from stdin)
 Tabs:           tabs | tab <id> | newtab [url] | closetab [id]
-Server:         status | cookie <n>=<v> | header <n>:<v>
+Server:         status | cookie <n>=<v> [origin] | header <n>:<v>
                 useragent <str> | stop | restart
 
 Refs:           After 'snapshot', use @e1, @e2... as selectors:

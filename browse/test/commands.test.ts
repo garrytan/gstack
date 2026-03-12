@@ -36,6 +36,77 @@ afterAll(() => {
   setTimeout(() => process.exit(0), 500);
 });
 
+interface CliResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+function reservePort(): number {
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: () => new Response('ok'),
+  });
+  const { port } = server;
+  server.stop();
+  return port;
+}
+
+function readJson<T>(filePath: string): T | null {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function runCliCommand(args: string[], envOverrides: Record<string, string>, timeout = 20000): Promise<CliResult> {
+  const cliPath = path.resolve(__dirname, '../src/cli.ts');
+  return await new Promise<CliResult>((resolve) => {
+    const proc = spawn('bun', ['run', cliPath, ...args], {
+      timeout,
+      env: {
+        ...process.env,
+        ...envOverrides,
+      },
+    });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => stdout += d.toString());
+    proc.stderr.on('data', (d) => stderr += d.toString());
+    proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+  });
+}
+
+async function waitFor<T>(fn: () => T | null | undefined, timeout = 5000, interval = 50): Promise<T | null> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const value = fn();
+    if (value) return value;
+    await Bun.sleep(interval);
+  }
+  return null;
+}
+
+async function cleanupCliState(stateFile: string) {
+  const state = readJson<{ pid?: number }>(stateFile);
+  if (state?.pid) {
+    try { process.kill(state.pid, 'SIGTERM'); } catch {}
+    await waitFor(() => {
+      try {
+        process.kill(state.pid!, 0);
+        return null;
+      } catch {
+        return true;
+      }
+    }, 3000);
+  }
+  try { fs.unlinkSync(stateFile); } catch {}
+  try { fs.unlinkSync(`${stateFile}.lock`); } catch {}
+  try { fs.unlinkSync(`${stateFile}.settings.json`); } catch {}
+}
+
 // ─── Navigation ─────────────────────────────────────────────────
 
 describe('Navigation', () => {
@@ -230,6 +301,28 @@ describe('Interaction', () => {
     const val = await handleReadCommand('js', ['document.querySelector("#name").value'], bm);
     expect(val).toBe('John Doe');
   });
+
+  test('fill accepts empty string values', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    await handleWriteCommand('fill', ['#email', 'filled@example.com'], bm);
+
+    const result = await handleWriteCommand('fill', ['#email', ''], bm);
+    expect(result).toContain('Filled');
+
+    const value = await handleReadCommand('js', ['document.querySelector("#email").value'], bm);
+    expect(value).toBe('');
+  });
+
+  test('select accepts empty string values', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    await handleWriteCommand('select', ['#role', 'admin'], bm);
+
+    const result = await handleWriteCommand('select', ['#role', ''], bm);
+    expect(result).toContain('Selected');
+
+    const value = await handleReadCommand('js', ['document.querySelector("#role").value'], bm);
+    expect(value).toBe('');
+  });
 });
 
 // ─── SPA / Console / Network ───────────────────────────────────
@@ -268,6 +361,51 @@ describe('SPA and buffers', () => {
     const result = await handleReadCommand('network', ['--clear'], bm);
     expect(result).toContain('cleared');
   });
+
+  test('network keeps same-url requests paired with their own size and duration', async () => {
+    networkBuffer.length = 0;
+    let apiCount = 0;
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      async fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === '/double.html') {
+          return new Response(`<!doctype html><body><script>
+            fetch('/api/data');
+            fetch('/api/data');
+          </script></body>`, {
+            headers: { 'Content-Type': 'text/html' },
+          });
+        }
+        if (url.pathname === '/api/data') {
+          apiCount += 1;
+          if (apiCount === 1) {
+            await Bun.sleep(15);
+            return new Response('small', {
+              headers: { 'Content-Type': 'text/plain' },
+            });
+          }
+          await Bun.sleep(200);
+          return new Response('X'.repeat(5000), {
+            headers: { 'Content-Type': 'text/plain' },
+          });
+        }
+        return new Response('Not Found', { status: 404 });
+      },
+    });
+
+    await handleWriteCommand('goto', [`http://127.0.0.1:${server.port}/double.html`], bm);
+    await Bun.sleep(700);
+
+    const entries = networkBuffer.filter((entry) => entry.url.endsWith('/api/data'));
+    try { server.stop(); } catch {}
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0].size).toBe(5);
+    expect(entries[1].size).toBe(5000);
+    expect(entries[0].duration).toBeLessThan(entries[1].duration!);
+  });
 });
 
 // ─── Cookies / Storage ──────────────────────────────────────────
@@ -285,6 +423,27 @@ describe('Cookies and storage', () => {
     const result = await handleReadCommand('storage', [], bm);
     const storage = JSON.parse(result);
     expect(storage.localStorage.testKey).toBe('testValue');
+  });
+
+  test('cookie supports explicit origin before first navigation', async () => {
+    const freshBrowser = new BrowserManager();
+    await freshBrowser.launch();
+
+    const result = await handleWriteCommand('cookie', ['session=abc123', baseUrl], freshBrowser);
+    expect(result).toContain('Cookie set');
+
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], freshBrowser);
+    const cookies = JSON.parse(await handleReadCommand('cookies', [], freshBrowser));
+    expect(cookies.some((cookie: any) => cookie.name === 'session' && cookie.value === 'abc123')).toBe(true);
+  });
+
+  test('cookie on about:blank without explicit origin returns guidance error', async () => {
+    const freshBrowser = new BrowserManager();
+    await freshBrowser.launch();
+
+    await expect(handleWriteCommand('cookie', ['session=abc123'], freshBrowser)).rejects.toThrow(
+      'Usage: browse cookie <name>=<value> [origin]'
+    );
   });
 });
 
@@ -486,6 +645,128 @@ describe('CLI lifecycle', () => {
     expect(result.stdout).toContain('Status: healthy');
     expect(result.stderr).toContain('Starting server');
   }, 20000);
+
+  test('stop exits cleanly and removes the state file', async () => {
+    const stateFile = `/tmp/browse-stop-state-${Date.now()}.json`;
+    const port = reservePort();
+    const env = {
+      BROWSE_STATE_FILE: stateFile,
+      BROWSE_PORT: String(port),
+    };
+
+    try {
+      const started = await runCliCommand(['status'], env);
+      const startedState = readJson<{ pid: number }>(stateFile);
+      expect(started.code).toBe(0);
+      expect(startedState?.pid).toBeTruthy();
+
+      const stop = await runCliCommand(['stop'], env);
+      const pidGone = await waitFor(() => {
+        try {
+          process.kill(startedState!.pid, 0);
+          return null;
+        } catch {
+          return true;
+        }
+      }, 5000);
+
+      expect(stop.code).toBe(0);
+      expect(stop.stdout).toContain('Server stopped');
+      expect(fs.existsSync(stateFile)).toBe(false);
+      expect(pidGone).toBe(true);
+    } finally {
+      await cleanupCliState(stateFile);
+    }
+  }, 20000);
+
+  test('restart exits cleanly and replaces the daemon pid', async () => {
+    const stateFile = `/tmp/browse-restart-state-${Date.now()}.json`;
+    const port = reservePort();
+    const env = {
+      BROWSE_STATE_FILE: stateFile,
+      BROWSE_PORT: String(port),
+    };
+
+    try {
+      const started = await runCliCommand(['status'], env);
+      const beforeState = readJson<{ pid: number }>(stateFile);
+      expect(started.code).toBe(0);
+      expect(beforeState?.pid).toBeTruthy();
+
+      const restart = await runCliCommand(['restart'], env);
+      const afterState = await waitFor(() => {
+        const state = readJson<{ pid: number }>(stateFile);
+        return state && state.pid !== beforeState!.pid ? state : null;
+      }, 8000);
+
+      expect(restart.code).toBe(0);
+      expect(restart.stdout).toContain('Restarting');
+      expect(afterState?.pid).toBeTruthy();
+      expect(afterState?.pid).not.toBe(beforeState?.pid);
+    } finally {
+      await cleanupCliState(stateFile);
+    }
+  }, 25000);
+
+  test('parallel status calls start the daemon once', async () => {
+    const root = fs.mkdtempSync('/tmp/gstack-browse-wrapper-');
+    const stateFile = path.join(root, 'browse-state.json');
+    const startLog = path.join(root, 'server-starts.log');
+    const wrapperPath = path.join(root, 'server-wrapper.ts');
+    const realServerPath = path.resolve(__dirname, '../src/server.ts');
+    const port = reservePort();
+
+    fs.writeFileSync(wrapperPath, `
+      import * as fs from 'fs';
+      fs.appendFileSync(${JSON.stringify(startLog)}, 'start\\n');
+      await import(${JSON.stringify(realServerPath)});
+    `);
+
+    const env = {
+      BROWSE_STATE_FILE: stateFile,
+      BROWSE_PORT: String(port),
+      BROWSE_SERVER_SCRIPT: wrapperPath,
+    };
+
+    try {
+      const [first, second] = await Promise.all([
+        runCliCommand(['status'], env),
+        runCliCommand(['status'], env),
+      ]);
+
+      const state = readJson<{ pid: number }>(stateFile);
+      const starts = fs.readFileSync(startLog, 'utf-8').trim().split('\n').filter(Boolean);
+
+      expect(first.code).toBe(0);
+      expect(second.code).toBe(0);
+      expect(state?.pid).toBeTruthy();
+      expect(starts).toHaveLength(1);
+    } finally {
+      await cleanupCliState(stateFile);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }, 25000);
+
+  test('useragent applies after restart', async () => {
+    const stateFile = `/tmp/browse-useragent-state-${Date.now()}.json`;
+    const port = reservePort();
+    const env = {
+      BROWSE_STATE_FILE: stateFile,
+      BROWSE_PORT: String(port),
+    };
+
+    try {
+      expect((await runCliCommand(['status'], env)).code).toBe(0);
+      expect((await runCliCommand(['useragent', 'MyAgent/1.0'], env)).code).toBe(0);
+      expect((await runCliCommand(['restart'], env)).code).toBe(0);
+
+      const js = await runCliCommand(['js', 'navigator.userAgent'], env);
+      expect(js.code).toBe(0);
+      expect(js.stdout).toContain('MyAgent/1.0');
+    } finally {
+      await cleanupCliState(stateFile);
+    }
+  }, 25000);
 });
 
 // ─── Buffer bounds ──────────────────────────────────────────────
