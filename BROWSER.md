@@ -152,7 +152,7 @@ The browser automation layer is built on [Playwright](https://playwright.dev/) b
 ### Prerequisites
 
 - [Bun](https://bun.sh/) v1.0+
-- Playwright's Chromium (installed automatically by `bun install`)
+- Playwright's Chromium (installed by `./setup`, or manually via `bunx playwright install chromium`)
 
 ### Quick start
 

@@ -76,7 +76,7 @@ This is not a prompt pack for beginners. It is an operating system for people wh
 
 ## Install
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+. `/browse` compiles a native binary — works on macOS and Linux (x64 and arm64).
+**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+. `/browse` compiles a native binary and `./setup` installs Playwright Chromium — works on macOS and Linux (x64 and arm64).
 
 ### Step 1: Install on your machine
 
@@ -95,6 +95,7 @@ Real files get committed to your repo (not a submodule), so `git clone` just wor
 - Skill files (Markdown prompts) in `~/.claude/skills/gstack/` (or `.claude/skills/gstack/` for project installs)
 - Symlinks at `~/.claude/skills/browse`, `~/.claude/skills/review`, etc. pointing into the gstack directory
 - Browser binary at `browse/dist/browse` (~58MB, gitignored)
+- Playwright Chromium (installed by `./setup` if missing)
 - `node_modules/` (gitignored)
 - `/retro` saves JSON snapshots to `.context/retros/` in your project for trend tracking
 
