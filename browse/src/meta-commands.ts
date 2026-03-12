@@ -6,6 +6,22 @@ import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import * as Diff from 'diff';
 import * as fs from 'fs';
+import * as path from 'path';
+
+/**
+ * Validates that a file path is within an allowed directory to prevent path traversal attacks.
+ * Allowed directories: /tmp and the current working directory.
+ */
+function validateOutputPath(filePath: string): void {
+  const resolvedPath = path.resolve(filePath);
+  const tmpDir = '/tmp';
+  const cwd = process.cwd();
+  
+  // Allow paths in /tmp or under CWD
+  if (!resolvedPath.startsWith(tmpDir + '/') && !resolvedPath.startsWith(cwd + '/')) {
+    throw new Error(`Security: Output path must be within /tmp or the current working directory. Received: ${filePath}`);
+  }
+}
 
 export async function handleMetaCommand(
   command: string,
@@ -73,6 +89,7 @@ export async function handleMetaCommand(
     case 'screenshot': {
       const page = bm.getPage();
       const screenshotPath = args[0] || '/tmp/browse-screenshot.png';
+      validateOutputPath(screenshotPath);
       await page.screenshot({ path: screenshotPath, fullPage: true });
       return `Screenshot saved: ${screenshotPath}`;
     }
@@ -80,6 +97,7 @@ export async function handleMetaCommand(
     case 'pdf': {
       const page = bm.getPage();
       const pdfPath = args[0] || '/tmp/browse-page.pdf';
+      validateOutputPath(pdfPath);
       await page.pdf({ path: pdfPath, format: 'A4' });
       return `PDF saved: ${pdfPath}`;
     }
@@ -87,6 +105,7 @@ export async function handleMetaCommand(
     case 'responsive': {
       const page = bm.getPage();
       const prefix = args[0] || '/tmp/browse-responsive';
+      validateOutputPath(prefix);
       const viewports = [
         { name: 'mobile', width: 375, height: 812 },
         { name: 'tablet', width: 768, height: 1024 },
