@@ -7,6 +7,7 @@ description: |
   inspect CSS/DOM, capture console/network logs, and more. ~100ms per command after
   first call. Use when you need to check a website, verify a deployment, read docs,
   or interact with any web page. No MCP, no Chrome extension — just fast CLI.
+model: sonnet
 allowed-tools:
   - Bash
   - Read
