@@ -3,7 +3,7 @@
  *
  * Architecture:
  *   Bun.serve HTTP on localhost → routes commands to Playwright
- *   Console/network buffers: in-memory (all entries) + disk flush every 1s
+ *   Console/network/dialog buffers: CircularBuffer in-memory + async disk flush
  *   Chromium crash → server EXITS with clear error (CLI auto-restarts)
  *   Auto-shutdown after BROWSE_IDLE_TIMEOUT (default 30 min)
  */
@@ -32,36 +32,58 @@ function validateAuth(req: Request): boolean {
 }
 
 // ─── Buffer (from buffers.ts) ────────────────────────────────────
-import { consoleBuffer, networkBuffer, addConsoleEntry, addNetworkEntry, consoleTotalAdded, networkTotalAdded, type LogEntry, type NetworkEntry } from './buffers';
-export { consoleBuffer, networkBuffer, addConsoleEntry, addNetworkEntry, type LogEntry, type NetworkEntry };
+import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry } from './buffers';
+export { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry };
+
 const CONSOLE_LOG_PATH = `/tmp/browse-console${INSTANCE_SUFFIX}.log`;
 const NETWORK_LOG_PATH = `/tmp/browse-network${INSTANCE_SUFFIX}.log`;
+const DIALOG_LOG_PATH = `/tmp/browse-dialog${INSTANCE_SUFFIX}.log`;
 let lastConsoleFlushed = 0;
 let lastNetworkFlushed = 0;
+let lastDialogFlushed = 0;
+let flushInProgress = false;
 
-function flushBuffers() {
-  // Use totalAdded cursor (not buffer.length) because the ring buffer
-  // stays pinned at HIGH_WATER_MARK after wrapping.
-  const newConsoleCount = consoleTotalAdded - lastConsoleFlushed;
-  if (newConsoleCount > 0) {
-    const count = Math.min(newConsoleCount, consoleBuffer.length);
-    const newEntries = consoleBuffer.slice(-count);
-    const lines = newEntries.map(e =>
-      `[${new Date(e.timestamp).toISOString()}] [${e.level}] ${e.text}`
-    ).join('\n') + '\n';
-    fs.appendFileSync(CONSOLE_LOG_PATH, lines);
-    lastConsoleFlushed = consoleTotalAdded;
-  }
+async function flushBuffers() {
+  if (flushInProgress) return; // Guard against concurrent flush
+  flushInProgress = true;
 
-  const newNetworkCount = networkTotalAdded - lastNetworkFlushed;
-  if (newNetworkCount > 0) {
-    const count = Math.min(newNetworkCount, networkBuffer.length);
-    const newEntries = networkBuffer.slice(-count);
-    const lines = newEntries.map(e =>
-      `[${new Date(e.timestamp).toISOString()}] ${e.method} ${e.url} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`
-    ).join('\n') + '\n';
-    fs.appendFileSync(NETWORK_LOG_PATH, lines);
-    lastNetworkFlushed = networkTotalAdded;
+  try {
+    // Console buffer
+    const newConsoleCount = consoleBuffer.totalAdded - lastConsoleFlushed;
+    if (newConsoleCount > 0) {
+      const entries = consoleBuffer.last(Math.min(newConsoleCount, consoleBuffer.length));
+      const lines = entries.map(e =>
+        `[${new Date(e.timestamp).toISOString()}] [${e.level}] ${e.text}`
+      ).join('\n') + '\n';
+      await Bun.write(CONSOLE_LOG_PATH, (await Bun.file(CONSOLE_LOG_PATH).text().catch(() => '')) + lines);
+      lastConsoleFlushed = consoleBuffer.totalAdded;
+    }
+
+    // Network buffer
+    const newNetworkCount = networkBuffer.totalAdded - lastNetworkFlushed;
+    if (newNetworkCount > 0) {
+      const entries = networkBuffer.last(Math.min(newNetworkCount, networkBuffer.length));
+      const lines = entries.map(e =>
+        `[${new Date(e.timestamp).toISOString()}] ${e.method} ${e.url} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`
+      ).join('\n') + '\n';
+      await Bun.write(NETWORK_LOG_PATH, (await Bun.file(NETWORK_LOG_PATH).text().catch(() => '')) + lines);
+      lastNetworkFlushed = networkBuffer.totalAdded;
+    }
+
+    // Dialog buffer
+    const newDialogCount = dialogBuffer.totalAdded - lastDialogFlushed;
+    if (newDialogCount > 0) {
+      const entries = dialogBuffer.last(Math.min(newDialogCount, dialogBuffer.length));
+      const lines = entries.map(e =>
+        `[${new Date(e.timestamp).toISOString()}] [${e.type}] "${e.message}" → ${e.action}${e.response ? ` "${e.response}"` : ''}`
+      ).join('\n') + '\n';
+      await Bun.write(DIALOG_LOG_PATH, (await Bun.file(DIALOG_LOG_PATH).text().catch(() => '')) + lines);
+      lastDialogFlushed = dialogBuffer.totalAdded;
+    }
+  } catch {
+    // Flush failures are non-fatal — buffers are in memory
+  } finally {
+    flushInProgress = false;
   }
 }
 
@@ -82,30 +104,32 @@ const idleCheckInterval = setInterval(() => {
   }
 }, 60_000);
 
-// ─── Server ────────────────────────────────────────────────────
-const browserManager = new BrowserManager();
-let isShuttingDown = false;
-
-// Read/write/meta command sets for routing
-const READ_COMMANDS = new Set([
+// ─── Command Sets (exported for chain command) ──────────────────
+export const READ_COMMANDS = new Set([
   'text', 'html', 'links', 'forms', 'accessibility',
   'js', 'eval', 'css', 'attrs',
   'console', 'network', 'cookies', 'storage', 'perf',
+  'dialog', 'is',
 ]);
 
-const WRITE_COMMANDS = new Set([
+export const WRITE_COMMANDS = new Set([
   'goto', 'back', 'forward', 'reload',
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
-  'viewport', 'cookie', 'header', 'useragent',
+  'viewport', 'cookie', 'cookie-import', 'header', 'useragent',
+  'upload', 'dialog-accept', 'dialog-dismiss',
 ]);
 
-const META_COMMANDS = new Set([
+export const META_COMMANDS = new Set([
   'tabs', 'tab', 'newtab', 'closetab',
   'status', 'stop', 'restart',
   'screenshot', 'pdf', 'responsive',
   'chain', 'diff',
   'url', 'snapshot',
 ]);
+
+// ─── Server ────────────────────────────────────────────────────
+const browserManager = new BrowserManager();
+let isShuttingDown = false;
 
 // Find port: deterministic from CONDUCTOR_PORT, or scan range
 async function findPort(): Promise<number> {
@@ -132,6 +156,29 @@ async function findPort(): Promise<number> {
     }
   }
   throw new Error(`[browse] No available port in range ${start}-${start + 9}`);
+}
+
+/**
+ * Translate Playwright errors into actionable messages for AI agents.
+ */
+function wrapError(err: any): string {
+  const msg = err.message || String(err);
+  // Timeout errors
+  if (err.name === 'TimeoutError' || msg.includes('Timeout') || msg.includes('timeout')) {
+    if (msg.includes('locator.click') || msg.includes('locator.fill') || msg.includes('locator.hover')) {
+      return `Element not found or not interactable within timeout. Check your selector or run 'snapshot' for fresh refs.`;
+    }
+    if (msg.includes('page.goto') || msg.includes('Navigation')) {
+      return `Page navigation timed out. The URL may be unreachable or the page may be loading slowly.`;
+    }
+    return `Operation timed out: ${msg.split('\n')[0]}`;
+  }
+  // Multiple elements matched
+  if (msg.includes('resolved to') && msg.includes('elements')) {
+    return `Selector matched multiple elements. Be more specific or use @refs from 'snapshot'.`;
+  }
+  // Pass through other errors
+  return msg;
 }
 
 async function handleCommand(body: any): Promise<Response> {
@@ -168,7 +215,7 @@ async function handleCommand(body: any): Promise<Response> {
       headers: { 'Content-Type': 'text/plain' },
     });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: wrapError(err) }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -182,7 +229,7 @@ async function shutdown() {
   console.log('[browse] Shutting down...');
   clearInterval(flushInterval);
   clearInterval(idleCheckInterval);
-  flushBuffers(); // Final flush
+  await flushBuffers(); // Final flush (async now)
 
   await browserManager.close();
 
@@ -201,6 +248,7 @@ async function start() {
   // Clear old log files
   try { fs.unlinkSync(CONSOLE_LOG_PATH); } catch {}
   try { fs.unlinkSync(NETWORK_LOG_PATH); } catch {}
+  try { fs.unlinkSync(DIALOG_LOG_PATH); } catch {}
 
   const port = await findPort();
 
@@ -216,9 +264,9 @@ async function start() {
 
       const url = new URL(req.url);
 
-      // Health check — no auth required
+      // Health check — no auth required (now async)
       if (url.pathname === '/health') {
-        const healthy = browserManager.isHealthy();
+        const healthy = await browserManager.isHealthy();
         return new Response(JSON.stringify({
           status: healthy ? 'healthy' : 'unhealthy',
           uptime: Math.floor((Date.now() - startTime) / 1000),

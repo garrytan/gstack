@@ -14,6 +14,16 @@ export function startTestServer(port: number = 0): { server: ReturnType<typeof B
     hostname: '127.0.0.1',
     fetch(req) {
       const url = new URL(req.url);
+
+      // Echo endpoint — returns request headers as JSON
+      if (url.pathname === '/echo') {
+        const headers: Record<string, string> = {};
+        req.headers.forEach((value, key) => { headers[key] = value; });
+        return new Response(JSON.stringify(headers, null, 2), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
       let filePath = url.pathname === '/' ? '/basic.html' : url.pathname;
 
       // Remove leading slash

@@ -6,6 +6,8 @@
  */
 
 import type { BrowserManager } from './browser-manager';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export async function handleWriteCommand(
   command: string,
@@ -121,7 +123,20 @@ export async function handleWriteCommand(
 
     case 'wait': {
       const selector = args[0];
-      if (!selector) throw new Error('Usage: browse wait <selector>');
+      if (!selector) throw new Error('Usage: browse wait <selector|--networkidle|--load|--domcontentloaded>');
+      if (selector === '--networkidle') {
+        const timeout = args[1] ? parseInt(args[1], 10) : 15000;
+        await page.waitForLoadState('networkidle', { timeout });
+        return 'Network idle';
+      }
+      if (selector === '--load') {
+        await page.waitForLoadState('load');
+        return 'Page loaded';
+      }
+      if (selector === '--domcontentloaded') {
+        await page.waitForLoadState('domcontentloaded');
+        return 'DOM content loaded';
+      }
       const timeout = args[1] ? parseInt(args[1], 10) : 15000;
       const resolved = bm.resolveRef(selector);
       if ('locator' in resolved) {
@@ -170,7 +185,72 @@ export async function handleWriteCommand(
       const ua = args.join(' ');
       if (!ua) throw new Error('Usage: browse useragent <string>');
       bm.setUserAgent(ua);
-      return `User agent set (applies on next restart): ${ua}`;
+      const error = await bm.recreateContext();
+      if (error) {
+        return `User agent set to "${ua}" but: ${error}`;
+      }
+      return `User agent set: ${ua}`;
+    }
+
+    case 'upload': {
+      const [selector, ...filePaths] = args;
+      if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
+
+      // Validate all files exist before upload
+      for (const fp of filePaths) {
+        if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
+      }
+
+      const resolved = bm.resolveRef(selector);
+      if ('locator' in resolved) {
+        await resolved.locator.setInputFiles(filePaths);
+      } else {
+        await page.locator(resolved.selector).setInputFiles(filePaths);
+      }
+
+      const fileInfo = filePaths.map(fp => {
+        const stat = fs.statSync(fp);
+        return `${path.basename(fp)} (${stat.size}B)`;
+      }).join(', ');
+      return `Uploaded: ${fileInfo}`;
+    }
+
+    case 'dialog-accept': {
+      const text = args.length > 0 ? args.join(' ') : null;
+      bm.setDialogAutoAccept(true);
+      bm.setDialogPromptText(text);
+      return text
+        ? `Dialogs will be accepted with text: "${text}"`
+        : 'Dialogs will be accepted';
+    }
+
+    case 'dialog-dismiss': {
+      bm.setDialogAutoAccept(false);
+      bm.setDialogPromptText(null);
+      return 'Dialogs will be dismissed';
+    }
+
+    case 'cookie-import': {
+      const filePath = args[0];
+      if (!filePath) throw new Error('Usage: browse cookie-import <json-file>');
+      if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      let cookies: any[];
+      try { cookies = JSON.parse(raw); } catch { throw new Error(`Invalid JSON in ${filePath}`); }
+      if (!Array.isArray(cookies)) throw new Error('Cookie file must contain a JSON array');
+
+      // Auto-fill domain from current page URL when missing (consistent with cookie command)
+      const pageUrl = new URL(page.url());
+      const defaultDomain = pageUrl.hostname;
+
+      for (const c of cookies) {
+        if (!c.name || c.value === undefined) throw new Error('Each cookie must have "name" and "value" fields');
+        if (!c.domain) c.domain = defaultDomain;
+        if (!c.path) c.path = '/';
+      }
+
+      await page.context().addCookies(cookies);
+      return `Loaded ${cookies.length} cookies from ${filePath}`;
     }
 
     default:

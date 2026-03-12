@@ -4,8 +4,30 @@
 
 import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
+import { getCleanText } from './read-commands';
 import * as Diff from 'diff';
 import * as fs from 'fs';
+
+// Command sets for chain routing (mirrors server.ts — kept local to avoid circular import)
+const CHAIN_READ = new Set([
+  'text', 'html', 'links', 'forms', 'accessibility',
+  'js', 'eval', 'css', 'attrs',
+  'console', 'network', 'cookies', 'storage', 'perf',
+  'dialog', 'is',
+]);
+const CHAIN_WRITE = new Set([
+  'goto', 'back', 'forward', 'reload',
+  'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
+  'viewport', 'cookie', 'header', 'useragent',
+  'upload', 'dialog-accept', 'dialog-dismiss',
+]);
+const CHAIN_META = new Set([
+  'tabs', 'tab', 'newtab', 'closetab',
+  'status', 'stop', 'restart',
+  'screenshot', 'pdf', 'responsive',
+  'chain', 'diff',
+  'url', 'snapshot',
+]);
 
 export async function handleMetaCommand(
   command: string,
@@ -129,16 +151,14 @@ export async function handleMetaCommand(
       const { handleReadCommand } = await import('./read-commands');
       const { handleWriteCommand } = await import('./write-commands');
 
-      const WRITE_SET = new Set(['goto','back','forward','reload','click','fill','select','hover','type','press','scroll','wait','viewport','cookie','header','useragent']);
-      const READ_SET  = new Set(['text','html','links','forms','accessibility','js','eval','css','attrs','console','network','cookies','storage','perf']);
-
       for (const cmd of commands) {
         const [name, ...cmdArgs] = cmd;
         try {
           let result: string;
-          if (WRITE_SET.has(name))      result = await handleWriteCommand(name, cmdArgs, bm);
-          else if (READ_SET.has(name))  result = await handleReadCommand(name, cmdArgs, bm);
-          else                          result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
+          if (CHAIN_WRITE.has(name))      result = await handleWriteCommand(name, cmdArgs, bm);
+          else if (CHAIN_READ.has(name))  result = await handleReadCommand(name, cmdArgs, bm);
+          else if (CHAIN_META.has(name))  result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
+          else throw new Error(`Unknown command: ${name}`);
           results.push(`[${name}] ${result}`);
         } catch (err: any) {
           results.push(`[${name}] ERROR: ${err.message}`);
@@ -153,26 +173,12 @@ export async function handleMetaCommand(
       const [url1, url2] = args;
       if (!url1 || !url2) throw new Error('Usage: browse diff <url1> <url2>');
 
-      // Get text from URL1
       const page = bm.getPage();
       await page.goto(url1, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      const text1 = await page.evaluate(() => {
-        const body = document.body;
-        if (!body) return '';
-        const clone = body.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll('script, style, noscript, svg').forEach(el => el.remove());
-        return clone.innerText.split('\n').map(l => l.trim()).filter(l => l).join('\n');
-      });
+      const text1 = await getCleanText(page);
 
-      // Get text from URL2
       await page.goto(url2, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      const text2 = await page.evaluate(() => {
-        const body = document.body;
-        if (!body) return '';
-        const clone = body.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll('script, style, noscript, svg').forEach(el => el.remove());
-        return clone.innerText.split('\n').map(l => l.trim()).filter(l => l).join('\n');
-      });
+      const text2 = await getCleanText(page);
 
       const changes = Diff.diffLines(text1, text2);
       const output: string[] = [`--- ${url1}`, `+++ ${url2}`, ''];

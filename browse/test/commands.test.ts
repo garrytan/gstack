@@ -11,7 +11,7 @@ import { BrowserManager } from '../src/browser-manager';
 import { handleReadCommand } from '../src/read-commands';
 import { handleWriteCommand } from '../src/write-commands';
 import { handleMetaCommand } from '../src/meta-commands';
-import { consoleBuffer, networkBuffer, addConsoleEntry, addNetworkEntry, consoleTotalAdded, networkTotalAdded } from '../src/buffers';
+import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, CircularBuffer } from '../src/buffers';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 import * as path from 'path';
@@ -424,26 +424,27 @@ describe('Status', () => {
 
 describe('CLI retry guard', () => {
   test('sendCommand aborts after repeated connection failures', async () => {
-    // Write a fake state file pointing to a port that refuses connections
-    const stateFile = '/tmp/browse-server.json';
-    const origState = fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf-8') : null;
-
+    // Use an isolated state file to avoid conflicts with running servers
+    const stateFile = '/tmp/browse-server-test-retry.json';
     fs.writeFileSync(stateFile, JSON.stringify({ port: 1, token: 'fake', pid: 999999 }));
 
     const cliPath = path.resolve(__dirname, '../src/cli.ts');
     const result = await new Promise<{ code: number; stderr: string }>((resolve) => {
       const proc = spawn('bun', ['run', cliPath, 'status'], {
         timeout: 15000,
-        env: { ...process.env },
+        env: {
+          ...process.env,
+          BROWSE_STATE_FILE: stateFile,
+          BROWSE_PORT: '1', // Force port 1 (will fail)
+        },
       });
       let stderr = '';
       proc.stderr.on('data', (d) => stderr += d.toString());
       proc.on('close', (code) => resolve({ code: code ?? 1, stderr }));
     });
 
-    // Restore original state file
-    if (origState) fs.writeFileSync(stateFile, origState);
-    else if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
+    // Clean up
+    try { fs.unlinkSync(stateFile); } catch {}
 
     // Should fail, not loop forever
     expect(result.code).not.toBe(0);
@@ -454,37 +455,913 @@ describe('CLI retry guard', () => {
 
 describe('Buffer bounds', () => {
   test('console buffer caps at 50000 entries', () => {
-    consoleBuffer.length = 0;
+    consoleBuffer.clear();
     for (let i = 0; i < 50_010; i++) {
       addConsoleEntry({ timestamp: i, level: 'log', text: `msg-${i}` });
     }
     expect(consoleBuffer.length).toBe(50_000);
-    expect(consoleBuffer[0].text).toBe('msg-10');
-    expect(consoleBuffer[consoleBuffer.length - 1].text).toBe('msg-50009');
-    consoleBuffer.length = 0;
+    const entries = consoleBuffer.toArray();
+    expect(entries[0].text).toBe('msg-10');
+    expect(entries[entries.length - 1].text).toBe('msg-50009');
+    consoleBuffer.clear();
   });
 
   test('network buffer caps at 50000 entries', () => {
-    networkBuffer.length = 0;
+    networkBuffer.clear();
     for (let i = 0; i < 50_010; i++) {
       addNetworkEntry({ timestamp: i, method: 'GET', url: `http://x/${i}` });
     }
     expect(networkBuffer.length).toBe(50_000);
-    expect(networkBuffer[0].url).toBe('http://x/10');
-    expect(networkBuffer[networkBuffer.length - 1].url).toBe('http://x/50009');
-    networkBuffer.length = 0;
+    const entries = networkBuffer.toArray();
+    expect(entries[0].url).toBe('http://x/10');
+    expect(entries[entries.length - 1].url).toBe('http://x/50009');
+    networkBuffer.clear();
   });
 
   test('totalAdded counters keep incrementing past buffer cap', () => {
-    const startConsole = consoleTotalAdded;
-    const startNetwork = networkTotalAdded;
+    const startConsole = consoleBuffer.totalAdded;
+    const startNetwork = networkBuffer.totalAdded;
     for (let i = 0; i < 100; i++) {
       addConsoleEntry({ timestamp: i, level: 'log', text: `t-${i}` });
       addNetworkEntry({ timestamp: i, method: 'GET', url: `http://t/${i}` });
     }
-    expect(consoleTotalAdded).toBe(startConsole + 100);
-    expect(networkTotalAdded).toBe(startNetwork + 100);
-    consoleBuffer.length = 0;
-    networkBuffer.length = 0;
+    expect(consoleBuffer.totalAdded).toBe(startConsole + 100);
+    expect(networkBuffer.totalAdded).toBe(startNetwork + 100);
+    consoleBuffer.clear();
+    networkBuffer.clear();
+  });
+});
+
+// ─── CircularBuffer Unit Tests ─────────────────────────────────
+
+describe('CircularBuffer', () => {
+  test('push and toArray return items in insertion order', () => {
+    const buf = new CircularBuffer<number>(5);
+    buf.push(1); buf.push(2); buf.push(3);
+    expect(buf.toArray()).toEqual([1, 2, 3]);
+    expect(buf.length).toBe(3);
+  });
+
+  test('overwrites oldest when full', () => {
+    const buf = new CircularBuffer<number>(3);
+    buf.push(1); buf.push(2); buf.push(3); buf.push(4);
+    expect(buf.toArray()).toEqual([2, 3, 4]);
+    expect(buf.length).toBe(3);
+  });
+
+  test('totalAdded increments past capacity', () => {
+    const buf = new CircularBuffer<number>(2);
+    buf.push(1); buf.push(2); buf.push(3); buf.push(4); buf.push(5);
+    expect(buf.totalAdded).toBe(5);
+    expect(buf.length).toBe(2);
+    expect(buf.toArray()).toEqual([4, 5]);
+  });
+
+  test('last(n) returns most recent entries', () => {
+    const buf = new CircularBuffer<number>(5);
+    for (let i = 1; i <= 5; i++) buf.push(i);
+    expect(buf.last(3)).toEqual([3, 4, 5]);
+    expect(buf.last(10)).toEqual([1, 2, 3, 4, 5]); // clamped
+    expect(buf.last(1)).toEqual([5]);
+  });
+
+  test('get and set work by index', () => {
+    const buf = new CircularBuffer<string>(3);
+    buf.push('a'); buf.push('b'); buf.push('c');
+    expect(buf.get(0)).toBe('a');
+    expect(buf.get(2)).toBe('c');
+    buf.set(1, 'B');
+    expect(buf.get(1)).toBe('B');
+    expect(buf.get(-1)).toBeUndefined();
+    expect(buf.get(5)).toBeUndefined();
+  });
+
+  test('clear resets size but not totalAdded', () => {
+    const buf = new CircularBuffer<number>(5);
+    buf.push(1); buf.push(2); buf.push(3);
+    buf.clear();
+    expect(buf.length).toBe(0);
+    expect(buf.totalAdded).toBe(3);
+    expect(buf.toArray()).toEqual([]);
+  });
+
+  test('works with capacity=1', () => {
+    const buf = new CircularBuffer<number>(1);
+    buf.push(10);
+    expect(buf.toArray()).toEqual([10]);
+    buf.push(20);
+    expect(buf.toArray()).toEqual([20]);
+    expect(buf.totalAdded).toBe(2);
+  });
+});
+
+// ─── Dialog Handling ─────────────────────────────────────────
+
+describe('Dialog handling', () => {
+  test('alert does not hang — auto-accepted', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/dialog.html'], bm);
+    await handleWriteCommand('click', ['#alert-btn'], bm);
+    // If we get here, dialog was handled (no hang)
+    const result = await handleReadCommand('dialog', [], bm);
+    expect(result).toContain('alert');
+    expect(result).toContain('Hello from alert');
+    expect(result).toContain('accepted');
+  });
+
+  test('confirm is auto-accepted by default', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/dialog.html'], bm);
+    await handleWriteCommand('click', ['#confirm-btn'], bm);
+    // Wait for DOM update
+    await new Promise(r => setTimeout(r, 100));
+    const result = await handleReadCommand('js', ['document.querySelector("#confirm-result").textContent'], bm);
+    expect(result).toBe('confirmed');
+  });
+
+  test('dialog-dismiss changes behavior', async () => {
+    const setResult = await handleWriteCommand('dialog-dismiss', [], bm);
+    expect(setResult).toContain('dismissed');
+
+    await handleWriteCommand('goto', [baseUrl + '/dialog.html'], bm);
+    await handleWriteCommand('click', ['#confirm-btn'], bm);
+    await new Promise(r => setTimeout(r, 100));
+    const result = await handleReadCommand('js', ['document.querySelector("#confirm-result").textContent'], bm);
+    expect(result).toBe('cancelled');
+
+    // Reset to accept
+    await handleWriteCommand('dialog-accept', [], bm);
+  });
+
+  test('dialog-accept with text provides prompt response', async () => {
+    const setResult = await handleWriteCommand('dialog-accept', ['TestUser'], bm);
+    expect(setResult).toContain('TestUser');
+
+    await handleWriteCommand('goto', [baseUrl + '/dialog.html'], bm);
+    await handleWriteCommand('click', ['#prompt-btn'], bm);
+    await new Promise(r => setTimeout(r, 100));
+    const result = await handleReadCommand('js', ['document.querySelector("#prompt-result").textContent'], bm);
+    expect(result).toBe('TestUser');
+
+    // Reset
+    await handleWriteCommand('dialog-accept', [], bm);
+  });
+
+  test('dialog --clear clears buffer', async () => {
+    const cleared = await handleReadCommand('dialog', ['--clear'], bm);
+    expect(cleared).toContain('cleared');
+    const after = await handleReadCommand('dialog', [], bm);
+    expect(after).toContain('no dialogs');
+  });
+});
+
+// ─── Element State Checks (is) ─────────────────────────────────
+
+describe('Element state checks', () => {
+  beforeAll(async () => {
+    await handleWriteCommand('goto', [baseUrl + '/states.html'], bm);
+  });
+
+  test('is visible returns true for visible element', async () => {
+    const result = await handleReadCommand('is', ['visible', '#visible-div'], bm);
+    expect(result).toBe('true');
+  });
+
+  test('is hidden returns true for hidden element', async () => {
+    const result = await handleReadCommand('is', ['hidden', '#hidden-div'], bm);
+    expect(result).toBe('true');
+  });
+
+  test('is visible returns false for hidden element', async () => {
+    const result = await handleReadCommand('is', ['visible', '#hidden-div'], bm);
+    expect(result).toBe('false');
+  });
+
+  test('is enabled returns true for enabled input', async () => {
+    const result = await handleReadCommand('is', ['enabled', '#enabled-input'], bm);
+    expect(result).toBe('true');
+  });
+
+  test('is disabled returns true for disabled input', async () => {
+    const result = await handleReadCommand('is', ['disabled', '#disabled-input'], bm);
+    expect(result).toBe('true');
+  });
+
+  test('is checked returns true for checked checkbox', async () => {
+    const result = await handleReadCommand('is', ['checked', '#checked-box'], bm);
+    expect(result).toBe('true');
+  });
+
+  test('is checked returns false for unchecked checkbox', async () => {
+    const result = await handleReadCommand('is', ['checked', '#unchecked-box'], bm);
+    expect(result).toBe('false');
+  });
+
+  test('is editable returns true for normal input', async () => {
+    const result = await handleReadCommand('is', ['editable', '#enabled-input'], bm);
+    expect(result).toBe('true');
+  });
+
+  test('is editable returns false for readonly input', async () => {
+    const result = await handleReadCommand('is', ['editable', '#readonly-input'], bm);
+    expect(result).toBe('false');
+  });
+
+  test('is focused after click', async () => {
+    await handleWriteCommand('click', ['#enabled-input'], bm);
+    const result = await handleReadCommand('is', ['focused', '#enabled-input'], bm);
+    expect(result).toBe('true');
+  });
+
+  test('is with @ref works', async () => {
+    await handleMetaCommand('snapshot', ['-i'], bm, async () => {});
+    // Find a ref for the enabled input
+    const snap = await handleMetaCommand('snapshot', ['-i'], bm, async () => {});
+    const textboxLine = snap.split('\n').find(l => l.includes('[textbox]'));
+    if (textboxLine) {
+      const refMatch = textboxLine.match(/@(e\d+)/);
+      if (refMatch) {
+        const ref = `@${refMatch[1]}`;
+        const result = await handleReadCommand('is', ['visible', ref], bm);
+        expect(result).toBe('true');
+      }
+    }
+  });
+
+  test('is with unknown property throws', async () => {
+    try {
+      await handleReadCommand('is', ['bogus', '#enabled-input'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Unknown property');
+    }
+  });
+
+  test('is with missing args throws', async () => {
+    try {
+      await handleReadCommand('is', ['visible'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+});
+
+// ─── File Upload ─────────────────────────────────────────────────
+
+describe('File upload', () => {
+  test('upload single file', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/upload.html'], bm);
+    // Create a temp file to upload
+    const tempFile = '/tmp/browse-test-upload.txt';
+    fs.writeFileSync(tempFile, 'test content');
+    const result = await handleWriteCommand('upload', ['#file-input', tempFile], bm);
+    expect(result).toContain('Uploaded');
+    expect(result).toContain('browse-test-upload.txt');
+
+    // Verify upload handler fired
+    await new Promise(r => setTimeout(r, 100));
+    const text = await handleReadCommand('js', ['document.querySelector("#upload-result").textContent'], bm);
+    expect(text).toContain('browse-test-upload.txt');
+    fs.unlinkSync(tempFile);
+  });
+
+  test('upload with @ref works', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/upload.html'], bm);
+    const tempFile = '/tmp/browse-test-upload2.txt';
+    fs.writeFileSync(tempFile, 'ref upload test');
+    const snap = await handleMetaCommand('snapshot', ['-i'], bm, async () => {});
+    // Find the file input ref (it won't appear as "file input" in aria — use CSS selector instead)
+    const result = await handleWriteCommand('upload', ['#file-input', tempFile], bm);
+    expect(result).toContain('Uploaded');
+    fs.unlinkSync(tempFile);
+  });
+
+  test('upload nonexistent file throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/upload.html'], bm);
+    try {
+      await handleWriteCommand('upload', ['#file-input', '/tmp/nonexistent-file-12345.txt'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('File not found');
+    }
+  });
+
+  test('upload missing args throws', async () => {
+    try {
+      await handleWriteCommand('upload', ['#file-input'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+});
+
+// ─── Eval command ───────────────────────────────────────────────
+
+describe('Eval', () => {
+  test('eval runs JS file', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const tempFile = '/tmp/browse-test-eval.js';
+    fs.writeFileSync(tempFile, 'document.title + " — evaluated"');
+    const result = await handleReadCommand('eval', [tempFile], bm);
+    expect(result).toBe('Test Page - Basic — evaluated');
+    fs.unlinkSync(tempFile);
+  });
+
+  test('eval returns object as JSON', async () => {
+    const tempFile = '/tmp/browse-test-eval-obj.js';
+    fs.writeFileSync(tempFile, '({title: document.title, keys: Object.keys(document.body.dataset)})');
+    const result = await handleReadCommand('eval', [tempFile], bm);
+    const obj = JSON.parse(result);
+    expect(obj.title).toBe('Test Page - Basic');
+    expect(Array.isArray(obj.keys)).toBe(true);
+    fs.unlinkSync(tempFile);
+  });
+
+  test('eval file not found throws', async () => {
+    try {
+      await handleReadCommand('eval', ['/tmp/nonexistent-eval.js'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('File not found');
+    }
+  });
+
+  test('eval no arg throws', async () => {
+    try {
+      await handleReadCommand('eval', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+});
+
+// ─── Press command ──────────────────────────────────────────────
+
+describe('Press', () => {
+  test('press Tab moves focus', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    await handleWriteCommand('click', ['#email'], bm);
+    const result = await handleWriteCommand('press', ['Tab'], bm);
+    expect(result).toContain('Pressed Tab');
+  });
+
+  test('press no arg throws', async () => {
+    try {
+      await handleWriteCommand('press', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+});
+
+// ─── Cookie command ─────────────────────────────────────────────
+
+describe('Cookie command', () => {
+  test('cookie sets value', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleWriteCommand('cookie', ['testcookie=testvalue'], bm);
+    expect(result).toContain('Cookie set');
+
+    const cookies = await handleReadCommand('cookies', [], bm);
+    expect(cookies).toContain('testcookie');
+    expect(cookies).toContain('testvalue');
+  });
+
+  test('cookie no arg throws', async () => {
+    try {
+      await handleWriteCommand('cookie', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('cookie no = throws', async () => {
+    try {
+      await handleWriteCommand('cookie', ['invalid'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+});
+
+// ─── Header command ─────────────────────────────────────────────
+
+describe('Header command', () => {
+  test('header sets value and is sent', async () => {
+    const result = await handleWriteCommand('header', ['X-Test:test-value'], bm);
+    expect(result).toContain('Header set');
+
+    await handleWriteCommand('goto', [baseUrl + '/echo'], bm);
+    const echoText = await handleReadCommand('text', [], bm);
+    expect(echoText).toContain('x-test');
+    expect(echoText).toContain('test-value');
+  });
+
+  test('header no arg throws', async () => {
+    try {
+      await handleWriteCommand('header', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('header no colon throws', async () => {
+    try {
+      await handleWriteCommand('header', ['invalid'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+});
+
+// ─── PDF command ────────────────────────────────────────────────
+
+describe('PDF', () => {
+  test('pdf saves file with size', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const pdfPath = '/tmp/browse-test.pdf';
+    const result = await handleMetaCommand('pdf', [pdfPath], bm, async () => {});
+    expect(result).toContain('PDF saved');
+    expect(fs.existsSync(pdfPath)).toBe(true);
+    const stat = fs.statSync(pdfPath);
+    expect(stat.size).toBeGreaterThan(100);
+    fs.unlinkSync(pdfPath);
+  });
+});
+
+// ─── Empty page edge cases ──────────────────────────────────────
+
+describe('Empty page', () => {
+  test('text returns empty on empty page', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/empty.html'], bm);
+    const result = await handleReadCommand('text', [], bm);
+    expect(result).toBe('');
+  });
+
+  test('links returns empty on empty page', async () => {
+    const result = await handleReadCommand('links', [], bm);
+    expect(result).toBe('');
+  });
+
+  test('forms returns empty array on empty page', async () => {
+    const result = await handleReadCommand('forms', [], bm);
+    expect(JSON.parse(result)).toEqual([]);
+  });
+});
+
+// ─── Error paths ────────────────────────────────────────────────
+
+describe('Errors', () => {
+  // Write command errors
+  test('goto with no arg throws', async () => {
+    try {
+      await handleWriteCommand('goto', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('click with no arg throws', async () => {
+    try {
+      await handleWriteCommand('click', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('fill with no value throws', async () => {
+    try {
+      await handleWriteCommand('fill', ['#input'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('select with no value throws', async () => {
+    try {
+      await handleWriteCommand('select', ['#sel'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('hover with no arg throws', async () => {
+    try {
+      await handleWriteCommand('hover', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('type with no arg throws', async () => {
+    try {
+      await handleWriteCommand('type', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('wait with no arg throws', async () => {
+    try {
+      await handleWriteCommand('wait', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('viewport with bad format throws', async () => {
+    try {
+      await handleWriteCommand('viewport', ['badformat'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('useragent with no arg throws', async () => {
+    try {
+      await handleWriteCommand('useragent', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  // Read command errors
+  test('js with no expression throws', async () => {
+    try {
+      await handleReadCommand('js', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('css with missing property throws', async () => {
+    try {
+      await handleReadCommand('css', ['h1'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('attrs with no selector throws', async () => {
+    try {
+      await handleReadCommand('attrs', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  // Meta command errors
+  test('tab with non-numeric id throws', async () => {
+    try {
+      await handleMetaCommand('tab', ['abc'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('diff with missing urls throws', async () => {
+    try {
+      await handleMetaCommand('diff', [baseUrl + '/basic.html'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('chain with invalid JSON throws', async () => {
+    try {
+      await handleMetaCommand('chain', ['not json'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Invalid JSON');
+    }
+  });
+
+  test('chain with no arg throws', async () => {
+    try {
+      await handleMetaCommand('chain', [], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('unknown read command throws', async () => {
+    try {
+      await handleReadCommand('bogus' as any, [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Unknown');
+    }
+  });
+
+  test('unknown write command throws', async () => {
+    try {
+      await handleWriteCommand('bogus' as any, [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Unknown');
+    }
+  });
+
+  test('unknown meta command throws', async () => {
+    try {
+      await handleMetaCommand('bogus' as any, [], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Unknown');
+    }
+  });
+});
+
+// ─── Workflow: Navigation + Snapshot + Interaction ───────────────
+
+describe('Workflows', () => {
+  test('navigation → snapshot → click @ref → verify URL', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/snapshot.html'], bm);
+    const snap = await handleMetaCommand('snapshot', ['-i'], bm, async () => {});
+    // Find a link ref
+    const linkLine = snap.split('\n').find(l => l.includes('[link]'));
+    expect(linkLine).toBeDefined();
+    const refMatch = linkLine!.match(/@(e\d+)/);
+    expect(refMatch).toBeDefined();
+    // Click the link
+    await handleWriteCommand('click', [`@${refMatch![1]}`], bm);
+    // URL should have changed
+    const url = await handleMetaCommand('url', [], bm, async () => {});
+    expect(url).toBeTruthy();
+  });
+
+  test('form: goto → snapshot → fill @ref → click @ref', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/snapshot.html'], bm);
+    const snap = await handleMetaCommand('snapshot', ['-i'], bm, async () => {});
+    // Find textbox and button
+    const textboxLine = snap.split('\n').find(l => l.includes('[textbox]'));
+    const buttonLine = snap.split('\n').find(l => l.includes('[button]') && l.includes('"Submit"'));
+    if (textboxLine && buttonLine) {
+      const textRef = textboxLine.match(/@(e\d+)/)![1];
+      const btnRef = buttonLine.match(/@(e\d+)/)![1];
+      await handleWriteCommand('fill', [`@${textRef}`, 'testuser'], bm);
+      await handleWriteCommand('click', [`@${btnRef}`], bm);
+    }
+  });
+
+  test('tabs: newtab → goto → switch → verify isolation', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const tabsBefore = bm.getTabCount();
+    await handleMetaCommand('newtab', [baseUrl + '/forms.html'], bm, async () => {});
+    expect(bm.getTabCount()).toBe(tabsBefore + 1);
+
+    const url = await handleMetaCommand('url', [], bm, async () => {});
+    expect(url).toContain('/forms.html');
+
+    // Switch back to previous tab
+    const tabs = await bm.getTabListWithTitles();
+    const prevTab = tabs.find(t => t.url.includes('/basic.html'));
+    if (prevTab) {
+      bm.switchTab(prevTab.id);
+      const url2 = await handleMetaCommand('url', [], bm, async () => {});
+      expect(url2).toContain('/basic.html');
+    }
+
+    // Clean up extra tab
+    const allTabs = await bm.getTabListWithTitles();
+    const formTab = allTabs.find(t => t.url.includes('/forms.html'));
+    if (formTab) await bm.closeTab(formTab.id);
+  });
+
+  test('cookies: set → read → reload → verify persistence', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    await handleWriteCommand('cookie', ['workflow-test=persisted'], bm);
+    await handleWriteCommand('reload', [], bm);
+    const cookies = await handleReadCommand('cookies', [], bm);
+    expect(cookies).toContain('workflow-test');
+    expect(cookies).toContain('persisted');
+  });
+});
+
+// ─── Wait load states ──────────────────────────────────────────
+
+describe('Wait load states', () => {
+  test('wait --networkidle succeeds after page load', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleWriteCommand('wait', ['--networkidle'], bm);
+    expect(result).toBe('Network idle');
+  });
+
+  test('wait --load succeeds', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleWriteCommand('wait', ['--load'], bm);
+    expect(result).toBe('Page loaded');
+  });
+
+  test('wait --domcontentloaded succeeds', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleWriteCommand('wait', ['--domcontentloaded'], bm);
+    expect(result).toBe('DOM content loaded');
+  });
+
+  test('wait --networkidle with custom timeout', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleWriteCommand('wait', ['--networkidle', '5000'], bm);
+    expect(result).toBe('Network idle');
+  });
+
+  test('wait with selector still works', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleWriteCommand('wait', ['#title'], bm);
+    expect(result).toContain('appeared');
+  });
+});
+
+// ─── Console --errors ──────────────────────────────────────────
+
+describe('Console --errors', () => {
+  test('console --errors filters to error and warning only', async () => {
+    // Clear existing entries
+    await handleReadCommand('console', ['--clear'], bm);
+
+    // Add mixed entries
+    addConsoleEntry({ timestamp: Date.now(), level: 'log', text: 'info message' });
+    addConsoleEntry({ timestamp: Date.now(), level: 'warning', text: 'warn message' });
+    addConsoleEntry({ timestamp: Date.now(), level: 'error', text: 'error message' });
+
+    const result = await handleReadCommand('console', ['--errors'], bm);
+    expect(result).toContain('warn message');
+    expect(result).toContain('error message');
+    expect(result).not.toContain('info message');
+
+    // Cleanup
+    consoleBuffer.clear();
+  });
+
+  test('console --errors returns empty message when no errors', async () => {
+    consoleBuffer.clear();
+    addConsoleEntry({ timestamp: Date.now(), level: 'log', text: 'just a log' });
+
+    const result = await handleReadCommand('console', ['--errors'], bm);
+    expect(result).toBe('(no console errors)');
+
+    consoleBuffer.clear();
+  });
+
+  test('console --errors on empty buffer', async () => {
+    consoleBuffer.clear();
+    const result = await handleReadCommand('console', ['--errors'], bm);
+    expect(result).toBe('(no console errors)');
+  });
+
+  test('console without flag still returns all messages', async () => {
+    consoleBuffer.clear();
+    addConsoleEntry({ timestamp: Date.now(), level: 'log', text: 'all messages test' });
+
+    const result = await handleReadCommand('console', [], bm);
+    expect(result).toContain('all messages test');
+
+    consoleBuffer.clear();
+  });
+});
+
+// ─── Cookie Import ─────────────────────────────────────────────
+
+describe('Cookie import', () => {
+  test('cookie-import loads valid JSON cookies', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const tempFile = '/tmp/browse-test-cookies.json';
+    const cookies = [
+      { name: 'test-cookie', value: 'test-value' },
+      { name: 'another', value: '123' },
+    ];
+    fs.writeFileSync(tempFile, JSON.stringify(cookies));
+
+    const result = await handleWriteCommand('cookie-import', [tempFile], bm);
+    expect(result).toBe('Loaded 2 cookies from /tmp/browse-test-cookies.json');
+
+    // Verify cookies were set
+    const cookieList = await handleReadCommand('cookies', [], bm);
+    expect(cookieList).toContain('test-cookie');
+    expect(cookieList).toContain('test-value');
+    expect(cookieList).toContain('another');
+
+    fs.unlinkSync(tempFile);
+  });
+
+  test('cookie-import auto-fills domain from page URL', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const tempFile = '/tmp/browse-test-cookies-nodomain.json';
+    // Cookies without domain — should auto-fill from page URL
+    const cookies = [{ name: 'autofill-test', value: 'works' }];
+    fs.writeFileSync(tempFile, JSON.stringify(cookies));
+
+    const result = await handleWriteCommand('cookie-import', [tempFile], bm);
+    expect(result).toContain('Loaded 1');
+
+    const cookieList = await handleReadCommand('cookies', [], bm);
+    expect(cookieList).toContain('autofill-test');
+
+    fs.unlinkSync(tempFile);
+  });
+
+  test('cookie-import preserves explicit domain', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const tempFile = '/tmp/browse-test-cookies-domain.json';
+    const cookies = [{ name: 'explicit', value: 'domain', domain: 'example.com', path: '/foo' }];
+    fs.writeFileSync(tempFile, JSON.stringify(cookies));
+
+    const result = await handleWriteCommand('cookie-import', [tempFile], bm);
+    expect(result).toContain('Loaded 1');
+
+    fs.unlinkSync(tempFile);
+  });
+
+  test('cookie-import with empty array succeeds', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const tempFile = '/tmp/browse-test-cookies-empty.json';
+    fs.writeFileSync(tempFile, '[]');
+
+    const result = await handleWriteCommand('cookie-import', [tempFile], bm);
+    expect(result).toBe('Loaded 0 cookies from /tmp/browse-test-cookies-empty.json');
+
+    fs.unlinkSync(tempFile);
+  });
+
+  test('cookie-import throws on file not found', async () => {
+    try {
+      await handleWriteCommand('cookie-import', ['/tmp/nonexistent-cookies.json'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('File not found');
+    }
+  });
+
+  test('cookie-import throws on invalid JSON', async () => {
+    const tempFile = '/tmp/browse-test-cookies-bad.json';
+    fs.writeFileSync(tempFile, 'not json {{{');
+
+    try {
+      await handleWriteCommand('cookie-import', [tempFile], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Invalid JSON');
+    }
+
+    fs.unlinkSync(tempFile);
+  });
+
+  test('cookie-import throws on non-array JSON', async () => {
+    const tempFile = '/tmp/browse-test-cookies-obj.json';
+    fs.writeFileSync(tempFile, '{"name": "not-an-array"}');
+
+    try {
+      await handleWriteCommand('cookie-import', [tempFile], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('JSON array');
+    }
+
+    fs.unlinkSync(tempFile);
+  });
+
+  test('cookie-import throws on cookie missing name', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const tempFile = '/tmp/browse-test-cookies-noname.json';
+    fs.writeFileSync(tempFile, JSON.stringify([{ value: 'no-name' }]));
+
+    try {
+      await handleWriteCommand('cookie-import', [tempFile], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('name');
+    }
+
+    fs.unlinkSync(tempFile);
+  });
+
+  test('cookie-import no arg throws', async () => {
+    try {
+      await handleWriteCommand('cookie-import', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
   });
 });

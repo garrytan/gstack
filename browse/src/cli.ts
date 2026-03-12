@@ -185,20 +185,28 @@ Navigation:     goto <url> | back | forward | reload | url
 Content:        text | html [sel] | links | forms | accessibility
 Interaction:    click <sel> | fill <sel> <val> | select <sel> <val>
                 hover <sel> | type <text> | press <key>
-                scroll [sel] | wait <sel> | viewport <WxH>
+                scroll [sel] | wait <sel|--networkidle|--load> | viewport <WxH>
+                upload <sel> <file1> [file2...]
+                cookie-import <json-file>
 Inspection:     js <expr> | eval <file> | css <sel> <prop> | attrs <sel>
-                console [--clear] | network [--clear]
+                console [--clear|--errors] | network [--clear] | dialog [--clear]
                 cookies | storage [set <k> <v>] | perf
+                is <prop> <sel> (visible|hidden|enabled|disabled|checked|editable|focused)
 Visual:         screenshot [path] | pdf [path] | responsive [prefix]
-Snapshot:       snapshot [-i] [-c] [-d N] [-s sel]
+Snapshot:       snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o path] [-C]
+                -D/--diff: diff against previous snapshot
+                -a/--annotate: annotated screenshot with ref labels
+                -C/--cursor-interactive: find non-ARIA clickable elements
 Compare:        diff <url1> <url2>
 Multi-step:     chain (reads JSON from stdin)
 Tabs:           tabs | tab <id> | newtab [url] | closetab [id]
 Server:         status | cookie <n>=<v> | header <n>:<v>
                 useragent <str> | stop | restart
+Dialogs:        dialog-accept [text] | dialog-dismiss
 
 Refs:           After 'snapshot', use @e1, @e2... as selectors:
-                click @e3 | fill @e4 "value" | hover @e1`);
+                click @e3 | fill @e4 "value" | hover @e1
+                @c refs from -C: click @c1`);
     process.exit(0);
   }
 

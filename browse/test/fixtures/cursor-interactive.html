@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Page - Cursor Interactive</title>
+  <style>
+    .clickable-div { cursor: pointer; padding: 10px; border: 1px solid #ccc; }
+    .hover-card { cursor: pointer; padding: 20px; background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1>Cursor Interactive Test</h1>
+  <!-- These are NOT standard interactive elements but have cursor:pointer -->
+  <div class="clickable-div" id="click-div" onclick="this.textContent = 'clicked!'">Click me (div)</div>
+  <span class="hover-card" id="hover-span">Hover card (span)</span>
+  <div tabindex="0" id="focusable-div">Focusable div</div>
+  <div onclick="alert('hi')" id="onclick-div">Onclick div</div>
+  <!-- Standard interactive element (should NOT appear in -C output) -->
+  <button id="normal-btn">Normal Button</button>
+  <a href="/test">Normal Link</a>
+</body>
+</html>
