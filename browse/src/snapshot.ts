@@ -146,6 +146,11 @@ export async function handleSnapshot(
     roleNameCounts.set(key, (roleNameCounts.get(key) || 0) + 1);
   }
 
+  function markRoleNameSeen(node: ParsedNode) {
+    const key = `${node.role}:${node.name || ''}`;
+    roleNameSeen.set(key, (roleNameSeen.get(key) || 0) + 1);
+  }
+
   // Second pass: assign refs and build locators
   for (const line of lines) {
     const node = parseLine(line);
@@ -155,18 +160,24 @@ export async function handleSnapshot(
     const isInteractive = INTERACTIVE_ROLES.has(node.role);
 
     // Depth filter
-    if (opts.depth !== undefined && depth > opts.depth) continue;
+    if (opts.depth !== undefined && depth > opts.depth) {
+      // Skipped nodes still occupy nth() slots for later same-name matches.
+      markRoleNameSeen(node);
+      continue;
+    }
 
     // Interactive filter: skip non-interactive but still count for locator indices
     if (opts.interactive && !isInteractive) {
       // Still track for nth() counts
-      const key = `${node.role}:${node.name || ''}`;
-      roleNameSeen.set(key, (roleNameSeen.get(key) || 0) + 1);
+      markRoleNameSeen(node);
       continue;
     }
 
     // Compact filter: skip elements with no name and no inline content that aren't interactive
-    if (opts.compact && !isInteractive && !node.name && !node.children) continue;
+    if (opts.compact && !isInteractive && !node.name && !node.children) {
+      markRoleNameSeen(node);
+      continue;
+    }
 
     const indent = '  '.repeat(depth);
 

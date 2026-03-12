@@ -299,4 +299,33 @@ describe('Ref invalidation', () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     expect(bm.getRefCount()).toBe(0);
   });
+
+  test('depth filter still freezes the correct nth same-name element', async () => {
+    const page = bm.getPage();
+    await page.setContent(`<!doctype html><body>
+      <ul><li><button id="nested" onclick="window.clicked='nested'">Save</button></li></ul>
+      <button id="outer" onclick="window.clicked='outer'">Save</button>
+    </body>`);
+
+    const snap = await handleMetaCommand('snapshot', ['-i', '-d', '1'], bm, shutdown);
+    const ref = extractRef(snap, (line) => line.includes('[button]') && line.includes('"Save"'));
+
+    await handleWriteCommand('click', [ref], bm);
+    const clicked = await handleReadCommand('js', ['window.clicked'], bm);
+    expect(clicked).toBe('outer');
+  });
+
+  test('compact filter still freezes the correct nth unnamed element', async () => {
+    const page = bm.getPage();
+    await page.setContent(`<!doctype html><body>
+      <p id="empty"></p>
+      <p id="filled">Hello</p>
+    </body>`);
+
+    const snap = await handleMetaCommand('snapshot', ['-c'], bm, shutdown);
+    const ref = extractRef(snap, (line) => line.includes('[paragraph]') && line.includes('Hello'));
+
+    const html = await handleReadCommand('html', [ref], bm);
+    expect(html).toBe('Hello');
+  });
 });
