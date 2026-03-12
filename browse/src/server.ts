@@ -186,10 +186,6 @@ async function shutdown() {
   clearInterval(idleCheckInterval);
   flushBuffers(); // Final flush
 
-  // Remove the state file before closing Chromium so CLI stop/restart polling
-  // can observe shutdown progress even if browser.close() takes a moment.
-  try { fs.unlinkSync(STATE_FILE); } catch {}
-
   try {
     // Graceful close is best-effort here. If Chromium hangs, still exit so
     // stop/restart cannot wedge forever.
@@ -198,6 +194,11 @@ async function shutdown() {
       Bun.sleep(SHUTDOWN_GRACE_MS),
     ]);
   } catch {}
+
+  // Keep the state file until exit. Other CLI processes treat it as proof that
+  // this PID still owns the port, so deleting it early can trigger a bogus
+  // replacement start while the old daemon is still shutting down.
+  try { fs.unlinkSync(STATE_FILE); } catch {}
 
   process.exit(0);
 }

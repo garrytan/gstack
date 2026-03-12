@@ -107,6 +107,15 @@ async function cleanupCliState(stateFile: string) {
   try { fs.unlinkSync(`${stateFile}.settings.json`); } catch {}
 }
 
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Navigation ─────────────────────────────────────────────────
 
 describe('Navigation', () => {
@@ -800,6 +809,59 @@ describe('CLI lifecycle', () => {
       await cleanupCliState(stateFile);
     }
   }, 20000);
+
+  test('status during shutdown reuses the live daemon instead of racing a replacement', async () => {
+    const root = fs.mkdtempSync('/tmp/gstack-browse-shutdown-window-');
+    const stateFile = path.join(root, 'browse-state.json');
+    const shutdownMarker = path.join(root, 'shutdown-started');
+    const wrapperPath = path.join(root, 'server-wrapper.ts');
+    const realServerPath = path.resolve(__dirname, '../src/server.ts');
+    const browserManagerPath = path.resolve(__dirname, '../src/browser-manager.ts');
+    const port = reservePort();
+
+    fs.writeFileSync(wrapperPath, `
+      import * as fs from 'fs';
+      import { BrowserManager } from ${JSON.stringify(browserManagerPath)};
+
+      const originalClose = BrowserManager.prototype.close;
+      BrowserManager.prototype.close = async function (...args) {
+        fs.writeFileSync(${JSON.stringify(shutdownMarker)}, 'closing');
+        await Bun.sleep(1500);
+        return await originalClose.apply(this, args);
+      };
+
+      await import(${JSON.stringify(realServerPath)});
+    `);
+
+    const env = {
+      BROWSE_STATE_FILE: stateFile,
+      BROWSE_PORT: String(port),
+      BROWSE_SERVER_SCRIPT: wrapperPath,
+    };
+
+    try {
+      const started = await runCliCommand(['status'], env);
+      const startedState = readJson<{ pid: number }>(stateFile);
+      expect(started.code).toBe(0);
+      expect(startedState?.pid).toBeTruthy();
+
+      const stopPromise = runCliCommand(['stop'], env, 15000);
+      const shutdownStarted = await waitFor(() => fs.existsSync(shutdownMarker) ? true : null, 5000);
+      expect(shutdownStarted).toBe(true);
+      expect(isPidAlive(startedState!.pid)).toBe(true);
+
+      const status = await runCliCommand(['status'], env, 12000);
+      const stop = await stopPromise;
+
+      expect(status.code).toBe(0);
+      expect(status.stdout).toContain('Status: healthy');
+      expect(stop.code).toBe(0);
+      expect(stop.stdout).toContain('Server stopped');
+    } finally {
+      await cleanupCliState(stateFile);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }, 30000);
 });
 
 // ─── Buffer bounds ──────────────────────────────────────────────
