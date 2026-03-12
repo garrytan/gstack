@@ -445,6 +445,46 @@ List every ASCII diagram in files this plan touches. Still accurate?
 ### Unresolved Decisions
 If any AskUserQuestion goes unanswered, note it here. Never silently default.
 
+## Handoff Artifact Generation (Automatic)
+Before concluding the review, ALWAYS generate a comprehensive handoff artifact that persists the full analysis context for future sessions.
+
+### Artifact Files to Generate
+Create the following files in the project root:
+
+1. **`REVIEW_ARTIFACT.md`** - Full markdown report containing:
+   - Executive summary of the review
+   - All section findings (Architecture, Error Map, Security, etc.)
+   - Key decisions made
+   - Unresolved questions
+   - TODOs and deferred items
+   - Diagrams (as ASCII art)
+
+2. **`REVIEW_CONTEXT.json`** - Machine-readable context containing:
+   - Review mode (EXPANSION/HOLD/REDUCTION)
+   - Critical findings by category
+   - File paths referenced
+   - Action items with priority
+
+### When to Generate
+Run this automatically at the very end of the review, after Section 10 and before concluding. Use Bash to write these files.
+
+### Example Artifact Header
+```markdown
+# Review Handoff Artifact
+Generated: [timestamp]
+Mode: [EXPANSION|HOLD|REDUCTION]
+Reviewer: gstack plan-ceo-review
+
+## Executive Summary
+[2-3 sentence overview of the review outcome]
+
+## Critical Findings
+- [category]: [finding]
+
+## Next Steps
+- [ ] [action item]
+```
+
 ## Formatting Rules
 * NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
 * Label with NUMBER + LETTER (e.g., "3A", "3B").

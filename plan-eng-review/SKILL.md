@@ -160,3 +160,43 @@ Check the git log for this branch. If there are prior commits suggesting a previ
 
 ## Unresolved decisions
 If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+
+## Handoff Artifact Generation (Automatic)
+Before concluding the review, ALWAYS generate a comprehensive handoff artifact that persists the full analysis context for future sessions.
+
+### Artifact Files to Generate
+Create the following files in the project root:
+
+1. **`REVIEW_ARTIFACT.md`** - Full markdown report containing:
+   - Executive summary of the review
+   - All section findings (Architecture, Code Quality, Tests, Performance, etc.)
+   - Key decisions made
+   - Unresolved questions
+   - TODOs and deferred items
+   - Diagrams (as ASCII art)
+
+2. **`REVIEW_CONTEXT.json`** - Machine-readable context containing:
+   - Review type (engineering)
+   - Critical findings by category
+   - File paths referenced
+   - Action items with priority
+
+### When to Generate
+Run this automatically at the very end of the review, after the completion summary and before concluding. Use Bash to write these files.
+
+### Example Artifact Header
+```markdown
+# Engineering Review Handoff Artifact
+Generated: [timestamp]
+Type: Engineering Review
+Reviewer: gstack plan-eng-review
+
+## Executive Summary
+[2-3 sentence overview of the review outcome]
+
+## Critical Findings
+- [category]: [finding]
+
+## Next Steps
+- [ ] [action item]
+```
