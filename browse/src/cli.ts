@@ -226,9 +226,7 @@ async function ensureServer(): Promise<ServerState> {
 async function waitForServerStop(pid: number, timeout = MAX_START_WAIT): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    const alive = isProcessAlive(pid);
-    const stateExists = fs.existsSync(STATE_FILE);
-    if (!alive && !stateExists) {
+    if (!isProcessAlive(pid)) {
       return;
     }
     await Bun.sleep(100);

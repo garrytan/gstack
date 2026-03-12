@@ -767,6 +767,39 @@ describe('CLI lifecycle', () => {
       await cleanupCliState(stateFile);
     }
   }, 25000);
+
+  test('stop ignores recreated state file once the target pid exits', async () => {
+    const stateFile = `/tmp/browse-stop-recreated-state-${Date.now()}.json`;
+    const port = reservePort();
+    const env = {
+      BROWSE_STATE_FILE: stateFile,
+      BROWSE_PORT: String(port),
+    };
+
+    try {
+      const started = await runCliCommand(['status'], env);
+      const startedState = readJson<{ pid: number; port: number; token: string; startedAt: string; serverPath: string }>(stateFile);
+      expect(started.code).toBe(0);
+      expect(startedState?.pid).toBeTruthy();
+
+      const stopPromise = runCliCommand(['stop'], env);
+      await waitFor(() => !fs.existsSync(stateFile) ? true : null, 5000);
+
+      fs.writeFileSync(stateFile, JSON.stringify({
+        pid: 999999,
+        port,
+        token: 'fake-token',
+        startedAt: new Date().toISOString(),
+        serverPath: '/tmp/fake-server.ts',
+      }));
+
+      const stop = await stopPromise;
+      expect(stop.code).toBe(0);
+      expect(stop.stdout).toContain('Server stopped');
+    } finally {
+      await cleanupCliState(stateFile);
+    }
+  }, 20000);
 });
 
 // ─── Buffer bounds ──────────────────────────────────────────────
