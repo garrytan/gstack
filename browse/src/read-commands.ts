@@ -8,6 +8,30 @@
 import type { BrowserManager } from './browser-manager';
 import { consoleBuffer, networkBuffer } from './buffers';
 import * as fs from 'fs';
+import * as path from 'path';
+
+// Security: Path validation to prevent path traversal attacks
+const SAFE_DIRECTORIES = ['/tmp', process.cwd()];
+
+/**
+ * Validates that a file path for reading doesn't contain path traversal
+ * @param filePath The path to validate
+ * @throws Error if path contains traversal sequences or is outside safe directories
+ */
+function validateReadPath(filePath: string): void {
+  // Reject absolute paths outside allowed directories
+  if (path.isAbsolute(filePath)) {
+    const isSafe = SAFE_DIRECTORIES.some(dir => path.resolve(filePath).startsWith(dir));
+    if (!isSafe) {
+      throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    }
+  }
+  // Check for path traversal sequences
+  const normalized = path.normalize(filePath);
+  if (normalized.includes('..')) {
+    throw new Error('Path traversal sequences (..) are not allowed');
+  }
+}
 
 export async function handleReadCommand(
   command: string,
@@ -98,6 +122,7 @@ export async function handleReadCommand(
     case 'eval': {
       const filePath = args[0];
       if (!filePath) throw new Error('Usage: browse eval <js-file>');
+      validateReadPath(filePath);
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const code = fs.readFileSync(filePath, 'utf-8');
       const result = await page.evaluate(code);

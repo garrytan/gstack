@@ -6,6 +6,43 @@ import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import * as Diff from 'diff';
 import * as fs from 'fs';
+import * as path from 'path';
+
+// Security: Path validation to prevent path traversal attacks
+const SAFE_DIRECTORIES = ['/tmp', process.cwd()];
+
+/**
+ * Validates that a file path is within allowed directories
+ * @param filePath The path to validate
+ * @throws Error if path is outside safe directories
+ */
+function validateOutputPath(filePath: string): void {
+  const resolved = path.resolve(filePath);
+  const isSafe = SAFE_DIRECTORIES.some(dir => resolved.startsWith(dir));
+  if (!isSafe) {
+    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+  }
+}
+
+/**
+ * Validates that a file path for reading doesn't contain path traversal
+ * @param filePath The path to validate
+ * @throws Error if path contains traversal sequences
+ */
+function validateReadPath(filePath: string): void {
+  // Reject absolute paths outside allowed directories
+  if (path.isAbsolute(filePath)) {
+    const isSafe = SAFE_DIRECTORIES.some(dir => path.resolve(filePath).startsWith(dir));
+    if (!isSafe) {
+      throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    }
+  }
+  // Check for path traversal sequences
+  const normalized = path.normalize(filePath);
+  if (normalized.includes('..')) {
+    throw new Error('Path traversal sequences (..) are not allowed');
+  }
+}
 
 export async function handleMetaCommand(
   command: string,
@@ -73,6 +110,7 @@ export async function handleMetaCommand(
     case 'screenshot': {
       const page = bm.getPage();
       const screenshotPath = args[0] || '/tmp/browse-screenshot.png';
+      validateOutputPath(screenshotPath);
       await page.screenshot({ path: screenshotPath, fullPage: true });
       return `Screenshot saved: ${screenshotPath}`;
     }
@@ -80,6 +118,7 @@ export async function handleMetaCommand(
     case 'pdf': {
       const page = bm.getPage();
       const pdfPath = args[0] || '/tmp/browse-page.pdf';
+      validateOutputPath(pdfPath);
       await page.pdf({ path: pdfPath, format: 'A4' });
       return `PDF saved: ${pdfPath}`;
     }
@@ -87,6 +126,7 @@ export async function handleMetaCommand(
     case 'responsive': {
       const page = bm.getPage();
       const prefix = args[0] || '/tmp/browse-responsive';
+      validateOutputPath(prefix);
       const viewports = [
         { name: 'mobile', width: 375, height: 812 },
         { name: 'tablet', width: 768, height: 1024 },
