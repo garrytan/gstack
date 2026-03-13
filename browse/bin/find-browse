@@ -1,0 +1,11 @@
+#!/bin/bash
+# Find the gstack browse binary. Echoes path and exits 0, or exits 1 if not found.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$ROOT" ] && test -x "$ROOT/.claude/skills/gstack/browse/dist/browse"; then
+  echo "$ROOT/.claude/skills/gstack/browse/dist/browse"
+elif test -x "$HOME/.claude/skills/gstack/browse/dist/browse"; then
+  echo "$HOME/.claude/skills/gstack/browse/dist/browse"
+else
+  echo "ERROR: browse binary not found. Run: cd <skill-dir> && ./setup" >&2
+  exit 1
+fi

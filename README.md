@@ -2,7 +2,7 @@
 
 **gstack turns Claude Code from one generic assistant into a team of specialists you can summon on demand.**
 
-Six opinionated workflow skills for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Plan review, code review, one-command shipping, browser automation, and engineering retrospectives — all as slash commands.
+Eight opinionated workflow skills for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Plan review, code review, one-command shipping, browser automation, QA testing, and engineering retrospectives — all as slash commands.
 
 ### Without gstack
 
@@ -22,7 +22,9 @@ Six opinionated workflow skills for [Claude Code](https://docs.anthropic.com/en/
 | `/review` | Paranoid staff engineer | Find the bugs that pass CI but blow up in production. Not a style nitpick pass. |
 | `/ship` | Release engineer | Sync main, run tests, push, open PR. For a ready branch, not for deciding what to build. |
 | `/browse` | QA engineer | Give the agent eyes. It logs in, clicks through your app, takes screenshots, catches breakage. Full QA pass in 60 seconds. |
-| `/retro` | Engineering manager | Analyze commit history, work patterns, and shipping velocity for the week. |
+| `/qa` | QA lead | Systematic QA testing with structured reports, health scores, screenshots, and regression tracking. Three modes: full, quick, regression. |
+| `/setup-browser-cookies` | Session manager | Import cookies from your real browser (Comet, Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages without logging in manually. |
+| `/retro` | Engineering manager | Team-aware retro: your deep-dive + per-person praise and growth opportunities for every contributor. |
 
 ## Demo: one feature, five modes
 
@@ -61,11 +63,20 @@ You:   /ship
 
 Claude: [Syncs main, runs tests, pushes branch, opens PR — 6 tool calls, done]
 
-You:   /browse staging.myapp.com — test the listing flow
+You:   /setup-browser-cookies staging.myapp.com
+
+Claude: Imported 8 cookies for staging.myapp.com from Chrome.
+
+You:   /qa https://staging.myapp.com --quick
+
+Claude: [Smoke test: homepage + 5 pages, 30 seconds]
+        Health Score: 91/100. No critical issues. 1 medium: mobile nav overlap.
+
+You:   /browse staging.myapp.com/listings/new — test the upload flow specifically
 
 Claude: [22 tool calls — navigates routes, fills the upload form, verifies
         enrichment renders, checks console for errors, screenshots each step]
-        All pages load correctly. Listing flow works end to end on staging.
+        Listing flow works end to end on staging.
 ```
 
 ## Who this is for
@@ -73,6 +84,16 @@ Claude: [22 tool calls — navigates routes, fills the upload form, verifies
 You already use Claude Code heavily and want consistent, high-rigor workflows instead of one mushy generic mode. You want to tell the model what kind of brain to use right now — founder taste, engineering rigor, paranoid review, or fast execution.
 
 This is not a prompt pack for beginners. It is an operating system for people who ship.
+
+## How to fly: 10 sessions at once
+
+gstack is powerful with one Claude Code session. It is transformative with ten.
+
+[Conductor](https://conductor.build) runs multiple Claude Code sessions in parallel — each in its own isolated workspace. That means you can have one session running `/qa` on staging, another doing `/review` on a PR, a third implementing a feature, and seven more working on other branches. All at the same time.
+
+gstack is Conductor-aware out of the box. Each workspace gets its own isolated browser instance (separate Chromium process, cookies, tabs, and logs) so `/browse` and `/qa` sessions never collide. No configuration needed — it just works.
+
+This is the setup I use. One person, ten parallel agents, each with the right cognitive mode for its task. That is not incremental improvement. That is a different way of building software.
 
 ## Install
 
@@ -82,18 +103,18 @@ This is not a prompt pack for beginners. It is an operating system for people wh
 
 Open Claude Code and paste this. Claude will do the rest.
 
-> Install gstack: run `git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /retro. Then ask the user if they also want to add gstack to the current project so teammates get it.
+> Install gstack: run `git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro. Then ask the user if they also want to add gstack to the current project so teammates get it.
 
 ### Step 2: Add to your repo so teammates get it (optional)
 
-> Add gstack to this project: run `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /retro, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+> Add gstack to this project: run `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
 
 Real files get committed to your repo (not a submodule), so `git clone` just works. The binary and node\_modules are gitignored — teammates just need to run `cd .claude/skills/gstack && ./setup` once to build (or `/browse` handles it automatically on first use).
 
 ### What gets installed
 
 - Skill files (Markdown prompts) in `~/.claude/skills/gstack/` (or `.claude/skills/gstack/` for project installs)
-- Symlinks at `~/.claude/skills/browse`, `~/.claude/skills/review`, etc. pointing into the gstack directory
+- Symlinks at `~/.claude/skills/browse`, `~/.claude/skills/qa`, `~/.claude/skills/review`, etc. pointing into the gstack directory
 - Browser binary at `browse/dist/browse` (~58MB, gitignored)
 - `node_modules/` (gitignored)
 - `/retro` saves JSON snapshots to `.context/retros/` in your project for trend tracking
@@ -378,22 +399,104 @@ For the full command reference, technical internals, and architecture details, s
 
 ---
 
+## `/qa`
+
+This is my **QA lead mode**.
+
+`/browse` gives the agent eyes. `/qa` gives it a testing methodology.
+
+Where `/browse` is a single command — go here, click this, screenshot that — `/qa` is a full systematic test pass. It explores every reachable page, fills forms, clicks buttons, checks console errors, tests responsive layouts, and produces a structured report with a health score, screenshots as evidence, and ranked issues with repro steps.
+
+Three modes:
+
+- **Full** (default) — systematic exploration of the entire app. 5-15 minutes depending on app size. Documents 5-10 well-evidenced issues.
+- **Quick** (`--quick`) — 30-second smoke test. Homepage + top 5 nav targets. Loads? Console errors? Broken links?
+- **Regression** (`--regression baseline.json`) — run full mode, then diff against a previous baseline. Which issues are fixed? Which are new? What's the score delta?
+
+```
+You:   /qa https://staging.myapp.com
+
+Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
+
+        QA Report: staging.myapp.com — Health Score: 72/100
+
+        Top 3 Issues:
+        1. CRITICAL: Checkout form submits with empty required fields
+        2. HIGH: Mobile nav menu doesn't close after selecting an item
+        3. MEDIUM: Dashboard chart overlaps sidebar below 1024px
+
+        [Full report with screenshots saved to .gstack/qa-reports/]
+```
+
+Reports and screenshots accumulate in `.gstack/qa-reports/` so you can track quality over time and compare runs.
+
+**Testing authenticated pages:** Use `/setup-browser-cookies` first to import your real browser sessions, then `/qa` can test pages behind login.
+
+---
+
+## `/setup-browser-cookies`
+
+This is my **session manager mode**.
+
+Before `/qa` or `/browse` can test authenticated pages, they need cookies. Instead of manually logging in through the headless browser every time, `/setup-browser-cookies` imports your real sessions directly from your daily browser.
+
+It auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge), decrypts cookies via the macOS Keychain, and loads them into the Playwright session. An interactive picker UI lets you choose exactly which domains to import — no cookie values are ever displayed.
+
+```
+You:   /setup-browser-cookies
+
+Claude: Cookie picker opened — select the domains you want to import
+        in your browser, then tell me when you're done.
+
+        [You pick github.com, myapp.com in the browser UI]
+
+You:    done
+
+Claude: Imported 2 domains (47 cookies). Session is ready.
+```
+
+Or skip the UI entirely:
+
+```
+You:   /setup-browser-cookies github.com
+
+Claude: Imported 12 cookies for github.com from Comet.
+```
+
+First import per browser triggers a macOS Keychain prompt — click "Allow" or "Always Allow."
+
+---
+
 ## `/retro`
 
 This is my **engineering manager mode**.
 
 At the end of the week I want to know what actually happened. Not vibes — data. `/retro` analyzes commit history, work patterns, and shipping velocity and writes a candid retrospective.
 
-It computes metrics like commits, LOC, test ratio, PR sizes, and fix ratio. It detects coding sessions from commit timestamps, finds hotspot files, tracks shipping streaks, and identifies the biggest ship of the week.
+It is team-aware. It identifies who is running the command, gives you the deepest treatment on your own work, then breaks down every contributor with specific praise and growth opportunities — the kind of feedback you would actually give in a 1:1. It computes metrics like commits, LOC, test ratio, PR sizes, and fix ratio. It detects coding sessions from commit timestamps, finds hotspot files, tracks shipping streaks, and identifies the biggest ship of the week.
 
 ```
 You:   /retro
 
-Claude: Week of Mar 1: 47 commits, 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
+Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
 
-        [Full retro with summary table, time patterns, session analysis,
-         commit type breakdown, hotspots, focus score, top 3 wins,
-         3 things to improve, 3 habits for next week]
+        ## Your Week
+        32 commits, +2.4k LOC, 41% tests. Peak hours: 9-11pm.
+        Biggest ship: cookie import system (browser decryption + picker UI).
+        What you did well: shipped a complete feature with encryption, UI, and
+        18 unit tests in one focused push...
+
+        ## Team Breakdown
+
+        ### Alice
+        12 commits focused on app/services/. Every PR under 200 LOC — disciplined.
+        Opportunity: test ratio at 12% — worth investing before payment gets more complex.
+
+        ### Bob
+        3 commits — fixed the N+1 query on dashboard. Small but high-impact.
+        Opportunity: only 1 active day this week — check if blocked on anything.
+
+        [Top 3 team wins, 3 things to improve, 3 habits for next week]
 ```
 
 It saves a JSON snapshot to `.context/retros/` so the next run can show trends. Run `/retro compare` to see this week vs last week side by side.
@@ -409,7 +512,7 @@ Run `cd ~/.claude/skills/gstack && ./setup` (or `cd .claude/skills/gstack && ./s
 Run `cd ~/.claude/skills/gstack && bun install && bun run build`. This compiles the browser binary. Requires Bun v1.0+.
 
 **Project copy is stale?**
-Re-copy from global: `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
+Re-copy from global: `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
 
 **`bun` not installed?**
 Install it: `curl -fsSL https://bun.sh/install | bash`
@@ -418,7 +521,7 @@ Install it: `curl -fsSL https://bun.sh/install | bash`
 
 Paste this into Claude Code:
 
-> Update gstack: run `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main && ./setup`. If this project also has gstack at .claude/skills/gstack, update it too: run `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
+> Update gstack: run `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main && ./setup`. If this project also has gstack at .claude/skills/gstack, update it too: run `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
 
 The `setup` script rebuilds the browser binary and re-symlinks skills. It takes a few seconds.
 
@@ -426,7 +529,7 @@ The `setup` script rebuilds the browser binary and re-symlinks skills. It takes 
 
 Paste this into Claude Code:
 
-> Uninstall gstack: remove the skill symlinks by running `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -f ~/.claude/skills/$s; done` then run `rm -rf ~/.claude/skills/gstack` and remove the gstack section from CLAUDE.md. If this project also has gstack at .claude/skills/gstack, remove it by running `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack` and remove the gstack section from the project CLAUDE.md too.
+> Uninstall gstack: remove the skill symlinks by running `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f ~/.claude/skills/$s; done` then run `rm -rf ~/.claude/skills/gstack` and remove the gstack section from CLAUDE.md. If this project also has gstack at .claude/skills/gstack, remove it by running `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack` and remove the gstack section from the project CLAUDE.md too.
 
 ## Development
 

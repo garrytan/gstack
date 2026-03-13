@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.3.1 — 2026-03-12
+
+### Phase 3.5: Browser cookie import
+
+- `cookie-import-browser` command — decrypt and import cookies from real Chromium browsers (Comet, Chrome, Arc, Brave, Edge)
+- Interactive cookie picker web UI served from the browse server (dark theme, two-panel layout, domain search, import/remove)
+- Direct CLI import with `--domain` flag for non-interactive use
+- `/setup-browser-cookies` skill for Claude Code integration
+- macOS Keychain access with async 10s timeout (no event loop blocking)
+- Per-browser AES key caching (one Keychain prompt per browser per session)
+- DB lock fallback: copies locked cookie DB to /tmp for safe reads
+- 18 unit tests with encrypted cookie fixtures
+
+## 0.3.0 — 2026-03-12
+
+### Phase 3: /qa skill — systematic QA testing
+
+- New `/qa` skill with 6-phase workflow (Initialize, Authenticate, Orient, Explore, Document, Wrap up)
+- Three modes: full (systematic, 5-10 issues), quick (30-second smoke test), regression (compare against baseline)
+- Issue taxonomy: 7 categories, 4 severity levels, per-page exploration checklist
+- Structured report template with health score (0-100, weighted across 7 categories)
+- Framework detection guidance for Next.js, Rails, WordPress, and SPAs
+- `browse/bin/find-browse` — DRY binary discovery using `git rev-parse --show-toplevel`
+
+### Phase 2: Enhanced browser
+
+- Dialog handling: auto-accept/dismiss, dialog buffer, prompt text support
+- File upload: `upload <sel> <file1> [file2...]`
+- Element state checks: `is visible|hidden|enabled|disabled|checked|editable|focused <sel>`
+- Annotated screenshots with ref labels overlaid (`snapshot -a`)
+- Snapshot diffing against previous snapshot (`snapshot -D`)
+- Cursor-interactive element scan for non-ARIA clickables (`snapshot -C`)
+- `wait --networkidle` / `--load` / `--domcontentloaded` flags
+- `console --errors` filter (error + warning only)
+- `cookie-import <json-file>` with auto-fill domain from page URL
+- CircularBuffer O(1) ring buffer for console/network/dialog buffers
+- Async buffer flush with Bun.write()
+- Health check with page.evaluate + 2s timeout
+- Playwright error wrapping — actionable messages for AI agents
+- Context recreation preserves cookies/storage/URLs (useragent fix)
+- SKILL.md rewritten as QA-oriented playbook with 10 workflow patterns
+- 166 integration tests (was ~63)
+
 ## 0.0.2 — 2026-03-12
 
 - Fix project-local `/browse` installs — compiled binary now resolves `server.ts` from its own directory instead of assuming a global install exists

@@ -8,15 +8,17 @@ This document covers the command reference and internals of gstack's headless br
 |----------|----------|----------|
 | Navigate | `goto`, `back`, `forward`, `reload`, `url` | Get to a page |
 | Read | `text`, `html`, `links`, `forms`, `accessibility` | Extract content |
-| Snapshot | `snapshot [-i] [-c] [-d N] [-s sel]` | Get refs for interaction |
-| Interact | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport` | Use the page |
-| Inspect | `js`, `eval`, `css`, `attrs`, `console`, `network`, `cookies`, `storage`, `perf` | Debug and verify |
+| Snapshot | `snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o] [-C]` | Get refs, diff, annotate |
+| Interact | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport`, `upload` | Use the page |
+| Inspect | `js`, `eval`, `css`, `attrs`, `is`, `console`, `network`, `dialog`, `cookies`, `storage`, `perf` | Debug and verify |
 | Visual | `screenshot`, `pdf`, `responsive` | See what Claude sees |
 | Compare | `diff <url1> <url2>` | Spot differences between environments |
+| Dialogs | `dialog-accept [text]`, `dialog-dismiss` | Control alert/confirm/prompt handling |
 | Tabs | `tabs`, `tab`, `newtab`, `closetab` | Multi-page workflows |
+| Cookies | `cookie-import`, `cookie-import-browser` | Import cookies from file or real browser |
 | Multi-step | `chain` (JSON from stdin) | Batch commands in one call |
 
-All selector arguments accept CSS selectors or `@ref` after `snapshot`. 40+ commands total.
+All selector arguments accept CSS selectors, `@e` refs after `snapshot`, or `@c` refs after `snapshot -C`. 50+ commands total plus cookie import.
 
 ## How it works
 
@@ -60,11 +62,14 @@ browse/
 │   ├── cli.ts              # Thin client — reads state file, sends HTTP, prints response
 │   ├── server.ts           # Bun.serve HTTP server — routes commands to Playwright
 │   ├── browser-manager.ts  # Chromium lifecycle — launch, tabs, ref map, crash handling
-│   ├── snapshot.ts         # Accessibility tree → @ref assignment → Locator map
-│   ├── read-commands.ts    # Non-mutating commands (text, html, links, js, css, etc.)
-│   ├── write-commands.ts   # Mutating commands (click, fill, select, navigate, etc.)
-│   ├── meta-commands.ts    # Server management (status, stop, restart)
-│   └── buffers.ts          # Console + network log capture (in-memory + disk flush)
+│   ├── snapshot.ts         # Accessibility tree → @ref assignment → Locator map + diff/annotate/-C
+│   ├── read-commands.ts    # Non-mutating commands (text, html, links, js, css, is, dialog, etc.)
+│   ├── write-commands.ts   # Mutating commands (click, fill, select, upload, dialog-accept, etc.)
+│   ├── meta-commands.ts    # Server management, chain, diff, snapshot routing
+│   ├── cookie-import-browser.ts  # Decrypt + import cookies from real Chromium browsers
+│   ├── cookie-picker-routes.ts   # HTTP routes for interactive cookie picker UI
+│   ├── cookie-picker-ui.ts       # Self-contained HTML/CSS/JS for cookie picker
+│   └── buffers.ts          # CircularBuffer<T> + console/network/dialog capture
 ├── test/                   # Integration tests + HTML fixtures
 └── dist/
     └── browse              # Compiled binary (~58MB, Bun --compile)
@@ -82,18 +87,28 @@ The browser's key innovation is ref-based element selection, built on Playwright
 
 No DOM mutation. No injected scripts. Just Playwright's native accessibility API.
 
+**Extended snapshot features:**
+- `--diff` (`-D`): Stores each snapshot as a baseline. On the next `-D` call, returns a unified diff showing what changed. Use this to verify that an action (click, fill, etc.) actually worked.
+- `--annotate` (`-a`): Injects temporary overlay divs at each ref's bounding box, takes a screenshot with ref labels visible, then removes the overlays. Use `-o <path>` to control the output path.
+- `--cursor-interactive` (`-C`): Scans for non-ARIA interactive elements (divs with `cursor:pointer`, `onclick`, `tabindex>=0`) using `page.evaluate`. Assigns `@c1`, `@c2`... refs with deterministic `nth-child` CSS selectors. These are elements the ARIA tree misses but users can still click.
+
 ### Authentication
 
 Each server session generates a random UUID as a bearer token. The token is written to the state file (`/tmp/browse-server.json`) with chmod 600. Every HTTP request must include `Authorization: Bearer <token>`. This prevents other processes on the machine from controlling the browser.
 
-### Console and network capture
+### Console, network, and dialog capture
 
-The server hooks into Playwright's `page.on('console')` and `page.on('response')` events. All entries are kept in memory and flushed to disk every second:
+The server hooks into Playwright's `page.on('console')`, `page.on('response')`, and `page.on('dialog')` events. All entries are kept in O(1) circular buffers (50,000 capacity each) and flushed to disk asynchronously via `Bun.write()`:
 
 - Console: `/tmp/browse-console.log`
 - Network: `/tmp/browse-network.log`
+- Dialog: `/tmp/browse-dialog.log`
 
-The `console` and `network` commands read from the in-memory buffers, not disk.
+The `console`, `network`, and `dialog` commands read from the in-memory buffers, not disk.
+
+### Dialog handling
+
+Dialogs (alert, confirm, prompt) are auto-accepted by default to prevent browser lockup. The `dialog-accept` and `dialog-dismiss` commands control this behavior. For prompts, `dialog-accept <text>` provides the response text. All dialogs are logged to the dialog buffer with type, message, and action taken.
 
 ### Multi-workspace support
 
@@ -180,11 +195,12 @@ The compiled binary (`bun run build`) is only needed for distribution. It produc
 
 ```bash
 bun test                         # run all tests
-bun test browse/test/commands    # run command integration tests only
-bun test browse/test/snapshot    # run snapshot tests only
+bun test browse/test/commands              # run command integration tests only
+bun test browse/test/snapshot              # run snapshot tests only
+bun test browse/test/cookie-import-browser # run cookie import unit tests only
 ```
 
-Tests spin up a local HTTP server (`browse/test/test-server.ts`) serving HTML fixtures from `browse/test/fixtures/`, then exercise the CLI commands against those pages. Tests take ~3 seconds.
+Tests spin up a local HTTP server (`browse/test/test-server.ts`) serving HTML fixtures from `browse/test/fixtures/`, then exercise the CLI commands against those pages. 203 tests across 3 files, ~15 seconds total.
 
 ### Source map
 
@@ -193,11 +209,14 @@ Tests spin up a local HTTP server (`browse/test/test-server.ts`) serving HTML fi
 | `browse/src/cli.ts` | Entry point. Reads `/tmp/browse-server.json`, sends HTTP to the server, prints response. |
 | `browse/src/server.ts` | Bun HTTP server. Routes commands to the right handler. Manages idle timeout. |
 | `browse/src/browser-manager.ts` | Chromium lifecycle — launch, tab management, ref map, crash detection. |
-| `browse/src/snapshot.ts` | Parses Playwright's accessibility tree, assigns `@ref` labels, builds Locator map. |
-| `browse/src/read-commands.ts` | Non-mutating commands: `text`, `html`, `links`, `js`, `css`, `forms`, etc. |
-| `browse/src/write-commands.ts` | Mutating commands: `goto`, `click`, `fill`, `select`, `scroll`, etc. |
-| `browse/src/meta-commands.ts` | Server management: `status`, `stop`, `restart`. |
-| `browse/src/buffers.ts` | In-memory + disk capture for console and network logs. |
+| `browse/src/snapshot.ts` | Parses accessibility tree, assigns `@e`/`@c` refs, builds Locator map. Handles `--diff`, `--annotate`, `-C`. |
+| `browse/src/read-commands.ts` | Non-mutating commands: `text`, `html`, `links`, `js`, `css`, `is`, `dialog`, `forms`, etc. Exports `getCleanText()`. |
+| `browse/src/write-commands.ts` | Mutating commands: `goto`, `click`, `fill`, `upload`, `dialog-accept`, `useragent` (with context recreation), etc. |
+| `browse/src/meta-commands.ts` | Server management, chain routing, diff (DRY via `getCleanText`), snapshot delegation. |
+| `browse/src/cookie-import-browser.ts` | Decrypt Chromium cookies via macOS Keychain + PBKDF2/AES-128-CBC. Auto-detects installed browsers. |
+| `browse/src/cookie-picker-routes.ts` | HTTP routes for `/cookie-picker/*` — browser list, domain search, import, remove. |
+| `browse/src/cookie-picker-ui.ts` | Self-contained HTML generator for the interactive cookie picker (dark theme, no frameworks). |
+| `browse/src/buffers.ts` | `CircularBuffer<T>` (O(1) ring buffer) + console/network/dialog capture with async disk flush. |
 
 ### Deploying to the active skill
 
