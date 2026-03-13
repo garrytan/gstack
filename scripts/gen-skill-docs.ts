@@ -63,10 +63,8 @@ function generateSnapshotFlags(): string {
   ];
 
   for (const flag of SNAPSHOT_FLAGS) {
-    const flagStr = flag.takesValue
-      ? `${flag.short.padEnd(10)}${flag.description}`
-      : `${flag.short.padEnd(10)}${flag.description}`;
-    lines.push(flagStr);
+    const label = flag.valueHint ? `${flag.short} ${flag.valueHint}` : flag.short;
+    lines.push(`${label.padEnd(10)}${flag.description}`);
   }
 
   lines.push('```');

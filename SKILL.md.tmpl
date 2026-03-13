@@ -237,7 +237,7 @@ $B css ".button" "background-color"
 
 1. **Navigate once, query many times.** `goto` loads the page; then `text`, `js`, `screenshot` all hit the loaded page instantly.
 2. **Use `snapshot -i` first.** See all interactive elements, then click/fill by ref. No CSS selector guessing.
-3. **Use `snapshot -D` to verify.** Baseline -> action -> diff. See exactly what changed.
+3. **Use `snapshot -D` to verify.** Baseline → action → diff. See exactly what changed.
 4. **Use `is` for assertions.** `is visible .modal` is faster and more reliable than parsing page text.
 5. **Use `snapshot -a` for evidence.** Annotated screenshots are great for bug reports.
 6. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.

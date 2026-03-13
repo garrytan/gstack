@@ -52,16 +52,17 @@ export const SNAPSHOT_FLAGS: Array<{
   long: string;
   description: string;
   takesValue?: boolean;
+  valueHint?: string;
   optionKey: keyof SnapshotOptions;
 }> = [
-  { short: '-i', long: '--interactive', description: 'Interactive elements only', optionKey: 'interactive' },
-  { short: '-c', long: '--compact', description: 'Remove empty structural elements', optionKey: 'compact' },
-  { short: '-d', long: '--depth', description: 'Limit tree depth', takesValue: true, optionKey: 'depth' },
-  { short: '-s', long: '--selector', description: 'Scope to CSS selector', takesValue: true, optionKey: 'selector' },
-  { short: '-D', long: '--diff', description: 'Diff against previous snapshot', optionKey: 'diff' },
+  { short: '-i', long: '--interactive', description: 'Interactive elements only (buttons, links, inputs) with @e refs', optionKey: 'interactive' },
+  { short: '-c', long: '--compact', description: 'Compact (no empty structural nodes)', optionKey: 'compact' },
+  { short: '-d', long: '--depth', description: 'Limit depth', takesValue: true, valueHint: '<N>', optionKey: 'depth' },
+  { short: '-s', long: '--selector', description: 'Scope to CSS selector', takesValue: true, valueHint: '<sel>', optionKey: 'selector' },
+  { short: '-D', long: '--diff', description: 'Diff against previous snapshot (what changed?)', optionKey: 'diff' },
   { short: '-a', long: '--annotate', description: 'Annotated screenshot with ref labels', optionKey: 'annotate' },
-  { short: '-o', long: '--output', description: 'Output path for annotated screenshot', takesValue: true, optionKey: 'outputPath' },
-  { short: '-C', long: '--cursor-interactive', description: 'Scan cursor:pointer/onclick/tabindex elements', optionKey: 'cursorInteractive' },
+  { short: '-o', long: '--output', description: 'Output path for screenshot', takesValue: true, valueHint: '<path>', optionKey: 'outputPath' },
+  { short: '-C', long: '--cursor-interactive', description: 'Cursor-interactive elements (@c refs — divs with pointer, onclick)', optionKey: 'cursorInteractive' },
 ];
 
 interface ParsedNode {

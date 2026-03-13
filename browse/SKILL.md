@@ -104,14 +104,14 @@ $B diff https://staging.app.com https://prod.app.com
 The snapshot is your primary tool for understanding and interacting with pages.
 
 ```
--i        Interactive elements only
--c        Remove empty structural elements
--d        Limit tree depth
--s        Scope to CSS selector
--D        Diff against previous snapshot
+-i        Interactive elements only (buttons, links, inputs) with @e refs
+-c        Compact (no empty structural nodes)
+-d <N>    Limit depth
+-s <sel>  Scope to CSS selector
+-D        Diff against previous snapshot (what changed?)
 -a        Annotated screenshot with ref labels
--o        Output path for annotated screenshot
--C        Scan cursor:pointer/onclick/tabindex elements
+-o <path> Output path for screenshot
+-C        Cursor-interactive elements (@c refs — divs with pointer, onclick)
 ```
 
 Combine flags: `$B snapshot -i -a -C -o /tmp/annotated.png`
@@ -151,13 +151,13 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `click <sel>` | Click element |
 | `cookie` | Set cookie |
 | `cookie-import <json>` | Import cookies from JSON file |
-| `cookie-import-browser [browser] [--domain d]` | Import cookies from real browser |
-| `dialog-accept [text]` | Auto-accept next dialog |
+| `cookie-import-browser [browser] [--domain d]` | Import cookies from real browser (opens picker UI, or direct with --domain) |
+| `dialog-accept [text]` | Auto-accept next alert/confirm/prompt |
 | `dialog-dismiss` | Auto-dismiss next dialog |
 | `fill <sel> <val>` | Fill input |
 | `header <name> <value>` | Set custom request header |
 | `hover <sel>` | Hover element |
-| `press <key>` | Press key |
+| `press <key>` | Press key (Enter, Tab, Escape, etc.) |
 | `scroll [sel]` | Scroll element into view |
 | `select <sel> <val>` | Select dropdown option |
 | `type <text>` | Type into focused element |
@@ -169,13 +169,13 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 ### Inspection
 | Command | Description |
 |---------|-------------|
-| `attrs <sel>` | Element attributes as JSON |
-| `console [--clear|--errors]` | Console messages |
+| `attrs <sel|@ref>` | Element attributes as JSON |
+| `console [--clear|--errors]` | Console messages (--errors filters to error/warning) |
 | `cookies` | All cookies as JSON |
 | `css <sel> <prop>` | Computed CSS value |
 | `dialog [--clear]` | Dialog messages |
 | `eval <file>` | Run JS file |
-| `is <prop> <sel>` | State check |
+| `is <prop> <sel>` | State check (visible/hidden/enabled/disabled/checked/editable/focused) |
 | `js <expr>` | Run JavaScript |
 | `network [--clear]` | Network requests |
 | `perf` | Page load timings |
