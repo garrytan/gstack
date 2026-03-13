@@ -21,7 +21,12 @@ Auto-shuts down after 30 min idle. State persists between calls (cookies, tabs, 
 ## SETUP (run this check BEFORE any browse command)
 
 ```bash
-B=$(browse/bin/find-browse 2>/dev/null || ~/.claude/skills/gstack/browse/bin/find-browse 2>/dev/null)
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+  B=$(find "$USERPROFILE/.claude/skills/gstack/browse/dist" -maxdepth 1 -name "browse.exe" 2>/dev/null | head -1)
+  [ -z "$B" ] && B=$(find "$(git rev-parse --show-toplevel 2>/dev/null)/.claude/skills/gstack/browse/dist" -maxdepth 1 -name "browse.exe" 2>/dev/null | head -1)
+else
+  B=$(browse/bin/find-browse 2>/dev/null || ~/.claude/skills/gstack/browse/bin/find-browse 2>/dev/null)
+fi
 if [ -n "$B" ]; then
   echo "READY: $B"
 else
@@ -31,8 +36,9 @@ fi
 
 If `NEEDS_SETUP`:
 1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
+2. On Windows: `cd <SKILL_DIR> && powershell -File setup.ps1`
+   On macOS/Linux: `cd <SKILL_DIR> && ./setup`
+3. If `bun` is not installed: visit https://bun.sh/docs/installation
 
 ## IMPORTANT
 
@@ -46,7 +52,7 @@ If `NEEDS_SETUP`:
 ### Test a user flow (login, signup, checkout, etc.)
 
 ```bash
-B=~/.claude/skills/gstack/browse/dist/browse
+# Use $B from the SETUP block above
 
 # 1. Go to the page
 $B goto https://app.example.com/login

@@ -17,6 +17,7 @@
 
 import { chromium, type Browser, type BrowserContext, type Page, type Locator } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
+import { TEMP_DIR } from './paths';
 
 export class BrowserManager {
   private browser: Browser | null = null;
@@ -47,7 +48,7 @@ export class BrowserManager {
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {
       console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
-      console.error('[browse] Console/network logs flushed to /tmp/browse-*.log');
+      console.error(`[browse] Console/network logs flushed to ${TEMP_DIR}/browse-*.log`);
       process.exit(1);
     });
 

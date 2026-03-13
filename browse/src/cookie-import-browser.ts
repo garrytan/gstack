@@ -37,6 +37,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { tempPath } from './paths';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -104,6 +105,7 @@ const keyCache = new Map<string, Buffer>();
  * Find which browsers are installed (have a cookie DB on disk).
  */
 export function findInstalledBrowsers(): BrowserInfo[] {
+  if (process.platform !== 'darwin') return [];
   const appSupport = path.join(os.homedir(), 'Library', 'Application Support');
   return BROWSER_REGISTRY.filter(b => {
     const dbPath = path.join(appSupport, b.dataDir, 'Default', 'Cookies');
@@ -241,7 +243,7 @@ function openDb(dbPath: string, browserName: string): Database {
 }
 
 function openDbFromCopy(dbPath: string, browserName: string): Database {
-  const tmpPath = `/tmp/browse-cookies-${browserName.toLowerCase()}-${crypto.randomUUID()}.db`;
+  const tmpPath = tempPath(`browse-cookies-${browserName.toLowerCase()}-${crypto.randomUUID()}.db`);
   try {
     fs.copyFileSync(dbPath, tmpPath);
     // Also copy WAL and SHM if they exist (for consistent reads)
@@ -274,6 +276,13 @@ function openDbFromCopy(dbPath: string, browserName: string): Database {
 // ─── Internal: Keychain Access (async, 10s timeout) ─────────────
 
 async function getDerivedKey(browser: BrowserInfo): Promise<Buffer> {
+  if (process.platform !== 'darwin') {
+    throw new CookieImportError(
+      'Browser cookie import is only supported on macOS. Use "cookie-import <json-file>" to import cookies from a JSON file.',
+      'unsupported_platform',
+    );
+  }
+
   const cached = keyCache.get(browser.keychainService);
   if (cached) return cached;
 

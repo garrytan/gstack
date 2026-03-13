@@ -18,6 +18,8 @@ allowed-tools:
 Persistent headless Chromium. First call auto-starts (~3s), then ~100ms per command.
 State persists between calls (cookies, tabs, login sessions).
 
+**Note:** Commands like `screenshot`, `pdf`, `responsive`, and `snapshot -a` default to the system temp directory when no path is given. On Windows this is `%TEMP%`, on macOS/Linux `/tmp`.
+
 ## Core QA Patterns
 
 ### 1. Verify a page loads correctly

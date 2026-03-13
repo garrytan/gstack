@@ -10,16 +10,13 @@ import { consoleBuffer, networkBuffer, dialogBuffer } from './buffers';
 import type { Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
+import { safeDirs, isPathSafe } from './paths';
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = ['/tmp', process.cwd()];
-
 function validateReadPath(filePath: string): void {
   if (path.isAbsolute(filePath)) {
-    const resolved = path.resolve(filePath);
-    const isSafe = SAFE_DIRECTORIES.some(dir => resolved === dir || resolved.startsWith(dir + '/'));
-    if (!isSafe) {
-      throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    if (!isPathSafe(filePath)) {
+      throw new Error(`Absolute path must be within: ${safeDirs().join(', ')}`);
     }
   }
   const normalized = path.normalize(filePath);

@@ -8,15 +8,12 @@ import { getCleanText } from './read-commands';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
+import { safeDirs, isPathSafe, tempPath } from './paths';
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = ['/tmp', process.cwd()];
-
 function validateOutputPath(filePath: string): void {
-  const resolved = path.resolve(filePath);
-  const isSafe = SAFE_DIRECTORIES.some(dir => resolved === dir || resolved.startsWith(dir + '/'));
-  if (!isSafe) {
-    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+  if (!isPathSafe(filePath)) {
+    throw new Error(`Path must be within: ${safeDirs().join(', ')}`);
   }
 }
 
@@ -107,7 +104,7 @@ export async function handleMetaCommand(
     // ─── Visual ────────────────────────────────────────
     case 'screenshot': {
       const page = bm.getPage();
-      const screenshotPath = args[0] || '/tmp/browse-screenshot.png';
+      const screenshotPath = args[0] || tempPath('browse-screenshot.png');
       validateOutputPath(screenshotPath);
       await page.screenshot({ path: screenshotPath, fullPage: true });
       return `Screenshot saved: ${screenshotPath}`;
@@ -115,7 +112,7 @@ export async function handleMetaCommand(
 
     case 'pdf': {
       const page = bm.getPage();
-      const pdfPath = args[0] || '/tmp/browse-page.pdf';
+      const pdfPath = args[0] || tempPath('browse-page.pdf');
       validateOutputPath(pdfPath);
       await page.pdf({ path: pdfPath, format: 'A4' });
       return `PDF saved: ${pdfPath}`;
@@ -123,7 +120,7 @@ export async function handleMetaCommand(
 
     case 'responsive': {
       const page = bm.getPage();
-      const prefix = args[0] || '/tmp/browse-responsive';
+      const prefix = args[0] || tempPath('browse-responsive');
       validateOutputPath(prefix);
       const viewports = [
         { name: 'mobile', width: 375, height: 812 },

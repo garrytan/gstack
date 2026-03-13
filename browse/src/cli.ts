@@ -11,13 +11,14 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { tempPath, homeDir } from './paths';
 
 const PORT_OFFSET = 45600;
 const BROWSE_PORT = process.env.CONDUCTOR_PORT
   ? parseInt(process.env.CONDUCTOR_PORT, 10) - PORT_OFFSET
   : parseInt(process.env.BROWSE_PORT || '0', 10);
 const INSTANCE_SUFFIX = BROWSE_PORT ? `-${BROWSE_PORT}` : '';
-const STATE_FILE = process.env.BROWSE_STATE_FILE || `/tmp/browse-server${INSTANCE_SUFFIX}.json`;
+const STATE_FILE = process.env.BROWSE_STATE_FILE || tempPath(`browse-server${INSTANCE_SUFFIX}.json`);
 const MAX_START_WAIT = 8000; // 8 seconds to start
 
 export function resolveServerScript(
@@ -30,7 +31,7 @@ export function resolveServerScript(
   }
 
   // Dev mode: cli.ts runs directly from browse/src
-  if (metaDir.startsWith('/') && !metaDir.includes('$bunfs')) {
+  if (path.isAbsolute(metaDir) && !metaDir.includes('$bunfs')) {
     const direct = path.resolve(metaDir, 'server.ts');
     if (fs.existsSync(direct)) {
       return direct;
@@ -46,7 +47,7 @@ export function resolveServerScript(
   }
 
   // Legacy fallback for user-level installs
-  return path.resolve(env.HOME || '/tmp', '.claude/skills/gstack/browse/src/server.ts');
+  return path.resolve(env.HOME || env.USERPROFILE || homeDir(), '.claude/skills/gstack/browse/src/server.ts');
 }
 
 const SERVER_SCRIPT = resolveServerScript();

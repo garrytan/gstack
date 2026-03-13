@@ -16,6 +16,7 @@ import { handleCookiePickerRoute } from './cookie-picker-routes';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { tempPath } from './paths';
 
 // ─── Auth (inline) ─────────────────────────────────────────────
 const AUTH_TOKEN = crypto.randomUUID();
@@ -24,7 +25,7 @@ const BROWSE_PORT = process.env.CONDUCTOR_PORT
   ? parseInt(process.env.CONDUCTOR_PORT, 10) - PORT_OFFSET
   : parseInt(process.env.BROWSE_PORT || '0', 10); // 0 = auto-scan
 const INSTANCE_SUFFIX = BROWSE_PORT ? `-${BROWSE_PORT}` : '';
-const STATE_FILE = process.env.BROWSE_STATE_FILE || `/tmp/browse-server${INSTANCE_SUFFIX}.json`;
+const STATE_FILE = process.env.BROWSE_STATE_FILE || tempPath(`browse-server${INSTANCE_SUFFIX}.json`);
 const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
 
 function validateAuth(req: Request): boolean {
@@ -36,9 +37,9 @@ function validateAuth(req: Request): boolean {
 import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry } from './buffers';
 export { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry };
 
-const CONSOLE_LOG_PATH = `/tmp/browse-console${INSTANCE_SUFFIX}.log`;
-const NETWORK_LOG_PATH = `/tmp/browse-network${INSTANCE_SUFFIX}.log`;
-const DIALOG_LOG_PATH = `/tmp/browse-dialog${INSTANCE_SUFFIX}.log`;
+const CONSOLE_LOG_PATH = tempPath(`browse-console${INSTANCE_SUFFIX}.log`);
+const NETWORK_LOG_PATH = tempPath(`browse-network${INSTANCE_SUFFIX}.log`);
+const DIALOG_LOG_PATH = tempPath(`browse-dialog${INSTANCE_SUFFIX}.log`);
 let lastConsoleFlushed = 0;
 let lastNetworkFlushed = 0;
 let lastDialogFlushed = 0;
