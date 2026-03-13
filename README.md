@@ -97,29 +97,43 @@ This is the setup I use. One person, ten parallel agents, each with the right co
 
 ## Install
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+. `/browse` compiles a native binary — works on macOS and Linux (x64 and arm64).
+**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+. `/browse` compiles a native binary — works on macOS, Linux (x64 and arm64), and Windows 11.
+
+> **Windows 11 users:** Windows support is available from the [Garry-TI/gstack](https://github.com/Garry-TI/gstack) fork. It has not yet been merged into the original repo. Use the Windows instructions below — they clone from the correct repo.
 
 ### Step 1: Install on your machine
 
-Open Claude Code and paste this. Claude will do the rest.
+Open Claude Code and paste the block for your platform. Claude will do the rest.
+
+**macOS / Linux** — clones from the original repo:
 
 > Install gstack: run `git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro. Then ask the user if they also want to add gstack to the current project so teammates get it.
 
+**Windows 11** — clones from the [Garry-TI fork](https://github.com/Garry-TI/gstack) which includes Windows support:
+
+> Install gstack: run `git clone https://github.com/Garry-TI/gstack.git "$env:USERPROFILE/.claude/skills/gstack"` then `cd "$env:USERPROFILE/.claude/skills/gstack"` then `powershell -File setup.ps1`. Then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro. Then ask the user if they also want to add gstack to the current project so teammates get it.
+
 ### Step 2: Add to your repo so teammates get it (optional)
 
-> Add gstack to this project: run `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+> Add gstack to this project: run `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` (or `powershell -File setup.ps1` on Windows) to build the binary and register skills.
 
-Real files get committed to your repo (not a submodule), so `git clone` just works. The binary and node\_modules are gitignored — teammates just need to run `cd .claude/skills/gstack && ./setup` once to build (or `/browse` handles it automatically on first use).
+Real files get committed to your repo (not a submodule), so `git clone` just works. The binary and node\_modules are gitignored — teammates just need to run `cd .claude/skills/gstack && ./setup` (or `powershell -File setup.ps1` on Windows) once to build (or `/browse` handles it automatically on first use).
 
 ### What gets installed
 
 - Skill files (Markdown prompts) in `~/.claude/skills/gstack/` (or `.claude/skills/gstack/` for project installs)
-- Symlinks at `~/.claude/skills/browse`, `~/.claude/skills/qa`, `~/.claude/skills/review`, etc. pointing into the gstack directory
-- Browser binary at `browse/dist/browse` (~58MB, gitignored)
+- Symlinks (macOS/Linux) or directory junctions (Windows) at `~/.claude/skills/browse`, `~/.claude/skills/qa`, `~/.claude/skills/review`, etc. pointing into the gstack directory
+- Browser binary at `browse/dist/browse` (macOS/Linux) or `browse/dist/browse.exe` (Windows) — ~58MB, gitignored
 - `node_modules/` (gitignored)
 - `/retro` saves JSON snapshots to `.context/retros/` in your project for trend tracking
 
 Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
+
+### Windows notes
+
+- The `setup.ps1` script is the Windows equivalent of `./setup`. It uses directory junctions (no admin required) instead of symlinks.
+- `/setup-browser-cookies` (cookie import from browsers) is macOS-only. On Windows, use `cookie-import <json-file>` to import cookies from a JSON file.
+- Bun on Windows: install via `powershell -c "irm bun.sh/install.ps1 | iex"`.
 
 ---
 
@@ -506,7 +520,7 @@ It saves a JSON snapshot to `.context/retros/` so the next run can show trends. 
 ## Troubleshooting
 
 **Skill not showing up in Claude Code?**
-Run `cd ~/.claude/skills/gstack && ./setup` (or `cd .claude/skills/gstack && ./setup` for project installs). This rebuilds symlinks so Claude can discover the skills.
+Run `cd ~/.claude/skills/gstack && ./setup` (or `cd .claude/skills/gstack && ./setup` for project installs). On Windows: `cd ~\.claude\skills\gstack && powershell -File setup.ps1`. This rebuilds symlinks/junctions so Claude can discover the skills.
 
 **`/browse` fails or binary not found?**
 Run `cd ~/.claude/skills/gstack && bun install && bun run build`. This compiles the browser binary. Requires Bun v1.0+.
@@ -515,7 +529,8 @@ Run `cd ~/.claude/skills/gstack && bun install && bun run build`. This compiles 
 Re-copy from global: `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
 
 **`bun` not installed?**
-Install it: `curl -fsSL https://bun.sh/install | bash`
+macOS/Linux: `curl -fsSL https://bun.sh/install | bash`
+Windows: `powershell -c "irm bun.sh/install.ps1 | iex"`
 
 ## Upgrading
 

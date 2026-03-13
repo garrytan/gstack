@@ -26,7 +26,12 @@ Import logged-in sessions from your real Chromium browser into the headless brow
 ### 1. Find the browse binary
 
 ```bash
-B=$(browse/bin/find-browse 2>/dev/null || ~/.claude/skills/gstack/browse/bin/find-browse 2>/dev/null)
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+  B=$(find "$USERPROFILE/.claude/skills/gstack/browse/dist" -maxdepth 1 -name "browse.exe" 2>/dev/null | head -1)
+  [ -z "$B" ] && B=$(find "$(git rev-parse --show-toplevel 2>/dev/null)/.claude/skills/gstack/browse/dist" -maxdepth 1 -name "browse.exe" 2>/dev/null | head -1)
+else
+  B=$(browse/bin/find-browse 2>/dev/null || ~/.claude/skills/gstack/browse/bin/find-browse 2>/dev/null)
+fi
 if [ -n "$B" ]; then
   echo "READY: $B"
 else
@@ -36,8 +41,11 @@ fi
 
 If `NEEDS_SETUP`:
 1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
+2. On Windows: `cd <SKILL_DIR> && powershell -File setup.ps1`
+   On macOS/Linux: `cd <SKILL_DIR> && ./setup`
+3. If `bun` is not installed: visit https://bun.sh/docs/installation
+
+**Note:** Browser cookie import (`cookie-import-browser`) is currently macOS-only. On Windows, use `cookie-import <json-file>` to import cookies from a JSON file.
 
 ### 2. Open the cookie picker
 

@@ -31,7 +31,12 @@ You are a QA engineer. Test web applications like a real user — click everythi
 **Find the browse binary:**
 
 ```bash
-B=$(browse/bin/find-browse 2>/dev/null || ~/.claude/skills/gstack/browse/bin/find-browse 2>/dev/null)
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+  B=$(find "$USERPROFILE/.claude/skills/gstack/browse/dist" -maxdepth 1 -name "browse.exe" 2>/dev/null | head -1)
+  [ -z "$B" ] && B=$(find "$(git rev-parse --show-toplevel 2>/dev/null)/.claude/skills/gstack/browse/dist" -maxdepth 1 -name "browse.exe" 2>/dev/null | head -1)
+else
+  B=$(browse/bin/find-browse 2>/dev/null || ~/.claude/skills/gstack/browse/bin/find-browse 2>/dev/null)
+fi
 if [ -z "$B" ]; then
   echo "ERROR: browse binary not found"
   exit 1

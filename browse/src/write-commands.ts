@@ -9,6 +9,7 @@ import type { BrowserManager } from './browser-manager';
 import { findInstalledBrowsers, importCookies } from './cookie-import-browser';
 import * as fs from 'fs';
 import * as path from 'path';
+import { safeDirs, isPathSafe, openArgs } from './paths';
 
 export async function handleWriteCommand(
   command: string,
@@ -238,10 +239,8 @@ export async function handleWriteCommand(
       if (!filePath) throw new Error('Usage: browse cookie-import <json-file>');
       // Path validation — prevent reading arbitrary files
       if (path.isAbsolute(filePath)) {
-        const safeDirs = ['/tmp', process.cwd()];
-        const resolved = path.resolve(filePath);
-        if (!safeDirs.some(dir => resolved === dir || resolved.startsWith(dir + '/'))) {
-          throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+        if (!isPathSafe(filePath)) {
+          throw new Error(`Path must be within: ${safeDirs().join(', ')}`);
         }
       }
       if (path.normalize(filePath).includes('..')) {
@@ -298,7 +297,7 @@ export async function handleWriteCommand(
 
       const pickerUrl = `http://127.0.0.1:${port}/cookie-picker`;
       try {
-        Bun.spawn(['open', pickerUrl], { stdout: 'ignore', stderr: 'ignore' });
+        Bun.spawn([...openArgs(), pickerUrl], { stdout: 'ignore', stderr: 'ignore' });
       } catch {
         // open may fail silently — URL is in the message below
       }
