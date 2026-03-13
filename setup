@@ -32,31 +32,32 @@ if [ ! -x "$BROWSE_BIN" ]; then
   exit 1
 fi
 
-# 2. Only create skill symlinks if we're inside a .claude/skills directory
+# 2. Only register skills if we're inside a .claude/skills directory
+# Uses real directory copies instead of symlinks so skills are discoverable
+# by Claude Desktop, which mounts ~/.claude/skills/ but does not follow symlinks.
 SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
 if [ "$SKILLS_BASENAME" = "skills" ]; then
-  linked=()
+  registered=()
   for skill_dir in "$GSTACK_DIR"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       # Skip node_modules
       [ "$skill_name" = "node_modules" ] && continue
       target="$SKILLS_DIR/$skill_name"
-      # Create or update symlink; skip if a real file/directory exists
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "gstack/$skill_name" "$target"
-        linked+=("$skill_name")
-      fi
+      # Remove any existing symlink or stale copy, then copy fresh
+      rm -rf "$target"
+      cp -Rf "$GSTACK_DIR/$skill_name" "$target"
+      registered+=("$skill_name")
     fi
   done
 
   echo "gstack ready."
   echo "  browse: $BROWSE_BIN"
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
+  if [ ${#registered[@]} -gt 0 ]; then
+    echo "  registered skills: ${registered[*]}"
   fi
 else
   echo "gstack ready."
   echo "  browse: $BROWSE_BIN"
-  echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  echo "  (skipped skill registration — not inside .claude/skills/)"
 fi

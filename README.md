@@ -403,7 +403,7 @@ It saves a JSON snapshot to `.context/retros/` so the next run can show trends. 
 ## Troubleshooting
 
 **Skill not showing up in Claude Code?**
-Run `cd ~/.claude/skills/gstack && ./setup` (or `cd .claude/skills/gstack && ./setup` for project installs). This rebuilds symlinks so Claude can discover the skills.
+Run `cd ~/.claude/skills/gstack && ./setup` (or `cd .claude/skills/gstack && ./setup` for project installs). This rebuilds skill directories so Claude can discover the skills.
 
 **`/browse` fails or binary not found?**
 Run `cd ~/.claude/skills/gstack && bun install && bun run build`. This compiles the browser binary. Requires Bun v1.0+.
@@ -420,13 +420,13 @@ Paste this into Claude Code:
 
 > Update gstack: run `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main && ./setup`. If this project also has gstack at .claude/skills/gstack, update it too: run `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
 
-The `setup` script rebuilds the browser binary and re-symlinks skills. It takes a few seconds.
+The `setup` script rebuilds the browser binary and re-registers skills. It takes a few seconds.
 
 ## Uninstalling
 
 Paste this into Claude Code:
 
-> Uninstall gstack: remove the skill symlinks by running `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -f ~/.claude/skills/$s; done` then run `rm -rf ~/.claude/skills/gstack` and remove the gstack section from CLAUDE.md. If this project also has gstack at .claude/skills/gstack, remove it by running `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack` and remove the gstack section from the project CLAUDE.md too.
+> Uninstall gstack: remove the skill directories by running `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -rf ~/.claude/skills/$s; done` then run `rm -rf ~/.claude/skills/gstack` and remove the gstack section from CLAUDE.md. If this project also has gstack at .claude/skills/gstack, remove it by running `for s in browse plan-ceo-review plan-eng-review review ship retro; do rm -rf .claude/skills/$s; done && rm -rf .claude/skills/gstack` and remove the gstack section from the project CLAUDE.md too.
 
 ## Development
 
