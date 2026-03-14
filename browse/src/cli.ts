@@ -26,7 +26,8 @@ export function resolveServerScript(
   }
 
   // Dev mode: cli.ts runs directly from browse/src
-  if (metaDir.startsWith('/') && !metaDir.includes('$bunfs')) {
+  const isRealPath = !metaDir.includes('$bunfs') && (metaDir.startsWith('/') || /^[A-Za-z]:/.test(metaDir));
+  if (isRealPath) {
     const direct = path.resolve(metaDir, 'server.ts');
     if (fs.existsSync(direct)) {
       return direct;
@@ -140,7 +141,15 @@ async function startServer(): Promise<ServerState> {
   try { fs.unlinkSync(config.stateFile); } catch {}
 
   // Start server as detached background process
-  const proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
+  // On Windows, Bun's IPC pipes break Playwright — use Node+tsx instead
+  const isWindows = process.platform === 'win32';
+  const serverScript = isWindows
+    ? path.resolve(path.dirname(SERVER_SCRIPT), 'server-node.ts')
+    : SERVER_SCRIPT;
+  const serverCmd = isWindows
+    ? ['npx', 'tsx', serverScript]
+    : ['bun', 'run', SERVER_SCRIPT];
+  const proc = Bun.spawn(serverCmd, {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, BROWSE_STATE_FILE: config.stateFile },
   });

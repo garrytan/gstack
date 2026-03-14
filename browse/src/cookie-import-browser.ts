@@ -32,7 +32,14 @@
  *   └──────────────────────────────────────────────────────────────────┘
  */
 
-import { Database } from 'bun:sqlite';
+// Dynamic import — bun:sqlite is unavailable when running under Node/tsx on Windows
+let Database: any;
+try {
+  Database = require('bun:sqlite').Database;
+} catch {
+  // Running under Node — cookie-import-browser commands won't work, but server can start
+  Database = null;
+}
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';

@@ -1,21 +1,46 @@
 #!/usr/bin/env bash
 # gstack setup — build browser binary + register all skills with Claude Code
+# Works on macOS, Linux, and Windows (Git Bash / MSYS2 / WSL)
 set -e
 
 GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$(dirname "$GSTACK_DIR")"
 BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
 
+# Detect platform
+IS_WINDOWS=0
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]] || [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == MSYS* ]]; then
+  IS_WINDOWS=1
+  BROWSE_BIN="$GSTACK_DIR/browse/dist/browse.exe"
+fi
+
+# On Windows, Bun's IPC pipes break Playwright — verify Node+tsx are available
+if [ "$IS_WINDOWS" -eq 1 ]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "gstack setup failed: Node.js is required on Windows (Bun's Playwright support is broken on Windows)" >&2
+    echo "Install Node.js from https://nodejs.org/" >&2
+    exit 1
+  fi
+fi
+
 ensure_playwright_browser() {
-  (
-    cd "$GSTACK_DIR"
-    bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
-  ) >/dev/null 2>&1
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    # On Windows, test with Node since Bun can't launch Playwright
+    (
+      cd "$GSTACK_DIR"
+      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()"
+    ) >/dev/null 2>&1
+  else
+    (
+      cd "$GSTACK_DIR"
+      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+    ) >/dev/null 2>&1
+  fi
 }
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
-if [ ! -x "$BROWSE_BIN" ]; then
+if [ ! -f "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
 elif [ -n "$(find "$GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
   NEEDS_BUILD=1
@@ -38,7 +63,7 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   fi
 fi
 
-if [ ! -x "$BROWSE_BIN" ]; then
+if [ ! -f "$BROWSE_BIN" ]; then
   echo "gstack setup failed: browse binary missing at $BROWSE_BIN" >&2
   exit 1
 fi
@@ -50,23 +75,40 @@ if ! ensure_playwright_browser; then
     cd "$GSTACK_DIR"
     bunx playwright install chromium
   )
+
+  # On Windows, remind about Defender exclusions if launch still fails
+  if ! ensure_playwright_browser; then
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+      echo ""
+      echo "Playwright Chromium installed but failed to launch."
+      echo "On Windows, you may need to add a Windows Defender exclusion:"
+      echo "  Windows Security > Virus & threat protection > Exclusions"
+      echo "  Add folder: $(cygpath -w "$HOME/AppData/Local/ms-playwright" 2>/dev/null || echo '%LOCALAPPDATA%\ms-playwright')"
+      echo ""
+      echo "After adding the exclusion, re-run: ./setup"
+      exit 1
+    else
+      echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+      exit 1
+    fi
+  fi
 fi
 
-if ! ensure_playwright_browser; then
-  echo "gstack setup failed: Playwright Chromium could not be launched" >&2
-  exit 1
-fi
-
-# 3. Only create skill symlinks if we're inside a .claude/skills directory
+# 3. Create skill symlinks
+# If we're inside .claude/skills, link individual skills
+# Otherwise, create symlink from ~/.claude/skills/gstack → this repo
 SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
-if [ "$SKILLS_BASENAME" = "skills" ]; then
-  linked=()
+CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
+
+link_skills() {
+  local base_dir="$1"
+  local linked=()
   for skill_dir in "$GSTACK_DIR"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       # Skip node_modules
       [ "$skill_name" = "node_modules" ] && continue
-      target="$SKILLS_DIR/$skill_name"
+      target="$base_dir/$skill_name"
       # Create or update symlink; skip if a real file/directory exists
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "gstack/$skill_name" "$target"
@@ -74,14 +116,37 @@ if [ "$SKILLS_BASENAME" = "skills" ]; then
       fi
     fi
   done
-
-  echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
   fi
+}
+
+if [ "$SKILLS_BASENAME" = "skills" ]; then
+  # Already inside ~/.claude/skills/gstack — just link individual skills
+  link_skills "$SKILLS_DIR"
 else
-  echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
-  echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  # Repo is elsewhere — create gstack symlink + individual skill links
+  mkdir -p "$CLAUDE_SKILLS_DIR"
+
+  # Symlink gstack repo into skills dir
+  gstack_link="$CLAUDE_SKILLS_DIR/gstack"
+  if [ -L "$gstack_link" ] || [ ! -e "$gstack_link" ]; then
+    # Convert to Windows-compatible path if needed
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+      ln -snf "$(cygpath -w "$GSTACK_DIR" 2>/dev/null || echo "$GSTACK_DIR")" "$gstack_link"
+    else
+      ln -snf "$GSTACK_DIR" "$gstack_link"
+    fi
+    echo "  symlinked: $gstack_link → $GSTACK_DIR"
+  fi
+
+  # Link individual skills
+  link_skills "$CLAUDE_SKILLS_DIR"
+fi
+
+echo ""
+echo "gstack ready."
+echo "  browse: $BROWSE_BIN"
+if [ "$IS_WINDOWS" -eq 1 ]; then
+  echo "  platform: Windows (server runs via Node+tsx for Playwright compatibility)"
 fi
