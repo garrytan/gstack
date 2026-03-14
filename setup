@@ -5,6 +5,52 @@ set -e
 GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$(dirname "$GSTACK_DIR")"
 BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
+HAVE_BUN=0
+
+add_bun_to_path() {
+  if command -v bun >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [ -x "$HOME/.bun/bin/bun" ]; then
+    PATH="$HOME/.bun/bin:$PATH"
+    export PATH
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_bun() {
+  if add_bun_to_path; then
+    HAVE_BUN=1
+    return 0
+  fi
+
+  if [ -x "$BROWSE_BIN" ]; then
+    echo "Bun not found; using existing browse binary at $BROWSE_BIN"
+    echo "  Install Bun later if you need to rebuild or reinstall Playwright Chromium."
+    return 1
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "gstack setup failed: Bun is required to build browse, and curl is not available for automatic install." >&2
+    echo "Install Bun from https://bun.sh/ and rerun ./setup" >&2
+    exit 1
+  fi
+
+  echo "Bun not found. Installing Bun..."
+  curl -fsSL https://bun.sh/install | bash
+
+  if add_bun_to_path; then
+    HAVE_BUN=1
+    return 0
+  fi
+
+  echo "gstack setup failed: Bun installation completed but 'bun' is still not available." >&2
+  echo "Open a new shell or add \$HOME/.bun/bin to PATH, then rerun ./setup" >&2
+  exit 1
+}
 
 ensure_playwright_browser() {
   (
@@ -12,6 +58,8 @@ ensure_playwright_browser() {
     bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
   ) >/dev/null 2>&1
 }
+
+ensure_bun || true
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
@@ -26,6 +74,10 @@ elif [ -f "$GSTACK_DIR/bun.lock" ] && [ "$GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN"
 fi
 
 if [ "$NEEDS_BUILD" -eq 1 ]; then
+  if [ "$HAVE_BUN" -ne 1 ]; then
+    echo "gstack setup failed: browse binary is missing and Bun is not available." >&2
+    exit 1
+  fi
   echo "Building browse binary..."
   (
     cd "$GSTACK_DIR"
@@ -44,17 +96,21 @@ if [ ! -x "$BROWSE_BIN" ]; then
 fi
 
 # 2. Ensure Playwright's Chromium is available
-if ! ensure_playwright_browser; then
-  echo "Installing Playwright Chromium..."
-  (
-    cd "$GSTACK_DIR"
-    bunx playwright install chromium
-  )
-fi
+if [ "$HAVE_BUN" -eq 1 ]; then
+  if ! ensure_playwright_browser; then
+    echo "Installing Playwright Chromium..."
+    (
+      cd "$GSTACK_DIR"
+      bunx playwright install chromium
+    )
+  fi
 
-if ! ensure_playwright_browser; then
-  echo "gstack setup failed: Playwright Chromium could not be launched" >&2
-  exit 1
+  if ! ensure_playwright_browser; then
+    echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+    exit 1
+  fi
+else
+  echo "Skipping Playwright Chromium check because Bun is unavailable."
 fi
 
 # 3. Only create skill symlinks if we're inside a .claude/skills directory
