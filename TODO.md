@@ -100,7 +100,8 @@
   - [ ] CDP mode (connect to already-running Chrome/Electron apps)
 
 ## Future Ideas
-  - [ ] Linux/Windows cookie decryption (GNOME Keyring / kwallet / DPAPI)
+  - [x] Linux cookie decryption (GNOME Keyring)
+  - [ ] Windows cookie decryption (DPAPI / kwallet)
   - [ ] Trend tracking across QA runs — compare baseline.json over time, detect regressions (P2, S)
   - [ ] CI/CD integration — `/qa` as GitHub Action step, fail PR if health score drops (P2, M)
   - [ ] Accessibility audit mode — `--a11y` flag for focused accessibility testing (P3, S)

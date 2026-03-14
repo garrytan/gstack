@@ -2,9 +2,10 @@
 name: setup-browser-cookies
 version: 1.0.0
 description: |
-  Import cookies from your real browser (Comet, Chrome, Arc, Brave, Edge) into the
-  headless browse session. Opens an interactive picker UI where you select which
-  cookie domains to import. Use before QA testing authenticated pages.
+  Import cookies from your real browser into the headless browse session.
+  Supports macOS (Comet, Chrome, Arc, Brave, Edge) and Linux (Chrome, Chromium, Brave, Edge).
+  Opens an interactive picker UI where you select which cookie domains to import.
+  Use before QA testing authenticated pages.
 allowed-tools:
   - Bash
   - Read
@@ -62,7 +63,7 @@ If `NEEDS_SETUP`:
 $B cookie-import-browser
 ```
 
-This auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge) and opens
+This auto-detects installed Chromium browsers (macOS: Comet, Chrome, Arc, Brave, Edge; Linux: Chrome, Chromium, Brave, Edge) and opens
 an interactive picker UI in your default browser where you can:
 - Switch between installed browsers
 - Search domains
@@ -79,7 +80,7 @@ If the user specifies a domain directly (e.g., `/setup-browser-cookies github.co
 $B cookie-import-browser comet --domain github.com
 ```
 
-Replace `comet` with the appropriate browser if specified.
+Replace `comet` with the appropriate browser if specified. Default is Comet on macOS, Chrome on Linux.
 
 ### 4. Verify
 
@@ -93,7 +94,8 @@ Show the user a summary of imported cookies (domain counts).
 
 ## Notes
 
-- First import per browser may trigger a macOS Keychain dialog — click "Allow" / "Always Allow"
+- macOS: first import per browser may trigger a Keychain dialog — click "Allow" / "Always Allow"
+- Linux: reads from GNOME Keyring automatically (no dialog). Requires `python3` and `gir1.2-secret-1` (pre-installed on GNOME desktops)
 - Cookie picker is served on the same port as the browse server (no extra process)
 - Only domain names and cookie counts are shown in the UI — no cookie values are exposed
 - The browse session persists cookies between commands, so imported cookies work immediately
