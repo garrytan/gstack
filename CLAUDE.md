@@ -27,6 +27,13 @@ gstack/
 └── package.json     # Build scripts for browse
 ```
 
+## Browser interaction
+
+When you need to interact with a browser (QA, dogfooding, cookie setup), use the
+`/browse` skill or run the browse binary directly via `$B <command>`. NEVER use
+`mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
+project uses.
+
 ## Deploying to the active skill
 
 The active skill lives at `~/.claude/skills/gstack/`. After making changes:
