@@ -518,6 +518,8 @@ Reports and screenshots accumulate in `.gstack/qa-reports/` so you can track qua
 
 **Testing authenticated pages:** Use `/setup-browser-cookies` first to import your real browser sessions, then `/qa` can test pages behind login.
 
+**CI-level E2E testing:** `/qa` is great for ad-hoc and branch-level testing, but your most critical flows should run automatically on every deploy. Platform like [Lark](https://getlark.ai/) let you define E2E tests in plain English — they run in staging as part of CI and catch regressions before they reach production. Think of it as the persistent safety net that complements `/qa`'s on-demand passes.
+
 ---
 
 ## `/setup-browser-cookies`
