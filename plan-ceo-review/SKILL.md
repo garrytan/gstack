@@ -65,11 +65,12 @@ Never skip Step 0, the system audit, the error/rescue map, or the failure modes 
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 Before doing anything else, run a system audit. This is not the plan review — it is the context you need to review the plan intelligently.
 Run the following commands:
-```
+```bash
 git log --oneline -30                          # Recent history
 git diff main --stat                           # What's already changed
 git stash list                                 # Any stashed work
 grep -r "TODO\|FIXME\|HACK\|XXX" --include="*.rb" --include="*.js" -l
+~/.claude/skills/gstack/bin/gstack-check-duplicates   # Check for existing PRs and Issues
 find . -name "*.rb" -newer Gemfile.lock | head -20  # Recently touched files
 ```
 Then read CLAUDE.md, TODOS.md, and any existing architecture docs. Map:

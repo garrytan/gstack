@@ -44,6 +44,13 @@ If you are running low on context or the user asks you to compress: Step 0 > Tes
 
 ## BEFORE YOU START:
 
+### PRE-REVIEW SYSTEM AUDIT (before Step 0)
+Run this command to check for existing Pull Requests and Issues:
+```bash
+~/.claude/skills/gstack/bin/gstack-check-duplicates
+```
+Check the output to ensure this plan does not duplicate work that is already being handled elsewhere.
+
 ### Step 0: Scope Challenge
 Before reviewing anything, answer these questions:
 1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?

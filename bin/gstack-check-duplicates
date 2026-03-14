@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+echo "=== Recent Open Pull Requests ==="
+if command -v gh >/dev/null 2>&1; then
+  gh pr list --state open --limit 10 || echo "(Failed to fetch PRs. Are you logged in with 'gh auth login'?)"
+else
+  echo "(GitHub CLI 'gh' not installed. Skipping PR check.)"
+fi
+
+echo ""
+echo "=== Recent Open Issues ==="
+if command -v gh >/dev/null 2>&1; then
+  gh issue list --state open --limit 10 || echo "(Failed to fetch Issues. Are you logged in with 'gh auth login'?)"
+else
+  echo "(GitHub CLI 'gh' not installed. Skipping Issue check.)"
+fi
