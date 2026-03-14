@@ -1,0 +1,9 @@
+{
+  "testCommand": "bin/test-lane",
+  "evalCommand": "bin/eval --lane test",
+  "evalPatterns": [
+    ".claude/evals/results/**/*.md",
+    ".claude/evals/results/**/*.txt"
+  ],
+  "reviewChecklist": ".claude/skills/review/checklist.md"
+}

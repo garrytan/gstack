@@ -76,9 +76,22 @@ Running bare test migrations without INSTANCE hits an orphan DB and corrupts str
 Run both test suites in parallel:
 
 ```bash
-bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
-npm run test 2>&1 | tee /tmp/ship_vitest.txt &
-wait
+# First check if the user has defined test commands in .gstack.json
+if [ -f .gstack.json ]; then
+  TEST_CMD=$(cat .gstack.json | grep '"testCommand"' | cut -d'"' -f4)
+else
+  TEST_CMD=""
+fi
+
+if [ -n "$TEST_CMD" ]; then
+  echo "Running configured test command: $TEST_CMD"
+  bash -c "$TEST_CMD" 2>&1 | tee /tmp/ship_tests.txt
+else
+  # Fallback to default Rails + Vitest behavior
+  bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
+  npm run test 2>&1 | tee /tmp/ship_vitest.txt &
+  wait
+fi
 ```
 
 After both complete, read the output files and check pass/fail.
@@ -130,7 +143,20 @@ Map runner → test file: `post_generation_eval_runner.rb` → `post_generation_
 `/ship` is a pre-merge gate, so always use full tier (Sonnet structural + Opus persona judges).
 
 ```bash
-EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
+if [ -f .gstack.json ]; then
+  EVAL_CMD=$(cat .gstack.json | grep '"evalCommand"' | cut -d'"' -f4)
+else
+  EVAL_CMD=""
+fi
+
+if [ -n "$EVAL_CMD" ]; then
+  # Inject the suite name into the configured command
+  # e.g., if command is "npm run eval -- <suite>", replace <suite>
+  FINAL_CMD="${EVAL_CMD/<suite>/<suite>_eval_test.rb}"
+  eval "$FINAL_CMD" 2>&1 | tee /tmp/ship_evals.txt
+else
+  EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
+fi
 ```
 
 If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
