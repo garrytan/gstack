@@ -13,18 +13,34 @@ bun run build        # compile binary to browse/dist/browse
 
 ```
 gstack/
-├── browse/          # Headless browser CLI (Playwright)
-│   ├── src/         # CLI + server + commands
-│   ├── test/        # Integration tests + fixtures
-│   └── dist/        # Compiled binary
-├── ship/            # Ship workflow skill
-├── review/          # PR review skill
-├── plan-ceo-review/ # /plan-ceo-review skill
-├── plan-eng-review/ # /plan-eng-review skill
-├── retro/           # Retrospective skill
-├── setup            # One-time setup: build binary + symlink skills
-├── SKILL.md         # Browse skill (Claude discovers this)
-└── package.json     # Build scripts for browse
+├── browse/                          # Headless browser CLI (Playwright)
+│   ├── src/                         # CLI + server + commands
+│   ├── test/                        # Integration tests + fixtures
+│   └── dist/                        # Compiled binary
+├── ship/                            # Ship workflow skill
+├── review/                          # PR review skill
+├── plan-ceo-review/                 # /plan-ceo-review skill
+├── plan-eng-review/                 # /plan-eng-review skill
+├── retro/                           # Retrospective skill
+├── qa/                              # QA testing skill
+│
+│ ── Cybereum Platform Skills ──
+│
+│   Dev Team (building Cybereum):
+├── cybereum-schedule-intelligence/  # P6/XER schedule analysis, DCMA 14-Point
+├── cybereum-decision-ai/            # Schwerpunkt decision engine
+├── cybereum-risk-engine/            # Risk register, scoring, mitigation
+├── cybereum-evm-control/            # Earned Value Management analytics
+│
+│   PM Team (inside Cybereum):
+├── cybereum-completion-prediction/  # Monte Carlo, P50/P80 forecasting
+├── cybereum-reference-class/        # Flyvbjerg RCF, optimism bias correction
+├── cybereum-executive-reporting/    # Board/PMO/lender report generation
+├── cybereum-sales-intelligence/     # BD, prospect research, pitch materials
+│
+├── setup                            # One-time setup: build binary + symlink skills
+├── SKILL.md                         # Browse skill (Claude discovers this)
+└── package.json                     # Build scripts for browse
 ```
 
 ## Deploying to the active skill
