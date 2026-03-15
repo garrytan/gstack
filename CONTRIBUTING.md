@@ -35,9 +35,9 @@ gstack/                          <- your working tree
 │   └── SKILL.md                 <- edit this, test with /review
 ├── ship/
 │   └── SKILL.md
-├── browse/
-│   ├── src/                     <- TypeScript source
-│   └── dist/                    <- compiled binary (gitignored)
+├── lib/
+│   ├── agent-browser-commands.ts <- command registry
+│   └── snapshot-flags.ts        <- snapshot flag metadata
 └── ...
 ```
 
@@ -94,7 +94,7 @@ bun run test:evals           # Tier 2 + 3 combined (~$4/run)
 
 Runs automatically with `bun test`. No API keys needed.
 
-- **Skill parser tests** (`test/skill-parser.test.ts`) — Extracts every `$B` command from SKILL.md bash code blocks and validates against the command registry in `browse/src/commands.ts`. Catches typos, removed commands, and invalid snapshot flags.
+- **Skill parser tests** (`test/skill-parser.test.ts`) — Extracts every `agent-browser` command from SKILL.md bash code blocks and validates against the command registry in `lib/agent-browser-commands.ts`. Catches typos, removed commands, and invalid snapshot flags.
 - **Skill validation tests** (`test/skill-validation.test.ts`) — Validates that SKILL.md files reference only real commands and flags, and that command descriptions meet quality thresholds.
 - **Generator tests** (`test/gen-skill-docs.test.ts`) — Tests the template system: verifies placeholders resolve correctly, output includes value hints for flags (e.g. `-d <N>` not just `-d`), enriched descriptions for key commands (e.g. `is` lists valid states, `press` lists key examples).
 
@@ -160,7 +160,7 @@ Each dimension is scored 1-5. Threshold: every dimension must score **≥ 4**. T
 
 A GitHub Action (`.github/workflows/skill-docs.yml`) runs `bun run gen:skill-docs --dry-run` on every push and PR. If the generated SKILL.md files differ from what's committed, CI fails. This catches stale docs before they merge.
 
-Tests run against the browse binary directly — they don't require dev mode.
+Tests run against `agent-browser` directly — they don't require dev mode.
 
 ## Editing SKILL.md files
 
@@ -168,7 +168,7 @@ SKILL.md files are **generated** from `.tmpl` templates. Don't edit the `.md` di
 
 ```bash
 # 1. Edit the template
-vim SKILL.md.tmpl              # or browse/SKILL.md.tmpl
+vim SKILL.md.tmpl
 
 # 2. Regenerate
 bun run gen:skill-docs
@@ -180,7 +180,7 @@ bun run skill:check
 bun run dev:skill
 ```
 
-To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
+To add a command, add it to `lib/agent-browser-commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `lib/snapshot-flags.ts`. Then rebuild.
 
 ## Conductor workspaces
 
@@ -199,7 +199,7 @@ When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It d
 
 - **SKILL.md files are generated.** Edit the `.tmpl` template, not the `.md`. Run `bun run gen:skill-docs` to regenerate.
 - **TODOS.md is the unified backlog.** Organized by skill/component with P0-P4 priorities. `/ship` auto-detects completed items. All planning/review/retro skills read it for context.
-- **Browse source changes need a rebuild.** If you touch `browse/src/*.ts`, run `bun run build`.
+- **Command registry changes need a rebuild.** If you touch `lib/agent-browser-commands.ts` or `lib/snapshot-flags.ts`, run `bun run build`.
 - **Dev mode shadows your global install.** Project-local skills take priority over `~/.claude/skills/gstack`. `bin/dev-teardown` restores the global one.
 - **Conductor workspaces are independent.** Each workspace is its own git worktree. `bin/dev-setup` runs automatically via `conductor.json`.
 - **`.env` propagates across worktrees.** Set it once in the main repo, all Conductor workspaces get it.

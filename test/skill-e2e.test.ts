@@ -4,7 +4,7 @@ import type { SkillTestResult } from './helpers/session-runner';
 import { outcomeJudge } from './helpers/llm-judge';
 import { EvalCollector } from './helpers/eval-store';
 import type { EvalTestEntry } from './helpers/eval-store';
-import { startTestServer } from '../browse/test/test-server';
+import { startTestServer } from './helpers/test-server';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -47,7 +47,6 @@ function recordE2E(name: string, suite: string, result: SkillTestResult, extra?:
 
 let testServer: ReturnType<typeof startTestServer>;
 let tmpDir: string;
-const browseBin = path.resolve(ROOT, 'browse', 'dist', 'browse');
 
 /**
  * Copy a directory tree recursively (files only, follows structure).
@@ -66,28 +65,14 @@ function copyDirSync(src: string, dest: string) {
 }
 
 /**
- * Set up browse shims (binary symlink, find-browse, remote-slug) in a tmpDir.
+ * Set up shims (remote-slug) in a tmpDir.
  */
-function setupBrowseShims(dir: string) {
-  // Symlink browse binary
-  const binDir = path.join(dir, 'browse', 'dist');
-  fs.mkdirSync(binDir, { recursive: true });
-  if (fs.existsSync(browseBin)) {
-    fs.symlinkSync(browseBin, path.join(binDir, 'browse'));
-  }
-
-  // find-browse shim
-  const findBrowseDir = path.join(dir, 'browse', 'bin');
-  fs.mkdirSync(findBrowseDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(findBrowseDir, 'find-browse'),
-    `#!/bin/bash\necho "${browseBin}"\n`,
-    { mode: 0o755 },
-  );
-
+function setupShims(dir: string) {
   // remote-slug shim (returns test-project)
+  const binDir = path.join(dir, 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
   fs.writeFileSync(
-    path.join(findBrowseDir, 'remote-slug'),
+    path.join(binDir, 'remote-slug'),
     `#!/bin/bash\necho "test-project"\n`,
     { mode: 0o755 },
   );
@@ -132,7 +117,7 @@ describeE2E('Skill E2E tests', () => {
   beforeAll(() => {
     testServer = startTestServer();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-'));
-    setupBrowseShims(tmpDir);
+    setupShims(tmpDir);
   });
 
   afterAll(() => {
@@ -140,68 +125,67 @@ describeE2E('Skill E2E tests', () => {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('browse basic commands work without errors', async () => {
+  test('agent-browser basic commands work without errors', async () => {
     const result = await runSkillTest({
-      prompt: `You have a browse binary at ${browseBin}. Assign it to B variable and run these commands in sequence:
-1. $B goto ${testServer.url}
-2. $B snapshot -i
-3. $B text
-4. $B screenshot /tmp/skill-e2e-test.png
+      prompt: `Run these agent-browser commands in sequence:
+1. agent-browser open ${testServer.url}
+2. agent-browser snapshot -i
+3. agent-browser get text
+4. agent-browser screenshot /tmp/skill-e2e-test.png
 Report the results of each command.`,
       workingDirectory: tmpDir,
       maxTurns: 10,
       timeout: 60_000,
-      testName: 'browse-basic',
+      testName: 'agent-browser-basic',
       runId,
     });
 
-    logCost('browse basic', result);
-    recordE2E('browse basic commands', 'Skill E2E tests', result);
+    logCost('agent-browser basic', result);
+    recordE2E('agent-browser basic commands', 'Skill E2E tests', result);
     expect(result.browseErrors).toHaveLength(0);
     expect(result.exitReason).toBe('success');
   }, 90_000);
 
-  test('browse snapshot flags all work', async () => {
+  test('agent-browser snapshot flags all work', async () => {
     const result = await runSkillTest({
-      prompt: `You have a browse binary at ${browseBin}. Assign it to B variable and run:
-1. $B goto ${testServer.url}
-2. $B snapshot -i
-3. $B snapshot -c
-4. $B snapshot -D
-5. $B snapshot -i -a -o /tmp/skill-e2e-annotated.png
+      prompt: `Run these agent-browser commands:
+1. agent-browser open ${testServer.url}
+2. agent-browser snapshot -i
+3. agent-browser snapshot -c
+4. agent-browser diff snapshot
+5. agent-browser screenshot --annotate /tmp/skill-e2e-annotated.png
 Report what each command returned.`,
       workingDirectory: tmpDir,
       maxTurns: 10,
       timeout: 60_000,
-      testName: 'browse-snapshot',
+      testName: 'agent-browser-snapshot',
       runId,
     });
 
-    logCost('browse snapshot', result);
-    recordE2E('browse snapshot flags', 'Skill E2E tests', result);
-    // browseErrors can include false positives from hallucinated paths (e.g. "baltimore" vs "bangalore")
+    logCost('agent-browser snapshot', result);
+    recordE2E('agent-browser snapshot flags', 'Skill E2E tests', result);
     if (result.browseErrors.length > 0) {
       console.warn('Browse errors (non-fatal):', result.browseErrors);
     }
     expect(result.exitReason).toBe('success');
   }, 90_000);
 
-  test('agent discovers browse binary via SKILL.md setup block', async () => {
+  test('agent discovers agent-browser via SKILL.md setup block', async () => {
     const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     const setupStart = skillMd.indexOf('## SETUP');
     const setupEnd = skillMd.indexOf('## IMPORTANT');
     const setupBlock = skillMd.slice(setupStart, setupEnd);
 
     // Guard: verify we extracted a valid setup block
-    expect(setupBlock).toContain('browse/dist/browse');
+    expect(setupBlock).toContain('agent-browser');
 
     const result = await runSkillTest({
-      prompt: `Follow these instructions to find the browse binary and run a basic command.
+      prompt: `Follow these instructions to check for agent-browser and run a basic command.
 
 ${setupBlock}
 
-After finding the binary, run: $B goto ${testServer.url}
-Then run: $B text
+After confirming it's ready, run: agent-browser open ${testServer.url}
+Then run: agent-browser get text
 Report whether it worked.`,
       workingDirectory: tmpDir,
       maxTurns: 10,
@@ -215,8 +199,7 @@ Report whether it worked.`,
     expect(result.exitReason).toBe('success');
   }, 90_000);
 
-  test('SKILL.md setup block handles missing local binary gracefully', async () => {
-    // Create a tmpdir with no browse binary — no local .claude/skills/gstack/browse/dist/browse
+  test('SKILL.md setup block handles missing agent-browser gracefully', async () => {
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-empty-'));
 
     const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -233,16 +216,12 @@ Report the exact output. Do NOT try to fix or install anything — just report w
       workingDirectory: emptyDir,
       maxTurns: 5,
       timeout: 30_000,
-      testName: 'skillmd-no-local-binary',
+      testName: 'skillmd-no-agent-browser',
       runId,
     });
 
-    // Setup block should either find the global binary (READY) or show NEEDS_SETUP.
-    // On dev machines with gstack installed globally, the fallback path
-    // ~/.claude/skills/gstack/browse/dist/browse exists, so we get READY.
-    // The important thing is it doesn't crash or give a confusing error.
     const allText = result.output || '';
-    recordE2E('SKILL.md setup block (no local binary)', 'Skill E2E tests', result);
+    recordE2E('SKILL.md setup block (no agent-browser)', 'Skill E2E tests', result);
     expect(allText).toMatch(/READY|NEEDS_SETUP/);
     expect(result.exitReason).toBe('success');
 
@@ -251,7 +230,6 @@ Report the exact output. Do NOT try to fix or install anything — just report w
   }, 60_000);
 
   test('SKILL.md setup block works outside git repo', async () => {
-    // Create a tmpdir outside any git repo
     const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-nogit-'));
 
     const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -272,7 +250,6 @@ Report the exact output — either "READY: <path>" or "NEEDS_SETUP".`,
       runId,
     });
 
-    // Should either find global binary (READY) or show NEEDS_SETUP — not crash
     const allText = result.output || '';
     recordE2E('SKILL.md outside git repo', 'Skill E2E tests', result);
     expect(allText).toMatch(/READY|NEEDS_SETUP/);
@@ -290,7 +267,7 @@ describeE2E('QA skill E2E', () => {
   beforeAll(() => {
     testServer = testServer || startTestServer();
     qaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-qa-'));
-    setupBrowseShims(qaDir);
+    setupShims(qaDir);
 
     // Copy qa skill files into tmpDir
     copyDirSync(path.join(ROOT, 'qa'), path.join(qaDir, 'qa'));
@@ -306,11 +283,9 @@ describeE2E('QA skill E2E', () => {
 
   test('/qa quick completes without browse errors', async () => {
     const result = await runSkillTest({
-      prompt: `You have a browse binary at ${browseBin}. Assign it to B variable like: B="${browseBin}"
+      prompt: `Read the file qa/SKILL.md for the QA workflow instructions.
 
-Read the file qa/SKILL.md for the QA workflow instructions.
-
-Run a Quick-depth QA test on ${testServer.url}/basic.html
+Run a Quick-depth QA test on ${testServer.url}/basic.html using agent-browser commands.
 Do NOT use AskUserQuestion — run Quick tier directly.
 Write your report to ${qaDir}/qa-reports/qa-report.md`,
       workingDirectory: qaDir,
@@ -404,7 +379,7 @@ describeOutcome('Planted-bug outcome evals', () => {
     try { testServer?.server?.stop(); } catch {}
     testServer = startTestServer();
     outcomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-outcome-'));
-    setupBrowseShims(outcomeDir);
+    setupShims(outcomeDir);
 
     // Copy qa skill files
     copyDirSync(path.join(ROOT, 'qa'), path.join(outcomeDir, 'qa'));
@@ -424,25 +399,24 @@ describeOutcome('Planted-bug outcome evals', () => {
     // Each test gets its own isolated working directory to prevent cross-contamination
     // (agents reading previous tests' reports and hallucinating those bugs)
     const testWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), `skill-e2e-${label}-`));
-    setupBrowseShims(testWorkDir);
+    setupShims(testWorkDir);
     const reportDir = path.join(testWorkDir, 'reports');
     fs.mkdirSync(path.join(reportDir, 'screenshots'), { recursive: true });
     const reportPath = path.join(reportDir, 'qa-report.md');
 
-    // Direct bug-finding with browse. Keep prompt concise — no reading long SKILL.md docs.
+    // Direct bug-finding with agent-browser. Keep prompt concise — no reading long SKILL.md docs.
     // "Write early, update later" pattern ensures report exists even if agent hits max turns.
     const targetUrl = `${testServer.url}/${fixture}`;
     const result = await runSkillTest({
       prompt: `Find bugs on this page: ${targetUrl}
 
-Browser binary: B="${browseBin}"
+Use agent-browser CLI for all browser interaction.
 
 PHASE 1 — Quick scan (5 commands max):
-$B goto ${targetUrl}
-$B console --errors
-$B snapshot -i
-$B snapshot -c
-$B accessibility
+agent-browser open ${targetUrl}
+agent-browser snapshot -i
+agent-browser snapshot -c
+agent-browser eval "JSON.stringify([...document.querySelectorAll('a')].map(a=>({text:a.textContent?.trim(),href:a.href})))"
 
 PHASE 2 — Write initial report to ${reportPath}:
 Write every bug you found so far. Format each as:
@@ -453,13 +427,13 @@ Write every bug you found so far. Format each as:
 PHASE 3 — Interactive testing (systematic form + edge case testing):
 - For EVERY input field on the page: fill it, clear it, try invalid values
 - Specifically test: empty fields, invalid email formats, extra-long text, clearing numeric fields
-- Submit the form and immediately run $B console --errors
+- Submit the form and check results
 - Click every link/button and check for broken behavior
 - After finding more bugs, UPDATE ${reportPath} with new findings
 
 PHASE 4 — Finalize report:
 - UPDATE ${reportPath} with ALL bugs found across all phases
-- Include console errors, form validation issues, visual overflow, missing attributes
+- Include form validation issues, visual overflow, missing attributes
 
 CRITICAL RULES:
 - ONLY test the page at ${targetUrl} — do not navigate to other sites

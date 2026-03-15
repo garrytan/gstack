@@ -1,60 +1,29 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register all skills with Claude Code
+# gstack setup — ensure agent-browser is installed + register all skills with Claude Code
 set -e
 
 GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$(dirname "$GSTACK_DIR")"
-BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
 
-ensure_playwright_browser() {
-  (
-    cd "$GSTACK_DIR"
-    bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
-  ) >/dev/null 2>&1
-}
-
-# 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
-NEEDS_BUILD=0
-if [ ! -x "$BROWSE_BIN" ]; then
-  NEEDS_BUILD=1
-elif [ -n "$(find "$GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
-  NEEDS_BUILD=1
-elif [ "$GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
-  NEEDS_BUILD=1
-elif [ -f "$GSTACK_DIR/bun.lock" ] && [ "$GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN" ]; then
-  NEEDS_BUILD=1
+# 1. Check agent-browser is installed
+if ! command -v agent-browser &>/dev/null; then
+  echo "Installing agent-browser..."
+  npm install -g agent-browser
+  agent-browser install
 fi
 
-if [ "$NEEDS_BUILD" -eq 1 ]; then
-  echo "Building browse binary..."
+if ! command -v agent-browser &>/dev/null; then
+  echo "gstack setup failed: agent-browser could not be installed" >&2
+  exit 1
+fi
+
+# 2. Generate SKILL.md files if bun is available
+if command -v bun &>/dev/null; then
   (
     cd "$GSTACK_DIR"
     bun install
-    bun run build
+    bun run gen:skill-docs
   )
-  # Safety net: write .version if build script didn't (e.g., git not available during build)
-  if [ ! -f "$GSTACK_DIR/browse/dist/.version" ]; then
-    git -C "$GSTACK_DIR" rev-parse HEAD > "$GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
-  fi
-fi
-
-if [ ! -x "$BROWSE_BIN" ]; then
-  echo "gstack setup failed: browse binary missing at $BROWSE_BIN" >&2
-  exit 1
-fi
-
-# 2. Ensure Playwright's Chromium is available
-if ! ensure_playwright_browser; then
-  echo "Installing Playwright Chromium..."
-  (
-    cd "$GSTACK_DIR"
-    bunx playwright install chromium
-  )
-fi
-
-if ! ensure_playwright_browser; then
-  echo "gstack setup failed: Playwright Chromium could not be launched" >&2
-  exit 1
 fi
 
 # 3. Ensure ~/.gstack global state directory exists
@@ -79,17 +48,17 @@ if [ "$SKILLS_BASENAME" = "skills" ]; then
   done
 
   echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
+  echo "  agent-browser: $(which agent-browser)"
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
   fi
 else
   echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
+  echo "  agent-browser: $(which agent-browser)"
   echo "  (skipped skill symlinks — not inside .claude/skills/)"
 fi
 
-# 4. First-time welcome + legacy cleanup
+# 5. First-time welcome + legacy cleanup
 if [ ! -d "$HOME/.gstack" ]; then
   mkdir -p "$HOME/.gstack"
   echo "  Welcome! Run /gstack-upgrade anytime to stay current."

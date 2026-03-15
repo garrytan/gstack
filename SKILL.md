@@ -1,12 +1,12 @@
 ---
 name: gstack
-version: 1.1.0
+version: 2.0.0
 description: |
-  Fast headless browser for QA testing and site dogfooding. Navigate any URL, interact with
-  elements, verify page state, diff before/after actions, take annotated screenshots, check
+  Headless browser for QA testing and site dogfooding via agent-browser. Navigate any URL, interact
+  with elements, verify page state, diff before/after actions, take annotated screenshots, check
   responsive layouts, test forms and uploads, handle dialogs, and assert element states.
-  ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
-  user flow, or file a bug with evidence.
+  Use when you need to test a feature, verify a deployment, dogfood a user flow, or file a bug
+  with evidence.
 allowed-tools:
   - Bash
   - Read
@@ -27,34 +27,29 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/g
 
 # gstack browse: QA Testing & Dogfooding
 
-Persistent headless Chromium. First call auto-starts (~3s), then ~100-200ms per command.
-Auto-shuts down after 30 min idle. State persists between calls (cookies, tabs, sessions).
+Persistent headless Chromium via agent-browser. First call auto-starts the daemon, then fast per command.
+State persists between calls (cookies, tabs, sessions).
 
-## SETUP (run this check BEFORE any browse command)
+## SETUP (run this check BEFORE any browser command)
 
 ```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
-if [ -x "$B" ]; then
-  echo "READY: $B"
+if command -v agent-browser &>/dev/null; then
+  echo "READY: $(which agent-browser)"
 else
   echo "NEEDS_SETUP"
 fi
 ```
 
 If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
+1. Tell the user: "agent-browser needs a one-time install (~30 seconds). OK to proceed?" Then STOP and wait.
+2. Run: `npm install -g agent-browser && agent-browser install`
 
 ## IMPORTANT
 
-- Use the compiled binary via Bash: `$B <command>`
+- Use `agent-browser <command>` via Bash for all browser interaction.
 - NEVER use `mcp__claude-in-chrome__*` tools. They are slow and unreliable.
 - Browser persists between calls — cookies, login sessions, and tabs carry over.
-- Dialogs (alert/confirm/prompt) are auto-accepted by default — no browser lockup.
+- Dialogs (alert/confirm/prompt) can be handled with `agent-browser dialog accept/dismiss`.
 
 ## QA Workflows
 
@@ -62,326 +57,324 @@ If `NEEDS_SETUP`:
 
 ```bash
 # 1. Go to the page
-$B goto https://app.example.com/login
+agent-browser open https://app.example.com/login
 
 # 2. See what's interactive
-$B snapshot -i
+agent-browser snapshot -i
 
 # 3. Fill the form using refs
-$B fill @e3 "test@example.com"
-$B fill @e4 "password123"
-$B click @e5
+agent-browser fill @e3 "test@example.com"
+agent-browser fill @e4 "password123"
+agent-browser click @e5
 
 # 4. Verify it worked
-$B snapshot -D              # diff shows what changed after clicking
-$B is visible ".dashboard"  # assert the dashboard appeared
-$B screenshot /tmp/after-login.png
+agent-browser diff snapshot              # diff shows what changed after clicking
+agent-browser is visible ".dashboard"    # assert the dashboard appeared
+agent-browser screenshot /tmp/after-login.png
 ```
 
 ### Verify a deployment / check prod
 
 ```bash
-$B goto https://yourapp.com
-$B text                          # read the page — does it load?
-$B console                       # any JS errors?
-$B network                       # any failed requests?
-$B js "document.title"           # correct title?
-$B is visible ".hero-section"    # key elements present?
-$B screenshot /tmp/prod-check.png
+agent-browser open https://yourapp.com
+agent-browser get text                        # read the page — does it load?
+agent-browser network requests                # any failed requests?
+agent-browser eval "document.title"           # correct title?
+agent-browser is visible ".hero-section"      # key elements present?
+agent-browser screenshot /tmp/prod-check.png
 ```
 
 ### Dogfood a feature end-to-end
 
 ```bash
 # Navigate to the feature
-$B goto https://app.example.com/new-feature
+agent-browser open https://app.example.com/new-feature
 
 # Take annotated screenshot — shows every interactive element with labels
-$B snapshot -i -a -o /tmp/feature-annotated.png
-
-# Find ALL clickable things (including divs with cursor:pointer)
-$B snapshot -C
+agent-browser snapshot -i
+agent-browser screenshot --annotate /tmp/feature-annotated.png
 
 # Walk through the flow
-$B snapshot -i          # baseline
-$B click @e3            # interact
-$B snapshot -D          # what changed? (unified diff)
+agent-browser snapshot -i          # baseline
+agent-browser click @e3            # interact
+agent-browser diff snapshot        # what changed? (unified diff)
 
 # Check element states
-$B is visible ".success-toast"
-$B is enabled "#next-step-btn"
-$B is checked "#agree-checkbox"
-
-# Check console for errors after interactions
-$B console
+agent-browser is visible ".success-toast"
+agent-browser is enabled "#next-step-btn"
+agent-browser is checked "#agree-checkbox"
 ```
 
 ### Test responsive layouts
 
 ```bash
-# Quick: 3 screenshots at mobile/tablet/desktop
-$B goto https://yourapp.com
-$B responsive /tmp/layout
-
-# Manual: specific viewport
-$B viewport 375x812     # iPhone
-$B screenshot /tmp/mobile.png
-$B viewport 1440x900    # Desktop
-$B screenshot /tmp/desktop.png
+# Screenshots at different viewports
+agent-browser open https://yourapp.com
+agent-browser set viewport 375 812
+agent-browser screenshot /tmp/layout-mobile.png
+agent-browser set viewport 768 1024
+agent-browser screenshot /tmp/layout-tablet.png
+agent-browser set viewport 1280 720
+agent-browser screenshot /tmp/layout-desktop.png
 
 # Element screenshot (crop to specific element)
-$B screenshot "#hero-banner" /tmp/hero.png
-$B snapshot -i
-$B screenshot @e3 /tmp/button.png
-
-# Region crop
-$B screenshot --clip 0,0,800,600 /tmp/above-fold.png
-
-# Viewport only (no scroll)
-$B screenshot --viewport /tmp/viewport.png
+agent-browser screenshot "#hero-banner" /tmp/hero.png
+agent-browser snapshot -i
+agent-browser screenshot @e3 /tmp/button.png
 ```
 
 ### Test file upload
 
 ```bash
-$B goto https://app.example.com/upload
-$B snapshot -i
-$B upload @e3 /path/to/test-file.pdf
-$B is visible ".upload-success"
-$B screenshot /tmp/upload-result.png
+agent-browser open https://app.example.com/upload
+agent-browser snapshot -i
+agent-browser upload @e3 /path/to/test-file.pdf
+agent-browser is visible ".upload-success"
+agent-browser screenshot /tmp/upload-result.png
 ```
 
 ### Test forms with validation
 
 ```bash
-$B goto https://app.example.com/form
-$B snapshot -i
+agent-browser open https://app.example.com/form
+agent-browser snapshot -i
 
 # Submit empty — check validation errors appear
-$B click @e10                        # submit button
-$B snapshot -D                       # diff shows error messages appeared
-$B is visible ".error-message"
+agent-browser click @e10                        # submit button
+agent-browser diff snapshot                     # diff shows error messages appeared
+agent-browser is visible ".error-message"
 
 # Fill and resubmit
-$B fill @e3 "valid input"
-$B click @e10
-$B snapshot -D                       # diff shows errors gone, success state
+agent-browser fill @e3 "valid input"
+agent-browser click @e10
+agent-browser diff snapshot                     # diff shows errors gone, success state
 ```
 
 ### Test dialogs (delete confirmations, prompts)
 
 ```bash
 # Set up dialog handling BEFORE triggering
-$B dialog-accept              # will auto-accept next alert/confirm
-$B click "#delete-button"     # triggers confirmation dialog
-$B dialog                     # see what dialog appeared
-$B snapshot -D                # verify the item was deleted
+agent-browser dialog accept              # will auto-accept next alert/confirm
+agent-browser click "#delete-button"     # triggers confirmation dialog
+agent-browser diff snapshot              # verify the item was deleted
 
 # For prompts that need input
-$B dialog-accept "my answer"  # accept with text
-$B click "#rename-button"     # triggers prompt
-```
-
-### Test authenticated pages (import real browser cookies)
-
-```bash
-# Import cookies from your real browser (opens interactive picker)
-$B cookie-import-browser
-
-# Or import a specific domain directly
-$B cookie-import-browser comet --domain .github.com
-
-# Now test authenticated pages
-$B goto https://github.com/settings/profile
-$B snapshot -i
-$B screenshot /tmp/github-profile.png
+agent-browser dialog accept "my answer"  # accept with text
+agent-browser click "#rename-button"     # triggers prompt
 ```
 
 ### Compare two pages / environments
 
 ```bash
-$B diff https://staging.app.com https://prod.app.com
-```
-
-### Multi-step chain (efficient for long flows)
-
-```bash
-echo '[
-  ["goto","https://app.example.com"],
-  ["snapshot","-i"],
-  ["fill","@e3","test@test.com"],
-  ["fill","@e4","password"],
-  ["click","@e5"],
-  ["snapshot","-D"],
-  ["screenshot","/tmp/result.png"]
-]' | $B chain
+agent-browser diff url https://staging.app.com https://prod.app.com
 ```
 
 ## Quick Assertion Patterns
 
 ```bash
 # Element exists and is visible
-$B is visible ".modal"
+agent-browser is visible ".modal"
 
-# Button is enabled/disabled
-$B is enabled "#submit-btn"
-$B is disabled "#submit-btn"
+# Button is enabled
+agent-browser is enabled "#submit-btn"
 
 # Checkbox state
-$B is checked "#agree"
-
-# Input is editable
-$B is editable "#name-field"
-
-# Element has focus
-$B is focused "#search-input"
+agent-browser is checked "#agree"
 
 # Page contains text
-$B js "document.body.textContent.includes('Success')"
+agent-browser eval "document.body.textContent.includes('Success')"
 
 # Element count
-$B js "document.querySelectorAll('.list-item').length"
+agent-browser eval "document.querySelectorAll('.list-item').length"
 
 # Specific attribute value
-$B attrs "#logo"    # returns all attributes as JSON
+agent-browser get attr "#logo" "src"
 
 # CSS property
-$B css ".button" "background-color"
+agent-browser get styles ".button"
 ```
 
 ## Snapshot System
 
 The snapshot is your primary tool for understanding and interacting with pages.
+`agent-browser snapshot` returns the full accessibility tree of the current page.
 
-```
--i        --interactive           Interactive elements only (buttons, links, inputs) with @e refs
--c        --compact               Compact (no empty structural nodes)
--d <N>    --depth                 Limit tree depth (0 = root only, default: unlimited)
--s <sel>  --selector              Scope to CSS selector
--D        --diff                  Unified diff against previous snapshot (first call stores baseline)
--a        --annotate              Annotated screenshot with red overlay boxes and ref labels
--o <path> --output                Output path for annotated screenshot (default: /tmp/browse-annotated.png)
--C        --cursor-interactive    Cursor-interactive elements (@c refs — divs with pointer, onclick)
-```
+### Flags
 
-All flags can be combined freely. `-o` only applies when `-a` is also used.
-Example: `$B snapshot -i -a -C -o /tmp/annotated.png`
+| Flag | Long | Description |
+|------|------|-------------|
+| `-i` | `--interactive` | Interactive elements only (buttons, links, inputs) with @e refs |
+| `-c` | `--compact` | Compact (no empty structural nodes) |
+| `-s <sel>` | `--selector` | Scope to CSS selector |
 
-**Ref numbering:** @e refs are assigned sequentially (@e1, @e2, ...) in tree order.
-@c refs from `-C` are numbered separately (@c1, @c2, ...).
+All flags combine freely: `agent-browser snapshot -i -c` returns only interactive elements, with empty containers removed.
 
+**Flag details:**
+- **`-i` (interactive):** Returns only elements that accept user input: buttons, links, textboxes, checkboxes, selects, and other focusable elements. Each gets an @e ref for use in subsequent commands.
+- **`-c` (compact):** Removes structural nodes (div, section, nav, etc.) that have no text content and serve only as layout containers. Reduces output noise.
+- **`-s <sel>` (selector):** Scopes the tree to a subtree matching the CSS selector or @ref. Example: `snapshot -s "#sidebar"` or `snapshot -s @e5`.
+
+### Related commands
+
+| Command | Description |
+|---------|-------------|
+| `agent-browser diff snapshot` | Unified diff of current tree vs previous snapshot. Shows +added/-removed lines. Run snapshot → act → diff snapshot. |
+| `agent-browser screenshot --annotate [path]` | Screenshot with numbered ref labels overlaid on each interactive element. Default path: /tmp/screenshot.png |
+
+### @e refs
+
+Refs are assigned sequentially (@e1, @e2, ...) in DOM tree order.
 After snapshot, use @refs as selectors in any command:
+
 ```bash
-$B click @e3       $B fill @e4 "value"     $B hover @e1
-$B html @e2        $B css @e5 "color"      $B attrs @e6
-$B click @c1       # cursor-interactive ref (from -C)
+agent-browser click @e3       agent-browser fill @e4 "value"     agent-browser hover @e1
+agent-browser get html @e2    agent-browser get styles @e5
 ```
 
-**Output format:** indented accessibility tree with @ref IDs, one element per line.
+**Output format:** indented accessibility tree — role in brackets, text in quotes, attributes in brackets.
 ```
-  @e1 [heading] "Welcome" [level=1]
-  @e2 [textbox] "Email"
+  @e1 [heading] "Welcome" [level=1]       ← [level=N] = heading level
+  @e2 [textbox] "Email"                    ← label text in quotes
   @e3 [button] "Submit"
+    @e4 [link] "Learn more" [href=/docs]   ← indentation shows nesting
 ```
 
-Refs are invalidated on navigation — run `snapshot` again after `goto`.
+**Important:** Refs are invalidated on navigation — run `snapshot` again after `open` or any action that causes a page load.
 
 ## Command Reference
 
 ### Navigation
 | Command | Description |
 |---------|-------------|
-| `back` | History back |
-| `forward` | History forward |
-| `goto <url>` | Navigate to URL |
-| `reload` | Reload page |
-| `url` | Print current URL |
+| `click <sel>` | Click element |
+| `dblclick <sel>` | Double-click element |
+| `drag <from> <to>` | Drag element to target |
+| `focus <sel>` | Focus element |
+| `open <url>` | Navigate to URL |
 
 ### Reading
 | Command | Description |
 |---------|-------------|
-| `accessibility` | Full ARIA tree |
-| `forms` | Form fields as JSON |
-| `html [selector]` | innerHTML of selector (throws if not found), or full page HTML if no selector given |
-| `links` | All links as "text → href" |
-| `text` | Cleaned page text |
+| `get attr <sel> <attr>` | Get attribute value of element |
+| `get box <sel>` | Get bounding box of element |
+| `get count <sel>` | Count matching elements |
+| `get html [sel]` | Get innerHTML of element or full page HTML |
+| `get styles <sel>` | Get computed CSS styles of element |
+| `get text [sel]` | Get text content of page or element |
+| `get title` | Get page title |
+| `get url` | Get current page URL |
+| `get value <sel>` | Get value of input element |
 
 ### Interaction
 | Command | Description |
 |---------|-------------|
-| `click <sel>` | Click element |
-| `cookie <name>=<value>` | Set cookie on current page domain |
-| `cookie-import <json>` | Import cookies from JSON file |
-| `cookie-import-browser [browser] [--domain d]` | Import cookies from Comet, Chrome, Arc, Brave, or Edge (opens picker, or use --domain for direct import) |
-| `dialog-accept [text]` | Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response |
-| `dialog-dismiss` | Auto-dismiss next dialog |
-| `fill <sel> <val>` | Fill input |
-| `header <name>:<value>` | Set custom request header (colon-separated, sensitive values auto-redacted) |
-| `hover <sel>` | Hover element |
-| `press <key>` | Press key — Enter, Tab, Escape, ArrowUp/Down/Left/Right, Backspace, Delete, Home, End, PageUp, PageDown, or modifiers like Shift+Enter |
-| `scroll [sel]` | Scroll element into view, or scroll to page bottom if no selector |
-| `select <sel> <val>` | Select dropdown option by value, label, or visible text |
-| `type <text>` | Type into focused element |
-| `upload <sel> <file> [file2...]` | Upload file(s) |
-| `useragent <string>` | Set user agent |
-| `viewport <WxH>` | Set viewport size |
-| `wait <sel|--networkidle|--load>` | Wait for element, network idle, or page load (timeout: 15s) |
+| `check <sel>` | Check a checkbox |
+| `fill <sel> <val>` | Clear and fill input |
+| `hover <sel>` | Hover over element |
+| `press <key>` | Press keyboard key. Valid keys: Enter, Tab, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, Home, End, PageUp, PageDown, Space, F1-F12. Supports modifiers: Control+a, Shift+Enter, Meta+c |
+| `scroll [direction] [amount]` | Scroll page. Direction: up, down, left, right. Amount: pixels (default 300). Examples: `scroll down 500`, `scroll up` |
+| `scrollintoview <sel>` | Scroll element into view |
+| `select <sel> <val>` | Select dropdown option |
+| `type <sel> <text>` | Type text into focused element (appends) |
+| `uncheck <sel>` | Uncheck a checkbox |
+| `upload <sel> <file>` | Upload file to file input |
+| `wait <sel|ms> [--text <text>|--url <pat>|--load|--fn <expr>|--state <state>]` | Wait for condition (max 10s). Modes: `wait <sel>` element exists, `wait <ms>` timeout, `wait --text <text>` page contains text, `wait --url <pattern>` URL matches, `wait --load` page load complete, `wait --fn <expr>` JS expression truthy, `wait --state <state>` element state (visible/hidden/enabled/disabled) |
 
 ### Inspection
 | Command | Description |
 |---------|-------------|
-| `attrs <sel|@ref>` | Element attributes as JSON |
-| `console [--clear|--errors]` | Console messages (--errors filters to error/warning) |
-| `cookies` | All cookies as JSON |
-| `css <sel> <prop>` | Computed CSS value |
-| `dialog [--clear]` | Dialog messages |
-| `eval <file>` | Run JavaScript from file and return result as string (path must be under /tmp or cwd) |
-| `is <prop> <sel>` | State check (visible/hidden/enabled/disabled/checked/editable/focused) |
-| `js <expr>` | Run JavaScript expression and return result as string |
-| `network [--clear]` | Network requests |
-| `perf` | Page load timings |
-| `storage [set k v]` | Read all localStorage + sessionStorage as JSON, or set <key> <value> to write localStorage |
+| `eval <expr>` | Run JavaScript expression and return result |
+| `is checked <sel>` | Check if checkbox/radio is checked |
+| `is enabled <sel>` | Check if element is enabled |
+| `is visible <sel>` | Check if element is visible |
+
+### Storage
+| Command | Description |
+|---------|-------------|
+| `cookies clear` | Clear all cookies |
+| `cookies get` | Get all cookies as JSON |
+| `cookies set <name>=<value> [domain]` | Set a cookie. Domain defaults to current page domain |
+| `storage local clear` | Clear localStorage |
+| `storage local get [key]` | Get localStorage value |
+| `storage local set <key> <value>` | Set localStorage value |
+| `storage session clear` | Clear sessionStorage |
+| `storage session get [key]` | Get sessionStorage value |
+| `storage session set <key> <value>` | Set sessionStorage value |
+
+### Network
+| Command | Description |
+|---------|-------------|
+| `network requests` | List captured network requests |
+| `network route <pattern> [response-json]` | Intercept and mock network requests. Pattern is a URL glob (e.g., `**/api/users`). Response is JSON: `{"status":200,"body":"...","headers":{}}` |
+| `network unroute <pattern>` | Remove network interception |
+
+### Config
+| Command | Description |
+|---------|-------------|
+| `set credentials <user> <pass>` | Set HTTP auth credentials |
+| `set device <name>` | Emulate device (e.g., iPhone 14) |
+| `set geo <lat> <lng>` | Set geolocation |
+| `set headers <name>:<value>` | Set custom request headers |
+| `set media <feature> <value>` | Set CSS media feature. Features: prefers-color-scheme (light/dark), prefers-reduced-motion (reduce/no-preference), forced-colors (active/none) |
+| `set offline [true|false]` | Toggle offline mode |
+| `set viewport <width> <height>` | Set viewport size |
+
+### Dialog
+| Command | Description |
+|---------|-------------|
+| `dialog accept [text]` | Accept next alert/confirm/prompt |
+| `dialog dismiss` | Dismiss next dialog |
 
 ### Visual
 | Command | Description |
 |---------|-------------|
-| `diff <url1> <url2>` | Text diff between pages |
-| `pdf [path]` | Save as PDF |
-| `responsive [prefix]` | Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc. |
-| `screenshot [--viewport] [--clip x,y,w,h] [selector|@ref] [path]` | Save screenshot (supports element crop via CSS/@ref, --clip region, --viewport) |
+| `diff screenshot` | Visual pixel diff between current screenshot and previous. Highlights changed regions |
+| `diff snapshot` | Unified diff of current accessibility tree vs previous snapshot. Shows added/removed/changed elements. Run snapshot first, then act, then diff snapshot |
+| `diff url <url1> <url2>` | Diff text content between two URLs |
+| `pdf [path]` | Save page as PDF |
+| `screenshot [--annotate] [--full] [sel] [path]` | Save screenshot. --annotate overlays ref labels on interactive elements. --full captures entire scrollable page. Provide sel/@ref to crop to one element. Path defaults to /tmp/screenshot.png |
 
 ### Snapshot
 | Command | Description |
 |---------|-------------|
-| `snapshot [flags]` | Accessibility tree with @e refs for element selection. Flags: -i interactive only, -c compact, -d N depth limit, -s sel scope, -D diff vs previous, -a annotated screenshot, -o path output, -C cursor-interactive @c refs |
+| `snapshot [-i] [-c] [-s <sel>]` | Full accessibility tree with @e refs for element selection. Without flags: returns complete DOM tree. Flags: -i (interactive elements only — buttons, links, inputs), -c (compact — omit empty structural nodes), -s <sel> (scope to CSS selector or @ref) |
 
-### Meta
+### Find
 | Command | Description |
 |---------|-------------|
-| `chain` | Run commands from JSON stdin. Format: [["cmd","arg1",...],...] |
+| `find alt <text> [action]` | Find element by alt text. Action: click, fill, hover, or omit to locate |
+| `find label <label> [action]` | Find element by associated label text. Action: click, fill, hover, or omit to locate |
+| `find placeholder <text> [action]` | Find element by placeholder text. Action: click, fill, hover, or omit to locate |
+| `find role <role> [action]` | Find element by ARIA role (e.g., button, link, textbox, heading). Action: click, fill, hover, or omit to just locate |
+| `find testid <id> [action]` | Find element by data-testid. Action: click, fill, hover, or omit to locate |
+| `find text <text> [action]` | Find element by visible text content. Action: click, fill, hover, or omit to locate |
+| `find title <text> [action]` | Find element by title attribute. Action: click, fill, hover, or omit to locate |
 
 ### Tabs
 | Command | Description |
 |---------|-------------|
-| `closetab [id]` | Close tab |
-| `newtab [url]` | Open new tab |
-| `tab <id>` | Switch to tab |
-| `tabs` | List open tabs |
+| `tab` | List open tabs |
+| `tab close [id]` | Close tab |
+| `tab new [url]` | Open new tab |
+| `tab switch <id>` | Switch to tab |
+| `window new` | Open new browser window |
 
-### Server
+### Frames
 | Command | Description |
 |---------|-------------|
-| `restart` | Restart server |
-| `status` | Health check |
-| `stop` | Shutdown server |
+| `frame <sel>` | Switch to iframe |
+| `frame main` | Switch back to main frame |
+
+### Lifecycle
+| Command | Description |
+|---------|-------------|
+| `close` | Close browser session |
+| `connect <url>` | Connect to remote browser |
 
 ## Tips
 
-1. **Navigate once, query many times.** `goto` loads the page; then `text`, `js`, `screenshot` all hit the loaded page instantly.
+1. **Navigate once, query many times.** `open` loads the page; then `get text`, `eval`, `screenshot` all hit the loaded page instantly.
 2. **Use `snapshot -i` first.** See all interactive elements, then click/fill by ref. No CSS selector guessing.
-3. **Use `snapshot -D` to verify.** Baseline → action → diff. See exactly what changed.
+3. **Use `diff snapshot` to verify.** Baseline → action → diff. See exactly what changed.
 4. **Use `is` for assertions.** `is visible .modal` is faster and more reliable than parsing page text.
-5. **Use `snapshot -a` for evidence.** Annotated screenshots are great for bug reports.
-6. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
-7. **Check `console` after actions.** Catch JS errors that don't surface visually.
-8. **Use `chain` for long flows.** Single command, no per-step CLI overhead.
+5. **Use `screenshot --annotate` for evidence.** Annotated screenshots are great for bug reports.

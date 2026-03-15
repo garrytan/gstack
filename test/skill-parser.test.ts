@@ -14,34 +14,54 @@ function writeFixture(name: string, content: string): string {
 }
 
 describe('extractBrowseCommands', () => {
-  test('extracts $B commands from bash code blocks', () => {
+  test('extracts agent-browser commands from bash code blocks', () => {
     const p = writeFixture('basic.md', [
       '# Test',
       '```bash',
-      '$B goto https://example.com',
-      '$B snapshot -i',
+      'agent-browser open https://example.com',
+      'agent-browser snapshot -i',
       '```',
     ].join('\n'));
     const cmds = extractBrowseCommands(p);
     expect(cmds).toHaveLength(2);
-    expect(cmds[0].command).toBe('goto');
+    expect(cmds[0].command).toBe('open');
     expect(cmds[0].args).toEqual(['https://example.com']);
     expect(cmds[1].command).toBe('snapshot');
     expect(cmds[1].args).toEqual(['-i']);
   });
 
+  test('extracts multi-word commands correctly', () => {
+    const p = writeFixture('multiword.md', [
+      '```bash',
+      'agent-browser get text',
+      'agent-browser is visible ".modal"',
+      'agent-browser set viewport 375 812',
+      'agent-browser diff snapshot',
+      '```',
+    ].join('\n'));
+    const cmds = extractBrowseCommands(p);
+    expect(cmds).toHaveLength(4);
+    expect(cmds[0].command).toBe('get text');
+    expect(cmds[0].args).toEqual([]);
+    expect(cmds[1].command).toBe('is visible');
+    expect(cmds[1].args).toEqual(['.modal']);
+    expect(cmds[2].command).toBe('set viewport');
+    expect(cmds[2].args).toEqual(['375', '812']);
+    expect(cmds[3].command).toBe('diff snapshot');
+  });
+
   test('skips non-bash code blocks', () => {
     const p = writeFixture('skip.md', [
       '```json',
-      '{"key": "$B goto bad"}',
+      '{"key": "agent-browser open bad"}',
       '```',
       '```bash',
-      '$B text',
+      'agent-browser get text',
       '```',
     ].join('\n'));
     const cmds = extractBrowseCommands(p);
     expect(cmds).toHaveLength(1);
-    expect(cmds[0].command).toBe('text');
+    expect(cmds[0].command).toBe('get text');
   });
 
   test('returns empty array for file with no code blocks', () => {
@@ -50,8 +70,8 @@ describe('extractBrowseCommands', () => {
     expect(cmds).toHaveLength(0);
   });
 
-  test('returns empty array for code blocks with no $B invocations', () => {
-    const p = writeFixture('no-b.md', [
+  test('returns empty array for code blocks with no agent-browser invocations', () => {
+    const p = writeFixture('no-ab.md', [
       '```bash',
       'echo "hello"',
       'ls -la',
@@ -61,10 +81,10 @@ describe('extractBrowseCommands', () => {
     expect(cmds).toHaveLength(0);
   });
 
-  test('handles multiple $B commands on one line', () => {
+  test('handles multiple agent-browser commands on one line', () => {
     const p = writeFixture('multi.md', [
       '```bash',
-      '$B click @e3       $B fill @e4 "value"     $B hover @e1',
+      'agent-browser click @e3       agent-browser fill @e4 "value"     agent-browser hover @e1',
       '```',
     ].join('\n'));
     const cmds = extractBrowseCommands(p);
@@ -78,8 +98,8 @@ describe('extractBrowseCommands', () => {
   test('handles quoted arguments correctly', () => {
     const p = writeFixture('quoted.md', [
       '```bash',
-      '$B fill @e3 "test@example.com"',
-      '$B js "document.title"',
+      'agent-browser fill @e3 "test@example.com"',
+      'agent-browser eval "document.title"',
       '```',
     ].join('\n'));
     const cmds = extractBrowseCommands(p);
@@ -92,11 +112,11 @@ describe('extractBrowseCommands', () => {
       '# Header',     // line 1
       '',              // line 2
       '```bash',       // line 3
-      '$B goto x',     // line 4
+      'agent-browser open x',     // line 4
       '```',           // line 5
       '',              // line 6
       '```bash',       // line 7
-      '$B text',       // line 8
+      'agent-browser get text',   // line 8
       '```',           // line 9
     ].join('\n'));
     const cmds = extractBrowseCommands(p);
@@ -107,7 +127,7 @@ describe('extractBrowseCommands', () => {
   test('skips unlabeled code blocks', () => {
     const p = writeFixture('unlabeled.md', [
       '```',
-      '$B snapshot -i',
+      'agent-browser snapshot -i',
       '```',
     ].join('\n'));
     const cmds = extractBrowseCommands(p);
@@ -119,10 +139,10 @@ describe('validateSkill', () => {
   test('valid commands pass validation', () => {
     const p = writeFixture('valid.md', [
       '```bash',
-      '$B goto https://example.com',
-      '$B text',
-      '$B click @e3',
-      '$B snapshot -i -a',
+      'agent-browser open https://example.com',
+      'agent-browser get text',
+      'agent-browser click @e3',
+      'agent-browser snapshot -i',
       '```',
     ].join('\n'));
     const result = validateSkill(p);
@@ -134,9 +154,9 @@ describe('validateSkill', () => {
   test('invalid commands flagged in result', () => {
     const p = writeFixture('invalid.md', [
       '```bash',
-      '$B goto https://example.com',
-      '$B explode',
-      '$B halp',
+      'agent-browser open https://example.com',
+      'agent-browser explode',
+      'agent-browser halp',
       '```',
     ].join('\n'));
     const result = validateSkill(p);
@@ -149,7 +169,7 @@ describe('validateSkill', () => {
   test('snapshot flags validated via parseSnapshotArgs', () => {
     const p = writeFixture('bad-snapshot.md', [
       '```bash',
-      '$B snapshot --bogus',
+      'agent-browser snapshot --bogus',
       '```',
     ].join('\n'));
     const result = validateSkill(p);
@@ -157,23 +177,21 @@ describe('validateSkill', () => {
     expect(result.snapshotFlagErrors[0].error).toContain('Unknown snapshot flag');
   });
 
-  test('returns warning when no $B commands found', () => {
+  test('returns warning when no agent-browser commands found', () => {
     const p = writeFixture('empty.md', '# Nothing here\n');
     const result = validateSkill(p);
-    expect(result.warnings).toContain('no $B commands found');
+    expect(result.warnings).toContain('no agent-browser commands found');
   });
 
   test('valid snapshot flags pass', () => {
     const p = writeFixture('snap-valid.md', [
       '```bash',
-      '$B snapshot -i -a -C -o /tmp/out.png',
-      '$B snapshot -D',
-      '$B snapshot -d 3',
-      '$B snapshot -s "main"',
+      'agent-browser snapshot -i -c',
+      'agent-browser snapshot -s "main"',
       '```',
     ].join('\n'));
     const result = validateSkill(p);
-    expect(result.valid).toHaveLength(4);
+    expect(result.valid).toHaveLength(2);
     expect(result.snapshotFlagErrors).toHaveLength(0);
   });
 });

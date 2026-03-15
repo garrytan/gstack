@@ -18,7 +18,6 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // Find all SKILL.md files
 const SKILL_FILES = [
   'SKILL.md',
-  'browse/SKILL.md',
   'qa/SKILL.md',
   'ship/SKILL.md',
   'review/SKILL.md',
@@ -65,7 +64,6 @@ for (const file of SKILL_FILES) {
 console.log('\n  Templates:');
 const TEMPLATES = [
   { tmpl: 'SKILL.md.tmpl', output: 'SKILL.md' },
-  { tmpl: 'browse/SKILL.md.tmpl', output: 'browse/SKILL.md' },
 ];
 
 for (const { tmpl, output } of TEMPLATES) {
@@ -87,7 +85,7 @@ for (const { tmpl, output } of TEMPLATES) {
 for (const file of SKILL_FILES) {
   const tmplPath = path.join(ROOT, file + '.tmpl');
   if (!fs.existsSync(tmplPath) && !TEMPLATES.some(t => t.output === file)) {
-    console.log(`  \u26a0\ufe0f  ${file.padEnd(30)} — no template (OK if no $B commands)`);
+    console.log(`  \u26a0\ufe0f  ${file.padEnd(30)} — no template (OK if no agent-browser commands)`);
   }
 }
 

@@ -1,44 +1,35 @@
 {
   "name": "gstack",
-  "version": "0.3.3",
-  "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
+  "version": "2.0.0",
+  "description": "Garry's Stack — Claude Code skills + agent-browser for QA testing. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
-  "bin": {
-    "browse": "./browse/dist/browse"
-  },
   "scripts": {
-    "build": "bun run gen:skill-docs && bun build --compile browse/src/cli.ts --outfile browse/dist/browse && bun build --compile browse/src/find-browse.ts --outfile browse/dist/find-browse && git rev-parse HEAD > browse/dist/.version && rm -f .*.bun-build",
+    "build": "bun run gen:skill-docs",
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
-    "dev": "bun run browse/src/cli.ts",
-    "server": "bun run browse/src/server.ts",
-    "test": "bun test browse/test/ test/ --ignore test/skill-e2e.test.ts --ignore test/skill-llm-eval.test.ts",
+    "test": "bun test test/ --ignore test/skill-e2e.test.ts --ignore test/skill-llm-eval.test.ts",
     "test:evals": "EVALS=1 bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts",
     "test:e2e": "EVALS=1 bun test test/skill-e2e.test.ts",
     "skill:check": "bun run scripts/skill-check.ts",
     "dev:skill": "bun run scripts/dev-skill.ts",
-    "start": "bun run browse/src/server.ts",
     "eval:list": "bun run scripts/eval-list.ts",
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",
     "eval:watch": "bun run scripts/eval-watch.ts"
   },
-  "dependencies": {
-    "playwright": "^1.58.2",
-    "diff": "^7.0.0"
-  },
+  "dependencies": {},
   "engines": {
     "bun": ">=1.0.0"
   },
   "keywords": [
     "browser",
     "automation",
-    "playwright",
+    "agent-browser",
     "headless",
     "cli",
     "claude",
     "ai-agent",
-    "devtools"
+    "qa-testing"
   ],
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.78.0"
