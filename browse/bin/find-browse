@@ -12,6 +12,6 @@ if [ -n "$ROOT" ] && test -x "$ROOT/.claude/skills/gstack/browse/dist/browse"; t
 elif test -x "$HOME/.claude/skills/gstack/browse/dist/browse"; then
   echo "$HOME/.claude/skills/gstack/browse/dist/browse"
 else
-  echo "ERROR: browse binary not found. Run: cd <skill-dir> && ./setup" >&2
+  echo "ERROR: browse バイナリが見つかりません。実行: cd <skill-dir> && ./setup" >&2
   exit 1
 fi

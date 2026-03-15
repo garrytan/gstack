@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SKILLS_DIR="$REPO_ROOT/.claude/skills"
 
 if [ ! -d "$SKILLS_DIR" ]; then
-  echo "Nothing to tear down — .claude/skills/ doesn't exist."
+  echo "解除対象はありません — .claude/skills/ が存在しません。"
   exit 0
 fi
 
@@ -32,8 +32,8 @@ rmdir "$SKILLS_DIR" 2>/dev/null || true
 rmdir "$REPO_ROOT/.claude" 2>/dev/null || true
 
 if [ ${#removed[@]} -gt 0 ]; then
-  echo "Removed: ${removed[*]}"
+  echo "削除しました: ${removed[*]}"
 else
-  echo "No symlinks found."
+  echo "シンボリックリンクは見つかりませんでした。"
 fi
-echo "Dev mode deactivated. Global gstack (~/.claude/skills/gstack) is now active."
+echo "Dev mode を無効化しました。Global gstack (~/.claude/skills/gstack) が有効です。"

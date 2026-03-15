@@ -28,12 +28,12 @@ let files: string[];
 try {
   files = fs.readdirSync(EVAL_DIR).filter(f => f.endsWith('.json'));
 } catch {
-  console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
+  console.log('Eval 実行履歴がありません。実行: EVALS=1 bun run test:evals');
   process.exit(0);
 }
 
 if (files.length === 0) {
-  console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
+  console.log('Eval 実行履歴がありません。実行: EVALS=1 bun run test:evals');
   process.exit(0);
 }
 
@@ -76,7 +76,7 @@ const displayed = runs.slice(0, limit);
 
 // Print table
 console.log('');
-console.log(`Eval History (${runs.length} total runs)`);
+console.log(`Eval 履歴（全 ${runs.length} 件）`);
 console.log('═'.repeat(90));
 console.log(
   '  ' +
@@ -100,6 +100,6 @@ for (const run of displayed) {
 console.log('─'.repeat(90));
 
 const totalCost = runs.reduce((s, r) => s + r.cost, 0);
-console.log(`  ${runs.length} runs | Total spend: $${totalCost.toFixed(2)} | Showing: ${displayed.length}`);
-console.log(`  Dir: ${EVAL_DIR}`);
+console.log(`  ${runs.length} 件 | 合計コスト: $${totalCost.toFixed(2)} | 表示件数: ${displayed.length}`);
+console.log(`  ディレクトリ: ${EVAL_DIR}`);
 console.log('');
