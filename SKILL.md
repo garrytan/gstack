@@ -286,7 +286,7 @@ $B click @c1       # cursor-interactive ref (from -C)
 
 Refs are invalidated on navigation — run `snapshot` again after `goto`.
 
-## コマンドリファレンス
+## Command Reference
 
 ### Navigation
 | Command | Description |

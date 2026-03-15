@@ -141,6 +141,7 @@ function processTemplate(tmplPath: string): { outputPath: string; content: strin
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
   const relTmplPath = path.relative(ROOT, tmplPath);
   const outputPath = tmplPath.replace(/\.tmpl$/, '');
+  const relOutputPath = path.relative(ROOT, outputPath);
 
   // Replace placeholders
   let content = tmplContent.replace(/\{\{(\w+)\}\}/g, (match, name) => {
@@ -163,6 +164,11 @@ function processTemplate(tmplPath: string): { outputPath: string; content: strin
     content = content.slice(0, insertAt) + header + content.slice(insertAt);
   } else {
     content = header + content;
+  }
+
+  // Keep this heading stable for eval extractors that anchor on this literal.
+  if (relOutputPath === 'SKILL.md') {
+    content = content.replace(/^## コマンドリファレンス$/m, '## Command Reference');
   }
 
   return { outputPath, content };
