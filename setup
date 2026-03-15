@@ -32,6 +32,10 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
     bun install
     bun run build
   )
+  # Safety net: write .version if build script didn't (e.g., git not available during build)
+  if [ ! -f "$GSTACK_DIR/browse/dist/.version" ]; then
+    git -C "$GSTACK_DIR" rev-parse HEAD > "$GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
+  fi
 fi
 
 if [ ! -x "$BROWSE_BIN" ]; then
@@ -53,7 +57,10 @@ if ! ensure_playwright_browser; then
   exit 1
 fi
 
-# 3. Only create skill symlinks if we're inside a .claude/skills directory
+# 3. Ensure ~/.gstack global state directory exists
+mkdir -p "$HOME/.gstack/projects"
+
+# 4. Only create skill symlinks if we're inside a .claude/skills directory
 SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
 if [ "$SKILLS_BASENAME" = "skills" ]; then
   linked=()
@@ -81,3 +88,10 @@ else
   echo "  browse: $BROWSE_BIN"
   echo "  (skipped skill symlinks — not inside .claude/skills/)"
 fi
+
+# 4. First-time welcome + legacy cleanup
+if [ ! -d "$HOME/.gstack" ]; then
+  mkdir -p "$HOME/.gstack"
+  echo "  Welcome! Run /gstack-upgrade anytime to stay current."
+fi
+rm -f /tmp/gstack-latest-version

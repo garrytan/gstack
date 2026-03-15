@@ -1,7 +1,13 @@
+.env
 node_modules/
 browse/dist/
 .gstack/
+.claude/skills/
 /tmp/
 *.log
 bun.lock
 *.bun-build
+.env
+.env.local
+.env.*
+!.env.example

@@ -106,11 +106,63 @@ export async function handleMetaCommand(
 
     // ─── Visual ────────────────────────────────────────
     case 'screenshot': {
+      // Parse priority: flags (--viewport, --clip) → selector (@ref, CSS) → output path
       const page = bm.getPage();
-      const screenshotPath = args[0] || '/tmp/browse-screenshot.png';
-      validateOutputPath(screenshotPath);
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      return `Screenshot saved: ${screenshotPath}`;
+      let outputPath = '/tmp/browse-screenshot.png';
+      let clipRect: { x: number; y: number; width: number; height: number } | undefined;
+      let targetSelector: string | undefined;
+      let viewportOnly = false;
+
+      const remaining: string[] = [];
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--viewport') {
+          viewportOnly = true;
+        } else if (args[i] === '--clip') {
+          const coords = args[++i];
+          if (!coords) throw new Error('Usage: screenshot --clip x,y,w,h [path]');
+          const parts = coords.split(',').map(Number);
+          if (parts.length !== 4 || parts.some(isNaN))
+            throw new Error('Usage: screenshot --clip x,y,width,height — all must be numbers');
+          clipRect = { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
+        } else if (args[i].startsWith('--')) {
+          throw new Error(`Unknown screenshot flag: ${args[i]}`);
+        } else {
+          remaining.push(args[i]);
+        }
+      }
+
+      // Separate target (selector/@ref) from output path
+      for (const arg of remaining) {
+        if (arg.startsWith('@e') || arg.startsWith('@c') || arg.startsWith('.') || arg.startsWith('#') || arg.includes('[')) {
+          targetSelector = arg;
+        } else {
+          outputPath = arg;
+        }
+      }
+
+      validateOutputPath(outputPath);
+
+      if (clipRect && targetSelector) {
+        throw new Error('Cannot use --clip with a selector/ref — choose one');
+      }
+      if (viewportOnly && clipRect) {
+        throw new Error('Cannot use --viewport with --clip — choose one');
+      }
+
+      if (targetSelector) {
+        const resolved = bm.resolveRef(targetSelector);
+        const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
+        await locator.screenshot({ path: outputPath, timeout: 5000 });
+        return `Screenshot saved (element): ${outputPath}`;
+      }
+
+      if (clipRect) {
+        await page.screenshot({ path: outputPath, clip: clipRect });
+        return `Screenshot saved (clip ${clipRect.x},${clipRect.y},${clipRect.width},${clipRect.height}): ${outputPath}`;
+      }
+
+      await page.screenshot({ path: outputPath, fullPage: !viewportOnly });
+      return `Screenshot saved${viewportOnly ? ' (viewport)' : ''}: ${outputPath}`;
     }
 
     case 'pdf': {

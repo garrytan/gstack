@@ -1,5 +1,11 @@
 #!/bin/bash
-# Find the gstack browse binary. Echoes path and exits 0, or exits 1 if not found.
+# Shim: delegates to compiled find-browse binary, falls back to basic discovery.
+# The compiled binary handles git root detection for workspace-local installs.
+DIR="$(cd "$(dirname "$0")/.." && pwd)/dist"
+if test -x "$DIR/find-browse"; then
+  exec "$DIR/find-browse" "$@"
+fi
+# Fallback: basic discovery
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$ROOT" ] && test -x "$ROOT/.claude/skills/gstack/browse/dist/browse"; then
   echo "$ROOT/.claude/skills/gstack/browse/dist/browse"

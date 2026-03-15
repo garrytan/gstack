@@ -11,7 +11,19 @@ allowed-tools:
   - Read
   - Write
   - Glob
+  - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+
+## Update Check (run first)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
 # /retro -- Weekly Engineering Retrospective (Cybereum)
 
@@ -81,6 +93,12 @@ git log origin/main --since="<window>" --format="AUTHOR:%aN" --name-only
 
 # 7. Per-author commit counts (quick summary)
 git shortlog origin/main --since="<window>" -sn --no-merges
+
+# 8. Greptile triage history (if available)
+cat ~/.gstack/greptile-history.md 2>/dev/null || true
+
+# 9. TODOS.md backlog (if available)
+cat TODOS.md 2>/dev/null || true
 ```
 
 ### Step 2: Compute Metrics
@@ -101,6 +119,7 @@ Calculate and present these metrics in a summary table:
 | Active days | N |
 | Detected sessions | N |
 | Avg LOC/session-hour | N |
+| Greptile signal | N% (Y catches, Z FPs) |
 
 Then show a **per-author leaderboard** immediately below:
 
@@ -112,6 +131,22 @@ bob                       3   +120/-40     tests/
 ```
 
 Sort by commits descending. The current user (from `git config user.name`) always appears first, labeled "You (name)".
+
+**Greptile signal (if history exists):** Read `~/.gstack/greptile-history.md` (fetched in Step 1, command 8). Filter entries within the retro time window by date. Count entries by type: `fix`, `fp`, `already-fixed`. Compute signal ratio: `(fix + already-fixed) / (fix + already-fixed + fp)`. If no entries exist in the window or the file doesn't exist, skip the Greptile metric row. Skip unparseable lines silently.
+
+**Backlog Health (if TODOS.md exists):** Read `TODOS.md` (fetched in Step 1, command 9). Compute:
+- Total open TODOs (exclude items in `## Completed` section)
+- P0/P1 count (critical/urgent items)
+- P2 count (important items)
+- Items completed this period (items in Completed section with dates within the retro window)
+- Items added this period (cross-reference git log for commits that modified TODOS.md within the window)
+
+Include in the metrics table:
+```
+| Backlog Health | N open (X P0/P1, Y P2) · Z completed this period |
+```
+
+If TODOS.md doesn't exist, skip the Backlog Health row.
 
 ### Step 3: Commit Time Distribution
 
@@ -298,8 +333,27 @@ Use the Write tool to save the JSON file with this schema:
   },
   "version_range": ["1.16.0.0", "1.16.1.0"],
   "streak_days": 47,
-  "tweetable": "Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm"
+  "tweetable": "Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm",
+  "greptile": {
+    "fixes": 3,
+    "fps": 1,
+    "already_fixed": 2,
+    "signal_pct": 83
+  }
 }
+```
+
+**Note:** Only include the `greptile` field if `~/.gstack/greptile-history.md` exists and has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. If either has no data, omit the field entirely.
+
+Include backlog data in the JSON when TODOS.md exists:
+```json
+  "backlog": {
+    "total_open": 28,
+    "p0_p1": 2,
+    "p2": 8,
+    "completed_this_period": 3,
+    "added_this_period": 1
+  }
 ```
 
 ### Step 14: Write the Narrative
@@ -343,6 +397,7 @@ Narrative covering:
 - Test LOC ratio trend
 - Hotspot analysis (are the same files churning?)
 - Any XL PRs that should have been split
+- Greptile signal ratio and trend (if history exists): "Greptile: X% signal (Y valid catches, Z false positives)"
 
 ### Cybereum Skill Development
 (Cybereum-specific section)

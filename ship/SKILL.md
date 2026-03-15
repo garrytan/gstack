@@ -12,6 +12,17 @@ allowed-tools:
   - Glob
   - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+
+## Update Check (run first)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
 # Ship: Fully Automated Ship Workflow
 
@@ -23,7 +34,10 @@ You are running the `/ship` workflow for the Cybereum capital project governance
 - Test failures (stop, show failures)
 - Build failures (stop, show errors)
 - Pre-landing review finds CRITICAL issues and user chooses to fix (not acknowledge or skip)
-- MINOR or MAJOR version bump needed (ask -- see Step 4)
+- MINOR or MAJOR version bump needed (ask — see Step 4)
+- Greptile review comments that need user decision (complex fixes, false positives)
+- TODOS.md missing and user wants to create one (ask — see Step 5.5)
+- TODOS.md disorganized and user wants to reorganize (ask — see Step 5.5)
 
 **Never stop for:**
 - Uncommitted changes (always include them)
@@ -31,6 +45,7 @@ You are running the `/ship` workflow for the Cybereum capital project governance
 - CHANGELOG content (auto-generate from diff)
 - Commit message approval (auto-commit)
 - Multi-file changesets (auto-split into bisectable commits)
+- TODOS.md completed-item detection (auto-mark)
 
 ---
 
@@ -108,6 +123,45 @@ Save the review output -- it goes into the PR body in Step 8.
 
 ---
 
+## Step 3.75: Address Greptile review comments (if PR exists)
+
+Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+
+**If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Continue to Step 4.
+
+**If Greptile comments are found:**
+
+Include a Greptile summary in your output: `+ N Greptile comments (X valid, Y fixed, Z FP)`
+
+Before replying to any comment, run the **Escalation Detection** algorithm from greptile-triage.md to determine whether to use Tier 1 (friendly) or Tier 2 (firm) reply templates.
+
+For each classified comment:
+
+**VALID & ACTIONABLE:** Use AskUserQuestion with:
+- The comment (file:line or [top-level] + body summary + permalink URL)
+- Your recommended fix
+- Options: A) Fix now (recommended), B) Acknowledge and ship anyway, C) It's a false positive
+- If user chooses A: apply the fix, commit the fixed files (`git add <fixed-files> && git commit -m "fix: address Greptile review — <brief description>"`), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation), and save to both per-project and global greptile-history (type: fix).
+- If user chooses C: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp).
+
+**VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+- Include what was done and the fixing commit SHA
+- Save to both per-project and global greptile-history (type: already-fixed)
+
+**FALSE POSITIVE:** Use AskUserQuestion:
+- Show the comment and why you think it's wrong (file:line or [top-level] + body summary + permalink URL)
+- Options:
+  - A) Reply to Greptile explaining the false positive (recommended if clearly wrong)
+  - B) Fix it anyway (if trivial)
+  - C) Ignore silently
+- If user chooses A: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp)
+
+**SUPPRESSED:** Skip silently — these are known false positives from previous triage.
+
+**After all comments are resolved:** If any fixes were applied, the tests from Step 3 are now stale. **Re-run tests** (Step 3) before continuing to Step 4. If no fixes were applied, continue to Step 4.
+
+---
+
 ## Step 4: Version bump (auto-decide)
 
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
@@ -149,6 +203,61 @@ Save the review output -- it goes into the PR body in Step 8.
 
 ---
 
+## Step 5.5: TODOS.md (auto-update)
+
+Cross-reference the project's TODOS.md against the changes being shipped. Mark completed items automatically; prompt only if the file is missing or disorganized.
+
+Read `.claude/skills/review/TODOS-format.md` for the canonical format reference.
+
+**1. Check if TODOS.md exists** in the repository root.
+
+**If TODOS.md does not exist:** Use AskUserQuestion:
+- Message: "GStack recommends maintaining a TODOS.md organized by skill/component, then priority (P0 at top through P4, then Completed at bottom). See TODOS-format.md for the full format. Would you like to create one?"
+- Options: A) Create it now, B) Skip for now
+- If A: Create `TODOS.md` with a skeleton (# TODOS heading + ## Completed section). Continue to step 3.
+- If B: Skip the rest of Step 5.5. Continue to Step 6.
+
+**2. Check structure and organization:**
+
+Read TODOS.md and verify it follows the recommended structure:
+- Items grouped under `## <Skill/Component>` headings
+- Each item has `**Priority:**` field with P0-P4 value
+- A `## Completed` section at the bottom
+
+**If disorganized** (missing priority fields, no component groupings, no Completed section): Use AskUserQuestion:
+- Message: "TODOS.md doesn't follow the recommended structure (skill/component groupings, P0-P4 priority, Completed section). Would you like to reorganize it?"
+- Options: A) Reorganize now (recommended), B) Leave as-is
+- If A: Reorganize in-place following TODOS-format.md. Preserve all content — only restructure, never delete items.
+- If B: Continue to step 3 without restructuring.
+
+**3. Detect completed TODOs:**
+
+This step is fully automatic — no user interaction.
+
+Use the diff and commit history already gathered in earlier steps:
+- `git diff main...HEAD` (full diff against main)
+- `git log main..HEAD --oneline` (all commits being shipped)
+
+For each TODO item, check if the changes in this PR complete it by:
+- Matching commit messages against the TODO title and description
+- Checking if files referenced in the TODO appear in the diff
+- Checking if the TODO's described work matches the functional changes
+
+**Be conservative:** Only mark a TODO as completed if there is clear evidence in the diff. If uncertain, leave it alone.
+
+**4. Move completed items** to the `## Completed` section at the bottom. Append: `**Completed:** vX.Y.Z (YYYY-MM-DD)`
+
+**5. Output summary:**
+- `TODOS.md: N items marked complete (item1, item2, ...). M items remaining.`
+- Or: `TODOS.md: No completed items detected. M items remaining.`
+- Or: `TODOS.md: Created.` / `TODOS.md: Reorganized.`
+
+**6. Defensive:** If TODOS.md cannot be written (permission error, disk full), warn the user and continue. Never stop the ship workflow for a TODOS failure.
+
+Save this summary — it goes into the PR body in Step 8.
+
+---
+
 ## Step 6: Commit (bisectable chunks)
 
 **Goal:** Create small, logical commits that work well with `git bisect` and help LLMs understand what changed.
@@ -156,11 +265,10 @@ Save the review output -- it goes into the PR body in Step 8.
 1. Analyze the diff and group changes into logical commits. Each commit should represent **one coherent change** -- not one file, but one logical unit.
 
 2. **Commit ordering** (earlier commits first):
-   - **Infrastructure:** config changes, dependency updates
-   - **Skills (analytical):** schedule-intelligence, decision-ai, risk-engine, evm-control, completion-prediction, reference-class, executive-reporting, sales-intelligence
-   - **Skills (workflow):** review, ship, qa, retro, plan-ceo-review, plan-eng-review
-   - **Browse/CLI:** browse source, commands, tests
-   - **VERSION + CHANGELOG:** always in the final commit
+   - **Infrastructure:** migrations, config changes, route additions
+   - **Models & services:** new models, services, concerns (with their tests)
+   - **Controllers & views:** controllers, views, JS/React components (with their tests)
+   - **VERSION + CHANGELOG + TODOS.md:** always in the final commit
 
 3. **Rules for splitting:**
    - A skill SKILL.md and its references go in the same commit
@@ -208,6 +316,20 @@ gh pr create --title "<type>: <summary>" --body "$(cat <<'EOF'
 ## Pre-Landing Review
 <findings from Step 3.5, or "No issues found.">
 
+## Eval Results
+<If evals ran: suite names, pass/fail counts, cost dashboard summary. If skipped: "No prompt-related files changed — evals skipped.">
+
+## Greptile Review
+<If Greptile comments were found: bullet list with [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED] tag + one-line summary per comment>
+<If no Greptile comments found: "No Greptile comments.">
+<If no PR existed during Step 3.75: omit this section entirely>
+
+## TODOS
+<If items marked complete: bullet list of completed items with version>
+<If no items completed: "No TODO items completed in this PR.">
+<If TODOS.md created or reorganized: note that>
+<If TODOS.md doesn't exist and user skipped: omit this section>
+
 ## Test plan
 - [x] All bun tests pass (N tests)
 - [x] Build succeeds (browse binary compiled)
@@ -233,5 +355,7 @@ EOF
 - **Never ask for confirmation** except for MINOR/MAJOR version bumps and CRITICAL review findings (one AskUserQuestion per critical issue with fix recommendation).
 - **Always use the 4-digit version format** from the VERSION file.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
-- **Split commits for bisectability** -- each commit = one logical change.
+- **Split commits for bisectability** — each commit = one logical change.
+- **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.
+- **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence (inline diff, code references, re-rank suggestion). Never post vague replies.
 - **The goal is: user says `/ship`, next thing they see is the review + PR URL.**

@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "setup": "bin/dev-setup",
+    "archive": "bin/dev-teardown"
+  }
+}

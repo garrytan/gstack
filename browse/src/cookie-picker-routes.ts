@@ -26,18 +26,25 @@ const importedCounts = new Map<string, number>();
 
 // ─── JSON Helpers ───────────────────────────────────────────────
 
-function jsonResponse(data: any, status = 200): Response {
+function corsOrigin(port: number): string {
+  return `http://127.0.0.1:${port}`;
+}
+
+function jsonResponse(data: any, opts: { port: number; status?: number }): Response {
   return new Response(JSON.stringify(data), {
-    status,
+    status: opts.status ?? 200,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': `http://127.0.0.1:${parseInt(url.port, 10) || 9400}`,
+      'Access-Control-Allow-Origin': corsOrigin(opts.port),
     },
   });
 }
 
-function errorResponse(message: string, code: string, status = 400, action?: string): Response {
-  return jsonResponse({ error: message, code, ...(action ? { action } : {}) }, status);
+function errorResponse(message: string, code: string, opts: { port: number; status?: number; action?: string }): Response {
+  return jsonResponse(
+    { error: message, code, ...(opts.action ? { action: opts.action } : {}) },
+    { port: opts.port, status: opts.status ?? 400 },
+  );
 }
 
 // ─── Route Handler ──────────────────────────────────────────────
@@ -48,13 +55,14 @@ export async function handleCookiePickerRoute(
   bm: BrowserManager,
 ): Promise<Response> {
   const pathname = url.pathname;
+  const port = parseInt(url.port, 10) || 9400;
 
   // CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
       headers: {
-        'Access-Control-Allow-Origin': `http://127.0.0.1:${parseInt(url.port, 10) || 9400}`,
+        'Access-Control-Allow-Origin': corsOrigin(port),
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       },
@@ -64,7 +72,6 @@ export async function handleCookiePickerRoute(
   try {
     // GET /cookie-picker — serve the picker UI
     if (pathname === '/cookie-picker' && req.method === 'GET') {
-      const port = parseInt(url.port, 10) || 9400;
       const html = getCookiePickerHTML(port);
       return new Response(html, {
         status: 200,
@@ -80,20 +87,20 @@ export async function handleCookiePickerRoute(
           name: b.name,
           aliases: b.aliases,
         })),
-      });
+      }, { port });
     }
 
     // GET /cookie-picker/domains?browser=<name> — list domains + counts
     if (pathname === '/cookie-picker/domains' && req.method === 'GET') {
       const browserName = url.searchParams.get('browser');
       if (!browserName) {
-        return errorResponse("Missing 'browser' parameter", 'missing_param');
+        return errorResponse("Missing 'browser' parameter", 'missing_param', { port });
       }
       const result = listDomains(browserName);
       return jsonResponse({
         browser: result.browser,
         domains: result.domains,
-      });
+      }, { port });
     }
 
     // POST /cookie-picker/import — decrypt + import to Playwright session
@@ -102,13 +109,13 @@ export async function handleCookiePickerRoute(
       try {
         body = await req.json();
       } catch {
-        return errorResponse('Invalid JSON body', 'bad_request');
+        return errorResponse('Invalid JSON body', 'bad_request', { port });
       }
 
       const { browser, domains } = body;
-      if (!browser) return errorResponse("Missing 'browser' field", 'missing_param');
+      if (!browser) return errorResponse("Missing 'browser' field", 'missing_param', { port });
       if (!domains || !Array.isArray(domains) || domains.length === 0) {
-        return errorResponse("Missing or empty 'domains' array", 'missing_param');
+        return errorResponse("Missing or empty 'domains' array", 'missing_param', { port });
       }
 
       // Decrypt cookies from the browser DB
@@ -122,7 +129,7 @@ export async function handleCookiePickerRoute(
           message: result.failed > 0
             ? `All ${result.failed} cookies failed to decrypt`
             : 'No cookies found for the specified domains',
-        });
+        }, { port });
       }
 
       // Add to Playwright context
@@ -141,7 +148,7 @@ export async function handleCookiePickerRoute(
         imported: result.count,
         failed: result.failed,
         domainCounts: result.domainCounts,
-      });
+      }, { port });
     }
 
     // POST /cookie-picker/remove — clear cookies for domains
@@ -150,12 +157,12 @@ export async function handleCookiePickerRoute(
       try {
         body = await req.json();
       } catch {
-        return errorResponse('Invalid JSON body', 'bad_request');
+        return errorResponse('Invalid JSON body', 'bad_request', { port });
       }
 
       const { domains } = body;
       if (!domains || !Array.isArray(domains) || domains.length === 0) {
-        return errorResponse("Missing or empty 'domains' array", 'missing_param');
+        return errorResponse("Missing or empty 'domains' array", 'missing_param', { port });
       }
 
       const page = bm.getPage();
@@ -171,7 +178,7 @@ export async function handleCookiePickerRoute(
       return jsonResponse({
         removed: domains.length,
         domains,
-      });
+      }, { port });
     }
 
     // GET /cookie-picker/imported — currently imported domains + counts
@@ -186,15 +193,15 @@ export async function handleCookiePickerRoute(
         domains: entries,
         totalDomains: entries.length,
         totalCookies: entries.reduce((sum, e) => sum + e.count, 0),
-      });
+      }, { port });
     }
 
     return new Response('Not found', { status: 404 });
   } catch (err: any) {
     if (err instanceof CookieImportError) {
-      return errorResponse(err.message, err.code, 400, err.action);
+      return errorResponse(err.message, err.code, { port, status: 400, action: err.action });
     }
     console.error(`[cookie-picker] Error: ${err.message}`);
-    return errorResponse(err.message || 'Internal error', 'internal_error', 500);
+    return errorResponse(err.message || 'Internal error', 'internal_error', { port, status: 500 });
   }
 }

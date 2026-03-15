@@ -40,6 +40,31 @@ interface SnapshotOptions {
   cursorInteractive?: boolean; // -C / --cursor-interactive: scan cursor:pointer etc.
 }
 
+/**
+ * Snapshot flag metadata — single source of truth for CLI parsing and doc generation.
+ *
+ * Imported by:
+ *   - gen-skill-docs.ts (generates {{SNAPSHOT_FLAGS}} tables)
+ *   - skill-parser.ts (validates flags in SKILL.md examples)
+ */
+export const SNAPSHOT_FLAGS: Array<{
+  short: string;
+  long: string;
+  description: string;
+  takesValue?: boolean;
+  valueHint?: string;
+  optionKey: keyof SnapshotOptions;
+}> = [
+  { short: '-i', long: '--interactive', description: 'Interactive elements only (buttons, links, inputs) with @e refs', optionKey: 'interactive' },
+  { short: '-c', long: '--compact', description: 'Compact (no empty structural nodes)', optionKey: 'compact' },
+  { short: '-d', long: '--depth', description: 'Limit tree depth (0 = root only, default: unlimited)', takesValue: true, valueHint: '<N>', optionKey: 'depth' },
+  { short: '-s', long: '--selector', description: 'Scope to CSS selector', takesValue: true, valueHint: '<sel>', optionKey: 'selector' },
+  { short: '-D', long: '--diff', description: 'Unified diff against previous snapshot (first call stores baseline)', optionKey: 'diff' },
+  { short: '-a', long: '--annotate', description: 'Annotated screenshot with red overlay boxes and ref labels', optionKey: 'annotate' },
+  { short: '-o', long: '--output', description: 'Output path for annotated screenshot (default: /tmp/browse-annotated.png)', takesValue: true, valueHint: '<path>', optionKey: 'outputPath' },
+  { short: '-C', long: '--cursor-interactive', description: 'Cursor-interactive elements (@c refs — divs with pointer, onclick)', optionKey: 'cursorInteractive' },
+];
+
 interface ParsedNode {
   indent: number;
   role: string;
@@ -50,49 +75,24 @@ interface ParsedNode {
 }
 
 /**
- * Parse CLI args into SnapshotOptions
+ * Parse CLI args into SnapshotOptions — driven by SNAPSHOT_FLAGS metadata.
  */
 export function parseSnapshotArgs(args: string[]): SnapshotOptions {
   const opts: SnapshotOptions = {};
   for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case '-i':
-      case '--interactive':
-        opts.interactive = true;
-        break;
-      case '-c':
-      case '--compact':
-        opts.compact = true;
-        break;
-      case '-d':
-      case '--depth':
-        opts.depth = parseInt(args[++i], 10);
+    const flag = SNAPSHOT_FLAGS.find(f => f.short === args[i] || f.long === args[i]);
+    if (!flag) throw new Error(`Unknown snapshot flag: ${args[i]}`);
+    if (flag.takesValue) {
+      const value = args[++i];
+      if (!value) throw new Error(`Usage: snapshot ${flag.short} <value>`);
+      if (flag.optionKey === 'depth') {
+        (opts as any)[flag.optionKey] = parseInt(value, 10);
         if (isNaN(opts.depth!)) throw new Error('Usage: snapshot -d <number>');
-        break;
-      case '-s':
-      case '--selector':
-        opts.selector = args[++i];
-        if (!opts.selector) throw new Error('Usage: snapshot -s <selector>');
-        break;
-      case '-D':
-      case '--diff':
-        opts.diff = true;
-        break;
-      case '-a':
-      case '--annotate':
-        opts.annotate = true;
-        break;
-      case '-o':
-      case '--output':
-        opts.outputPath = args[++i];
-        if (!opts.outputPath) throw new Error('Usage: snapshot -o <path>');
-        break;
-      case '-C':
-      case '--cursor-interactive':
-        opts.cursorInteractive = true;
-        break;
-      default:
-        throw new Error(`Unknown snapshot flag: ${args[i]}`);
+      } else {
+        (opts as any)[flag.optionKey] = value;
+      }
+    } else {
+      (opts as any)[flag.optionKey] = true;
     }
   }
   return opts;

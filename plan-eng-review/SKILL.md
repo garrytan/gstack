@@ -11,7 +11,19 @@ allowed-tools:
   - Glob
   - Bash
   - AskUserQuestion
+  - Bash
 ---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+
+## Update Check (run first)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
 # Plan Review Mode -- Cybereum
 
@@ -64,10 +76,10 @@ If you are running low on context or the user asks you to compress: Step 0 > Tes
 
 ### Step 0: Scope Challenge
 Before reviewing anything, answer these questions:
-1. **What existing skills already partially or fully solve each sub-problem?** Can we extend an existing skill rather than building new? Map every sub-problem to existing skill capabilities.
-2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective.
-3. **Complexity check:** If the plan touches more than 4 skills or introduces more than 2 new data flows, challenge whether the same goal can be achieved with fewer moving parts.
-4. **Cross-skill impact:** Which skills will be affected by this change? Are their snapshot schemas compatible? Will trend tracking break?
+1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
+2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective. Be ruthless about scope creep.
+3. **Complexity check:** If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
+4. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
 
 Then ask if I want one of three options:
 1. **SCOPE REDUCTION:** The plan is overbuilt. Propose a minimal version.
@@ -126,8 +138,8 @@ Evaluate:
 
 **STOP.** AskUserQuestion for each issue.
 
-## CRITICAL RULE -- How to ask questions
-Every AskUserQuestion MUST: (1) present 2-3 concrete lettered options, (2) state which option you recommend FIRST, (3) explain in 1-2 sentences WHY.
+### TODOS.md updates
+After all review sections are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `.claude/skills/review/TODOS-format.md`.
 
 ## Required outputs
 * "NOT in scope" section

@@ -1,0 +1,43 @@
+{
+  "fixture": "qa-eval-checkout.html",
+  "bugs": [
+    {
+      "id": "broken-email-regex",
+      "category": "functional",
+      "severity": "high",
+      "description": "Email validation accepts 'user@' as valid — regex pattern [^@]+@[^@] is missing domain requirement",
+      "detection_hint": "email|regex|validation|accepts|invalid|user@|pattern"
+    },
+    {
+      "id": "nan-total",
+      "category": "functional",
+      "severity": "high",
+      "description": "Clearing the quantity field shows 'Total: $NaN' — parseInt on empty string returns NaN with no fallback",
+      "detection_hint": "NaN|total|quantity|empty|price|calculation|clear"
+    },
+    {
+      "id": "cc-field-overflow",
+      "category": "visual",
+      "severity": "medium",
+      "description": "Credit card input has no maxlength attribute — entering >20 characters causes text to overflow the container",
+      "detection_hint": "credit card|maxlength|overflow|cc|input|long|container"
+    },
+    {
+      "id": "missing-required-zip",
+      "category": "functional",
+      "severity": "medium",
+      "description": "Zip code field has no 'required' attribute — form can be submitted without a zip code",
+      "detection_hint": "zip|required|missing|form|submit|shipping|postal"
+    },
+    {
+      "id": "stripe-not-defined",
+      "category": "console",
+      "severity": "high",
+      "description": "Form submit triggers 'Uncaught ReferenceError: stripe is not defined' — payment SDK not loaded",
+      "detection_hint": "stripe|ReferenceError|not defined|console|error|submit|payment"
+    }
+  ],
+  "total_bugs": 5,
+  "minimum_detection": 2,
+  "max_false_positives": 5
+}

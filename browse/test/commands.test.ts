@@ -315,6 +315,107 @@ describe('Visual', () => {
     fs.unlinkSync(screenshotPath);
   });
 
+  test('screenshot --viewport saves viewport-only', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const p = '/tmp/browse-test-viewport.png';
+    const result = await handleMetaCommand('screenshot', ['--viewport', p], bm, async () => {});
+    expect(result).toContain('Screenshot saved (viewport)');
+    expect(fs.existsSync(p)).toBe(true);
+    expect(fs.statSync(p).size).toBeGreaterThan(1000);
+    fs.unlinkSync(p);
+  });
+
+  test('screenshot with CSS selector crops to element', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const p = '/tmp/browse-test-element-css.png';
+    const result = await handleMetaCommand('screenshot', ['#title', p], bm, async () => {});
+    expect(result).toContain('Screenshot saved (element)');
+    expect(fs.existsSync(p)).toBe(true);
+    expect(fs.statSync(p).size).toBeGreaterThan(100);
+    fs.unlinkSync(p);
+  });
+
+  test('screenshot with @ref crops to element', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    await handleMetaCommand('snapshot', [], bm, async () => {});
+    const p = '/tmp/browse-test-element-ref.png';
+    const result = await handleMetaCommand('screenshot', ['@e1', p], bm, async () => {});
+    expect(result).toContain('Screenshot saved (element)');
+    expect(fs.existsSync(p)).toBe(true);
+    expect(fs.statSync(p).size).toBeGreaterThan(100);
+    fs.unlinkSync(p);
+  });
+
+  test('screenshot --clip crops to region', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const p = '/tmp/browse-test-clip.png';
+    const result = await handleMetaCommand('screenshot', ['--clip', '0,0,100,100', p], bm, async () => {});
+    expect(result).toContain('Screenshot saved (clip 0,0,100,100)');
+    expect(fs.existsSync(p)).toBe(true);
+    expect(fs.statSync(p).size).toBeGreaterThan(100);
+    fs.unlinkSync(p);
+  });
+
+  test('screenshot --clip + selector throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--clip', '0,0,100,100', '#title'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Cannot use --clip with a selector/ref');
+    }
+  });
+
+  test('screenshot --viewport + --clip throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--viewport', '--clip', '0,0,100,100'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Cannot use --viewport with --clip');
+    }
+  });
+
+  test('screenshot --clip with invalid coords throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--clip', 'abc'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('all must be numbers');
+    }
+  });
+
+  test('screenshot unknown flag throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--bogus', '/tmp/foo.png'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Unknown screenshot flag');
+    }
+  });
+
+  test('screenshot --viewport still validates path', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--viewport', '/etc/evil.png'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Path must be within');
+    }
+  });
+
+  test('screenshot with nonexistent selector throws timeout', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['.nonexistent-element-xyz'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toBeDefined();
+    }
+  }, 10000);
+
   test('responsive saves 3 screenshots', async () => {
     await handleWriteCommand('goto', [baseUrl + '/responsive.html'], bm);
     const prefix = '/tmp/browse-test-resp';
@@ -457,14 +558,11 @@ describe('CLI lifecycle', () => {
     }));
 
     const cliPath = path.resolve(__dirname, '../src/cli.ts');
-    // Build env without CONDUCTOR_PORT/BROWSE_PORT so BROWSE_PORT_START takes effect
     const cliEnv: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
-      if (k !== 'CONDUCTOR_PORT' && k !== 'BROWSE_PORT' && v !== undefined) cliEnv[k] = v;
+      if (v !== undefined) cliEnv[k] = v;
     }
     cliEnv.BROWSE_STATE_FILE = stateFile;
-    // Use a random high port to avoid conflicts with running servers
-    cliEnv.BROWSE_PORT_START = String(9600 + Math.floor(Math.random() * 100));
     const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
       const proc = spawn('bun', ['run', cliPath, 'status'], {
         timeout: 15000,

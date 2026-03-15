@@ -11,7 +11,7 @@ This document covers the command reference and internals of gstack's headless br
 | Snapshot | `snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o] [-C]` | Get refs, diff, annotate |
 | Interact | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport`, `upload` | Use the page |
 | Inspect | `js`, `eval`, `css`, `attrs`, `is`, `console`, `network`, `dialog`, `cookies`, `storage`, `perf` | Debug and verify |
-| Visual | `screenshot`, `pdf`, `responsive` | See what Claude sees |
+| Visual | `screenshot [--viewport] [--clip x,y,w,h] [sel\|@ref] [path]`, `pdf`, `responsive` | See what Claude sees |
 | Compare | `diff <url1> <url2>` | Spot differences between environments |
 | Dialogs | `dialog-accept [text]`, `dialog-dismiss` | Control alert/confirm/prompt handling |
 | Tabs | `tabs`, `tab`, `newtab`, `closetab` | Multi-page workflows |
@@ -33,7 +33,7 @@ gstack's browser is a compiled CLI binary that talks to a persistent local Chrom
 │       ▼                                                         │
 │  ┌──────────┐    HTTP POST     ┌──────────────┐                 │
 │  │ browse   │ ──────────────── │ Bun HTTP     │                 │
-│  │ CLI      │  localhost:9400  │ server       │                 │
+│  │ CLI      │  localhost:rand  │ server       │                 │
 │  │          │  Bearer token    │              │                 │
 │  │ compiled │ ◄──────────────  │  Playwright  │──── Chromium    │
 │  │ binary   │  plain text      │  API calls   │    (headless)   │
@@ -46,7 +46,7 @@ gstack's browser is a compiled CLI binary that talks to a persistent local Chrom
 
 ### Lifecycle
 
-1. **First call**: CLI checks `/tmp/browse-server.json` for a running server. None found — it spawns `bun run browse/src/server.ts` in the background. The server launches headless Chromium via Playwright, picks a port (9400-9410), generates a bearer token, writes the state file, and starts accepting HTTP requests. This takes ~3 seconds.
+1. **First call**: CLI checks `.gstack/browse.json` (in the project root) for a running server. None found — it spawns `bun run browse/src/server.ts` in the background. The server launches headless Chromium via Playwright, picks a random port (10000-60000), generates a bearer token, writes the state file, and starts accepting HTTP requests. This takes ~3 seconds.
 
 2. **Subsequent calls**: CLI reads the state file, sends an HTTP POST with the bearer token, prints the response. ~100-200ms round trip.
 
@@ -92,17 +92,32 @@ No DOM mutation. No injected scripts. Just Playwright's native accessibility API
 - `--annotate` (`-a`): Injects temporary overlay divs at each ref's bounding box, takes a screenshot with ref labels visible, then removes the overlays. Use `-o <path>` to control the output path.
 - `--cursor-interactive` (`-C`): Scans for non-ARIA interactive elements (divs with `cursor:pointer`, `onclick`, `tabindex>=0`) using `page.evaluate`. Assigns `@c1`, `@c2`... refs with deterministic `nth-child` CSS selectors. These are elements the ARIA tree misses but users can still click.
 
+### Screenshot modes
+
+The `screenshot` command supports four modes:
+
+| Mode | Syntax | Playwright API |
+|------|--------|----------------|
+| Full page (default) | `screenshot [path]` | `page.screenshot({ fullPage: true })` |
+| Viewport only | `screenshot --viewport [path]` | `page.screenshot({ fullPage: false })` |
+| Element crop | `screenshot "#sel" [path]` or `screenshot @e3 [path]` | `locator.screenshot()` |
+| Region clip | `screenshot --clip x,y,w,h [path]` | `page.screenshot({ clip })` |
+
+Element crop accepts CSS selectors (`.class`, `#id`, `[attr]`) or `@e`/`@c` refs from `snapshot`. Auto-detection: `@e`/`@c` prefix = ref, `.`/`#`/`[` prefix = CSS selector, `--` prefix = flag, everything else = output path.
+
+Mutual exclusion: `--clip` + selector and `--viewport` + `--clip` both throw errors. Unknown flags (e.g. `--bogus`) also throw.
+
 ### Authentication
 
-Each server session generates a random UUID as a bearer token. The token is written to the state file (`/tmp/browse-server.json`) with chmod 600. Every HTTP request must include `Authorization: Bearer <token>`. This prevents other processes on the machine from controlling the browser.
+Each server session generates a random UUID as a bearer token. The token is written to the state file (`.gstack/browse.json`) with chmod 600. Every HTTP request must include `Authorization: Bearer <token>`. This prevents other processes on the machine from controlling the browser.
 
 ### Console, network, and dialog capture
 
 The server hooks into Playwright's `page.on('console')`, `page.on('response')`, and `page.on('dialog')` events. All entries are kept in O(1) circular buffers (50,000 capacity each) and flushed to disk asynchronously via `Bun.write()`:
 
-- Console: `/tmp/browse-console.log`
-- Network: `/tmp/browse-network.log`
-- Dialog: `/tmp/browse-dialog.log`
+- Console: `.gstack/browse-console.log`
+- Network: `.gstack/browse-network.log`
+- Dialog: `.gstack/browse-dialog.log`
 
 The `console`, `network`, and `dialog` commands read from the in-memory buffers, not disk.
 
@@ -112,30 +127,22 @@ Dialogs (alert, confirm, prompt) are auto-accepted by default to prevent browser
 
 ### Multi-workspace support
 
-Each workspace gets its own isolated browser instance with its own Chromium process, tabs, cookies, and logs.
+Each workspace gets its own isolated browser instance with its own Chromium process, tabs, cookies, and logs. State is stored in `.gstack/` inside the project root (detected via `git rev-parse --show-toplevel`).
 
-If `CONDUCTOR_PORT` is set (e.g., by [Conductor](https://conductor.dev)), the browse port is derived deterministically:
+| Workspace | State file | Port |
+|-----------|------------|------|
+| `/code/project-a` | `/code/project-a/.gstack/browse.json` | random (10000-60000) |
+| `/code/project-b` | `/code/project-b/.gstack/browse.json` | random (10000-60000) |
 
-```
-browse_port = CONDUCTOR_PORT - 45600
-```
-
-| Workspace | CONDUCTOR_PORT | Browse port | State file |
-|-----------|---------------|-------------|------------|
-| Workspace A | 55040 | 9440 | `/tmp/browse-server-9440.json` |
-| Workspace B | 55041 | 9441 | `/tmp/browse-server-9441.json` |
-| No Conductor | — | 9400 (scan) | `/tmp/browse-server.json` |
-
-You can also set `BROWSE_PORT` directly.
+No port collisions. No shared state. Each project is fully isolated.
 
 ### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BROWSE_PORT` | 0 (auto-scan 9400-9410) | Fixed port for the HTTP server |
-| `CONDUCTOR_PORT` | — | If set, browse port = this - 45600 |
+| `BROWSE_PORT` | 0 (random 10000-60000) | Fixed port for the HTTP server (debug override) |
 | `BROWSE_IDLE_TIMEOUT` | 1800000 (30 min) | Idle shutdown timeout in ms |
-| `BROWSE_STATE_FILE` | `/tmp/browse-server.json` | Path to state file |
+| `BROWSE_STATE_FILE` | `.gstack/browse.json` | Path to state file (CLI passes to server) |
 | `BROWSE_SERVER_SCRIPT` | auto-detected | Path to server.ts |
 
 ### Performance
@@ -206,7 +213,7 @@ Tests spin up a local HTTP server (`browse/test/test-server.ts`) serving HTML fi
 
 | File | Role |
 |------|------|
-| `browse/src/cli.ts` | Entry point. Reads `/tmp/browse-server.json`, sends HTTP to the server, prints response. |
+| `browse/src/cli.ts` | Entry point. Reads `.gstack/browse.json`, sends HTTP to the server, prints response. |
 | `browse/src/server.ts` | Bun HTTP server. Routes commands to the right handler. Manages idle timeout. |
 | `browse/src/browser-manager.ts` | Chromium lifecycle — launch, tab management, ref map, crash detection. |
 | `browse/src/snapshot.ts` | Parses accessibility tree, assigns `@e`/`@c` refs, builds Locator map. Handles `--diff`, `--annotate`, `-C`. |

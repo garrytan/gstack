@@ -4,12 +4,16 @@
 |-------|-------|
 | **Date** | {DATE} |
 | **URL** | {URL} |
+| **Branch** | {BRANCH} |
+| **Commit** | {COMMIT_SHA} ({COMMIT_DATE}) |
+| **PR** | {PR_NUMBER} ({PR_URL}) or "—" |
+| **Tier** | Quick / Standard / Exhaustive |
 | **Scope** | {SCOPE or "Full app"} |
-| **Mode** | {full / quick / regression} |
 | **Duration** | {DURATION} |
 | **Pages visited** | {COUNT} |
 | **Screenshots** | {COUNT} |
 | **Framework** | {DETECTED or "Unknown"} |
+| **Index** | [All QA runs](./index.md) |
 
 ## Health Score: {SCORE}/100
 

@@ -14,6 +14,17 @@ allowed-tools:
   - Glob
   - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+
+## Update Check (run first)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
 # Pre-Landing PR Review
 
@@ -34,6 +45,16 @@ You are running the `/review` workflow for Cybereum. Analyze the current branch'
 Read `review/checklist.md` (or `.claude/skills/review/checklist.md`).
 
 **If the file cannot be read, STOP and report the error.** Do not proceed without the checklist.
+
+---
+
+## Step 2.5: Check for Greptile review comments
+
+Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+
+**If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
+
+**If Greptile comments are found:** Store the classifications (VALID & ACTIONABLE, VALID BUT ALREADY FIXED, FALSE POSITIVE, SUPPRESSED) — you will need them in Step 5.
 
 ---
 
@@ -69,6 +90,44 @@ Follow the output format specified in the checklist. Respect the suppressions --
 - If only non-critical issues found: output findings. No further action needed.
 - If no issues found: output `Pre-Landing Review: No issues found.`
 
+### Greptile comment resolution
+
+After outputting your own findings, if Greptile comments were classified in Step 2.5:
+
+**Include a Greptile summary in your output header:** `+ N Greptile comments (X valid, Y fixed, Z FP)`
+
+Before replying to any comment, run the **Escalation Detection** algorithm from greptile-triage.md to determine whether to use Tier 1 (friendly) or Tier 2 (firm) reply templates.
+
+1. **VALID & ACTIONABLE comments:** These are already included in your CRITICAL findings — they follow the same AskUserQuestion flow (A: Fix it now, B: Acknowledge, C: False positive). If the user chooses A (fix), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation). If the user chooses C (false positive), reply using the **False Positive reply template** (include evidence + suggested re-rank), save to both per-project and global greptile-history.
+
+2. **FALSE POSITIVE comments:** Present each one via AskUserQuestion:
+   - Show the Greptile comment: file:line (or [top-level]) + body summary + permalink URL
+   - Explain concisely why it's a false positive
+   - Options:
+     - A) Reply to Greptile explaining why this is incorrect (recommended if clearly wrong)
+     - B) Fix it anyway (if low-effort and harmless)
+     - C) Ignore — don't reply, don't fix
+
+   If the user chooses A, reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history.
+
+3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+   - Include what was done and the fixing commit SHA
+   - Save to both per-project and global greptile-history
+
+4. **SUPPRESSED comments:** Skip silently — these are known false positives from previous triage.
+
+---
+
+## Step 5.5: TODOS cross-reference
+
+Read `TODOS.md` in the repository root (if it exists). Cross-reference the PR against open TODOs:
+
+- **Does this PR close any open TODOs?** If yes, note which items in your output: "This PR addresses TODO: <title>"
+- **Does this PR create work that should become a TODO?** If yes, flag it as an informational finding.
+- **Are there related TODOs that provide context for this review?** If yes, reference them when discussing related findings.
+
+If TODOS.md doesn't exist, skip this step silently.
+
 ---
 
 ## Important Rules
@@ -77,4 +136,4 @@ Follow the output format specified in the checklist. Respect the suppressions --
 - **Read-only by default.** Only modify files if the user explicitly chooses "Fix it now" on a critical issue. Never commit, push, or create PRs.
 - **Be terse.** One line problem, one line fix. No preamble.
 - **Only flag real problems.** Skip anything that's fine.
-- **Cross-check formulas.** When reviewing EVM, risk, or schedule skills, verify calculations match their stated methodology.
+- **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence. Never post vague replies.

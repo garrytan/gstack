@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Set up gstack for local development — test skills from within this repo.
+#
+# Creates .claude/skills/gstack → (symlink to repo root) so Claude Code
+# discovers skills from your working tree. Changes take effect immediately.
+#
+# Also copies .env from the main worktree if this is a Conductor workspace
+# or git worktree (so API keys carry over automatically).
+#
+# Usage: bin/dev-setup       # set up
+#        bin/dev-teardown    # clean up
+set -e
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# 1. Copy .env from main worktree (if we're a worktree and don't have one)
+if [ ! -f "$REPO_ROOT/.env" ]; then
+  MAIN_WORKTREE="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')"
+  if [ -n "$MAIN_WORKTREE" ] && [ "$MAIN_WORKTREE" != "$REPO_ROOT" ] && [ -f "$MAIN_WORKTREE/.env" ]; then
+    cp "$MAIN_WORKTREE/.env" "$REPO_ROOT/.env"
+    echo "Copied .env from main worktree ($MAIN_WORKTREE)"
+  fi
+fi
+
+# 2. Install dependencies
+if [ ! -d "$REPO_ROOT/node_modules" ]; then
+  echo "Installing dependencies..."
+  (cd "$REPO_ROOT" && bun install)
+fi
+
+# 3. Create .claude/skills/ inside the repo
+mkdir -p "$REPO_ROOT/.claude/skills"
+
+# 4. Symlink .claude/skills/gstack → repo root
+# This makes setup think it's inside a real .claude/skills/ directory
+GSTACK_LINK="$REPO_ROOT/.claude/skills/gstack"
+if [ -L "$GSTACK_LINK" ]; then
+  echo "Updating existing symlink..."
+  rm "$GSTACK_LINK"
+elif [ -d "$GSTACK_LINK" ]; then
+  echo "Error: .claude/skills/gstack is a real directory, not a symlink." >&2
+  echo "Remove it manually if you want to use dev mode." >&2
+  exit 1
+fi
+ln -s "$REPO_ROOT" "$GSTACK_LINK"
+
+# 5. Run setup via the symlink so it detects .claude/skills/ as its parent
+"$GSTACK_LINK/setup"
+
+echo ""
+echo "Dev mode active. Skills resolve from this working tree."
+echo "Edit any SKILL.md and test immediately — no copy/deploy needed."
+echo ""
+echo "To tear down: bin/dev-teardown"

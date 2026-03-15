@@ -1,0 +1,11 @@
+name: Skill Docs Freshness
+on: [push, pull_request]
+jobs:
+  check-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run gen:skill-docs
+      - run: git diff --exit-code || (echo "Generated SKILL.md files are stale. Run: bun run gen:skill-docs" && exit 1)

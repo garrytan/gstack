@@ -2,17 +2,28 @@
 name: qa
 version: 1.0.0
 description: |
-  Systematically QA test the Cybereum platform and its analytical skills. Use when asked to "qa",
-  "QA", "test the skills", "validate calculations", or review quality. Three modes: full (systematic
-  validation of all skills), quick (smoke test core calculations), regression (compare against baseline).
-  Produces structured report with health score and findings.
+  Systematically QA test a web application. Use when asked to "qa", "QA", "test this site",
+  "find bugs", "dogfood", or review quality. Four modes: diff-aware (automatic on feature
+  branches — analyzes git diff, identifies affected pages, tests them), full (systematic
+  exploration), quick (30-second smoke test), regression (compare against baseline). Produces
+  structured report with health score, screenshots, and repro steps.
 allowed-tools:
   - Bash
   - Read
   - Write
-  - Grep
-  - Glob
+  - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+
+## Update Check (run first)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
 # /qa: Systematic QA Testing for Cybereum
 
@@ -24,10 +35,34 @@ You are a QA engineer for the Cybereum capital project governance platform. Test
 
 | Parameter | Default | Override example |
 |-----------|---------|-----------------|
-| Scope | Full platform | `Focus on EVM calculations`, `Test schedule parsing only` |
-| Mode | full | `--quick`, `--regression .cybereum/qa-reports/baseline.json` |
-| Output dir | `.cybereum/qa-reports/` | `Output to /tmp/qa` |
-| Test data | Sample data | `Use this XER file`, `Test with BAC=$150M` |
+| Target URL | (auto-detect or required) | `https://myapp.com`, `http://localhost:3000` |
+| Mode | full | `--quick`, `--regression .gstack/qa-reports/baseline.json` |
+| Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
+| Scope | Full app (or diff-scoped) | `Focus on the billing page` |
+| Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+
+**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
+
+**Find the browse binary:**
+
+## SETUP (run this check BEFORE any browse command)
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
+fi
+```
+
+If `NEEDS_SETUP`:
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+2. Run: `cd <SKILL_DIR> && ./setup`
+3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
 
 **Create output directories:**
 
@@ -40,8 +75,52 @@ mkdir -p "$REPORT_DIR"
 
 ## Modes
 
-### Full (default)
-Systematic validation of all 8 analytical skills. Verify calculations, cross-skill consistency, output format compliance. Produces health score.
+### Diff-aware (automatic when on a feature branch with no URL)
+
+This is the **primary mode** for developers verifying their work. When the user says `/qa` without a URL and the repo is on a feature branch, automatically:
+
+1. **Analyze the branch diff** to understand what changed:
+   ```bash
+   git diff main...HEAD --name-only
+   git log main..HEAD --oneline
+   ```
+
+2. **Identify affected pages/routes** from the changed files:
+   - Controller/route files → which URL paths they serve
+   - View/template/component files → which pages render them
+   - Model/service files → which pages use those models (check controllers that reference them)
+   - CSS/style files → which pages include those stylesheets
+   - API endpoints → test them directly with `$B js "await fetch('/api/...')"`
+   - Static pages (markdown, HTML) → navigate to them directly
+
+3. **Detect the running app** — check common local dev ports:
+   ```bash
+   $B goto http://localhost:3000 2>/dev/null && echo "Found app on :3000" || \
+   $B goto http://localhost:4000 2>/dev/null && echo "Found app on :4000" || \
+   $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
+   ```
+   If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
+
+4. **Test each affected page/route:**
+   - Navigate to the page
+   - Take a screenshot
+   - Check console for errors
+   - If the change was interactive (forms, buttons, flows), test the interaction end-to-end
+   - Use `snapshot -D` before and after actions to verify the change had the expected effect
+
+5. **Cross-reference with commit messages and PR description** to understand *intent* — what should the change do? Verify it actually does that.
+
+6. **Check TODOS.md** (if it exists) for known bugs or issues related to the changed files. If a TODO describes a bug that this branch should fix, add it to your test plan. If you find a new bug during QA that isn't in TODOS.md, note it in the report.
+
+7. **Report findings** scoped to the branch changes:
+   - "Changes tested: N pages/routes affected by this branch"
+   - For each: does it work? Screenshot evidence.
+   - Any regressions on adjacent pages?
+
+**If the user provides a URL with diff-aware mode:** Use that URL as the base but still scope testing to the changed files.
+
+### Full (default when URL is provided)
+Systematic exploration. Visit every reachable page. Document 5-10 well-evidenced issues. Produce health score. Takes 5-15 minutes depending on app size.
 
 ### Quick (`--quick`)
 Smoke test: verify core EVM formulas, risk scoring math, schedule health scoring, and completion prediction multipliers. 2-minute check.
