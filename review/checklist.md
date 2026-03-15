@@ -1,14 +1,14 @@
-# Pre-Landing Review Checklist
+# Pre-Landing レビューチェックリスト
 
-## Instructions
+## 手順
 
-Review the `git diff origin/main` output for the issues listed below. Be specific — cite `file:line` and suggest fixes. Skip anything that's fine. Only flag real problems.
+以下の観点で `git diff origin/main` の出力をレビューしてください。`file:line` を明示し、修正案まで書いてください。問題がない箇所はスキップし、実害のある指摘だけを挙げます。
 
-**Two-pass review:**
-- **Pass 1 (CRITICAL):** Run SQL & Data Safety and LLM Output Trust Boundary first. These can block `/ship`.
-- **Pass 2 (INFORMATIONAL):** Run all remaining categories. These are included in the PR body but do not block.
+**2段階レビュー:**
+- **Pass 1 (CRITICAL):** 先に SQL & Data Safety と LLM Output Trust Boundary を実施します。これらは `/ship` をブロックし得ます。
+- **Pass 2 (INFORMATIONAL):** 残りのカテゴリを実施します。PR 本文には含めますが、ブロッカーではありません。
 
-**Output format:**
+**出力形式:**
 
 ```
 Pre-Landing Review: N issues (X critical, Y informational)
@@ -22,76 +22,76 @@ Pre-Landing Review: N issues (X critical, Y informational)
   Fix: suggested fix
 ```
 
-If no issues found: `Pre-Landing Review: No issues found.`
+問題がなければ `Pre-Landing Review: No issues found.` を返します。
 
-Be terse. For each issue: one line describing the problem, one line with the fix. No preamble, no summaries, no "looks good overall."
+簡潔に書いてください。各 issue は「問題 1 行 + 修正 1 行」のみ。前置き、総評、`looks good overall` のような文は不要です。
 
 ---
 
-## Review Categories
+## レビューカテゴリ
 
 ### Pass 1 — CRITICAL
 
 #### SQL & Data Safety
-- String interpolation in SQL (even if values are `.to_i`/`.to_f` — use `sanitize_sql_array` or Arel)
-- TOCTOU races: check-then-set patterns that should be atomic `WHERE` + `update_all`
-- `update_column`/`update_columns` bypassing validations on fields that have or should have constraints
-- N+1 queries: `.includes()` missing for associations used in loops/views (especially avatar, attachments)
+- SQL 内で文字列補間している（値が `.to_i` / `.to_f` でも不可。`sanitize_sql_array` または Arel を使う）
+- TOCTOU race: check-then-set パターンで、本来は `WHERE` + `update_all` の原子的更新にすべき箇所
+- 制約がある（またはあるべき）フィールドに対する `update_column` / `update_columns` によりバリデーションを回避している箇所
+- N+1 クエリ: ループ / view で使う関連に `.includes()` がない（特に avatar, attachments）
 
 #### Race Conditions & Concurrency
-- Read-check-write without uniqueness constraint or `rescue RecordNotUnique; retry` (e.g., `where(hash:).first` then `save!` without handling concurrent insert)
-- `find_or_create_by` on columns without unique DB index — concurrent calls can create duplicates
-- Status transitions that don't use atomic `WHERE old_status = ? UPDATE SET new_status` — concurrent updates can skip or double-apply transitions
-- `html_safe` on user-controlled data (XSS) — check any `.html_safe`, `raw()`, or string interpolation into `html_safe` output
+- 一意制約や `rescue RecordNotUnique; retry` なしの read-check-write（例: `where(hash:).first` → `save!` で同時 insert 未考慮）
+- unique DB index がない列への `find_or_create_by`（同時実行で重複作成され得る）
+- `WHERE old_status = ? UPDATE SET new_status` の原子的遷移でない status 更新（遷移スキップ / 二重適用の可能性）
+- ユーザー入力由来データへの `html_safe`（XSS）。`.html_safe`、`raw()`、`html_safe` 出力への文字列補間を確認
 
 #### LLM Output Trust Boundary
-- LLM-generated values (emails, URLs, names) written to DB or passed to mailers without format validation. Add lightweight guards (`EMAIL_REGEXP`, `URI.parse`, `.strip`) before persisting.
-- Structured tool output (arrays, hashes) accepted without type/shape checks before database writes.
+- LLM 生成値（email, URL, name）をフォーマット検証なしで DB 保存 / mailer 連携している。保存前に軽量ガード（`EMAIL_REGEXP`, `URI.parse`, `.strip`）を入れる。
+- 構造化 tool 出力（array, hash）を型 / shape 検証なしで DB 書き込みに使っている。
 
 ### Pass 2 — INFORMATIONAL
 
 #### Conditional Side Effects
-- Code paths that branch on a condition but forget to apply a side effect on one branch. Example: item promoted to verified but URL only attached when a secondary condition is true — the other branch promotes without the URL, creating an inconsistent record.
-- Log messages that claim an action happened but the action was conditionally skipped. The log should reflect what actually occurred.
+- 条件分岐の片側で副作用の適用漏れがある。例: verified へ昇格するが、二次条件が真のときだけ URL を付与し、偽側では URL なしで昇格して不整合が出る。
+- 実際には条件でスキップされた処理を、ログだけ「実行した」と記録している。ログは実際の挙動と一致させる。
 
 #### Magic Numbers & String Coupling
-- Bare numeric literals used in multiple files — should be named constants documented together
-- Error message strings used as query filters elsewhere (grep for the string — is anything matching on it?)
+- 複数ファイルに裸の数値リテラルがある。名前付き定数にして、定義を集約する。
+- エラーメッセージ文字列を別箇所でクエリ条件として使っている（その文字列で grep して依存を確認）
 
 #### Dead Code & Consistency
-- Variables assigned but never read
-- Version mismatch between PR title and VERSION/CHANGELOG files
-- CHANGELOG entries that describe changes inaccurately (e.g., "changed from X to Y" when X never existed)
-- Comments/docstrings that describe old behavior after the code changed
+- 代入されたが参照されない変数
+- PR title と VERSION / CHANGELOG のバージョン不一致
+- CHANGELOG の説明が実装と不一致（例: 「X から Y に変更」とあるが X が元から存在しない）
+- コード変更後に古い挙動を説明し続けているコメント / docstring
 
 #### LLM Prompt Issues
-- 0-indexed lists in prompts (LLMs reliably return 1-indexed)
-- Prompt text listing available tools/capabilities that don't match what's actually wired up in the `tool_classes`/`tools` array
-- Word/token limits stated in multiple places that could drift
+- プロンプト内で 0-indexed の列挙（LLM は 1-indexed を返しがち）
+- 利用可能な tool / capability の説明と、実際の `tool_classes` / `tools` 配線が不一致
+- 複数箇所に記載された word/token 制限が乖離しうる
 
 #### Test Gaps
-- Negative-path tests that assert type/status but not the side effects (URL attached? field populated? callback fired?)
-- Assertions on string content without checking format (e.g., asserting title present but not URL format)
-- `.expects(:something).never` missing when a code path should explicitly NOT call an external service
-- Security enforcement features (blocking, rate limiting, auth) without integration tests verifying the enforcement path works end-to-end
+- 異常系テストで型 / status だけを見て、副作用（URL 付与 / フィールド更新 / callback 発火）を見ていない
+- 文字列の存在だけを検証し、形式まで検証していない（例: title はあるが URL 形式を未検証）
+- 外部サービスを呼ばないべき分岐で `.expects(:something).never` がない
+- ブロッキング / rate limiting / auth などのセキュリティ強制機能に、強制経路を end-to-end で検証する統合テストがない
 
 #### Crypto & Entropy
-- Truncation of data instead of hashing (last N chars instead of SHA-256) — less entropy, easier collisions
-- `rand()` / `Random.rand` for security-sensitive values — use `SecureRandom` instead
-- Non-constant-time comparisons (`==`) on secrets or tokens — vulnerable to timing attacks
+- ハッシュ化ではなく切り詰め（SHA-256 の代わりに末尾 N 文字）でエントロピーを落としている
+- セキュリティ用途に `rand()` / `Random.rand` を使っている（`SecureRandom` を使う）
+- 秘密情報 / token の比較に定数時間比較でない `==` を使っている（タイミング攻撃の余地）
 
 #### Time Window Safety
-- Date-key lookups that assume "today" covers 24h — report at 8am PT only sees midnight→8am under today's key
-- Mismatched time windows between related features — one uses hourly buckets, another uses daily keys for the same data
+- 日付キー参照で「today が 24 時間を覆う」と仮定している。例: PT 8am のレポートが当日 0:00→8:00 しか見ない
+- 関連機能間で time window が不一致（片方は hourly bucket、片方は daily key）
 
 #### Type Coercion at Boundaries
-- Values crossing Ruby→JSON→JS boundaries where type could change (numeric vs string) — hash/digest inputs must normalize types
-- Hash/digest inputs that don't call `.to_s` or equivalent before serialization — `{ cores: 8 }` vs `{ cores: "8" }` produce different hashes
+- Ruby→JSON→JS をまたぐ値で型が変わり得る（number vs string）。hash/digest 入力は型正規化する。
+- hash/digest 入力で `.to_s` 等を使わずに直列化している（`{ cores: 8 }` と `{ cores: "8" }` でハッシュが変わる）
 
 #### View/Frontend
-- Inline `<style>` blocks in partials (re-parsed every render)
-- O(n*m) lookups in views (`Array#find` in a loop instead of `index_by` hash)
-- Ruby-side `.select{}` filtering on DB results that could be a `WHERE` clause (unless intentionally avoiding leading-wildcard `LIKE`)
+- partial 内のインライン `<style>` ブロック（毎回再パースされる）
+- view の O(n*m) 参照（ループ内 `Array#find`。`index_by` hash で置換可能）
+- DB 結果を Ruby 側 `.select{}` でフィルタしている（先頭ワイルドカード `LIKE` 回避など意図がある場合を除く）
 
 ---
 
@@ -112,14 +112,14 @@ CRITICAL (blocks /ship):          INFORMATIONAL (in PR body):
 
 ---
 
-## Suppressions — DO NOT flag these
+## Suppressions — これらは指摘しない
 
-- "X is redundant with Y" when the redundancy is harmless and aids readability (e.g., `present?` redundant with `length > 20`)
-- "Add a comment explaining why this threshold/constant was chosen" — thresholds change during tuning, comments rot
-- "This assertion could be tighter" when the assertion already covers the behavior
-- Suggesting consistency-only changes (wrapping a value in a conditional to match how another constant is guarded)
-- "Regex doesn't handle edge case X" when the input is constrained and X never occurs in practice
-- "Test exercises multiple guards simultaneously" — that's fine, tests don't need to isolate every guard
-- Eval threshold changes (max_actionable, min scores) — these are tuned empirically and change constantly
-- Harmless no-ops (e.g., `.reject` on an element that's never in the array)
-- ANYTHING already addressed in the diff you're reviewing — read the FULL diff before commenting
+- 可読性向上に寄与する無害な冗長性（例: `present?` と `length > 20` の併記）を「冗長」とだけ指摘すること
+- 「この閾値 / 定数の理由コメントを追加すべき」という指摘（閾値は調整で変わり、コメントが陳腐化しやすい）
+- 既に挙動を十分カバーしているアサーションに対して「もっと厳密にできる」とだけ言うこと
+- 一貫性だけを目的にした変更提案（別定数に合わせるためだけに条件分岐で包む等）
+- 入力制約上発生しない edge case X を理由に Regex を指摘すること
+- 「テストが複数ガードを同時に検証している」こと自体の指摘（分離は必須ではない）
+- Eval 閾値（max_actionable, min scores）への指摘（経験的に調整され続ける）
+- 無害な no-op（例: 配列に存在しない要素を `.reject` する）
+- レビュー対象 diff で既に解消済みの内容（コメント前に FULL diff を確認する）

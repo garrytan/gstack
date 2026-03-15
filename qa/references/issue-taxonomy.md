@@ -1,85 +1,85 @@
 # QA Issue Taxonomy
 
-## Severity Levels
+## Severity レベル
 
-| Severity | Definition | Examples |
-|----------|------------|----------|
-| **critical** | Blocks a core workflow, causes data loss, or crashes the app | Form submit causes error page, checkout flow broken, data deleted without confirmation |
-| **high** | Major feature broken or unusable, no workaround | Search returns wrong results, file upload silently fails, auth redirect loop |
-| **medium** | Feature works but with noticeable problems, workaround exists | Slow page load (>5s), form validation missing but submit still works, layout broken on mobile only |
-| **low** | Minor cosmetic or polish issue | Typo in footer, 1px alignment issue, hover state inconsistent |
+| Severity | 定義 | 例 |
+|----------|------|----|
+| **critical** | コア導線を塞ぐ、データ損失を起こす、またはアプリをクラッシュさせる | フォーム送信でエラーページ、購入フロー破綻、確認なしでデータ削除 |
+| **high** | 主要機能が壊れている / 実用不可で回避策なし | 検索結果が誤っている、ファイルアップロードが無言失敗、認証リダイレクトループ |
+| **medium** | 機能は動くが目立つ問題があり、回避策はある | ページ読み込みが遅い（>5s）、バリデーション欠落だが送信は可能、モバイルのみレイアウト崩れ |
+| **low** | 軽微な見た目・仕上げの問題 | フッターの typo、1px の位置ずれ、hover 状態の不一致 |
 
-## Categories
+## カテゴリ
 
 ### 1. Visual/UI
-- Layout breaks (overlapping elements, clipped text, horizontal scrollbar)
-- Broken or missing images
-- Incorrect z-index (elements appearing behind others)
-- Font/color inconsistencies
-- Animation glitches (jank, incomplete transitions)
-- Alignment issues (off-grid, uneven spacing)
-- Dark mode / theme issues
+- レイアウト崩れ（要素重なり、テキスト欠け、横スクロール）
+- 画像の欠落・破損
+- `z-index` 不整合（要素が背面に隠れる）
+- フォント / 色の不一致
+- アニメーション不具合（jank、遷移が途中で切れる）
+- 配置不整合（グリッドずれ、間隔の不均一）
+- ダークモード / テーマ関連の不具合
 
 ### 2. Functional
-- Broken links (404, wrong destination)
-- Dead buttons (click does nothing)
-- Form validation (missing, wrong, bypassed)
-- Incorrect redirects
-- State not persisting (data lost on refresh, back button)
-- Race conditions (double-submit, stale data)
-- Search returning wrong or no results
+- リンク切れ（404、誤遷移）
+- ボタン無反応（クリックしても何も起きない）
+- フォームバリデーション不備（欠落、誤判定、バイパス可能）
+- 誤ったリダイレクト
+- 状態が保持されない（リロードや戻る操作でデータ消失）
+- race condition（連打二重送信、stale data）
+- 検索が誤った結果を返す / 結果が出ない
 
 ### 3. UX
-- Confusing navigation (no breadcrumbs, dead ends)
-- Missing loading indicators (user doesn't know something is happening)
-- Slow interactions (>500ms with no feedback)
-- Unclear error messages ("Something went wrong" with no detail)
-- No confirmation before destructive actions
-- Inconsistent interaction patterns across pages
-- Dead ends (no way back, no next action)
+- ナビゲーションが分かりにくい（パンくずなし、行き止まり）
+- ローディング表示不足（進行中かどうか分からない）
+- 体感遅延が大きい操作（>500ms でフィードバックなし）
+- 不明瞭なエラーメッセージ（"Something went wrong" だけ）
+- 破壊的操作前の確認不足
+- ページ間で操作パターンが不統一
+- 行き止まり（戻れない、次アクションがない）
 
 ### 4. Content
-- Typos and grammar errors
-- Outdated or incorrect text
-- Placeholder / lorem ipsum text left in
-- Truncated text (cut off without ellipsis or "more")
-- Wrong labels on buttons or form fields
-- Missing or unhelpful empty states
+- typo / 文法ミス
+- 古い / 不正確なテキスト
+- placeholder / lorem ipsum の残置
+- テキスト切れ（省略記号や "more" なしで途切れる）
+- ボタン / フォームラベルの誤り
+- 空状態の説明不足、または有用性の低い空状態
 
 ### 5. Performance
-- Slow page loads (>3 seconds)
-- Janky scrolling (dropped frames)
-- Layout shifts (content jumping after load)
-- Excessive network requests (>50 on a single page)
-- Large unoptimized images
-- Blocking JavaScript (page unresponsive during load)
+- ページ読み込み遅延（>3 秒）
+- スクロール jank（フレーム落ち）
+- レイアウトシフト（読み込み後に内容が跳ねる）
+- 過剰なネットワークリクエスト（単一ページで >50）
+- 最適化されていない大きな画像
+- ブロッキング JavaScript（読み込み中に画面が固まる）
 
 ### 6. Console/Errors
-- JavaScript exceptions (uncaught errors)
-- Failed network requests (4xx, 5xx)
-- Deprecation warnings (upcoming breakage)
-- CORS errors
-- Mixed content warnings (HTTP resources on HTTPS)
-- CSP violations
+- JavaScript 例外（uncaught errors）
+- ネットワークリクエスト失敗（4xx, 5xx）
+- 非推奨警告（将来の破壊的変更予兆）
+- CORS エラー
+- mixed content 警告（HTTPS ページで HTTP リソース）
+- CSP 違反
 
 ### 7. Accessibility
-- Missing alt text on images
-- Unlabeled form inputs
-- Keyboard navigation broken (can't tab to elements)
-- Focus traps (can't escape a modal or dropdown)
-- Missing or incorrect ARIA attributes
-- Insufficient color contrast
-- Content not reachable by screen reader
+- 画像の alt text 欠落
+- フォーム入力のラベル欠落
+- キーボード操作不能（Tab で到達できない）
+- フォーカストラップ（モーダル / ドロップダウンから抜けられない）
+- ARIA 属性の欠落 / 誤設定
+- 色コントラスト不足
+- スクリーンリーダーで到達不能なコンテンツ
 
-## Per-Page Exploration Checklist
+## ページ単位の探索チェックリスト
 
-For each page visited during a QA session:
+QA セッションで訪問した各ページごとに次を確認します。
 
-1. **Visual scan** — Take annotated screenshot (`snapshot -i -a -o`). Look for layout issues, broken images, alignment.
-2. **Interactive elements** — Click every button, link, and control. Does each do what it says?
-3. **Forms** — Fill and submit. Test empty submission, invalid data, edge cases (long text, special characters).
-4. **Navigation** — Check all paths in/out. Breadcrumbs, back button, deep links, mobile menu.
-5. **States** — Check empty state, loading state, error state, full/overflow state.
-6. **Console** — Run `console --errors` after interactions. Any new JS errors or failed requests?
-7. **Responsiveness** — If relevant, check mobile and tablet viewports.
-8. **Auth boundaries** — What happens when logged out? Different user roles?
+1. **Visual scan** — 注釈付きスクリーンショットを取得（`snapshot -i -a -o`）。レイアウト崩れ、画像欠落、配置不整合を確認。
+2. **Interactive elements** — すべてのボタン、リンク、コントロールをクリック。表示どおりに動作するか確認。
+3. **Forms** — 入力して送信。空送信、無効値、エッジケース（長文、特殊文字）を確認。
+4. **Navigation** — すべての導線の出入りを確認。パンくず、戻るボタン、deep link、モバイルメニューをチェック。
+5. **States** — 空状態、読み込み状態、エラー状態、満杯 / overflow 状態を確認。
+6. **Console** — 操作後に `console --errors` を実行。新規 JS エラーや失敗リクエストがないか確認。
+7. **Responsiveness** — 必要ならモバイル / タブレット viewport も確認。
+8. **Auth boundaries** — ログアウト時の挙動、ユーザーロール差分の挙動を確認。

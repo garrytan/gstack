@@ -1,7 +1,7 @@
-# QA Report: {APP_NAME}
+# QA レポート: {APP_NAME}
 
-| Field | Value |
-|-------|-------|
+| 項目 | 値 |
+|------|----|
 | **Date** | {DATE} |
 | **URL** | {URL} |
 | **Branch** | {BRANCH} |
@@ -17,8 +17,8 @@
 
 ## Health Score: {SCORE}/100
 
-| Category | Score |
-|----------|-------|
+| カテゴリ | スコア |
+|----------|--------|
 | Console | {0-100} |
 | Links | {0-100} |
 | Visual | {0-100} |
@@ -27,19 +27,19 @@
 | Performance | {0-100} |
 | Accessibility | {0-100} |
 
-## Top 3 Things to Fix
+## 優先して直すべき Top 3
 
 1. **{ISSUE-NNN}: {title}** — {one-line description}
 2. **{ISSUE-NNN}: {title}** — {one-line description}
 3. **{ISSUE-NNN}: {title}** — {one-line description}
 
-## Console Health
+## Console 健全性
 
 | Error | Count | First seen |
 |-------|-------|------------|
 | {error message} | {N} | {URL} |
 
-## Summary
+## サマリー
 
 | Severity | Count |
 |----------|-------|
@@ -53,15 +53,15 @@
 
 ### ISSUE-001: {Short title}
 
-| Field | Value |
-|-------|-------|
+| 項目 | 値 |
+|------|----|
 | **Severity** | critical / high / medium / low |
 | **Category** | visual / functional / ux / content / performance / console / accessibility |
 | **URL** | {page URL} |
 
 **Description:** {What is wrong, expected vs actual.}
 
-**Repro Steps:**
+**再現手順:**
 
 1. Navigate to {URL}
    ![Step 1](screenshots/issue-001-step-1.png)
@@ -72,12 +72,12 @@
 
 ---
 
-## Regression (if applicable)
+## Regression（該当する場合）
 
 | Metric | Baseline | Current | Delta |
 |--------|----------|---------|-------|
 | Health score | {N} | {N} | {+/-N} |
 | Issues | {N} | {N} | {+/-N} |
 
-**Fixed since baseline:** {list}
+**Fixed since baseline:** {list}  
 **New since baseline:** {list}

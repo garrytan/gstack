@@ -1,28 +1,28 @@
-# TODOS.md Format Reference
+# TODOS.md フォーマット参照
 
-Shared reference for the canonical TODOS.md format. Referenced by `/ship` (Step 5.5) and `/plan-ceo-review` (TODOS.md updates section) to ensure consistent TODO item structure.
+標準的な TODOS.md 形式の共通リファレンスです。`/ship`（Step 5.5）と `/plan-ceo-review`（TODOS.md 更新セクション）で参照し、TODO 項目の構造を一貫させます。
 
 ---
 
-## File Structure
+## ファイル構造
 
 ```markdown
 # TODOS
 
-## <Skill/Component>     ← e.g., ## Browse, ## Ship, ## Review, ## Infrastructure
+## <Skill/Component>     ← 例: ## Browse, ## Ship, ## Review, ## Infrastructure
 <items sorted P0 first, then P1, P2, P3, P4>
 
 ## Completed
 <finished items with completion annotation>
 ```
 
-**Sections:** Organize by skill or component (`## Browse`, `## Ship`, `## Review`, `## QA`, `## Retro`, `## Infrastructure`). Within each section, sort items by priority (P0 at top).
+**Sections:** skill または component 単位で整理します（`## Browse`, `## Ship`, `## Review`, `## QA`, `## Retro`, `## Infrastructure`）。各セクション内は優先度順（P0 が先頭）に並べます。
 
 ---
 
-## TODO Item Format
+## TODO 項目フォーマット
 
-Each item is an H3 under its section:
+各項目は、セクション配下の H3 とします。
 
 ```markdown
 ### <Title>
@@ -38,24 +38,24 @@ Each item is an H3 under its section:
 **Depends on:** <prerequisites, or "None">
 ```
 
-**Required fields:** What, Why, Context, Effort, Priority
+**Required fields:** What, Why, Context, Effort, Priority  
 **Optional fields:** Depends on, Blocked by
 
 ---
 
-## Priority Definitions
+## 優先度定義
 
-- **P0** — Blocking: must be done before next release
-- **P1** — Critical: should be done this cycle
-- **P2** — Important: do when P0/P1 are clear
-- **P3** — Nice-to-have: revisit after adoption/usage data
-- **P4** — Someday: good idea, no urgency
+- **P0** — Blocking: 次リリース前に必須
+- **P1** — Critical: 今サイクルで対応すべき
+- **P2** — Important: P0/P1 解消後に対応
+- **P3** — Nice-to-have: 導入・利用データを見て再検討
+- **P4** — Someday: 良いアイデアだが緊急度は低い
 
 ---
 
-## Completed Item Format
+## Completed 項目フォーマット
 
-When an item is completed, move it to the `## Completed` section preserving its original content and appending:
+項目完了時は、元の内容を保持したまま `## Completed` セクションに移し、次を追記します。
 
 ```markdown
 **Completed:** vX.Y.Z (YYYY-MM-DD)
