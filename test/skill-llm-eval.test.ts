@@ -79,31 +79,6 @@ describeEval('LLM-as-judge quality evals', () => {
     expect(scores.actionability).toBeGreaterThanOrEqual(4);
   }, 30_000);
 
-  test('browse/SKILL.md overall scores >= 4', async () => {
-    const t0 = Date.now();
-    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    const start = content.indexOf('## Snapshot Flags');
-    const section = content.slice(start);
-
-    const scores = await judge('browse skill reference (flags + commands)', section);
-    console.log('Browse SKILL.md scores:', JSON.stringify(scores, null, 2));
-
-    evalCollector?.addTest({
-      name: 'browse/SKILL.md reference',
-      suite: 'LLM-as-judge quality evals',
-      tier: 'llm-judge',
-      passed: scores.clarity >= 4 && scores.completeness >= 4 && scores.actionability >= 4,
-      duration_ms: Date.now() - t0,
-      cost_usd: 0.02,
-      judge_scores: { clarity: scores.clarity, completeness: scores.completeness, actionability: scores.actionability },
-      judge_reasoning: scores.reasoning,
-    });
-
-    expect(scores.clarity).toBeGreaterThanOrEqual(4);
-    expect(scores.completeness).toBeGreaterThanOrEqual(4);
-    expect(scores.actionability).toBeGreaterThanOrEqual(4);
-  }, 30_000);
-
   test('setup block scores >= 3 on actionability and clarity', async () => {
     const t0 = Date.now();
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -143,7 +118,7 @@ describeEval('LLM-as-judge quality evals', () => {
 ### Navigation
 | Command | Description |
 |---------|-------------|
-| \`goto <url>\` | Navigate to URL |
+| \`open <url>\` | Navigate to URL |
 | \`back\` / \`forward\` | History navigation |
 | \`reload\` | Reload page |
 | \`url\` | Print current URL |
@@ -151,25 +126,24 @@ describeEval('LLM-as-judge quality evals', () => {
 ### Interaction
 | Command | Description |
 |---------|-------------|
-| \`click <sel>\` | Click element |
-| \`fill <sel> <val>\` | Fill input |
-| \`select <sel> <val>\` | Select dropdown |
-| \`hover <sel>\` | Hover element |
+| \`click <ref>\` | Click element |
+| \`fill <ref> <val>\` | Fill input |
+| \`select <ref> <val>\` | Select dropdown |
+| \`hover <ref>\` | Hover element |
 | \`type <text>\` | Type into focused element |
 | \`press <key>\` | Press key (Enter, Tab, Escape) |
-| \`scroll [sel]\` | Scroll element into view |
+| \`scroll [ref]\` | Scroll element into view |
 | \`wait <sel>\` | Wait for element (max 10s) |
-| \`wait --networkidle\` | Wait for network to be idle |
-| \`wait --load\` | Wait for page load event |
 
-### Inspection
+### Reading
 | Command | Description |
 |---------|-------------|
-| \`js <expr>\` | Run JavaScript |
-| \`css <sel> <prop>\` | Computed CSS |
-| \`attrs <sel>\` | Element attributes |
-| \`is <prop> <sel>\` | State check (visible/hidden/enabled/disabled/checked/editable/focused) |
-| \`console [--clear\\|--errors]\` | Console messages (--errors filters to error/warning) |`;
+| \`get text\` | Get page text content |
+| \`get html [sel]\` | Get page HTML |
+| \`eval <expr>\` | Run JavaScript |
+| \`get styles <sel>\` | Computed CSS styles |
+| \`get attr <sel> <attr>\` | Element attribute |
+| \`is visible <sel>\` | Check element visibility |`;
 
     const client = new Anthropic();
     const response = await client.messages.create({
@@ -232,7 +206,7 @@ describeEval('QA skill quality evals', () => {
     const scores = await callJudge<JudgeScore>(`You are evaluating the quality of a QA testing workflow document for an AI coding agent.
 
 The agent reads this document to learn how to systematically QA test a web application. The workflow references
-a headless browser CLI ($B commands) that is documented separately — do NOT penalize for missing CLI definitions.
+a headless browser CLI (agent-browser commands) that is documented separately — do NOT penalize for missing CLI definitions.
 Instead, evaluate whether the workflow itself is clear, complete, and actionable.
 
 Rate on three dimensions (1-5 scale):

@@ -91,13 +91,13 @@ gstack is powerful with one Claude Code session. It is transformative with ten.
 
 [Conductor](https://conductor.build) runs multiple Claude Code sessions in parallel — each in its own isolated workspace. That means you can have one session running `/qa` on staging, another doing `/review` on a PR, a third implementing a feature, and seven more working on other branches. All at the same time.
 
-Each workspace gets its own isolated browser instance automatically — separate Chromium process, cookies, tabs, and logs stored in `.gstack/` inside each project root. No port collisions, no shared state, no configuration needed. `/browse` and `/qa` sessions never interfere with each other, even across ten parallel workspaces.
+Each workspace gets its own isolated browser instance automatically via agent-browser. No port collisions, no shared state, no configuration needed. `/qa` sessions never interfere with each other, even across ten parallel workspaces.
 
 This is the setup I use. One person, ten parallel agents, each with the right cognitive mode for its task. That is not incremental improvement. That is a different way of building software.
 
 ## Install
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+. `/browse` compiles a native binary — works on macOS and Linux (x64 and arm64).
+**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Node.js](https://nodejs.org/) (for `npm install -g agent-browser`). [Bun](https://bun.sh/) v1.0+ optional (for development/testing).
 
 ### Step 1: Install on your machine
 
@@ -114,12 +114,12 @@ Real files get committed to your repo (not a submodule), so `git clone` just wor
 ### What gets installed
 
 - Skill files (Markdown prompts) in `~/.claude/skills/gstack/` (or `.claude/skills/gstack/` for project installs)
-- Symlinks at `~/.claude/skills/browse`, `~/.claude/skills/qa`, `~/.claude/skills/review`, etc. pointing into the gstack directory
-- Browser binary at `browse/dist/browse` (~58MB, gitignored)
+- Symlinks at `~/.claude/skills/qa`, `~/.claude/skills/review`, etc. pointing into the gstack directory
+- `agent-browser` CLI (installed globally via npm)
 - `node_modules/` (gitignored)
 - `/retro` saves JSON snapshots to `.context/retros/` in your project for trend tracking
 
-Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
+Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background (except `agent-browser` which manages its own Chromium daemon).
 
 ---
 
@@ -412,7 +412,7 @@ This is my **QA engineer mode**.
 
 That is a real step-change. The full cycle becomes: plan, code, run the app, inspect the UI, reproduce the bug, verify the fix, ship. QA stops being "go click around manually" and becomes part of the same agentic loop. It gives the agent eyes. Now it can do the boring, high-context QA work itself: click through the app, catch breakage, verify the fix, and keep going. That feels like having a real operator in the machine.
 
-It is a compiled binary that talks to a persistent Chromium daemon — built on [Playwright](https://playwright.dev/) by Microsoft. First call starts the browser (~3s). Every call after that: ~100-200ms. The browser stays running between commands, so cookies, tabs, and localStorage carry over.
+It uses [agent-browser](https://github.com/vercel-labs/agent-browser) by Vercel — a Rust-based CLI that talks to a persistent Chromium daemon. First call starts the browser (~3s). Every call after that: sub-second. The browser stays running between commands, so cookies, tabs, and localStorage carry over.
 
 After I push a branch, I tell Claude to go check staging. It does the entire QA pass for me:
 
@@ -422,32 +422,31 @@ You:   /browse staging.myapp.com — log in, test the signup flow, and check
 
 Claude: [18 tool calls, ~60 seconds]
 
-        > browse goto https://staging.myapp.com/signup
-        > browse snapshot -i
-        > browse fill @e2 "test@example.com"
-        > browse fill @e3 "password123"
-        > browse click @e5                    (Submit)
-        > browse screenshot /tmp/signup.png
+        > agent-browser open https://staging.myapp.com/signup
+        > agent-browser snapshot -i
+        > agent-browser fill @e2 "test@example.com"
+        > agent-browser fill @e3 "password123"
+        > agent-browser click @e5                    (Submit)
+        > agent-browser screenshot /tmp/signup.png
         > Read /tmp/signup.png
 
         Signup works. Redirected to onboarding. Now checking changed pages.
 
-        > browse goto https://staging.myapp.com/dashboard
-        > browse screenshot /tmp/dashboard.png
+        > agent-browser open https://staging.myapp.com/dashboard
+        > agent-browser screenshot /tmp/dashboard.png
         > Read /tmp/dashboard.png
-        > browse console
 
-        Dashboard loads. No console errors. Charts render with sample data.
+        Dashboard loads. Charts render with sample data.
 
-        > browse goto https://staging.myapp.com/settings/billing
-        > browse screenshot /tmp/billing.png
+        > agent-browser open https://staging.myapp.com/settings/billing
+        > agent-browser screenshot /tmp/billing.png
         > Read /tmp/billing.png
 
         Billing page loads. Plan selector shows Free/Pro/Enterprise.
         Stripe elements render correctly.
 
-        > browse goto https://staging.myapp.com/api/health
-        > browse text
+        > agent-browser open https://staging.myapp.com/api/health
+        > agent-browser get text
 
         API health endpoint returns {"status":"ok","version":"2.4.1"}.
 
@@ -455,11 +454,11 @@ Claude: [18 tool calls, ~60 seconds]
         Signup → onboarding → dashboard flow works end to end.
 ```
 
-18 tool calls, about a minute. It signed up a test user, navigated every page I changed, took screenshots, read them, checked the console for errors, and verified the API. That is a full QA pass. I did not open a browser.
+18 tool calls, about a minute. It signed up a test user, navigated every page I changed, took screenshots, read them, and verified the API. That is a full QA pass. I did not open a browser.
 
 It works for reading documentation, verifying deployments, filling out forms, taking screenshots, comparing pages across environments, and anything else where Claude needs eyes on a live URL.
 
-**Security note:** `/browse` runs a persistent Chromium session. Cookies, localStorage, and session state carry over between commands. Do not use it against sensitive production environments unless you intend to — it is a real browser with real state. The session auto-shuts down after 30 minutes of idle time.
+**Security note:** agent-browser runs a persistent Chromium session. Cookies, localStorage, and session state carry over between commands. Do not use it against sensitive production environments unless you intend to — it is a real browser with real state.
 
 For the full command reference, technical internals, and architecture details, see [BROWSER.md](BROWSER.md).
 
@@ -524,32 +523,16 @@ Reports and screenshots accumulate in `.gstack/qa-reports/` so you can track qua
 
 This is my **session manager mode**.
 
-Before `/qa` or `/browse` can test authenticated pages, they need cookies. Instead of manually logging in through the headless browser every time, `/setup-browser-cookies` imports your real sessions directly from your daily browser.
+Before `/qa` can test authenticated pages, it needs cookies. `/setup-browser-cookies` helps you import cookies into the agent-browser session.
 
-It auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge), decrypts cookies via the macOS Keychain, and loads them into the Playwright session. An interactive picker UI lets you choose exactly which domains to import — no cookie values are ever displayed.
-
-```
-You:   /setup-browser-cookies
-
-Claude: Cookie picker opened — select the domains you want to import
-        in your browser, then tell me when you're done.
-
-        [You pick github.com, myapp.com in the browser UI]
-
-You:    done
-
-Claude: Imported 2 domains (47 cookies). Session is ready.
-```
-
-Or skip the UI entirely:
+Export cookies from your browser using an extension (e.g. "Cookie Editor"), then load them into the session:
 
 ```
 You:   /setup-browser-cookies github.com
 
-Claude: Imported 12 cookies for github.com from Comet.
+Claude: [Uses agent-browser cookies set to import cookies for github.com]
+        Session is ready for authenticated testing.
 ```
-
-First import per browser triggers a macOS Keychain prompt — click "Allow" or "Always Allow."
 
 ---
 
@@ -594,8 +577,8 @@ It saves a JSON snapshot to `.context/retros/` so the next run can show trends. 
 **Skill not showing up in Claude Code?**
 Run `cd ~/.claude/skills/gstack && ./setup` (or `cd .claude/skills/gstack && ./setup` for project installs). This rebuilds symlinks so Claude can discover the skills.
 
-**`/browse` fails or binary not found?**
-Run `cd ~/.claude/skills/gstack && bun install && bun run build`. This compiles the browser binary. Requires Bun v1.0+.
+**`agent-browser` not found?**
+Run `npm install -g agent-browser && agent-browser install`. Or run `cd ~/.claude/skills/gstack && ./setup` which handles this automatically.
 
 **Project copy is stale?**
 Run `/gstack-upgrade` — it updates both the global install and any vendored project copy automatically.

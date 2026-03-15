@@ -1,7 +1,7 @@
 /**
  * SKILL.md parser and validator.
  *
- * Extracts $B commands from code blocks, validates them against
+ * Extracts agent-browser commands from code blocks, validates them against
  * the command registry and snapshot flags.
  *
  * Used by:
@@ -10,8 +10,8 @@
  *   - scripts/dev-skill.ts (watch mode)
  */
 
-import { ALL_COMMANDS } from '../../browse/src/commands';
-import { parseSnapshotArgs } from '../../browse/src/snapshot';
+import { ALL_COMMANDS } from '../../lib/agent-browser-commands';
+import { parseSnapshotArgs } from '../../lib/snapshot-flags';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -30,7 +30,44 @@ export interface ValidationResult {
 }
 
 /**
- * Extract all $B invocations from bash code blocks in a SKILL.md file.
+ * Known multi-word command prefixes for agent-browser.
+ * These are tested first (longest match) to avoid splitting "get text" into "get" + "text".
+ */
+const MULTI_WORD_PREFIXES = [
+  'get', 'is', 'set', 'find', 'diff', 'tab', 'window',
+  'cookies', 'storage', 'network', 'dialog', 'frame',
+  'storage local', 'storage session',
+];
+
+/**
+ * Parse a raw command string from an agent-browser invocation into command + args.
+ * Handles multi-word commands like "get text", "is visible", "set viewport", etc.
+ */
+function parseAgentBrowserCommand(rawArgs: string): { command: string; args: string[] } {
+  const parts = rawArgs.trim().split(/\s+/);
+
+  // Try longest match first: 3-word commands (e.g., "storage local get")
+  if (parts.length >= 3) {
+    const three = parts.slice(0, 3).join(' ');
+    if (ALL_COMMANDS.has(three)) {
+      return { command: three, args: parts.slice(3) };
+    }
+  }
+
+  // Try 2-word commands (e.g., "get text", "is visible")
+  if (parts.length >= 2) {
+    const two = parts.slice(0, 2).join(' ');
+    if (ALL_COMMANDS.has(two)) {
+      return { command: two, args: parts.slice(2) };
+    }
+  }
+
+  // Single-word command
+  return { command: parts[0], args: parts.slice(1) };
+}
+
+/**
+ * Extract all agent-browser invocations from bash code blocks in a SKILL.md file.
  */
 export function extractBrowseCommands(skillPath: string): BrowseCommand[] {
   const content = fs.readFileSync(skillPath, 'utf-8');
@@ -55,26 +92,32 @@ export function extractBrowseCommands(skillPath: string): BrowseCommand[] {
 
     if (!inBashBlock) continue;
 
-    // Match lines with $B command invocations
-    // Handle multiple $B commands on one line (e.g., "$B click @e3       $B fill @e4 "value"")
-    const matches = line.matchAll(/\$B\s+(\S+)(?:\s+([^\$]*))?/g);
+    // Skip lines where agent-browser is an argument to another command (e.g., "command -v agent-browser")
+    if (/command\s+(-v\s+)?agent-browser/.test(line)) continue;
+    if (/which\s+agent-browser/.test(line)) continue;
+    if (/npm\s+install.*agent-browser/.test(line)) continue;
+
+    // Match agent-browser invocations
+    // Handle multiple on one line (e.g., "agent-browser click @e3       agent-browser fill @e4 "value"")
+    const matches = line.matchAll(/agent-browser\s+(.+?)(?=\s+agent-browser\s|$)/g);
     for (const match of matches) {
-      const command = match[1];
-      let argsStr = (match[2] || '').trim();
+      let rawArgs = match[1].trim();
 
       // Strip inline comments (# ...) — but not inside quotes
-      // Simple approach: remove everything from first unquoted # onward
       let inQuote = false;
-      for (let j = 0; j < argsStr.length; j++) {
-        if (argsStr[j] === '"') inQuote = !inQuote;
-        if (argsStr[j] === '#' && !inQuote) {
-          argsStr = argsStr.slice(0, j).trim();
+      for (let j = 0; j < rawArgs.length; j++) {
+        if (rawArgs[j] === '"') inQuote = !inQuote;
+        if (rawArgs[j] === '#' && !inQuote) {
+          rawArgs = rawArgs.slice(0, j).trim();
           break;
         }
       }
 
+      const { command, args: rawArgParts } = parseAgentBrowserCommand(rawArgs);
+
       // Parse args — handle quoted strings
       const args: string[] = [];
+      const argsStr = rawArgParts.join(' ');
       if (argsStr) {
         const argMatches = argsStr.matchAll(/"([^"]*)"|(\S+)/g);
         for (const am of argMatches) {
@@ -95,7 +138,7 @@ export function extractBrowseCommands(skillPath: string): BrowseCommand[] {
 }
 
 /**
- * Extract and validate all $B commands in a SKILL.md file.
+ * Extract and validate all agent-browser commands in a SKILL.md file.
  */
 export function validateSkill(skillPath: string): ValidationResult {
   const commands = extractBrowseCommands(skillPath);
@@ -107,7 +150,7 @@ export function validateSkill(skillPath: string): ValidationResult {
   };
 
   if (commands.length === 0) {
-    result.warnings.push('no $B commands found');
+    result.warnings.push('no agent-browser commands found');
     return result;
   }
 

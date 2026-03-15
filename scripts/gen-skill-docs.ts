@@ -9,8 +9,8 @@
  * Used by skill:check and CI freshness checks.
  */
 
-import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
-import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
+import { COMMAND_DESCRIPTIONS } from '../lib/agent-browser-commands';
+import { SNAPSHOT_FLAGS } from '../lib/snapshot-flags';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -31,7 +31,8 @@ function generateCommandReference(): string {
   // Category display order
   const categoryOrder = [
     'Navigation', 'Reading', 'Interaction', 'Inspection',
-    'Visual', 'Snapshot', 'Meta', 'Tabs', 'Server',
+    'Storage', 'Network', 'Config', 'Dialog',
+    'Visual', 'Snapshot', 'Find', 'Tabs', 'Frames', 'Lifecycle',
   ];
 
   const sections: string[] = [];
@@ -58,38 +59,53 @@ function generateCommandReference(): string {
 function generateSnapshotFlags(): string {
   const lines: string[] = [
     'The snapshot is your primary tool for understanding and interacting with pages.',
+    '`agent-browser snapshot` returns the full accessibility tree of the current page.',
     '',
-    '```',
+    '### Flags',
+    '',
+    '| Flag | Long | Description |',
+    '|------|------|-------------|',
   ];
 
   for (const flag of SNAPSHOT_FLAGS) {
-    const label = flag.valueHint ? `${flag.short} ${flag.valueHint}` : flag.short;
-    lines.push(`${label.padEnd(10)}${flag.long.padEnd(24)}${flag.description}`);
+    const shortCol = flag.valueHint ? `\`${flag.short} ${flag.valueHint}\`` : `\`${flag.short}\``;
+    lines.push(`| ${shortCol} | \`${flag.long}\` | ${flag.description} |`);
   }
 
-  lines.push('```');
   lines.push('');
-  lines.push('All flags can be combined freely. `-o` only applies when `-a` is also used.');
-  lines.push('Example: `$B snapshot -i -a -C -o /tmp/annotated.png`');
+  lines.push('All flags combine freely: `agent-browser snapshot -i -c` returns only interactive elements, with empty containers removed.');
   lines.push('');
-  lines.push('**Ref numbering:** @e refs are assigned sequentially (@e1, @e2, ...) in tree order.');
-  lines.push('@c refs from `-C` are numbered separately (@c1, @c2, ...).');
+  lines.push('**Flag details:**');
+  lines.push('- **`-i` (interactive):** Returns only elements that accept user input: buttons, links, textboxes, checkboxes, selects, and other focusable elements. Each gets an @e ref for use in subsequent commands.');
+  lines.push('- **`-c` (compact):** Removes structural nodes (div, section, nav, etc.) that have no text content and serve only as layout containers. Reduces output noise.');
+  lines.push('- **`-s <sel>` (selector):** Scopes the tree to a subtree matching the CSS selector or @ref. Example: `snapshot -s "#sidebar"` or `snapshot -s @e5`.');
   lines.push('');
+  lines.push('### Related commands');
+  lines.push('');
+  lines.push('| Command | Description |');
+  lines.push('|---------|-------------|');
+  lines.push('| `agent-browser diff snapshot` | Unified diff of current tree vs previous snapshot. Shows +added/-removed lines. Run snapshot → act → diff snapshot. |');
+  lines.push('| `agent-browser screenshot --annotate [path]` | Screenshot with numbered ref labels overlaid on each interactive element. Default path: /tmp/screenshot.png |');
+  lines.push('');
+  lines.push('### @e refs');
+  lines.push('');
+  lines.push('Refs are assigned sequentially (@e1, @e2, ...) in DOM tree order.');
   lines.push('After snapshot, use @refs as selectors in any command:');
+  lines.push('');
   lines.push('```bash');
-  lines.push('$B click @e3       $B fill @e4 "value"     $B hover @e1');
-  lines.push('$B html @e2        $B css @e5 "color"      $B attrs @e6');
-  lines.push('$B click @c1       # cursor-interactive ref (from -C)');
+  lines.push('agent-browser click @e3       agent-browser fill @e4 "value"     agent-browser hover @e1');
+  lines.push('agent-browser get html @e2    agent-browser get styles @e5');
   lines.push('```');
   lines.push('');
-  lines.push('**Output format:** indented accessibility tree with @ref IDs, one element per line.');
+  lines.push('**Output format:** indented accessibility tree — role in brackets, text in quotes, attributes in brackets.');
   lines.push('```');
-  lines.push('  @e1 [heading] "Welcome" [level=1]');
-  lines.push('  @e2 [textbox] "Email"');
+  lines.push('  @e1 [heading] "Welcome" [level=1]       ← [level=N] = heading level');
+  lines.push('  @e2 [textbox] "Email"                    ← label text in quotes');
   lines.push('  @e3 [button] "Submit"');
+  lines.push('    @e4 [link] "Learn more" [href=/docs]   ← indentation shows nesting');
   lines.push('```');
   lines.push('');
-  lines.push('Refs are invalidated on navigation — run `snapshot` again after `goto`.');
+  lines.push('**Important:** Refs are invalidated on navigation — run `snapshot` again after `open` or any action that causes a page load.');
 
   return lines.join('\n');
 }
@@ -106,24 +122,19 @@ If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`~/.claude/skills/gstac
 }
 
 function generateBrowseSetup(): string {
-  return `## SETUP (run this check BEFORE any browse command)
+  return `## SETUP (run this check BEFORE any browser command)
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
-if [ -x "$B" ]; then
-  echo "READY: $B"
+if command -v agent-browser &>/dev/null; then
+  echo "READY: $(which agent-browser)"
 else
   echo "NEEDS_SETUP"
 fi
 \`\`\`
 
 If \`NEEDS_SETUP\`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: \`cd <SKILL_DIR> && ./setup\`
-3. If \`bun\` is not installed: \`curl -fsSL https://bun.sh/install | bash\``;
+1. Tell the user: "agent-browser needs a one-time install (~30 seconds). OK to proceed?" Then STOP and wait.
+2. Run: \`npm install -g agent-browser && agent-browser install\``;
 }
 
 const RESOLVERS: Record<string, () => string> = {
@@ -174,7 +185,6 @@ function findTemplates(): string[] {
   const templates: string[] = [];
   const candidates = [
     path.join(ROOT, 'SKILL.md.tmpl'),
-    path.join(ROOT, 'browse', 'SKILL.md.tmpl'),
     path.join(ROOT, 'qa', 'SKILL.md.tmpl'),
     path.join(ROOT, 'setup-browser-cookies', 'SKILL.md.tmpl'),
     path.join(ROOT, 'ship', 'SKILL.md.tmpl'),

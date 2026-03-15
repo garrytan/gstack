@@ -3,7 +3,7 @@
  * dev:skill — Watch mode for SKILL.md template development.
  *
  * Watches .tmpl files, regenerates SKILL.md files on change,
- * validates all $B commands immediately.
+ * validates all agent-browser commands immediately.
  */
 
 import { validateSkill } from '../test/helpers/skill-parser';
@@ -15,7 +15,6 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 const TEMPLATES = [
   { tmpl: path.join(ROOT, 'SKILL.md.tmpl'), output: 'SKILL.md' },
-  { tmpl: path.join(ROOT, 'browse', 'SKILL.md.tmpl'), output: 'browse/SKILL.md' },
 ];
 
 function regenerateAndValidate() {
@@ -64,10 +63,10 @@ for (const { tmpl } of TEMPLATES) {
   });
 }
 
-// Also watch commands.ts and snapshot.ts (source of truth changes)
+// Also watch command registry and snapshot flags (source of truth changes)
 const SOURCE_FILES = [
-  path.join(ROOT, 'browse', 'src', 'commands.ts'),
-  path.join(ROOT, 'browse', 'src', 'snapshot.ts'),
+  path.join(ROOT, 'lib', 'agent-browser-commands.ts'),
+  path.join(ROOT, 'lib', 'snapshot-flags.ts'),
 ];
 
 for (const src of SOURCE_FILES) {

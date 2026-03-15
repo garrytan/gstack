@@ -6,7 +6,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 
-const FIXTURES_DIR = path.resolve(import.meta.dir, 'fixtures');
+const FIXTURES_DIR = path.resolve(import.meta.dir, '..', 'fixtures');
 
 export function startTestServer(port: number = 0): { server: ReturnType<typeof Bun.serve>; url: string } {
   const server = Bun.serve({
