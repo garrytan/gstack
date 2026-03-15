@@ -575,6 +575,7 @@ describe('CLI lifecycle', () => {
     const bunDir = path.dirname(process.execPath);
     cliEnv.PATH = cliEnv.PATH ? `${bunDir}:${cliEnv.PATH}` : bunDir;
     cliEnv.BROWSE_STATE_FILE = stateFile;
+    cliEnv.PATH = `${path.dirname(process.execPath)}:${cliEnv.PATH ?? ''}`;
     const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
       const proc = spawn(process.execPath, ['run', cliPath, 'status'], {
         timeout: 15000,
@@ -732,7 +733,7 @@ describe('Dialog handling', () => {
 
   test('dialog-dismiss changes behavior', async () => {
     const setResult = await handleWriteCommand('dialog-dismiss', [], bm);
-    expect(setResult).toContain('dismissed');
+    expect(setResult).toContain('dismiss');
 
     await handleWriteCommand('goto', [baseUrl + '/dialog.html'], bm);
     await handleWriteCommand('click', ['#confirm-btn'], bm);

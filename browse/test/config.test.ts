@@ -107,7 +107,8 @@ describe('config', () => {
       const logPath = path.join(config.stateDir, 'browse-server.log');
       expect(fs.existsSync(logPath)).toBe(true);
       const logContent = fs.readFileSync(logPath, 'utf-8');
-      expect(logContent).toContain('Warning: could not update .gitignore');
+      expect(logContent).toContain('警告:');
+      expect(logContent).toContain('.gitignore を更新できませんでした');
       // .gitignore should remain unchanged
       const gitignoreContent = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
       expect(gitignoreContent).toBe('node_modules/\n');
@@ -191,11 +192,11 @@ describe('resolveServerScript', () => {
     expect(result).toBe(path.join(srcDir, 'server.ts'));
   });
 
-  test('throws when server.ts cannot be found', () => {
-    expect(() => resolveServerScript({}, '/nonexistent/$bunfs', '/nonexistent/browse'))
-      .toThrow('Cannot find server.ts');
+    test('throws when server.ts cannot be found', () => {
+      expect(() => resolveServerScript({}, '/nonexistent/$bunfs', '/nonexistent/browse'))
+      .toThrow('server.ts が見つかりません');
+    });
   });
-});
 
 describe('version mismatch detection', () => {
   test('detects when versions differ', () => {
