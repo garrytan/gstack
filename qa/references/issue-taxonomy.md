@@ -1,85 +1,68 @@
-# QA Issue Taxonomy
+# Cybereum QA Issue Taxonomy
 
 ## Severity Levels
 
 | Severity | Definition | Examples |
 |----------|------------|----------|
-| **critical** | Blocks a core workflow, causes data loss, or crashes the app | Form submit causes error page, checkout flow broken, data deleted without confirmation |
-| **high** | Major feature broken or unusable, no workaround | Search returns wrong results, file upload silently fails, auth redirect loop |
-| **medium** | Feature works but with noticeable problems, workaround exists | Slow page load (>5s), form validation missing but submit still works, layout broken on mobile only |
-| **low** | Minor cosmetic or polish issue | Typo in footer, 1px alignment issue, hover state inconsistent |
+| **critical** | Wrong calculation output, data integrity violation, or skill produces incorrect recommendations | EVM CPI formula inverted, P80 < P50, risk score != PxI, Schwerpunkt without Critic |
+| **high** | Major skill section missing or broken, cross-skill inconsistency that affects outputs | EVM dashboard missing TCPI, schedule health score uses wrong thresholds |
+| **medium** | Skill works but with inconsistencies or gaps, methodology deviation | Terminology drift between skills, threshold defined differently in two places |
+| **low** | Minor formatting, documentation gap, or cosmetic issue | Inconsistent header levels, missing reference file path |
 
 ## Categories
 
-### 1. Visual/UI
-- Layout breaks (overlapping elements, clipped text, horizontal scrollbar)
-- Broken or missing images
-- Incorrect z-index (elements appearing behind others)
-- Font/color inconsistencies
-- Animation glitches (jank, incomplete transitions)
-- Alignment issues (off-grid, uneven spacing)
-- Dark mode / theme issues
+### 1. Calculation Correctness
+- EVM formula errors (CPI, SPI, EAC, TCPI, VAC, CV, SV)
+- Risk scoring errors (P x I matrix, contingency calculations)
+- Schedule metric errors (float calculations, CPLI, BEI)
+- Completion prediction errors (multiplier tables, Monte Carlo parameters)
+- Reference class errors (overrun percentages, RCAE calculations)
+- Division by zero in metric calculations
+- Unit mismatches (working days vs calendar days, $K vs $M)
 
-### 2. Functional
-- Broken links (404, wrong destination)
-- Dead buttons (click does nothing)
-- Form validation (missing, wrong, bypassed)
-- Incorrect redirects
-- State not persisting (data lost on refresh, back button)
-- Race conditions (double-submit, stale data)
-- Search returning wrong or no results
+### 2. Cross-Skill Consistency
+- Same metric defined differently across skills
+- Threshold values that drift (e.g., "critical" score cutoff)
+- JSON snapshot schemas that don't align
+- Terminology inconsistency (P80 vs 80th percentile)
+- Reference file paths that don't match actual locations
 
-### 3. UX
-- Confusing navigation (no breadcrumbs, dead ends)
-- Missing loading indicators (user doesn't know something is happening)
-- Slow interactions (>500ms with no feedback)
-- Unclear error messages ("Something went wrong" with no detail)
-- No confirmation before destructive actions
-- Inconsistent interaction patterns across pages
-- Dead ends (no way back, no next action)
+### 3. Methodology Compliance
+- DCMA 14-Point thresholds deviating from standard
+- ANSI/EIA-748 EVMS guidelines incorrectly stated
+- AACE standard references that don't match source
+- Flyvbjerg benchmark data that doesn't match published research
+- GAO Schedule Assessment Guide criteria incorrectly applied
 
-### 4. Content
-- Typos and grammar errors
-- Outdated or incorrect text
-- Placeholder / lorem ipsum text left in
-- Truncated text (cut off without ellipsis or "more")
-- Wrong labels on buttons or form fields
-- Missing or unhelpful empty states
+### 4. Output Completeness
+- Missing required sections in skill output templates
+- Incomplete tables (missing columns or rows)
+- Output format that doesn't match the stated template
+- Missing Executive Summary or Recommended Actions
+- Decision Brief missing required fields
 
-### 5. Performance
-- Slow page loads (>3 seconds)
-- Janky scrolling (dropped frames)
-- Layout shifts (content jumping after load)
-- Excessive network requests (>50 on a single page)
-- Large unoptimized images
-- Blocking JavaScript (page unresponsive during load)
+### 5. Data Flow Integrity
+- Schedule data not flowing correctly to Completion Prediction
+- EVM metrics not available to Executive Reporting
+- Risk register not feeding Decision-AI Schwerpunkt analysis
+- Snapshot persistence not saving all required fields
+- Trend tracking not loading prior snapshots correctly
 
-### 6. Console/Errors
-- JavaScript exceptions (uncaught errors)
-- Failed network requests (4xx, 5xx)
-- Deprecation warnings (upcoming breakage)
-- CORS errors
-- Mixed content warnings (HTTP resources on HTTPS)
-- CSP violations
+### 6. Industry Standard Compliance
+- EVM formulas not matching ANSI/EIA-748
+- Schedule checks not matching DCMA 14-Point Assessment
+- Cost contingency not following AACE RP 40R-08
+- Reference class methodology not following Flyvbjerg/UK Treasury
+- Reporting format not following AACE RP 11R-88
 
-### 7. Accessibility
-- Missing alt text on images
-- Unlabeled form inputs
-- Keyboard navigation broken (can't tab to elements)
-- Focus traps (can't escape a modal or dropdown)
-- Missing or incorrect ARIA attributes
-- Insufficient color contrast
-- Content not reachable by screen reader
+## Per-Skill Validation Checklist
 
-## Per-Page Exploration Checklist
+For each analytical skill during a QA session:
 
-For each page visited during a QA session:
-
-1. **Visual scan** — Take annotated screenshot (`snapshot -i -a -o`). Look for layout issues, broken images, alignment.
-2. **Interactive elements** — Click every button, link, and control. Does each do what it says?
-3. **Forms** — Fill and submit. Test empty submission, invalid data, edge cases (long text, special characters).
-4. **Navigation** — Check all paths in/out. Breadcrumbs, back button, deep links, mobile menu.
-5. **States** — Check empty state, loading state, error state, full/overflow state.
-6. **Console** — Run `console --errors` after interactions. Any new JS errors or failed requests?
-7. **Responsiveness** — If relevant, check mobile and tablet viewports.
-8. **Auth boundaries** — What happens when logged out? Different user roles?
+1. **Formula check** -- Plug in known values and verify outputs match expected results
+2. **Threshold check** -- Verify all stated thresholds match cited industry standards
+3. **Output template check** -- Verify all required output sections are present and complete
+4. **Cross-reference check** -- Verify shared concepts are consistent with other skills
+5. **Snapshot schema check** -- Verify JSON persistence captures all required fields
+6. **Trend tracking check** -- Verify delta calculations produce correct results
+7. **Edge case check** -- Test with boundary values (zero, negative, maximum)

@@ -2,7 +2,7 @@
 name: ship
 version: 1.0.0
 description: |
-  Ship workflow: merge main, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.
+  Ship workflow for Cybereum: merge main, run tests, build, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.
 allowed-tools:
   - Bash
   - Read
@@ -15,18 +15,19 @@ allowed-tools:
 
 # Ship: Fully Automated Ship Workflow
 
-You are running the `/ship` workflow. This is a **non-interactive, fully automated** workflow. Do NOT ask for confirmation at any step. The user said `/ship` which means DO IT. Run straight through and output the PR URL at the end.
+You are running the `/ship` workflow for the Cybereum capital project governance platform. This is a **non-interactive, fully automated** workflow. Do NOT ask for confirmation at any step. The user said `/ship` which means DO IT. Run straight through and output the PR URL at the end.
 
 **Only stop for:**
 - On `main` branch (abort)
 - Merge conflicts that can't be auto-resolved (stop, show conflicts)
 - Test failures (stop, show failures)
+- Build failures (stop, show errors)
 - Pre-landing review finds CRITICAL issues and user chooses to fix (not acknowledge or skip)
-- MINOR or MAJOR version bump needed (ask — see Step 4)
+- MINOR or MAJOR version bump needed (ask -- see Step 4)
 
 **Never stop for:**
 - Uncommitted changes (always include them)
-- Version bump choice (auto-pick MICRO or PATCH — see Step 4)
+- Version bump choice (auto-pick MICRO or PATCH -- see Step 4)
 - CHANGELOG content (auto-generate from diff)
 - Commit message approval (auto-commit)
 - Multi-file changesets (auto-split into bisectable commits)
@@ -37,7 +38,7 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 
 1. Check the current branch. If on `main`, **abort**: "You're on main. Ship from a feature branch."
 
-2. Run `git status` (never use `-uall`). Uncommitted changes are always included — no need to ask.
+2. Run `git status` (never use `-uall`). Uncommitted changes are always included -- no need to ask.
 
 3. Run `git diff main...HEAD --stat` and `git log main..HEAD --oneline` to understand what's being shipped.
 
@@ -51,93 +52,29 @@ Fetch and merge `origin/main` into the feature branch so tests run against the m
 git fetch origin main && git merge origin/main --no-edit
 ```
 
-**If there are merge conflicts:** Try to auto-resolve if they are simple (VERSION, schema.rb, CHANGELOG ordering). If conflicts are complex or ambiguous, **STOP** and show them.
+**If there are merge conflicts:** Try to auto-resolve if they are simple (VERSION, CHANGELOG ordering). If conflicts are complex or ambiguous, **STOP** and show them.
 
 **If already up to date:** Continue silently.
 
 ---
 
-## Step 3: Run tests (on merged code)
+## Step 3: Run tests and build (on merged code)
 
-**Do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
-`db:test:prepare` internally, which loads the schema into the correct lane database.
-Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
-
-Run both test suites in parallel:
+Run the Cybereum test suite and build:
 
 ```bash
-bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
-npm run test 2>&1 | tee /tmp/ship_vitest.txt &
-wait
-```
+# Run tests
+bun test 2>&1 | tee /tmp/ship_tests.txt
 
-After both complete, read the output files and check pass/fail.
+# Build the binary
+bun run build 2>&1 | tee /tmp/ship_build.txt
+```
 
 **If any test fails:** Show the failures and **STOP**. Do not proceed.
 
-**If all pass:** Continue silently — just note the counts briefly.
+**If build fails:** Show the errors and **STOP**. Do not proceed.
 
----
-
-## Step 3.25: Eval Suites (conditional)
-
-Evals are mandatory when prompt-related files change. Skip this step entirely if no prompt files are in the diff.
-
-**1. Check if the diff touches prompt-related files:**
-
-```bash
-git diff origin/main --name-only
-```
-
-Match against these patterns (from CLAUDE.md):
-- `app/services/*_prompt_builder.rb`
-- `app/services/*_generation_service.rb`, `*_writer_service.rb`, `*_designer_service.rb`
-- `app/services/*_evaluator.rb`, `*_scorer.rb`, `*_classifier_service.rb`, `*_analyzer.rb`
-- `app/services/concerns/*voice*.rb`, `*writing*.rb`, `*prompt*.rb`, `*token*.rb`
-- `app/services/chat_tools/*.rb`, `app/services/x_thread_tools/*.rb`
-- `config/system_prompts/*.txt`
-- `test/evals/**/*` (eval infrastructure changes affect all suites)
-
-**If no matches:** Print "No prompt-related files changed — skipping evals." and continue to Step 3.5.
-
-**2. Identify affected eval suites:**
-
-Each eval runner (`test/evals/*_eval_runner.rb`) declares `PROMPT_SOURCE_FILES` listing which source files affect it. Grep these to find which suites match the changed files:
-
-```bash
-grep -l "changed_file_basename" test/evals/*_eval_runner.rb
-```
-
-Map runner → test file: `post_generation_eval_runner.rb` → `post_generation_eval_test.rb`.
-
-**Special cases:**
-- Changes to `test/evals/judges/*.rb`, `test/evals/support/*.rb`, or `test/evals/fixtures/` affect ALL suites that use those judges/support files. Check imports in the eval test files to determine which.
-- Changes to `config/system_prompts/*.txt` — grep eval runners for the prompt filename to find affected suites.
-- If unsure which suites are affected, run ALL suites that could plausibly be impacted. Over-testing is better than missing a regression.
-
-**3. Run affected suites at `EVAL_JUDGE_TIER=full`:**
-
-`/ship` is a pre-merge gate, so always use full tier (Sonnet structural + Opus persona judges).
-
-```bash
-EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
-```
-
-If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
-
-**4. Check results:**
-
-- **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.
-- **If all pass:** Note pass counts and cost. Continue to Step 3.5.
-
-**5. Save eval output** — include eval results and cost dashboard in the PR body (Step 8).
-
-**Tier reference (for context — /ship always uses `full`):**
-| Tier | When | Speed (cached) | Cost |
-|------|------|----------------|------|
-| `fast` (Haiku) | Dev iteration, smoke tests | ~5s (14x faster) | ~$0.07/run |
-| `standard` (Sonnet) | Default dev, `bin/test-lane --eval` | ~17s (4x faster) | ~$0.37/run |
-| `full` (Opus persona) | **`/ship` and pre-merge** | ~72s (baseline) | ~$1.27/run |
+**If all pass:** Continue silently -- just note the counts briefly.
 
 ---
 
@@ -145,29 +82,29 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 Review the diff for structural issues that tests don't catch.
 
-1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
+1. Read `review/checklist.md` (or `.claude/skills/review/checklist.md`). If the file cannot be read, **STOP** and report the error.
 
 2. Run `git diff origin/main` to get the full diff (scoped to feature changes against the freshly-fetched remote main).
 
 3. Apply the review checklist in two passes:
-   - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
+   - **Pass 1 (CRITICAL):** Data integrity, calculation correctness, graph consistency
    - **Pass 2 (INFORMATIONAL):** All remaining categories
 
-4. **Always output ALL findings** — both critical and informational. The user must see every issue found.
+4. **Always output ALL findings** -- both critical and informational. The user must see every issue found.
 
 5. Output a summary header: `Pre-Landing Review: N issues (X critical, Y informational)`
 
 6. **If CRITICAL issues found:** For EACH critical issue, use a separate AskUserQuestion with:
    - The problem (`file:line` + description)
    - Your recommended fix
-   - Options: A) Fix it now (recommend), B) Acknowledge and ship anyway, C) It's a false positive — skip
+   - Options: A) Fix it now (recommend), B) Acknowledge and ship anyway, C) It's a false positive -- skip
    After resolving all critical issues: if the user chose A (fix) on any issue, apply the recommended fixes, then commit only the fixed files by name (`git add <fixed-files> && git commit -m "fix: apply pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test with the fixes applied. If the user chose only B (acknowledge) or C (false positive) on all issues, continue with Step 4.
 
 7. **If only non-critical issues found:** Output them and continue. They will be included in the PR body at Step 8.
 
 8. **If no issues found:** Output `Pre-Landing Review: No issues found.` and continue.
 
-Save the review output — it goes into the PR body in Step 8.
+Save the review output -- it goes into the PR body in Step 8.
 
 ---
 
@@ -177,14 +114,14 @@ Save the review output — it goes into the PR body in Step 8.
 
 2. **Auto-decide the bump level based on the diff:**
    - Count lines changed (`git diff origin/main...HEAD --stat | tail -1`)
-   - **MICRO** (4th digit): < 50 lines changed, trivial tweaks, typos, config
-   - **PATCH** (3rd digit): 50+ lines changed, bug fixes, small-medium features
-   - **MINOR** (2nd digit): **ASK the user** — only for major features or significant architectural changes
-   - **MAJOR** (1st digit): **ASK the user** — only for milestones or breaking changes
+   - **MICRO** (4th digit): < 50 lines changed, trivial tweaks, config, skill text updates
+   - **PATCH** (3rd digit): 50+ lines changed, bug fixes, small-medium features, new skills
+   - **MINOR** (2nd digit): **ASK the user** -- only for major features, new analytical engines, or significant architectural changes
+   - **MAJOR** (1st digit): **ASK the user** -- only for milestones or breaking changes
 
 3. Compute the new version:
    - Bumping a digit resets all digits to its right to 0
-   - Example: `0.19.1.0` + PATCH → `0.19.2.0`
+   - Example: `0.19.1.0` + PATCH -> `0.19.2.0`
 
 4. Write the new version to the `VERSION` file.
 
@@ -200,10 +137,10 @@ Save the review output — it goes into the PR body in Step 8.
    - The CHANGELOG entry must be comprehensive of ALL changes going into the PR
    - If existing CHANGELOG entries on the branch already cover some commits, replace them with one unified entry for the new version
    - Categorize changes into applicable sections:
-     - `### Added` — new features
-     - `### Changed` — changes to existing functionality
-     - `### Fixed` — bug fixes
-     - `### Removed` — removed features
+     - `### Added` -- new features, new skills, new analytical capabilities
+     - `### Changed` -- changes to existing functionality, skill updates
+     - `### Fixed` -- bug fixes, calculation corrections
+     - `### Removed` -- removed features
    - Write concise, descriptive bullet points
    - Insert after the file header (line 5), dated today
    - Format: `## [X.Y.Z.W] - YYYY-MM-DD`
@@ -216,23 +153,22 @@ Save the review output — it goes into the PR body in Step 8.
 
 **Goal:** Create small, logical commits that work well with `git bisect` and help LLMs understand what changed.
 
-1. Analyze the diff and group changes into logical commits. Each commit should represent **one coherent change** — not one file, but one logical unit.
+1. Analyze the diff and group changes into logical commits. Each commit should represent **one coherent change** -- not one file, but one logical unit.
 
 2. **Commit ordering** (earlier commits first):
-   - **Infrastructure:** migrations, config changes, route additions
-   - **Models & services:** new models, services, concerns (with their tests)
-   - **Controllers & views:** controllers, views, JS/React components (with their tests)
+   - **Infrastructure:** config changes, dependency updates
+   - **Skills (analytical):** schedule-intelligence, decision-ai, risk-engine, evm-control, completion-prediction, reference-class, executive-reporting, sales-intelligence
+   - **Skills (workflow):** review, ship, qa, retro, plan-ceo-review, plan-eng-review
+   - **Browse/CLI:** browse source, commands, tests
    - **VERSION + CHANGELOG:** always in the final commit
 
 3. **Rules for splitting:**
-   - A model and its test file go in the same commit
-   - A service and its test file go in the same commit
-   - A controller, its views, and its test go in the same commit
-   - Migrations are their own commit (or grouped with the model they support)
-   - Config/route changes can group with the feature they enable
+   - A skill SKILL.md and its references go in the same commit
+   - Browse source and its test files go in the same commit
+   - Config changes can group with the feature they enable
    - If the total diff is small (< 50 lines across < 4 files), a single commit is fine
 
-4. **Each commit must be independently valid** — no broken imports, no references to code that doesn't exist yet. Order commits so dependencies come first.
+4. **Each commit must be independently valid** -- no broken imports, no references to code that doesn't exist yet. Order commits so dependencies come first.
 
 5. Compose each commit message:
    - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
@@ -272,29 +208,30 @@ gh pr create --title "<type>: <summary>" --body "$(cat <<'EOF'
 ## Pre-Landing Review
 <findings from Step 3.5, or "No issues found.">
 
-## Eval Results
-<If evals ran: suite names, pass/fail counts, cost dashboard summary. If skipped: "No prompt-related files changed — evals skipped.">
-
 ## Test plan
-- [x] All Rails tests pass (N runs, 0 failures)
-- [x] All Vitest tests pass (N tests)
+- [x] All bun tests pass (N tests)
+- [x] Build succeeds (browse binary compiled)
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## Cybereum Skills Affected
+<list any analytical or workflow skills modified>
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```
 
-**Output the PR URL** — this should be the final output the user sees.
+**Output the PR URL** -- this should be the final output the user sees.
 
 ---
 
 ## Important Rules
 
 - **Never skip tests.** If tests fail, stop.
-- **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
+- **Never skip the build.** If build fails, stop.
+- **Never skip the pre-landing review.** If checklist is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for confirmation** except for MINOR/MAJOR version bumps and CRITICAL review findings (one AskUserQuestion per critical issue with fix recommendation).
 - **Always use the 4-digit version format** from the VERSION file.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
-- **Split commits for bisectability** — each commit = one logical change.
+- **Split commits for bisectability** -- each commit = one logical change.
 - **The goal is: user says `/ship`, next thing they see is the review + PR URL.**

@@ -2,9 +2,10 @@
 name: retro
 version: 2.0.0
 description: |
-  Weekly engineering retrospective. Analyzes commit history, work patterns,
-  and code quality metrics with persistent history and trend tracking.
+  Weekly engineering retrospective for Cybereum. Analyzes commit history, work
+  patterns, and code quality metrics with persistent history and trend tracking.
   Team-aware: breaks down per-person contributions with praise and growth areas.
+  Cybereum-aware: tracks skill development velocity and cross-skill consistency.
 allowed-tools:
   - Bash
   - Read
@@ -12,9 +13,9 @@ allowed-tools:
   - Glob
 ---
 
-# /retro — Weekly Engineering Retrospective
+# /retro -- Weekly Engineering Retrospective (Cybereum)
 
-Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using Claude Code as a force multiplier.
+Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics for the Cybereum capital project governance platform. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Cybereum-aware: tracks which analytical and workflow skills were modified and flags cross-skill consistency risks.
 
 ## User-invocable
 When the user types `/retro`, run this skill.
@@ -342,6 +343,25 @@ Narrative covering:
 - Test LOC ratio trend
 - Hotspot analysis (are the same files churning?)
 - Any XL PRs that should have been split
+
+### Cybereum Skill Development
+(Cybereum-specific section)
+
+Analyze which skills were modified this period:
+
+```bash
+# Which Cybereum skills were touched?
+git log origin/main --since="<window>" --format="" --name-only | grep -E "^cybereum-" | sort -u
+# Which workflow skills were touched?
+git log origin/main --since="<window>" --format="" --name-only | grep -E "^(ship|review|qa|retro|plan-)" | sort -u
+```
+
+Report:
+- **Analytical skills modified**: List which of the 8 were touched and what changed
+- **Workflow skills modified**: List which were touched
+- **Cross-skill consistency risk**: If >2 analytical skills were modified, flag potential terminology/threshold drift
+- **Skill coverage**: How many of the 8 analytical skills have been touched in the last 30 days? Skills untouched for 30+ days may be falling behind
+- **Snapshot schema changes**: Were any `.cybereum/` JSON schemas modified? Flag backward compatibility risk
 
 ### Focus & Highlights
 (from Step 8)
