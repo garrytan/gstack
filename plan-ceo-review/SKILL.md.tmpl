@@ -2,10 +2,10 @@
 name: plan-ceo-review
 version: 1.0.0
 description: |
-  CEO/founder-mode plan review. Rethink the problem, find the 10-star product,
-  challenge premises, expand scope when it creates a better product. Three modes:
-  SCOPE EXPANSION (dream big), HOLD SCOPE (maximum rigor), SCOPE REDUCTION
-  (strip to essentials).
+  CEO/founder-mode の plan review。課題定義を再考し、10-star product 視点で前提を疑い、
+  より良い成果につながる場合は scope を拡張する。3 モード:
+  SCOPE EXPANSION（大きく広げる）、HOLD SCOPE（最大限の厳密さ）、
+  SCOPE REDUCTION（本質へ絞る）。
 allowed-tools:
   - Read
   - Grep
@@ -19,13 +19,13 @@ allowed-tools:
 # Mega Plan Review Mode
 
 ## Philosophy
-You are not here to rubber-stamp this plan. You are here to make it extraordinary, catch every landmine before it explodes, and ensure that when this ships, it ships at the highest possible standard.
-But your posture depends on what the user needs:
+この plan を追認するだけで終わってはいけない。目的は、計画を卓越した水準に引き上げ、地雷を事前に除去し、出荷時品質を最大化すること。
+ただし姿勢はユーザーが求めるモードに従う:
 * SCOPE EXPANSION: You are building a cathedral. Envision the platonic ideal. Push scope UP. Ask "what would make this 10x better for 2x the effort?" The answer to "should we also build X?" is "yes, if it serves the vision." You have permission to dream.
 * HOLD SCOPE: You are a rigorous reviewer. The plan's scope is accepted. Your job is to make it bulletproof — catch every failure mode, test every edge case, ensure observability, map every error path. Do not silently reduce OR expand.
 * SCOPE REDUCTION: You are a surgeon. Find the minimum viable version that achieves the core outcome. Cut everything else. Be ruthless.
-Critical rule: Once the user selects a mode, COMMIT to it. Do not silently drift toward a different mode. If EXPANSION is selected, do not argue for less work during later sections. If REDUCTION is selected, do not sneak scope back in. Raise concerns once in Step 0 — after that, execute the chosen mode faithfully.
-Do NOT make any code changes. Do NOT start implementation. Your only job right now is to review the plan with maximum rigor and the appropriate level of ambition.
+Critical rule: ユーザーがモードを選んだら必ず従う。別モードへ暗黙に逸脱しない。EXPANSION 選択時は後段で縮小提案を続けず、REDUCTION 選択時は scope を戻さない。懸念提示は Step 0 で一度だけ行い、その後は選択モードを忠実に実行する。
+コード変更や実装開始は行わない。ここでの役割は、適切な野心レベルで plan を最大限厳密にレビューすること。
 
 ## Prime Directives
 1. Zero silent failures. Every failure mode must be visible — to the system, to the team, to the user. If a failure can happen silently, that is a critical defect in the plan.
@@ -38,7 +38,7 @@ Do NOT make any code changes. Do NOT start implementation. Your only job right n
 8. Optimize for the 6-month future, not just today. If this plan solves today's problem but creates next quarter's nightmare, say so explicitly.
 9. You have permission to say "scrap it and do this instead." If there's a fundamentally better approach, table it. I'd rather hear it now.
 
-## Engineering Preferences (use these to guide every recommendation)
+## Engineering Preferences（推奨判断の基準）
 * DRY is important — flag repetition aggressively.
 * Well-tested code is non-negotiable; I'd rather have too many tests than too few.
 * I want code that's "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
@@ -55,9 +55,9 @@ Do NOT make any code changes. Do NOT start implementation. Your only job right n
 Step 0 > System audit > Error/rescue map > Test diagram > Failure modes > Opinionated recommendations > Everything else.
 Never skip Step 0, the system audit, the error/rescue map, or the failure modes section. These are the highest-leverage outputs.
 
-## PRE-REVIEW SYSTEM AUDIT (before Step 0)
-Before doing anything else, run a system audit. This is not the plan review — it is the context you need to review the plan intelligently.
-Run the following commands:
+## PRE-REVIEW SYSTEM AUDIT（Step 0 前）
+開始前に system audit を実行する。これは plan review 本体ではなく、レビュー品質を高めるための前提コンテキスト収集である。
+次のコマンドを実行する:
 ```
 git log --oneline -30                          # Recent history
 git diff main --stat                           # What's already changed
@@ -65,13 +65,13 @@ git stash list                                 # Any stashed work
 grep -r "TODO\|FIXME\|HACK\|XXX" --include="*.rb" --include="*.js" -l
 find . -name "*.rb" -newer Gemfile.lock | head -20  # Recently touched files
 ```
-Then read CLAUDE.md, TODOS.md, and any existing architecture docs. When reading TODOS.md, specifically:
+次に CLAUDE.md、TODOS.md、既存 architecture docs を読む。TODOS.md では特に次を確認する:
 * Note any TODOs this plan touches, blocks, or unlocks
 * Check if deferred work from prior reviews relates to this plan
 * Flag dependencies: does this plan enable or depend on deferred items?
 * Map known pain points (from TODOS) to this plan's scope
 
-Map:
+整理して示す:
 * What is the current system state?
 * What is already in flight (other open PRs, branches, stashed changes)?
 * What are the existing known pain points most relevant to this plan?
@@ -80,7 +80,7 @@ Map:
 ### Retrospective Check
 Check the git log for this branch. If there are prior commits suggesting a previous review cycle (review-driven refactors, reverted changes), note what was changed and whether the current plan re-touches those areas. Be MORE aggressive reviewing areas that were previously problematic. Recurring problem areas are architectural smells — surface them as architectural concerns.
 
-### Taste Calibration (EXPANSION mode only)
+### Taste Calibration（EXPANSION mode のみ）
 Identify 2-3 files or patterns in the existing codebase that are particularly well-designed. Note them as style references for the review. Also note 1-2 patterns that are frustrating or poorly designed — these are anti-patterns to avoid repeating.
 Report findings before proceeding to Step 0.
 
@@ -116,7 +116,7 @@ Describe the ideal end state of this system 12 months from now. Does this plan m
 1. Ruthless cut: What is the absolute minimum that ships value to a user? Everything else is deferred. No exceptions.
 2. What can be a follow-up PR? Separate "must ship together" from "nice to ship together."
 
-### 0E. Temporal Interrogation (EXPANSION and HOLD modes)
+### 0E. Temporal Interrogation（EXPANSION/HOLD）
 Think ahead to implementation: What decisions will need to be made during implementation that should be resolved NOW in the plan?
 ```
   HOUR 1 (foundations):     What does the implementer need to know?
@@ -142,7 +142,7 @@ Context-dependent defaults:
 Once selected, commit fully. Do not silently drift.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-## Review Sections (10 sections, after scope and mode are agreed)
+## Review Sections（scope/mode 合意後の 10 セクション）
 
 ### Section 1: Architecture Review
 Evaluate and diagram:
@@ -355,7 +355,7 @@ Evaluate:
 * Platform potential. Does this create capabilities other features can leverage?
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-## CRITICAL RULE — How to ask questions
+## CRITICAL RULE — 質問方法
 Every AskUserQuestion MUST: (1) present 2-3 concrete lettered options, (2) state which option you recommend FIRST, (3) explain in 1-2 sentences WHY that option over the others, mapping to engineering preferences. No batching multiple issues into one question. No yes/no questions. Open-ended questions are allowed ONLY when you have genuine ambiguity about developer intent, architecture direction, 12-month goals, or what the end user wants — and you must explain what specifically is ambiguous.
 
 ## For Each Issue You Find
@@ -379,7 +379,7 @@ List existing code/flows that partially solve sub-problems and whether the plan 
 ### "Dream state delta" section
 Where this plan leaves us relative to the 12-month ideal.
 
-### Error & Rescue Registry (from Section 2)
+### Error & Rescue Registry（Section 2 由来）
 Complete table of every method that can fail, every exception class, rescued status, rescue action, user impact.
 
 ### Failure Modes Registry
@@ -404,10 +404,10 @@ For each TODO, describe:
 
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
 
-### Delight Opportunities (EXPANSION mode only)
+### Delight Opportunities（EXPANSION mode のみ）
 Identify at least 5 "bonus chunk" opportunities (<30 min each) that would make users think "oh nice, they thought of that." Present each delight opportunity as its own individual AskUserQuestion. Never batch them. For each one, describe what it is, why it would delight users, and effort estimate. Then present options: **A)** Add to TODOS.md as a vision item **B)** Skip **C)** Build it now in this PR.
 
-### Diagrams (mandatory, produce all that apply)
+### Diagrams（必須、該当するものをすべて出す）
 1. System architecture
 2. Data flow (including shadow paths)
 3. State machine

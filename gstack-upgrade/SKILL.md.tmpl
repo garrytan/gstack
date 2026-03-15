@@ -2,8 +2,8 @@
 name: gstack-upgrade
 version: 1.1.0
 description: |
-  Upgrade gstack to the latest version. Detects global vs vendored install,
-  runs the upgrade, and shows what's new.
+  gstack を最新バージョンへ更新する。global/vendored インストールを判定し、
+  アップグレード実行後に変更点を表示する。
 allowed-tools:
   - Bash
   - Read
@@ -13,15 +13,15 @@ allowed-tools:
 
 # /gstack-upgrade
 
-Upgrade gstack to the latest version and show what's new.
+gstack を最新バージョンへ更新し、変更点を表示する。
 
 ## Inline upgrade flow
 
-This section is referenced by all skill preambles when they detect `UPGRADE_AVAILABLE`.
+このセクションは、`UPGRADE_AVAILABLE` を検出した各 skill preamble から参照される。
 
-### Step 1: Ask the user (or auto-upgrade)
+### Step 1: ユーザー確認（または自動アップグレード）
 
-First, check if auto-upgrade is enabled:
+まず auto-upgrade が有効か確認する。
 ```bash
 _AUTO=""
 [ "${GSTACK_AUTO_UPGRADE:-}" = "1" ] && _AUTO="true"
@@ -29,21 +29,21 @@ _AUTO=""
 echo "AUTO_UPGRADE=$_AUTO"
 ```
 
-**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `/gstack-upgrade` manually to retry."
+**`AUTO_UPGRADE=true` または `AUTO_UPGRADE=1` の場合:** AskUserQuestion を省略し、`Auto-upgrading gstack v{old} → v{new}...` をログして Step 2 へ進む。自動アップグレード中に `./setup` が失敗した場合はバックアップ（`.bak` ディレクトリ）から復元し、ユーザーへ `Auto-upgrade failed — restored previous version. Run /gstack-upgrade manually to retry.` と警告する。
 
-**Otherwise**, use AskUserQuestion:
+**それ以外** は AskUserQuestion を使う。
 - Question: "gstack **v{new}** is available (you're on v{old}). Upgrade now?"
 - Options: ["Yes, upgrade now", "Always keep me up to date", "Not now", "Never ask again"]
 
-**If "Yes, upgrade now":** Proceed to Step 2.
+**"Yes, upgrade now" の場合:** Step 2 へ進む。
 
-**If "Always keep me up to date":**
+**"Always keep me up to date" の場合:**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set auto_upgrade true
 ```
-Tell user: "Auto-upgrade enabled. Future updates will install automatically." Then proceed to Step 2.
+ユーザーへ `Auto-upgrade enabled. Future updates will install automatically.` と伝え、Step 2 へ進む。
 
-**If "Not now":** Write snooze state with escalating backoff (first snooze = 24h, second = 48h, third+ = 1 week), then continue with the current skill. Do not mention the upgrade again.
+**"Not now" の場合:** 段階的バックオフ（1 回目 24h、2 回目 48h、3 回目以降 1 week）で snooze 状態を書き込み、現在の skill を続行する。アップグレードを再通知しない。
 ```bash
 _SNOOZE_FILE=~/.gstack/update-snoozed
 _REMOTE_VER="{new}"
@@ -59,18 +59,17 @@ _NEW_LEVEL=$((_CUR_LEVEL + 1))
 [ "$_NEW_LEVEL" -gt 3 ] && _NEW_LEVEL=3
 echo "$_REMOTE_VER $_NEW_LEVEL $(date +%s)" > "$_SNOOZE_FILE"
 ```
-Note: `{new}` is the remote version from the `UPGRADE_AVAILABLE` output — substitute it from the update check result.
+注: `{new}` は `UPGRADE_AVAILABLE` 出力の remote version。update check の結果で置換する。
 
-Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.gstack/config.yaml` for automatic upgrades."
+ユーザーへ snooze 期間を伝える（`Next reminder in 24h` / `48h` / `1 week`）。補足として、`~/.gstack/config.yaml` の `auto_upgrade: true` で自動アップグレードを有効化できることを案内する。
 
-**If "Never ask again":**
+**"Never ask again" の場合:**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set update_check false
 ```
-Tell user: "Update checks disabled. Run `~/.claude/skills/gstack/bin/gstack-config set update_check true` to re-enable."
-Continue with the current skill.
+ユーザーへ `Update checks disabled. Run ~/.claude/skills/gstack/bin/gstack-config set update_check true to re-enable.` と伝え、現在の skill を続行する。
 
-### Step 2: Detect install type
+### Step 2: インストール種別を判定
 
 ```bash
 if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
@@ -92,15 +91,15 @@ fi
 echo "Install type: $INSTALL_TYPE at $INSTALL_DIR"
 ```
 
-### Step 3: Save old version
+### Step 3: 旧バージョンを保存
 
 ```bash
 OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 ```
 
-### Step 4: Upgrade
+### Step 4: アップグレード
 
-**For git installs** (global-git, local-git):
+**git install の場合**（global-git, local-git）:
 ```bash
 cd "$INSTALL_DIR"
 STASH_OUTPUT=$(git stash 2>&1)
@@ -108,9 +107,9 @@ git fetch origin
 git reset --hard origin/main
 ./setup
 ```
-If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
+`$STASH_OUTPUT` に `Saved working directory` が含まれる場合は、`Note: local changes were stashed. Run git stash pop in the skill directory to restore them.` とユーザーへ警告する。
 
-**For vendored installs** (vendored, vendored-global):
+**vendored install の場合**（vendored, vendored-global）:
 ```bash
 PARENT=$(dirname "$INSTALL_DIR")
 TMP_DIR=$(mktemp -d)
@@ -121,9 +120,9 @@ cd "$INSTALL_DIR" && ./setup
 rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
 ```
 
-### Step 4.5: Sync local vendored copy
+### Step 4.5: ローカル vendored copy を同期
 
-After upgrading the primary install, check if there's also a local copy in the current project that needs updating:
+primary install のアップグレード後、現在の project に更新対象のローカル copy があるか確認する。
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -138,7 +137,7 @@ fi
 echo "LOCAL_GSTACK=$LOCAL_GSTACK"
 ```
 
-If `LOCAL_GSTACK` is non-empty, update it by copying from the freshly-upgraded primary install (same approach as README vendored install):
+`LOCAL_GSTACK` が空でない場合、アップグレード済み primary install からコピーして更新する（README の vendored install と同じ方式）。
 ```bash
 mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak"
 cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK"
@@ -146,9 +145,9 @@ rm -rf "$LOCAL_GSTACK/.git"
 cd "$LOCAL_GSTACK" && ./setup
 rm -rf "$LOCAL_GSTACK.bak"
 ```
-Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.claude/skills/gstack/` when you're ready."
+ユーザーへ `Also updated vendored copy at $LOCAL_GSTACK — commit .claude/skills/gstack/ when you're ready.` と伝える。
 
-### Step 5: Write marker + clear cache
+### Step 5: marker 書き込み + cache クリア
 
 ```bash
 mkdir -p ~/.gstack
@@ -157,9 +156,9 @@ rm -f ~/.gstack/last-update-check
 rm -f ~/.gstack/update-snoozed
 ```
 
-### Step 6: Show What's New
+### Step 6: What's New を表示
 
-Read `$INSTALL_DIR/CHANGELOG.md`. Find all version entries between the old version and the new version. Summarize as 5-7 bullets grouped by theme. Don't overwhelm — focus on user-facing changes. Skip internal refactors unless they're significant.
+`$INSTALL_DIR/CHANGELOG.md` を読み、旧バージョンから新バージョンまでのエントリを抽出する。テーマごとに 5-7 個の箇条書きで要約する。過度に詳述せず、user-facing な変更を優先し、重要でない内部リファクタは省略する。
 
 Format:
 ```
@@ -173,12 +172,12 @@ What's new:
 Happy shipping!
 ```
 
-### Step 7: Continue
+### Step 7: 続行
 
-After showing What's New, continue with whatever skill the user originally invoked. The upgrade is done — no further action needed.
+What's New を表示したら、ユーザーが元々呼び出した skill を続行する。アップグレード完了後に追加作業は不要。
 
 ---
 
 ## Standalone usage
 
-When invoked directly as `/gstack-upgrade` (not from a preamble), follow Steps 2-6 above. If already on the latest version, tell the user: "You're already on the latest version (v{version})."
+`/gstack-upgrade` を単体実行した場合（preamble 経由ではない場合）は Step 2-6 を実行する。すでに最新なら `You're already on the latest version (v{version}).` と伝える。

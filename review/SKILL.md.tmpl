@@ -2,8 +2,8 @@
 name: review
 version: 1.0.0
 description: |
-  Pre-landing PR review. Analyzes diff against main for SQL safety, LLM trust
-  boundary violations, conditional side effects, and other structural issues.
+  Pre-landing PR review。main との差分を解析し、SQL 安全性、LLM trust boundary
+  違反、条件付き副作用、その他の構造的問題を検出する。
 allowed-tools:
   - Bash
   - Read
@@ -18,62 +18,62 @@ allowed-tools:
 
 # Pre-Landing PR Review
 
-You are running the `/review` workflow. Analyze the current branch's diff against main for structural issues that tests don't catch.
+`/review` workflow を実行する。現在 branch の main 差分を解析し、テストでは見落としやすい構造的問題を検出する。
 
 ---
 
-## Step 1: Check branch
+## Step 1: branch を確認
 
-1. Run `git branch --show-current` to get the current branch.
-2. If on `main`, output: **"Nothing to review — you're on main or have no changes against main."** and stop.
-3. Run `git fetch origin main --quiet && git diff origin/main --stat` to check if there's a diff. If no diff, output the same message and stop.
-
----
-
-## Step 2: Read the checklist
-
-Read `.claude/skills/review/checklist.md`.
-
-**If the file cannot be read, STOP and report the error.** Do not proceed without the checklist.
+1. `git branch --show-current` で現在 branch を取得する。
+2. `main` 上なら **`Nothing to review — you're on main or have no changes against main.`** を出力して停止する。
+3. `git fetch origin main --quiet && git diff origin/main --stat` で差分有無を確認し、差分がなければ同じメッセージで停止する。
 
 ---
 
-## Step 2.5: Check for Greptile review comments
+## Step 2: checklist を読む
 
-Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+`.claude/skills/review/checklist.md` を読む。
 
-**If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
-
-**If Greptile comments are found:** Store the classifications (VALID & ACTIONABLE, VALID BUT ALREADY FIXED, FALSE POSITIVE, SUPPRESSED) — you will need them in Step 5.
+**読めない場合は STOP し、エラーを報告する。** checklist なしで進めてはいけない。
 
 ---
 
-## Step 3: Get the diff
+## Step 2.5: Greptile review comments を確認
 
-Fetch the latest main to avoid false positives from a stale local main:
+`.claude/skills/review/greptile-triage.md` を読み、fetch / filter / classify / **escalation detection** を実行する。
+
+**PR がない、`gh` 失敗、API エラー、Greptile comment が 0 件の場合:** このステップを黙ってスキップする。Greptile 統合は加点要素であり、なくても review は成立する。
+
+**Greptile comment がある場合:** 分類（VALID & ACTIONABLE / VALID BUT ALREADY FIXED / FALSE POSITIVE / SUPPRESSED）を保持し、Step 5 で使う。
+
+---
+
+## Step 3: diff を取得
+
+古い local main 由来の誤検出を避けるため、最新 main を fetch する:
 
 ```bash
 git fetch origin main --quiet
 ```
 
-Run `git diff origin/main` to get the full diff. This includes both committed and uncommitted changes against the latest main.
+`git diff origin/main` で full diff を取得する。最新 main に対する committed / uncommitted の両方を含む。
 
 ---
 
-## Step 4: Two-pass review
+## Step 4: 2 パス review
 
-Apply the checklist against the diff in two passes:
+checklist を diff に対して 2 パスで適用する:
 
 1. **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
 2. **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Magic Numbers & String Coupling, Dead Code & Consistency, LLM Prompt Issues, Test Gaps, View/Frontend
 
-Follow the output format specified in the checklist. Respect the suppressions — do NOT flag items listed in the "DO NOT flag" section.
+出力形式は checklist 指定に従う。suppressions を尊重し、`DO NOT flag` セクション記載項目は指摘しない。
 
 ---
 
-## Step 5: Output findings
+## Step 5: findings を出力
 
-**Always output ALL findings** — both critical and informational. The user must see every issue.
+**必ず全 findings を出力**する。critical / informational を問わず、ユーザーが全 issue を見られる状態にする。
 
 - If CRITICAL issues found: output all findings, then for EACH critical issue use a separate AskUserQuestion with the problem, your recommended fix, and options (A: Fix it now, B: Acknowledge, C: False positive — skip).
   After all critical questions are answered, output a summary of what the user chose for each issue. If the user chose A (fix) on any issue, apply the recommended fixes. If only B/C were chosen, no action needed.
@@ -110,20 +110,20 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
 ## Step 5.5: TODOS cross-reference
 
-Read `TODOS.md` in the repository root (if it exists). Cross-reference the PR against open TODOs:
+repository root の `TODOS.md`（存在する場合）を読み、PR と open TODO を突き合わせる:
 
 - **Does this PR close any open TODOs?** If yes, note which items in your output: "This PR addresses TODO: <title>"
 - **Does this PR create work that should become a TODO?** If yes, flag it as an informational finding.
 - **Are there related TODOs that provide context for this review?** If yes, reference them when discussing related findings.
 
-If TODOS.md doesn't exist, skip this step silently.
+TODOS.md が存在しない場合は黙ってスキップする。
 
 ---
 
-## Important Rules
+## 重要ルール
 
-- **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Read-only by default.** Only modify files if the user explicitly chooses "Fix it now" on a critical issue. Never commit, push, or create PRs.
-- **Be terse.** One line problem, one line fix. No preamble.
-- **Only flag real problems.** Skip anything that's fine.
-- **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence. Never post vague replies.
+- **コメント前に FULL diff を読む。** すでに差分で解消済みの問題は指摘しない。
+- **デフォルトは read-only。** critical issue でユーザーが `Fix it now` を選んだ場合のみ修正し、commit / push / PR 作成は行わない。
+- **簡潔に書く。** 1 行で問題、1 行で修正。前置きは不要。
+- **実問題だけを指摘する。** 問題がない箇所はスキップする。
+- **Greptile 返信は greptile-triage.md のテンプレートを使う。** すべて evidence 付きで、曖昧な返信は禁止。

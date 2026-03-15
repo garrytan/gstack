@@ -2,11 +2,11 @@
 name: browse
 version: 1.1.0
 description: |
-  Fast headless browser for QA testing and site dogfooding. Navigate any URL, interact with
-  elements, verify page state, diff before/after actions, take annotated screenshots, check
-  responsive layouts, test forms and uploads, handle dialogs, and assert element states.
-  ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
-  user flow, or file a bug with evidence.
+  QA テストとサイト dogfooding 向けの高速ヘッドレスブラウザ。任意の URL へ移動し、
+  要素操作、ページ状態の確認、操作前後の差分確認、注釈付きスクリーンショット取得、
+  レスポンシブレイアウト確認、フォーム/アップロード検証、ダイアログ処理、
+  要素状態のアサーションを行える。1 コマンドあたり約 100ms。機能テスト、
+  デプロイ検証、ユーザーフローの dogfooding、根拠付きバグ報告が必要なときに使う。
 allowed-tools:
   - Bash
   - Read
@@ -16,16 +16,16 @@ allowed-tools:
 
 {{UPDATE_CHECK}}
 
-# browse: QA Testing & Dogfooding
+# browse: QA テスト & Dogfooding
 
-Persistent headless Chromium. First call auto-starts (~3s), then ~100ms per command.
-State persists between calls (cookies, tabs, login sessions).
+永続 headless Chromium。最初の呼び出しで自動起動 (~3 秒) し、その後は 1 コマンド約 100ms。
+呼び出し間で状態を保持する（cookies、tabs、login sessions）。
 
 {{BROWSE_SETUP}}
 
-## Core QA Patterns
+## 基本 QA パターン
 
-### 1. Verify a page loads correctly
+### 1. ページが正しく読み込まれるか確認する
 ```bash
 $B goto https://yourapp.com
 $B text                          # content loads?
@@ -34,7 +34,7 @@ $B network                       # failed requests?
 $B is visible ".main-content"    # key elements present?
 ```
 
-### 2. Test a user flow
+### 2. ユーザーフローをテストする
 ```bash
 $B goto https://app.com/login
 $B snapshot -i                   # see all interactive elements
@@ -45,27 +45,27 @@ $B snapshot -D                   # diff: what changed after submit?
 $B is visible ".dashboard"       # success state present?
 ```
 
-### 3. Verify an action worked
+### 3. 操作結果を検証する
 ```bash
 $B snapshot                      # baseline
 $B click @e3                     # do something
 $B snapshot -D                   # unified diff shows exactly what changed
 ```
 
-### 4. Visual evidence for bug reports
+### 4. バグ報告向けの視覚的エビデンスを残す
 ```bash
 $B snapshot -i -a -o /tmp/annotated.png   # labeled screenshot
 $B screenshot /tmp/bug.png                # plain screenshot
 $B console                                # error log
 ```
 
-### 5. Find all clickable elements (including non-ARIA)
+### 5. クリック可能要素をすべて見つける（non-ARIA 含む）
 ```bash
 $B snapshot -C                   # finds divs with cursor:pointer, onclick, tabindex
 $B click @c1                     # interact with them
 ```
 
-### 6. Assert element states
+### 6. 要素状態をアサートする
 ```bash
 $B is visible ".modal"
 $B is enabled "#submit-btn"
@@ -76,20 +76,20 @@ $B is focused "#search-input"
 $B js "document.body.textContent.includes('Success')"
 ```
 
-### 7. Test responsive layouts
+### 7. レスポンシブレイアウトをテストする
 ```bash
 $B responsive /tmp/layout        # mobile + tablet + desktop screenshots
 $B viewport 375x812              # or set specific viewport
 $B screenshot /tmp/mobile.png
 ```
 
-### 8. Test file uploads
+### 8. ファイルアップロードをテストする
 ```bash
 $B upload "#file-input" /path/to/file.pdf
 $B is visible ".upload-success"
 ```
 
-### 9. Test dialogs
+### 9. ダイアログをテストする
 ```bash
 $B dialog-accept "yes"           # set up handler
 $B click "#delete-button"        # trigger dialog
@@ -97,7 +97,7 @@ $B dialog                        # see what appeared
 $B snapshot -D                   # verify deletion happened
 ```
 
-### 10. Compare environments
+### 10. 環境を比較する
 ```bash
 $B diff https://staging.app.com https://prod.app.com
 ```
@@ -106,6 +106,6 @@ $B diff https://staging.app.com https://prod.app.com
 
 {{SNAPSHOT_FLAGS}}
 
-## Full Command List
+## 全コマンド一覧
 
 {{COMMAND_REFERENCE}}

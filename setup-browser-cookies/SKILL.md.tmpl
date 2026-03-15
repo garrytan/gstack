@@ -2,9 +2,9 @@
 name: setup-browser-cookies
 version: 1.0.0
 description: |
-  Import cookies from your real browser (Comet, Chrome, Arc, Brave, Edge) into the
-  headless browse session. Opens an interactive picker UI where you select which
-  cookie domains to import. Use before QA testing authenticated pages.
+  実ブラウザ（Comet, Chrome, Arc, Brave, Edge）の cookies を headless browse
+  セッションへ取り込む。インポート対象ドメインを選ぶための対話式 picker UI を開く。
+  認証済みページを QA テストする前に使う。
 allowed-tools:
   - Bash
   - Read
@@ -15,59 +15,59 @@ allowed-tools:
 
 # Setup Browser Cookies
 
-Import logged-in sessions from your real Chromium browser into the headless browse session.
+実 Chromium ブラウザのログインセッションを headless browse セッションへ取り込む。
 
-## How it works
+## 動作概要
 
-1. Find the browse binary
-2. Run `cookie-import-browser` to detect installed browsers and open the picker UI
-3. User selects which cookie domains to import in their browser
-4. Cookies are decrypted and loaded into the Playwright session
+1. browse binary を見つける
+2. `cookie-import-browser` を実行し、インストール済みブラウザ検出と picker UI 起動を行う
+3. ユーザーがブラウザ上でインポート対象の cookie domain を選ぶ
+4. cookies を復号して Playwright セッションへ読み込む
 
-## Steps
+## 手順
 
-### 1. Find the browse binary
+### 1. browse binary を見つける
 
 {{BROWSE_SETUP}}
 
-### 2. Open the cookie picker
+### 2. cookie picker を開く
 
 ```bash
 $B cookie-import-browser
 ```
 
-This auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge) and opens
-an interactive picker UI in your default browser where you can:
-- Switch between installed browsers
-- Search domains
-- Click "+" to import a domain's cookies
-- Click trash to remove imported cookies
+インストール済み Chromium ブラウザ（Comet, Chrome, Arc, Brave, Edge）を自動検出し、
+デフォルトブラウザで対話式 picker UI を開く。UI では以下を実行できる。
+- インストール済みブラウザの切り替え
+- domain 検索
+- `+` をクリックして domain の cookies をインポート
+- ゴミ箱アイコンをクリックしてインポート済み cookies を削除
 
-Tell the user: **"Cookie picker opened — select the domains you want to import in your browser, then tell me when you're done."**
+ユーザーには次を伝える: **「Cookie picker を開きました。ブラウザでインポートしたい domain を選択し、完了したら知らせてください。」**
 
-### 3. Direct import (alternative)
+### 3. 直接インポート（代替）
 
-If the user specifies a domain directly (e.g., `/setup-browser-cookies github.com`), skip the UI:
+ユーザーが domain を直接指定した場合（例: `/setup-browser-cookies github.com`）は UI を省略する。
 
 ```bash
 $B cookie-import-browser comet --domain github.com
 ```
 
-Replace `comet` with the appropriate browser if specified.
+ブラウザ指定がある場合は `comet` を適切な名前へ置き換える。
 
-### 4. Verify
+### 4. 確認
 
-After the user confirms they're done:
+ユーザーが完了を通知したら実行する。
 
 ```bash
 $B cookies
 ```
 
-Show the user a summary of imported cookies (domain counts).
+インポート済み cookies の要約（domain ごとの件数）をユーザーに示す。
 
-## Notes
+## 注意点
 
-- First import per browser may trigger a macOS Keychain dialog — click "Allow" / "Always Allow"
-- Cookie picker is served on the same port as the browse server (no extra process)
-- Only domain names and cookie counts are shown in the UI — no cookie values are exposed
-- The browse session persists cookies between commands, so imported cookies work immediately
+- ブラウザごとの初回インポート時に macOS Keychain ダイアログが出る場合がある。`Allow` / `Always Allow` を選ぶ
+- Cookie picker は browse server と同一ポートで配信される（追加プロセスは不要）
+- UI には domain 名と cookie 件数のみを表示し、cookie 値は露出しない
+- browse session はコマンド間で cookies を保持するため、インポート直後から利用できる

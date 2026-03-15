@@ -2,9 +2,9 @@
 name: retro
 version: 2.0.0
 description: |
-  Weekly engineering retrospective. Analyzes commit history, work patterns,
-  and code quality metrics with persistent history and trend tracking.
-  Team-aware: breaks down per-person contributions with praise and growth areas.
+  週次 engineering retrospective。commit 履歴、作業パターン、コード品質指標を
+  永続履歴とトレンド追跡付きで分析する。team-aware で、各メンバーの貢献を
+  praise と growth area に分けて整理する。
 allowed-tools:
   - Bash
   - Read
@@ -17,10 +17,10 @@ allowed-tools:
 
 # /retro — Weekly Engineering Retrospective
 
-Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using Claude Code as a force multiplier.
+commit 履歴、作業パターン、コード品質指標を分析し、包括的な engineering retrospective を生成する。実行ユーザーを特定したうえで全 contributor を分析し、各人ごとの praise と growth opportunities を示す。Claude Code を活用する senior IC/CTO レベルの builder 向け。
 
 ## User-invocable
-When the user types `/retro`, run this skill.
+ユーザーが `/retro` と入力したらこの skill を実行する。
 
 ## Arguments
 - `/retro` — default: last 7 days
@@ -32,9 +32,9 @@ When the user types `/retro`, run this skill.
 
 ## Instructions
 
-Parse the argument to determine the time window. Default to 7 days if no argument given. Use `--since="N days ago"`, `--since="N hours ago"`, or `--since="N weeks ago"` (for `w` units) for git log queries. All times should be reported in **Pacific time** (use `TZ=America/Los_Angeles` when converting timestamps).
+引数を解析して time window を決定する。引数なしのデフォルトは 7 日。git log では `--since="N days ago"` / `--since="N hours ago"` / `--since="N weeks ago"`（`w` 単位）を使う。時刻はすべて **Pacific time**（変換時に `TZ=America/Los_Angeles`）で報告する。
 
-**Argument validation:** If the argument doesn't match a number followed by `d`, `h`, or `w`, the word `compare`, or `compare` followed by a number and `d`/`h`/`w`, show this usage and stop:
+**引数バリデーション:** 引数が `d` / `h` / `w` 付き数値、`compare`、または `compare` + `d`/`h`/`w` 付き数値に一致しない場合、次の usage を表示して停止する:
 ```
 Usage: /retro [window]
   /retro              — last 7 days (default)
@@ -45,9 +45,9 @@ Usage: /retro [window]
   /retro compare 14d  — compare with explicit window
 ```
 
-### Step 1: Gather Raw Data
+### Step 1: Raw Data を収集
 
-First, fetch origin and identify the current user:
+まず origin を fetch し、現在ユーザーを特定する:
 ```bash
 git fetch origin main --quiet
 # Identify who is running the retro
@@ -55,9 +55,9 @@ git config user.name
 git config user.email
 ```
 
-The name returned by `git config user.name` is **"you"** — the person reading this retro. All other authors are teammates. Use this to orient the narrative: "your" commits vs teammate contributions.
+`git config user.name` の結果は **"you"**（この retro の読者）として扱う。その他の author は teammate として扱い、「your commits vs teammate contributions」の観点で叙述する。
 
-Run ALL of these git commands in parallel (they are independent):
+以下の git コマンドは独立しているため、すべて並列実行する:
 
 ```bash
 # 1. All commits in window with timestamps, subject, hash, AUTHOR, files changed, insertions, deletions
@@ -91,7 +91,7 @@ cat ~/.gstack/greptile-history.md 2>/dev/null || true
 cat TODOS.md 2>/dev/null || true
 ```
 
-### Step 2: Compute Metrics
+### Step 2: Metrics を算出
 
 Calculate and present these metrics in a summary table:
 
@@ -230,7 +230,7 @@ For each contributor (including the current user), compute:
 
 **If there are Co-Authored-By trailers:** Parse `Co-Authored-By:` lines in commit messages. Credit those authors for the commit alongside the primary author. Note AI co-authors (e.g., `noreply@anthropic.com`) but do not include them as team members — instead, track "AI-assisted commits" as a separate metric.
 
-### Step 10: Week-over-Week Trends (if window >= 14d)
+### Step 10: Week-over-Week Trends（window >= 14d）
 
 If the time window is 14 days or more, split into weekly buckets and show trends:
 - Commits per week (total and per-author)
@@ -255,7 +255,7 @@ Count backward from today — how many consecutive days have at least one commit
 - "Team shipping streak: 47 consecutive days"
 - "Your shipping streak: 32 consecutive days"
 
-### Step 12: Load History & Compare
+### Step 12: History を読み込み比較
 
 Before saving the new snapshot, check for prior retro history:
 
@@ -276,7 +276,7 @@ Deep sessions:      3      →    5           ↑2
 
 **If no prior retros exist:** Skip the comparison section and append: "First retro recorded — run again next week to see trends."
 
-### Step 13: Save Retro History
+### Step 13: Retro History を保存
 
 After computing all metrics (including streak) and loading any prior history for comparison, save a JSON snapshot:
 
@@ -346,7 +346,7 @@ Include backlog data in the JSON when TODOS.md exists:
   }
 ```
 
-### Step 14: Write the Narrative
+### Step 14: Narrative を作成
 
 Structure the output as:
 
@@ -394,7 +394,7 @@ Narrative covering:
 - Focus score with interpretation
 - Ship of the week callout
 
-### Your Week (personal deep-dive)
+### Your Week（personal deep-dive）
 (from Step 9, for the current user only)
 
 This is the section the user cares most about. Include:
@@ -463,7 +463,7 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - Use markdown tables and code blocks for data, prose for narrative
 - Output directly to the conversation — do NOT write to filesystem (except the `.context/retros/` JSON snapshot)
 
-## Important Rules
+## 重要ルール
 
 - ALL narrative output goes directly to the user in the conversation. The ONLY file written is the `.context/retros/` JSON snapshot.
 - Use `origin/main` for all git queries (not local main which may be stale)

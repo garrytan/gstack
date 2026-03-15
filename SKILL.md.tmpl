@@ -2,11 +2,11 @@
 name: gstack
 version: 1.1.0
 description: |
-  Fast headless browser for QA testing and site dogfooding. Navigate any URL, interact with
-  elements, verify page state, diff before/after actions, take annotated screenshots, check
-  responsive layouts, test forms and uploads, handle dialogs, and assert element states.
-  ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
-  user flow, or file a bug with evidence.
+  QA テストとサイト dogfooding 向けの高速 headless browser。任意の URL への移動、
+  要素操作、ページ状態確認、操作前後差分、注釈付きスクリーンショット取得、
+  レスポンシブ確認、フォーム/アップロード検証、ダイアログ処理、
+  要素状態アサーションに対応。1 コマンドあたり約 100ms。機能テスト、
+  デプロイ確認、ユーザーフロー dogfooding、証拠付きバグ報告で使う。
 allowed-tools:
   - Bash
   - Read
@@ -16,23 +16,23 @@ allowed-tools:
 
 {{UPDATE_CHECK}}
 
-# gstack browse: QA Testing & Dogfooding
+# gstack browse: QA テスト & Dogfooding
 
-Persistent headless Chromium. First call auto-starts (~3s), then ~100-200ms per command.
-Auto-shuts down after 30 min idle. State persists between calls (cookies, tabs, sessions).
+永続 headless Chromium。初回呼び出しで自動起動 (~3 秒) し、その後は 1 コマンドあたり約 100-200ms。
+30 分アイドルで自動終了。呼び出し間で状態（cookies、tabs、sessions）を保持する。
 
 {{BROWSE_SETUP}}
 
-## IMPORTANT
+## 重要
 
-- Use the compiled binary via Bash: `$B <command>`
-- NEVER use `mcp__claude-in-chrome__*` tools. They are slow and unreliable.
-- Browser persists between calls — cookies, login sessions, and tabs carry over.
-- Dialogs (alert/confirm/prompt) are auto-accepted by default — no browser lockup.
+- Bash からコンパイル済み binary を使う: `$B <command>`
+- `mcp__claude-in-chrome__*` は絶対に使わない。遅く不安定。
+- Browser は呼び出し間で状態を保持し、cookies / login sessions / tabs が引き継がれる。
+- Dialogs（alert/confirm/prompt）はデフォルトで自動 accept され、ブラウザが固まらない。
 
-## QA Workflows
+## QA ワークフロー
 
-### Test a user flow (login, signup, checkout, etc.)
+### ユーザーフローをテストする（login、signup、checkout など）
 
 ```bash
 # 1. Go to the page
@@ -52,7 +52,7 @@ $B is visible ".dashboard"  # assert the dashboard appeared
 $B screenshot /tmp/after-login.png
 ```
 
-### Verify a deployment / check prod
+### デプロイを検証する / prod を確認する
 
 ```bash
 $B goto https://yourapp.com
@@ -64,7 +64,7 @@ $B is visible ".hero-section"    # key elements present?
 $B screenshot /tmp/prod-check.png
 ```
 
-### Dogfood a feature end-to-end
+### 機能を end-to-end で dogfood する
 
 ```bash
 # Navigate to the feature
@@ -90,7 +90,7 @@ $B is checked "#agree-checkbox"
 $B console
 ```
 
-### Test responsive layouts
+### レスポンシブレイアウトをテストする
 
 ```bash
 # Quick: 3 screenshots at mobile/tablet/desktop
@@ -115,7 +115,7 @@ $B screenshot --clip 0,0,800,600 /tmp/above-fold.png
 $B screenshot --viewport /tmp/viewport.png
 ```
 
-### Test file upload
+### ファイルアップロードをテストする
 
 ```bash
 $B goto https://app.example.com/upload
@@ -125,7 +125,7 @@ $B is visible ".upload-success"
 $B screenshot /tmp/upload-result.png
 ```
 
-### Test forms with validation
+### バリデーション付きフォームをテストする
 
 ```bash
 $B goto https://app.example.com/form
@@ -142,7 +142,7 @@ $B click @e10
 $B snapshot -D                       # diff shows errors gone, success state
 ```
 
-### Test dialogs (delete confirmations, prompts)
+### ダイアログをテストする（削除確認、prompt）
 
 ```bash
 # Set up dialog handling BEFORE triggering
@@ -156,7 +156,7 @@ $B dialog-accept "my answer"  # accept with text
 $B click "#rename-button"     # triggers prompt
 ```
 
-### Test authenticated pages (import real browser cookies)
+### 認証済みページをテストする（実ブラウザ cookies を取り込む）
 
 ```bash
 # Import cookies from your real browser (opens interactive picker)
@@ -171,13 +171,13 @@ $B snapshot -i
 $B screenshot /tmp/github-profile.png
 ```
 
-### Compare two pages / environments
+### 2 つのページ / 環境を比較する
 
 ```bash
 $B diff https://staging.app.com https://prod.app.com
 ```
 
-### Multi-step chain (efficient for long flows)
+### 複数ステップ chain（長いフローを効率化）
 
 ```bash
 echo '[
@@ -191,7 +191,7 @@ echo '[
 ]' | $B chain
 ```
 
-## Quick Assertion Patterns
+## クイックアサーション・パターン
 
 ```bash
 # Element exists and is visible
@@ -227,17 +227,17 @@ $B css ".button" "background-color"
 
 {{SNAPSHOT_FLAGS}}
 
-## Command Reference
+## コマンドリファレンス
 
 {{COMMAND_REFERENCE}}
 
 ## Tips
 
-1. **Navigate once, query many times.** `goto` loads the page; then `text`, `js`, `screenshot` all hit the loaded page instantly.
-2. **Use `snapshot -i` first.** See all interactive elements, then click/fill by ref. No CSS selector guessing.
-3. **Use `snapshot -D` to verify.** Baseline → action → diff. See exactly what changed.
-4. **Use `is` for assertions.** `is visible .modal` is faster and more reliable than parsing page text.
-5. **Use `snapshot -a` for evidence.** Annotated screenshots are great for bug reports.
-6. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
-7. **Check `console` after actions.** Catch JS errors that don't surface visually.
-8. **Use `chain` for long flows.** Single command, no per-step CLI overhead.
+1. **1 回移動して何度も確認する。** `goto` でページを読み込んだ後、`text` / `js` / `screenshot` は即時実行できる。
+2. **最初に `snapshot -i` を使う。** 対話可能要素を見てから ref で click/fill する。CSS selector 推測は不要。
+3. **検証は `snapshot -D`。** baseline → action → diff で変化点を正確に確認できる。
+4. **アサーションには `is`。** `is visible .modal` はページ全文解析より速く堅牢。
+5. **証拠収集には `snapshot -a`。** 注釈付きスクリーンショットはバグ報告に有効。
+6. **難しい UI には `snapshot -C`。** accessibility tree が拾わない clickable div も見つかる。
+7. **操作後に `console` を確認。** 見た目に出ない JS エラーを拾える。
+8. **長いフローは `chain`。** 1 コマンドで実行し、ステップごとの CLI オーバーヘッドを減らせる。

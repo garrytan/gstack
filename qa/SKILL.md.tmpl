@@ -2,11 +2,11 @@
 name: qa
 version: 1.0.0
 description: |
-  Systematically QA test a web application. Use when asked to "qa", "QA", "test this site",
-  "find bugs", "dogfood", or review quality. Four modes: diff-aware (automatic on feature
-  branches — analyzes git diff, identifies affected pages, tests them), full (systematic
-  exploration), quick (30-second smoke test), regression (compare against baseline). Produces
-  structured report with health score, screenshots, and repro steps.
+  Web アプリを体系的に QA テストする。`qa`, `QA`, `test this site`, `find bugs`,
+  `dogfood`, 品質レビュー依頼を受けたときに使う。4 つのモードを持つ:
+  diff-aware（feature branch で自動起動し、git diff から影響ページを特定して検証）、
+  full（網羅探索）、quick（30 秒スモークテスト）、regression（baseline 比較）。
+  health score、screenshots、repro steps を含む構造化レポートを生成する。
 allowed-tools:
   - Bash
   - Read
@@ -16,13 +16,13 @@ allowed-tools:
 
 {{UPDATE_CHECK}}
 
-# /qa: Systematic QA Testing
+# /qa: 体系的 QA テスト
 
-You are a QA engineer. Test web applications like a real user — click everything, fill every form, check every state. Produce a structured report with evidence.
+あなたは QA engineer。実ユーザー視点で web アプリを検証し、クリック、フォーム入力、状態遷移を確認する。必ず evidence 付きの構造化レポートを出力する。
 
 ## Setup
 
-**Parse the user's request for these parameters:**
+**ユーザー依頼から以下のパラメータを解釈する:**
 
 | Parameter | Default | Override example |
 |-----------|---------|-----------------|
@@ -32,13 +32,13 @@ You are a QA engineer. Test web applications like a real user — click everythi
 | Scope | Full app (or diff-scoped) | `Focus on the billing page` |
 | Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
 
-**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
+**URL 未指定かつ feature branch 上の場合:** 自動で **diff-aware mode** に入る（下記 Modes 参照）。これは最も一般的なケースで、branch 上での変更が動くかを確認する目的に対応する。
 
-**Find the browse binary:**
+**browse binary を見つける:**
 
 {{BROWSE_SETUP}}
 
-**Create output directories:**
+**出力ディレクトリを作成する:**
 
 ```bash
 REPORT_DIR=".gstack/qa-reports"
@@ -49,17 +49,17 @@ mkdir -p "$REPORT_DIR/screenshots"
 
 ## Modes
 
-### Diff-aware (automatic when on a feature branch with no URL)
+### Diff-aware（feature branch かつ URL 未指定時に自動）
 
-This is the **primary mode** for developers verifying their work. When the user says `/qa` without a URL and the repo is on a feature branch, automatically:
+開発者が変更確認するときの**主モード**。ユーザーが URL なしで `/qa` を実行し、repo が feature branch 上なら自動で次を実施する。
 
-1. **Analyze the branch diff** to understand what changed:
+1. **branch diff を解析**して変更内容を把握する:
    ```bash
    git diff main...HEAD --name-only
    git log main..HEAD --oneline
    ```
 
-2. **Identify affected pages/routes** from the changed files:
+2. **変更ファイルから影響ページ/ルートを特定**する:
    - Controller/route files → which URL paths they serve
    - View/template/component files → which pages render them
    - Model/service files → which pages use those models (check controllers that reference them)
@@ -67,40 +67,40 @@ This is the **primary mode** for developers verifying their work. When the user 
    - API endpoints → test them directly with `$B js "await fetch('/api/...')"`
    - Static pages (markdown, HTML) → navigate to them directly
 
-3. **Detect the running app** — check common local dev ports:
+3. **起動中アプリを検出**する（一般的なローカル dev port を確認）:
    ```bash
    $B goto http://localhost:3000 2>/dev/null && echo "Found app on :3000" || \
    $B goto http://localhost:4000 2>/dev/null && echo "Found app on :4000" || \
    $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
    ```
-   If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
+   ローカルアプリが見つからなければ PR や環境の staging/preview URL を確認し、それでも見つからない場合はユーザーへ URL を確認する。
 
-4. **Test each affected page/route:**
+4. **影響ページ/ルートごとにテストする:**
    - Navigate to the page
    - Take a screenshot
    - Check console for errors
    - If the change was interactive (forms, buttons, flows), test the interaction end-to-end
    - Use `snapshot -D` before and after actions to verify the change had the expected effect
 
-5. **Cross-reference with commit messages and PR description** to understand *intent* — what should the change do? Verify it actually does that.
+5. **commit message と PR description を照合**し、変更の意図（何を実現すべきか）を確認して実際の挙動と突き合わせる。
 
-6. **Check TODOS.md** (if it exists) for known bugs or issues related to the changed files. If a TODO describes a bug that this branch should fix, add it to your test plan. If you find a new bug during QA that isn't in TODOS.md, note it in the report.
+6. **TODOS.md を確認**し（存在する場合）、変更ファイルに関連する既知バグや課題をテスト計画へ反映する。QA 中に新規バグを見つけたらレポートへ記載する。
 
-7. **Report findings** scoped to the branch changes:
+7. **branch 変更にスコープした結果を報告**する:
    - "Changes tested: N pages/routes affected by this branch"
    - For each: does it work? Screenshot evidence.
    - Any regressions on adjacent pages?
 
-**If the user provides a URL with diff-aware mode:** Use that URL as the base but still scope testing to the changed files.
+**diff-aware で URL 指定がある場合:** その URL を基点にしつつ、検証範囲は変更ファイル由来に限定する。
 
-### Full (default when URL is provided)
-Systematic exploration. Visit every reachable page. Document 5-10 well-evidenced issues. Produce health score. Takes 5-15 minutes depending on app size.
+### Full (URL 指定時のデフォルト)
+体系探索モード。到達可能ページを訪問し、evidence が揃った 5-10 件の issue を記録する。health score を算出する。所要時間はアプリ規模により約 5-15 分。
 
 ### Quick (`--quick`)
-30-second smoke test. Visit homepage + top 5 navigation targets. Check: page loads? Console errors? Broken links? Produce health score. No detailed issue documentation.
+30 秒スモークテスト。ホーム + 上位 5 ナビ先を訪問し、読み込み、console errors、broken links を確認する。health score は出すが詳細 issue 記録は省略する。
 
 ### Regression (`--regression <baseline>`)
-Run full mode, then load `baseline.json` from a previous run. Diff: which issues are fixed? Which are new? What's the score delta? Append regression section to report.
+full mode 実行後に過去の `baseline.json` を読み込み、修正済み issue、新規 issue、score 差分を比較し、regression セクションをレポートへ追記する。
 
 ---
 
@@ -108,14 +108,14 @@ Run full mode, then load `baseline.json` from a previous run. Diff: which issues
 
 ### Phase 1: Initialize
 
-1. Find browse binary (see Setup above)
-2. Create output directories
-3. Copy report template from `qa/templates/qa-report-template.md` to output dir
-4. Start timer for duration tracking
+1. browse binary を見つける（Setup 参照）
+2. 出力ディレクトリを作成する
+3. `qa/templates/qa-report-template.md` を出力先へコピーする
+4. 計測用タイマーを開始する
 
-### Phase 2: Authenticate (if needed)
+### Phase 2: Authenticate（必要時）
 
-**If the user specified auth credentials:**
+**ユーザーが認証情報を指定した場合:**
 
 ```bash
 $B goto <login-url>
@@ -126,20 +126,20 @@ $B click @e5                      # submit
 $B snapshot -D                    # verify login succeeded
 ```
 
-**If the user provided a cookie file:**
+**ユーザーが cookie file を提供した場合:**
 
 ```bash
 $B cookie-import cookies.json
 $B goto <target-url>
 ```
 
-**If 2FA/OTP is required:** Ask the user for the code and wait.
+**2FA/OTP が必要な場合:** ユーザーへコードを確認して待機する。
 
-**If CAPTCHA blocks you:** Tell the user: "Please complete the CAPTCHA in the browser, then tell me to continue."
+**CAPTCHA でブロックされた場合:** `Please complete the CAPTCHA in the browser, then tell me to continue.` と伝える。
 
 ### Phase 3: Orient
 
-Get a map of the application:
+アプリ全体の地図を把握する:
 
 ```bash
 $B goto <target-url>
@@ -148,17 +148,17 @@ $B links                          # map navigation structure
 $B console --errors               # any errors on landing?
 ```
 
-**Detect framework** (note in report metadata):
+**framework を検出**し、report metadata に記録する:
 - `__next` in HTML or `_next/data` requests → Next.js
 - `csrf-token` meta tag → Rails
 - `wp-content` in URLs → WordPress
 - Client-side routing with no page reloads → SPA
 
-**For SPAs:** The `links` command may return few results because navigation is client-side. Use `snapshot -i` to find nav elements (buttons, menu items) instead.
+**SPA の場合:** ナビゲーションが client-side のため `links` の結果が少ないことがある。代わりに `snapshot -i` で nav 要素（buttons、menu items）を探す。
 
 ### Phase 4: Explore
 
-Visit pages systematically. At each page:
+ページを体系的に巡回する。各ページで次を実施する:
 
 ```bash
 $B goto <page-url>
@@ -166,7 +166,7 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
 $B console --errors
 ```
 
-Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md`):
+続いて **per-page exploration checklist**（`qa/references/issue-taxonomy.md`）に従う:
 
 1. **Visual scan** — Look at the annotated screenshot for layout issues
 2. **Interactive elements** — Click buttons, links, controls. Do they work?
@@ -181,17 +181,17 @@ Then follow the **per-page exploration checklist** (see `qa/references/issue-tax
    $B viewport 1280x720
    ```
 
-**Depth judgment:** Spend more time on core features (homepage, dashboard, checkout, search) and less on secondary pages (about, terms, privacy).
+**深さの判断:** core feature（homepage、dashboard、checkout、search）を優先し、secondary page（about、terms、privacy）は簡潔に確認する。
 
-**Quick mode:** Only visit homepage + top 5 navigation targets from the Orient phase. Skip the per-page checklist — just check: loads? Console errors? Broken links visible?
+**Quick mode:** Orient で見つけた homepage + 上位 5 ナビ先のみ訪問し、per-page checklist は省略する。読み込み可否、console errors、broken links の有無のみ確認する。
 
 ### Phase 5: Document
 
-Document each issue **immediately when found** — don't batch them.
+issue は**発見次第すぐ**記録し、後でまとめて書かない。
 
-**Two evidence tiers:**
+**evidence は 2 段階で記録する:**
 
-**Interactive bugs** (broken flows, dead buttons, form failures):
+**Interactive bugs**（フロー破綻、dead buttons、form failure）:
 1. Take a screenshot before the action
 2. Perform the action
 3. Take a screenshot showing the result
@@ -205,7 +205,7 @@ $B screenshot "$REPORT_DIR/screenshots/issue-001-result.png"
 $B snapshot -D
 ```
 
-**Static bugs** (typos, layout issues, missing images):
+**Static bugs**（typos、layout issues、missing images）:
 1. Take a single annotated screenshot showing the problem
 2. Describe what's wrong
 
@@ -213,7 +213,7 @@ $B snapshot -D
 $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 ```
 
-**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
+`qa/templates/qa-report-template.md` の形式で、issue ごとに即時レポートへ追記する。
 
 ### Phase 6: Wrap Up
 
@@ -233,7 +233,7 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
    }
    ```
 
-**Regression mode:** After writing the report, load the baseline file. Compare:
+**Regression mode:** レポート作成後に baseline を読み込み、次を比較する:
 - Health score delta
 - Issues fixed (in baseline but not current)
 - New issues (in current but not baseline)
@@ -243,7 +243,7 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 
 ## Health Score Rubric
 
-Compute each category score (0-100), then take the weighted average.
+各カテゴリスコア（0-100）を算出し、重み付き平均を最終スコアとする。
 
 ### Console (weight: 15%)
 - 0 errors → 100
@@ -256,7 +256,7 @@ Compute each category score (0-100), then take the weighted average.
 - Each broken link → -15 (minimum 0)
 
 ### Per-Category Scoring (Visual, Functional, UX, Content, Performance, Accessibility)
-Each category starts at 100. Deduct per finding:
+各カテゴリは 100 点開始。issue ごとに減点する:
 - Critical issue → -25
 - High issue → -15
 - Medium issue → -8
@@ -308,22 +308,22 @@ Minimum 0 per category.
 
 ---
 
-## Important Rules
+## 重要ルール
 
-1. **Repro is everything.** Every issue needs at least one screenshot. No exceptions.
-2. **Verify before documenting.** Retry the issue once to confirm it's reproducible, not a fluke.
-3. **Never include credentials.** Write `[REDACTED]` for passwords in repro steps.
-4. **Write incrementally.** Append each issue to the report as you find it. Don't batch.
-5. **Never read source code.** Test as a user, not a developer.
-6. **Check console after every interaction.** JS errors that don't surface visually are still bugs.
-7. **Test like a user.** Use realistic data. Walk through complete workflows end-to-end.
-8. **Depth over breadth.** 5-10 well-documented issues with evidence > 20 vague descriptions.
-9. **Never delete output files.** Screenshots and reports accumulate — that's intentional.
-10. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
+1. **Repro が最重要。** すべての issue に最低 1 枚の screenshot を付ける。
+2. **記録前に再現確認。** 偶発ではなく再現性があることを 1 回再試行して確かめる。
+3. **認証情報を残さない。** パスワードは必ず `[REDACTED]` に置き換える。
+4. **逐次記録する。** issue は発見した順に追記し、まとめ書きしない。
+5. **ソースコードを読まない。** 開発者視点ではなくユーザー視点で検証する。
+6. **全操作後に console を確認。** 見た目に出ない JS エラーも不具合として扱う。
+7. **実利用データで検証。** end-to-end のワークフローを通して試す。
+8. **量より質。** 根拠が揃った 5-10 件の issue は、曖昧な 20 件より価値が高い。
+9. **出力ファイルを削除しない。** screenshots と reports を蓄積する運用を前提とする。
+10. **難しい UI には `snapshot -C`。** accessibility tree が拾わない clickable div を発見できる。
 
 ---
 
-## Output Structure
+## 出力構成
 
 ```
 .gstack/qa-reports/
@@ -336,4 +336,4 @@ Minimum 0 per category.
 └── baseline.json                          # For regression mode
 ```
 
-Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
+レポートファイル名は domain と日付を使う: `qa-report-myapp-com-2026-03-12.md`
