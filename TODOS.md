@@ -338,17 +338,6 @@
 **Effort:** XS
 **Priority:** P2
 
-### Auto-upgrade mode (zero-prompt)
-
-**What:** `GSTACK_AUTO_UPGRADE=1` env var or `~/.gstack/config` option that skips the AskUserQuestion prompt and upgrades automatically.
-
-**Why:** Power users and CI environments want zero-friction upgrades.
-
-**Context:** Current upgrade system (v0.3.4) always prompts. This adds opt-in bypass. ~10 lines in preamble instructions.
-
-**Effort:** S
-**Priority:** P3
-
 ### Eval web dashboard
 
 **What:** `bun run eval:dashboard` serves local HTML with charts: cost trending, detection rate, pass/fail history.
@@ -395,3 +384,7 @@
 ### E2E test cost tracking
 - Track cumulative API spend, warn if over threshold
 **Completed:** v0.3.6
+
+### Auto-upgrade mode + smart update check
+- Config CLI (`bin/gstack-config`), auto-upgrade via `~/.gstack/config.yaml`, 12h cache TTL, exponential snooze backoff (24h→48h→1wk), "never ask again" option, vendored copy sync on upgrade
+**Completed:** v0.3.8

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.9 — 2026-03-15
+
+### Added
+- **`bin/gstack-config` CLI** — simple get/set/list interface for `~/.gstack/config.yaml`. Used by update-check and upgrade skill for persistent settings (auto_upgrade, update_check).
+- **Smart update check** — 12h cache TTL (was 24h), exponential snooze backoff (24h → 48h → 1 week) when user declines upgrades, `update_check: false` config option to disable checks entirely. Snooze resets when a new version is released.
+- **Auto-upgrade mode** — set `auto_upgrade: true` in config or `GSTACK_AUTO_UPGRADE=1` env var to skip the upgrade prompt and update automatically.
+- **4-option upgrade prompt** — "Yes, upgrade now", "Always keep me up to date", "Not now" (snooze), "Never ask again" (disable).
+- **Vendored copy sync** — `/gstack-upgrade` now detects and updates local vendored copies in the current project after upgrading the primary install.
+- 25 new tests: 11 for gstack-config CLI, 14 for snooze/config paths in update-check.
+
+### Changed
+- README upgrade/troubleshooting sections simplified to reference `/gstack-upgrade` instead of long paste commands.
+- Upgrade skill template bumped to v1.1.0 with `Write` tool permission for config editing.
+- All SKILL.md preambles updated with new upgrade flow description.
+
 ## 0.3.8 — 2026-03-14
 
 ### Added

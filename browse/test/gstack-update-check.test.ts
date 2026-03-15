@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -38,12 +38,28 @@ function run(extraEnv: Record<string, string> = {}) {
 beforeEach(() => {
   gstackDir = mkdtempSync(join(tmpdir(), 'gstack-upd-test-'));
   stateDir = mkdtempSync(join(tmpdir(), 'gstack-state-test-'));
+  // Link real gstack-config so update_check config check works
+  const binDir = join(gstackDir, 'bin');
+  mkdirSync(binDir);
+  symlinkSync(join(import.meta.dir, '..', '..', 'bin', 'gstack-config'), join(binDir, 'gstack-config'));
 });
 
 afterEach(() => {
   rmSync(gstackDir, { recursive: true, force: true });
   rmSync(stateDir, { recursive: true, force: true });
 });
+
+function writeSnooze(version: string, level: number, epochSeconds: number) {
+  writeFileSync(join(stateDir, 'update-snoozed'), `${version} ${level} ${epochSeconds}`);
+}
+
+function writeConfig(content: string) {
+  writeFileSync(join(stateDir, 'config.yaml'), content);
+}
+
+function nowEpoch(): number {
+  return Math.floor(Date.now() / 1000);
+}
 
 describe('gstack-update-check', () => {
   // ─── Path A: No VERSION file ────────────────────────────────
@@ -245,5 +261,155 @@ describe('gstack-update-check', () => {
     const third = run();
     expect(third.exitCode).toBe(0);
     expect(third.stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  // ─── Snooze tests ───────────────────────────────────────────
+  test('snoozed level 1 within 24h → silent (cached path)', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeSnooze('0.4.0', 1, nowEpoch() - 3600); // 1h ago (within 24h)
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+  });
+
+  test('snoozed level 1 expired (25h ago) → outputs UPGRADE_AVAILABLE', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeSnooze('0.4.0', 1, nowEpoch() - 90000); // 25h ago
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('snoozed level 2 within 48h → silent', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeSnooze('0.4.0', 2, nowEpoch() - 86400); // 24h ago (within 48h)
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+  });
+
+  test('snoozed level 2 expired (49h ago) → outputs', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeSnooze('0.4.0', 2, nowEpoch() - 176400); // 49h ago
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('snoozed level 3 within 7d → silent', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeSnooze('0.4.0', 3, nowEpoch() - 518400); // 6d ago (within 7d)
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+  });
+
+  test('snoozed level 3 expired (8d ago) → outputs', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeSnooze('0.4.0', 3, nowEpoch() - 691200); // 8d ago
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('snooze ignored when version differs (new version resets snooze)', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.5.0');
+    // Snoozed for 0.4.0, but remote is now 0.5.0
+    writeSnooze('0.4.0', 3, nowEpoch() - 60); // very recent
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.5.0');
+  });
+
+  test('corrupt snooze file → outputs normally', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeFileSync(join(stateDir, 'update-snoozed'), 'garbage');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('non-numeric epoch in snooze file → outputs', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeFileSync(join(stateDir, 'update-snoozed'), '0.4.0 1 abc');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('non-numeric level in snooze file → outputs', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeFileSync(join(stateDir, 'update-snoozed'), `0.4.0 abc ${nowEpoch()}`);
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('snooze respected on remote fetch path (no cache)', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    // No cache file — goes to remote fetch path
+    writeSnooze('0.4.0', 1, nowEpoch() - 3600); // 1h ago
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+    // Cache should still be written
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('just-upgraded clears snooze file', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.4.0\n');
+    writeFileSync(join(stateDir, 'just-upgraded-from'), '0.3.3\n');
+    writeSnooze('0.4.0', 2, nowEpoch() - 3600);
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('JUST_UPGRADED 0.3.3 0.4.0');
+    expect(existsSync(join(stateDir, 'update-snoozed'))).toBe(false);
+  });
+
+  // ─── Config tests ──────────────────────────────────────────
+  test('update_check: false disables all checks', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeConfig('update_check: false\n');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+    // No cache should be written
+    expect(existsSync(join(stateDir, 'last-update-check'))).toBe(false);
+  });
+
+  test('missing config.yaml does not crash', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    // No config file — should behave normally
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
   });
 });

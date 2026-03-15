@@ -598,18 +598,16 @@ Run `cd ~/.claude/skills/gstack && ./setup` (or `cd .claude/skills/gstack && ./s
 Run `cd ~/.claude/skills/gstack && bun install && bun run build`. This compiles the browser binary. Requires Bun v1.0+.
 
 **Project copy is stale?**
-Re-copy from global: `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
+Run `/gstack-upgrade` — it updates both the global install and any vendored project copy automatically.
 
 **`bun` not installed?**
 Install it: `curl -fsSL https://bun.sh/install | bash`
 
 ## Upgrading
 
-Paste this into Claude Code:
+Run `/gstack-upgrade` in Claude Code. It detects your install type (global or vendored), upgrades, syncs any project copies, and shows what's new.
 
-> Update gstack: run `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main && ./setup`. If this project also has gstack at .claude/skills/gstack, update it too: run `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
-
-The `setup` script rebuilds the browser binary and re-symlinks skills. It takes a few seconds.
+Or set `auto_upgrade: true` in `~/.gstack/config.yaml` to upgrade automatically whenever a new version is available.
 
 ## Uninstalling
 
