@@ -388,3 +388,23 @@
 ### Auto-upgrade mode + smart update check
 - Config CLI (`bin/gstack-config`), auto-upgrade via `~/.gstack/config.yaml`, 12h cache TTL, exponential snooze backoff (24h→48h→1wk), "never ask again" option, vendored copy sync on upgrade
 **Completed:** v0.3.8
+
+### Gemini CLI port
+- `gemini-port/` with native Gemini skill system integration
+- `gstack-browse`: stateful Playwright engine with 14 commands, `@eN` ref selector, annotated screenshots, diff mode, console/network capture
+- `gstack-setup-browser-cookies`: macOS Keychain cookie extraction with full attribute normalization
+- `install.sh`: generates Gemini-adapted versions of 6 main skills at install time (single source of truth), links all 8 skills via `gemini skills link`
+- Output truncation for `text`/`html` commands (50k char limit)
+**Completed:** feat/gemini-port
+
+## Gemini CLI Port
+
+### Linux/Windows support for gstack-setup-browser-cookies
+
+**What:** The `setup-cookies.js` script relies on `chrome-cookies-secure` which uses the macOS Keychain. Add support for GNOME Keyring (Linux) and DPAPI (Windows).
+
+**Why:** Cross-platform cookie import. Currently macOS-only.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Linux/Windows cookie decryption (Browse section)

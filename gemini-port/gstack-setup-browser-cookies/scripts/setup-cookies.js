@@ -54,6 +54,7 @@ async function main() {
     try {
       const safeCookies = cookies.map(c => {
         // Carry over all attributes to preserve persistence, security, and scope
+        const sameSiteMap = { 'strict': 'Strict', 'lax': 'Lax', 'none': 'None', 'no_restriction': 'None' };
         const cookie = {
           name: c.name,
           value: c.value,
@@ -61,12 +62,14 @@ async function main() {
           path: c.path || '/',
           httpOnly: Boolean(c.httpOnly),
           secure: Boolean(c.secure),
-          sameSite: c.sameSite || 'Lax'
+          sameSite: sameSiteMap[(c.sameSite || '').toLowerCase()] || 'Lax'
         };
 
-        // Playwright expects expires as a Unix timestamp in seconds
+        // Playwright expects expires as a Unix timestamp in seconds.
+        // Timestamps > MS_THRESHOLD are in milliseconds and need conversion.
+        const MS_THRESHOLD = 9999999999;
         if (typeof c.expires === 'number') {
-            cookie.expires = c.expires > 9999999999 ? Math.floor(c.expires / 1000) : c.expires;
+            cookie.expires = c.expires > MS_THRESHOLD ? Math.floor(c.expires / 1000) : c.expires;
         } else if (c.expires) {
             const parsed = Math.floor(new Date(c.expires).getTime() / 1000);
             if (!isNaN(parsed)) cookie.expires = parsed;

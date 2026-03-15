@@ -1,40 +1,46 @@
 # Gemini gstack: Team of Specialists for Gemini CLI
 
-This directory contains a port of the [gstack](https://github.com/garrytan/gstack) toolkit for Gemini CLI. 
+This directory ports the [gstack](https://github.com/garrytan/gstack) toolkit to Gemini CLI.
 
 gstack transforms Gemini CLI from a general-purpose assistant into a team of opinionated specialists.
 
-## Port Features
-- **Native Gemini Skills:** Fully integrated using the Gemini CLI Skill system.
-- **Stateful Playwright Runner:** A specialized browser automation engine that persists sessions and handles complex SPA rendering.
-- **Chrome Cookie Integration:** Seamlessly import authenticated sessions from your local Chrome browser into the agent's headless environment.
-- **Production-Grade Roles:** Refined prompts for CEO, Tech Lead, and Paranoid Reviewer modes.
+## Architecture
+
+Only two components live permanently in this directory — the ones that are genuinely Gemini-specific:
+
+| Directory | What it is |
+| :--- | :--- |
+| `gstack-browse/` | Stateful Playwright browser engine for Gemini CLI |
+| `gstack-setup-browser-cookies/` | macOS Keychain cookie extractor for authenticated testing |
+
+The 6 "content" skills (ship, reviewer, qa, retro, ceo, eng-lead) are **generated at install time** from the main gstack repo. `install.sh` strips Claude-specific frontmatter and tooling from each SKILL.md and links the result into Gemini CLI. There is no duplication — the main repo is the single source of truth.
 
 ## Installation
 
-1.  **Clone the repository.**
-2.  **Install dependencies for the browser tools:**
-    ```bash
-    cd gstack-browse && npm install
-    cd ../gstack-setup-browser-cookies && npm install
-    ```
-3.  **Install the skills into your Gemini workspace:**
-    If you are on a different OS (e.g. Linux/Windows) than the one used to package these skills, you should rebuild the packages from source to ensure native dependencies like `sqlite3` are compatible:
-    ```bash
-    # From the root of this port
-    # Optional: Rebuild packages if you encounter native module errors
-    node /path/to/skill-creator/scripts/package_skill.cjs gstack-browse
-    node /path/to/skill-creator/scripts/package_skill.cjs gstack-setup-browser-cookies
-    
-    gemini skills install gstack-ceo.skill --scope workspace
-    # ... and so on
-    ```
-4.  **Reload your Gemini session:**
-    ```text
-    /skills reload
-    ```
+```bash
+# From the gstack repo root:
+bash gemini-port/install.sh
 
-## Roles
+# Or with workspace scope (installs for a single Gemini workspace):
+bash gemini-port/install.sh --scope workspace
+```
+
+Then reload in Gemini:
+```
+/skills reload
+```
+
+That's it. The script handles npm deps, skill generation, and `gemini skills link` for all 8 skills.
+
+## Updating
+
+When the main gstack skills evolve, regenerate the Gemini versions by re-running:
+
+```bash
+bash gemini-port/install.sh
+```
+
+## Skills
 
 | Command | Role | Focus |
 | :--- | :--- | :--- |
@@ -47,13 +53,42 @@ gstack transforms Gemini CLI from a general-purpose assistant into a team of opi
 | `gstack-setup-browser-cookies` | **Session Manager** | macOS Keychain cookie extraction for authenticated testing. |
 | `gstack-retro` | **EM Retro** | Data-driven weekly engineering retrospectives. |
 
-## Technical Implementation Notes
+## Technical Notes
 
 ### Stateful Browsing
-Unlike the original Claude gstack which requires a persistent Bun daemon, this Gemini port uses a **chained command architecture** in Playwright. This allows the agent to perform a sequence of actions (goto -> click -> fill -> screenshot) in a single execution context, preserving the DOM state perfectly without needing a background process.
+
+Unlike the original Claude gstack (which requires a persistent Bun daemon), this port uses a **chained command architecture** in Playwright. A sequence of actions (`goto -> click -> fill -> screenshot`) runs in a single Node.js execution context, preserving DOM state without a background process.
 
 ### Cookie Extraction
-The `gstack-setup-browser-cookies` skill utilizes the macOS Keychain to decrypt local Chrome cookies. It applies strict Playwright-compatible normalization to ensure attributes like `SameSite` and `Expires` are correctly ingested into the agent's persistent profile.
+
+`gstack-setup-browser-cookies` uses the macOS Keychain to decrypt local Chrome cookies, normalizing `SameSite` and `Expires` attributes for Playwright ingestion.
+
+### Skill Generation
+
+`install.sh` applies the following transforms to each main SKILL.md:
+
+1. Strip Claude frontmatter (`allowed-tools`, `version`)
+2. Add minimal Gemini frontmatter (`name`, `description`)
+3. Remove the update-check block (Claude-specific self-upgrade logic)
+4. Replace the `$B` binary discovery block with `B="node $HOME/.gemini/skills/gstack-browse/scripts/browse.js"`
+5. Remove HTML generator comments
+
+Generated files land in `generated/` (gitignored — they are build artifacts).
+
+## Rebuilding Skill Bundles
+
+The `.skill` files are pre-packaged archives for `gemini skills install` (offline use). After modifying source files, rebuild with:
+
+```bash
+# Rebuild gstack-browse
+node /path/to/skill-creator/scripts/package_skill.cjs gstack-browse
+
+# Rebuild gstack-setup-browser-cookies
+node /path/to/skill-creator/scripts/package_skill.cjs gstack-setup-browser-cookies
+```
+
+The `SKILL.md` files in each skill subdirectory are the authoritative source. The `.skill` bundles are distribution artifacts.
 
 ---
-*Ported by Rémi Al Ajroudi.*
+*Ported by Rémi Al Ajroudi from [gstack](https://github.com/garrytan/gstack).*
+

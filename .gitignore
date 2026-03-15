@@ -11,3 +11,5 @@ bun.lock
 .env.local
 .env.*
 !.env.example
+.DS_Store
+gemini-port/generated/
