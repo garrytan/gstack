@@ -44,12 +44,16 @@ Claude: "Photo upload" is not the feature. The real job is helping sellers
         pricing comps from the web, draft the title and description, suggest
         the best hero image...
 
+You:   Save that founder plan to `PLAN.md`
+
+Claude: [Writes `PLAN.md`, confirms the path, then waits for the next step]
+
 You:   /plan-eng-review
 
 Claude: [Architecture diagram, state machine for upload → classify → enrich
         → draft pipeline, async job boundaries, failure modes, test matrix]
 
-You:   [exit plan mode, implement the plan]
+You:   [leave plan mode in Claude Code, then implement the plan]
 
 You:   /review
 
@@ -194,6 +198,8 @@ That is what `/plan-ceo-review` does for me.
 
 It does not just ask, "how do I add this feature?"
 It asks, **"what is the 10-star product hiding inside this request?"**
+
+It should end with a clean handoff, not a surprise implementation. If I ask to save the plan, write a markdown artifact like `PLAN.md`. If I ask to implement, stop and hand the work back to normal coding mode or `/plan-eng-review`.
 
 That is a very different kind of power.
 

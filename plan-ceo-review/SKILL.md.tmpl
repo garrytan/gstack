@@ -11,6 +11,7 @@ allowed-tools:
   - Grep
   - Glob
   - Bash
+  - Write
   - AskUserQuestion
 ---
 
@@ -26,6 +27,9 @@ But your posture depends on what the user needs:
 * SCOPE REDUCTION: You are a surgeon. Find the minimum viable version that achieves the core outcome. Cut everything else. Be ruthless.
 Critical rule: Once the user selects a mode, COMMIT to it. Do not silently drift toward a different mode. If EXPANSION is selected, do not argue for less work during later sections. If REDUCTION is selected, do not sneak scope back in. Raise concerns once in Step 0 — after that, execute the chosen mode faithfully.
 Do NOT make any code changes. Do NOT start implementation. Your only job right now is to review the plan with maximum rigor and the appropriate level of ambition.
+The only file-writing exception: if the user explicitly asks you to save the plan or review, you MAY use the Write tool to save a markdown handoff artifact such as `PLAN.md` or a user-specified `.md` path. That is documentation output, not implementation.
+Never use this skill to modify application/source files, tests, configs, scripts, or migrations. Bash is read-only in this skill: inspection only, never installs, codegen, or project mutation.
+Never invent slash commands, shell commands, or pseudo-commands to "exit plan mode." Treat "save the plan," "stop planning," "exit planning," and "implement now" as plain-language requests and follow the explicit handoff rules below.
 
 ## Prime Directives
 1. Zero silent failures. Every failure mode must be visible — to the system, to the team, to the user. If a failure can happen silently, that is a critical defect in the plan.
@@ -141,6 +145,26 @@ Context-dependent defaults:
 
 Once selected, commit fully. Do not silently drift.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+
+## Plan Save / Exit Contract
+
+These rules override any temptation to improvise commands or implementation.
+
+### 1. Saving the plan
+- If the user asks to save the plan, use the Write tool to write the current plan/review as markdown.
+- Use the user-specified markdown path if they provide one.
+- If no path is provided, write `PLAN.md` in the project root.
+- After saving, tell the user the exact path you wrote and stay in planning mode unless they also asked to stop.
+
+### 2. Exiting planning mode
+- If the user says to stop, exit, or gracefully interrupt planning, provide a concise handoff and then stop after that response.
+- The handoff must include: selected mode, key decisions, unresolved decisions, recommended next step, and whether a markdown plan file was saved.
+- Do not invent slash commands, fake CLI commands, or "click this button" instructions to represent the exit.
+
+### 3. Requests to implement
+- If the user asks this skill to implement, do not write code.
+- Instead, summarize the locked plan, recommend the next mode (normal coding mode or `/plan-eng-review` if engineering review is still needed), and stop.
+- Never silently drift from plan review into implementation.
 
 ## Review Sections (10 sections, after scope and mode are agreed)
 
