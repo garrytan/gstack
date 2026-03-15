@@ -1,62 +1,62 @@
 # Contributing to gstack
 
-Thanks for wanting to make gstack better. Whether you're fixing a typo in a skill prompt or building an entirely new workflow, this guide will get you up and running fast.
+gstack をより良くしたいと思ってくれてありがとうございます。skill prompt の typo 修正でも、まったく新しい workflow の追加でも、このガイドを読めばすぐに開発を始められます。
 
 ## Quick start
 
-gstack skills are Markdown files that Claude Code discovers from a `skills/` directory. Normally they live at `~/.claude/skills/gstack/` (your global install). But when you're developing gstack itself, you want Claude Code to use the skills *in your working tree* — so edits take effect instantly without copying or deploying anything.
+gstack の skills は、Claude Code が `skills/` directory から見つける Markdown files です。通常は `~/.claude/skills/gstack/` に置かれます（global install）。ただし gstack 自体を開発するときは、Claude Code に *working tree 内の skills* を読ませたいはずです。そうすれば copy や deploy をしなくても、編集内容が即座に反映されます。
 
-That's what dev mode does. It symlinks your repo into the local `.claude/skills/` directory so Claude Code reads skills straight from your checkout.
+それを実現するのが dev mode です。repo を local の `.claude/skills/` directory へ symlink し、Claude Code が checkout 中の skills をそのまま読むようにします。
 
 ```bash
 git clone <repo> && cd gstack
-bun install                    # install dependencies
-bin/dev-setup                  # activate dev mode
+bun install                    # 依存を install
+bin/dev-setup                  # dev mode を有効化
 ```
 
-Now edit any `SKILL.md`, invoke it in Claude Code (e.g. `/review`), and see your changes live. When you're done developing:
+これで任意の `SKILL.md` を編集し、Claude Code でその skill（例: `/review`）を呼び出すと、変更がその場で反映されます。開発が終わったら:
 
 ```bash
-bin/dev-teardown               # deactivate — back to your global install
+bin/dev-teardown               # 無効化して global install に戻す
 ```
 
 ## How dev mode works
 
-`bin/dev-setup` creates a `.claude/skills/` directory inside the repo (gitignored) and fills it with symlinks pointing back to your working tree. Claude Code sees the local `skills/` first, so your edits win over the global install.
+`bin/dev-setup` は repo 内に `.claude/skills/` directory を作成し（gitignore 済み）、working tree へ戻る symlinks を並べます。Claude Code は local の `skills/` を先に見るので、global install よりあなたの編集が優先されます。
 
 ```
-gstack/                          <- your working tree
-├── .claude/skills/              <- created by dev-setup (gitignored)
-│   ├── gstack -> ../../         <- symlink back to repo root
+gstack/                          <- あなたの working tree
+├── .claude/skills/              <- dev-setup が作成（gitignored）
+│   ├── gstack -> ../../         <- repo root への symlink
 │   ├── review -> gstack/review
 │   ├── ship -> gstack/ship
-│   └── ...                      <- one symlink per skill
+│   └── ...                      <- skill ごとに 1 つ symlink
 ├── review/
-│   └── SKILL.md                 <- edit this, test with /review
+│   └── SKILL.md                 <- ここを編集し、/review で確認
 ├── ship/
 │   └── SKILL.md
 ├── browse/
 │   ├── src/                     <- TypeScript source
-│   └── dist/                    <- compiled binary (gitignored)
+│   └── dist/                    <- compiled binary（gitignored）
 └── ...
 ```
 
 ## Day-to-day workflow
 
 ```bash
-# 1. Enter dev mode
+# 1. dev mode に入る
 bin/dev-setup
 
-# 2. Edit a skill
+# 2. skill を編集
 vim review/SKILL.md
 
-# 3. Test it in Claude Code — changes are live
+# 3. Claude Code でテスト — 変更はそのまま反映される
 #    > /review
 
-# 4. Editing browse source? Rebuild the binary
+# 4. browse source を触ったなら binary を rebuild
 bun run build
 
-# 5. Done for the day? Tear down
+# 5. その日の作業が終わったら解除
 bin/dev-teardown
 ```
 
@@ -65,166 +65,163 @@ bin/dev-teardown
 ### Setup
 
 ```bash
-# 1. Copy .env.example and add your API key
+# 1. .env.example をコピーして API key を入れる
 cp .env.example .env
-# Edit .env → set ANTHROPIC_API_KEY=sk-ant-...
+# .env を編集 → ANTHROPIC_API_KEY=sk-ant-... を設定
 
-# 2. Install deps (if you haven't already)
+# 2. 依存を install（まだなら）
 bun install
 ```
 
-Bun auto-loads `.env` — no extra config. Conductor workspaces inherit `.env` from the main worktree automatically (see "Conductor workspaces" below).
+Bun は `.env` を自動で読み込みます。追加設定は不要です。Conductor workspaces は main worktree から `.env` を自動で引き継ぎます（後述の「Conductor workspaces」を参照）。
 
 ### Test tiers
 
-| Tier | Command | Cost | What it tests |
-|------|---------|------|---------------|
-| 1 — Static | `bun test` | Free | Command validation, snapshot flags, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
-| 2 — E2E | `bun run test:e2e` | ~$3.85 | Full skill execution via `claude -p` subprocess |
-| 3 — LLM eval | `bun run test:evals` | ~$0.15 standalone | LLM-as-judge scoring of generated SKILL.md docs |
-| 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge (runs both) |
+| Tier | Command | Cost | テスト内容 |
+|------|---------|------|-----------|
+| 1 — Static | `bun test` | Free | Command validation、snapshot flags、SKILL.md correctness、TODOS-format.md refs、observability unit tests |
+| 2 — E2E | `bun run test:e2e` | ~$3.85 | `claude -p` subprocess 経由の完全な skill 実行 |
+| 3 — LLM eval | `bun run test:evals` | ~$0.15 standalone | 生成された SKILL.md docs を LLM-as-judge で採点 |
+| 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge（両方実行） |
 
 ```bash
-bun test                     # Tier 1 only (runs on every commit, <5s)
-bun run test:e2e             # Tier 2: E2E only (needs EVALS=1, can't run inside Claude Code)
-bun run test:evals           # Tier 2 + 3 combined (~$4/run)
+bun test                     # Tier 1 のみ（毎 commit で実行、<5s）
+bun run test:e2e             # Tier 2: E2E のみ（EVALS=1 が必要、Claude Code 内では実行不可）
+bun run test:evals           # Tier 2 + 3 をまとめて実行（~$4/run）
 ```
 
-### Tier 1: Static validation (free)
+### Tier 1: Static validation（無料）
 
-Runs automatically with `bun test`. No API keys needed.
+`bun test` で自動実行されます。API keys は不要です。
 
-- **Skill parser tests** (`test/skill-parser.test.ts`) — Extracts every `$B` command from SKILL.md bash code blocks and validates against the command registry in `browse/src/commands.ts`. Catches typos, removed commands, and invalid snapshot flags.
-- **Skill validation tests** (`test/skill-validation.test.ts`) — Validates that SKILL.md files reference only real commands and flags, and that command descriptions meet quality thresholds.
-- **Generator tests** (`test/gen-skill-docs.test.ts`) — Tests the template system: verifies placeholders resolve correctly, output includes value hints for flags (e.g. `-d <N>` not just `-d`), enriched descriptions for key commands (e.g. `is` lists valid states, `press` lists key examples).
+- **Skill parser tests** (`test/skill-parser.test.ts`) — SKILL.md の bash code blocks からすべての `$B` command を抽出し、`browse/src/commands.ts` の command registry と突き合わせます。typo、削除済み command、無効な snapshot flag を検出します。
+- **Skill validation tests** (`test/skill-validation.test.ts`) — SKILL.md files が実在する commands と flags だけを参照しているか、また command descriptions が品質 threshold を満たしているかを検証します。
+- **Generator tests** (`test/gen-skill-docs.test.ts`) — template system のテストです。placeholders が正しく解決されるか、flags の value hints（例: `-d <N>` であって単なる `-d` ではない）が出力に含まれるか、主要 commands の descriptions が充実しているか（例: `is` は有効な states を列挙し、`press` は key の例を示す）を確認します。
 
-### Tier 2: E2E via `claude -p` (~$3.85/run)
+### Tier 2: `claude -p` による E2E（~$3.85/run）
 
-Spawns `claude -p` as a subprocess with `--output-format stream-json --verbose`, streams NDJSON for real-time progress, and scans for browse errors. This is the closest thing to "does this skill actually work end-to-end?"
+`claude -p` を `--output-format stream-json --verbose` 付きの subprocess として起動し、real-time progress のために NDJSON を stream しつつ、browse errors を走査します。これは「この skill が本当に end to end で動くか」を確認する最も近いテストです。
 
 ```bash
-# Must run from a plain terminal — can't nest inside Claude Code or Conductor
+# 通常の terminal から実行する必要があります — Claude Code や Conductor の中にネストできません
 EVALS=1 bun test test/skill-e2e.test.ts
 ```
 
-- Gated by `EVALS=1` env var (prevents accidental expensive runs)
-- Auto-skips if running inside Claude Code (`claude -p` can't nest)
-- API connectivity pre-check — fails fast on ConnectionRefused before burning budget
-- Real-time progress to stderr: `[Ns] turn T tool #C: Name(...)`
-- Saves full NDJSON transcripts and failure JSON for debugging
-- Tests live in `test/skill-e2e.test.ts`, runner logic in `test/helpers/session-runner.ts`
+- `EVALS=1` env var で gate されます（高価な run の誤実行防止）
+- Claude Code 内で動いている場合は自動 skip（`claude -p` をネストできないため）
+- API connectivity の事前チェックあり。ConnectionRefused なら budget を消費する前に fail fast
+- stderr に real-time progress を出力: `[Ns] turn T tool #C: Name(...)`
+- debugging 用に完全な NDJSON transcripts と failure JSON を保存
+- tests は `test/skill-e2e.test.ts`、runner logic は `test/helpers/session-runner.ts`
 
 ### E2E observability
 
-When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
+E2E tests は実行中に、machine-readable な artifacts を `~/.gstack-dev/` に出力します。
 
-| Artifact | Path | Purpose |
-|----------|------|---------|
-| Heartbeat | `e2e-live.json` | Current test status (updated per tool call) |
-| Partial results | `evals/_partial-e2e.json` | Completed tests (survives kills) |
-| Progress log | `e2e-runs/{runId}/progress.log` | Append-only text log |
-| NDJSON transcripts | `e2e-runs/{runId}/{test}.ndjson` | Raw `claude -p` output per test |
-| Failure JSON | `e2e-runs/{runId}/{test}-failure.json` | Diagnostic data on failure |
+| Artifact | Path | 用途 |
+|----------|------|------|
+| Heartbeat | `e2e-live.json` | 現在の test status（tool call ごとに更新） |
+| Partial results | `evals/_partial-e2e.json` | 完了済み tests（途中 kill されても残る） |
+| Progress log | `e2e-runs/{runId}/progress.log` | append-only の text log |
+| NDJSON transcripts | `e2e-runs/{runId}/{test}.ndjson` | test ごとの raw `claude -p` output |
+| Failure JSON | `e2e-runs/{runId}/{test}-failure.json` | failure 時の diagnostic data |
 
-**Live dashboard:** Run `bun run eval:watch` in a second terminal to see a live dashboard showing completed tests, the currently running test, and cost. Use `--tail` to also show the last 10 lines of progress.log.
+**Live dashboard:** もう 1 つ terminal を開き、`bun run eval:watch` を実行すると、完了済み tests、現在実行中の test、cost を live dashboard で見られます。`--tail` を付けると progress.log の末尾 10 行も表示します。
 
 **Eval history tools:**
 
 ```bash
-bun run eval:list            # list all eval runs
-bun run eval:compare         # compare two runs (auto-picks most recent)
-bun run eval:summary         # aggregate stats across all runs
+bun run eval:list            # すべての eval runs を一覧表示
+bun run eval:compare         # 2 つの runs を比較（最新を自動選択）
+bun run eval:summary         # 全 runs の stats を集計
 ```
 
-Artifacts are never cleaned up — they accumulate in `~/.gstack-dev/` for post-mortem debugging and trend analysis.
+artifacts は自動削除されません。`~/.gstack-dev/` に蓄積され、post-mortem debugging や trend analysis に使えます。
 
-### Tier 3: LLM-as-judge (~$0.15/run)
+### Tier 3: LLM-as-judge（~$0.15/run）
 
-Uses Claude Sonnet to score generated SKILL.md docs on three dimensions:
+Claude Sonnet を使って、生成された SKILL.md docs を 3 つの観点で採点します。
 
-- **Clarity** — Can an AI agent understand the instructions without ambiguity?
-- **Completeness** — Are all commands, flags, and usage patterns documented?
-- **Actionability** — Can the agent execute tasks using only the information in the doc?
+- **Clarity** — AI agent が曖昧さなく instructions を理解できるか
+- **Completeness** — すべての commands、flags、usage patterns が文書化されているか
+- **Actionability** — doc の情報だけで agent が task を実行できるか
 
-Each dimension is scored 1-5. Threshold: every dimension must score **≥ 4**. There's also a regression test that compares generated docs against the hand-maintained baseline from `origin/main` — generated must score equal or higher.
+各観点は 1-5 点で採点されます。threshold は各観点とも **4 以上**。さらに `origin/main` 上の手メンテ baseline と generated docs を比較する regression test もあり、generated の方が同等以上の点数である必要があります。
 
 ```bash
-# Needs ANTHROPIC_API_KEY in .env — included in bun run test:evals
+# .env に ANTHROPIC_API_KEY が必要 — bun run test:evals に含まれています
 ```
 
-- Uses `claude-sonnet-4-6` for scoring stability
-- Tests live in `test/skill-llm-eval.test.ts`
-- Calls the Anthropic API directly (not `claude -p`), so it works from anywhere including inside Claude Code
+- scoring stability のため `claude-sonnet-4-6` を使用
+- tests は `test/skill-llm-eval.test.ts`
+- Anthropic API を直接呼ぶため、`claude -p` ではなく、Claude Code 内からでも実行可能
 
 ### CI
 
-A GitHub Action (`.github/workflows/skill-docs.yml`) runs `bun run gen:skill-docs --dry-run` on every push and PR. If the generated SKILL.md files differ from what's committed, CI fails. This catches stale docs before they merge.
+GitHub Action（`.github/workflows/skill-docs.yml`）が push と PR のたびに `bun run gen:skill-docs --dry-run` を実行します。生成される SKILL.md files が commit 済みのものと違えば CI は fail します。これにより、古い docs が merge されるのを防ぎます。
 
-Tests run against the browse binary directly — they don't require dev mode.
+tests は browse binary に対して直接実行されるため、dev mode は不要です。
 
 ## Editing SKILL.md files
 
-SKILL.md files are **generated** from `.tmpl` templates. Don't edit the `.md` directly — your changes will be overwritten on the next build.
+SKILL.md files は `.tmpl` templates から **生成** されます。`.md` を直接編集しないでください。次回 build 時に上書きされます。
 
 ```bash
-# 1. Edit the template
-vim SKILL.md.tmpl              # or browse/SKILL.md.tmpl
+# 1. template を編集
+vim SKILL.md.tmpl              # または browse/SKILL.md.tmpl
 
-# 2. Regenerate
+# 2. 再生成
 bun run gen:skill-docs
 
-# 3. Check health
+# 3. 健全性を確認
 bun run skill:check
 
-# Or use watch mode — auto-regenerates on save
+# または watch mode を使う — 保存時に自動再生成
 bun run dev:skill
 ```
 
-To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
+browse command を追加するには `browse/src/commands.ts` に追加します。snapshot flag を追加するには `browse/src/snapshot.ts` の `SNAPSHOT_FLAGS` に追加します。その後 rebuild してください。
 
 ## Conductor workspaces
 
-If you're using [Conductor](https://conductor.build) to run multiple Claude Code sessions in parallel, `conductor.json` wires up workspace lifecycle automatically:
+[Conductor](https://conductor.build) で複数の Claude Code sessions を並列実行している場合、`conductor.json` が workspace lifecycle を自動で配線します。
 
-| Hook | Script | What it does |
-|------|--------|-------------|
-| `setup` | `bin/dev-setup` | Copies `.env` from main worktree, installs deps, symlinks skills |
-| `archive` | `bin/dev-teardown` | Removes skill symlinks, cleans up `.claude/` directory |
+| Hook | Script | 役割 |
+|------|--------|------|
+| `setup` | `bin/dev-setup` | main worktree から `.env` をコピーし、deps を install し、skills を symlink する |
+| `archive` | `bin/dev-teardown` | skill symlinks を削除し、`.claude/` directory を片付ける |
 
-When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It detects the main worktree (via `git worktree list`), copies your `.env` so API keys carry over, and sets up dev mode — no manual steps needed.
+Conductor が新しい workspace を作ると、`bin/dev-setup` が自動で走ります。`git worktree list` から main worktree を検出し、API keys を引き継ぐため `.env` をコピーし、そのまま dev mode を設定します。手作業は不要です。
 
-**First-time setup:** Put your `ANTHROPIC_API_KEY` in `.env` in the main repo (see `.env.example`). Every Conductor workspace inherits it automatically.
+**初回 setup:** main repo の `.env` に `ANTHROPIC_API_KEY` を入れてください（`.env.example` を参照）。すべての Conductor workspace がそれを自動で継承します。
 
 ## Things to know
 
-- **SKILL.md files are generated.** Edit the `.tmpl` template, not the `.md`. Run `bun run gen:skill-docs` to regenerate.
-- **TODOS.md is the unified backlog.** Organized by skill/component with P0-P4 priorities. `/ship` auto-detects completed items. All planning/review/retro skills read it for context.
-- **Browse source changes need a rebuild.** If you touch `browse/src/*.ts`, run `bun run build`.
-- **Dev mode shadows your global install.** Project-local skills take priority over `~/.claude/skills/gstack`. `bin/dev-teardown` restores the global one.
-- **Conductor workspaces are independent.** Each workspace is its own git worktree. `bin/dev-setup` runs automatically via `conductor.json`.
-- **`.env` propagates across worktrees.** Set it once in the main repo, all Conductor workspaces get it.
-- **`.claude/skills/` is gitignored.** The symlinks never get committed.
+- **SKILL.md files は generated です。** `.md` ではなく `.tmpl` template を編集し、`bun run gen:skill-docs` で再生成してください。
+- **TODOS.md は unified backlog です。** skill/component ごとに P0-P4 priority で整理されています。`/ship` は完了済み item を自動検出します。planning/review/retro 系 skills はすべて context としてこれを読みます。
+- **Browse source の変更には rebuild が必要です。** `browse/src/*.ts` を触ったら `bun run build` を実行してください。
+- **Dev mode は global install を shadow します。** project-local skills が `~/.claude/skills/gstack` より優先されます。`bin/dev-teardown` で global 側に戻せます。
+- **Conductor workspaces は独立しています。** 各 workspace はそれぞれ独立した git worktree です。`bin/dev-setup` が `conductor.json` 経由で自動実行されます。
+- **`.env` は worktrees 間で伝播します。** main repo に 1 回設定すれば、すべての Conductor workspaces で使えます。
+- **`.claude/skills/` は gitignore 済みです。** symlinks が commit されることはありません。
 
 ## Testing a branch in another repo
 
-When you're developing gstack in one workspace and want to test your branch in a
-different project (e.g. testing browse changes against your real app), there are
-two cases depending on how gstack is installed in that project.
+1 つの workspace で gstack を開発しつつ、別の project で自分の branch を試したいことがあります。たとえば browse の変更を実アプリに対して確認したい場合です。その project で gstack がどう install されているかに応じて、2 つのケースがあります。
 
-### Global install only (no `.claude/skills/gstack/` in the project)
+### Global install only（project 内に `.claude/skills/gstack/` がない）
 
-Point your global install at the branch:
+global install をその branch に向けます。
 
 ```bash
 cd ~/.claude/skills/gstack
 git fetch origin
-git checkout origin/<branch>        # e.g. origin/v0.3.2
-bun install                         # in case deps changed
-bun run build                       # rebuild the binary
+git checkout origin/<branch>        # 例: origin/v0.3.2
+bun install                         # 依存に変更がある場合に備える
+bun run build                       # binary を rebuild
 ```
 
-Now open Claude Code in the other project — it picks up skills from
-`~/.claude/skills/` automatically. To go back to main when you're done:
+その状態で別 project の Claude Code を開くと、自動的に `~/.claude/skills/` の skills が使われます。作業後に main に戻すには:
 
 ```bash
 cd ~/.claude/skills/gstack
@@ -232,49 +229,46 @@ git checkout main && git pull
 bun run build
 ```
 
-### Vendored project copy (`.claude/skills/gstack/` checked into the project)
+### Vendored project copy（project に `.claude/skills/gstack/` が commit されている）
 
-Some projects vendor gstack by copying it into the repo (no `.git` inside the
-copy). Project-local skills take priority over global, so you need to update
-the vendored copy too. This is a three-step process:
+project に gstack を copy して vendor している場合があります（copy 内には `.git` はありません）。project-local skills は global より優先されるので、vendored copy も更新が必要です。手順は 3 段階です。
 
-1. **Update your global install to the branch** (so you have the source):
+1. **まず global install を branch に更新する**（source を持つため）:
    ```bash
    cd ~/.claude/skills/gstack
    git fetch origin
-   git checkout origin/<branch>      # e.g. origin/v0.3.2
+   git checkout origin/<branch>      # 例: origin/v0.3.2
    bun install && bun run build
    ```
 
-2. **Replace the vendored copy** in the other project:
+2. **別 project 側の vendored copy を置き換える**:
    ```bash
    cd /path/to/other-project
 
-   # Remove old skill symlinks and vendored copy
+   # 古い skill symlinks と vendored copy を削除
    for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do
      rm -f .claude/skills/$s
    done
    rm -rf .claude/skills/gstack
-
-   # Copy from global install (strips .git so it stays vendored)
-   cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
    rm -rf .claude/skills/gstack/.git
 
-   # Rebuild binary and re-create skill symlinks
+   # global install から copy（.git は含めず vendor のままにする）
+   cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+
+   # binary を rebuild し、skill symlinks を作り直す
    cd .claude/skills/gstack && ./setup
    ```
 
-3. **Test your changes** — open Claude Code in that project and use the skills.
+3. **変更をテストする** — その project で Claude Code を開き、skills を使います。
 
-To revert to main later, repeat steps 1-2 with `git checkout main && git pull`
-instead of `git checkout origin/<branch>`.
+あとで main に戻したい場合は、`git checkout origin/<branch>` の代わりに `git checkout main && git pull` を使って手順 1-2 を繰り返してください。
 
 ## Shipping your changes
 
-When you're happy with your skill edits:
+skill の編集に満足したら:
 
 ```bash
 /ship
 ```
 
-This runs tests, reviews the diff, triages Greptile comments (with 2-tier escalation), manages TODOS.md, bumps the version, and opens a PR. See `ship/SKILL.md` for the full workflow.
+これで tests を実行し、diff を review し、Greptile comments を triage し（2-tier escalation 付き）、TODOS.md を管理し、version を bump して PR を開きます。詳細な workflow は `ship/SKILL.md` を参照してください。

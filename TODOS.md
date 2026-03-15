@@ -2,389 +2,389 @@
 
 ## Browse
 
-### Bundle server.ts into compiled binary
+### コンパイル済み binary に server.ts を bundle する
 
-**What:** Eliminate `resolveServerScript()` fallback chain entirely — bundle server.ts into the compiled browse binary.
+**何をするか:** `resolveServerScript()` の fallback chain を完全になくし、compiled browse binary に server.ts を bundle する。
 
-**Why:** The current fallback chain (check adjacent to cli.ts, check global install) is fragile and caused bugs in v0.3.2. A single compiled binary is simpler and more reliable.
+**理由:** 現在の fallback chain（`cli.ts` の隣を確認し、次に global install を確認する方式）は脆く、v0.3.2 でも bug の原因になりました。単一の compiled binary の方が単純で信頼性も高いです。
 
-**Context:** Bun's `--compile` flag can bundle multiple entry points. The server is currently resolved at runtime via file path lookup. Bundling it removes the resolution step entirely.
+**背景:** Bun の `--compile` flag では複数の entry point を bundle できます。server は現在 runtime の file path lookup で解決されていますが、bundle すればこの解決手順自体をなくせます。
 
-**Effort:** M
-**Priority:** P2
-**Depends on:** None
+**工数:** M
+**優先度:** P2
+**依存:** なし
 
-### Sessions (isolated browser instances)
+### Sessions（分離された browser instance）
 
-**What:** Isolated browser instances with separate cookies/storage/history, addressable by name.
+**何をするか:** cookie / storage / history を分離した browser instance を、名前付きで扱えるようにする。
 
-**Why:** Enables parallel testing of different user roles, A/B test verification, and clean auth state management.
+**理由:** 異なる user role の並列 test、A/B test の検証、auth state のクリーンな管理が可能になります。
 
-**Context:** Requires Playwright browser context isolation. Each session gets its own context with independent cookies/localStorage. Prerequisite for video recording (clean context lifecycle) and auth vault.
+**背景:** Playwright の browser context 分離が必要です。各 session は独立した cookie / localStorage を持つ context になります。video recording（きれいな context lifecycle が必要）と auth vault の前提条件でもあります。
 
-**Effort:** L
-**Priority:** P3
+**工数:** L
+**優先度:** P3
 
 ### Video recording
 
-**What:** Record browser interactions as video (start/stop controls).
+**何をするか:** browser 操作を video として記録する（start/stop control）。
 
-**Why:** Video evidence in QA reports and PR bodies. Currently deferred because `recreateContext()` destroys page state.
+**理由:** QA report や PR body に video の証跡を載せられます。現状は `recreateContext()` が page state を壊すため deferred です。
 
-**Context:** Needs sessions for clean context lifecycle. Playwright supports video recording per context. Also needs WebM → GIF conversion for PR embedding.
+**背景:** きれいな context lifecycle のために Sessions が必要です。Playwright は context ごとの video recording をサポートしています。PR に埋め込むには WebM → GIF 変換も必要です。
 
-**Effort:** M
-**Priority:** P3
-**Depends on:** Sessions
+**工数:** M
+**優先度:** P3
+**依存:** Sessions
 
 ### v20 encryption format support
 
-**What:** AES-256-GCM support for future Chromium cookie DB versions (currently v10).
+**何をするか:** 将来の Chromium cookie DB version（現在は v10）に向けて AES-256-GCM をサポートする。
 
-**Why:** Future Chromium versions may change encryption format. Proactive support prevents breakage.
+**理由:** 将来の Chromium が encryption format を変える可能性があります。先回りで対応しておけば破損を防げます。
 
-**Effort:** S
-**Priority:** P3
+**工数:** S
+**優先度:** P3
 
 ### State persistence
 
-**What:** Save/load cookies + localStorage to JSON files for reproducible test sessions.
+**何をするか:** cookie + localStorage を JSON file に保存・復元できるようにし、再現可能な test session を作れるようにする。
 
-**Why:** Enables "resume where I left off" for QA sessions and repeatable auth states.
+**理由:** QA session で「前回の続きから再開する」と、再現可能な auth state を両立できます。
 
-**Effort:** M
-**Priority:** P3
-**Depends on:** Sessions
+**工数:** M
+**優先度:** P3
+**依存:** Sessions
 
 ### Auth vault
 
-**What:** Encrypted credential storage, referenced by name. LLM never sees passwords.
+**何をするか:** 名前参照できる暗号化 credential storage を追加する。LLM には password を見せない。
 
-**Why:** Security — currently auth credentials flow through the LLM context. Vault keeps secrets out of the AI's view.
+**理由:** security のためです。現状では auth credential が LLM context を流れてしまいます。vault に入れれば secret を AI の視界から外せます。
 
-**Effort:** L
-**Priority:** P3
-**Depends on:** Sessions, state persistence
+**工数:** L
+**優先度:** P3
+**依存:** Sessions, state persistence
 
 ### Iframe support
 
-**What:** `frame <sel>` and `frame main` commands for cross-frame interaction.
+**何をするか:** cross-frame 操作用に `frame <sel>` と `frame main` command を追加する。
 
-**Why:** Many web apps use iframes (embeds, payment forms, ads). Currently invisible to browse.
+**理由:** 多くの web app が iframe（embed、payment form、ad）を使っています。現状の browse では見えません。
 
-**Effort:** M
-**Priority:** P4
+**工数:** M
+**優先度:** P4
 
 ### Semantic locators
 
-**What:** `find role/label/text/placeholder/testid` with attached actions.
+**何をするか:** action を紐づけた `find role/label/text/placeholder/testid` を追加する。
 
-**Why:** More resilient element selection than CSS selectors or ref numbers.
+**理由:** CSS selector や ref 番号よりも壊れにくい要素選択になります。
 
-**Effort:** M
-**Priority:** P4
+**工数:** M
+**優先度:** P4
 
 ### Device emulation presets
 
-**What:** `set device "iPhone 16 Pro"` for mobile/tablet testing.
+**何をするか:** mobile / tablet test 用に `set device "iPhone 16 Pro"` のような preset を追加する。
 
-**Why:** Responsive layout testing without manual viewport resizing.
+**理由:** 手動で viewport を調整しなくても responsive layout を test できます。
 
-**Effort:** S
-**Priority:** P4
+**工数:** S
+**優先度:** P4
 
 ### Network mocking/routing
 
-**What:** Intercept, block, and mock network requests.
+**何をするか:** network request の intercept、block、mock を行えるようにする。
 
-**Why:** Test error states, loading states, and offline behavior.
+**理由:** error state、loading state、offline behavior を test できるようにするためです。
 
-**Effort:** M
-**Priority:** P4
+**工数:** M
+**優先度:** P4
 
 ### Download handling
 
-**What:** Click-to-download with path control.
+**何をするか:** click で始まる download を path 指定付きで扱えるようにする。
 
-**Why:** Test file download flows end-to-end.
+**理由:** file download flow を end-to-end で test できるようにするためです。
 
-**Effort:** S
-**Priority:** P4
+**工数:** S
+**優先度:** P4
 
 ### Content safety
 
-**What:** `--max-output` truncation, `--allowed-domains` filtering.
+**何をするか:** `--max-output` による切り詰めと、`--allowed-domains` による filter を追加する。
 
-**Why:** Prevent context window overflow and restrict navigation to safe domains.
+**理由:** context window の overflow を防ぎ、安全な domain だけに navigation を制限できます。
 
-**Effort:** S
-**Priority:** P4
+**工数:** S
+**優先度:** P4
 
-### Streaming (WebSocket live preview)
+### Streaming（WebSocket live preview）
 
-**What:** WebSocket-based live preview for pair browsing sessions.
+**何をするか:** pair browsing session 向けに、WebSocket ベースの live preview を追加する。
 
-**Why:** Enables real-time collaboration — human watches AI browse.
+**理由:** 人間が AI の browsing をリアルタイムで見られるようにするためです。
 
-**Effort:** L
-**Priority:** P4
+**工数:** L
+**優先度:** P4
 
 ### CDP mode
 
-**What:** Connect to already-running Chrome/Electron apps via Chrome DevTools Protocol.
+**何をするか:** Chrome DevTools Protocol を使って、すでに起動中の Chrome / Electron app に接続する。
 
-**Why:** Test production apps, Electron apps, and existing browser sessions without launching new instances.
+**理由:** 新しい instance を立ち上げずに、本番 app、Electron app、既存の browser session を test できるようにするためです。
 
-**Effort:** M
-**Priority:** P4
+**工数:** M
+**優先度:** P4
 
 ### Linux/Windows cookie decryption
 
-**What:** GNOME Keyring / kwallet / DPAPI support for non-macOS cookie import.
+**何をするか:** macOS 以外の cookie import 向けに GNOME Keyring / kwallet / DPAPI をサポートする。
 
-**Why:** Cross-platform cookie import. Currently macOS-only (Keychain).
+**理由:** cookie import を cross-platform にするためです。現状は macOS-only（Keychain）です。
 
-**Effort:** L
-**Priority:** P4
+**工数:** L
+**優先度:** P4
 
 ## Ship
 
-### Ship log — persistent record of /ship runs
+### Ship log  `/ship` 実行の永続記録
 
-**What:** Append structured JSON entry to `.gstack/ship-log.json` at end of every /ship run (version, date, branch, PR URL, review findings, Greptile stats, todos completed, test results).
+**何をするか:** `/ship` の各 run の最後に、構造化 JSON entry を `.gstack/ship-log.json` に追記する（version、date、branch、PR URL、review findings、Greptile stats、完了した todos、test result）。
 
-**Why:** /retro has no structured data about shipping velocity. Ship log enables: PRs-per-week trending, review finding rates, Greptile signal over time, test suite growth.
+**理由:** shipping velocity について `/retro` には構造化データがありません。ship log があれば、週あたり PR 数の trend、review findings の率、Greptile signal の推移、test suite の増加を見られます。
 
-**Context:** /retro already reads greptile-history.md — same pattern. Eval persistence (eval-store.ts) shows the JSON append pattern exists in the codebase. ~15 lines in ship template.
+**背景:** `/retro` はすでに `greptile-history.md` を読んでおり、同じ pattern が使えます。`eval-store.ts` を見ると JSON append pattern は codebase にあります。ship template では約 15 行の変更です。
 
-**Effort:** S
-**Priority:** P2
-**Depends on:** None
+**工数:** S
+**優先度:** P2
+**依存:** なし
 
-### Post-deploy verification (ship + browse)
+### Post-deploy verification（ship + browse）
 
-**What:** After push, browse staging/preview URL, screenshot key pages, check console for JS errors, compare staging vs prod via snapshot diff. Include verification screenshots in PR body. STOP if critical errors found.
+**何をするか:** push 後に staging / preview URL を browse し、主要 page の screenshot を取り、console の JS error を確認し、snapshot diff で staging と prod を比較する。検証 screenshot も PR body に含める。critical error が見つかったら STOP する。
 
-**Why:** Catch deployment-time regressions (JS errors, broken layouts) before merge.
+**理由:** merge 前に deployment 時の regression（JS error、崩れた layout）を拾うためです。
 
-**Context:** Requires S3 upload infrastructure for PR screenshots. Pairs with visual PR annotations.
+**背景:** PR 用 screenshot のために S3 upload 基盤が必要です。visual PR annotation と組み合わせて使います。
 
-**Effort:** L
-**Priority:** P2
-**Depends on:** /setup-gstack-upload, visual PR annotations
+**工数:** L
+**優先度:** P2
+**依存:** /setup-gstack-upload, visual PR annotations
 
-### Visual verification with screenshots in PR body
+### PR body 内の screenshot を使った visual verification
 
-**What:** /ship Step 7.5: screenshot key pages after push, embed in PR body.
+**何をするか:** `/ship` Step 7.5 として、push 後に主要 page を screenshot し、PR body に埋め込む。
 
-**Why:** Visual evidence in PRs. Reviewers see what changed without deploying locally.
+**理由:** PR に視覚的な証跡を残せます。reviewer は local deploy せずに何が変わったかを確認できます。
 
-**Context:** Part of Phase 3.6. Needs S3 upload for image hosting.
+**背景:** Phase 3.6 の一部です。image hosting のために S3 upload が必要です。
 
-**Effort:** M
-**Priority:** P2
-**Depends on:** /setup-gstack-upload
+**工数:** M
+**優先度:** P2
+**依存:** /setup-gstack-upload
 
 ## Review
 
 ### Inline PR annotations
 
-**What:** /ship and /review post inline review comments at specific file:line locations using `gh api` to create pull request review comments.
+**何をするか:** `/ship` と `/review` が `gh api` を使って、特定の file:line に inline review comment を投稿できるようにする。
 
-**Why:** Line-level annotations are more actionable than top-level comments. The PR thread becomes a line-by-line conversation between Greptile, Claude, and human reviewers.
+**理由:** top-level comment よりも line-level annotation の方が action に直結します。PR thread が Greptile、Claude、人間 reviewer の行単位の会話になります。
 
-**Context:** GitHub supports inline review comments via `gh api repos/$REPO/pulls/$PR/reviews`. Pairs naturally with Phase 3.6 visual annotations.
+**背景:** GitHub は `gh api repos/$REPO/pulls/$PR/reviews` 経由で inline review comment をサポートしています。Phase 3.6 の visual annotation と自然に組み合わさります。
 
-**Effort:** S
-**Priority:** P2
-**Depends on:** None
+**工数:** S
+**優先度:** P2
+**依存:** なし
 
 ### Greptile training feedback export
 
-**What:** Aggregate greptile-history.md into machine-readable JSON summary of false positive patterns, exportable to the Greptile team for model improvement.
+**何をするか:** `greptile-history.md` を集約し、false positive pattern の machine-readable な JSON summary を作って Greptile team に渡せるようにする。
 
-**Why:** Closes the feedback loop — Greptile can use FP data to stop making the same mistakes on your codebase.
+**理由:** feedback loop を閉じるためです。Greptile 側が FP data を使って、同じ mistake を codebase で繰り返さないようにできます。
 
-**Context:** Was a P3 Future Idea. Upgraded to P2 now that greptile-history.md data infrastructure exists. The signal data is already being collected; this just makes it exportable. ~40 lines.
+**背景:** もともとは P3 の Future Idea でした。`greptile-history.md` の data 基盤ができたので P2 に上げています。signal data 自体はすでに収集中で、ここでは export 可能にするだけです。実装は約 40 行。
 
-**Effort:** S
-**Priority:** P2
-**Depends on:** Enough FP data accumulated (10+ entries)
+**工数:** S
+**優先度:** P2
+**依存:** 十分な FP data の蓄積（10 件以上）
 
-### Visual review with annotated screenshots
+### annotated screenshot を使った visual review
 
-**What:** /review Step 4.5: browse PR's preview deploy, annotated screenshots of changed pages, compare against production, check responsive layouts, verify accessibility tree.
+**何をするか:** `/review` Step 4.5 として、PR の preview deploy を browse し、変更 page の annotated screenshot を取り、本番と比較し、responsive layout を確認し、accessibility tree を検証する。
 
-**Why:** Visual diff catches layout regressions that code review misses.
+**理由:** layout regression のような code review だけでは見落とす差分を visual diff で拾えるようにするためです。
 
-**Context:** Part of Phase 3.6. Needs S3 upload for image hosting.
+**背景:** Phase 3.6 の一部です。image hosting のために S3 upload が必要です。
 
-**Effort:** M
-**Priority:** P2
-**Depends on:** /setup-gstack-upload
+**工数:** M
+**優先度:** P2
+**依存:** /setup-gstack-upload
 
 ## QA
 
 ### QA trend tracking
 
-**What:** Compare baseline.json over time, detect regressions across QA runs.
+**何をするか:** `baseline.json` を時系列で比較し、QA run をまたいだ regression を検出する。
 
-**Why:** Spot quality trends — is the app getting better or worse?
+**理由:** 品質 trend を把握するためです。app が良くなっているのか、悪くなっているのかを見たい。
 
-**Context:** QA already writes structured reports. This adds cross-run comparison.
+**背景:** QA はすでに構造化 report を書いています。ここでは run 間比較を追加します。
 
-**Effort:** S
-**Priority:** P2
+**工数:** S
+**優先度:** P2
 
 ### CI/CD QA integration
 
-**What:** `/qa` as GitHub Action step, fail PR if health score drops.
+**何をするか:** `/qa` を GitHub Action step として実行し、health score が下がったら PR を fail させる。
 
-**Why:** Automated quality gate in CI. Catch regressions before merge.
+**理由:** CI の自動 quality gate として使い、merge 前に regression を拾うためです。
 
-**Effort:** M
-**Priority:** P2
+**工数:** M
+**優先度:** P2
 
 ### Smart default QA tier
 
-**What:** After a few runs, check index.md for user's usual tier pick, skip the AskUserQuestion.
+**何をするか:** 何度か run した後は `index.md` を見て、普段 user が選ぶ tier を推定し、AskUserQuestion を省略する。
 
-**Why:** Reduces friction for repeat users.
+**理由:** 繰り返し使う user の friction を減らすためです。
 
-**Effort:** S
-**Priority:** P2
+**工数:** S
+**優先度:** P2
 
 ### Accessibility audit mode
 
-**What:** `--a11y` flag for focused accessibility testing.
+**何をするか:** accessibility に絞った test 用に `--a11y` flag を追加する。
 
-**Why:** Dedicated accessibility testing beyond the general QA checklist.
+**理由:** 一般的な QA checklist を超えて、専用の accessibility test を行えるようにするためです。
 
-**Effort:** S
-**Priority:** P3
+**工数:** S
+**優先度:** P3
 
 ## Retro
 
-### Deployment health tracking (retro + browse)
+### Deployment health tracking（retro + browse）
 
-**What:** Screenshot production state, check perf metrics (page load times), count console errors across key pages, track trends over retro window.
+**何をするか:** 本番状態の screenshot を取り、perf metric（page load time）を確認し、主要 page の console error 数を数え、retro window をまたぐ trend を追跡する。
 
-**Why:** Retro should include production health alongside code metrics.
+**理由:** retro には code metric だけでなく、本番 health も含めるべきだからです。
 
-**Context:** Requires browse integration. Screenshots + metrics fed into retro output.
+**背景:** browse integration が必要です。screenshot と metric を retro output に流し込みます。
 
-**Effort:** L
-**Priority:** P3
-**Depends on:** Browse sessions
+**工数:** L
+**優先度:** P3
+**依存:** Browse sessions
 
 ## Infrastructure
 
-### /setup-gstack-upload skill (S3 bucket)
+### /setup-gstack-upload skill（S3 bucket）
 
-**What:** Configure S3 bucket for image hosting. One-time setup for visual PR annotations.
+**何をするか:** image hosting 用の S3 bucket を設定する。visual PR annotation のための one-time setup。
 
-**Why:** Prerequisite for visual PR annotations in /ship and /review.
+**理由:** `/ship` と `/review` の visual PR annotation の前提条件だからです。
 
-**Effort:** M
-**Priority:** P2
+**工数:** M
+**優先度:** P2
 
 ### gstack-upload helper
 
-**What:** `browse/bin/gstack-upload` — upload file to S3, return public URL.
+**何をするか:** `browse/bin/gstack-upload` を追加し、file を S3 に upload して public URL を返すようにする。
 
-**Why:** Shared utility for all skills that need to embed images in PRs.
+**理由:** PR に image を埋め込む必要があるすべての skill で共有できる utility にするためです。
 
-**Effort:** S
-**Priority:** P2
-**Depends on:** /setup-gstack-upload
+**工数:** S
+**優先度:** P2
+**依存:** /setup-gstack-upload
 
 ### WebM to GIF conversion
 
-**What:** ffmpeg-based WebM → GIF conversion for video evidence in PRs.
+**何をするか:** PR の video 証跡向けに、ffmpeg ベースの WebM → GIF 変換を追加する。
 
-**Why:** GitHub PR bodies render GIFs but not WebM. Needed for video recording evidence.
+**理由:** GitHub の PR body は WebM を render せず GIF は render するため、video recording の証跡に必要です。
 
-**Effort:** S
-**Priority:** P3
-**Depends on:** Video recording
+**工数:** S
+**優先度:** P3
+**依存:** Video recording
 
 ### Deploy-verify skill
 
-**What:** Lightweight post-deploy smoke test: hit key URLs, verify 200s, screenshot critical pages, console error check, compare against baseline snapshots. Pass/fail with evidence.
+**何をするか:** 軽量な post-deploy smoke test を追加する。主要 URL にアクセスし、200 を確認し、critical page の screenshot を撮り、console error を確認し、baseline snapshot と比較する。evidence 付きで pass/fail を返す。
 
-**Why:** Fast post-deploy confidence check, separate from full QA.
+**理由:** full QA とは別に、素早い post-deploy confidence check を行うためです。
 
-**Effort:** M
-**Priority:** P2
+**工数:** M
+**優先度:** P2
 
 ### GitHub Actions eval upload
 
-**What:** Run eval suite in CI, upload result JSON as artifact, post summary comment on PR.
+**何をするか:** CI で eval suite を実行し、result JSON を artifact として upload し、summary comment を PR に投稿する。
 
-**Why:** CI integration catches quality regressions before merge and provides persistent eval records per PR.
+**理由:** CI integration により merge 前の quality regression を検出でき、PR ごとの永続 eval record も残せます。
 
-**Context:** Requires `ANTHROPIC_API_KEY` in CI secrets. Cost is ~$4/run. Eval persistence system (v0.3.6) writes JSON to `~/.gstack-dev/evals/` — CI would upload as GitHub Actions artifacts and use `eval:compare` to post delta comment.
+**背景:** CI secret に `ANTHROPIC_API_KEY` が必要です。cost は約 $4/run。eval persistence system（v0.3.6）は JSON を `~/.gstack-dev/evals/` に書くので、CI では GitHub Actions artifact として upload し、`eval:compare` で差分 comment を投稿します。
 
-**Effort:** M
-**Priority:** P2
-**Depends on:** Eval persistence (shipped in v0.3.6)
+**工数:** M
+**優先度:** P2
+**依存:** Eval persistence（v0.3.6 で実装済み）
 
 ### E2E model pinning
 
-**What:** Pin E2E tests to claude-sonnet-4-6 for cost efficiency, add retry:2 for flaky LLM responses.
+**何をするか:** E2E test を cost 効率のため `claude-sonnet-4-6` に pin し、flaky な LLM response 向けに `retry:2` を追加する。
 
-**Why:** Reduce E2E test cost and flakiness.
+**理由:** E2E test の cost と flakiness を下げるためです。
 
-**Effort:** XS
-**Priority:** P2
+**工数:** XS
+**優先度:** P2
 
 ### Eval web dashboard
 
-**What:** `bun run eval:dashboard` serves local HTML with charts: cost trending, detection rate, pass/fail history.
+**何をするか:** `bun run eval:dashboard` で local HTML を配信し、cost trend、detection rate、pass/fail history の chart を表示する。
 
-**Why:** Visual charts better for spotting trends than CLI tools.
+**理由:** CLI tool よりも visual chart の方が trend を見つけやすいからです。
 
-**Context:** Reads `~/.gstack-dev/evals/*.json`. ~200 lines HTML + chart.js via Bun HTTP server.
+**背景:** `~/.gstack-dev/evals/*.json` を読みます。Bun HTTP server と chart.js を使った HTML 約 200 行の想定です。
 
-**Effort:** M
-**Priority:** P3
-**Depends on:** Eval persistence (shipped in v0.3.6)
+**工数:** M
+**優先度:** P3
+**依存:** Eval persistence（v0.3.6 で実装済み）
 
 ## Completed
 
 ### Phase 1: Foundations (v0.2.0)
-- Rename to gstack
-- Restructure to monorepo layout
-- Setup script for skill symlinks
-- Snapshot command with ref-based element selection
-- Snapshot tests
-**Completed:** v0.2.0
+- gstack へ rename
+- monorepo layout へ再構成
+- skill symlink 用 setup script
+- ref ベースの要素選択を行う snapshot command
+- snapshot test
+**完了:** v0.2.0
 
 ### Phase 2: Enhanced Browser (v0.2.0)
-- Annotated screenshots, snapshot diffing, dialog handling, file upload
-- Cursor-interactive elements, element state checks
-- CircularBuffer, async buffer flush, health check
-- Playwright error wrapping, useragent fix
-- 148 integration tests
-**Completed:** v0.2.0
+- annotated screenshot、snapshot diffing、dialog handling、file upload
+- cursor-interactive element、要素状態 check
+- CircularBuffer、async buffer flush、health check
+- Playwright error wrapping、useragent fix
+- 統合テスト 148 件
+**完了:** v0.2.0
 
 ### Phase 3: QA Testing Agent (v0.3.0)
-- /qa SKILL.md with 6-phase workflow, 3 modes (full/quick/regression)
-- Issue taxonomy, severity classification, exploration checklist
-- Report template, health score rubric, framework detection
-- wait/console/cookie-import commands, find-browse binary
-**Completed:** v0.3.0
+- 6 phase workflow と 3 mode（full/quick/regression）を持つ `/qa` SKILL.md
+- issue taxonomy、severity classification、exploration checklist
+- report template、health score rubric、framework detection
+- wait/console/cookie-import command、find-browse binary
+**完了:** v0.3.0
 
 ### Phase 3.5: Browser Cookie Import (v0.3.x)
-- cookie-import-browser command (Chromium cookie DB decryption)
-- Cookie picker web UI, /setup-browser-cookies skill
-- 18 unit tests, browser registry (Comet, Chrome, Arc, Brave, Edge)
-**Completed:** v0.3.1
+- `cookie-import-browser` command（Chromium cookie DB の復号）
+- cookie picker web UI、`/setup-browser-cookies` skill
+- unit test 18 件、browser registry（Comet、Chrome、Arc、Brave、Edge）
+**完了:** v0.3.1
 
 ### E2E test cost tracking
-- Track cumulative API spend, warn if over threshold
-**Completed:** v0.3.6
+- API の累積 spend を追跡し、threshold 超過時に warn する
+**完了:** v0.3.6
 
 ### Auto-upgrade mode + smart update check
-- Config CLI (`bin/gstack-config`), auto-upgrade via `~/.gstack/config.yaml`, 12h cache TTL, exponential snooze backoff (24h→48h→1wk), "never ask again" option, vendored copy sync on upgrade
-**Completed:** v0.3.8
+- Config CLI（`bin/gstack-config`）、`~/.gstack/config.yaml` 経由の auto-upgrade、12h cache TTL、指数的 snooze backoff（24h→48h→1wk）、"never ask again" option、upgrade 時の vendored copy sync
+**完了:** v0.3.8
