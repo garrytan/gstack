@@ -75,7 +75,7 @@ export function renderDashboard(heartbeat: HeartbeatData | null, partial: Partia
   const lines: string[] = [];
 
   if (!heartbeat && !partial) {
-    lines.push('E2E Watch — 実行中のランが見つかりません');
+    lines.push('E2E Watch — No active run detected（実行中のランが見つかりません）');
     lines.push('');
     lines.push(`Heartbeat: ${HEARTBEAT_PATH} (未検出)`);
     lines.push(`Partial:   ${PARTIAL_PATH} (未検出)`);
@@ -106,13 +106,13 @@ export function renderDashboard(heartbeat: HeartbeatData | null, partial: Partia
     const name = heartbeat.currentTest.length > 30
       ? heartbeat.currentTest.slice(0, 27) + '...'
       : heartbeat.currentTest.padEnd(30);
-    lines.push(` \u29D6 ${name}  ${formatDuration(heartbeat.elapsedSec).padStart(6)}  ターン ${heartbeat.turn}   直近: ${heartbeat.lastTool}`);
+    lines.push(` \u29D6 ${name}  ${formatDuration(heartbeat.elapsedSec).padStart(6)}  turn ${heartbeat.turn}（ターン）   直近: ${heartbeat.lastTool}`);
 
     // Stale detection
     const lastToolTime = new Date(heartbeat.lastToolAt).getTime();
     const staleSec = Math.round((Date.now() - lastToolTime) / 1000);
     if (staleSec > STALE_THRESHOLD_SEC) {
-      lines.push(` \u26A0  停滞: 最後のツール呼び出しは ${formatDuration(staleSec)} 前です \u2014 ランが停止している可能性があります`);
+      lines.push(` \u26A0  STALE: last tool call was ${formatDuration(staleSec)} ago \u2014 run may have crashed（停滞の可能性）`);
     }
   }
 
