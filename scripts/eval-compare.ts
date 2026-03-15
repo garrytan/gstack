@@ -24,7 +24,7 @@ function loadResult(filepath: string): EvalResult {
   // Resolve relative to EVAL_DIR if not absolute
   const resolved = path.isAbsolute(filepath) ? filepath : path.join(EVAL_DIR, filepath);
   if (!fs.existsSync(resolved)) {
-    console.error(`File not found: ${resolved}`);
+    console.error(`ファイルが見つかりません: ${resolved}`);
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(resolved, 'utf-8'));
@@ -46,7 +46,7 @@ if (args.length === 2) {
   const afterResult = loadResult(resolved);
   const prev = findPreviousRun(EVAL_DIR, afterResult.tier, afterResult.branch, resolved);
   if (!prev) {
-    console.log('No previous run found to compare against.');
+    console.log('比較対象となる直前の実行が見つかりません。');
     process.exit(0);
   }
   beforeFile = prev;
@@ -59,12 +59,12 @@ if (args.length === 2) {
       .sort()
       .reverse();
   } catch {
-    console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
+    console.log('Eval 実行履歴がありません。実行: EVALS=1 bun run test:evals');
     process.exit(0);
   }
 
   if (files.length < 2) {
-    console.log('Need at least 2 eval runs to compare. Run evals again.');
+    console.log('比較には最低 2 件の eval 実行が必要です。もう一度実行してください。');
     process.exit(0);
   }
 
@@ -73,7 +73,7 @@ if (args.length === 2) {
   const afterResult = loadResult(afterFile);
   const prev = findPreviousRun(EVAL_DIR, afterResult.tier, afterResult.branch, afterFile);
   if (!prev) {
-    console.log('No previous run of the same tier found to compare against.');
+    console.log('同じ tier の比較対象となる直前実行が見つかりません。');
     process.exit(0);
   }
   beforeFile = prev;
@@ -84,12 +84,12 @@ const afterResult = loadResult(afterFile);
 
 // Warn if different tiers
 if (beforeResult.tier !== afterResult.tier) {
-  console.warn(`Warning: comparing different tiers (${beforeResult.tier} vs ${afterResult.tier})`);
+  console.warn(`警告: 異なる tier を比較しています（${beforeResult.tier} vs ${afterResult.tier}）`);
 }
 
 // Warn on schema mismatch
 if (beforeResult.schema_version !== afterResult.schema_version) {
-  console.warn(`Warning: schema version mismatch (${beforeResult.schema_version} vs ${afterResult.schema_version})`);
+  console.warn(`警告: schema version が一致しません（${beforeResult.schema_version} vs ${afterResult.schema_version}）`);
 }
 
 const comparison = compareEvalResults(beforeResult, afterResult, beforeFile, afterFile);

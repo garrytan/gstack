@@ -23,7 +23,7 @@ function regenerateAndValidate() {
   try {
     execSync('bun run scripts/gen-skill-docs.ts', { cwd: ROOT, stdio: 'pipe' });
   } catch (err: any) {
-    console.log(`  [gen]   ERROR: ${err.stderr?.toString().trim() || err.message}`);
+    console.log(`  [gen]   エラー: ${err.stderr?.toString().trim() || err.message}`);
     return;
   }
 
@@ -38,28 +38,28 @@ function regenerateAndValidate() {
     const totalSnapErrors = result.snapshotFlagErrors.length;
 
     if (totalInvalid > 0 || totalSnapErrors > 0) {
-      console.log(`  [check] \u274c ${output} (${totalValid} valid)`);
+      console.log(`  [check] \u274c ${output}（有効: ${totalValid}）`);
       for (const inv of result.invalid) {
-        console.log(`          Unknown command: '${inv.command}' at line ${inv.line}`);
+        console.log(`          不明なコマンド: '${inv.command}'（行 ${inv.line}）`);
       }
       for (const se of result.snapshotFlagErrors) {
-        console.log(`          ${se.error} at line ${se.command.line}`);
+        console.log(`          ${se.error}（行 ${se.command.line}）`);
       }
     } else {
-      console.log(`  [check] \u2705 ${output} — ${totalValid} commands, all valid`);
+      console.log(`  [check] \u2705 ${output} — ${totalValid} コマンド、すべて有効`);
     }
   }
 }
 
 // Initial run
-console.log('  [watch] Watching *.md.tmpl files...');
+console.log('  [watch] *.md.tmpl を監視中...');
 regenerateAndValidate();
 
 // Watch for changes
 for (const { tmpl } of TEMPLATES) {
   if (!fs.existsSync(tmpl)) continue;
   fs.watch(tmpl, () => {
-    console.log(`\n  [watch] ${path.relative(ROOT, tmpl)} changed`);
+    console.log(`\n  [watch] ${path.relative(ROOT, tmpl)} が変更されました`);
     regenerateAndValidate();
   });
 }
@@ -73,10 +73,10 @@ const SOURCE_FILES = [
 for (const src of SOURCE_FILES) {
   if (!fs.existsSync(src)) continue;
   fs.watch(src, () => {
-    console.log(`\n  [watch] ${path.relative(ROOT, src)} changed`);
+    console.log(`\n  [watch] ${path.relative(ROOT, src)} が変更されました`);
     regenerateAndValidate();
   });
 }
 
 // Keep alive
-console.log('  [watch] Press Ctrl+C to stop\n');
+console.log('  [watch] 停止するには Ctrl+C を押してください\n');

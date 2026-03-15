@@ -18,13 +18,13 @@ if [ ! -f "$REPO_ROOT/.env" ]; then
   MAIN_WORKTREE="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')"
   if [ -n "$MAIN_WORKTREE" ] && [ "$MAIN_WORKTREE" != "$REPO_ROOT" ] && [ -f "$MAIN_WORKTREE/.env" ]; then
     cp "$MAIN_WORKTREE/.env" "$REPO_ROOT/.env"
-    echo "Copied .env from main worktree ($MAIN_WORKTREE)"
+    echo "main worktree ($MAIN_WORKTREE) から .env をコピーしました"
   fi
 fi
 
 # 2. Install dependencies
 if [ ! -d "$REPO_ROOT/node_modules" ]; then
-  echo "Installing dependencies..."
+  echo "依存関係をインストールしています..."
   (cd "$REPO_ROOT" && bun install)
 fi
 
@@ -35,11 +35,11 @@ mkdir -p "$REPO_ROOT/.claude/skills"
 # This makes setup think it's inside a real .claude/skills/ directory
 GSTACK_LINK="$REPO_ROOT/.claude/skills/gstack"
 if [ -L "$GSTACK_LINK" ]; then
-  echo "Updating existing symlink..."
+  echo "既存のシンボリックリンクを更新しています..."
   rm "$GSTACK_LINK"
 elif [ -d "$GSTACK_LINK" ]; then
-  echo "Error: .claude/skills/gstack is a real directory, not a symlink." >&2
-  echo "Remove it manually if you want to use dev mode." >&2
+  echo "エラー: .claude/skills/gstack はシンボリックリンクではなく実ディレクトリです。" >&2
+  echo "dev mode を使う場合は手動で削除してください。" >&2
   exit 1
 fi
 ln -s "$REPO_ROOT" "$GSTACK_LINK"
@@ -48,7 +48,7 @@ ln -s "$REPO_ROOT" "$GSTACK_LINK"
 "$GSTACK_LINK/setup"
 
 echo ""
-echo "Dev mode active. Skills resolve from this working tree."
-echo "Edit any SKILL.md and test immediately — no copy/deploy needed."
+echo "Dev mode を有効化しました。skills はこの working tree を参照します。"
+echo "SKILL.md を編集してすぐにテストできます（コピー/デプロイ不要）。"
 echo ""
-echo "To tear down: bin/dev-teardown"
+echo "解除コマンド: bin/dev-teardown"

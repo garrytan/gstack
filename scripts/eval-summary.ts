@@ -16,12 +16,12 @@ let files: string[];
 try {
   files = fs.readdirSync(EVAL_DIR).filter(f => f.endsWith('.json'));
 } catch {
-  console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
+  console.log('Eval 実行履歴がありません。実行: EVALS=1 bun run test:evals');
   process.exit(0);
 }
 
 if (files.length === 0) {
-  console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
+  console.log('Eval 実行履歴がありません。実行: EVALS=1 bun run test:evals');
   process.exit(0);
 }
 
@@ -93,19 +93,19 @@ for (const stats of branchStats.values()) {
 
 // Print summary
 console.log('');
-console.log('Eval Summary');
+console.log('Eval サマリー');
 console.log('═'.repeat(60));
-console.log(`  Total runs:        ${results.length} (${e2eRuns.length} e2e, ${judgeRuns.length} llm-judge)`);
-console.log(`  Total spend:       $${totalCost.toFixed(2)}`);
-console.log(`  Avg cost/e2e:      $${avgE2ECost.toFixed(2)}`);
-console.log(`  Avg cost/judge:    $${avgJudgeCost.toFixed(2)}`);
+console.log(`  総実行数:          ${results.length}（e2e: ${e2eRuns.length}, llm-judge: ${judgeRuns.length}）`);
+console.log(`  合計コスト:        $${totalCost.toFixed(2)}`);
+console.log(`  平均コスト/e2e:    $${avgE2ECost.toFixed(2)}`);
+console.log(`  平均コスト/judge:  $${avgJudgeCost.toFixed(2)}`);
 if (avgDetection !== null) {
-  console.log(`  Avg detection:     ${avgDetection.toFixed(1)} bugs`);
+  console.log(`  平均検出数:        ${avgDetection.toFixed(1)} 件`);
 }
 console.log('─'.repeat(60));
 
 if (flakyTests.length > 0) {
-  console.log(`  Flaky tests (${flakyTests.length}):`);
+  console.log(`  Flaky テスト（${flakyTests.length} 件）:`);
   for (const name of flakyTests) {
     console.log(`    - ${name}`);
   }
@@ -113,11 +113,11 @@ if (flakyTests.length > 0) {
 }
 
 if (branchStats.size > 0) {
-  console.log('  Branches:');
+  console.log('  ブランチ別:');
   const sorted = [...branchStats.entries()].sort((a, b) => b[1].avgDetection - a[1].avgDetection);
   for (const [branch, stats] of sorted) {
-    const det = stats.detections.length > 0 ? ` avg det: ${stats.avgDetection.toFixed(1)}` : '';
-    console.log(`    ${branch.padEnd(30)} ${stats.runs} runs${det}`);
+    const det = stats.detections.length > 0 ? ` 平均検出: ${stats.avgDetection.toFixed(1)}` : '';
+    console.log(`    ${branch.padEnd(30)} ${stats.runs} 回${det}`);
   }
   console.log('─'.repeat(60));
 }
@@ -127,8 +127,8 @@ const timestamps = results.map(r => r.timestamp).filter(Boolean).sort();
 if (timestamps.length > 0) {
   const first = timestamps[0].replace('T', ' ').slice(0, 16);
   const last = timestamps[timestamps.length - 1].replace('T', ' ').slice(0, 16);
-  console.log(`  Date range: ${first} → ${last}`);
+  console.log(`  期間: ${first} → ${last}`);
 }
 
-console.log(`  Dir: ${EVAL_DIR}`);
+console.log(`  ディレクトリ: ${EVAL_DIR}`);
 console.log('');

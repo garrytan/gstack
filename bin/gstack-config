@@ -15,12 +15,12 @@ CONFIG_FILE="$STATE_DIR/config.yaml"
 
 case "${1:-}" in
   get)
-    KEY="${2:?Usage: gstack-config get <key>}"
+    KEY="${2:?使い方: gstack-config get <key>}"
     grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true
     ;;
   set)
-    KEY="${2:?Usage: gstack-config set <key> <value>}"
-    VALUE="${3:?Usage: gstack-config set <key> <value>}"
+    KEY="${2:?使い方: gstack-config set <key> <value>}"
+    VALUE="${3:?使い方: gstack-config set <key> <value>}"
     mkdir -p "$STATE_DIR"
     if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
       sed -i '' "s/^${KEY}:.*/${KEY}: ${VALUE}/" "$CONFIG_FILE"
@@ -32,7 +32,7 @@ case "${1:-}" in
     cat "$CONFIG_FILE" 2>/dev/null || true
     ;;
   *)
-    echo "Usage: gstack-config {get|set|list} [key] [value]"
+    echo "使い方: gstack-config {get|set|list} [key] [value]"
     exit 1
     ;;
 esac

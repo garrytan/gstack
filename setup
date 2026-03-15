@@ -26,7 +26,7 @@ elif [ -f "$GSTACK_DIR/bun.lock" ] && [ "$GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN"
 fi
 
 if [ "$NEEDS_BUILD" -eq 1 ]; then
-  echo "Building browse binary..."
+  echo "browse バイナリをビルドしています..."
   (
     cd "$GSTACK_DIR"
     bun install
@@ -39,13 +39,13 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
 fi
 
 if [ ! -x "$BROWSE_BIN" ]; then
-  echo "gstack setup failed: browse binary missing at $BROWSE_BIN" >&2
+  echo "gstack setup 失敗: browse バイナリが見つかりません ($BROWSE_BIN)" >&2
   exit 1
 fi
 
 # 2. Ensure Playwright's Chromium is available
 if ! ensure_playwright_browser; then
-  echo "Installing Playwright Chromium..."
+  echo "Playwright Chromium をインストールしています..."
   (
     cd "$GSTACK_DIR"
     bunx playwright install chromium
@@ -53,7 +53,7 @@ if ! ensure_playwright_browser; then
 fi
 
 if ! ensure_playwright_browser; then
-  echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+  echo "gstack setup 失敗: Playwright Chromium を起動できませんでした" >&2
   exit 1
 fi
 
@@ -78,20 +78,20 @@ if [ "$SKILLS_BASENAME" = "skills" ]; then
     fi
   done
 
-  echo "gstack ready."
+  echo "gstack のセットアップが完了しました。"
   echo "  browse: $BROWSE_BIN"
   if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
+    echo "  リンクした skills: ${linked[*]}"
   fi
 else
-  echo "gstack ready."
+  echo "gstack のセットアップが完了しました。"
   echo "  browse: $BROWSE_BIN"
-  echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  echo "  （skill symlink はスキップしました: .claude/skills/ 配下ではありません）"
 fi
 
 # 4. First-time welcome + legacy cleanup
 if [ ! -d "$HOME/.gstack" ]; then
   mkdir -p "$HOME/.gstack"
-  echo "  Welcome! Run /gstack-upgrade anytime to stay current."
+  echo "  ようこそ！最新状態を保つには /gstack-upgrade を実行してください。"
 fi
 rm -f /tmp/gstack-latest-version
