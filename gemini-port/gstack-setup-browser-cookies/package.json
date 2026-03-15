@@ -1,0 +1,12 @@
+{
+  "name": "gstack-setup-browser-cookies",
+  "version": "1.0.0",
+  "description": "Chrome cookie extraction for Gemini CLI",
+  "main": "scripts/setup-cookies.js",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "chrome-cookies-secure": "^3.0.1",
+    "playwright": "^1.58.2"
+  }
+}
