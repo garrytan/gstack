@@ -29,6 +29,27 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/g
 
 You are a QA engineer. Test web applications like a real user — click everything, fill every form, check every state. Produce a structured report with evidence.
 
+## Browse Binary — Key Subcommands
+
+The browse binary (`$B`) has 50+ subcommands. These are the 10 you'll use most during QA. For the full reference, see `browse/SKILL.md`.
+
+| Subcommand | Flags / Arguments | Description |
+|---|---|---|
+| `goto <url>` | — | Navigate to a URL |
+| `snapshot` | `-i` (interactive elements only with @e refs), `-c` (compact, no empty nodes), `-d N` (limit tree depth), `-a` (annotated screenshot with red overlay + ref labels), `-D` (unified text diff vs previous snapshot — first call stores baseline, second shows changes), `-C` (cursor-interactive @c refs — finds divs with pointer/onclick/tabindex), `-s <sel>` (scope to CSS selector), `-o <path>` (output path for `-a` screenshot, default: /tmp/browse-annotated.png). All flags combinable, e.g. `-i -a -C -o /tmp/annotated.png` | Capture page state as indented accessibility tree with @ref IDs |
+| `screenshot [path]` | Flags: `--viewport`, `--clip x,y,w,h`. Positional args (in order): `[selector\|@ref]` then `[path]`. Example: `$B screenshot @e3 /tmp/btn.png` or `$B screenshot --clip 0,0,800,600 /tmp/crop.png` | Save a PNG screenshot (supports element crop via selector/@ref, clip region, viewport-only) |
+| `click <sel>` | `<sel>` is a CSS selector or `@e5` element ref from snapshot | Click an element |
+| `fill <sel> <val>` | `<sel>` element selector/ref, `<val>` string value | Fill an input field |
+| `links` | — | List all links as "text → href" |
+| `console` | `[--clear\|--errors]` — `--errors` filters to error/warning only, `--clear` resets | Read browser console output |
+| `viewport <WxH>` | `<WxH>` e.g. `375x812`, `1280x720` | Set viewport size |
+| `cookie-import <json>` | `<json>` path to a JSON cookie file (array of `{name, value, domain, path}` objects) | Import cookies for authentication |
+| `js <expr>` | `<expr>` a JS expression, e.g. `"document.title"` or `"await fetch('/api/health').then(r=>r.text())"` | Run JavaScript in page context, returns result as string. Async expressions (await) are supported. |
+
+**Element references (`@eN`):** Short-lived identifiers returned by `snapshot -i`, assigned sequentially in tree order. Refs are invalidated on navigation — re-run `snapshot` after `goto` before using refs.
+
+---
+
 ## Setup
 
 **Parse the user's request for these parameters:**
@@ -136,7 +157,7 @@ Run full mode, then load `baseline.json` from a previous run. Diff: which issues
 
 1. Find browse binary (see Setup above)
 2. Create output directories
-3. Copy report template from `qa/templates/qa-report-template.md` to output dir
+3. Copy report template from `qa/templates/qa-report-template.md` to output dir. If the template is missing, create a markdown report with sections: Summary (health score, date, URL, duration), Issues (numbered, with severity/category/description/screenshot/repro steps), Console Health, and Top 3 Things to Fix.
 4. Start timer for duration tracking
 
 ### Phase 2: Authenticate (if needed)
@@ -192,7 +213,7 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
 $B console --errors
 ```
 
-Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md`):
+Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md` for full taxonomy; if unavailable, use the categories below — Visual, Functional, UX, Content, Performance, Accessibility — and severity levels Critical/High/Medium/Low):
 
 1. **Visual scan** — Look at the annotated screenshot for layout issues
 2. **Interactive elements** — Click buttons, links, controls. Do they work?
@@ -239,7 +260,7 @@ $B snapshot -D
 $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 ```
 
-**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
+**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`. Each issue should include: `ISSUE-NNN`, title, severity (Critical/High/Medium/Low), category (Visual/Functional/UX/Content/Performance/Accessibility), description, repro steps, and screenshot path(s).
 
 ### Phase 6: Wrap Up
 
