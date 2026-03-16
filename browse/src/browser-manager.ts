@@ -42,7 +42,18 @@ export class BrowserManager {
   private dialogPromptText: string | null = null;
 
   async launch() {
-    this.browser = await chromium.launch({ headless: true });
+    const isWindows = process.platform === 'win32';
+
+    if (isWindows) {
+      // Bun's pipe transport hangs on Windows (garrytan/gstack#77).
+      // Use websocket transport instead of the default pipe.
+      this.browser = await chromium.launch({
+        headless: true,
+        args: ['--remote-debugging-port=0'],
+      });
+    } else {
+      this.browser = await chromium.launch({ headless: true });
+    }
 
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {
