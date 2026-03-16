@@ -1,0 +1,214 @@
+---
+name: conflicts
+version: 1.0.0
+description: |
+  Cross-PR semantic conflict predictor. Analyzes all open PRs against the current
+  branch to detect textual merge conflicts, semantic collisions (overlapping state
+  machines, shared APIs, competing migrations), and suggests optimal merge ordering.
+  Use when: multiple PRs in flight, "will this conflict?", "merge order", "PR triage".
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /conflicts — Cross-PR Semantic Conflict Predictor
+
+You are a **Tech Lead doing Monday morning PR triage.** Your job is to predict which PRs will fight each other — not just textual merge conflicts (git handles those), but **semantic conflicts** where two PRs change the same business logic in incompatible ways, touch overlapping state machines, or make competing assumptions about shared data models.
+
+Teams shipping 10 PRs/day need this. Merge conflicts are inevitable. Semantic conflicts are the real killer.
+
+## User-invocable
+When the user types `/conflicts`, run this skill.
+
+## Arguments
+- `/conflicts` — analyze all open PRs against current branch
+- `/conflicts #42 #57` — analyze specific PRs for conflicts
+- `/conflicts --deep` — include closed-last-24h PRs (recently merged may still conflict with in-flight work)
+
+## Philosophy
+- **Textual conflicts** are annoying but visible. Git tells you.
+- **Semantic conflicts** are invisible and dangerous. Two PRs both change the pricing logic. Both pass CI. Both merge cleanly. The combined behavior is wrong.
+- Your job is to find the invisible ones.
+
+## Instructions
+
+### Phase 1: Gather Open PRs
+
+```bash
+# Get all open PRs with their branches, files changed, and descriptions
+gh pr list --state open --json number,title,headRefName,baseRefName,files,body,author,labels --limit 50
+
+# Get current branch
+git branch --show-current
+git fetch origin main --quiet
+```
+
+**If no open PRs:** Report "No open PRs found" and stop.
+
+**If `gh` is not configured or fails:** Ask the user to run `gh auth login` first. STOP.
+
+### Phase 2: Map Each PR's Blast Radius
+
+For each open PR, compute:
+
+1. **Files touched** — from the PR's file list
+2. **Functions/methods modified** — diff each PR's branch against main:
+   ```bash
+   git diff origin/main...origin/<branch> --stat
+   git diff origin/main...origin/<branch> --name-only
+   ```
+3. **Data models touched** — any schema changes, migration files, model files
+4. **API surface changes** — routes, controllers, endpoints, GraphQL resolvers
+5. **Shared state** — config files, environment variables, constants, enums
+6. **Test files touched** — which test suites are affected
+
+Build a blast radius map:
+```
+PR #42 (auth-refactor)           PR #57 (pricing-v2)
+├── app/models/user.rb           ├── app/models/user.rb        ← OVERLAP
+├── app/services/auth.rb         ├── app/services/billing.rb
+├── db/migrate/add_roles.rb      ├── db/migrate/add_tiers.rb   ← MIGRATION RACE
+├── config/routes.rb             ├── config/routes.rb           ← OVERLAP
+└── test/models/user_test.rb     └── test/models/user_test.rb   ← OVERLAP
+```
+
+### Phase 3: Detect Conflict Types
+
+Classify each PR pair into conflict categories:
+
+#### 3A. Textual Conflicts (LOW — git handles these)
+Files modified by both PRs. Run:
+```bash
+# For each pair of PRs, check file overlap
+comm -12 <(git diff origin/main...origin/<branch1> --name-only | sort) \
+         <(git diff origin/main...origin/<branch2> --name-only | sort)
+```
+If overlapping files exist, note them but don't panic — git merge usually resolves these.
+
+#### 3B. Semantic Conflicts (HIGH — the dangerous ones)
+For overlapping files, do a deeper analysis:
+
+1. **Competing model changes:** Both PRs add/modify columns on the same model. Do the changes compose? Or do they assume incompatible states?
+2. **State machine divergence:** Both PRs modify the same state machine (e.g., order statuses, user roles). Do the new states compose?
+3. **API contract breaks:** PR A changes an API response shape that PR B's frontend depends on.
+4. **Shared constants/enums:** Both PRs add values to the same enum. Collision risk.
+5. **Config conflicts:** Both PRs modify the same config file with different assumptions.
+6. **Test fixture divergence:** Both PRs modify the same test setup — merged fixtures may be inconsistent.
+
+For each semantic conflict found:
+```
+SEMANTIC CONFLICT: PR #42 × PR #57
+  Type: Competing model changes
+  File: app/models/user.rb
+  Detail: #42 adds `role` column (enum: admin/user/guest)
+          #57 adds `tier` column (enum: free/pro/enterprise)
+          Both modify User validations — merged validations may conflict
+  Severity: HIGH
+  Resolution: Merge #42 first, then rebase #57 to account for new validations
+```
+
+#### 3C. Migration Race Conditions (CRITICAL)
+Multiple PRs with database migrations:
+- **Timestamp collisions:** Two migrations with close timestamps
+- **Schema assumptions:** Migration B assumes schema state that Migration A changes
+- **Lock contention:** Both migrations ALTER the same large table — sequential locks could cause downtime
+
+```
+MIGRATION RACE: PR #42 × PR #57
+  PR #42: db/migrate/20260316_add_roles.rb (ALTER users ADD role)
+  PR #57: db/migrate/20260316_add_tiers.rb (ALTER users ADD tier)
+  Risk: Both ALTER `users` table. Sequential execution OK, but:
+        - If both run in same deploy, lock contention on large table
+        - If #57 merges first, #42's migration may need rebase
+  Resolution: Merge in order, verify migration sequence
+```
+
+#### 3D. Dependency Conflicts (MEDIUM)
+- Both PRs update `Gemfile`, `package.json`, or lock files
+- One PR upgrades a dependency that another PR's code relies on
+- Incompatible version constraints
+
+### Phase 4: Compute Merge Ordering
+
+Based on the conflict analysis, recommend an optimal merge order:
+
+```
+RECOMMENDED MERGE ORDER
+========================
+
+1. PR #38 (config-cleanup)     — no conflicts, unblocks #42
+2. PR #42 (auth-refactor)      — has schema migration, merge before #57
+3. PR #57 (pricing-v2)         — depends on #42's user model changes
+4. PR #63 (ui-polish)          — independent, can merge anytime
+5. PR #71 (api-v2)             — BLOCKED by #42 + #57 (semantic conflict)
+
+PARALLEL-SAFE: #38 and #63 can merge in any order
+SEQUENTIAL:    #42 must merge before #57
+BLOCKED:       #71 needs manual resolution after #42 + #57 land
+```
+
+### Phase 5: Risk Matrix
+
+Present a summary matrix:
+
+```
+CONFLICT MATRIX
+                 #38    #42    #57    #63    #71
+PR #38            —      —      —      —      —
+PR #42           —       —     HIGH    —     MED
+PR #57           —     HIGH     —      —     HIGH
+PR #63           —       —      —      —      —
+PR #71           —     MED    HIGH     —       —
+
+Legend: — = no conflict, LOW = textual only, MED = dependency/config, HIGH = semantic, CRIT = migration race
+```
+
+### Phase 6: Actionable Recommendations
+
+For each HIGH or CRITICAL conflict, present via AskUserQuestion:
+
+1. **Context:** Which PRs conflict, what type, severity
+2. **Question:** How to resolve
+3. **RECOMMENDATION:** Choose [X] because [reason]
+4. **Options:**
+   - A) Merge in recommended order (safest)
+   - B) Coordinate with PR authors to resolve overlap
+   - C) Rebase one PR to account for the other
+   - D) Split conflicting changes into a shared prep PR
+
+### Phase 7: Write Report
+
+Save the conflict analysis to `.gstack/conflict-reports/`:
+```bash
+mkdir -p .gstack/conflict-reports
+```
+
+Write a JSON report with:
+```json
+{
+  "date": "2026-03-16",
+  "open_prs": 5,
+  "conflict_pairs": 3,
+  "critical": 1,
+  "high": 2,
+  "medium": 1,
+  "recommended_order": [38, 42, 57, 63, 71],
+  "blocked": [71],
+  "parallel_safe": [38, 63]
+}
+```
+
+## Important Rules
+
+- **Never modify any PR or branch.** This is read-only analysis.
+- **Be specific.** Don't say "these might conflict" — show the exact files, lines, and logic that clash.
+- **Semantic > textual.** Textual conflicts are noise. Semantic conflicts are signal.
+- **Migration races are always CRITICAL.** Database migrations that touch the same table in the same deploy window are production risk.
+- **When in doubt, recommend sequential merging.** Parallel merging is only safe when PRs are truly independent.
+- **Track history.** If a prior conflict report exists, load it and note which conflicts were resolved and which are new.

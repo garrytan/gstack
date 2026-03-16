@@ -69,6 +69,16 @@ describe('gen-skill-docs', () => {
     { dir: 'retro', name: 'retro' },
     { dir: 'setup-browser-cookies', name: 'setup-browser-cookies' },
     { dir: 'gstack-upgrade', name: 'gstack-upgrade' },
+    { dir: 'conflicts', name: 'conflicts' },
+    { dir: 'risk', name: 'risk' },
+    { dir: 'cso', name: 'cso' },
+    { dir: 'cfo', name: 'cfo' },
+    { dir: 'vc', name: 'vc' },
+    { dir: 'board', name: 'board' },
+    { dir: 'media', name: 'media' },
+    { dir: 'comms', name: 'comms' },
+    { dir: 'pr-comms', name: 'pr-comms' },
+    { dir: 'ai-hybrid', name: 'ai-hybrid' },
   ];
 
   test('every skill has a SKILL.md.tmpl template', () => {
