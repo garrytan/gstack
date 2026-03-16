@@ -541,9 +541,25 @@ git push -u origin <branch-name>
 
 ---
 
+## Step 7.5: Detect Repo PR Template
+
+{{REPO_TEMPLATE_DETECT}}
+
 ## Step 8: Create PR
 
-Create a pull request using `gh`:
+Create a pull request using `gh`.
+
+**If a repo PR template was found in Step 7.5:** Read it and use its structure as the base
+for the PR body. Fill in its sections with the data gathered during the ship workflow. Then
+append any ship-specific sections that the repo template doesn't already cover:
+
+- **Pre-Landing Review** — findings from Step 3.5, or "No issues found."
+- **Eval Results** — if evals ran: suite names, pass/fail counts, cost dashboard. If skipped: "No prompt-related files changed — evals skipped."
+- **Greptile Review** — if comments found: bullet list with [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED] tag. If no PR existed during Step 3.75: omit entirely.
+- **TODOS** — if items marked complete: bullet list with version. If TODOS.md doesn't exist and user skipped: omit.
+- **Test plan** — test pass/fail counts
+
+**If no repo PR template was found:** Use this default format:
 
 ```bash
 gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
@@ -574,8 +590,6 @@ gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 ## Test plan
 - [x] All Rails tests pass (N runs, 0 failures)
 - [x] All Vitest tests pass (N tests)
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```

@@ -810,9 +810,65 @@ git push -u origin <branch-name>
 
 ---
 
+## Step 7.5: Detect Repo PR Template
+
+## Repo Template Detection
+
+Before creating a PR, issue, or bug report via `gh`, check if the target repo provides GitHub templates:
+
+```bash
+# PR templates (check all common locations)
+for f in .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md .github/PULL_REQUEST_TEMPLATE/default.md docs/pull_request_template.md PULL_REQUEST_TEMPLATE.md; do
+  [ -f "$f" ] && echo "PR_TEMPLATE: $f" && break
+done
+
+# Issue templates
+if [ -d ".github/ISSUE_TEMPLATE" ]; then
+  echo "ISSUE_TEMPLATES:"
+  ls .github/ISSUE_TEMPLATE/*.md .github/ISSUE_TEMPLATE/*.yml 2>/dev/null
+elif [ -f ".github/ISSUE_TEMPLATE.md" ]; then
+  echo "ISSUE_TEMPLATE: .github/ISSUE_TEMPLATE.md"
+fi
+```
+
+**If a PR template is found:**
+
+1. Read the template file. It defines the repo's expected PR structure — section headings,
+   checklists, required fields, etc.
+2. Use the repo template as the **base structure** for the PR body. Fill in its sections
+   with the information you have (summary, test results, etc.).
+3. **Merge, don't replace.** If the skill needs sections the repo template doesn't have
+   (e.g., "Eval Results", "Greptile Review"), append them after the repo template's sections.
+   If the repo template has sections the skill doesn't populate (e.g., "Related Issues",
+   "Screenshots"), leave them with a sensible default or "N/A" — don't delete them.
+4. Preserve any checkboxes, required fields, or HTML comments from the repo template.
+   These often trigger CI checks or reviewer workflows.
+
+**If no PR template is found:** Use the skill's default PR body format (defined in the
+skill's own instructions).
+
+**For issues:** If the repo has issue templates (`.github/ISSUE_TEMPLATE/`), list the
+available templates and pick the best match for the issue type (bug report, feature
+request, etc.). Read the chosen template and fill in its fields. If no issue templates
+exist, use a sensible default format.
+
+---
+
 ## Step 8: Create PR
 
-Create a pull request using `gh`:
+Create a pull request using `gh`.
+
+**If a repo PR template was found in Step 7.5:** Read it and use its structure as the base
+for the PR body. Fill in its sections with the data gathered during the ship workflow. Then
+append any ship-specific sections that the repo template doesn't already cover:
+
+- **Pre-Landing Review** — findings from Step 3.5, or "No issues found."
+- **Eval Results** — if evals ran: suite names, pass/fail counts, cost dashboard. If skipped: "No prompt-related files changed — evals skipped."
+- **Greptile Review** — if comments found: bullet list with [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED] tag. If no PR existed during Step 3.75: omit entirely.
+- **TODOS** — if items marked complete: bullet list with version. If TODOS.md doesn't exist and user skipped: omit.
+- **Test plan** — test pass/fail counts
+
+**If no repo PR template was found:** Use this default format:
 
 ```bash
 gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
@@ -843,8 +899,6 @@ gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 ## Test plan
 - [x] All Rails tests pass (N runs, 0 failures)
 - [x] All Vitest tests pass (N tests)
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
