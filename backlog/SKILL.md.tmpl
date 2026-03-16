@@ -1,0 +1,225 @@
+---
+name: backlog
+version: 1.0.0
+description: |
+  Persistent task backlog across Claude Code sessions. Track review findings, QA bugs,
+  and improvement suggestions in a SQLite database. Commands: list, add, complete,
+  search, stats, next. Use when asked to "add to backlog", "show backlog", "track this",
+  "what's pending", or after reviews to capture non-critical findings.
+allowed-tools:
+  - Bash
+  - Read
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /backlog: Persistent Task Tracking
+
+Track tasks, review findings, QA bugs, and improvement suggestions in a SQLite database that persists across Claude Code sessions. Data lives at `~/.gstack/backlog.db`.
+
+---
+
+## Setup
+
+Locate the backlog script:
+
+```bash
+_SKILL_DIR="${_SKILL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}"
+[ -z "$_SKILL_DIR" ] && _SKILL_DIR="$HOME/.claude/skills/gstack"
+_BL="$_SKILL_DIR/backlog/scripts/backlog.sh"
+if [ ! -x "$_BL" ]; then
+  echo "ERROR: backlog.sh not found or not executable at $_BL"
+fi
+```
+
+Use `$_BL` as the script path for all commands below.
+
+---
+
+## Subcommands
+
+Parse the user's input after `/backlog` and run the matching command.
+
+### `/backlog list` (default when no subcommand)
+
+Show pending tasks, sorted by priority (critical first).
+
+```bash
+$_BL list                                    # pending tasks (default)
+$_BL list --status all                       # all tasks including completed
+$_BL list --status completed                 # completed tasks only
+$_BL list --priority critical                # only critical tasks
+$_BL list --limit 20                         # limit output
+```
+
+Present the output as-is -- the script formats a table with summary counts.
+
+### `/backlog add "<title>"` or `/backlog add` (then parse from context)
+
+Add a new task. Deduplicates automatically (skips if identical pending title exists).
+
+```bash
+$_BL add "Fix input validation on settings page" --priority important --source review
+$_BL add "Refactor auth middleware" --priority suggestion --source manual
+$_BL add "Critical SQL injection in /api/users" --priority critical --source review --file "app/api/users/route.ts" --line 42
+```
+
+**Priority levels**: `critical` | `important` | `suggestion` (default: suggestion)
+**Source values**: `review` | `qa` | `manual` (default: manual)
+
+**Optional flags**:
+- `--description "longer explanation"` -- details about the task
+- `--file "path/to/file.ts"` -- file reference
+- `--line 42` -- line number reference
+
+When the user says things like "add to backlog", "track this", "remember to fix this later", parse their intent and construct the add command. Infer priority from urgency words:
+- "critical", "urgent", "security", "broken" -> `critical`
+- "important", "should fix", "needs", "bug" -> `important`
+- "nice to have", "could", "might", "idea", "suggestion" -> `suggestion`
+
+### `/backlog complete <id>`
+
+Mark a task as completed.
+
+```bash
+$_BL complete 42
+```
+
+After completing, show a brief confirmation. If you just finished a task from the backlog, offer to show the next task.
+
+### `/backlog delete <id>`
+
+Soft-delete a task (marks as deleted, does not remove from DB).
+
+```bash
+$_BL delete 42
+```
+
+### `/backlog search <query>`
+
+Search tasks by title or description.
+
+```bash
+$_BL search "validation"
+$_BL search "auth middleware"
+```
+
+### `/backlog stats`
+
+Show backlog statistics: counts by status, priority, and source.
+
+```bash
+$_BL stats
+```
+
+### `/backlog next`
+
+Get the highest-priority pending task as JSON. Useful for automated workflows.
+
+```bash
+$_BL next
+```
+
+If the result is empty (`{}`), tell the user "No pending tasks in the backlog."
+
+### `/backlog start <id>`
+
+Mark a task as in-progress. Used when beginning work on a backlog item.
+
+```bash
+$_BL start 42
+```
+
+### `/backlog reset <id>`
+
+Reset an in-progress task back to pending (e.g., if work was interrupted).
+
+```bash
+$_BL reset 42
+```
+
+### `/backlog get <id>`
+
+Show full details of a specific task.
+
+```bash
+$_BL get 42
+```
+
+### `/backlog dedup`
+
+Remove duplicate pending tasks (keeps the lowest ID for each title).
+
+```bash
+$_BL dedup
+```
+
+### `/backlog cleanup`
+
+Remove garbage entries (code fragments, shell syntax that got accidentally added as tasks).
+
+```bash
+$_BL cleanup
+```
+
+---
+
+## Integration with Other Skills
+
+The backlog is the canonical place to capture non-critical findings from other gstack workflows.
+
+### After `/review`
+
+When a `/review` run finds non-critical (informational) issues, add them to the backlog:
+
+```bash
+# For each informational finding from /review:
+$_BL add "Review: <finding title>" --priority important --source review --file "<file>" --line <line>
+```
+
+Tell the user: "Added N informational findings to the backlog. Run `/backlog list` to see them."
+
+### After `/qa` or `/qa-only`
+
+When QA finds bugs that won't be fixed in the current session:
+
+```bash
+# For each unfixed QA finding:
+$_BL add "QA: <issue title>" --priority <severity-mapped> --source qa --description "<repro steps>"
+```
+
+Map QA severity to backlog priority:
+- Critical/High QA severity -> `critical`
+- Medium QA severity -> `important`
+- Low QA severity -> `suggestion`
+
+### During Development
+
+When you notice something that could be improved but isn't the current task:
+
+```bash
+$_BL add "Noticed: <improvement>" --priority suggestion --source manual --file "<file>"
+```
+
+Tell the user: "Added to backlog: <title>. Continuing with the current task."
+
+**Do NOT stop the current workflow to fix backlog items.** Capture and continue.
+
+---
+
+## Output Formatting
+
+- Always show the raw script output -- it's already formatted as a table
+- After `list`, add a brief interpretation: "You have N critical items that should be addressed first."
+- After `add`, confirm what was added
+- After `stats`, highlight if there are critical items: "Heads up: N critical items need attention."
+- After `next`, show the task details clearly and ask: "Want to start working on this?"
+
+---
+
+## Error Handling
+
+- If `sqlite3` is not installed, tell the user: "The backlog requires sqlite3. Install it with your package manager (brew install sqlite3, apt install sqlite3, etc.)"
+- If the script is not found or not executable, tell the user to run the gstack setup
+- If the database is corrupted, suggest: "Try running `/backlog cleanup` and `/backlog dedup`. If issues persist, the database can be reset by deleting `~/.gstack/backlog.db`."
