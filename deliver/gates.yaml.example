@@ -1,0 +1,52 @@
+# Quality gate configuration for the /deliver pipeline
+# Copy this to ~/.gstack/deliver/gates.yaml and customize for your project.
+#
+# Each gate references an agent .md file in ~/.gstack/deliver/agents/ (or the
+# skill's bundled agents/ directory as fallback).
+#
+# Trigger types:
+#   always                    — run on every PR
+#   files_match: [patterns]   — run only when matching files change
+#   min_lines_changed: N      — run only when total lines changed >= N
+
+gates:
+  verify-app:
+    enabled: true
+    blocking: true
+    trigger: always
+
+  code-simplifier:
+    enabled: true
+    blocking: false
+    trigger:
+      min_lines_changed: 50
+
+  # Example: infrastructure review gate (disabled by default)
+  # infra-review:
+  #   enabled: false
+  #   blocking: false
+  #   trigger:
+  #     files_match:
+  #       - ".github/**"
+  #       - "Dockerfile*"
+  #       - "docker-compose*"
+  #       - ".env*"
+  #       - "infrastructure/**"
+
+  # Example: security audit gate (disabled by default)
+  # security-audit:
+  #   enabled: false
+  #   blocking: true
+  #   trigger:
+  #     files_match:
+  #       - "auth/**"
+  #       - "middleware/**"
+  #       - "**/security*"
+  #       - "**/crypto*"
+
+settings:
+  ci_poll_interval_seconds: 30
+  ci_timeout_minutes: 30
+  merge_method: squash          # squash | merge | rebase
+  delete_branch_on_merge: true
+  auto_merge: true

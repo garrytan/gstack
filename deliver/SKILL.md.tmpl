@@ -1,0 +1,244 @@
+---
+name: deliver
+version: 1.0.0
+description: |
+  Run the delivery pipeline for a branch — CI, quality gates, merge. Automates the full
+  path from "PR created" to "merged to main". Polls CI, runs pluggable quality gates
+  (verify-app, code-simplifier, custom agents), auto-merges when all blocking gates pass.
+  Use when asked to "deliver", "land this", "merge when ready", or "ship and merge".
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /deliver: Automated Delivery Pipeline
+
+You are running the `/deliver` workflow. This automates the full delivery pipeline: validate branch, create/find PR, poll CI, run quality gates, and merge when all blocking gates pass.
+
+**This is a non-interactive workflow by default.** Do NOT ask for confirmation unless a blocking gate fails and needs user intervention. The user said `/deliver` which means DO IT.
+
+---
+
+## Setup
+
+**Parse the user's request for these parameters:**
+
+| Parameter | Default | Override example |
+|-----------|---------|-----------------|
+| Branch | current branch | `deliver feat/my-feature` |
+| Base | auto-detect (main or master) | `--base develop` |
+| No merge | false | `--no-merge` (approve but don't merge) |
+| Resume | n/a | `--resume` (resume from saved state) |
+| Status | n/a | `--status` (show current pipeline state) |
+
+---
+
+## First-Time Setup
+
+On first run, check if `~/.gstack/deliver/` exists. If not, bootstrap it:
+
+```bash
+DELIVER_DIR="$HOME/.gstack/deliver"
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ ! -d "$DELIVER_DIR" ]]; then
+    mkdir -p "$DELIVER_DIR/agents" "$DELIVER_DIR/state"
+    # Copy example config as starting point
+    cp "$SKILL_DIR/gates.yaml.example" "$DELIVER_DIR/gates.yaml"
+    # Copy bundled agents as defaults
+    cp "$SKILL_DIR/agents/"*.md "$DELIVER_DIR/agents/"
+    echo "Initialized ~/.gstack/deliver/ with default config and agents."
+    echo "Edit ~/.gstack/deliver/gates.yaml to customize quality gates."
+fi
+```
+
+---
+
+## Step 1: Determine Branch and Mode
+
+```bash
+BRANCH=$(git branch --show-current)
+```
+
+**If `--status` was passed:** Source the pipeline scripts and run `pipeline_status <task-id>`. Print the state and exit.
+
+**If `--resume` was passed:** Source the pipeline scripts and run `pipeline_resume <task-id>`. The pipeline will pick up from its last saved state.
+
+**If no branch specified and on main/master:** STOP. Tell the user: "You're on main. Deliver from a feature branch."
+
+**If no branch specified:** Use the current branch.
+
+---
+
+## Step 2: Source Pipeline Scripts
+
+The delivery pipeline is implemented as composable bash scripts. Source them from the skill directory:
+
+```bash
+SKILL_DIR="<path to this skill's scripts/ directory>"
+source "$SKILL_DIR/scripts/delivery-state.sh"
+source "$SKILL_DIR/scripts/pr-manager.sh"
+source "$SKILL_DIR/scripts/ci-monitor.sh"
+source "$SKILL_DIR/scripts/gate-runner.sh"
+```
+
+---
+
+## Step 3: Run the Pipeline
+
+Execute the end-to-end pipeline via `run.sh`:
+
+```bash
+"$SKILL_DIR/scripts/run.sh" "$BRANCH" --base "$BASE"
+```
+
+Or with options:
+
+```bash
+# Approve but don't merge
+"$SKILL_DIR/scripts/run.sh" "$BRANCH" --no-merge
+
+# Resume a blocked pipeline
+"$SKILL_DIR/scripts/run.sh" resume "$TASK_ID"
+
+# Check status
+"$SKILL_DIR/scripts/run.sh" status "$TASK_ID"
+```
+
+---
+
+## Step 4: Report Progress
+
+The pipeline emits structured output. Report each phase to the user:
+
+| Phase | What to report |
+|-------|---------------|
+| `PR_CREATING` | "Creating/finding PR for branch..." |
+| `CI_RUNNING` | "PR #N created. Polling CI..." (with elapsed time) |
+| `REVIEWING` | "CI passed. Running quality gates..." |
+| `APPROVED` | "All blocking gates passed." |
+| `MERGING` | "Merging PR #N..." |
+| `MERGED` | "PR #N merged to {base}. Delivery complete." |
+| `BLOCKED` | "Pipeline blocked: {reason}" |
+
+**On BLOCKED:** Show the specific failure (CI failure, gate failure, merge conflict) and suggest next steps.
+
+---
+
+## Step 5: Handle Failures
+
+### CI Failure
+```
+CI failed for PR #N.
+Run `gh pr checks N` to see which checks failed.
+Fix the issues, push, then run `/deliver --resume` to continue.
+```
+
+### Quality Gate Failure (blocking)
+```
+Blocking gate "{gate-name}" failed for PR #N.
+Review the gate output above and address the issues.
+Then run `/deliver --resume` to re-run gates.
+```
+
+### Quality Gate Failure (non-blocking)
+Non-blocking gate failures are logged but do NOT prevent merge. Report them as warnings:
+```
+Warning: Non-blocking gate "{gate-name}" failed. See output above for suggestions.
+```
+
+### Merge Failure
+```
+Merge failed for PR #N.
+This usually means a merge conflict or branch protection rule.
+Run `gh pr view N` for details.
+```
+
+---
+
+## Pipeline State Machine
+
+The delivery tracks each branch through these states:
+
+```
+WORKING -> PR_CREATING -> CI_RUNNING -> REVIEWING -> APPROVED -> MERGING -> MERGED
+                              |              |
+                              v              v
+                           BLOCKED <------+
+                              |
+                              v
+                     (resume from WORKING, CI_RUNNING, or REVIEWING)
+```
+
+State is persisted at `~/.gstack/deliver/state/deliveries.json`, enabling resume across sessions.
+
+---
+
+## Quality Gates
+
+Gates are configured in `~/.gstack/deliver/gates.yaml`. Each gate specifies:
+
+- **enabled**: Whether the gate is active
+- **blocking**: Whether failure blocks the merge
+- **trigger**: When to run (always, file patterns, line count threshold)
+
+### Bundled Gates
+
+| Gate | Blocking | Trigger | Purpose |
+|------|----------|---------|---------|
+| `verify-app` | Yes | always | Type check, lint, test, build |
+| `code-simplifier` | No | 50+ lines changed | Readability suggestions |
+
+### Custom Gates
+
+Add your own gates by:
+1. Creating an agent `.md` file in `~/.gstack/deliver/agents/`
+2. Adding a gate entry in `~/.gstack/deliver/gates.yaml`
+
+Agent `.md` files use YAML front matter + markdown body with a `## Review Mandate` section.
+
+---
+
+## Configuration
+
+Edit `~/.gstack/deliver/gates.yaml` to customize:
+
+```yaml
+gates:
+  verify-app:
+    enabled: true
+    blocking: true
+    trigger: always
+
+  code-simplifier:
+    enabled: true
+    blocking: false
+    trigger:
+      min_lines_changed: 50
+
+  # Add custom gates here
+
+settings:
+  ci_poll_interval_seconds: 30
+  ci_timeout_minutes: 30
+  merge_method: squash          # squash | merge | rebase
+  delete_branch_on_merge: true
+  auto_merge: true
+```
+
+---
+
+## Important Rules
+
+- **Never deliver main/master.** The pipeline rejects attempts to deliver the default branch.
+- **Never force-push.** The pipeline uses regular `git push` only.
+- **Blocking gates must pass.** Non-blocking gates are advisory only.
+- **State is resumable.** If the pipeline is interrupted, run `/deliver --resume` to continue.
+- **The goal is: user says `/deliver`, next thing they see is "PR #N merged."**
