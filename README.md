@@ -1,8 +1,8 @@
 # gstack
 
-**gstack turns Claude Code from one generic assistant into a team of specialists you can summon on demand.**
+**gstack turns one generic coding agent into a team of specialists you can summon on demand.**
 
-Eight opinionated workflow skills for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Plan review, code review, one-command shipping, browser automation, QA testing, and engineering retrospectives — all as slash commands.
+Eight opinionated workflow modes for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), plus a Codex-compatible layer that reuses the same browser engine, workflow references, and setup/build flow. Plan review, code review, one-command shipping, browser automation, QA testing, and engineering retrospectives — without maintaining two forks.
 
 ### Without gstack
 
@@ -85,6 +85,22 @@ You already use Claude Code heavily and want consistent, high-rigor workflows in
 
 This is not a prompt pack for beginners. It is an operating system for people who ship.
 
+## Codex compatibility
+
+gstack now ships as two layers:
+
+- Portable core: `browse/`, shared build/setup scripts, QA/review assets, and `references/workflows/*`
+- Host glue: `CLAUDE.md` + top-level skill prompts for Claude, `AGENTS.md` + `.codex/skills/*` for Codex
+
+Codex does not try to emulate Claude slash-command registration. Instead it gets:
+
+- repo-local skills in `.codex/skills/`
+- host-aware install via `./setup --host codex` or `./setup --host auto`
+- compatibility wrappers like `bin/gstack-browse`, `bin/gstack-qa`, and `bin/gstack-review`
+- an explicit alias contract: `/browse` maps to `gstack-browse`, `/qa` to `gstack-qa`, and so on
+
+The compiled browser binary stays unchanged. Browser/QA flows still run through `browse/dist/browse`, not host-native browser tools.
+
 ## How to fly: 10 sessions at once
 
 gstack is powerful with one Claude Code session. It is transformative with ten.
@@ -97,29 +113,74 @@ This is the setup I use. One person, ten parallel agents, each with the right co
 
 ## Install
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+. `/browse` compiles a native binary — works on macOS and Linux (x64 and arm64).
+**Requirements:** [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, and either [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex. `/browse` compiles a native binary — works on macOS and Linux (x64 and arm64).
 
-### Step 1: Install on your machine
+### Codex: global install
 
-Open Claude Code and paste this. Claude will do the rest.
+Clone anywhere, then register Codex skills globally:
 
-> Install gstack: run `git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro. Then ask the user if they also want to add gstack to the current project so teammates get it.
+```bash
+git clone https://github.com/garrytan/gstack.git ~/src/gstack
+cd ~/src/gstack
+./setup --host codex
+```
 
-### Step 2: Add to your repo so teammates get it (optional)
+This creates `~/.codex/skills/gstack` plus sibling skills:
 
-> Add gstack to this project: run `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+- `gstack-browse`
+- `gstack-qa`
+- `gstack-review`
+- `gstack-plan-ceo-review`
+- `gstack-plan-eng-review`
+- `gstack-browser-cookies`
+- `gstack-ship`
+- `gstack-retro`
 
-Real files get committed to your repo (not a submodule), so `git clone` just works. The binary and node\_modules are gitignored — teammates just need to run `cd .claude/skills/gstack && ./setup` once to build (or `/browse` handles it automatically on first use).
+### Codex: add to your repo so teammates get it
+
+```bash
+mkdir -p .codex/skills
+cp -Rf ~/src/gstack .codex/skills/gstack
+rm -rf .codex/skills/gstack/.git
+cd .codex/skills/gstack
+./setup --host codex
+```
+
+Then add an `AGENTS.md` section telling Codex to map `/browse`, `/qa`, `/review`, `/ship`, `/plan-ceo-review`, `/plan-eng-review`, `/setup-browser-cookies`, and `/retro` to the corresponding `gstack-*` skills.
+
+### Claude: existing install path
+
+Global install still works:
+
+```bash
+git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+cd ~/.claude/skills/gstack
+./setup --host claude
+```
+
+Project-local vendoring still works:
+
+```bash
+cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+rm -rf .claude/skills/gstack/.git
+cd .claude/skills/gstack
+./setup --host claude
+```
+
+The Claude path is intentionally preserved. The Codex layer is additive, not a rewrite.
 
 ### What gets installed
 
-- Skill files (Markdown prompts) in `~/.claude/skills/gstack/` (or `.claude/skills/gstack/` for project installs)
-- Symlinks at `~/.claude/skills/browse`, `~/.claude/skills/qa`, `~/.claude/skills/review`, etc. pointing into the gstack directory
+- Host root: `~/.claude/skills/gstack` or `~/.codex/skills/gstack` depending on setup host
+- Host-visible skill aliases:
+  - Claude: `~/.claude/skills/browse`, `~/.claude/skills/qa`, `~/.claude/skills/review`, etc.
+  - Codex: `~/.codex/skills/gstack-browse`, `~/.codex/skills/gstack-qa`, `~/.codex/skills/gstack-review`, etc.
 - Browser binary at `browse/dist/browse` (~58MB, gitignored)
 - `node_modules/` (gitignored)
+- Codex workflow references in `references/workflows/`
 - `/retro` saves JSON snapshots to `.context/retros/` in your project for trend tracking
 
-Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
+Nothing touches your PATH or runs in the background. The compatibility wrapper scripts in `bin/` just print the exact Codex skill invocation text.
 
 ---
 

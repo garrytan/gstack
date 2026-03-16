@@ -1,10 +1,15 @@
 # Architecture
 
-This document explains **why** gstack is built the way it is. For setup and commands, see CLAUDE.md. For contributing, see CONTRIBUTING.md.
+This document explains **why** gstack is built the way it is. For Codex behavior, see AGENTS.md. For Claude-specific setup and commands, see CLAUDE.md. For contributing, see CONTRIBUTING.md.
 
 ## The core idea
 
-gstack gives Claude Code a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.
+gstack gives coding agents a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.
+
+The repo is now split into a portable core plus host-specific glue:
+
+- Portable core: `browse/`, shared setup/build scripts, QA/review references, and `references/workflows/*`
+- Host glue: top-level `*/SKILL.md` plus `CLAUDE.md` for Claude, `.codex/skills/*` plus `AGENTS.md` for Codex
 
 The key insight: an AI agent interacting with a browser needs **sub-second latency** and **persistent state**. If every command cold-starts a browser, you're waiting 3-5 seconds per tool call. If the browser dies between commands, you lose cookies, tabs, and login sessions. So gstack runs a long-lived Chromium daemon that the CLI talks to over localhost HTTP.
 

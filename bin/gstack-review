@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+"$(cd "$(dirname "$0")" && pwd)/gstack-alias" gstack-review /review references/workflows/review.md "$@"

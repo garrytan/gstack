@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -lt 3 ]; then
+  echo "Usage: gstack-alias <skill> <slash-alias> <workflow-doc> [request...]" >&2
+  exit 1
+fi
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SKILL_NAME="$1"
+SLASH_ALIAS="$2"
+WORKFLOW_DOC="$3"
+shift 3
+
+REQUEST=""
+if [ $# -gt 0 ]; then
+  REQUEST="$(printf '%q ' "$@")"
+  REQUEST="${REQUEST% }"
+fi
+
+echo "Codex skill: $SKILL_NAME"
+echo "Compatibility alias: $SLASH_ALIAS"
+echo "Workflow doc: $ROOT/$WORKFLOW_DOC"
+echo ""
+echo "Prompt to paste into Codex:"
+if [ -n "$REQUEST" ]; then
+  echo "Use the \`$SKILL_NAME\` skill from gstack. Request: $REQUEST"
+else
+  echo "Use the \`$SKILL_NAME\` skill from gstack."
+fi

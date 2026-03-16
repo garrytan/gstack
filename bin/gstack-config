@@ -23,7 +23,24 @@ case "${1:-}" in
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
     mkdir -p "$STATE_DIR"
     if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
-      sed -i '' "s/^${KEY}:.*/${KEY}: ${VALUE}/" "$CONFIG_FILE"
+      TMP_FILE="$(mktemp "${CONFIG_FILE}.XXXXXX")"
+      awk -v key="$KEY" -v value="$VALUE" '
+        BEGIN { replaced = 0 }
+        $1 == key ":" {
+          if (!replaced) {
+            print key ": " value
+            replaced = 1
+          }
+          next
+        }
+        { print }
+        END {
+          if (!replaced) {
+            print key ": " value
+          }
+        }
+      ' "$CONFIG_FILE" > "$TMP_FILE"
+      mv "$TMP_FILE" "$CONFIG_FILE"
     else
       echo "${KEY}: ${VALUE}" >> "$CONFIG_FILE"
     fi

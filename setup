@@ -1,16 +1,187 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register all skills with Claude Code
-set -e
+# gstack setup — build browser binary + register skills for Claude or Codex.
+set -euo pipefail
 
 GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILLS_DIR="$(dirname "$GSTACK_DIR")"
 BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
+CLAUDE_SKILLS_DIR="${GSTACK_CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+CODEX_SKILLS_DIR="${GSTACK_CODEX_SKILLS_DIR:-$HOME/.codex/skills}"
+HOST="auto"
+FIRST_RUN=0
+
+[ -d "$HOME/.gstack" ] || FIRST_RUN=1
+
+usage() {
+  cat <<'EOF'
+Usage: ./setup [--host claude|codex|auto]
+
+Builds the browse binary, ensures Playwright Chromium is installed, and
+registers workflow aliases for the selected host.
+
+Host resolution:
+  auto   Detect from install path when possible, otherwise prefer Codex.
+  claude Register Claude slash-skill symlinks under ~/.claude/skills.
+  codex  Register Codex skills under ~/.codex/skills.
+
+Overrides:
+  GSTACK_CLAUDE_SKILLS_DIR  Override the Claude skills root.
+  GSTACK_CODEX_SKILLS_DIR   Override the Codex skills root.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --host)
+      [ $# -ge 2 ] || { echo "Missing value for --host" >&2; exit 1; }
+      HOST="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
 
 ensure_playwright_browser() {
   (
     cd "$GSTACK_DIR"
     bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
   ) >/dev/null 2>&1
+}
+
+resolve_embedded_host() {
+  case "$GSTACK_DIR" in
+    */.claude/skills/gstack) echo "claude" ;;
+    */.codex/skills/gstack|*/.agents/skills/gstack) echo "codex" ;;
+    *) echo "" ;;
+  esac
+}
+
+resolve_host() {
+  case "$HOST" in
+    claude|codex) echo "$HOST" ;;
+    auto)
+      local embedded
+      embedded="$(resolve_embedded_host)"
+      if [ -n "$embedded" ]; then
+        echo "$embedded"
+      elif [ -d "$CODEX_SKILLS_DIR" ] && [ ! -d "$CLAUDE_SKILLS_DIR" ]; then
+        echo "codex"
+      elif [ -d "$CLAUDE_SKILLS_DIR" ] && [ ! -d "$CODEX_SKILLS_DIR" ]; then
+        echo "claude"
+      else
+        echo "codex"
+      fi
+      ;;
+    *)
+      echo "Invalid host: $HOST" >&2
+      exit 1
+      ;;
+  esac
+}
+
+resolve_install_root() {
+  local selected_host="$1"
+
+  case "$GSTACK_DIR" in
+    */.claude/skills/gstack)
+      if [ "$selected_host" = "claude" ]; then
+        echo "${GSTACK_DIR%/gstack}"
+        return
+      fi
+      ;;
+    */.codex/skills/gstack|*/.agents/skills/gstack)
+      if [ "$selected_host" = "codex" ]; then
+        echo "${GSTACK_DIR%/gstack}"
+        return
+      fi
+      ;;
+  esac
+
+  if [ "$selected_host" = "claude" ]; then
+    echo "$CLAUDE_SKILLS_DIR"
+  else
+    echo "$CODEX_SKILLS_DIR"
+  fi
+}
+
+link_root_if_needed() {
+  local install_root="$1"
+  local root_link="$install_root/gstack"
+
+  mkdir -p "$install_root"
+
+  if [ "$GSTACK_DIR" = "$root_link" ]; then
+    return
+  fi
+
+  if [ -L "$root_link" ] || [ ! -e "$root_link" ]; then
+    ln -snf "$GSTACK_DIR" "$root_link"
+    return
+  fi
+
+  if [ -d "$root_link" ] && [ "$(cd "$root_link" && pwd -P)" = "$(cd "$GSTACK_DIR" && pwd -P)" ]; then
+    return
+  fi
+
+  echo "gstack setup warning: $root_link already exists and was left unchanged." >&2
+}
+
+link_claude_skills() {
+  local install_root="$1"
+  local linked=()
+  local skill_dir skill_name target
+
+  for skill_dir in "$GSTACK_DIR"/*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "node_modules" ] && continue
+      target="$install_root/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+
+  echo "${linked[*]}"
+}
+
+link_codex_skills() {
+  local install_root="$1"
+  local skill_names=(
+    gstack-browse
+    gstack-qa
+    gstack-review
+    gstack-plan-ceo-review
+    gstack-plan-eng-review
+    gstack-browser-cookies
+    gstack-ship
+    gstack-retro
+  )
+  local linked=()
+  local skill_name source_dir target
+
+  for skill_name in "${skill_names[@]}"; do
+    source_dir="$GSTACK_DIR/.codex/skills/$skill_name"
+    target="$install_root/$skill_name"
+    if [ ! -d "$source_dir" ]; then
+      echo "gstack setup warning: missing Codex skill at $source_dir" >&2
+      continue
+    fi
+    if [ -L "$target" ] || [ ! -e "$target" ]; then
+      ln -snf "$source_dir" "$target"
+      linked+=("$skill_name")
+    fi
+  done
+
+  echo "${linked[*]}"
 }
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
@@ -32,7 +203,6 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
     bun install
     bun run build
   )
-  # Safety net: write .version if build script didn't (e.g., git not available during build)
   if [ ! -f "$GSTACK_DIR/browse/dist/.version" ]; then
     git -C "$GSTACK_DIR" rev-parse HEAD > "$GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
   fi
@@ -60,38 +230,26 @@ fi
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 
-# 4. Only create skill symlinks if we're inside a .claude/skills directory
-SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
-if [ "$SKILLS_BASENAME" = "skills" ]; then
-  linked=()
-  for skill_dir in "$GSTACK_DIR"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      # Skip node_modules
-      [ "$skill_name" = "node_modules" ] && continue
-      target="$SKILLS_DIR/$skill_name"
-      # Create or update symlink; skip if a real file/directory exists
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "gstack/$skill_name" "$target"
-        linked+=("$skill_name")
-      fi
-    fi
-  done
+# 4. Register host-specific skills
+SELECTED_HOST="$(resolve_host)"
+INSTALL_ROOT="$(resolve_install_root "$SELECTED_HOST")"
+link_root_if_needed "$INSTALL_ROOT"
 
-  echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
-  fi
+if [ "$SELECTED_HOST" = "claude" ]; then
+  LINKED_SKILLS="$(link_claude_skills "$INSTALL_ROOT")"
 else
-  echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
-  echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  LINKED_SKILLS="$(link_codex_skills "$INSTALL_ROOT")"
 fi
 
-# 4. First-time welcome + legacy cleanup
-if [ ! -d "$HOME/.gstack" ]; then
+echo "gstack ready."
+echo "  host: $SELECTED_HOST"
+echo "  browse: $BROWSE_BIN"
+echo "  skills: $INSTALL_ROOT"
+[ -n "$LINKED_SKILLS" ] && echo "  linked skills: $LINKED_SKILLS"
+
+# 5. First-time welcome + legacy cleanup
+if [ "$FIRST_RUN" -eq 1 ]; then
   mkdir -p "$HOME/.gstack"
-  echo "  Welcome! Run /gstack-upgrade anytime to stay current."
+  echo "  Welcome! Run gstack-upgrade or ./setup again after updates."
 fi
 rm -f /tmp/gstack-latest-version

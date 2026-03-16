@@ -5,17 +5,17 @@
  * Outputs the absolute path to the browse binary on stdout, or exits 1 if not found.
  */
 
-import { existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { existsSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 
 // ─── Binary Discovery ───────────────────────────────────────────
 
 function getGitRoot(): string | null {
   try {
-    const proc = Bun.spawnSync(['git', 'rev-parse', '--show-toplevel'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
+    const proc = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+      stdout: "pipe",
+      stderr: "pipe",
     });
     if (proc.exitCode !== 0) return null;
     return proc.stdout.toString().trim();
@@ -24,19 +24,30 @@ function getGitRoot(): string | null {
   }
 }
 
-export function locateBinary(): string | null {
-  const root = getGitRoot();
-  const home = homedir();
+export function getBrowseCandidatePaths(root = getGitRoot(), home = homedir()): string[] {
+  const candidates: string[] = [];
 
-  // Workspace-local takes priority (for development)
   if (root) {
-    const local = join(root, '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse');
-    if (existsSync(local)) return local;
+    candidates.push(
+      join(root, ".codex", "skills", "gstack", "browse", "dist", "browse"),
+      join(root, ".agents", "skills", "gstack", "browse", "dist", "browse"),
+      join(root, ".claude", "skills", "gstack", "browse", "dist", "browse"),
+    );
   }
 
-  // Global fallback
-  const global = join(home, '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse');
-  if (existsSync(global)) return global;
+  candidates.push(
+    join(home, ".codex", "skills", "gstack", "browse", "dist", "browse"),
+    join(home, ".agents", "skills", "gstack", "browse", "dist", "browse"),
+    join(home, ".claude", "skills", "gstack", "browse", "dist", "browse"),
+  );
+
+  return candidates;
+}
+
+export function locateBinary(root = getGitRoot(), home = homedir()): string | null {
+  for (const candidate of getBrowseCandidatePaths(root, home)) {
+    if (existsSync(candidate)) return candidate;
+  }
 
   return null;
 }
@@ -46,7 +57,7 @@ export function locateBinary(): string | null {
 function main() {
   const bin = locateBinary();
   if (!bin) {
-    process.stderr.write('ERROR: browse binary not found. Run: cd <skill-dir> && ./setup\n');
+    process.stderr.write("ERROR: browse binary not found. Run: cd <skill-dir> && ./setup\n");
     process.exit(1);
   }
 

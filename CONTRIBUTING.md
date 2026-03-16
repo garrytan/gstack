@@ -4,7 +4,12 @@ Thanks for wanting to make gstack better. Whether you're fixing a typo in a skil
 
 ## Quick start
 
-gstack skills are Markdown files that Claude Code discovers from a `skills/` directory. Normally they live at `~/.claude/skills/gstack/` (your global install). But when you're developing gstack itself, you want Claude Code to use the skills *in your working tree* — so edits take effect instantly without copying or deploying anything.
+gstack now has two runtime surfaces:
+
+- Claude: top-level workflow directories plus `CLAUDE.md`
+- Codex: `.codex/skills/*` plus `AGENTS.md`
+
+Codex does not need a special dev-mode shim when you are working in this repo: the repo-local `.codex/skills/` tree is already part of the checkout. Claude still uses dev mode so its `skills/` loader points at your working tree instead of a copied global install.
 
 That's what dev mode does. It symlinks your repo into the local `.claude/skills/` directory so Claude Code reads skills straight from your checkout.
 
@@ -62,6 +67,8 @@ bin/dev-teardown
 
 ## Testing & evals
 
+Static packaging checks are host-agnostic. Claude E2E and LLM eval tiers remain Claude-specific because they shell out to `claude -p` or call Anthropic directly.
+
 ### Setup
 
 ```bash
@@ -79,14 +86,16 @@ Bun auto-loads `.env` — no extra config. Conductor workspaces inherit `.env` f
 
 | Tier | Command | Cost | What it tests |
 |------|---------|------|---------------|
-| 1 — Static | `bun test` | Free | Command validation, snapshot flags, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
-| 2 — E2E | `bun run test:e2e` | ~$3.85 | Full skill execution via `claude -p` subprocess |
+| 1 — Static | `bun test` | Free | Command validation, snapshot flags, SKILL.md correctness, Codex packaging checks, TODOS-format.md refs, observability unit tests |
+| 2 — E2E (Claude) | `bun run test:e2e` | ~$3.85 | Full skill execution via `claude -p` subprocess |
+| 2 — E2E (Codex) | `bun run test:codex-e2e` | variable | Codex noninteractive smoke against repo-local `.codex/skills/*` |
 | 3 — LLM eval | `bun run test:evals` | ~$0.15 standalone | LLM-as-judge scoring of generated SKILL.md docs |
 | 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge (runs both) |
 
 ```bash
 bun test                     # Tier 1 only (runs on every commit, <5s)
 bun run test:e2e             # Tier 2: E2E only (needs EVALS=1, can't run inside Claude Code)
+bun run test:codex-e2e       # Tier 2: Codex E2E only (needs CODEX_EVALS=1)
 bun run test:evals           # Tier 2 + 3 combined (~$4/run)
 ```
 
@@ -96,6 +105,7 @@ Runs automatically with `bun test`. No API keys needed.
 
 - **Skill parser tests** (`test/skill-parser.test.ts`) — Extracts every `$B` command from SKILL.md bash code blocks and validates against the command registry in `browse/src/commands.ts`. Catches typos, removed commands, and invalid snapshot flags.
 - **Skill validation tests** (`test/skill-validation.test.ts`) — Validates that SKILL.md files reference only real commands and flags, and that command descriptions meet quality thresholds.
+- **Codex packaging tests** (`test/codex-compat.test.ts`) — Validates that `.codex/skills/*` exist, avoid Claude-only references, and that the compatibility alias wrappers emit the correct skill names.
 - **Generator tests** (`test/gen-skill-docs.test.ts`) — Tests the template system: verifies placeholders resolve correctly, output includes value hints for flags (e.g. `-d <N>` not just `-d`), enriched descriptions for key commands (e.g. `is` lists valid states, `press` lists key examples).
 
 ### Tier 2: E2E via `claude -p` (~$3.85/run)
@@ -113,6 +123,19 @@ EVALS=1 bun test test/skill-e2e.test.ts
 - Real-time progress to stderr: `[Ns] turn T tool #C: Name(...)`
 - Saves full NDJSON transcripts and failure JSON for debugging
 - Tests live in `test/skill-e2e.test.ts`, runner logic in `test/helpers/session-runner.ts`
+
+### Tier 2b: E2E via `codex exec --json`
+
+Runs a small noninteractive smoke suite against the repo-local Codex skills.
+
+```bash
+CODEX_EVALS=1 bun test test/codex-e2e.test.ts
+```
+
+- Gated by `CODEX_EVALS=1`
+- Uses `codex exec --json` instead of `claude -p`
+- Validates that repo-local `.codex/skills/*` load cleanly and can drive basic shell-backed workflows
+- Tests live in `test/codex-e2e.test.ts`, runner logic in `test/helpers/codex-session-runner.ts`
 
 ### E2E observability
 
@@ -165,6 +188,8 @@ Tests run against the browse binary directly — they don't require dev mode.
 ## Editing SKILL.md files
 
 SKILL.md files are **generated** from `.tmpl` templates. Don't edit the `.md` directly — your changes will be overwritten on the next build.
+
+This applies to the Claude-facing top-level workflow skills. The Codex-facing `.codex/skills/*/SKILL.md` files are maintained directly and should stay short; the durable shared behavior belongs in `references/workflows/*`.
 
 ```bash
 # 1. Edit the template
