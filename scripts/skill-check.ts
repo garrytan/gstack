@@ -27,6 +27,12 @@ const SKILL_FILES = [
   'plan-ceo-review/SKILL.md',
   'plan-eng-review/SKILL.md',
   'setup-browser-cookies/SKILL.md',
+  'cfo/SKILL.md',
+  'vc/SKILL.md',
+  'board/SKILL.md',
+  'media/SKILL.md',
+  'comms/SKILL.md',
+  'pr-comms/SKILL.md',
 ].filter(f => fs.existsSync(path.join(ROOT, f)));
 
 let hasErrors = false;
@@ -67,6 +73,12 @@ console.log('\n  Templates:');
 const TEMPLATES = [
   { tmpl: 'SKILL.md.tmpl', output: 'SKILL.md' },
   { tmpl: 'browse/SKILL.md.tmpl', output: 'browse/SKILL.md' },
+  { tmpl: 'cfo/SKILL.md.tmpl', output: 'cfo/SKILL.md' },
+  { tmpl: 'vc/SKILL.md.tmpl', output: 'vc/SKILL.md' },
+  { tmpl: 'board/SKILL.md.tmpl', output: 'board/SKILL.md' },
+  { tmpl: 'media/SKILL.md.tmpl', output: 'media/SKILL.md' },
+  { tmpl: 'comms/SKILL.md.tmpl', output: 'comms/SKILL.md' },
+  { tmpl: 'pr-comms/SKILL.md.tmpl', output: 'pr-comms/SKILL.md' },
 ];
 
 for (const { tmpl, output } of TEMPLATES) {
