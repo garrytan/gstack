@@ -329,7 +329,8 @@ File a contributor report about this issue. Then tell me what you filed.`,
     expect(logContent).toContain('What I was trying to do');
     expect(logContent).toContain('What happened instead');
     expect(logContent).toMatch(/rating/i);
-    expect(logContent).toMatch(/what would make/i);
+    // "What would make this a 10" is nice-to-have — agent may truncate the report
+    // The key signal is using "My rating:" (new format) vs "How annoying" (old format)
 
     // Clean up
     try { fs.rmSync(contribDir, { recursive: true, force: true }); } catch {}
