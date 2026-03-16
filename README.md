@@ -121,6 +121,10 @@ Real files get committed to your repo (not a submodule), so `git clone` just wor
 
 Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
 
+### Alternative runtimes
+
+gstack skills are Markdown system prompts - they work with any runtime that discovers SKILL.md files. See [docs/opencode-guide.md](docs/opencode-guide.md) for compatibility notes on OpenCode, OpenRouter, and local models.
+
 ---
 
 ```
