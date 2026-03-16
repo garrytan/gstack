@@ -29,6 +29,7 @@ import {
 } from '../test/helpers/eval-store';
 import type { EvalResult } from '../test/helpers/eval-store';
 import type { ComparisonResult } from '../test/helpers/eval-store';
+import { computeLeaderboard, type LeaderboardEntry } from './dashboard-queries';
 
 // --- ANSI color helpers ---
 
@@ -636,6 +637,74 @@ async function cmdTrend(args: string[]): Promise<void> {
   console.log('');
 }
 
+// --- Leaderboard ---
+
+/** Format leaderboard entries as a terminal table. Pure function for testing. */
+export function formatLeaderboard(entries: LeaderboardEntry[]): string {
+  if (entries.length === 0) return 'No activity this week.\n';
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('Team Leaderboard (this week)');
+  lines.push('═'.repeat(85));
+  lines.push(
+    '  ' +
+    '#'.padEnd(4) +
+    'Who'.padEnd(22) +
+    'Ships'.padEnd(8) +
+    'Evals'.padEnd(8) +
+    'Sessions'.padEnd(10) +
+    'Pass Rate'.padEnd(12) +
+    'Cost'
+  );
+  lines.push('─'.repeat(85));
+
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const rank = `${i + 1}.`.padEnd(4);
+    const who = (e.email || e.userId).slice(0, 20).padEnd(22);
+    const ships = String(e.ships).padEnd(8);
+    const evals = String(e.evalRuns).padEnd(8);
+    const sessions = String(e.sessions).padEnd(10);
+    const rate = e.avgPassRate !== null ? `${e.avgPassRate.toFixed(0)}%`.padEnd(12) : '—'.padEnd(12);
+    const cost = `$${e.totalCost.toFixed(2)}`;
+    lines.push(`  ${rank}${who}${ships}${evals}${sessions}${rate}${cost}`);
+  }
+
+  lines.push('─'.repeat(85));
+  const totalShips = entries.reduce((s, e) => s + e.ships, 0);
+  const totalEvals = entries.reduce((s, e) => s + e.evalRuns, 0);
+  const totalCost = entries.reduce((s, e) => s + e.totalCost, 0);
+  lines.push(`  ${entries.length} contributors | ${totalShips} ships | ${totalEvals} eval runs | $${totalCost.toFixed(2)} spent`);
+  lines.push('');
+  return lines.join('\n');
+}
+
+async function cmdLeaderboard(args: string[]): Promise<void> {
+  try {
+    const { isSyncConfigured } = await import('./sync-config');
+    const { pullTable } = await import('./sync');
+
+    if (!isSyncConfigured()) {
+      console.log('Team sync not configured. Run: gstack sync setup');
+      console.log('See: docs/TEAM_SYNC_SETUP.md');
+      return;
+    }
+
+    const [evalRuns, shipLogs, sessions] = await Promise.all([
+      pullTable('eval_runs'),
+      pullTable('ship_logs'),
+      pullTable('session_transcripts'),
+    ]);
+
+    const entries = computeLeaderboard({ evalRuns, shipLogs, sessions });
+    console.log(formatLeaderboard(entries));
+  } catch (err: any) {
+    console.error(`Failed to load team data: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 function printUsage(): void {
   console.log(`
 gstack eval — eval management CLI
@@ -649,6 +718,7 @@ Commands:
   push <file>                                 Validate + save + sync an eval result
   cost <file>                                 Show per-model cost breakdown
   trend [--limit N] [--tier X] [--test X] [--team]  Per-test pass rate trends
+  leaderboard                                 Weekly team leaderboard
   cache read|write|stats|clear|verify         Manage eval cache
   watch                                       Live E2E test dashboard
 `);
@@ -666,8 +736,9 @@ switch (command) {
   case 'summary': cmdSummary(cmdArgs); break;
   case 'push':    cmdPush(cmdArgs); break;
   case 'cost':    cmdCost(cmdArgs); break;
-  case 'trend':   cmdTrend(cmdArgs); break;
-  case 'cache':   cmdCache(cmdArgs); break;
+  case 'trend':       cmdTrend(cmdArgs); break;
+  case 'leaderboard': cmdLeaderboard(cmdArgs); break;
+  case 'cache':       cmdCache(cmdArgs); break;
   case 'watch':   cmdWatch(); break;
   case '--help': case '-h': case 'help': case undefined:
     printUsage();

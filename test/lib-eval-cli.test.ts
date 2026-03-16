@@ -8,6 +8,8 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { formatLeaderboard } from '../lib/cli-eval';
+import type { LeaderboardEntry } from '../lib/dashboard-queries';
 
 const CLI_PATH = path.resolve(__dirname, '..', 'lib', 'cli-eval.ts');
 const TEST_DIR = path.join(os.tmpdir(), `gstack-cli-eval-test-${Date.now()}`);
@@ -174,5 +176,61 @@ describe('lib/cli-eval', () => {
       const { stdout } = runCli(['cache', 'stats']);
       expect(stdout).toContain('empty');
     });
+  });
+
+  describe('help includes leaderboard', () => {
+    test('usage mentions leaderboard command', () => {
+      const { stdout } = runCli(['--help']);
+      expect(stdout).toContain('leaderboard');
+    });
+  });
+});
+
+// --- formatLeaderboard (pure function tests) ---
+
+describe('formatLeaderboard', () => {
+  test('formats entries as table', () => {
+    const entries: LeaderboardEntry[] = [
+      { userId: 'u1', email: 'alice@test.com', ships: 5, evalRuns: 3, sessions: 10, avgPassRate: 92, totalCost: 4.50 },
+      { userId: 'u2', email: 'bob@test.com', ships: 3, evalRuns: 2, sessions: 8, avgPassRate: 85, totalCost: 3.00 },
+    ];
+    const output = formatLeaderboard(entries);
+
+    expect(output).toContain('Team Leaderboard');
+    expect(output).toContain('alice@test.com');
+    expect(output).toContain('bob@test.com');
+    expect(output).toContain('5');  // alice's ships
+    expect(output).toContain('92%');
+    expect(output).toContain('85%');
+    expect(output).toContain('$4.50');
+    expect(output).toContain('2 contributors');
+    expect(output).toContain('8 ships');
+  });
+
+  test('returns message for empty entries', () => {
+    const output = formatLeaderboard([]);
+    expect(output).toContain('No activity');
+  });
+
+  test('handles null avgPassRate', () => {
+    const entries: LeaderboardEntry[] = [
+      { userId: 'u1', email: 'alice@test.com', ships: 1, evalRuns: 0, sessions: 2, avgPassRate: null, totalCost: 0 },
+    ];
+    const output = formatLeaderboard(entries);
+    expect(output).toContain('—');
+    expect(output).not.toContain('null');
+  });
+
+  test('ranks entries in order', () => {
+    const entries: LeaderboardEntry[] = [
+      { userId: 'u1', email: 'first@test.com', ships: 5, evalRuns: 0, sessions: 0, avgPassRate: null, totalCost: 0 },
+      { userId: 'u2', email: 'second@test.com', ships: 3, evalRuns: 0, sessions: 0, avgPassRate: null, totalCost: 0 },
+    ];
+    const output = formatLeaderboard(entries);
+    const firstIdx = output.indexOf('first@test.com');
+    const secondIdx = output.indexOf('second@test.com');
+    expect(firstIdx).toBeLessThan(secondIdx);
+    expect(output).toContain('1.');
+    expect(output).toContain('2.');
   });
 });

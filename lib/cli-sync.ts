@@ -10,6 +10,7 @@ import { runDeviceAuth } from './auth';
 import { pushEvalRun, pushRetro, pushQAReport, pushShipLog, pushGreptileTriage, pushHeartbeat, pullTable, pullTranscripts, drainQueue, getSyncStatus } from './sync';
 import { readJSON, getGitRoot, atomicWriteJSON } from './util';
 import { syncTranscripts } from './transcript-sync';
+import { computeVelocity } from './dashboard-queries';
 
 // --- Main (only when run directly, not imported) ---
 
@@ -318,9 +319,9 @@ export function formatTeamSummary(opts: {
   const evalContributors = new Set(recentEvals.map(r => r.user_id).filter(Boolean));
   lines.push(`  Eval runs (7d):   ${recentEvals.length} runs, ${evalContributors.size} contributors`);
 
-  // Ship velocity (last 7 days)
-  const recentShips = shipLogs.filter(r => (r.created_at as string || r.timestamp as string || '') > weekAgo);
-  lines.push(`  Ship velocity:    ${recentShips.length} PRs this week`);
+  // Ship velocity (via dashboard-queries)
+  const velocity = computeVelocity(shipLogs);
+  lines.push(`  Ship velocity:    ${velocity.teamTotal.week} PRs this week`);
 
   // Detection rate (from recent evals)
   const detectionRates = recentEvals
