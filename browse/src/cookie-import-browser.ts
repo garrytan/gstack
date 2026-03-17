@@ -52,6 +52,11 @@ export interface DomainEntry {
   count: number;
 }
 
+export interface ProfileInfo {
+  id: string;    // directory name: 'Default', 'Profile 1', etc.
+  name: string;  // display name from Preferences, falls back to id
+}
+
 export interface ImportResult {
   cookies: PlaywrightCookie[];
   count: number;
@@ -109,6 +114,54 @@ export function findInstalledBrowsers(): BrowserInfo[] {
     const dbPath = path.join(appSupport, b.dataDir, 'Default', 'Cookies');
     try { return fs.existsSync(dbPath); } catch { return false; }
   });
+}
+
+/**
+ * List available profiles for a browser (subdirs with a Cookies file).
+ * Returns ProfileInfo[] sorted Default-first, then Profile N numerically.
+ * Display names are read from Preferences JSON; fall back to dir name.
+ */
+export function listProfiles(browserName: string): ProfileInfo[] {
+  const browser = resolveBrowser(browserName);
+  const appSupport = path.join(os.homedir(), 'Library', 'Application Support');
+  const dataDir = path.join(appSupport, browser.dataDir);
+  const profiles: ProfileInfo[] = [];
+
+  try {
+    const entries = fs.readdirSync(dataDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const id = entry.name;
+      if (id !== 'Default' && !id.match(/^Profile \d+$/)) continue;
+      const cookiePath = path.join(dataDir, id, 'Cookies');
+      if (!fs.existsSync(cookiePath)) continue;
+      const name = readProfileName(path.join(dataDir, id)) || id;
+      profiles.push({ id, name });
+    }
+  } catch {
+    return [{ id: 'Default', name: 'Default' }];
+  }
+
+  profiles.sort((a, b) => {
+    if (a.id === 'Default') return -1;
+    if (b.id === 'Default') return 1;
+    const nA = parseInt(a.id.replace('Profile ', ''), 10);
+    const nB = parseInt(b.id.replace('Profile ', ''), 10);
+    return nA - nB;
+  });
+
+  return profiles.length > 0 ? profiles : [{ id: 'Default', name: 'Default' }];
+}
+
+function readProfileName(profileDir: string): string | null {
+  try {
+    const prefsPath = path.join(profileDir, 'Preferences');
+    const raw = fs.readFileSync(prefsPath, 'utf-8');
+    const prefs = JSON.parse(raw);
+    return prefs?.profile?.name ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -101,6 +101,32 @@ export function getCookiePickerHTML(serverPort: number): string {
     background: #4ade80;
   }
 
+  /* ─── Profile Pills ──────────────────── */
+  .profile-pills {
+    display: flex;
+    gap: 6px;
+    padding: 0 20px 12px;
+    flex-wrap: wrap;
+  }
+  .profile-pill {
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px solid #2a2a2a;
+    background: #141414;
+    color: #888;
+    font-size: 11px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .profile-pill:hover { border-color: #444; color: #ccc; }
+  .profile-pill.active {
+    border-color: #60a5fa;
+    background: #0a1828;
+    color: #60a5fa;
+  }
+  .profile-pills:empty { display: none; }
+
   /* ─── Search ──────────────────────────── */
   .search-wrap {
     padding: 0 20px 12px;
@@ -268,6 +294,7 @@ export function getCookiePickerHTML(serverPort: number): string {
   <div class="panel panel-left">
     <div class="panel-header">Source Browser</div>
     <div id="browser-pills" class="browser-pills"></div>
+    <div id="profile-pills" class="profile-pills"></div>
     <div class="search-wrap">
       <input type="text" class="search-input" id="search" placeholder="Search domains..." />
     </div>
@@ -291,11 +318,13 @@ export function getCookiePickerHTML(serverPort: number): string {
 (function() {
   const BASE = '${baseUrl}';
   let activeBrowser = null;
+  let activeProfile = 'Default';
   let allDomains = [];
   let importedSet = {};  // domain → count
   let inflight = {};     // domain → true (prevents double-click)
 
   const $pills = document.getElementById('browser-pills');
+  const $profilePills = document.getElementById('profile-pills');
   const $search = document.getElementById('search');
   const $sourceDomains = document.getElementById('source-domains');
   const $importedDomains = document.getElementById('imported-domains');
@@ -364,6 +393,7 @@ export function getCookiePickerHTML(serverPort: number): string {
       browsers.forEach(b => {
         const pill = document.createElement('button');
         pill.className = 'pill';
+        pill.dataset.browser = b.name;
         pill.innerHTML = '<span class="dot"></span>' + escHtml(b.name);
         pill.onclick = () => selectBrowser(b.name);
         $pills.appendChild(pill);
@@ -380,22 +410,67 @@ export function getCookiePickerHTML(serverPort: number): string {
   // ─── Select Browser ────────────────────
   async function selectBrowser(name) {
     activeBrowser = name;
+    activeProfile = 'Default';
 
-    // Update pills
+    // Update browser pills
     $pills.querySelectorAll('.pill').forEach(p => {
-      p.classList.toggle('active', p.textContent === name);
+      p.classList.toggle('active', p.dataset.browser === name);
     });
 
+    $profilePills.innerHTML = '';
+    $sourceDomains.innerHTML = '<div class="loading-row"><span class="spinner"></span> Loading profiles...</div>';
+    $sourceFooter.textContent = '';
+    $search.value = '';
+
+    try {
+      const profileData = await api('/profiles?browser=' + encodeURIComponent(name));
+      const profiles = profileData.profiles || ['Default'];
+      renderProfilePills(name, profiles);
+      await loadDomains(name, (profiles[0] && (profiles[0].id || profiles[0])) || 'Default');
+    } catch (err) {
+      showBanner(err.message, 'error', err.action === 'retry' ? () => selectBrowser(name) : null);
+      $sourceDomains.innerHTML = '<div class="imported-empty">Failed to load profiles</div>';
+    }
+  }
+
+  // ─── Render Profile Pills ──────────────
+  function renderProfilePills(browser, profiles) {
+    if (profiles.length <= 1) {
+      $profilePills.innerHTML = '';
+      return;
+    }
+    $profilePills.innerHTML = '';
+    profiles.forEach(p => {
+      const id = p.id || p;
+      const label = p.name || p;
+      const btn = document.createElement('button');
+      btn.className = 'profile-pill' + (id === activeProfile ? ' active' : '');
+      btn.textContent = label;
+      btn.dataset.profileId = id;
+      btn.onclick = () => {
+        activeProfile = id;
+        $profilePills.querySelectorAll('.profile-pill').forEach(el => {
+          el.classList.toggle('active', el.dataset.profileId === id);
+        });
+        loadDomains(browser, id);
+      };
+      $profilePills.appendChild(btn);
+    });
+  }
+
+  // ─── Load Domains for Profile ──────────
+  async function loadDomains(browser, profile) {
+    activeProfile = profile;
     $sourceDomains.innerHTML = '<div class="loading-row"><span class="spinner"></span> Loading domains...</div>';
     $sourceFooter.textContent = '';
     $search.value = '';
 
     try {
-      const data = await api('/domains?browser=' + encodeURIComponent(name));
+      const data = await api('/domains?browser=' + encodeURIComponent(browser) + '&profile=' + encodeURIComponent(profile));
       allDomains = data.domains;
       renderSourceDomains();
     } catch (err) {
-      showBanner(err.message, 'error', err.action === 'retry' ? () => selectBrowser(name) : null);
+      showBanner(err.message, 'error', err.action === 'retry' ? () => loadDomains(browser, profile) : null);
       $sourceDomains.innerHTML = '<div class="imported-empty">Failed to load domains</div>';
     }
   }
@@ -453,7 +528,7 @@ export function getCookiePickerHTML(serverPort: number): string {
       const data = await api('/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ browser: activeBrowser, domains: [domain] }),
+        body: JSON.stringify({ browser: activeBrowser, domains: [domain], profile: activeProfile }),
       });
 
       if (data.domainCounts) {

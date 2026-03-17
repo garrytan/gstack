@@ -315,7 +315,9 @@ export async function handleWriteCommand(
         // Direct import mode — no UI
         const domain = args[domainIdx + 1];
         const browser = browserArg || 'comet';
-        const result = await importCookies(browser, [domain]);
+        const profileIdx = args.indexOf('--profile');
+        const directProfile = profileIdx !== -1 && profileIdx + 1 < args.length ? args[profileIdx + 1] : 'Default';
+        const result = await importCookies(browser, [domain], directProfile);
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
         }
