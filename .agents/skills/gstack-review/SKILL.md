@@ -1,26 +1,99 @@
 ---
-name: review
-version: 1.0.0
+name: gstack-review
 description: |
   Pre-landing PR review. Analyzes diff against the base branch for SQL safety, LLM trust
   boundary violations, conditional side effects, and other structural issues.
-allowed-tools:
-  - Bash
-  - Read
-  - Edit
-  - Write
-  - Grep
-  - Glob
-  - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from review/SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs --host codex -->
 
-{{PREAMBLE}}
+## Preamble (run first)
 
-{{BASE_BRANCH_DETECT}}
+```bash
+_UPD=$($HOME/.agents/skills/gstack/bin/gstack-update-check 2>/dev/null || .agents/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+mkdir -p ~/.gstack/sessions
+touch ~/.gstack/sessions/"$PPID"
+_SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
+find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
+_CONTRIB=$($HOME/.agents/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || .agents/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+echo "BRANCH: $_BRANCH"
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `$HOME/.agents/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+
+## AskUserQuestion Format
+
+**ALWAYS follow this structure for every AskUserQuestion call:**
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`
+4. **Options:** Lettered options: `A) ... B) ... C) ...`
+
+Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+
+Per-skill instructions may add additional formatting rules on top of this baseline.
+
+## Contributor Mode
+
+If `_CONTRIB` is `true`: you are in **contributor mode**. You're a gstack user who also helps make it better.
+
+**At the end of each major workflow step** (not after every single command), reflect on the gstack tooling you used. Rate your experience 0 to 10. If it wasn't a 10, think about why. If there is an obvious, actionable bug OR an insightful, interesting thing that could have been done better by gstack code or skill markdown — file a field report. Maybe our contributor will help make us better!
+
+**Calibration — this is the bar:** For example, `$B js "await fetch(...)"` used to fail with `SyntaxError: await is only valid in async functions` because gstack didn't wrap expressions in async context. Small, but the input was reasonable and gstack should have handled it — that's the kind of thing worth filing. Things less consequential than this, ignore.
+
+**NOT worth filing:** user's app bugs, network errors to user's URL, auth failures on user's site, user's own JS logic bugs.
+
+**To file:** write `~/.gstack/contributor-logs/{slug}.md` with **all sections below** (do not truncate — include every section through the Date/Version footer):
+
+```
+# {Title}
+
+Hey gstack team — ran into this while using $gstack-{skill-name}:
+
+**What I was trying to do:** {what the user/agent was attempting}
+**What happened instead:** {what actually happened}
+**My rating:** {0-10} — {one sentence on why it wasn't a 10}
+
+## Steps to reproduce
+1. {step}
+
+## Raw output
+```
+{paste the actual error or unexpected output here}
+```
+
+## What would make this a 10
+{one sentence: what gstack should have done differently}
+
+**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** $gstack-{skill}
+```
+
+Slug: lowercase, hyphens, max 60 chars (e.g. `browse-js-no-await`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
+
+## Step 0: Detect base branch
+
+Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
+
+1. Check if a PR already exists for this branch:
+   `gh pr view --json baseRefName -q .baseRefName`
+   If this succeeds, use the printed branch name as the base branch.
+
+2. If no PR exists (command fails), detect the repo's default branch:
+   `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`
+
+3. If both commands fail, fall back to `main`.
+
+Print the detected base branch name. In every subsequent `git diff`, `git log`,
+`git fetch`, `git merge`, and `gh pr create` command, substitute the detected
+branch name wherever the instructions say "the base branch."
+
+---
 
 # Pre-Landing PR Review
 
-You are running the `/review` workflow. Analyze the current branch's diff against the base branch for structural issues that tests don't catch.
+You are running the `$gstack-review` workflow. Analyze the current branch's diff against the base branch for structural issues that tests don't catch.
 
 ---
 
@@ -34,7 +107,7 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 ## Step 2: Read the checklist
 
-Read `{{REVIEW_ROOT}}/checklist.md`.
+Read `$HOME/.agents/skills/gstack/review/checklist.md`.
 
 **If the file cannot be read, STOP and report the error.** Do not proceed without the checklist.
 
@@ -42,7 +115,7 @@ Read `{{REVIEW_ROOT}}/checklist.md`.
 
 ## Step 2.5: Check for Greptile review comments
 
-Read `{{REVIEW_ROOT}}/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+Read `$HOME/.agents/skills/gstack/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
 
 **If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
 
@@ -169,9 +242,9 @@ Cross-reference the diff against documentation files. For each `.md` file in the
 
 1. Check if code changes in the diff affect features, components, or workflows described in that doc file.
 2. If the doc file was NOT updated in this branch but the code it describes WAS changed, flag it as an INFORMATIONAL finding:
-   "Documentation may be stale: [file] describes [feature/component] but code changed in this branch. Consider running `/document-release`."
+   "Documentation may be stale: [file] describes [feature/component] but code changed in this branch. Consider running `$gstack-document-release`."
 
-This is informational only — never critical. The fix action is `/document-release`.
+This is informational only — never critical. The fix action is `$gstack-document-release`.
 
 If no documentation files exist, skip this step silently.
 
@@ -180,7 +253,7 @@ If no documentation files exist, skip this step silently.
 ## Important Rules
 
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Fix-first, not read-only.** AUTO-FIX items are applied directly. ASK items are only applied after user approval. Never commit, push, or create PRs — that's /ship's job.
+- **Fix-first, not read-only.** AUTO-FIX items are applied directly. ASK items are only applied after user approval. Never commit, push, or create PRs — that's $gstack-ship's job.
 - **Be terse.** One line problem, one line fix. No preamble.
 - **Only flag real problems.** Skip anything that's fine.
 - **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence. Never post vague replies.

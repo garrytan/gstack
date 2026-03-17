@@ -16,10 +16,106 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
+const HOST_ARG_INDEX = process.argv.indexOf('--host');
+const HOST = HOST_ARG_INDEX === -1 ? 'claude' : process.argv[HOST_ARG_INDEX + 1];
+
+type Host = 'claude' | 'codex';
+
+interface TemplateContext {
+  host: Host;
+  sourcePath: string;
+  relSourcePath: string;
+  skillDirName: string | null;
+}
+
+if (HOST !== 'claude' && HOST !== 'codex') {
+  throw new Error(`Invalid --host value: ${HOST}. Expected "claude" or "codex".`);
+}
+
+const KNOWN_SKILLS = [
+  'browse',
+  'design-consultation',
+  'document-release',
+  'gstack-upgrade',
+  'plan-ceo-review',
+  'plan-design-review',
+  'plan-eng-review',
+  'qa',
+  'qa-design-review',
+  'qa-only',
+  'retro',
+  'review',
+  'setup-browser-cookies',
+  'ship',
+] as const;
+
+function resolveCodexSkillName(skillDirName: string | null): string {
+  if (!skillDirName) return 'gstack';
+  return skillDirName.startsWith('gstack-') ? skillDirName : `gstack-${skillDirName}`;
+}
+
+function getSkillRoot(host: Host): string {
+  return host === 'codex' ? '$HOME/.agents/skills/gstack' : '~/.claude/skills/gstack';
+}
+
+function getInvocation(host: Host, skill: string): string {
+  return host === 'codex' ? `$${resolveCodexSkillName(skill)}` : `/${skill}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseDescription(frontmatter: string): string {
+  const blockMatch = frontmatter.match(/^description:\s*\|\n((?:^[ \t].*\n?)*)/m);
+  if (blockMatch) {
+    return blockMatch[1]
+      .split('\n')
+      .map(line => line.replace(/^[ \t]{2}/, ''))
+      .join('\n')
+      .trim();
+  }
+
+  const inlineMatch = frontmatter.match(/^description:\s*(.+)$/m);
+  if (!inlineMatch) {
+    throw new Error('Missing description in template frontmatter');
+  }
+  return inlineMatch[1].trim();
+}
+
+function splitFrontmatter(content: string): { frontmatter: string; body: string } {
+  if (!content.startsWith('---\n')) {
+    return { frontmatter: '', body: content };
+  }
+
+  const end = content.indexOf('\n---\n', 4);
+  if (end === -1) {
+    throw new Error('Unterminated frontmatter');
+  }
+
+  return {
+    frontmatter: content.slice(4, end),
+    body: content.slice(end + 5),
+  };
+}
+
+function generateFrontmatter(context: TemplateContext, frontmatter: string): string {
+  if (!frontmatter) return '';
+  if (context.host === 'claude') {
+    return `---\n${frontmatter}\n---\n`;
+  }
+
+  const description = replaceInvocations(parseDescription(frontmatter), context.host)
+    .split('\n')
+    .map(line => `  ${line}`.trimEnd())
+    .join('\n');
+
+  return `---\nname: ${resolveCodexSkillName(context.skillDirName)}\ndescription: |\n${description}\n---\n`;
+}
 
 // ─── Placeholder Resolvers ──────────────────────────────────
 
-function generateCommandReference(): string {
+function generateCommandReference(_context: TemplateContext): string {
   // Group commands by category
   const groups = new Map<string, Array<{ command: string; description: string; usage?: string }>>();
   for (const [cmd, meta] of Object.entries(COMMAND_DESCRIPTIONS)) {
@@ -55,7 +151,7 @@ function generateCommandReference(): string {
   return sections.join('\n').trimEnd();
 }
 
-function generateSnapshotFlags(): string {
+function generateSnapshotFlags(_context: TemplateContext): string {
   const lines: string[] = [
     'The snapshot is your primary tool for understanding and interacting with pages.',
     '',
@@ -94,8 +190,9 @@ function generateSnapshotFlags(): string {
   return lines.join('\n');
 }
 
-function generatePreamble(): string {
-  return `## Preamble (run first)
+function generatePreamble(context: TemplateContext): string {
+  if (context.host === 'claude') {
+    return `## Preamble (run first)
 
 \`\`\`bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -159,10 +256,77 @@ Hey gstack team — ran into this while using /{skill-name}:
 \`\`\`
 
 Slug: lowercase, hyphens, max 60 chars (e.g. \`browse-js-no-await\`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"`;
+  }
+
+  return `## Preamble (run first)
+
+\`\`\`bash
+_UPD=$($HOME/.agents/skills/gstack/bin/gstack-update-check 2>/dev/null || .agents/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+mkdir -p ~/.gstack/sessions
+touch ~/.gstack/sessions/"$PPID"
+_SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
+find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
+_CONTRIB=$($HOME/.agents/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || .agents/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+echo "BRANCH: $_BRANCH"
+\`\`\`
+
+If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`${getSkillRoot(context.host)}/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If \`JUST_UPGRADED <from> <to>\`: tell user "Running gstack v{to} (just updated!)" and continue.
+
+## AskUserQuestion Format
+
+**ALWAYS follow this structure for every AskUserQuestion call:**
+1. **Re-ground:** State the project, the current branch (use the \`_BRANCH\` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
+3. **Recommend:** \`RECOMMENDATION: Choose [X] because [one-line reason]\`
+4. **Options:** Lettered options: \`A) ... B) ... C) ...\`
+
+Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+
+Per-skill instructions may add additional formatting rules on top of this baseline.
+
+## Contributor Mode
+
+If \`_CONTRIB\` is \`true\`: you are in **contributor mode**. You're a gstack user who also helps make it better.
+
+**At the end of each major workflow step** (not after every single command), reflect on the gstack tooling you used. Rate your experience 0 to 10. If it wasn't a 10, think about why. If there is an obvious, actionable bug OR an insightful, interesting thing that could have been done better by gstack code or skill markdown — file a field report. Maybe our contributor will help make us better!
+
+**Calibration — this is the bar:** For example, \`$B js "await fetch(...)"\` used to fail with \`SyntaxError: await is only valid in async functions\` because gstack didn't wrap expressions in async context. Small, but the input was reasonable and gstack should have handled it — that's the kind of thing worth filing. Things less consequential than this, ignore.
+
+**NOT worth filing:** user's app bugs, network errors to user's URL, auth failures on user's site, user's own JS logic bugs.
+
+**To file:** write \`~/.gstack/contributor-logs/{slug}.md\` with **all sections below** (do not truncate — include every section through the Date/Version footer):
+
+\`\`\`
+# {Title}
+
+Hey gstack team — ran into this while using ${getInvocation(context.host, '{skill-name}')}:
+
+**What I was trying to do:** {what the user/agent was attempting}
+**What happened instead:** {what actually happened}
+**My rating:** {0-10} — {one sentence on why it wasn't a 10}
+
+## Steps to reproduce
+1. {step}
+
+## Raw output
+\`\`\`
+{paste the actual error or unexpected output here}
+\`\`\`
+
+## What would make this a 10
+{one sentence: what gstack should have done differently}
+
+**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** ${getInvocation(context.host, '{skill}')}
+\`\`\`
+
+Slug: lowercase, hyphens, max 60 chars (e.g. \`browse-js-no-await\`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"`;
 }
 
-function generateBrowseSetup(): string {
-  return `## SETUP (run this check BEFORE any browse command)
+function generateBrowseSetup(context: TemplateContext): string {
+  if (context.host === 'claude') {
+    return `## SETUP (run this check BEFORE any browse command)
 
 \`\`\`bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -182,7 +346,29 @@ If \`NEEDS_SETUP\`:
 3. If \`bun\` is not installed: \`curl -fsSL https://bun.sh/install | bash\``;
 }
 
-function generateBaseBranchDetect(): string {
+  return `## SETUP (run this check BEFORE any browse command)
+
+\`\`\`bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.agents/skills/gstack/browse/dist/find-browse" ] && B=$("$_ROOT/.agents/skills/gstack/browse/dist/find-browse" 2>/dev/null || true)
+[ -z "$B" ] && [ -n "$_ROOT" ] && [ -x "$_ROOT/.agents/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.agents/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && [ -x "$HOME/.agents/skills/gstack/browse/dist/find-browse" ] && B=$("$HOME/.agents/skills/gstack/browse/dist/find-browse" 2>/dev/null || true)
+[ -z "$B" ] && [ -x "$HOME/.agents/skills/gstack/browse/dist/browse" ] && B="$HOME/.agents/skills/gstack/browse/dist/browse"
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
+fi
+\`\`\`
+
+If \`NEEDS_SETUP\`:
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+2. Run: \`cd <SKILL_DIR> && ./setup --host codex\`
+3. If \`bun\` is not installed: \`curl -fsSL https://bun.sh/install | bash\``;
+}
+
+function generateBaseBranchDetect(_context: TemplateContext): string {
   return `## Step 0: Detect base branch
 
 Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
@@ -203,7 +389,7 @@ branch name wherever the instructions say "the base branch."
 ---`;
 }
 
-function generateQAMethodology(): string {
+function generateQAMethodology(context: TemplateContext): string {
   return `## Modes
 
 ### Diff-aware (automatic when on a feature branch with no URL)
@@ -267,7 +453,7 @@ Run full mode, then load \`baseline.json\` from a previous run. Diff: which issu
 
 1. Find browse binary (see Setup above)
 2. Create output directories
-3. Copy report template from \`qa/templates/qa-report-template.md\` to output dir
+3. Copy report template from \`${context.host === 'codex' ? `${getSkillRoot(context.host)}/qa` : 'qa'}/templates/qa-report-template.md\` to output dir
 4. Start timer for duration tracking
 
 ### Phase 2: Authenticate (if needed)
@@ -323,7 +509,7 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
 $B console --errors
 \`\`\`
 
-Then follow the **per-page exploration checklist** (see \`qa/references/issue-taxonomy.md\`):
+Then follow the **per-page exploration checklist** (see \`${context.host === 'codex' ? `${getSkillRoot(context.host)}/qa` : 'qa'}/references/issue-taxonomy.md\`):
 
 1. **Visual scan** — Look at the annotated screenshot for layout issues
 2. **Interactive elements** — Click buttons, links, controls. Do they work?
@@ -370,7 +556,7 @@ $B snapshot -D
 $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 \`\`\`
 
-**Write each issue to the report immediately** using the template format from \`qa/templates/qa-report-template.md\`.
+**Write each issue to the report immediately** using the template format from \`${context.host === 'codex' ? `${getSkillRoot(context.host)}/qa` : 'qa'}/templates/qa-report-template.md\`.
 
 ### Phase 6: Wrap Up
 
@@ -812,7 +998,7 @@ Tie everything to user goals and product objectives. Always suggest specific imp
 10. **Depth over breadth.** 5-10 well-documented findings with screenshots and specific suggestions > 20 vague observations.`;
 }
 
-const RESOLVERS: Record<string, () => string> = {
+const RESOLVERS: Record<string, (context: TemplateContext) => string> = {
   COMMAND_REFERENCE: generateCommandReference,
   SNAPSHOT_FLAGS: generateSnapshotFlags,
   PREAMBLE: generatePreamble,
@@ -820,39 +1006,78 @@ const RESOLVERS: Record<string, () => string> = {
   BASE_BRANCH_DETECT: generateBaseBranchDetect,
   QA_METHODOLOGY: generateQAMethodology,
   DESIGN_METHODOLOGY: generateDesignMethodology,
+  SKILL_ROOT: context => getSkillRoot(context.host),
+  LOCAL_SKILL_ROOT: context => context.host === 'codex' ? '.agents/skills/gstack' : '.claude/skills/gstack',
+  REVIEW_ROOT: context => context.host === 'codex' ? `${getSkillRoot(context.host)}/review` : '.claude/skills/review',
 };
 
 // ─── Template Processing ────────────────────────────────────
 
-const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n`;
+const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit directly -->\n<!-- Regenerate: {{COMMAND}} -->\n`;
+
+function resolveOutputPath(context: TemplateContext): string {
+  if (context.host === 'claude') {
+    return context.sourcePath.replace(/\.tmpl$/, '');
+  }
+
+  return path.join(ROOT, '.agents', 'skills', resolveCodexSkillName(context.skillDirName), 'SKILL.md');
+}
+
+function buildHeader(context: TemplateContext): string {
+  const source = context.host === 'claude'
+    ? path.basename(context.sourcePath)
+    : context.relSourcePath;
+  const command = context.host === 'claude'
+    ? 'bun run gen:skill-docs'
+    : 'bun run gen:skill-docs --host codex';
+
+  return GENERATED_HEADER
+    .replace('{{SOURCE}}', source)
+    .replace('{{COMMAND}}', command);
+}
+
+function replaceInvocations(content: string, host: Host): string {
+  if (host === 'claude') return content;
+
+  let transformed = content;
+  for (const skill of KNOWN_SKILLS) {
+    const pattern = new RegExp(`(^|[^\\w.-])/${escapeRegExp(skill)}(?=\\b)`, 'gm');
+    transformed = transformed.replace(pattern, (_match, prefix) => `${prefix}${getInvocation(host, skill)}`);
+  }
+
+  return transformed;
+}
+
+function transformForHost(content: string, context: TemplateContext): string {
+  return replaceInvocations(content, context.host);
+}
 
 function processTemplate(tmplPath: string): { outputPath: string; content: string } {
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
-  const relTmplPath = path.relative(ROOT, tmplPath);
-  const outputPath = tmplPath.replace(/\.tmpl$/, '');
+  const context: TemplateContext = {
+    host: HOST,
+    sourcePath: tmplPath,
+    relSourcePath: path.relative(ROOT, tmplPath),
+    skillDirName: path.dirname(path.relative(ROOT, tmplPath)) === '.' ? null : path.dirname(path.relative(ROOT, tmplPath)),
+  };
+  const outputPath = resolveOutputPath(context);
+  const { frontmatter, body } = splitFrontmatter(tmplContent);
 
   // Replace placeholders
-  let content = tmplContent.replace(/\{\{(\w+)\}\}/g, (match, name) => {
+  let content = body.replace(/\{\{(\w+)\}\}/g, (match, name) => {
     const resolver = RESOLVERS[name];
-    if (!resolver) throw new Error(`Unknown placeholder {{${name}}} in ${relTmplPath}`);
-    return resolver();
+    if (!resolver) throw new Error(`Unknown placeholder {{${name}}} in ${context.relSourcePath}`);
+    return resolver(context);
   });
 
   // Check for any remaining unresolved placeholders
   const remaining = content.match(/\{\{(\w+)\}\}/g);
   if (remaining) {
-    throw new Error(`Unresolved placeholders in ${relTmplPath}: ${remaining.join(', ')}`);
+    throw new Error(`Unresolved placeholders in ${context.relSourcePath}: ${remaining.join(', ')}`);
   }
 
-  // Prepend generated header (after frontmatter)
-  const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath));
-  const fmEnd = content.indexOf('---', content.indexOf('---') + 3);
-  if (fmEnd !== -1) {
-    const insertAt = content.indexOf('\n', fmEnd) + 1;
-    content = content.slice(0, insertAt) + header + content.slice(insertAt);
-  } else {
-    content = header + content;
-  }
+  content = transformForHost(content, context);
+  content = `${generateFrontmatter(context, frontmatter)}${buildHeader(context)}${content}`;
 
   return { outputPath, content };
 }
@@ -861,27 +1086,25 @@ function processTemplate(tmplPath: string): { outputPath: string; content: strin
 
 function findTemplates(): string[] {
   const templates: string[] = [];
-  const candidates = [
-    path.join(ROOT, 'SKILL.md.tmpl'),
-    path.join(ROOT, 'browse', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'qa', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'qa-only', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'setup-browser-cookies', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'ship', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'review', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'plan-ceo-review', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'plan-eng-review', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'retro', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'gstack-upgrade', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'plan-design-review', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'qa-design-review', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'design-consultation', 'SKILL.md.tmpl'),
-    path.join(ROOT, 'document-release', 'SKILL.md.tmpl'),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) templates.push(p);
+  const stack = [ROOT];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.name === '.git' || entry.name === '.claude' || entry.name === '.agents' || entry.name === 'node_modules') {
+        continue;
+      }
+
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile() && entry.name === 'SKILL.md.tmpl') {
+        templates.push(fullPath);
+      }
+    }
   }
-  return templates;
+
+  return templates.sort((left, right) => left.localeCompare(right));
 }
 
 let hasChanges = false;
@@ -899,12 +1122,14 @@ for (const tmplPath of findTemplates()) {
       console.log(`FRESH: ${relOutput}`);
     }
   } else {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, content);
     console.log(`GENERATED: ${relOutput}`);
   }
 }
 
 if (DRY_RUN && hasChanges) {
-  console.error('\nGenerated SKILL.md files are stale. Run: bun run gen:skill-docs');
+  const command = HOST === 'claude' ? 'bun run gen:skill-docs' : 'bun run gen:skill-docs --host codex';
+  console.error(`\nGenerated SKILL.md files are stale. Run: ${command}`);
   process.exit(1);
 }

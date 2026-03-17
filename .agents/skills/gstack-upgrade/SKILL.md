@@ -1,17 +1,13 @@
 ---
 name: gstack-upgrade
-version: 1.1.0
 description: |
   Upgrade gstack to the latest version. Detects global vs vendored install,
   runs the upgrade, and shows what's new.
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from gstack-upgrade/SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs --host codex -->
 
-# /gstack-upgrade
+# $gstack-upgrade
 
 Upgrade gstack to the latest version and show what's new.
 
@@ -25,11 +21,11 @@ First, check if auto-upgrade is enabled:
 ```bash
 _AUTO=""
 [ "${GSTACK_AUTO_UPGRADE:-}" = "1" ] && _AUTO="true"
-[ -z "$_AUTO" ] && _AUTO=$({{SKILL_ROOT}}/bin/gstack-config get auto_upgrade 2>/dev/null || true)
+[ -z "$_AUTO" ] && _AUTO=$($HOME/.agents/skills/gstack/bin/gstack-config get auto_upgrade 2>/dev/null || true)
 echo "AUTO_UPGRADE=$_AUTO"
 ```
 
-**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `/gstack-upgrade` manually to retry."
+**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `$gstack-upgrade` manually to retry."
 
 **Otherwise**, use AskUserQuestion:
 - Question: "gstack **v{new}** is available (you're on v{old}). Upgrade now?"
@@ -39,7 +35,7 @@ echo "AUTO_UPGRADE=$_AUTO"
 
 **If "Always keep me up to date":**
 ```bash
-{{SKILL_ROOT}}/bin/gstack-config set auto_upgrade true
+$HOME/.agents/skills/gstack/bin/gstack-config set auto_upgrade true
 ```
 Tell user: "Auto-upgrade enabled. Future updates will install automatically." Then proceed to Step 2.
 
@@ -65,26 +61,26 @@ Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, dependi
 
 **If "Never ask again":**
 ```bash
-{{SKILL_ROOT}}/bin/gstack-config set update_check false
+$HOME/.agents/skills/gstack/bin/gstack-config set update_check false
 ```
-Tell user: "Update checks disabled. Run `{{SKILL_ROOT}}/bin/gstack-config set update_check true` to re-enable."
+Tell user: "Update checks disabled. Run `$HOME/.agents/skills/gstack/bin/gstack-config set update_check true` to re-enable."
 Continue with the current skill.
 
 ### Step 2: Detect install type
 
 ```bash
-if [ -d "$HOME/{{LOCAL_SKILL_ROOT}}/.git" ]; then
+if [ -d "$HOME/.agents/skills/gstack/.git" ]; then
   INSTALL_TYPE="global-git"
-  INSTALL_DIR="$HOME/{{LOCAL_SKILL_ROOT}}"
-elif [ -d "{{LOCAL_SKILL_ROOT}}/.git" ]; then
+  INSTALL_DIR="$HOME/.agents/skills/gstack"
+elif [ -d ".agents/skills/gstack/.git" ]; then
   INSTALL_TYPE="local-git"
-  INSTALL_DIR="{{LOCAL_SKILL_ROOT}}"
-elif [ -d "{{LOCAL_SKILL_ROOT}}" ]; then
+  INSTALL_DIR=".agents/skills/gstack"
+elif [ -d ".agents/skills/gstack" ]; then
   INSTALL_TYPE="vendored"
-  INSTALL_DIR="{{LOCAL_SKILL_ROOT}}"
-elif [ -d "$HOME/{{LOCAL_SKILL_ROOT}}" ]; then
+  INSTALL_DIR=".agents/skills/gstack"
+elif [ -d "$HOME/.agents/skills/gstack" ]; then
   INSTALL_TYPE="vendored-global"
-  INSTALL_DIR="$HOME/{{LOCAL_SKILL_ROOT}}"
+  INSTALL_DIR="$HOME/.agents/skills/gstack"
 else
   echo "ERROR: gstack not found"
   exit 1
@@ -134,11 +130,11 @@ Use the install directory from Step 2. Check if there's also a local vendored co
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 LOCAL_GSTACK=""
-if [ -n "$_ROOT" ] && [ -d "$_ROOT/{{LOCAL_SKILL_ROOT}}" ]; then
-  _RESOLVED_LOCAL=$(cd "$_ROOT/{{LOCAL_SKILL_ROOT}}" && pwd -P)
+if [ -n "$_ROOT" ] && [ -d "$_ROOT/.agents/skills/gstack" ]; then
+  _RESOLVED_LOCAL=$(cd "$_ROOT/.agents/skills/gstack" && pwd -P)
   _RESOLVED_PRIMARY=$(cd "$INSTALL_DIR" && pwd -P)
   if [ "$_RESOLVED_LOCAL" != "$_RESOLVED_PRIMARY" ]; then
-    LOCAL_GSTACK="$_ROOT/{{LOCAL_SKILL_ROOT}}"
+    LOCAL_GSTACK="$_ROOT/.agents/skills/gstack"
   fi
 fi
 echo "LOCAL_GSTACK=$LOCAL_GSTACK"
@@ -152,7 +148,7 @@ rm -rf "$LOCAL_GSTACK/.git"
 cd "$LOCAL_GSTACK" && ./setup
 rm -rf "$LOCAL_GSTACK.bak"
 ```
-Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `{{LOCAL_SKILL_ROOT}}/` when you're ready."
+Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.agents/skills/gstack/` when you're ready."
 
 ### Step 5: Write marker + clear cache
 
@@ -187,11 +183,11 @@ After showing What's New, continue with whatever skill the user originally invok
 
 ## Standalone usage
 
-When invoked directly as `/gstack-upgrade` (not from a preamble):
+When invoked directly as `$gstack-upgrade` (not from a preamble):
 
 1. Force a fresh update check (bypass cache):
 ```bash
-{{SKILL_ROOT}}/bin/gstack-update-check --force
+$HOME/.agents/skills/gstack/bin/gstack-update-check --force
 ```
 Use the output to determine if an upgrade is available.
 

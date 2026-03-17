@@ -285,7 +285,7 @@ After auditing each file individually, do a cross-doc consistency pass:
 
 ## Step 7: TODOS.md Cleanup
 
-This is a second pass that complements `/ship`'s Step 5.5. Read `review/TODOS-format.md` (if
+This is a second pass that complements `/ship`'s Step 5.5. Read `.claude/skills/review/TODOS-format.md` (if
 available) for the canonical TODO item format.
 
 If TODOS.md does not exist, skip this step.

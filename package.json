@@ -8,7 +8,7 @@
     "browse": "./browse/dist/browse"
   },
   "scripts": {
-    "build": "bun run gen:skill-docs && bun build --compile browse/src/cli.ts --outfile browse/dist/browse && bun build --compile browse/src/find-browse.ts --outfile browse/dist/find-browse && git rev-parse HEAD > browse/dist/.version && rm -f .*.bun-build",
+    "build": "bun run gen:skill-docs && bun run gen:skill-docs --host codex && bun build --compile browse/src/cli.ts --outfile browse/dist/browse && bun build --compile browse/src/find-browse.ts --outfile browse/dist/find-browse && git rev-parse HEAD > browse/dist/.version && rm -f .*.bun-build",
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",

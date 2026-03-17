@@ -1,25 +1,98 @@
 ---
-name: ship
-version: 1.0.0
+name: gstack-ship
 description: |
   Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from ship/SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs --host codex -->
 
-{{PREAMBLE}}
+## Preamble (run first)
 
-{{BASE_BRANCH_DETECT}}
+```bash
+_UPD=$($HOME/.agents/skills/gstack/bin/gstack-update-check 2>/dev/null || .agents/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+mkdir -p ~/.gstack/sessions
+touch ~/.gstack/sessions/"$PPID"
+_SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
+find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
+_CONTRIB=$($HOME/.agents/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || .agents/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+echo "BRANCH: $_BRANCH"
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `$HOME/.agents/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+
+## AskUserQuestion Format
+
+**ALWAYS follow this structure for every AskUserQuestion call:**
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`
+4. **Options:** Lettered options: `A) ... B) ... C) ...`
+
+Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+
+Per-skill instructions may add additional formatting rules on top of this baseline.
+
+## Contributor Mode
+
+If `_CONTRIB` is `true`: you are in **contributor mode**. You're a gstack user who also helps make it better.
+
+**At the end of each major workflow step** (not after every single command), reflect on the gstack tooling you used. Rate your experience 0 to 10. If it wasn't a 10, think about why. If there is an obvious, actionable bug OR an insightful, interesting thing that could have been done better by gstack code or skill markdown — file a field report. Maybe our contributor will help make us better!
+
+**Calibration — this is the bar:** For example, `$B js "await fetch(...)"` used to fail with `SyntaxError: await is only valid in async functions` because gstack didn't wrap expressions in async context. Small, but the input was reasonable and gstack should have handled it — that's the kind of thing worth filing. Things less consequential than this, ignore.
+
+**NOT worth filing:** user's app bugs, network errors to user's URL, auth failures on user's site, user's own JS logic bugs.
+
+**To file:** write `~/.gstack/contributor-logs/{slug}.md` with **all sections below** (do not truncate — include every section through the Date/Version footer):
+
+```
+# {Title}
+
+Hey gstack team — ran into this while using $gstack-{skill-name}:
+
+**What I was trying to do:** {what the user/agent was attempting}
+**What happened instead:** {what actually happened}
+**My rating:** {0-10} — {one sentence on why it wasn't a 10}
+
+## Steps to reproduce
+1. {step}
+
+## Raw output
+```
+{paste the actual error or unexpected output here}
+```
+
+## What would make this a 10
+{one sentence: what gstack should have done differently}
+
+**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** $gstack-{skill}
+```
+
+Slug: lowercase, hyphens, max 60 chars (e.g. `browse-js-no-await`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
+
+## Step 0: Detect base branch
+
+Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
+
+1. Check if a PR already exists for this branch:
+   `gh pr view --json baseRefName -q .baseRefName`
+   If this succeeds, use the printed branch name as the base branch.
+
+2. If no PR exists (command fails), detect the repo's default branch:
+   `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`
+
+3. If both commands fail, fall back to `main`.
+
+Print the detected base branch name. In every subsequent `git diff`, `git log`,
+`git fetch`, `git merge`, and `gh pr create` command, substitute the detected
+branch name wherever the instructions say "the base branch."
+
+---
 
 # Ship: Fully Automated Ship Workflow
 
-You are running the `/ship` workflow. This is a **non-interactive, fully automated** workflow. Do NOT ask for confirmation at any step. The user said `/ship` which means DO IT. Run straight through and output the PR URL at the end.
+You are running the `$gstack-ship` workflow. This is a **non-interactive, fully automated** workflow. Do NOT ask for confirmation at any step. The user said `$gstack-ship` which means DO IT. Run straight through and output the PR URL at the end.
 
 **Only stop for:**
 - On the base branch (abort)
@@ -126,7 +199,7 @@ Map runner → test file: `post_generation_eval_runner.rb` → `post_generation_
 
 **3. Run affected suites at `EVAL_JUDGE_TIER=full`:**
 
-`/ship` is a pre-merge gate, so always use full tier (Sonnet structural + Opus persona judges).
+`$gstack-ship` is a pre-merge gate, so always use full tier (Sonnet structural + Opus persona judges).
 
 ```bash
 EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
@@ -141,12 +214,12 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 **5. Save eval output** — include eval results and cost dashboard in the PR body (Step 8).
 
-**Tier reference (for context — /ship always uses `full`):**
+**Tier reference (for context — $gstack-ship always uses `full`):**
 | Tier | When | Speed (cached) | Cost |
 |------|------|----------------|------|
 | `fast` (Haiku) | Dev iteration, smoke tests | ~5s (14x faster) | ~$0.07/run |
 | `standard` (Sonnet) | Default dev, `bin/test-lane --eval` | ~17s (4x faster) | ~$0.37/run |
-| `full` (Opus persona) | **`/ship` and pre-merge** | ~72s (baseline) | ~$1.27/run |
+| `full` (Opus persona) | **`$gstack-ship` and pre-merge** | ~72s (baseline) | ~$1.27/run |
 
 ---
 
@@ -154,7 +227,7 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 Review the diff for structural issues that tests don't catch.
 
-1. Read `{{REVIEW_ROOT}}/checklist.md`. If the file cannot be read, **STOP** and report the error.
+1. Read `$HOME/.agents/skills/gstack/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
 2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
 
@@ -175,7 +248,7 @@ Review the diff for structural issues that tests don't catch.
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
 7. **After all fixes (auto + user-approved):**
-   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
+   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `$gstack-ship` again to re-test.
    - If no fixes applied (all ASK items skipped, or no issues found): continue to Step 4.
 
 8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
@@ -188,7 +261,7 @@ Save the review output — it goes into the PR body in Step 8.
 
 ## Step 3.75: Address Greptile review comments (if PR exists)
 
-Read `{{REVIEW_ROOT}}/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+Read `$HOME/.agents/skills/gstack/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
 
 **If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Continue to Step 4.
 
@@ -270,7 +343,7 @@ For each classified comment:
 
 Cross-reference the project's TODOS.md against the changes being shipped. Mark completed items automatically; prompt only if the file is missing or disorganized.
 
-Read `{{REVIEW_ROOT}}/TODOS-format.md` for the canonical format reference.
+Read `$HOME/.agents/skills/gstack/review/TODOS-format.md` for the canonical format reference.
 
 **1. Check if TODOS.md exists** in the repository root.
 
@@ -419,4 +492,4 @@ EOF
 - **Split commits for bisectability** — each commit = one logical change.
 - **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.
 - **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence (inline diff, code references, re-rank suggestion). Never post vague replies.
-- **The goal is: user says `/ship`, next thing they see is the review + PR URL.**
+- **The goal is: user says `$gstack-ship`, next thing they see is the review + PR URL.**
