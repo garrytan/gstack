@@ -6,6 +6,39 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const CODEX_SKILLS = [
+  '.',
+  'browse',
+  'design-consultation',
+  'document-release',
+  'gstack-upgrade',
+  'plan-ceo-review',
+  'plan-design-review',
+  'plan-eng-review',
+  'qa',
+  'qa-design-review',
+  'qa-only',
+  'retro',
+  'review',
+  'setup-browser-cookies',
+  'ship',
+];
+
+function codexSkillName(dir: string): string {
+  if (dir === '.') return 'gstack';
+  return dir.startsWith('gstack-') ? dir : `gstack-${dir}`;
+}
+
+function codexSkillPath(dir: string): string {
+  return path.join(ROOT, '.agents', 'skills', codexSkillName(dir), 'SKILL.md');
+}
+
+function frontmatter(content: string): string {
+  expect(content.startsWith('---\n')).toBe(true);
+  const end = content.indexOf('\n---\n', 4);
+  expect(end).toBeGreaterThan(3);
+  return content.slice(4, end);
+}
 
 describe('SKILL.md command validation', () => {
   test('all $B commands in SKILL.md are valid browse commands', () => {
@@ -191,6 +224,31 @@ describe('Generated SKILL.md freshness', () => {
   test('generated SKILL.md has AUTO-GENERATED header', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('AUTO-GENERATED');
+  });
+});
+
+describe('Codex-generated SKILL.md validation', () => {
+  test('every Codex-generated SKILL.md has YAML frontmatter with the expected name', () => {
+    for (const skill of CODEX_SKILLS) {
+      const content = fs.readFileSync(codexSkillPath(skill), 'utf-8');
+      const yaml = frontmatter(content);
+      expect(yaml).toContain(`name: ${codexSkillName(skill)}`);
+      expect(yaml).toContain('description: |');
+    }
+  });
+
+  test('every Codex-generated SKILL.md has a non-empty description', () => {
+    for (const skill of CODEX_SKILLS) {
+      const content = fs.readFileSync(codexSkillPath(skill), 'utf-8');
+      const yaml = frontmatter(content);
+      const match = yaml.match(/description:\s*\|\n([\s\S]+)/);
+      expect(match).not.toBeNull();
+      const lines = match![1]
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+      expect(lines.length).toBeGreaterThan(0);
+    }
   });
 });
 

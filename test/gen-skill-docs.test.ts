@@ -5,6 +5,32 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const ALL_SKILLS = [
+  { dir: '.', name: 'root gstack' },
+  { dir: 'browse', name: 'browse' },
+  { dir: 'qa', name: 'qa' },
+  { dir: 'qa-only', name: 'qa-only' },
+  { dir: 'review', name: 'review' },
+  { dir: 'ship', name: 'ship' },
+  { dir: 'plan-ceo-review', name: 'plan-ceo-review' },
+  { dir: 'plan-eng-review', name: 'plan-eng-review' },
+  { dir: 'retro', name: 'retro' },
+  { dir: 'setup-browser-cookies', name: 'setup-browser-cookies' },
+  { dir: 'gstack-upgrade', name: 'gstack-upgrade' },
+  { dir: 'plan-design-review', name: 'plan-design-review' },
+  { dir: 'qa-design-review', name: 'qa-design-review' },
+  { dir: 'design-consultation', name: 'design-consultation' },
+  { dir: 'document-release', name: 'document-release' },
+];
+
+function codexSkillName(dir: string): string {
+  if (dir === '.') return 'gstack';
+  return dir.startsWith('gstack-') ? dir : `gstack-${dir}`;
+}
+
+function codexSkillPath(dir: string): string {
+  return path.join(ROOT, '.agents', 'skills', codexSkillName(dir), 'SKILL.md');
+}
 
 describe('gen-skill-docs', () => {
   test('generated SKILL.md contains all command categories', () => {
@@ -56,24 +82,6 @@ describe('gen-skill-docs', () => {
     }
   });
 
-  // All skills that must have templates — single source of truth
-  const ALL_SKILLS = [
-    { dir: '.', name: 'root gstack' },
-    { dir: 'browse', name: 'browse' },
-    { dir: 'qa', name: 'qa' },
-    { dir: 'qa-only', name: 'qa-only' },
-    { dir: 'review', name: 'review' },
-    { dir: 'ship', name: 'ship' },
-    { dir: 'plan-ceo-review', name: 'plan-ceo-review' },
-    { dir: 'plan-eng-review', name: 'plan-eng-review' },
-    { dir: 'retro', name: 'retro' },
-    { dir: 'setup-browser-cookies', name: 'setup-browser-cookies' },
-    { dir: 'gstack-upgrade', name: 'gstack-upgrade' },
-    { dir: 'plan-design-review', name: 'plan-design-review' },
-    { dir: 'qa-design-review', name: 'qa-design-review' },
-    { dir: 'design-consultation', name: 'design-consultation' },
-  ];
-
   test('every skill has a SKILL.md.tmpl template', () => {
     for (const skill of ALL_SKILLS) {
       const tmplPath = path.join(ROOT, skill.dir, 'SKILL.md.tmpl');
@@ -116,11 +124,43 @@ describe('gen-skill-docs', () => {
     expect(output).not.toContain('STALE');
   });
 
+  test('codex generated files are fresh (match --host codex --dry-run)', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
+      cwd: ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    for (const skill of ALL_SKILLS) {
+      const file = path.relative(ROOT, codexSkillPath(skill.dir));
+      expect(output).toContain(`FRESH: ${file}`);
+    }
+    expect(output).not.toContain('STALE');
+  });
+
   test('no generated SKILL.md contains unresolved placeholders', () => {
     for (const skill of ALL_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       const unresolved = content.match(/\{\{[A-Z_]+\}\}/g);
       expect(unresolved).toBeNull();
+    }
+  });
+
+  test('every Codex skill has a generated SKILL.md with a host-specific header', () => {
+    for (const skill of ALL_SKILLS) {
+      const content = fs.readFileSync(codexSkillPath(skill.dir), 'utf-8');
+      const source = skill.dir === '.' ? 'SKILL.md.tmpl' : `${skill.dir}/SKILL.md.tmpl`;
+      expect(content).toContain(`AUTO-GENERATED from ${source}`);
+      expect(content).toContain('Regenerate: bun run gen:skill-docs --host codex');
+    }
+  });
+
+  test('Codex-generated SKILL.md files do not reference Claude skill paths', () => {
+    for (const skill of ALL_SKILLS) {
+      const content = fs.readFileSync(codexSkillPath(skill.dir), 'utf-8');
+      expect(content).not.toContain('.claude/skills');
+      expect(content).not.toContain('~/.claude/skills');
     }
   });
 
