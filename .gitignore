@@ -11,3 +11,6 @@ bun.lock
 .env.local
 .env.*
 !.env.example
+ui/dist/
+ui/node_modules/
+ui/tsconfig.tsbuildinfo

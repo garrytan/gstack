@@ -21,7 +21,12 @@
     "eval:list": "bun run scripts/eval-list.ts",
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",
-    "eval:watch": "bun run scripts/eval-watch.ts"
+    "eval:watch": "bun run scripts/eval-watch.ts",
+    "ui:install": "cd ui && bun install",
+    "ui:build": "cd ui && bun run build",
+    "ui:dev": "cd ui && bun run dev",
+    "ui:server": "bun run ui/server.ts",
+    "ui": "bun run ui:build && bun run ui:server"
   },
   "dependencies": {
     "playwright": "^1.58.2",
