@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Set up gstack for local development — test skills from within this repo.
 #
-# Creates .claude/skills/gstack → (symlink to repo root) so Claude Code
-# discovers skills from your working tree. Changes take effect immediately.
+# Creates .claude/skills/gstack → repo root so Claude Code resolves skills from
+# your working tree. Codex reads the checked-in .agents/skills tree directly, so
+# this script also ensures the support symlinks inside .agents/skills/gstack are
+# present for browse/setup/helper-doc access.
 #
-# Also copies .env from the main worktree if this is a Conductor workspace
-# or git worktree (so API keys carry over automatically).
-#
-# Usage: bin/dev-setup       # set up
-#        bin/dev-teardown    # clean up
+# Also copies .env from the main worktree if this is a git worktree so API keys
+# carry over automatically.
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,10 +31,8 @@ fi
 mkdir -p "$REPO_ROOT/.claude/skills"
 
 # 4. Symlink .claude/skills/gstack → repo root
-# This makes setup think it's inside a real .claude/skills/ directory
 GSTACK_LINK="$REPO_ROOT/.claude/skills/gstack"
 if [ -L "$GSTACK_LINK" ]; then
-  echo "Updating existing symlink..."
   rm "$GSTACK_LINK"
 elif [ -d "$GSTACK_LINK" ]; then
   echo "Error: .claude/skills/gstack is a real directory, not a symlink." >&2
@@ -47,8 +44,31 @@ ln -s "$REPO_ROOT" "$GSTACK_LINK"
 # 5. Run setup via the symlink so it detects .claude/skills/ as its parent
 "$GSTACK_LINK/setup"
 
+# 6. Ensure Codex support links exist inside .agents/skills/gstack
+mkdir -p "$REPO_ROOT/.agents/skills/gstack"
+ln -snf ../../../bin "$REPO_ROOT/.agents/skills/gstack/bin"
+ln -snf ../../../browse "$REPO_ROOT/.agents/skills/gstack/browse"
+ln -snf ../../../design-consultation "$REPO_ROOT/.agents/skills/gstack/design-consultation"
+ln -snf ../../../document-release "$REPO_ROOT/.agents/skills/gstack/document-release"
+ln -snf ../../../gstack-upgrade "$REPO_ROOT/.agents/skills/gstack/gstack-upgrade"
+ln -snf ../../../plan-ceo-review "$REPO_ROOT/.agents/skills/gstack/plan-ceo-review"
+ln -snf ../../../plan-design-review "$REPO_ROOT/.agents/skills/gstack/plan-design-review"
+ln -snf ../../../plan-eng-review "$REPO_ROOT/.agents/skills/gstack/plan-eng-review"
+ln -snf ../../../qa "$REPO_ROOT/.agents/skills/gstack/qa"
+ln -snf ../../../qa-design-review "$REPO_ROOT/.agents/skills/gstack/qa-design-review"
+ln -snf ../../../qa-only "$REPO_ROOT/.agents/skills/gstack/qa-only"
+ln -snf ../../../review "$REPO_ROOT/.agents/skills/gstack/review"
+ln -snf ../../../retro "$REPO_ROOT/.agents/skills/gstack/retro"
+ln -snf ../../../scripts "$REPO_ROOT/.agents/skills/gstack/scripts"
+ln -snf ../../../setup "$REPO_ROOT/.agents/skills/gstack/setup"
+ln -snf ../../../setup-browser-cookies "$REPO_ROOT/.agents/skills/gstack/setup-browser-cookies"
+ln -snf ../../../ship "$REPO_ROOT/.agents/skills/gstack/ship"
+ln -snf ../../../CHANGELOG.md "$REPO_ROOT/.agents/skills/gstack/CHANGELOG.md"
+ln -snf ../../../package.json "$REPO_ROOT/.agents/skills/gstack/package.json"
+ln -snf ../../../VERSION "$REPO_ROOT/.agents/skills/gstack/VERSION"
+
 echo ""
-echo "Dev mode active. Skills resolve from this working tree."
-echo "Edit any SKILL.md and test immediately — no copy/deploy needed."
+echo "Dev mode active. Claude resolves from .claude/skills/gstack; Codex resolves from .agents/skills/."
+echo "Edit skill docs, regenerate if needed, and test immediately — no copy/deploy needed."
 echo ""
 echo "To tear down: bin/dev-teardown"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remove local dev skill symlinks. Restores global gstack as the active install.
+# Remove local Claude dev symlinks. Codex uses the checked-in .agents/skills tree.
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,7 +10,6 @@ if [ ! -d "$SKILLS_DIR" ]; then
   exit 0
 fi
 
-# Remove individual skill symlinks
 removed=()
 for link in "$SKILLS_DIR"/*/; do
   name="$(basename "$link")"
@@ -21,13 +20,11 @@ for link in "$SKILLS_DIR"/*/; do
   fi
 done
 
-# Remove the gstack symlink
 if [ -L "$SKILLS_DIR/gstack" ]; then
   rm "$SKILLS_DIR/gstack"
   removed+=("gstack")
 fi
 
-# Clean up empty dirs
 rmdir "$SKILLS_DIR" 2>/dev/null || true
 rmdir "$REPO_ROOT/.claude" 2>/dev/null || true
 
@@ -36,4 +33,4 @@ if [ ${#removed[@]} -gt 0 ]; then
 else
   echo "No symlinks found."
 fi
-echo "Dev mode deactivated. Global gstack (~/.claude/skills/gstack) is now active."
+echo "Dev mode deactivated. Global gstack (~/.claude/skills/gstack or ~/.agents/skills/gstack) is now active."

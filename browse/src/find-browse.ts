@@ -30,9 +30,15 @@ export function locateBinary(): string | null {
 
   // Workspace-local takes priority (for development)
   if (root) {
+    const localAgents = join(root, '.agents', 'skills', 'gstack', 'browse', 'dist', 'browse');
+    if (existsSync(localAgents)) return localAgents;
+
     const local = join(root, '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse');
     if (existsSync(local)) return local;
   }
+
+  const globalAgents = join(home, '.agents', 'skills', 'gstack', 'browse', 'dist', 'browse');
+  if (existsSync(globalAgents)) return globalAgents;
 
   // Global fallback
   const global = join(home, '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse');
