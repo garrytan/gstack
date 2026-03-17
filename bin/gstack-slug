@@ -3,7 +3,12 @@
 # Usage: eval $(gstack-slug)  → sets SLUG and BRANCH variables
 # Or:    gstack-slug           → prints SLUG=... and BRANCH=... lines
 set -euo pipefail
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
+
+# Sanitize: strip everything except alphanumeric, dot, hyphen, underscore.
+# Prevents shell injection when the output is consumed via eval.
+sanitize() { tr -cd 'a-zA-Z0-9._-'; }
+
+SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-' | sanitize)
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' | sanitize)
 echo "SLUG=$SLUG"
 echo "BRANCH=$BRANCH"
