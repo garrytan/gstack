@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1 — 2026-03-16
+
+- **You can now use gstack from Codex CLI.** The same skill templates now generate native Codex skill files in `.agents/skills/`, so you get `$gstack-review`, `$gstack-ship`, `$gstack-qa`, and the rest without maintaining a second prompt stack.
+- **Claude and Codex stay in sync automatically.** One `.tmpl` template now produces both hosts' `SKILL.md` files, which means new workflow improvements ship to both environments from a single source of truth.
+- **Codex setup is one command.** Run `./setup --host codex` to register the generated Codex skills in `~/.agents/skills/`, including the shared browse binary and helper docs.
+- **Contributing now covers the dual-host workflow.** The docs, tests, and CI checks all verify both Claude and Codex generation, so it is much harder to accidentally fix one host and break the other.
+
+### For contributors
+
+- Added host-aware generation to `scripts/gen-skill-docs.ts`, including Codex frontmatter, `.agents/skills/` output routing, and shared placeholder resolution.
+- Added Codex support to `setup`, `bin/dev-setup`, `bin/dev-teardown`, `browse/src/find-browse.ts`, tests, and `skill-docs.yml`.
+
 ## 0.5.0 — 2026-03-16
 
 - **Your site just got a design review.** `/plan-design-review` opens your site and reviews it like a senior product designer — typography, spacing, hierarchy, color, responsive, interactions, and AI slop detection. Get letter grades (A-F) per category, a dual headline "Design Score" + "AI Slop Score", and a structured first impression that doesn't pull punches.
