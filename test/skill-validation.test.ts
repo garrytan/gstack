@@ -859,7 +859,7 @@ describe('Step 3.4 test coverage audit', () => {
   test('ship/SKILL.md contains Step 3.4', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Step 3.4: Test Coverage Audit');
-    expect(content).toContain('CODE PATH COVERAGE MAP');
+    expect(content).toContain('CODE PATH COVERAGE');
   });
 
   test('Step 3.4 includes quality scoring rubric', () => {

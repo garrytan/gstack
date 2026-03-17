@@ -469,23 +469,46 @@ Read every changed file. For each one, trace how data flows through the code —
 
 This is the critical step — you're building a map of every line of code that can execute differently based on input. Every branch in this diagram needs a test.
 
-**2. Check each branch against existing tests:**
+**2. Map user flows, interactions, and error states:**
 
-Go through your diagram branch by branch. For each one, search for a test that exercises it:
+Code coverage isn't enough — you need to cover how real users interact with the changed code. For each changed feature, think through:
+
+- **User flows:** What sequence of actions does a user take that touches this code? Map the full journey (e.g., "user clicks 'Pay' → form validates → API call → success/failure screen"). Each step in the journey needs a test.
+- **Interaction edge cases:** What happens when the user does something unexpected?
+  - Double-click/rapid resubmit
+  - Navigate away mid-operation (back button, close tab, click another link)
+  - Submit with stale data (page sat open for 30 minutes, session expired)
+  - Slow connection (API takes 10 seconds — what does the user see?)
+  - Concurrent actions (two tabs, same form)
+- **Error states the user can see:** For every error the code handles, what does the user actually experience?
+  - Is there a clear error message or a silent failure?
+  - Can the user recover (retry, go back, fix input) or are they stuck?
+  - What happens with no network? With a 500 from the API? With invalid data from the server?
+- **Empty/zero/boundary states:** What does the UI show with zero results? With 10,000 results? With a single character input? With maximum-length input?
+
+Add these to your diagram alongside the code branches. A user flow with no test is just as much a gap as an untested if/else.
+
+**3. Check each branch against existing tests:**
+
+Go through your diagram branch by branch — both code paths AND user flows. For each one, search for a test that exercises it:
 - Function `processPayment()` → look for `billing.test.ts`, `billing.spec.ts`, `test/billing_test.rb`
 - An if/else → look for tests covering BOTH the true AND false path
 - An error handler → look for a test that triggers that specific error condition
 - A call to `helperFn()` that has its own branches → those branches need tests too
+- A user flow → look for an integration or E2E test that walks through the journey
+- An interaction edge case → look for a test that simulates the unexpected action
 
 Quality scoring rubric:
 - ★★★  Tests behavior with edge cases AND error paths
 - ★★   Tests correct behavior, happy path only
 - ★    Smoke test / existence check / trivial assertion (e.g., "it renders", "it doesn't throw")
 
-**3. Output ASCII coverage diagram:**
+**4. Output ASCII coverage diagram:**
+
+Include BOTH code paths and user flows in the same diagram:
 
 ```
-NEW CODE PATH COVERAGE MAP
+CODE PATH COVERAGE
 ===========================
 [+] src/services/billing.ts
     │
@@ -498,16 +521,33 @@ NEW CODE PATH COVERAGE MAP
         ├── [★★  TESTED] Full refund — billing.test.ts:89
         └── [★   TESTED] Partial refund (checks non-throw only) — billing.test.ts:101
 
+USER FLOW COVERAGE
+===========================
+[+] Payment checkout flow
+    │
+    ├── [★★★ TESTED] Complete purchase — checkout.e2e.ts:15
+    ├── [GAP]         Double-click submit — NO TEST
+    ├── [GAP]         Navigate away during payment — NO TEST
+    └── [★   TESTED] Form validation errors (checks render only) — checkout.test.ts:40
+
+[+] Error states
+    │
+    ├── [★★  TESTED] Card declined message — billing.test.ts:58
+    ├── [GAP]         Network timeout UX (what does user see?) — NO TEST
+    └── [GAP]         Empty cart submission — NO TEST
+
 ─────────────────────────────────
-COVERAGE: 3/5 new paths tested (60%)
-QUALITY:  ★★★: 1  ★★: 1  ★: 1  (avg: ★★)
-GAPS: 2 paths need tests
+COVERAGE: 5/12 paths tested (42%)
+  Code paths: 3/5 (60%)
+  User flows: 2/7 (29%)
+QUALITY:  ★★★: 2  ★★: 2  ★: 1
+GAPS: 7 paths need tests
 ─────────────────────────────────
 ```
 
 **Fast path:** All paths covered → "Step 3.4: All new code paths have test coverage ✓" Continue.
 
-**4. Generate tests for uncovered paths:**
+**5. Generate tests for uncovered paths:**
 
 If test framework detected (or bootstrapped in Step 2.5):
 - Prioritize error handlers and edge cases first (happy paths are more likely already tested)
@@ -523,7 +563,7 @@ If no test framework AND user declined bootstrap → diagram only, no generation
 
 **Diff is test-only changes:** Skip Step 3.4 entirely: "No new application code paths to audit."
 
-**5. After-count and coverage summary:**
+**6. After-count and coverage summary:**
 
 ```bash
 # Count test files after generation
