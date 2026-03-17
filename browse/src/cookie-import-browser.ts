@@ -158,6 +158,10 @@ function readProfileName(profileDir: string): string | null {
     const prefsPath = path.join(profileDir, 'Preferences');
     const raw = fs.readFileSync(prefsPath, 'utf-8');
     const prefs = JSON.parse(raw);
+    // Prefer signed-in account email (most distinctive for multi-account setups)
+    const email = prefs?.account_info?.[0]?.email;
+    if (email) return email;
+    // Fall back to profile display name
     return prefs?.profile?.name ?? null;
   } catch {
     return null;
