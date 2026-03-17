@@ -498,7 +498,6 @@ describeE2E('Review skill E2E', () => {
     // Copy review skill files
     fs.copyFileSync(path.join(ROOT, 'review', 'SKILL.md'), path.join(reviewDir, 'review-SKILL.md'));
     fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(reviewDir, 'review-checklist.md'));
-    fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(reviewDir, 'review-greptile-triage.md'));
   });
 
   afterAll(() => {
@@ -556,7 +555,6 @@ describeE2E('Review enum completeness E2E', () => {
     // Copy review skill files
     fs.copyFileSync(path.join(ROOT, 'review', 'SKILL.md'), path.join(enumDir, 'review-SKILL.md'));
     fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(enumDir, 'review-checklist.md'));
-    fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(enumDir, 'review-greptile-triage.md'));
   });
 
   afterAll(() => {
@@ -1396,7 +1394,6 @@ describeE2E('Base branch detection', () => {
     // Copy review skill files
     fs.copyFileSync(path.join(ROOT, 'review', 'SKILL.md'), path.join(dir, 'review-SKILL.md'));
     fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(dir, 'review-checklist.md'));
-    fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(dir, 'review-greptile-triage.md'));
 
     const result = await runSkillTest({
       prompt: `You are in a git repo on a feature branch with changes.

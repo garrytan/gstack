@@ -142,7 +142,7 @@ grep -n 'bin/test-lane\|npm run test\|VERSION bump\|CHANGELOG gen\|Eval Suites\|
 - Replace "Models" → "Components", "Controllers" → "Pages/Routes", "Concerns" → "Hooks"
 - Replace "Models/Controllers/Concerns" → "Components/Hooks/Services/Utils" where grouped
 
-**DO NOT modify `review/checklist.md`, `review/greptile-triage.md`, or `review/TODOS-format.md`** — these are maintained directly in the fork and are not generated.
+**DO NOT modify `review/checklist.md` or `review/TODOS-format.md`** — these are maintained directly in the fork and are not generated.
 
 ---
 
@@ -300,7 +300,7 @@ Synced with upstream garrytan/gstack and applied governed modifications:
 - [ ] Templates: no `bin/test-lane`, `npm run test`, or Rails vocabulary
 - [ ] Templates: `.local-context/` used instead of `.gstack/` for QA artifacts
 - [ ] Generated: `bun run gen:skill-docs --dry-run` shows all FRESH
-- [ ] review/checklist.md, review/greptile-triage.md, review/TODOS-format.md untouched
+- [ ] review/checklist.md, review/TODOS-format.md untouched
 - [ ] Stack-agnostic skills passed through unchanged
 EOF
 )"
@@ -339,4 +339,4 @@ All skills and their sync treatment:
 | (any new upstream skill) | (detect in 4h) | Verify clean, adapt if needed |
 
 **Not generated from template:** sync-gstack/SKILL.md (this file), review/checklist.md,
-review/greptile-triage.md, review/TODOS-format.md — maintained directly in the fork.
+review/TODOS-format.md — maintained directly in the fork.

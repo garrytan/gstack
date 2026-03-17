@@ -47,16 +47,6 @@ Read `.claude/skills/review/checklist.md`.
 
 ---
 
-## Step 2.5: Check for Greptile review comments
-
-Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
-
-**If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
-
-**If Greptile comments are found:** Store the classifications (VALID & ACTIONABLE, VALID BUT ALREADY FIXED, FALSE POSITIVE, SUPPRESSED) — you will need them in Step 5.
-
----
-
 ## Step 3: Get the diff
 
 Fetch the latest base branch to avoid false positives from stale local state:
@@ -90,32 +80,6 @@ Follow the output format specified in the checklist. Respect the suppressions �
   After all critical questions are answered, output a summary of what the user chose for each issue. If the user chose A (fix) on any issue, apply the recommended fixes. If only B/C were chosen, no action needed.
 - If only non-critical issues found: output findings. No further action needed.
 - If no issues found: output `Pre-Landing Review: No issues found.`
-
-### Greptile comment resolution
-
-After outputting your own findings, if Greptile comments were classified in Step 2.5:
-
-**Include a Greptile summary in your output header:** `+ N Greptile comments (X valid, Y fixed, Z FP)`
-
-Before replying to any comment, run the **Escalation Detection** algorithm from greptile-triage.md to determine whether to use Tier 1 (friendly) or Tier 2 (firm) reply templates.
-
-1. **VALID & ACTIONABLE comments:** These are already included in your CRITICAL findings — they follow the same AskUserQuestion flow (A: Fix it now, B: Acknowledge, C: False positive). If the user chooses A (fix), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation). If the user chooses C (false positive), reply using the **False Positive reply template** (include evidence + suggested re-rank), save to both per-project and global greptile-history.
-
-2. **FALSE POSITIVE comments:** Present each one via AskUserQuestion:
-   - Show the Greptile comment: file:line (or [top-level]) + body summary + permalink URL
-   - Explain concisely why it's a false positive
-   - Options:
-     - A) Reply to Greptile explaining why this is incorrect (recommended if clearly wrong)
-     - B) Fix it anyway (if low-effort and harmless)
-     - C) Ignore — don't reply, don't fix
-
-   If the user chooses A, reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history.
-
-3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
-   - Include what was done and the fixing commit SHA
-   - Save to both per-project and global greptile-history
-
-4. **SUPPRESSED comments:** Skip silently — these are known false positives from previous triage.
 
 ---
 
@@ -151,4 +115,3 @@ If no documentation files exist, skip this step silently.
 - **Read-only by default.** Only modify files if the user explicitly chooses "Fix it now" on a critical issue. Never commit, push, or create PRs.
 - **Be terse.** One line problem, one line fix. No preamble.
 - **Only flag real problems.** Skip anything that's fine.
-- **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence. Never post vague replies.
