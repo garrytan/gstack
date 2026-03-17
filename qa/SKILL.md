@@ -244,7 +244,7 @@ Run full mode, then load `baseline.json` from a previous run. Diff: which issues
 
 1. Find browse binary (see Setup above)
 2. Create output directories
-3. Copy report template from `qa/templates/qa-report-template.md` to output dir
+3. Copy report template from `qa/templates/qa-report-template.md` to output dir. If the template is missing, create a markdown report with sections: Summary (health score, date, URL, duration), Issues (numbered, with severity/category/description/screenshot/repro steps), Console Health, and Top 3 Things to Fix.
 4. Start timer for duration tracking
 
 ### Phase 2: Authenticate (if needed)
@@ -300,7 +300,7 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
 $B console --errors
 ```
 
-Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md`):
+Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md` for full taxonomy; if unavailable, use the categories below — Visual, Functional, UX, Content, Performance, Accessibility — and severity levels Critical/High/Medium/Low):
 
 1. **Visual scan** — Look at the annotated screenshot for layout issues
 2. **Interactive elements** — Click buttons, links, controls. Do they work?
@@ -347,7 +347,7 @@ $B snapshot -D
 $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 ```
 
-**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
+**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`. Each issue should include: `ISSUE-NNN`, title, severity (Critical/High/Medium/Low), category (Visual/Functional/UX/Content/Performance/Accessibility), description, repro steps, and screenshot path(s).
 
 ### Phase 6: Wrap Up
 
@@ -378,6 +378,17 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 ## Health Score Rubric
 
 Compute each category score (0-100), then take the weighted average.
+
+### Severity Definitions
+
+Classify each issue before scoring:
+
+| Severity | Criteria | Examples |
+|----------|----------|----------|
+| **Critical** | Feature is broken or unusable. Blocks a core user workflow. Data loss or security risk. | Form submit crashes, login broken, payment fails, XSS vulnerability |
+| **High** | Feature works incorrectly or has significant degradation. Users will notice and be frustrated. | Wrong data displayed, broken navigation link, 500 errors on key pages |
+| **Medium** | Minor functional issue or noticeable quality problem. Workaround exists. | Misaligned layout, slow page load (>3s), form validation missing |
+| **Low** | Cosmetic or polish issue. Does not affect functionality. | Typo, inconsistent spacing, missing favicon, minor color mismatch |
 
 ### Console (weight: 15%)
 - 0 errors → 100
