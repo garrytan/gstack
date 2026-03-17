@@ -161,6 +161,22 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - Added `bin/gstack-slug` helper (5-line bash) with unit tests. Outputs `SLUG=` and `BRANCH=` lines, sanitizes `/` to `-`.
 - New TODOs: smart review relevance detection (P3), `/merge` skill for review-gated PR merge (P2).
 
+## fork: multi-stack portability — 2026-03-17
+
+- **`/ship` works on Node.js, TypeScript, and Python projects now.** It used to hardcode `bin/test-lane` (Rails) + `npm run test`. Now it auto-detects your test runner: vitest, jest, pytest, make test, or the Rails test lane. If you have both a frontend and backend test suite, they run in parallel. No config needed.
+- **`/ship` respects your version format.** Projects using standard 3-digit semver (`1.2.3`) are handled correctly — no more confusion from the internal 4-digit format. If you have no `VERSION` file at all, the version step is silently skipped.
+- **Eval suites in `/ship` are now Rails-only.** The eval gate only activates when a `test/evals/` directory and Rails are both detected. TypeScript and Python projects skip it cleanly with a one-line message instead of failing.
+- **`/retro` shows your local time, not Pacific.** Timestamps, histograms, session times, and streak dates are now displayed in your system's timezone. Works on macOS and Linux.
+- **`/qa` no longer hard-fails on uncommitted changes.** Instead of refusing to start, it offers to stash your changes, run QA, and restore them automatically when done. The fix loop still stays atomic — the stash just handles the setup for you.
+- **`/plan-ceo-review` system audit works on any stack.** The pre-review grep for TODOs/FIXMEs now covers `.py`, `.ts`, `.tsx`, `.go`, `.rs` alongside `.rb`. Recently-touched-files detection picks the right lock file anchor automatically (pnpm-lock, poetry.lock, go.sum, etc.).
+- **Diff-aware QA and design review use the correct base branch.** Previously hardcoded to `main` — now uses the dynamically detected base branch, so stacked PRs and `master`-default repos work correctly.
+
+### For contributors
+
+- Added `{{PROJECT_DETECT}}` resolver to `gen-skill-docs.ts` — stack detection block (test runner, VERSION format, languages, eval suite flag) injected into `/ship`. Follows the `{{QA_METHODOLOGY}}` / `{{DESIGN_METHODOLOGY}}` pattern.
+- Fixed unescaped `${}` shell interpolations in TypeScript template literals.
+- `{{QA_METHODOLOGY}}` and `{{DESIGN_METHODOLOGY}}` diff-aware mode: replaced hardcoded `main` with `<base>` placeholder.
+
 ## 0.5.0 — 2026-03-16
 
 - **Your site just got a design review.** `/plan-design-review` opens your site and reviews it like a senior product designer — typography, spacing, hierarchy, color, responsive, interactions, and AI slop detection. Get letter grades (A-F) per category, a dual headline "Design Score" + "AI Slop Score", and a structured first impression that doesn't pull punches.
