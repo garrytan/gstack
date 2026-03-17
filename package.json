@@ -21,7 +21,8 @@
     "eval:list": "bun run scripts/eval-list.ts",
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",
-    "eval:watch": "bun run scripts/eval-watch.ts"
+    "eval:watch": "bun run scripts/eval-watch.ts",
+    "eval:consensus": "bun run scripts/eval-consensus.ts"
   },
   "dependencies": {
     "playwright": "^1.58.2",
@@ -41,6 +42,7 @@
     "devtools"
   ],
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.78.0"
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@consensus-tools/evals": "^0.6.0"
   }
 }

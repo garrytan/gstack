@@ -773,6 +773,23 @@ bun run eval:watch            # live dashboard during E2E runs
 
 E2E tests stream real-time progress, write machine-readable diagnostics, and persist partial results that survive kills. See CONTRIBUTING.md for the full eval infrastructure.
 
+### Consensus eval (multi-agent SKILL.md review)
+
+Run 5 specialized AI agents against SKILL.md diffs on your branch. Each agent votes YES/NO/REWRITE with a risk score. Agent reputation persists across runs — agents that consistently align with consensus earn more influence, those that don't get slashed.
+
+```bash
+bun run eval:consensus                       # auto-detect changed skills, 5 runs
+bun run eval:consensus --skill qa --runs 3   # specific skill, 3 runs
+bun run eval:consensus --threshold 4         # require 4/5 YES to pass (default: 3)
+bun run eval:consensus --reset-reputation    # reset all agents to 100
+```
+
+Agents: Doc Architect, API Accuracy Checker, Agent Usability Tester, Completeness Auditor, Style Guardian. Each reviews the diff against ground truth (browse/SKILL.md for qa skills, the main branch version for others).
+
+Requires `ANTHROPIC_API_KEY` in `.env`. Results saved to `.data/consensus-evals/`. Reputation persisted in `.data/reputation.json`.
+
+Uses [`@consensus-tools/evals`](https://github.com/consensus-tools/consensus-tools/tree/main/packages/evals) for `ReputationTracker` (persistent reputation with payout/slash settlement).
+
 ## License
 
 MIT
