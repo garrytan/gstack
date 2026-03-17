@@ -30,6 +30,64 @@ Twelve opinionated workflow skills for [Claude Code](https://docs.anthropic.com/
 | `/retro` | Engineering manager | Team-aware retro: your deep-dive + per-person praise and growth opportunities for every contributor. |
 | `/document-release` | Technical writer | Update README, ARCHITECTURE, CONTRIBUTING, and project docs to match what you just shipped. |
 
+## Recommended workflow
+
+The skills are designed to be used in a specific order depending on what you're doing. Here are the most common scenarios.
+
+### New application
+
+You're starting from scratch — no code, no design system, no existing site.
+
+| Step | Skill | Why |
+|------|-------|-----|
+| 1. Design system | `/design-consultation` | Define your aesthetic, typography, color, spacing, and motion before writing any code. Creates `DESIGN.md`. |
+| 2. Product direction | `/plan-ceo-review` | Pressure-test *what* you're building and *why*. Find the 10-star version. |
+| 3. Technical plan | `/plan-eng-review` | Lock in architecture, data flow, state machines, failure modes, and test coverage. |
+| 4. Build | *(just code)* | Implement the plan. |
+| 5. Code review | `/review` | Paranoid structural audit — race conditions, trust boundaries, missing indexes. |
+| 6. QA | `/qa` | Test the running app, find bugs, fix them with atomic commits. |
+| 7. Design QA | `/qa-design-review` | Audit visuals against `DESIGN.md` and fix what it finds. |
+| 8. Ship | `/ship` | Sync main, run tests, bump version, push, open PR. |
+| 9. Document | `/document-release` | Update README, CHANGELOG, and project docs to match what shipped. |
+
+### Feature update
+
+You have an existing app and you're adding or changing a feature.
+
+| Step | Skill | Why |
+|------|-------|-----|
+| 1. Product direction | `/plan-ceo-review` | Challenge whether you're building the right thing. Expand or reduce scope. |
+| 2. Technical plan | `/plan-eng-review` | Nail the implementation — architecture, edge cases, test matrix. |
+| 3. Design baseline | `/plan-design-review` | Audit the existing site so you know the visual state before you start. |
+| 4. Build | *(just code)* | Implement the plan. |
+| 5. Code review | `/review` | Catch what CI misses before it hits production. |
+| 6. QA | `/qa` | Diff-aware testing — automatically tests pages affected by your changes. |
+| 7. Design QA | `/qa-design-review` | Fix visual regressions and design debt introduced by the change. |
+| 8. Ship | `/ship` | Land the branch. |
+| 9. Document | `/document-release` | Keep docs in sync with what shipped. |
+
+### Quick fix / bug fix
+
+Small change, high confidence, just need to land it.
+
+| Step | Skill | Why |
+|------|-------|-----|
+| 1. Build | *(fix the bug)* | Write the fix. |
+| 2. Code review | `/review` | Sanity check — make sure the fix doesn't introduce something worse. |
+| 3. Ship | `/ship` | Land it. |
+
+### Weekly rhythm
+
+Not tied to a specific feature — just ongoing hygiene.
+
+| Skill | When |
+|-------|------|
+| `/retro` | End of week. Analyzes commit history, shipping velocity, and team contributions. |
+| `/qa` with a URL | Anytime. Smoke-test staging or production to catch regressions. |
+| `/setup-browser-cookies` | Before testing authenticated pages for the first time. |
+
+---
+
 ## Demo: one feature, five modes
 
 I start almost every feature in plan mode. I describe what I want to build, then use `/plan-ceo-review` to pressure-test whether I am even building the right thing. Only after the product direction is locked do I shift into engineering, review, ship, and test.
