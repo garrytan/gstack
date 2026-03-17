@@ -618,3 +618,45 @@ describe('Planted-bug fixture validation', () => {
     expect(content).toContain('update_column');
   });
 });
+
+// --- Serena MCP integration ---
+
+describe('Serena integration', () => {
+  const skillsWithSerena = [
+    'review/SKILL.md', 'ship/SKILL.md', 'qa/SKILL.md',
+    'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
+  ];
+  const skillsWithoutSerena = [
+    'browse/SKILL.md', 'qa-only/SKILL.md', 'retro/SKILL.md',
+    'SKILL.md', 'setup-browser-cookies/SKILL.md',
+    'document-release/SKILL.md', 'gstack-upgrade/SKILL.md',
+  ];
+
+  for (const skill of skillsWithSerena) {
+    test(`${skill} contains SERENA_SETUP content`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
+      expect(content).toContain('Serena Code Navigation');
+      expect(content).toContain('mcp__serena__activate_project');
+      expect(content).toContain('fall back');
+    });
+  }
+
+  for (const skill of skillsWithoutSerena) {
+    test(`${skill} does not contain Serena references`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
+      expect(content).not.toContain('mcp__serena__');
+    });
+  }
+
+  test('SERENA_SETUP includes onboarding guidance', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('onboarding');
+  });
+
+  test('review/checklist.md has Serena-aware enum lookup', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'checklist.md'), 'utf-8');
+    expect(content).toContain('find_referencing_symbols');
+    // Still has fallback
+    expect(content).toContain('Grep');
+  });
+});

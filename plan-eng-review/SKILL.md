@@ -12,6 +12,11 @@ allowed-tools:
   - Glob
   - AskUserQuestion
   - Bash
+  - mcp__serena__activate_project
+  - mcp__serena__get_symbols_overview
+  - mcp__serena__find_symbol
+  - mcp__serena__find_referencing_symbols
+  - mcp__serena__search_for_pattern
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -27,6 +32,31 @@ allowed-tools:
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
 Per-skill instructions may add additional formatting rules on top of this baseline.
+
+## Serena Code Navigation (optional, reduces token usage)
+
+If Serena MCP tools are available (`mcp__serena__*`), prefer them for code lookup tasks.
+They provide symbol-level precision that avoids reading entire files.
+
+**Activation (run once at start):**
+Try `mcp__serena__activate_project` with the repo root path. If it succeeds, Serena
+is active. If it fails or the tool is unavailable, skip all Serena tools and use
+Grep + Read instead.
+
+**If activation succeeds but symbol lookups return empty results:** Run
+`mcp__serena__onboarding` once — Serena needs a one-time index build per project.
+
+**When Serena is active, prefer these patterns:**
+
+| Task | Without Serena | With Serena |
+|------|---------------|-------------|
+| Understand file structure | Read the whole file | `get_symbols_overview` (~90% fewer tokens) |
+| Find where a symbol is used | Grep for name → Read each file | `find_referencing_symbols` (returns snippets only) |
+| Read a specific function | Read the whole file | `find_symbol` with `include_body=true` |
+| Search for a pattern | Grep | `search_for_pattern` (equivalent) |
+
+**Fallback rule:** If any Serena tool call fails, fall back to Grep + Read for that
+operation. Do not retry — switch immediately.
 
 # Plan Review Mode
 
