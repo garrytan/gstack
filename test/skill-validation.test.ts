@@ -1,8 +1,15 @@
 import { describe, test, expect } from 'bun:test';
-import { validateSkill, extractRemoteSlugPatterns, extractWeightsFromTable } from './helpers/skill-parser';
+import {
+  validateSkill,
+  extractAllowedTools,
+  validateAllowedToolsContract,
+  extractRemoteSlugPatterns,
+  extractWeightsFromTable,
+} from './helpers/skill-parser';
 import { ALL_COMMANDS, COMMAND_DESCRIPTIONS, READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -205,6 +212,140 @@ describe('Generated SKILL.md freshness', () => {
   test('generated SKILL.md has AUTO-GENERATED header', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('AUTO-GENERATED');
+  });
+});
+
+describe('allowed-tools contract enforcement', () => {
+  function withTempSkill(content: string, run: (skillPath: string) => void) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-contract-'));
+    const skillPath = path.join(dir, 'SKILL.md');
+    fs.writeFileSync(skillPath, content);
+
+    try {
+      run(skillPath);
+    } finally {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  }
+
+  test('rejects unknown tool names in allowed-tools', () => {
+    withTempSkill(`---
+name: test-skill
+description: test
+allowed-tools:
+  - Bash
+  - FakeTool
+---
+
+\`\`\`bash
+echo ok
+\`\`\`
+`, skillPath => {
+      const result = validateAllowedToolsContract(skillPath);
+      expect(result.unknownAllowedTools).toEqual(['FakeTool']);
+      expect(result.missingRequiredTools).toEqual([]);
+    });
+  });
+
+  test('bash code blocks require Bash', () => {
+    withTempSkill(`---
+name: test-skill
+description: test
+allowed-tools:
+  - Read
+---
+
+\`\`\`bash
+echo ok
+\`\`\`
+`, skillPath => {
+      const result = validateAllowedToolsContract(skillPath);
+      expect(result.missingRequiredTools).toEqual([
+        { tool: 'Bash', reason: 'bash code blocks' },
+      ]);
+    });
+  });
+
+  test('AskUserQuestion instructions require AskUserQuestion', () => {
+    withTempSkill(`---
+name: test-skill
+description: test
+allowed-tools:
+  - Bash
+---
+
+Use AskUserQuestion:
+`, skillPath => {
+      const result = validateAllowedToolsContract(skillPath);
+      expect(result.missingRequiredTools).toEqual([
+        { tool: 'AskUserQuestion', reason: 'AskUserQuestion instructions' },
+      ]);
+    });
+  });
+
+  test('WebSearch instructions require WebSearch', () => {
+    withTempSkill(`---
+name: test-skill
+description: test
+allowed-tools:
+  - Bash
+---
+
+Use WebSearch to look this up.
+`, skillPath => {
+      const result = validateAllowedToolsContract(skillPath);
+      expect(result.missingRequiredTools).toEqual([
+        { tool: 'WebSearch', reason: 'WebSearch instructions' },
+      ]);
+    });
+  });
+
+  test('explicit persisted-write instructions require Write', () => {
+    withTempSkill(`---
+name: test-skill
+description: test
+allowed-tools:
+  - Bash
+---
+
+Write to \`/tmp/output.md\`
+`, skillPath => {
+      const result = validateAllowedToolsContract(skillPath);
+      expect(result.missingRequiredTools).toEqual([
+        { tool: 'Write', reason: 'explicit persisted-write instructions' },
+      ]);
+    });
+  });
+
+  test('all generated skills satisfy allowed-tools contract rules', () => {
+    const generatedSkills = [
+      'SKILL.md',
+      'browse/SKILL.md',
+      'qa/SKILL.md',
+      'qa-only/SKILL.md',
+      'ship/SKILL.md',
+      'review/SKILL.md',
+      'retro/SKILL.md',
+      'plan-ceo-review/SKILL.md',
+      'plan-eng-review/SKILL.md',
+      'setup-browser-cookies/SKILL.md',
+      'plan-design-review/SKILL.md',
+      'design-review/SKILL.md',
+      'design-consultation/SKILL.md',
+      'gstack-upgrade/SKILL.md',
+      'document-release/SKILL.md',
+    ];
+
+    for (const skill of generatedSkills) {
+      const result = validateAllowedToolsContract(path.join(ROOT, skill));
+      expect(result.unknownAllowedTools, `${skill} has unknown allowed-tools`).toEqual([]);
+      expect(result.missingRequiredTools, `${skill} is missing required allowed-tools`).toEqual([]);
+    }
+  });
+
+  test('plan-ceo-review declares Write in allowed-tools', () => {
+    const tools = extractAllowedTools(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'));
+    expect(tools).toContain('Write');
   });
 });
 

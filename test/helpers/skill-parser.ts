@@ -29,6 +29,32 @@ export interface ValidationResult {
   warnings: string[];
 }
 
+export interface AllowedToolsContractResult {
+  allowedTools: string[];
+  unknownAllowedTools: string[];
+  missingRequiredTools: Array<{ tool: string; reason: string }>;
+}
+
+const VALID_ALLOWED_TOOLS = new Set([
+  'Bash',
+  'Read',
+  'Write',
+  'Edit',
+  'Grep',
+  'Glob',
+  'AskUserQuestion',
+  'WebSearch',
+]);
+
+function extractFrontmatter(content: string): { frontmatter: string; body: string } {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!match) return { frontmatter: '', body: content };
+  return {
+    frontmatter: match[1],
+    body: content.slice(match[0].length),
+  };
+}
+
 /**
  * Extract all $B invocations from bash code blocks in a SKILL.md file.
  */
@@ -131,6 +157,61 @@ export function validateSkill(skillPath: string): ValidationResult {
   }
 
   return result;
+}
+
+/**
+ * Extract the ordered allowed-tools list from generated SKILL.md frontmatter.
+ */
+export function extractAllowedTools(skillPath: string): string[] {
+  const content = fs.readFileSync(skillPath, 'utf-8');
+  const { frontmatter } = extractFrontmatter(content);
+  if (!frontmatter) return [];
+
+  const lines = frontmatter.split('\n');
+  const tools: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() !== 'allowed-tools:') continue;
+
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j];
+      const match = line.match(/^\s*-\s+(.+?)\s*$/);
+      if (!match) break;
+      tools.push(match[1]);
+    }
+
+    break;
+  }
+
+  return tools;
+}
+
+/**
+ * Validate that explicit tool-usage claims in generated SKILL.md content match
+ * the tools declared in frontmatter.
+ */
+export function validateAllowedToolsContract(skillPath: string): AllowedToolsContractResult {
+  const content = fs.readFileSync(skillPath, 'utf-8');
+  const { body } = extractFrontmatter(content);
+  const allowedTools = extractAllowedTools(skillPath);
+  const unknownAllowedTools = allowedTools.filter(tool => !VALID_ALLOWED_TOOLS.has(tool));
+
+  const requiredTools = [
+    { tool: 'Bash', reason: 'bash code blocks', matches: /```bash\b/.test(body) },
+    { tool: 'AskUserQuestion', reason: 'AskUserQuestion instructions', matches: /\bAskUserQuestion\b/.test(body) },
+    { tool: 'WebSearch', reason: 'WebSearch instructions', matches: /\bWebSearch\b/.test(body) },
+    {
+      tool: 'Write',
+      reason: 'explicit persisted-write instructions',
+      matches: /Write to `|Use the Write tool/.test(body),
+    },
+  ];
+
+  const missingRequiredTools = requiredTools
+    .filter(rule => rule.matches && !allowedTools.includes(rule.tool))
+    .map(rule => ({ tool: rule.tool, reason: rule.reason }));
+
+  return { allowedTools, unknownAllowedTools, missingRequiredTools };
 }
 
 /**

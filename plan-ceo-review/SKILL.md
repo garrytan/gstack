@@ -8,6 +8,7 @@ description: |
   expansions), HOLD SCOPE (maximum rigor), SCOPE REDUCTION (strip to essentials).
 allowed-tools:
   - Read
+  - Write
   - Grep
   - Glob
   - Bash
