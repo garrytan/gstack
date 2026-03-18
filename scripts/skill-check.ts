@@ -31,6 +31,8 @@ const SKILL_FILES = [
   'qa-design-review/SKILL.md',
   'gstack-upgrade/SKILL.md',
   'document-release/SKILL.md',
+  'benchmark/SKILL.md',
+  'a11y/SKILL.md',
 ].filter(f => fs.existsSync(path.join(ROOT, f)));
 
 let hasErrors = false;
@@ -71,6 +73,8 @@ console.log('\n  Templates:');
 const TEMPLATES = [
   { tmpl: 'SKILL.md.tmpl', output: 'SKILL.md' },
   { tmpl: 'browse/SKILL.md.tmpl', output: 'browse/SKILL.md' },
+  { tmpl: 'benchmark/SKILL.md.tmpl', output: 'benchmark/SKILL.md' },
+  { tmpl: 'a11y/SKILL.md.tmpl', output: 'a11y/SKILL.md' },
 ];
 
 for (const { tmpl, output } of TEMPLATES) {

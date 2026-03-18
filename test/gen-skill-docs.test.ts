@@ -72,6 +72,8 @@ describe('gen-skill-docs', () => {
     { dir: 'plan-design-review', name: 'plan-design-review' },
     { dir: 'qa-design-review', name: 'qa-design-review' },
     { dir: 'design-consultation', name: 'design-consultation' },
+    { dir: 'benchmark', name: 'benchmark' },
+    { dir: 'a11y', name: 'a11y' },
   ];
 
   test('every skill has a SKILL.md.tmpl template', () => {
