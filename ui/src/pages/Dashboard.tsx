@@ -3,7 +3,7 @@ import Card from '@/components/Card';
 import StatusBadge from '@/components/StatusBadge';
 import Spinner from '@/components/Spinner';
 import type { SystemInfo } from '@/api/client';
-import { getSystemInfo } from '@/api/client';
+import { getSystemInfo, isApiConnected } from '@/api/client';
 
 export default function Dashboard() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -45,6 +45,17 @@ export default function Dashboard() {
         <h2 className="text-2xl font-bold text-white">Dashboard</h2>
         <p className="text-sm text-gstack-muted mt-1">gstack system overview</p>
       </div>
+
+      {info._demo && (
+        <div className="rounded-lg border border-gstack-info/30 bg-gstack-info-bg p-4 text-sm text-gstack-info mb-6">
+          <strong>Demo Mode</strong> — API server not connected. Showing sample data.
+          {isApiConnected() === false && (
+            <span className="block text-xs text-gstack-dim mt-1">
+              Run <code className="font-mono bg-gstack-border px-1 py-0.5 rounded">bun run ui:server</code> locally to connect to live data.
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
