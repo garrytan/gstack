@@ -208,7 +208,7 @@ describe('Update check preamble', () => {
     'qa-design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
-  ];
+    'cfo/SKILL.md',  ];
 
   for (const skill of skillsWithUpdateCheck) {
     test(`${skill} update check line ends with || true`, () => {
@@ -516,7 +516,7 @@ describe('v0.4.1 preamble features', () => {
     'qa-design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
-  ];
+    'cfo/SKILL.md',  ];
 
   for (const skill of skillsWithPreamble) {
     test(`${skill} contains RECOMMENDATION format`, () => {
@@ -631,7 +631,7 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     'qa-design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
-  ];
+    'cfo/SKILL.md',  ];
 
   for (const skill of skillsWithPreamble) {
     test(`${skill} contains Completeness Principle section`, () => {
