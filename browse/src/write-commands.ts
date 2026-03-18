@@ -7,6 +7,7 @@
 
 import type { BrowserManager } from './browser-manager';
 import { findInstalledBrowsers, importCookies } from './cookie-import-browser';
+import { validateNavigationUrl } from './url-validation';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -21,6 +22,7 @@ export async function handleWriteCommand(
     case 'goto': {
       const url = args[0];
       if (!url) throw new Error('Usage: browse goto <url>');
+      validateNavigationUrl(url);
       const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const status = response?.status() || 'unknown';
       return `Navigated to ${url} (${status})`;

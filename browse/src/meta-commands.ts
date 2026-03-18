@@ -6,6 +6,7 @@ import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from './commands';
+import { validateNavigationUrl } from './url-validation';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -219,6 +220,8 @@ export async function handleMetaCommand(
     case 'diff': {
       const [url1, url2] = args;
       if (!url1 || !url2) throw new Error('Usage: browse diff <url1> <url2>');
+      validateNavigationUrl(url1);
+      validateNavigationUrl(url2);
 
       const page = bm.getPage();
       await page.goto(url1, { waitUntil: 'domcontentloaded', timeout: 15000 });
