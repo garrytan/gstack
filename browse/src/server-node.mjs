@@ -5,7 +5,7 @@
  * This script runs the browse server under Node instead, providing
  * a Bun.serve() shim and importing the rest of the codebase.
  *
- * Usage: node --experimental-strip-types server-node.mjs
+ * Usage: node --import tsx server-node.mjs
  */
 
 import { createServer } from 'http';
@@ -23,7 +23,9 @@ globalThis.Bun = {
   serve: null, // Replaced below with our own server implementation
   sleep: (ms) => new Promise(r => setTimeout(r, ms)),
   which: (name) => {
-    const { execSync } = await_import_child_process();
+    // Validate input to prevent command injection via shell interpolation
+    if (typeof name !== 'string' || !/^[\w.\-]+$/.test(name)) return null;
+    const { execSync } = require('child_process');
     try {
       return execSync(`where ${name}`, { encoding: 'utf-8' }).trim().split('\n')[0];
     } catch { return null; }
@@ -31,17 +33,11 @@ globalThis.Bun = {
   stdin: process.stdin,
 };
 
-function await_import_child_process() {
-  // Lazy import to avoid top-level await issues
-  return require('child_process');
-}
-
 // ─── Import server modules (TypeScript via --experimental-strip-types) ──
 const { BrowserManager } = await import('./browser-manager.ts');
 const { handleReadCommand } = await import('./read-commands.ts');
 const { handleWriteCommand } = await import('./write-commands.ts');
 const { handleMetaCommand } = await import('./meta-commands.ts');
-const { handleCookiePickerRoute } = await import('./cookie-picker-routes.ts');
 const { COMMAND_DESCRIPTIONS, READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } = await import('./commands.ts');
 const { SNAPSHOT_FLAGS } = await import('./snapshot.ts');
 const { resolveConfig, ensureStateDir, readVersionHash } = await import('./config.ts');
@@ -224,11 +220,10 @@ async function start() {
     resetIdleTimer();
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
 
-    // Cookie picker
+    // Cookie picker — browser cookie import requires macOS Keychain, not supported on Windows
     if (url.pathname.startsWith('/cookie-picker')) {
-      const result = await handleCookiePickerRoute(url, req, browserManager);
-      res.writeHead(result.status, Object.fromEntries(result.headers.entries()));
-      res.end(await result.text());
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Browser cookie import is only supported on macOS' }));
       return;
     }
 

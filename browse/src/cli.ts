@@ -77,16 +77,17 @@ const SERVER_SCRIPT = resolveServerScript();
 
 /**
  * On Windows, resolve the Node-compatible server entry point.
- * Falls back to the Bun server script if not found.
+ * Throws if server-node.mjs is missing on Windows (it's required — server.ts uses Bun APIs).
  */
 function resolveNodeServerScript(): string {
   const dir = path.dirname(SERVER_SCRIPT);
   const nodeScript = path.join(dir, 'server-node.mjs');
   if (fs.existsSync(nodeScript)) return nodeScript;
+  if (IS_WINDOWS) {
+    throw new Error('server-node.mjs not found — required for Windows. Reinstall gstack.');
+  }
   return SERVER_SCRIPT;
 }
-
-
 
 interface ServerState {
   pid: number;

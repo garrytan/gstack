@@ -365,27 +365,27 @@ describe('Cookie Import Browser', () => {
   });
 
   describe('Profile Validation', () => {
-    test('rejects path traversal in profile names', () => {
+    test('rejects path traversal in profile names', async () => {
       // The validateProfile function should reject profiles with / or ..
       // We can't call it directly (internal), but we can test via listDomains
       // which calls validateProfile
-      expect(() => listDomains('chrome', '../etc')).toThrow(/Invalid profile/);
-      expect(() => listDomains('chrome', 'Default/../../etc')).toThrow(/Invalid profile/);
+      await expect(listDomains('chrome', '../etc')).rejects.toThrow(/Invalid profile/);
+      await expect(listDomains('chrome', 'Default/../../etc')).rejects.toThrow(/Invalid profile/);
     });
 
-    test('rejects control characters in profile names', () => {
-      expect(() => listDomains('chrome', 'Default\x00evil')).toThrow(/Invalid profile/);
+    test('rejects control characters in profile names', async () => {
+      await expect(listDomains('chrome', 'Default\x00evil')).rejects.toThrow(/Invalid profile/);
     });
   });
 
   describe('Unknown Browser', () => {
-    test('throws for unknown browser name', () => {
-      expect(() => listDomains('firefox')).toThrow(/Unknown browser.*firefox/i);
+    test('throws for unknown browser name', async () => {
+      await expect(listDomains('firefox')).rejects.toThrow(/Unknown browser.*firefox/i);
     });
 
-    test('error includes list of supported browsers', () => {
+    test('error includes list of supported browsers', async () => {
       try {
-        listDomains('firefox');
+        await listDomains('firefox');
         throw new Error('Should have thrown');
       } catch (err: any) {
         expect(err.code).toBe('unknown_browser');
