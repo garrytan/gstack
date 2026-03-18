@@ -218,6 +218,7 @@ describe('Update check preamble', () => {
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
+    'office-hours/SKILL.md', 'debug/SKILL.md',
     'plan-design-review/SKILL.md',
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
@@ -528,6 +529,7 @@ describe('v0.4.1 preamble features', () => {
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
+    'office-hours/SKILL.md', 'debug/SKILL.md',
     'plan-design-review/SKILL.md',
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
@@ -546,6 +548,77 @@ describe('v0.4.1 preamble features', () => {
       expect(content).toContain('_SESSIONS');
       expect(content).toContain('RECOMMENDATION');
     });
+  }
+
+  for (const skill of skillsWithPreamble) {
+    test(`${skill} contains escalation protocol`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
+      expect(content).toContain('DONE_WITH_CONCERNS');
+      expect(content).toContain('BLOCKED');
+      expect(content).toContain('NEEDS_CONTEXT');
+    });
+  }
+});
+
+// --- Structural tests for new skills ---
+
+describe('office-hours skill structure', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+
+  // Original structural assertions
+  for (const section of ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6',
+                          'Design Doc', 'Supersedes', 'APPROVED', 'Premise Challenge',
+                          'Alternatives', 'Smart-skip']) {
+    test(`contains ${section}`, () => expect(content).toContain(section));
+  }
+
+  // Dual-mode structure
+  for (const section of ['Startup mode', 'Builder mode']) {
+    test(`contains ${section}`, () => expect(content).toContain(section));
+  }
+
+  // Mode detection question
+  test('contains explicit mode detection question', () => {
+    expect(content).toContain("what's your goal");
+  });
+
+  // Six forcing questions (startup mode)
+  for (const question of ['Demand Reality', 'Status Quo', 'Desperate Specificity',
+                           'Narrowest Wedge', 'Observation & Surprise', 'Future-Fit']) {
+    test(`contains forcing question: ${question}`, () => expect(content).toContain(question));
+  }
+
+  // Builder mode questions
+  test('contains builder brainstorming questions', () => {
+    expect(content).toContain('coolest version');
+    expect(content).toContain('delightful');
+  });
+
+  // Intrapreneurship adaptation
+  test('contains intrapreneurship adaptation', () => {
+    expect(content).toContain('Intrapreneurship');
+  });
+
+  // YC callout
+  test('contains YC apply CTA', () => {
+    expect(content).toContain('ycombinator.com/apply');
+  });
+
+  // Operating principles per mode
+  test('contains startup operating principles', () => {
+    expect(content).toContain('Specificity is the only currency');
+  });
+
+  test('contains builder operating principles', () => {
+    expect(content).toContain('Delight is the currency');
+  });
+});
+
+describe('debug skill structure', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'debug', 'SKILL.md'), 'utf-8');
+  for (const section of ['Iron Law', 'Root Cause', 'Pattern Analysis', 'Hypothesis',
+                          'DEBUG REPORT', '3-strike', 'BLOCKED']) {
+    test(`contains ${section}`, () => expect(content).toContain(section));
   }
 });
 

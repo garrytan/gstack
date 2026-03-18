@@ -88,6 +88,8 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - **Ship with confidence — coverage audit shows what's tested and what's not.** `/ship` Step 3.4 builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with quality stars (★★★ = edge cases + errors, ★★ = happy path, ★ = smoke test). Gaps get tests auto-generated. PR body shows "Tests: 42 → 47 (+5 new)".
 - **Your retro tracks test health.** `/retro` now shows total test files, tests added this period, regression test commits, and trend deltas. If test ratio drops below 20%, it flags it as a growth area.
 - **Design reviews generate regression tests too.** `/qa-design-review` Phase 8e.5 skips CSS-only fixes (those are caught by re-running the design audit) but writes tests for JavaScript behavior changes like broken dropdowns or animation failures.
+- **New `/office-hours` skill — YC Office Hours before you build.** Two modes: startup founders get six forcing questions that push toward radical honesty about demand, users, and product (demand reality, status quo, desperate specificity, narrowest wedge, observation & surprise, future-fit). Everyone else — hackathons, side projects, open source, learning — gets an enthusiastic design thinking partner. It asks you upfront what you're here for and adapts. Both modes write a design doc that feeds into `/plan-ceo-review` and `/plan-eng-review`.
+- **New `/debug` skill — find the root cause, not the symptom.** Systematic debugging with an Iron Law: no fixes without root cause investigation first. Traces data flow, matches against known bug patterns, tests hypotheses one at a time. If 3 fixes fail, it stops and questions the architecture instead of thrashing.
 
 ### For contributors
 
