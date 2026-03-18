@@ -289,6 +289,17 @@ export async function handleReadCommand(
         localStorage: { ...localStorage },
         sessionStorage: { ...sessionStorage },
       }));
+      const showSecrets = args.includes('--show-secrets');
+      if (!showSecrets) {
+        const sensitivePattern = /token|secret|key|password|auth|credential|session/i;
+        for (const store of [storage.localStorage, storage.sessionStorage]) {
+          for (const k of Object.keys(store)) {
+            if (sensitivePattern.test(k)) {
+              store[k] = '[redacted]';
+            }
+          }
+        }
+      }
       return JSON.stringify(storage, null, 2);
     }
 
