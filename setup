@@ -6,6 +6,14 @@ GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$(dirname "$GSTACK_DIR")"
 BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
 
+# Check if bun is installed
+if ! command -v bun &> /dev/null; then
+  echo "Error: bun is not installed." >&2
+  echo "Please install bun first:" >&2
+  echo "  curl -fsSL https://bun.sh/install | bash" >&2
+  exit 1
+fi
+
 # 1. Build browse binary if needed
 NEEDS_BUILD=0
 if [ ! -x "$BROWSE_BIN" ]; then
