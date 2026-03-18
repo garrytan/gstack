@@ -72,7 +72,7 @@ describe('gen-skill-docs', () => {
     { dir: 'plan-design-review', name: 'plan-design-review' },
     { dir: 'qa-design-review', name: 'qa-design-review' },
     { dir: 'design-consultation', name: 'design-consultation' },
-  ];
+    { dir: 'risk', name: 'risk' },  ];
 
   test('every skill has a SKILL.md.tmpl template', () => {
     for (const skill of ALL_SKILLS) {
