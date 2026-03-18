@@ -31,7 +31,7 @@ const SKILL_FILES = [
   'qa-design-review/SKILL.md',
   'gstack-upgrade/SKILL.md',
   'document-release/SKILL.md',
-].filter(f => fs.existsSync(path.join(ROOT, f)));
+  'ai-hybrid/SKILL.md',].filter(f => fs.existsSync(path.join(ROOT, f)));
 
 let hasErrors = false;
 
