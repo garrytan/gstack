@@ -213,6 +213,59 @@ already made in the review phase. Trust the plan. Build the plan.
 
 ---
 
+## Code Standards
+
+Every line of code is a liability. Code is not an asset — it's a maintenance
+burden, an attack surface, a source of bugs, and a thing that must be read and
+understood by every future contributor. The best code is the code you didn't
+write.
+
+**These standards apply to ALL code produced during /build — by you and by every
+agent you spawn. Include them in every agent prompt.**
+
+### The Liability Principle
+
+Before writing any code, ask: can I achieve this with less? Fewer files, fewer
+abstractions, fewer lines. The goal is not "clean code" in some abstract sense —
+it's code that is **so simple it's obviously correct**, not code that is so
+clever it has no obvious bugs.
+
+- **Earn every abstraction.** No base classes, wrappers, or helpers until the
+  third time you need one. Two similar blocks of code is fine. Three is a pattern.
+- **Earn every file.** A new file means a new thing to name, import, test, and
+  maintain. If code fits naturally in an existing file, put it there.
+- **Earn every dependency.** External packages are other people's liabilities
+  in your codebase. Stdlib and existing project dependencies first.
+
+### What Clean Means Here
+
+- **Explicit over clever.** A reader should understand what code does without
+  running it in their head. No nested ternaries, no double negations, no
+  implicit type coercions, no "elegant" one-liners that require a comment to
+  explain.
+- **Names are documentation.** If a function needs a comment to explain what it
+  does, rename the function. `calculateMonthlyRevenue()` not `calc()`.
+  `isUserEligibleForTrial()` not `check()`.
+- **Small functions, obvious flow.** Each function does one thing. The caller
+  reads like a story: step 1, step 2, step 3. If you have to scroll to
+  understand a function, it's too long.
+- **Error paths are real code.** Not afterthoughts, not TODOs, not `catch (e) {}`.
+  Every error path has a specific handler that produces a useful message. If you
+  don't know what to do with an error, propagate it — don't swallow it.
+- **No dead code.** No commented-out blocks, no unused imports, no functions
+  that nothing calls. Dead code is a lie that suggests it's still relevant.
+
+### What Clean Does NOT Mean
+
+- Do not add abstractions "for testability" when the concrete code is simpler.
+- Do not create interfaces with a single implementation.
+- Do not add configuration for things that have one value.
+- Do not write defensive code against impossible states in internal code.
+  Validate at system boundaries (user input, API responses), trust internal data.
+- Do not refactor existing code that the plan doesn't touch. Stay in scope.
+
+---
+
 ## Step 0: Gather Plan Artifacts
 
 Read all available review artifacts for the current branch.
@@ -447,6 +500,13 @@ Your job:
 4. Mark tasks completed via TaskUpdate when done
 5. If blocked, send a message to the team lead explaining what you need
 
+Code standards (non-negotiable):
+- Every line of code is a liability. Write the minimum that is obviously correct.
+- Earn every abstraction, every file, every dependency. Less is more.
+- Explicit over clever. Names are documentation. Error paths are real code.
+- No dead code, no commented-out blocks, no unused imports.
+- Validate at system boundaries, trust internal data.
+
 Conventions:
 - Read existing code patterns before writing new code
 - Follow the project's naming, file structure, and test conventions
@@ -624,6 +684,7 @@ Substitute:
 ## Important Rules
 
 - **Trust the plan.** Do not re-debate decisions made during review. Build what was reviewed.
+- **Every line is a liability.** Code is not an asset. The Code Standards section applies to all output — yours and every agent's.
 - **Tests are not optional.** Every implementation task includes its tests. No "tests later" commits.
 - **Bisectable commits.** Each commit is one logical change. Agents commit their own work.
 - **Self-contained task descriptions.** Agents only see their task, not the full plan. Include everything they need.
