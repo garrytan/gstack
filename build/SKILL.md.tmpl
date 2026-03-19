@@ -1,0 +1,439 @@
+---
+name: build
+version: 1.0.0
+description: |
+  Execute reviewed plans using multi-agent teams. Reads plan artifacts from
+  /plan-ceo-review, /plan-eng-review, and /plan-design-review, creates a
+  coordinated agent team, and implements the plan end-to-end. The missing
+  link between planning and shipping. Use when asked to "build it",
+  "implement the plan", "start building", or "execute the plan".
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+  - TeamCreate
+  - TaskCreate
+  - TaskList
+  - TaskUpdate
+  - TaskGet
+  - Agent
+  - SendMessage
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# Build: Plan-to-Implementation Orchestrator
+
+You are running the `/build` workflow. Your job is to take a reviewed plan and
+implement it using a coordinated team of agents. You are the team lead — you
+read the plan, decompose it into tasks, spawn agents, assign work, and verify
+the result.
+
+**The workflow gap this fills:**
+```
+/plan-ceo-review  ─┐
+/plan-eng-review  ─┼──▶  /build  ──▶  /ship
+/plan-design-review┘
+```
+
+**You are NOT a planner.** The planning is done. Your job is execution. Do not
+re-debate scope, re-review architecture, or second-guess decisions that were
+already made in the review phase. Trust the plan. Build the plan.
+
+**Only stop for:**
+- No plan found (conversation context, CEO plan, or eng review)
+- Merge conflicts during implementation
+- Test failures that indicate a plan gap (not just a typo)
+- A teammate reports being blocked on something that needs user input
+
+**Never stop for:**
+- Choosing implementation details the plan already decided
+- Splitting work across agents (you decide)
+- Task ordering (you decide based on dependencies)
+- Minor code style questions (follow existing conventions)
+
+---
+
+## Step 0: Gather Plan Artifacts
+
+Read all available review artifacts for the current branch.
+
+### 0A. Review Dashboard
+
+{{REVIEW_DASHBOARD}}
+
+### 0B. Collect Plan Sources
+
+```bash
+eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
+echo "SLUG: $SLUG"
+echo "BRANCH: $BRANCH"
+
+# CEO plan (from /plan-ceo-review EXPANSION or SELECTIVE EXPANSION)
+CEO_PLAN=$(ls -t ~/.gstack/projects/$SLUG/ceo-plans/*-*.md 2>/dev/null | head -1)
+[ -n "$CEO_PLAN" ] && echo "CEO_PLAN: $CEO_PLAN" || echo "CEO_PLAN: none"
+
+# Test plan (from /plan-eng-review)
+TEST_PLAN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-test-plan-*.md 2>/dev/null | head -1)
+[ -n "$TEST_PLAN" ] && echo "TEST_PLAN: $TEST_PLAN" || echo "TEST_PLAN: none"
+
+# Design doc (from /office-hours or /plan-ceo-review promotion)
+DESIGN_DOC=$(ls -t docs/designs/*.md 2>/dev/null | head -1)
+[ -z "$DESIGN_DOC" ] && DESIGN_DOC=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
+[ -n "$DESIGN_DOC" ] && echo "DESIGN_DOC: $DESIGN_DOC" || echo "DESIGN_DOC: none"
+
+# Review log
+cat ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_REVIEWS"
+```
+
+Read every artifact that exists. These are the primary inputs for implementation:
+
+1. **CEO plan** — vision, accepted scope, deferred items, scope decisions
+2. **Eng review** — architecture decisions, failure modes, test diagram, performance concerns
+3. **Test plan** — affected pages/routes, key interactions, edge cases, critical paths
+4. **Design doc** — if promoted from CEO review or created by /office-hours
+
+Also read:
+- `CLAUDE.md` — project conventions, test commands, architecture notes
+- `TODOS.md` — related items that may be addressed by this build
+- The conversation plan — if the user has a plan in the current conversation
+
+### 0C. Plan Validation
+
+**If no plan found anywhere** (no CEO plan, no eng review, no conversation plan):
+Use AskUserQuestion:
+- "No reviewed plan found. /build needs a plan to execute. What would you like to do?"
+- A) Describe the plan now (I'll decompose it into tasks)
+- B) Run /plan-eng-review first (recommended for non-trivial work)
+- C) Abort
+
+**If eng review exists but has status "issues_open":**
+Use AskUserQuestion:
+- "The eng review has unresolved issues. Building on an incomplete review risks rework."
+- A) Build anyway — I'll handle issues as they come up
+- B) Abort — run /plan-eng-review again to resolve issues first
+- RECOMMENDATION: Choose B if critical_gaps > 0, Choose A if only informational issues remain
+
+**If plan found:** Continue to Step 1.
+
+---
+
+## Step 1: Task Decomposition
+
+Analyze the plan and break it into discrete, implementable tasks. This is
+the most important step — good decomposition enables parallel execution.
+
+### 1A. Identify Work Units
+
+Read the plan and extract every concrete piece of work. A work unit is:
+- A single file or tightly-coupled group of files
+- Independently testable
+- Has clear inputs and outputs
+
+Categorize each work unit:
+
+```
+WORK UNIT DECOMPOSITION
+═══════════════════════════════════════════════════════════
+#  | Category       | Description                | Depends on | Est. size
+---|----------------|----------------------------|------------|----------
+1  | infrastructure | Add database migration     | —          | S
+2  | backend        | Create FooService          | 1          | M
+3  | backend        | Add API endpoint           | 2          | S
+4  | frontend       | Build FooComponent         | 3          | M
+5  | test           | Unit tests for FooService  | 2          | S
+6  | test           | Integration test for API   | 3          | S
+7  | test           | E2E test for full flow     | 4          | M
+═══════════════════════════════════════════════════════════
+```
+
+### 1B. Determine Parallelism
+
+Draw a dependency graph to identify what can run in parallel:
+
+```
+     1 (migration)
+         │
+     2 (service)
+       ┌───┴───┐
+  3 (API)    5 (unit tests)
+    │
+  4 (component)    6 (integration tests)
+    │
+  7 (E2E tests)
+```
+
+Group tasks into waves — each wave runs in parallel, waves run sequentially:
+- **Wave 1:** All tasks with no dependencies
+- **Wave 2:** Tasks whose dependencies were in Wave 1
+- **Wave 3:** Tasks whose dependencies were in Wave 2
+- etc.
+
+### 1C. Determine Team Composition
+
+Based on the work units, determine how many agents you need. Rules:
+
+- **1 agent** (no team needed): Total work < 5 tasks OR all tasks are sequential
+  with no parallelism opportunity. Skip TeamCreate — just implement directly.
+- **2 agents:** Plan has both backend and frontend work, or backend and test work
+  that can overlap.
+- **3 agents:** Plan has backend + frontend + significant test coverage work.
+- **4 agents (max):** Large plan with infrastructure + backend + frontend + tests,
+  all with significant parallel opportunity.
+
+**Never spawn more agents than there are parallel work streams.** Agents that
+sit idle waiting for dependencies are waste, not throughput.
+
+Use AskUserQuestion to confirm the plan:
+- Show the work unit table and dependency graph
+- Show the proposed team size and wave structure
+- RECOMMENDATION: State the team size and why
+- A) Proceed with proposed plan
+- B) Adjust (let user modify)
+- C) Skip teams — I'll implement sequentially (for small plans)
+
+---
+
+## Step 2: Team Assembly
+
+**If single-agent mode** (Step 1C chose option C or 1 agent): Skip to Step 4-solo.
+
+### 2A. Create the Team
+
+```
+Use TeamCreate:
+  team_name: "build-{feature-slug}"
+  description: "Implementing {feature name} per reviewed plan"
+```
+
+### 2B. Create Tasks
+
+For each work unit from Step 1A, create a task:
+
+```
+Use TaskCreate for each work unit:
+  title: "{category}: {description}"
+  description: Include:
+    - What to build (specific files, classes, methods)
+    - Architecture decisions from the eng review
+    - Conventions from CLAUDE.md
+    - Dependencies (which tasks must complete first)
+    - Acceptance criteria (what "done" means)
+    - Test expectations (what tests to write alongside)
+```
+
+**Task descriptions must be self-contained.** Each agent reads only its task — it
+does not have the full plan context. Include everything the agent needs: file paths,
+method signatures, data structures, error handling expectations, test patterns.
+
+### 2C. Spawn Agents
+
+Spawn agents for each role identified in Step 1C. Use the Agent tool with:
+- `team_name`: the team name from 2A
+- `name`: a descriptive role name (e.g., "backend", "frontend", "tests")
+- `subagent_type`: "general-purpose" (agents need write access)
+
+Give each agent a focused prompt:
+
+```
+You are the {role} agent on a build team implementing {feature}.
+Your team name is "{team-name}".
+
+Your job:
+1. Check TaskList for tasks assigned to you
+2. Implement each task following the project conventions in CLAUDE.md
+3. Write tests alongside your implementation (not as a separate step)
+4. Mark tasks completed via TaskUpdate when done
+5. If blocked, send a message to the team lead explaining what you need
+
+Conventions:
+- Read existing code patterns before writing new code
+- Follow the project's naming, file structure, and test conventions
+- Commit each task as a separate logical commit (bisectable)
+- Never force push or amend commits from other agents
+
+{Include relevant CLAUDE.md conventions here}
+```
+
+### 2D. Assign Wave 1
+
+Assign all Wave 1 tasks (those with no dependencies) to the appropriate agents
+using TaskUpdate with the `owner` field.
+
+---
+
+## Step 3: Orchestrate
+
+Monitor the team and manage the build process.
+
+### 3A. Wave Progression
+
+After agents complete Wave 1 tasks:
+1. Check TaskList for completed tasks
+2. Identify which Wave 2 tasks are now unblocked
+3. Assign unblocked tasks to available agents via TaskUpdate
+4. Repeat for each subsequent wave
+
+### 3B. Handle Blockers
+
+When a teammate reports being blocked:
+
+**Implementation ambiguity** (plan doesn't specify something):
+- Check the eng review and CEO plan for guidance
+- If the answer is there, send it to the teammate via SendMessage
+- If not, make the simplest decision consistent with the plan's architecture
+
+**Merge conflicts between agents:**
+- Have the agent whose task has fewer changes rebase
+- If complex, resolve the conflict yourself
+
+**Test failures:**
+- Check if the failure is a real bug or a test environment issue
+- If real: assign a fix task to the agent who wrote the code
+- If environment: fix it yourself and notify the team
+
+**Dependency not ready:**
+- Reassign the blocked agent to a different available task
+- Or help the blocking agent finish faster
+
+### 3C. Progress Tracking
+
+After each wave completes, output a progress update:
+
+```
+BUILD PROGRESS — Wave {N}/{total} complete
+════════════════════════════════════════════
+Completed: {N}/{total} tasks
+In progress: {N} tasks
+Blocked: {N} tasks
+Remaining: {N} tasks
+
+{One-line status per active agent}
+════════════════════════════════════════════
+```
+
+---
+
+## Step 4: Integration & Verification
+
+After all tasks are complete (or in single-agent mode after implementation):
+
+### 4A. Run Tests
+
+```bash
+# Detect and run the project's test suite
+# Use the test command from CLAUDE.md or detect automatically
+```
+
+Run the full test suite. If tests fail:
+1. Identify which task's code caused the failure
+2. Fix the issue (or assign to the responsible agent)
+3. Re-run tests until green
+
+### 4B. Coverage Check
+
+If a test plan exists from the eng review, cross-reference:
+- Every "Key Interaction to Verify" has a test
+- Every "Edge Case" is covered
+- Every "Critical Path" has an integration or E2E test
+
+If gaps exist, write the missing tests.
+
+### 4C. Plan Conformance
+
+Read the original plan one more time. For each accepted scope item:
+- Is it implemented? Check the code.
+- Is it tested? Check the test suite.
+- Does it match the architecture decisions from the eng review?
+
+Flag any deviations as AskUserQuestion:
+- "The plan specified X but the implementation does Y. Is this acceptable?"
+- A) Accept the deviation (update the plan)
+- B) Fix the implementation to match the plan
+
+### 4D. Shutdown Team
+
+If a team was created, shut it down gracefully:
+
+Send each teammate: `message: {type: "shutdown_request"}`
+
+---
+
+## Step 4-solo: Single-Agent Implementation
+
+When the plan is small enough for one agent (no TeamCreate):
+
+1. Implement tasks in dependency order from Step 1A
+2. Write tests alongside each piece of implementation
+3. Commit each logical unit separately (bisectable)
+4. Run the full test suite after all tasks
+5. Proceed to Step 5
+
+---
+
+## Step 5: Handoff
+
+### 5A. Build Summary
+
+Output a structured summary:
+
+```
+BUILD COMPLETE
+═══════════════════════════════════════════════════════
+Plan source:     {CEO plan / eng review / conversation}
+Team size:       {N agents / solo}
+Tasks completed: {N}/{N}
+Tests:           {N} passing, {N} failing
+Commits:         {N} (bisectable)
+
+FILES CHANGED
+─────────────────────────────────────────────────────
+{git diff --stat against base branch}
+
+WHAT WAS BUILT
+─────────────────────────────────────────────────────
+{Bullet list of features/components implemented}
+
+WHAT WAS NOT BUILT (deferred)
+─────────────────────────────────────────────────────
+{Items from "NOT in scope" in the reviews}
+
+NEXT STEP
+─────────────────────────────────────────────────────
+Run /ship to test, review, version bump, and open a PR.
+═══════════════════════════════════════════════════════
+```
+
+### 5B. Persist Build Log
+
+```bash
+eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+mkdir -p ~/.gstack/projects/$SLUG
+echo '{"skill":"build","timestamp":"TIMESTAMP","status":"STATUS","tasks_completed":N,"tasks_total":M,"team_size":T}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+```
+
+Substitute:
+- **TIMESTAMP**: current ISO 8601 datetime
+- **STATUS**: "complete" if all tasks done and tests pass; "partial" if some tasks deferred; "failed" if tests still failing
+- **N/M**: completed/total task counts
+- **T**: number of agents used (1 for solo mode)
+
+---
+
+## Important Rules
+
+- **Trust the plan.** Do not re-debate decisions made during review. Build what was reviewed.
+- **Tests are not optional.** Every implementation task includes its tests. No "tests later" commits.
+- **Bisectable commits.** Each commit is one logical change. Agents commit their own work.
+- **Self-contained task descriptions.** Agents only see their task, not the full plan. Include everything they need.
+- **Never spawn idle agents.** More agents than parallel work streams is waste.
+- **Single-agent for small plans.** TeamCreate overhead is not worth it for < 5 sequential tasks.
+- **Verify against the plan.** The plan is the spec. Deviations require explicit user approval.
+- **Hand off to /ship.** /build implements. /ship tests, reviews, versions, and creates the PR.
