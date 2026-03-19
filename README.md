@@ -42,19 +42,21 @@ Expect first useful run in under 5 minutes on any repo with tests already set up
 
 ## Install — takes 30 seconds
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+
+**Requirements:** [Codex](https://openai.com/codex/), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+
 
 ### Step 1: Install on your machine
 
-Open Claude Code and paste this. Claude does the rest.
+Open Codex and paste this. Codex does the rest.
 
-> Install gstack: run **`git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /browse, /qa, /qa-only, /design-review, /setup-browser-cookies, /retro, /debug, /document-release. Then ask the user if they also want to add gstack to the current project so teammates get it.
+> Install gstack: run **`git clone https://github.com/garrytan/gstack.git ~/.codex/skills/gstack && cd ~/.codex/skills/gstack && ./setup`** then add a "gstack" section to AGENTS.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /browse, /qa, /qa-only, /design-review, /setup-browser-cookies, /retro, /debug, /document-release. Then ask the user if they also want to add gstack to the current project so teammates get it.
+
+`./setup` also creates compatibility links under `~/.claude/skills/` so the existing generated skill docs and helper scripts keep working.
 
 ### Step 2: Add to your repo so teammates get it (optional)
 
-> Add gstack to this project: run **`cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`** then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /browse, /qa, /qa-only, /design-review, /setup-browser-cookies, /retro, /debug, /document-release, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+> Add gstack to this project: run **`mkdir -p .codex/skills && cp -Rf ~/.codex/skills/gstack .codex/skills/gstack && rm -rf .codex/skills/gstack/.git && cd .codex/skills/gstack && ./setup`** then add a "gstack" section to this project's AGENTS.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /browse, /qa, /qa-only, /design-review, /setup-browser-cookies, /retro, /debug, /document-release, and tells Codex that if gstack skills aren't working, run `cd .codex/skills/gstack && ./setup` to build the binary and register skills.
 
-Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
+Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.codex/`. Nothing touches your PATH or runs in the background.
 
 ## See it work
 
@@ -181,13 +183,13 @@ Fifteen specialists. All slash commands. All Markdown. All free. **[github.com/g
 
 ## Troubleshooting
 
-**Skill not showing up?** `cd ~/.claude/skills/gstack && ./setup`
+**Skill not showing up?** `cd ~/.codex/skills/gstack && ./setup`
 
-**`/browse` fails?** `cd ~/.claude/skills/gstack && bun install && bun run build`
+**`/browse` fails?** `cd ~/.codex/skills/gstack && bun install && bun run build`
 
 **Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`
 
-**Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a gstack section. Add this:
+**Codex says it can't see the skills?** Make sure your project's `AGENTS.md` has a gstack section. Add this:
 
 ```
 ## gstack
