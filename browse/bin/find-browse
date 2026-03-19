@@ -7,8 +7,17 @@ if test -x "$DIR/find-browse"; then
 fi
 # Fallback: basic discovery
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -n "$ROOT" ] && test -x "$ROOT/.claude/skills/gstack/browse/dist/browse"; then
+CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
+if [ -n "$ROOT" ] && test -x "$ROOT/.agents/skills/gstack/browse/dist/browse"; then
+  echo "$ROOT/.agents/skills/gstack/browse/dist/browse"
+elif [ -n "$ROOT" ] && test -x "$ROOT/.codex/skills/gstack/browse/dist/browse"; then
+  echo "$ROOT/.codex/skills/gstack/browse/dist/browse"
+elif [ -n "$ROOT" ] && test -x "$ROOT/.claude/skills/gstack/browse/dist/browse"; then
   echo "$ROOT/.claude/skills/gstack/browse/dist/browse"
+elif test -x "$HOME/.agents/skills/gstack/browse/dist/browse"; then
+  echo "$HOME/.agents/skills/gstack/browse/dist/browse"
+elif test -x "$CODEX_HOME_DIR/skills/gstack/browse/dist/browse"; then
+  echo "$CODEX_HOME_DIR/skills/gstack/browse/dist/browse"
 elif test -x "$HOME/.claude/skills/gstack/browse/dist/browse"; then
   echo "$HOME/.claude/skills/gstack/browse/dist/browse"
 else

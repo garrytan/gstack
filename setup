@@ -1,16 +1,108 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register all skills with Claude Code
+# gstack setup — build browser binary + register all skills with Codex/Claude
 set -e
 
 GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$(dirname "$GSTACK_DIR")"
 BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
+CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
+HOME_CODEX_SKILLS="$CODEX_HOME_DIR/skills"
+HOME_CLAUDE_SKILLS="$HOME/.claude/skills"
+HOME_AGENTS_SKILLS="$HOME/.agents/skills"
 
 ensure_playwright_browser() {
   (
     cd "$GSTACK_DIR"
     bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
   ) >/dev/null 2>&1
+}
+
+link_skill_tree() {
+  local skills_dir="$1"
+  local create_root_link="${2:-0}"
+  local linked=()
+
+  mkdir -p "$skills_dir"
+
+  if [ "$create_root_link" = "1" ]; then
+    local gstack_target="$skills_dir/gstack"
+    if [ -e "$gstack_target" ] && [ ! -L "$gstack_target" ]; then
+      local resolved_target
+      resolved_target="$(cd "$gstack_target" && pwd -P)"
+      local resolved_source
+      resolved_source="$(cd "$GSTACK_DIR" && pwd -P)"
+      if [ "$resolved_target" != "$resolved_source" ]; then
+        printf '%s\n' ""
+        return 0
+      fi
+    fi
+    if [ -L "$gstack_target" ] || [ ! -e "$gstack_target" ]; then
+      ln -snf "$GSTACK_DIR" "$gstack_target"
+      linked+=("gstack")
+    fi
+  fi
+
+  for skill_dir in "$GSTACK_DIR"/*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      local skill_name
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "node_modules" ] && continue
+
+      local target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "gstack/$skill_name" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+
+  printf '%s\n' "${linked[*]}"
+}
+
+resolve_mirror_dirs() {
+  local skills_dir="$1"
+  local parent_dir
+  parent_dir="$(dirname "$skills_dir")"
+  local parent_name
+  parent_name="$(basename "$parent_dir")"
+
+  if [ "$skills_dir" = "$HOME_CODEX_SKILLS" ]; then
+    printf '%s\n' "$HOME_CLAUDE_SKILLS"
+    printf '%s\n' "$HOME_AGENTS_SKILLS"
+    return 0
+  fi
+
+  if [ "$skills_dir" = "$HOME_CLAUDE_SKILLS" ]; then
+    printf '%s\n' "$HOME_CODEX_SKILLS"
+    printf '%s\n' "$HOME_AGENTS_SKILLS"
+    return 0
+  fi
+
+  if [ "$skills_dir" = "$HOME_AGENTS_SKILLS" ]; then
+    printf '%s\n' "$HOME_CODEX_SKILLS"
+    printf '%s\n' "$HOME_CLAUDE_SKILLS"
+    return 0
+  fi
+
+  if [ "$parent_name" = ".codex" ]; then
+    printf '%s\n' "$(dirname "$parent_dir")/.claude/skills"
+    printf '%s\n' "$(dirname "$parent_dir")/.agents/skills"
+    return 0
+  fi
+
+  if [ "$parent_name" = ".claude" ]; then
+    printf '%s\n' "$(dirname "$parent_dir")/.codex/skills"
+    printf '%s\n' "$(dirname "$parent_dir")/.agents/skills"
+    return 0
+  fi
+
+  if [ "$parent_name" = ".agents" ]; then
+    printf '%s\n' "$(dirname "$parent_dir")/.codex/skills"
+    printf '%s\n' "$(dirname "$parent_dir")/.claude/skills"
+    return 0
+  fi
+
+  printf '%s\n' ""
 }
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
@@ -60,33 +152,30 @@ fi
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 
-# 4. Only create skill symlinks if we're inside a .claude/skills directory
+# 4. Create skill symlinks when installed from a skills directory
 SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
 if [ "$SKILLS_BASENAME" = "skills" ]; then
-  linked=()
-  for skill_dir in "$GSTACK_DIR"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      # Skip node_modules
-      [ "$skill_name" = "node_modules" ] && continue
-      target="$SKILLS_DIR/$skill_name"
-      # Create or update symlink; skip if a real file/directory exists
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "gstack/$skill_name" "$target"
-        linked+=("$skill_name")
-      fi
-    fi
-  done
+  linked="$(link_skill_tree "$SKILLS_DIR")"
+  mirrored_dirs=()
+  while IFS= read -r mirror_dir; do
+    [ -z "$mirror_dir" ] && continue
+    [ "$mirror_dir" = "$SKILLS_DIR" ] && continue
+    mirrored="$(link_skill_tree "$mirror_dir" 1)"
+    [ -n "$mirrored" ] && mirrored_dirs+=("$mirror_dir")
+  done < <(resolve_mirror_dirs "$SKILLS_DIR")
 
   echo "gstack ready."
   echo "  browse: $BROWSE_BIN"
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
+  if [ -n "$linked" ]; then
+    echo "  linked skills: $linked"
+  fi
+  if [ ${#mirrored_dirs[@]} -gt 0 ]; then
+    echo "  mirrored compatibility links into: ${mirrored_dirs[*]}"
   fi
 else
   echo "gstack ready."
   echo "  browse: $BROWSE_BIN"
-  echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  echo "  (skipped skill symlinks — not inside a skills directory)"
 fi
 
 # 4. First-time welcome + legacy cleanup

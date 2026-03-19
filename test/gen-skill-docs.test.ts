@@ -215,6 +215,16 @@ describe('gen-skill-docs', () => {
     expect(qaContent).toContain('Triage');
     expect(qaContent).toContain('WTF');
   });
+
+  test('generated browse setup supports .agents, .codex, and Claude fallbacks', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"');
+    expect(content).toContain('$_ROOT/.agents/skills/gstack/browse/dist/browse');
+    expect(content).toContain('$_ROOT/.codex/skills/gstack/browse/dist/browse');
+    expect(content).toContain('$HOME/.agents/skills/gstack/browse/dist/browse');
+    expect(content).toContain('$_CODEX_HOME/skills/gstack/browse/dist/browse');
+    expect(content).toContain('$HOME/.claude/skills/gstack/browse/dist/browse');
+  });
 });
 
 describe('BASE_BRANCH_DETECT resolver', () => {

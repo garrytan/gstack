@@ -24,19 +24,37 @@ function getGitRoot(): string | null {
   }
 }
 
-export function locateBinary(): string | null {
-  const root = getGitRoot();
-  const home = homedir();
+type LocateBinaryOptions = {
+  root?: string | null;
+  home?: string;
+  codexHome?: string;
+  exists?: (path: string) => boolean;
+};
+
+export function locateBinary(options: LocateBinaryOptions = {}): string | null {
+  const root = options.root === undefined ? getGitRoot() : options.root;
+  const home = options.home ?? homedir();
+  const codexHome = options.codexHome ?? process.env.CODEX_HOME ?? join(home, '.codex');
+  const exists = options.exists ?? existsSync;
+  const agentsHome = join(home, '.agents');
+
+  const candidates: string[] = [];
 
   // Workspace-local takes priority (for development)
   if (root) {
-    const local = join(root, '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse');
-    if (existsSync(local)) return local;
+    candidates.push(join(root, '.agents', 'skills', 'gstack', 'browse', 'dist', 'browse'));
+    candidates.push(join(root, '.codex', 'skills', 'gstack', 'browse', 'dist', 'browse'));
+    candidates.push(join(root, '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'));
   }
 
   // Global fallback
-  const global = join(home, '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse');
-  if (existsSync(global)) return global;
+  candidates.push(join(agentsHome, 'skills', 'gstack', 'browse', 'dist', 'browse'));
+  candidates.push(join(codexHome, 'skills', 'gstack', 'browse', 'dist', 'browse'));
+  candidates.push(join(home, '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'));
+
+  for (const candidate of candidates) {
+    if (exists(candidate)) return candidate;
+  }
 
   return null;
 }
@@ -53,4 +71,6 @@ function main() {
   console.log(bin);
 }
 
-main();
+if (import.meta.main) {
+  main();
+}
