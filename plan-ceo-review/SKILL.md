@@ -239,8 +239,32 @@ Run the following commands:
 git log --oneline -30                          # Recent history
 git diff <base> --stat                           # What's already changed
 git stash list                                 # Any stashed work
-grep -r "TODO\|FIXME\|HACK\|XXX" --include="*.rb" --include="*.js" -l
-find . -name "*.rb" -newer Gemfile.lock | head -20  # Recently touched files
+grep -r "TODO\|FIXME\|HACK\|XXX" \
+  --include="*.rb" --include="*.py" --include="*.ts" --include="*.tsx" \
+  --include="*.js" --include="*.jsx" --include="*.go" --include="*.rs" \
+  -l 2>/dev/null | head -20                    # Files with deferred work
+```
+
+Detect recently touched source files based on the project's lock/manifest file:
+```bash
+# Find the most recent lock/manifest as the freshness anchor
+_ANCHOR=""
+[ -f Gemfile.lock ]    && _ANCHOR="Gemfile.lock"
+[ -z "$_ANCHOR" ] && [ -f pnpm-lock.yaml ] && _ANCHOR="pnpm-lock.yaml"
+[ -z "$_ANCHOR" ] && [ -f package-lock.json ] && _ANCHOR="package-lock.json"
+[ -z "$_ANCHOR" ] && [ -f poetry.lock ]    && _ANCHOR="poetry.lock"
+[ -z "$_ANCHOR" ] && [ -f pyproject.toml ] && _ANCHOR="pyproject.toml"
+[ -z "$_ANCHOR" ] && [ -f go.sum ]         && _ANCHOR="go.sum"
+[ -z "$_ANCHOR" ] && [ -f package.json ]   && _ANCHOR="package.json"
+
+if [ -n "$_ANCHOR" ]; then
+  find . \( -name "*.rb" -o -name "*.py" -o -name "*.ts" -o -name "*.tsx" \
+         -o -name "*.js" -o -name "*.jsx" -o -name "*.go" -o -name "*.rs" \) \
+    -newer "$_ANCHOR" \
+    -not -path "*/node_modules/*" -not -path "*/.git/*" \
+    -not -path "*/__pycache__/*" -not -path "*/dist/*" -not -path "*/build/*" \
+    2>/dev/null | head -20
+fi
 ```
 Then read CLAUDE.md, TODOS.md, and any existing architecture docs.
 

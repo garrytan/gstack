@@ -164,6 +164,75 @@ branch name wherever the instructions say "the base branch."
 
 ---
 
+## Step 0: Detect project stack
+
+Run this before any stack-sensitive step. Outputs are printed to stdout — use them in prose to
+determine which commands to run in subsequent steps.
+
+```bash
+# Package manager
+_PKG_MGR="npm"
+[ -f pnpm-lock.yaml ] && _PKG_MGR="pnpm"
+[ -f yarn.lock ] && _PKG_MGR="yarn"
+[ -f bun.lockb ] && _PKG_MGR="bun"
+
+# Detect test runner (first match wins)
+_TEST_CMD=""
+_TEST_LABEL=""
+if [ -f package.json ]; then
+  if grep -qE '"vitest"' package.json 2>/dev/null ||      (node -e "const s=require('./package.json').scripts||{}; process.exit(Object.values(s).some(v=>v.includes('vitest'))?0:1)" 2>/dev/null); then
+    _TEST_CMD="$_PKG_MGR test" _TEST_LABEL="vitest"
+  elif grep -qE '"jest"' package.json 2>/dev/null; then
+    _TEST_CMD="$_PKG_MGR test" _TEST_LABEL="jest"
+  elif node -e "const s=require('./package.json').scripts||{}; process.exit(s.test?0:1)" 2>/dev/null; then
+    _TEST_CMD="$_PKG_MGR test" _TEST_LABEL="npm-script"
+  fi
+fi
+if [ -z "$_TEST_CMD" ]; then
+  if command -v pytest &>/dev/null &&      ([ -f pytest.ini ] || [ -f setup.cfg ] || ([ -f pyproject.toml ] && grep -q '[tool.pytest' pyproject.toml 2>/dev/null)); then
+    _TEST_CMD="pytest" _TEST_LABEL="pytest"
+  fi
+fi
+if [ -z "$_TEST_CMD" ] && [ -x bin/test-lane ]; then
+  _TEST_CMD="bin/test-lane" _TEST_LABEL="rails-test-lane"
+fi
+if [ -z "$_TEST_CMD" ] && [ -f Makefile ] && grep -q '^test:' Makefile 2>/dev/null; then
+  _TEST_CMD="make test" _TEST_LABEL="makefile"
+fi
+echo "TEST_CMD: ${_TEST_CMD:-NONE_DETECTED} ($_TEST_LABEL)"
+
+# VERSION format
+if [ -f VERSION ]; then
+  _VER=$(cat VERSION | tr -d '[:space:]')
+  _VER_DIGITS=$(echo "$_VER" | awk -F. '{print NF}')
+  echo "VERSION: $_VER (${_VER_DIGITS}-digit)"
+else
+  echo "VERSION: NO_VERSION_FILE"
+fi
+
+# Project language(s)
+_LANGS=""
+[ -f package.json ] && _LANGS="${_LANGS}nodejs "
+[ -f pyproject.toml ] || [ -f requirements.txt ] && _LANGS="${_LANGS}python "
+[ -f Gemfile ] && _LANGS="${_LANGS}ruby "
+[ -f go.mod ] && _LANGS="${_LANGS}go "
+[ -f Cargo.toml ] && _LANGS="${_LANGS}rust "
+echo "LANGUAGES: ${_LANGS:-unknown}"
+
+# Eval suite (Rails only)
+_HAS_EVALS=""
+[ -d test/evals ] && [ -f Gemfile ] && grep -q 'rails' Gemfile 2>/dev/null && _HAS_EVALS="yes"
+echo "EVAL_SUITE: ${_HAS_EVALS:-no}"
+```
+
+Use the printed values in all subsequent steps:
+- **TEST_CMD** — the command to run the test suite; if `NONE_DETECTED`, skip tests and note it
+- **VERSION** — format determines bump logic (3-digit = semver, 4-digit = extended)
+- **LANGUAGES** — determines which file patterns to use in grep/find commands
+- **EVAL_SUITE** — only run eval suites when this is `yes`
+
+---
+
 # Ship: Fully Automated Ship Workflow
 
 You are running the `/ship` workflow. This is a **non-interactive, fully automated** workflow. Do NOT ask for confirmation at any step. The user said `/ship` which means DO IT. Run straight through and output the PR URL at the end.
@@ -436,19 +505,28 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 ## Step 3: Run tests (on merged code)
 
-**Do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
-`db:test:prepare` internally, which loads the schema into the correct lane database.
-Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
+Use the **TEST_CMD** detected in Step 0.
 
-Run both test suites in parallel:
+**If TEST_CMD is `NONE_DETECTED`:** Note "No test runner detected — skipping tests." and continue to Step 3.25.
+
+**If LANGUAGES includes `nodejs` AND another language (e.g., `python` or `ruby`):** run both test suites in parallel:
 
 ```bash
-bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
-npm run test 2>&1 | tee /tmp/ship_vitest.txt &
+# Run detected suites in parallel — substitute <cmd1> and <cmd2> with detected TEST_CMDs
+<cmd1> 2>&1 | tee /tmp/ship_tests_1.txt &
+<cmd2> 2>&1 | tee /tmp/ship_tests_2.txt &
 wait
 ```
 
-After both complete, read the output files and check pass/fail.
+**If only one test suite:** run it directly:
+
+```bash
+<TEST_CMD> 2>&1 | tee /tmp/ship_tests.txt
+```
+
+**Rails note:** If TEST_CMD is `bin/test-lane`, do NOT run `RAILS_ENV=test bin/rails db:migrate` separately — `bin/test-lane` calls `db:test:prepare` internally.
+
+After completing, read the output file(s) and check pass/fail.
 
 **If any test fails:** Show the failures and **STOP**. Do not proceed.
 
@@ -456,9 +534,13 @@ After both complete, read the output files and check pass/fail.
 
 ---
 
-## Step 3.25: Eval Suites (conditional)
+## Step 3.25: Eval Suites (Rails + eval infrastructure only)
 
-Evals are mandatory when prompt-related files change. Skip this step entirely if no prompt files are in the diff.
+**Skip this step entirely if EVAL_SUITE is `no` (detected in Step 0).** This step only applies to Rails projects with a `test/evals/` directory. Non-Rails, Node.js, and Python projects skip directly to Step 3.5.
+
+If EVAL_SUITE is `yes`:
+
+Evals are mandatory when prompt-related files change. Skip if no prompt files are in the diff.
 
 **1. Check if the diff touches prompt-related files:**
 
@@ -466,14 +548,10 @@ Evals are mandatory when prompt-related files change. Skip this step entirely if
 git diff origin/<base> --name-only
 ```
 
-Match against these patterns (from CLAUDE.md):
-- `app/services/*_prompt_builder.rb`
-- `app/services/*_generation_service.rb`, `*_writer_service.rb`, `*_designer_service.rb`
-- `app/services/*_evaluator.rb`, `*_scorer.rb`, `*_classifier_service.rb`, `*_analyzer.rb`
-- `app/services/concerns/*voice*.rb`, `*writing*.rb`, `*prompt*.rb`, `*token*.rb`
-- `app/services/chat_tools/*.rb`, `app/services/x_thread_tools/*.rb`
-- `config/system_prompts/*.txt`
-- `test/evals/**/*` (eval infrastructure changes affect all suites)
+Match against the patterns listed in CLAUDE.md under "Prompt/LLM changes". If CLAUDE.md has no such section, match against:
+- `*prompt*`, `*generation_service*`, `*evaluator*`, `*scorer*`
+- `config/system_prompts/`
+- `test/evals/`
 
 **If no matches:** Print "No prompt-related files changed — skipping evals." and continue to Step 3.5.
 
@@ -485,31 +563,26 @@ Each eval runner (`test/evals/*_eval_runner.rb`) declares `PROMPT_SOURCE_FILES` 
 grep -l "changed_file_basename" test/evals/*_eval_runner.rb
 ```
 
-Map runner → test file: `post_generation_eval_runner.rb` → `post_generation_eval_test.rb`.
-
 **Special cases:**
-- Changes to `test/evals/judges/*.rb`, `test/evals/support/*.rb`, or `test/evals/fixtures/` affect ALL suites that use those judges/support files. Check imports in the eval test files to determine which.
-- Changes to `config/system_prompts/*.txt` — grep eval runners for the prompt filename to find affected suites.
-- If unsure which suites are affected, run ALL suites that could plausibly be impacted. Over-testing is better than missing a regression.
+- Changes to `test/evals/judges/`, `test/evals/support/`, or `test/evals/fixtures/` affect ALL suites.
+- If unsure, run ALL suites that could plausibly be impacted. Over-testing beats missing a regression.
 
 **3. Run affected suites at `EVAL_JUDGE_TIER=full`:**
-
-`/ship` is a pre-merge gate, so always use full tier (Sonnet structural + Opus persona judges).
 
 ```bash
 EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
 ```
 
-If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
+Run sequentially. Stop at first failure — don't burn API cost on remaining suites.
 
 **4. Check results:**
 
-- **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.
+- **If any eval fails:** Show the failures, the cost dashboard, and **STOP**.
 - **If all pass:** Note pass counts and cost. Continue to Step 3.5.
 
 **5. Save eval output** — include eval results and cost dashboard in the PR body (Step 8).
 
-**Tier reference (for context — /ship always uses `full`):**
+**Tier reference:**
 | Tier | When | Speed (cached) | Cost |
 |------|------|----------------|------|
 | `fast` (Haiku) | Dev iteration, smoke tests | ~5s (14x faster) | ~$0.07/run |
@@ -770,18 +843,34 @@ For each classified comment:
 
 ## Step 4: Version bump (auto-decide)
 
-1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
+1. Use the **VERSION** value detected in Step 0.
+   - If `NO_VERSION_FILE`: skip this step entirely. Note "No VERSION file — skipping version bump."
+   - **4-digit format** (`MAJOR.MINOR.PATCH.MICRO`): bump MICRO for tiny changes, PATCH for features/fixes
+   - **3-digit format** (`MAJOR.MINOR.PATCH`): standard semver — bump PATCH for fixes, MINOR for features (ASK), MAJOR for breaking (ASK)
+   - Any other format: treat as 3-digit semver
 
 2. **Auto-decide the bump level based on the diff:**
-   - Count lines changed (`git diff origin/<base>...HEAD --stat | tail -1`)
+
+   Count lines changed:
+   ```bash
+   git diff origin/<base>...HEAD --stat | tail -1
+   ```
+
+   **For 4-digit VERSION:**
    - **MICRO** (4th digit): < 50 lines changed, trivial tweaks, typos, config
    - **PATCH** (3rd digit): 50+ lines changed, bug fixes, small-medium features
-   - **MINOR** (2nd digit): **ASK the user** — only for major features or significant architectural changes
-   - **MAJOR** (1st digit): **ASK the user** — only for milestones or breaking changes
+   - **MINOR** (2nd digit): **ASK the user** — major features or significant architectural changes
+   - **MAJOR** (1st digit): **ASK the user** — milestones or breaking changes
+
+   **For 3-digit VERSION (standard semver):**
+   - **PATCH** (3rd digit): bug fixes, small changes (< 200 lines)
+   - **MINOR** (2nd digit): **ASK the user** — new features (200+ lines or clear feature addition)
+   - **MAJOR** (1st digit): **ASK the user** — breaking changes only
 
 3. Compute the new version:
    - Bumping a digit resets all digits to its right to 0
-   - Example: `0.19.1.0` + PATCH → `0.19.2.0`
+   - 4-digit example: `0.19.1.0` + PATCH → `0.19.2.0`
+   - 3-digit example: `1.4.2` + PATCH → `1.4.3`
 
 4. Write the new version to the `VERSION` file.
 
@@ -987,7 +1076,7 @@ EOF
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for confirmation** except for MINOR/MAJOR version bumps and pre-landing review ASK items (batched into at most one AskUserQuestion).
-- **Always use the 4-digit version format** from the VERSION file.
+- **Preserve the VERSION file's digit format** (3-digit semver or 4-digit extended). Never change the format.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.
 - **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.

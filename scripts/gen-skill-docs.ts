@@ -274,10 +274,10 @@ function generateQAMethodology(): string {
 
 This is the **primary mode** for developers verifying their work. When the user says \`/qa\` without a URL and the repo is on a feature branch, automatically:
 
-1. **Analyze the branch diff** to understand what changed:
+1. **Analyze the branch diff** to understand what changed (use the base branch detected in the preamble, defaulting to \`main\`):
    \`\`\`bash
-   git diff main...HEAD --name-only
-   git log main..HEAD --oneline
+   git diff <base>...HEAD --name-only
+   git log <base>..HEAD --oneline
    \`\`\`
 
 2. **Identify affected pages/routes** from the changed files:
@@ -597,7 +597,7 @@ Comprehensive review: 10-15 pages, every interaction flow, exhaustive checklist.
 
 ### Diff-aware (automatic when on a feature branch with no URL)
 When on a feature branch, scope to pages affected by the branch changes:
-1. Analyze the branch diff: \`git diff main...HEAD --name-only\`
+1. Analyze the branch diff: \`git diff <base>...HEAD --name-only\` (use base branch from preamble)
 2. Map changed files to affected pages/routes
 3. Detect running app on common local ports (3000, 4000, 8080)
 4. Audit only affected pages, compare design quality before/after
@@ -1112,6 +1112,79 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 ---`;
 }
 
+function generateProjectDetect(): string {
+  return `## Step 0: Detect project stack
+
+Run this before any stack-sensitive step. Outputs are printed to stdout — use them in prose to
+determine which commands to run in subsequent steps.
+
+\`\`\`bash
+# Package manager
+_PKG_MGR="npm"
+[ -f pnpm-lock.yaml ] && _PKG_MGR="pnpm"
+[ -f yarn.lock ] && _PKG_MGR="yarn"
+[ -f bun.lockb ] && _PKG_MGR="bun"
+
+# Detect test runner (first match wins)
+_TEST_CMD=""
+_TEST_LABEL=""
+if [ -f package.json ]; then
+  if grep -qE '"vitest"' package.json 2>/dev/null || \
+     (node -e "const s=require('./package.json').scripts||{}; process.exit(Object.values(s).some(v=>v.includes('vitest'))?0:1)" 2>/dev/null); then
+    _TEST_CMD="$_PKG_MGR test" _TEST_LABEL="vitest"
+  elif grep -qE '"jest"' package.json 2>/dev/null; then
+    _TEST_CMD="$_PKG_MGR test" _TEST_LABEL="jest"
+  elif node -e "const s=require('./package.json').scripts||{}; process.exit(s.test?0:1)" 2>/dev/null; then
+    _TEST_CMD="$_PKG_MGR test" _TEST_LABEL="npm-script"
+  fi
+fi
+if [ -z "$_TEST_CMD" ]; then
+  if command -v pytest &>/dev/null && \
+     ([ -f pytest.ini ] || [ -f setup.cfg ] || ([ -f pyproject.toml ] && grep -q '\[tool.pytest' pyproject.toml 2>/dev/null)); then
+    _TEST_CMD="pytest" _TEST_LABEL="pytest"
+  fi
+fi
+if [ -z "$_TEST_CMD" ] && [ -x bin/test-lane ]; then
+  _TEST_CMD="bin/test-lane" _TEST_LABEL="rails-test-lane"
+fi
+if [ -z "$_TEST_CMD" ] && [ -f Makefile ] && grep -q '^test:' Makefile 2>/dev/null; then
+  _TEST_CMD="make test" _TEST_LABEL="makefile"
+fi
+echo "TEST_CMD: \${_TEST_CMD:-NONE_DETECTED} (\$_TEST_LABEL)"
+
+# VERSION format
+if [ -f VERSION ]; then
+  _VER=$(cat VERSION | tr -d '[:space:]')
+  _VER_DIGITS=$(echo "\$_VER" | awk -F. '{print NF}')
+  echo "VERSION: \$_VER (\${_VER_DIGITS}-digit)"
+else
+  echo "VERSION: NO_VERSION_FILE"
+fi
+
+# Project language(s)
+_LANGS=""
+[ -f package.json ] && _LANGS="\${_LANGS}nodejs "
+[ -f pyproject.toml ] || [ -f requirements.txt ] && _LANGS="\${_LANGS}python "
+[ -f Gemfile ] && _LANGS="\${_LANGS}ruby "
+[ -f go.mod ] && _LANGS="\${_LANGS}go "
+[ -f Cargo.toml ] && _LANGS="\${_LANGS}rust "
+echo "LANGUAGES: \${_LANGS:-unknown}"
+
+# Eval suite (Rails only)
+_HAS_EVALS=""
+[ -d test/evals ] && [ -f Gemfile ] && grep -q 'rails' Gemfile 2>/dev/null && _HAS_EVALS="yes"
+echo "EVAL_SUITE: \${_HAS_EVALS:-no}"
+\`\`\`
+
+Use the printed values in all subsequent steps:
+- **TEST_CMD** — the command to run the test suite; if \`NONE_DETECTED\`, skip tests and note it
+- **VERSION** — format determines bump logic (3-digit = semver, 4-digit = extended)
+- **LANGUAGES** — determines which file patterns to use in grep/find commands
+- **EVAL_SUITE** — only run eval suites when this is \`yes\`
+
+---`;
+}
+
 const RESOLVERS: Record<string, () => string> = {
   COMMAND_REFERENCE: generateCommandReference,
   SNAPSHOT_FLAGS: generateSnapshotFlags,
@@ -1123,6 +1196,7 @@ const RESOLVERS: Record<string, () => string> = {
   DESIGN_REVIEW_LITE: generateDesignReviewLite,
   REVIEW_DASHBOARD: generateReviewDashboard,
   TEST_BOOTSTRAP: generateTestBootstrap,
+  PROJECT_DETECT: generateProjectDetect,
 };
 
 // ─── Template Processing ────────────────────────────────────

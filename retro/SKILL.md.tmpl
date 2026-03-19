@@ -43,7 +43,9 @@ When the user types `/retro`, run this skill.
 
 ## Instructions
 
-Parse the argument to determine the time window. Default to 7 days if no argument given. Use `--since="N days ago"`, `--since="N hours ago"`, or `--since="N weeks ago"` (for `w` units) for git log queries. All times should be reported in **Pacific time** (use `TZ=America/Los_Angeles` when converting timestamps).
+Parse the argument to determine the time window. Default to 7 days if no argument given. Use `--since="N days ago"`, `--since="N hours ago"`, or `--since="N weeks ago"` (for `w` units) for git log queries.
+
+**Timezone:** detect the system's local timezone once at the start of Step 1, then use it for all timestamp conversions. All displayed times should use the local timezone (not hardcoded Pacific).
 
 **Argument validation:** If the argument doesn't match a number followed by `d`, `h`, or `w`, the word `compare`, or `compare` followed by a number and `d`/`h`/`w`, show this usage and stop:
 ```
@@ -58,13 +60,21 @@ Usage: /retro [window]
 
 ### Step 1: Gather Raw Data
 
-First, fetch origin and identify the current user:
+First, detect the local timezone, fetch origin, and identify the current user:
 ```bash
+# Detect local timezone (macOS + Linux compatible)
+_TZ=$(readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||' || \
+      cat /etc/timezone 2>/dev/null || \
+      timedatectl show --property=Timezone --value 2>/dev/null || \
+      echo "UTC")
+echo "LOCAL_TZ: $_TZ"
 git fetch origin <default> --quiet
 # Identify who is running the retro
 git config user.name
 git config user.email
 ```
+
+Use the printed `LOCAL_TZ` value for all timestamp conversions in subsequent steps.
 
 The name returned by `git config user.name` is **"you"** — the person reading this retro. All other authors are teammates. Use this to orient the narrative: "your" commits vs teammate contributions.
 
@@ -80,8 +90,8 @@ git log origin/<default> --since="<window>" --format="%H|%aN|%ae|%ai|%s" --short
 git log origin/<default> --since="<window>" --format="COMMIT:%H|%aN" --numstat
 
 # 3. Commit timestamps for session detection and hourly distribution (with author)
-#    Use TZ=America/Los_Angeles for Pacific time conversion
-TZ=America/Los_Angeles git log origin/<default> --since="<window>" --format="%at|%aN|%ai|%s" | sort -n
+#    Use LOCAL_TZ detected above for time conversion
+TZ=<LOCAL_TZ> git log origin/<default> --since="<window>" --format="%at|%aN|%ai|%s" | sort -n
 
 # 4. Files most frequently changed (hotspot analysis)
 git log origin/<default> --since="<window>" --format="" --name-only | grep -v '^$' | sort | uniq -c | sort -rn
@@ -161,7 +171,7 @@ If TODOS.md doesn't exist, skip the Backlog Health row.
 
 ### Step 3: Commit Time Distribution
 
-Show hourly histogram in Pacific time using bar chart:
+Show hourly histogram in local time using bar chart:
 
 ```
 Hour  Commits  ████████████████
@@ -179,7 +189,7 @@ Identify and call out:
 ### Step 4: Work Session Detection
 
 Detect sessions using **45-minute gap** threshold between consecutive commits. For each session report:
-- Start/end time (Pacific)
+- Start/end time (local timezone)
 - Number of commits
 - Duration in minutes
 
@@ -265,11 +275,11 @@ If the time window is 14 days or more, split into weekly buckets and show trends
 Count consecutive days with at least 1 commit to origin/<default>, going back from today. Track both team streak and personal streak:
 
 ```bash
-# Team streak: all unique commit dates (Pacific time) — no hard cutoff
-TZ=America/Los_Angeles git log origin/<default> --format="%ad" --date=format:"%Y-%m-%d" | sort -u
+# Team streak: all unique commit dates (local timezone) — no hard cutoff
+TZ=<LOCAL_TZ> git log origin/<default> --format="%ad" --date=format:"%Y-%m-%d" | sort -u
 
 # Personal streak: only the current user's commits
-TZ=America/Los_Angeles git log origin/<default> --author="<user_name>" --format="%ad" --date=format:"%Y-%m-%d" | sort -u
+TZ=<LOCAL_TZ> git log origin/<default> --author="<user_name>" --format="%ad" --date=format:"%Y-%m-%d" | sort -u
 ```
 
 Count backward from today — how many consecutive days have at least one commit? This queries the full history so streaks of any length are reported accurately. Display both:
@@ -308,7 +318,7 @@ mkdir -p .context/retros
 Determine the next sequence number for today (substitute the actual date for `$(date +%Y-%m-%d)`):
 ```bash
 # Count existing retros for today to get next sequence number
-today=$(TZ=America/Los_Angeles date +%Y-%m-%d)
+today=$(TZ=<LOCAL_TZ> date +%Y-%m-%d)
 existing=$(ls .context/retros/${today}-*.json 2>/dev/null | wc -l | tr -d ' ')
 next=$((existing + 1))
 # Save as .context/retros/${today}-${next}.json
@@ -505,7 +515,7 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 
 - ALL narrative output goes directly to the user in the conversation. The ONLY file written is the `.context/retros/` JSON snapshot.
 - Use `origin/<default>` for all git queries (not local main which may be stale)
-- Convert all timestamps to Pacific time for display (use `TZ=America/Los_Angeles`)
+- Convert all timestamps to local time for display (use `TZ=<LOCAL_TZ>` detected in Step 1)
 - If the window has zero commits, say so and suggest a different window
 - Round LOC/hour to nearest 50
 - Treat merge commits as PR boundaries
