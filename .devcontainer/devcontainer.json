@@ -9,6 +9,6 @@
       "extensions": ["oven.bun-vscode"]
     }
   },
-  "postCreateCommand": "bun install --frozen-lockfile && bash ./.devcontainer/link-skills.sh",
+  "postCreateCommand": "bun install --frozen-lockfile && bash ./.devcontainer/setup-gstack.sh",
   "remoteUser": "node"
 }
