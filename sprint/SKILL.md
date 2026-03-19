@@ -267,6 +267,24 @@ Enter: <name> [skill]
 
 Parse the response into `SPRINT_NAME` and optional `SPRINT_SKILL`.
 
+### A1.5. Permission mode
+
+Use AskUserQuestion:
+```
+How should Claude Code run in this sprint?
+
+RECOMMENDATION: Choose A for autonomous parallel work — the whole point of
+sprints is to let agents work independently without constant permission prompts.
+
+A) Auto-accept (recommended) — run with --dangerously-skip-permissions so Claude
+   works autonomously. Best for parallel sprints where you're not watching every window.
+B) Normal mode — Claude asks permission for each tool call. Use if you want to
+   supervise this sprint closely.
+```
+
+Store the choice as `PERMISSION_MODE`. If A: the claude launch command is
+`claude --dangerously-skip-permissions`. If B: just `claude`.
+
 ### A2. Validate the name
 
 ```bash
@@ -294,11 +312,18 @@ Store the worktree path from the output.
 tmux new-window -n "sprint:$SPRINT_NAME" -c "<worktree-path>"
 ```
 
-If a skill was specified, send the command to the new window:
+Then start Claude Code in the new window. Use the permission mode from Step A1.5:
 
 ```bash
-# Start Claude Code with the skill in the new window
-tmux send-keys -t "sprint:$SPRINT_NAME" "claude" Enter
+# Start Claude Code — add --dangerously-skip-permissions if auto-accept was chosen
+tmux send-keys -t "sprint:$SPRINT_NAME" "claude --dangerously-skip-permissions" Enter
+```
+
+(If user chose Normal mode in A1.5, use `claude` without the flag instead.)
+
+If a skill was specified, send the skill command after Claude starts:
+
+```bash
 # Wait a moment for Claude to start, then send the skill command
 sleep 2
 tmux send-keys -t "sprint:$SPRINT_NAME" "/$SPRINT_SKILL" Enter
@@ -317,12 +342,12 @@ Then tell the user: "Sprint created in tmux session `gstack-sprints`. Attach wit
 
 **If tmux fallback mode:**
 
-Print:
+Print the commands using the permission mode from Step A1.5:
 ```
 Sprint worktree created. To start working:
   1. Open a new terminal tab
   2. cd <worktree-path>
-  3. claude
+  3. claude --dangerously-skip-permissions    (or "claude" if Normal mode)
   4. /<skill>  (if applicable)
 ```
 
@@ -332,6 +357,7 @@ Output:
 ```
 Sprint created:
   Name:      <SPRINT_NAME>
+  Mode:      auto-accept (or "normal" if user chose B)
   Branch:    sprint/<SPRINT_NAME>
   Worktree:  <worktree-path>
   tmux:      sprint:<SPRINT_NAME> (or "manual — see commands above")
