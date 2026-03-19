@@ -256,7 +256,7 @@ Scores are 1-5 overall quality.`,
 
 // --- Part 7: QA skill quality evals (C6) ---
 
-describeIfSelected('QA skill quality evals', ['qa/SKILL.md workflow', 'qa/SKILL.md health rubric'], () => {
+describeIfSelected('QA skill quality evals', ['qa/SKILL.md workflow', 'qa/SKILL.md health rubric', 'qa/SKILL.md anti-refusal'], () => {
   const qaContent = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
 
   testIfSelected('qa/SKILL.md workflow', async () => {
@@ -341,6 +341,59 @@ ${section}`);
     expect(scores.clarity).toBeGreaterThanOrEqual(4);
     expect(scores.completeness).toBeGreaterThanOrEqual(3);
     expect(scores.actionability).toBeGreaterThanOrEqual(4);
+  }, 30_000);
+
+  testIfSelected('qa/SKILL.md anti-refusal', async () => {
+    const t0 = Date.now();
+    // Extract both the diff-aware mode section and Important Rules section
+    const diffAwareStart = qaContent.indexOf('### Diff-aware');
+    const diffAwareEnd = qaContent.indexOf('### Full');
+    const rulesStart = qaContent.indexOf('## Important Rules');
+    const rulesEnd = qaContent.indexOf('## Framework-Specific');
+    const diffAwareSection = qaContent.slice(diffAwareStart, diffAwareEnd);
+    const rulesSection = qaContent.slice(rulesStart, rulesEnd);
+
+    const result = await callJudge<{ would_browse: boolean; fallback_behavior: string; confidence: number; reasoning: string }>(`You are evaluating whether a QA testing skill document would cause an AI agent to USE THE BROWSER or REFUSE to use the browser in a specific scenario.
+
+SCENARIO:
+A user runs /qa (a browser-based QA testing skill). The branch diff shows ONLY prompt template files and config file changes — no routes, views, controllers, components, or CSS were changed. The changes are "purely backend" with no obvious UI surface.
+
+QUESTION: Based on the document excerpts below, would the agent open the browser and test the application, or would it decline/refuse to browse and suggest running evals or unit tests instead?
+
+DOCUMENT EXCERPT 1 (Diff-aware mode instructions):
+${diffAwareSection}
+
+DOCUMENT EXCERPT 2 (Important Rules):
+${rulesSection}
+
+Respond with ONLY valid JSON:
+{
+  "would_browse": true or false,
+  "fallback_behavior": "description of what the agent would do when no UI pages are identified from the diff",
+  "confidence": N (1-5, how confident you are in your answer),
+  "reasoning": "brief explanation"
+}
+
+Rules:
+- would_browse should be true if the document instructs the agent to always use the browser regardless of diff content
+- would_browse should be false if the document allows the agent to skip browser testing for non-UI changes
+- confidence: 5 = document is unambiguous, 1 = document is unclear or contradictory`);
+
+    console.log('QA anti-refusal result:', JSON.stringify(result, null, 2));
+
+    evalCollector?.addTest({
+      name: 'qa/SKILL.md anti-refusal',
+      suite: 'QA skill quality evals',
+      tier: 'llm-judge',
+      passed: result.would_browse === true && result.confidence >= 4,
+      duration_ms: Date.now() - t0,
+      cost_usd: 0.02,
+      judge_scores: { would_browse: result.would_browse ? 1 : 0, confidence: result.confidence },
+      judge_reasoning: result.reasoning,
+    });
+
+    expect(result.would_browse).toBe(true);
+    expect(result.confidence).toBeGreaterThanOrEqual(4);
   }, 30_000);
 });
 

@@ -249,12 +249,17 @@ async function handleCommand(body: any): Promise<Response> {
       });
     }
 
+    browserManager.resetFailures();
     return new Response(result, {
       status: 200,
       headers: { 'Content-Type': 'text/plain' },
     });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: wrapError(err) }), {
+    browserManager.incrementFailures();
+    let errorMsg = wrapError(err);
+    const hint = browserManager.getFailureHint();
+    if (hint) errorMsg += '\n' + hint;
+    return new Response(JSON.stringify({ error: errorMsg }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

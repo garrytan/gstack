@@ -12,11 +12,11 @@
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
-    "test": "bun test browse/test/ test/ --ignore test/skill-e2e.test.ts --ignore test/skill-llm-eval.test.ts",
-    "test:evals": "EVALS=1 bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts",
-    "test:evals:all": "EVALS=1 EVALS_ALL=1 bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts",
-    "test:e2e": "EVALS=1 bun test test/skill-e2e.test.ts",
-    "test:e2e:all": "EVALS=1 EVALS_ALL=1 bun test test/skill-e2e.test.ts",
+    "test": "bun test browse/test/ test/ --ignore test/skill-e2e.test.ts --ignore test/skill-llm-eval.test.ts --ignore test/skill-routing-e2e.test.ts",
+    "test:evals": "EVALS=1 bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts test/skill-routing-e2e.test.ts",
+    "test:evals:all": "EVALS=1 EVALS_ALL=1 bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts test/skill-routing-e2e.test.ts",
+    "test:e2e": "EVALS=1 bun test test/skill-e2e.test.ts test/skill-routing-e2e.test.ts",
+    "test:e2e:all": "EVALS=1 EVALS_ALL=1 bun test test/skill-e2e.test.ts test/skill-routing-e2e.test.ts",
     "skill:check": "bun run scripts/skill-check.ts",
     "dev:skill": "bun run scripts/dev-skill.ts",
     "start": "bun run browse/src/server.ts",
@@ -24,7 +24,8 @@
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",
     "eval:watch": "bun run scripts/eval-watch.ts",
-    "eval:select": "bun run scripts/eval-select.ts"
+    "eval:select": "bun run scripts/eval-select.ts",
+    "analytics": "bun run scripts/analytics.ts"
   },
   "dependencies": {
     "playwright": "^1.58.2",

@@ -17,9 +17,16 @@ import * as path from 'path';
 const ROOT = path.resolve(import.meta.dir, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
 
+// ─── Template Context ───────────────────────────────────────
+
+interface TemplateContext {
+  skillName: string;
+  tmplPath: string;
+}
+
 // ─── Placeholder Resolvers ──────────────────────────────────
 
-function generateCommandReference(): string {
+function generateCommandReference(_ctx: TemplateContext): string {
   // Group commands by category
   const groups = new Map<string, Array<{ command: string; description: string; usage?: string }>>();
   for (const [cmd, meta] of Object.entries(COMMAND_DESCRIPTIONS)) {
@@ -55,7 +62,7 @@ function generateCommandReference(): string {
   return sections.join('\n').trimEnd();
 }
 
-function generateSnapshotFlags(): string {
+function generateSnapshotFlags(_ctx: TemplateContext): string {
   const lines: string[] = [
     'The snapshot is your primary tool for understanding and interacting with pages.',
     '',
@@ -94,7 +101,7 @@ function generateSnapshotFlags(): string {
   return lines.join('\n');
 }
 
-function generatePreamble(): string {
+function generatePreamble(ctx: TemplateContext): string {
   return `## Preamble (run first)
 
 \`\`\`bash
@@ -105,11 +112,18 @@ touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
 _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
+echo "PROACTIVE: $_PROACTIVE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
+mkdir -p ~/.gstack/analytics
+echo '{"skill":"${ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 \`\`\`
+
+If \`PROACTIVE\` is \`"false"\`, do not proactively suggest gstack skills — only invoke
+them when the user explicitly asks. The user opted out of proactive suggestions.
 
 If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`~/.claude/skills/gstack/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If \`JUST_UPGRADED <from> <to>\`: tell user "Running gstack v{to} (just updated!)" and continue.
 
@@ -197,10 +211,35 @@ Hey gstack team — ran into this while using /{skill-name}:
 **Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
 \`\`\`
 
-Slug: lowercase, hyphens, max 60 chars (e.g. \`browse-js-no-await\`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"`;
+Slug: lowercase, hyphens, max 60 chars (e.g. \`browse-js-no-await\`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
+
+## Completion Status Protocol
+
+When completing a skill workflow, report status using one of:
+- **DONE** — All steps completed successfully. Evidence provided for each claim.
+- **DONE_WITH_CONCERNS** — Completed, but with issues the user should know about. List each concern.
+- **BLOCKED** — Cannot proceed. State what is blocking and what was tried.
+- **NEEDS_CONTEXT** — Missing information required to continue. State exactly what you need.
+
+### Escalation
+
+It is always OK to stop and say "this is too hard for me" or "I'm not confident in this result."
+
+Bad work is worse than no work. You will not be penalized for escalating.
+- If you have attempted a task 3 times without success, STOP and escalate.
+- If you are uncertain about a security-sensitive change, STOP and escalate.
+- If the scope of work exceeds what you can verify, STOP and escalate.
+
+Escalation format:
+\`\`\`
+STATUS: BLOCKED | NEEDS_CONTEXT
+REASON: [1-2 sentences]
+ATTEMPTED: [what you tried]
+RECOMMENDATION: [what the user should do next]
+\`\`\``;
 }
 
-function generateBrowseSetup(): string {
+function generateBrowseSetup(_ctx: TemplateContext): string {
   return `## SETUP (run this check BEFORE any browse command)
 
 \`\`\`bash
@@ -221,7 +260,7 @@ If \`NEEDS_SETUP\`:
 3. If \`bun\` is not installed: \`curl -fsSL https://bun.sh/install | bash\``;
 }
 
-function generateBaseBranchDetect(): string {
+function generateBaseBranchDetect(_ctx: TemplateContext): string {
   return `## Step 0: Detect base branch
 
 Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
@@ -242,7 +281,7 @@ branch name wherever the instructions say "the base branch."
 ---`;
 }
 
-function generateQAMethodology(): string {
+function generateQAMethodology(_ctx: TemplateContext): string {
   return `## Modes
 
 ### Diff-aware (automatic when on a feature branch with no URL)
@@ -262,6 +301,8 @@ This is the **primary mode** for developers verifying their work. When the user 
    - CSS/style files → which pages include those stylesheets
    - API endpoints → test them directly with \`$B js "await fetch('/api/...')"\`
    - Static pages (markdown, HTML) → navigate to them directly
+
+   **If no obvious pages/routes are identified from the diff:** Do not skip browser testing. The user invoked /qa because they want browser-based verification. Fall back to Quick mode — navigate to the homepage, follow the top 5 navigation targets, check console for errors, and test any interactive elements found. Backend, config, and infrastructure changes affect app behavior — always verify the app still works.
 
 3. **Detect the running app** — check common local dev ports:
    \`\`\`bash
@@ -516,10 +557,11 @@ Minimum 0 per category.
 8. **Depth over breadth.** 5-10 well-documented issues with evidence > 20 vague descriptions.
 9. **Never delete output files.** Screenshots and reports accumulate — that's intentional.
 10. **Use \`snapshot -C\` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
-11. **Show screenshots to the user.** After every \`$B screenshot\`, \`$B snapshot -a -o\`, or \`$B responsive\` command, use the Read tool on the output file(s) so the user can see them inline. For \`responsive\` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.`;
+11. **Show screenshots to the user.** After every \`$B screenshot\`, \`$B snapshot -a -o\`, or \`$B responsive\` command, use the Read tool on the output file(s) so the user can see them inline. For \`responsive\` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
+12. **Never refuse to use the browser.** When the user invokes /qa or /qa-only, they are requesting browser-based testing. Never suggest evals, unit tests, or other alternatives as a substitute. Even if the diff appears to have no UI changes, backend changes affect app behavior — always open the browser and test.`;
 }
 
-function generateDesignReviewLite(): string {
+function generateDesignReviewLite(_ctx: TemplateContext): string {
   return `## Design Review (conditional, diff-scoped)
 
 Check if the diff touches frontend files using \`gstack-diff-scope\`:
@@ -558,7 +600,7 @@ Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "is
 
 // NOTE: design-checklist.md is a subset of this methodology for code-level detection.
 // When adding items here, also update review/design-checklist.md, and vice versa.
-function generateDesignMethodology(): string {
+function generateDesignMethodology(_ctx: TemplateContext): string {
   return `## Modes
 
 ### Full (default)
@@ -892,7 +934,7 @@ Tie everything to user goals and product objectives. Always suggest specific imp
 11. **Show screenshots to the user.** After every \`$B screenshot\`, \`$B snapshot -a -o\`, or \`$B responsive\` command, use the Read tool on the output file(s) so the user can see them inline. For \`responsive\` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.`;
 }
 
-function generateReviewDashboard(): string {
+function generateReviewDashboard(_ctx: TemplateContext): string {
   return `## Review Readiness Dashboard
 
 After completing the review, read the review log and config to display the dashboard.
@@ -906,7 +948,7 @@ echo "---HEAD---"
 git rev-parse --short HEAD 2>/dev/null || echo "unknown"
 \`\`\`
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite). Ignore entries with timestamps older than 7 days. For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, codex-review). Ignore entries with timestamps older than 7 days. For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
 
 \`\`\`
 +====================================================================+
@@ -917,6 +959,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 | Eng Review      |  1   | 2026-03-16 15:00    | CLEAR     | YES      |
 | CEO Review      |  0   | —                   | —         | no       |
 | Design Review   |  0   | —                   | —         | no       |
+| Codex Review    |  0   | —                   | —         | no       |
 +--------------------------------------------------------------------+
 | VERDICT: CLEARED — Eng Review passed                                |
 +====================================================================+
@@ -926,11 +969,12 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \\\`gstack-config set skip_eng_review true\\\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
+- **Codex Review (optional):** Independent second opinion from OpenAI Codex CLI. Shows pass/fail gate. Recommend for critical code changes where a second AI perspective adds value. Skip when Codex CLI is not installed.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days with status "clean" (or \\\`skip_eng_review\\\` is \\\`true\\\`)
 - **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
-- CEO and Design reviews are shown for context but never block shipping
+- CEO, Design, and Codex reviews are shown for context but never block shipping
 - If \\\`skip_eng_review\\\` config is \\\`true\\\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
 **Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
@@ -940,7 +984,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - If all reviews match the current HEAD, do not display any staleness notes`;
 }
 
-function generateTestBootstrap(): string {
+function generateTestBootstrap(_ctx: TemplateContext): string {
   return `## Test Framework Bootstrap
 
 **Detect existing test framework and project runtime:**
@@ -1095,7 +1139,7 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 ---`;
 }
 
-const RESOLVERS: Record<string, () => string> = {
+const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   COMMAND_REFERENCE: generateCommandReference,
   SNAPSHOT_FLAGS: generateSnapshotFlags,
   PREAMBLE: generatePreamble,
@@ -1117,11 +1161,16 @@ function processTemplate(tmplPath: string): { outputPath: string; content: strin
   const relTmplPath = path.relative(ROOT, tmplPath);
   const outputPath = tmplPath.replace(/\.tmpl$/, '');
 
+  // Extract skill name from frontmatter for TemplateContext
+  const nameMatch = tmplContent.match(/^name:\s*(.+)$/m);
+  const skillName = nameMatch ? nameMatch[1].trim() : path.basename(path.dirname(tmplPath));
+  const ctx: TemplateContext = { skillName, tmplPath };
+
   // Replace placeholders
   let content = tmplContent.replace(/\{\{(\w+)\}\}/g, (match, name) => {
     const resolver = RESOLVERS[name];
     if (!resolver) throw new Error(`Unknown placeholder {{${name}}} in ${relTmplPath}`);
-    return resolver();
+    return resolver(ctx);
   });
 
   // Check for any remaining unresolved placeholders
@@ -1158,11 +1207,18 @@ function findTemplates(): string[] {
     path.join(ROOT, 'plan-ceo-review', 'SKILL.md.tmpl'),
     path.join(ROOT, 'plan-eng-review', 'SKILL.md.tmpl'),
     path.join(ROOT, 'retro', 'SKILL.md.tmpl'),
+    path.join(ROOT, 'office-hours', 'SKILL.md.tmpl'),
+    path.join(ROOT, 'debug', 'SKILL.md.tmpl'),
     path.join(ROOT, 'gstack-upgrade', 'SKILL.md.tmpl'),
     path.join(ROOT, 'plan-design-review', 'SKILL.md.tmpl'),
     path.join(ROOT, 'design-review', 'SKILL.md.tmpl'),
     path.join(ROOT, 'design-consultation', 'SKILL.md.tmpl'),
     path.join(ROOT, 'document-release', 'SKILL.md.tmpl'),
+    path.join(ROOT, 'codex', 'SKILL.md.tmpl'),
+    path.join(ROOT, 'careful', 'SKILL.md.tmpl'),
+    path.join(ROOT, 'freeze', 'SKILL.md.tmpl'),
+    path.join(ROOT, 'guard', 'SKILL.md.tmpl'),
+    path.join(ROOT, 'unfreeze', 'SKILL.md.tmpl'),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) templates.push(p);

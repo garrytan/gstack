@@ -246,6 +246,19 @@ export async function handleMetaCommand(
       return await handleSnapshot(args, bm);
     }
 
+    // ─── Handoff ────────────────────────────────────
+    case 'handoff': {
+      const message = args.join(' ') || 'User takeover requested';
+      return await bm.handoff(message);
+    }
+
+    case 'resume': {
+      bm.resume();
+      // Re-snapshot to capture current page state after human interaction
+      const snapshot = await handleSnapshot(['-i'], bm);
+      return `RESUMED\n${snapshot}`;
+    }
+
     default:
       throw new Error(`Unknown meta command: ${command}`);
   }

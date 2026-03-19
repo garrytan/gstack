@@ -30,6 +30,7 @@ export const META_COMMANDS = new Set([
   'screenshot', 'pdf', 'responsive',
   'chain', 'diff',
   'url', 'snapshot',
+  'handoff', 'resume',
 ]);
 
 export const ALL_COMMANDS = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
@@ -94,6 +95,9 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   // Meta
   'snapshot':{ category: 'Snapshot', description: 'Accessibility tree with @e refs for element selection. Flags: -i interactive only, -c compact, -d N depth limit, -s sel scope, -D diff vs previous, -a annotated screenshot, -o path output, -C cursor-interactive @c refs', usage: 'snapshot [flags]' },
   'chain':   { category: 'Meta', description: 'Run commands from JSON stdin. Format: [["cmd","arg1",...],...]' },
+  // Handoff
+  'handoff': { category: 'Server', description: 'Open visible Chrome at current page for user takeover', usage: 'handoff [message]' },
+  'resume':  { category: 'Server', description: 'Re-snapshot after user takeover, return control to AI', usage: 'resume' },
 };
 
 // Load-time validation: descriptions must cover exactly the command sets

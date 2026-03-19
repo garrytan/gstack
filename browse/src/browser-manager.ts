@@ -15,13 +15,22 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 
 export interface RefEntry {
   locator: Locator;
   role: string;
   name: string;
+}
+
+export interface BrowserState {
+  cookies: Cookie[];
+  pages: Array<{
+    url: string;
+    isActive: boolean;
+    storage: { localStorage: Record<string, string>; sessionStorage: Record<string, string> } | null;
+  }>;
 }
 
 export class BrowserManager {
@@ -46,6 +55,10 @@ export class BrowserManager {
   // ─── Dialog Handling ──────────────────────────────────────
   private dialogAutoAccept: boolean = true;
   private dialogPromptText: string | null = null;
+
+  // ─── Handoff State ─────────────────────────────────────────
+  private isHeaded: boolean = false;
+  private consecutiveFailures: number = 0;
 
   async launch() {
     this.browser = await chromium.launch({ headless: true });
@@ -77,7 +90,11 @@ export class BrowserManager {
     if (this.browser) {
       // Remove disconnect handler to avoid exit during intentional close
       this.browser.removeAllListeners('disconnected');
-      await this.browser.close();
+      // Timeout: headed browser.close() can hang on macOS
+      await Promise.race([
+        this.browser.close(),
+        new Promise(resolve => setTimeout(resolve, 5000)),
+      ]).catch(() => {});
       this.browser = null;
     }
   }
@@ -269,6 +286,92 @@ export class BrowserManager {
     return this.customUserAgent;
   }
 
+  // ─── State Save/Restore (shared by recreateContext + handoff) ─
+  /**
+   * Capture browser state: cookies, localStorage, sessionStorage, URLs, active tab.
+   * Skips pages that fail storage reads (e.g., already closed).
+   */
+  async saveState(): Promise<BrowserState> {
+    if (!this.context) throw new Error('Browser not launched');
+
+    const cookies = await this.context.cookies();
+    const pages: BrowserState['pages'] = [];
+
+    for (const [id, page] of this.pages) {
+      const url = page.url();
+      let storage = null;
+      try {
+        storage = await page.evaluate(() => ({
+          localStorage: { ...localStorage },
+          sessionStorage: { ...sessionStorage },
+        }));
+      } catch {}
+      pages.push({
+        url: url === 'about:blank' ? '' : url,
+        isActive: id === this.activeTabId,
+        storage,
+      });
+    }
+
+    return { cookies, pages };
+  }
+
+  /**
+   * Restore browser state into the current context: cookies, pages, storage.
+   * Navigates to saved URLs, restores storage, wires page events.
+   * Failures on individual pages are swallowed — partial restore is better than none.
+   */
+  async restoreState(state: BrowserState): Promise<void> {
+    if (!this.context) throw new Error('Browser not launched');
+
+    // Restore cookies
+    if (state.cookies.length > 0) {
+      await this.context.addCookies(state.cookies);
+    }
+
+    // Re-create pages
+    let activeId: number | null = null;
+    for (const saved of state.pages) {
+      const page = await this.context.newPage();
+      const id = this.nextTabId++;
+      this.pages.set(id, page);
+      this.wirePageEvents(page);
+
+      if (saved.url) {
+        await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      }
+
+      if (saved.storage) {
+        try {
+          await page.evaluate((s: { localStorage: Record<string, string>; sessionStorage: Record<string, string> }) => {
+            if (s.localStorage) {
+              for (const [k, v] of Object.entries(s.localStorage)) {
+                localStorage.setItem(k, v);
+              }
+            }
+            if (s.sessionStorage) {
+              for (const [k, v] of Object.entries(s.sessionStorage)) {
+                sessionStorage.setItem(k, v);
+              }
+            }
+          }, saved.storage);
+        } catch {}
+      }
+
+      if (saved.isActive) activeId = id;
+    }
+
+    // If no pages were saved, create a blank one
+    if (this.pages.size === 0) {
+      await this.newTab();
+    } else {
+      this.activeTabId = activeId ?? [...this.pages.keys()][0];
+    }
+
+    // Clear refs — pages are new, locators are stale
+    this.clearRefs();
+  }
+
   /**
    * Recreate the browser context to apply user agent changes.
    * Saves and restores cookies, localStorage, sessionStorage, and open pages.
@@ -280,25 +383,8 @@ export class BrowserManager {
     }
 
     try {
-      // 1. Save state from current context
-      const savedCookies = await this.context.cookies();
-      const savedPages: Array<{ url: string; isActive: boolean; storage: { localStorage: Record<string, string>; sessionStorage: Record<string, string> } | null }> = [];
-
-      for (const [id, page] of this.pages) {
-        const url = page.url();
-        let storage = null;
-        try {
-          storage = await page.evaluate(() => ({
-            localStorage: { ...localStorage },
-            sessionStorage: { ...sessionStorage },
-          }));
-        } catch {}
-        savedPages.push({
-          url: url === 'about:blank' ? '' : url,
-          isActive: id === this.activeTabId,
-          storage,
-        });
-      }
+      // 1. Save state
+      const state = await this.saveState();
 
       // 2. Close old pages and context
       for (const page of this.pages.values()) {
@@ -320,53 +406,8 @@ export class BrowserManager {
         await this.context.setExtraHTTPHeaders(this.extraHeaders);
       }
 
-      // 4. Restore cookies
-      if (savedCookies.length > 0) {
-        await this.context.addCookies(savedCookies);
-      }
-
-      // 5. Re-create pages
-      let activeId: number | null = null;
-      for (const saved of savedPages) {
-        const page = await this.context.newPage();
-        const id = this.nextTabId++;
-        this.pages.set(id, page);
-        this.wirePageEvents(page);
-
-        if (saved.url) {
-          await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-        }
-
-        // 6. Restore storage
-        if (saved.storage) {
-          try {
-            await page.evaluate((s: { localStorage: Record<string, string>; sessionStorage: Record<string, string> }) => {
-              if (s.localStorage) {
-                for (const [k, v] of Object.entries(s.localStorage)) {
-                  localStorage.setItem(k, v);
-                }
-              }
-              if (s.sessionStorage) {
-                for (const [k, v] of Object.entries(s.sessionStorage)) {
-                  sessionStorage.setItem(k, v);
-                }
-              }
-            }, saved.storage);
-          } catch {}
-        }
-
-        if (saved.isActive) activeId = id;
-      }
-
-      // If no pages were saved, create a blank one
-      if (this.pages.size === 0) {
-        await this.newTab();
-      } else {
-        this.activeTabId = activeId ?? [...this.pages.keys()][0];
-      }
-
-      // Clear refs — pages are new, locators are stale
-      this.clearRefs();
+      // 4. Restore state
+      await this.restoreState(state);
 
       return null; // success
     } catch (err: unknown) {
@@ -389,6 +430,118 @@ export class BrowserManager {
       }
       return `Context recreation failed: ${err instanceof Error ? err.message : String(err)}. Browser reset to blank tab.`;
     }
+  }
+
+  // ─── Handoff: Headless → Headed ─────────────────────────────
+  /**
+   * Hand off browser control to the user by relaunching in headed mode.
+   *
+   * Flow (launch-first-close-second for safe rollback):
+   *   1. Save state from current headless browser
+   *   2. Launch NEW headed browser
+   *   3. Restore state into new browser
+   *   4. Close OLD headless browser
+   *   If step 2 fails → return error, headless browser untouched
+   */
+  async handoff(message: string): Promise<string> {
+    if (this.isHeaded) {
+      return `HANDOFF: Already in headed mode at ${this.getCurrentUrl()}`;
+    }
+    if (!this.browser || !this.context) {
+      throw new Error('Browser not launched');
+    }
+
+    // 1. Save state from current browser
+    const state = await this.saveState();
+    const currentUrl = this.getCurrentUrl();
+
+    // 2. Launch new headed browser (try-catch — if this fails, headless stays running)
+    let newBrowser: Browser;
+    try {
+      newBrowser = await chromium.launch({ headless: false, timeout: 15000 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return `ERROR: Cannot open headed browser — ${msg}. Headless browser still running.`;
+    }
+
+    // 3. Create context and restore state into new headed browser
+    try {
+      const contextOptions: BrowserContextOptions = {
+        viewport: { width: 1280, height: 720 },
+      };
+      if (this.customUserAgent) {
+        contextOptions.userAgent = this.customUserAgent;
+      }
+      const newContext = await newBrowser.newContext(contextOptions);
+
+      if (Object.keys(this.extraHeaders).length > 0) {
+        await newContext.setExtraHTTPHeaders(this.extraHeaders);
+      }
+
+      // Swap to new browser/context before restoreState (it uses this.context)
+      const oldBrowser = this.browser;
+      const oldContext = this.context;
+
+      this.browser = newBrowser;
+      this.context = newContext;
+      this.pages.clear();
+
+      // Register crash handler on new browser
+      this.browser.on('disconnected', () => {
+        console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
+        console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
+        process.exit(1);
+      });
+
+      await this.restoreState(state);
+      this.isHeaded = true;
+
+      // 4. Close old headless browser (fire-and-forget — close() can hang
+      // when another Playwright instance is active, so we don't await it)
+      oldBrowser.removeAllListeners('disconnected');
+      oldBrowser.close().catch(() => {});
+
+      return [
+        `HANDOFF: Browser opened at ${currentUrl}`,
+        `MESSAGE: ${message}`,
+        `STATUS: Waiting for user. Run 'resume' when done.`,
+      ].join('\n');
+    } catch (err: unknown) {
+      // Restore failed — close the new browser, keep old one
+      await newBrowser.close().catch(() => {});
+      const msg = err instanceof Error ? err.message : String(err);
+      return `ERROR: Handoff failed during state restore — ${msg}. Headless browser still running.`;
+    }
+  }
+
+  /**
+   * Resume AI control after user handoff.
+   * Clears stale refs and resets failure counter.
+   * The meta-command handler calls handleSnapshot() after this.
+   */
+  resume(): void {
+    this.clearRefs();
+    this.resetFailures();
+  }
+
+  getIsHeaded(): boolean {
+    return this.isHeaded;
+  }
+
+  // ─── Auto-handoff Hint (consecutive failure tracking) ───────
+  incrementFailures(): void {
+    this.consecutiveFailures++;
+  }
+
+  resetFailures(): void {
+    this.consecutiveFailures = 0;
+  }
+
+  getFailureHint(): string | null {
+    if (this.consecutiveFailures >= 3 && !this.isHeaded) {
+      return `HINT: ${this.consecutiveFailures} consecutive failures. Consider using 'handoff' to let the user help.`;
+    }
+    return null;
   }
 
   // ─── Console/Network/Dialog/Ref Wiring ────────────────────

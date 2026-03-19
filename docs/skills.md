@@ -4,19 +4,78 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 
 | Skill | Your specialist | What they do |
 |-------|----------------|--------------|
+| [`/office-hours`](#office-hours) | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
 | [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
 | [`/review`](#review) | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
-| [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
-| [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
+| [`/debug`](#debug) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
+| [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
-| [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
-| [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
-| [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
+| [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
 | [`/document-release`](#document-release) | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
+| [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
+| [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
+| [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
+
+---
+
+## `/office-hours`
+
+This is where every project should start.
+
+Before you plan, before you review, before you write code — sit down with a YC-style partner and think about what you're actually building. Not what you think you're building. What you're *actually* building.
+
+### The reframe
+
+Here's what happened on a real project. The user said: "I want to build a daily briefing app for my calendar." Reasonable request. Then it asked about the pain — specific examples, not hypotheticals. They described an assistant missing things, calendar items across multiple Google accounts with stale info, prep docs that were AI slop, events with wrong locations that took forever to track down.
+
+It came back with: *"I'm going to push back on the framing, because I think you've outgrown it. You said 'daily briefing app for multi-Google-Calendar management.' But what you actually described is a personal chief of staff AI."*
+
+Then it extracted five capabilities the user didn't realize they were describing:
+
+1. **Watches your calendar** across all accounts and detects stale info, missing locations, permission gaps
+2. **Generates real prep work** — not logistics summaries, but *the intellectual work* of preparing for a board meeting, a podcast, a fundraiser
+3. **Manages your CRM** — who are you meeting, what's the relationship, what do they want, what's the history
+4. **Prioritizes your time** — flags when prep needs to start early, blocks time proactively, ranks events by importance
+5. **Trades money for leverage** — actively looks for ways to delegate or automate
+
+That reframe changed the entire project. They were about to build a calendar app. Now they're building something ten times more valuable — because the skill listened to their pain instead of their feature request.
+
+### Premise challenge
+
+After the reframe, it presents premises for you to validate. Not "does this sound good?" — actual falsifiable claims about the product:
+
+1. The calendar is the anchor data source, but the value is in the intelligence layer on top
+2. The assistant doesn't get replaced — they get superpowered
+3. The narrowest wedge is a daily briefing that actually works
+4. CRM integration is a must-have, not a nice-to-have
+
+You agree, disagree, or adjust. Every premise you accept becomes load-bearing in the design doc.
+
+### Implementation alternatives
+
+Then it generates 2-3 concrete implementation approaches with honest effort estimates:
+
+- **Approach A: Daily Briefing First** — narrowest wedge, ships tomorrow, M effort (human: ~3 weeks / CC: ~2 days)
+- **Approach B: CRM-First** — build the relationship graph first, L effort (human: ~6 weeks / CC: ~4 days)
+- **Approach C: Full Vision** — everything at once, XL effort (human: ~3 months / CC: ~1.5 weeks)
+
+Recommends A because you learn from real usage. CRM data comes naturally in week two.
+
+### Two modes
+
+**Startup mode** — for founders and intrapreneurs building a business. You get six forcing questions distilled from how YC partners evaluate products: demand reality, status quo, desperate specificity, narrowest wedge, observation & surprise, and future-fit. These questions are uncomfortable on purpose. If you can't name a specific human who needs your product, that's the most important thing to learn before writing any code.
+
+**Builder mode** — for hackathons, side projects, open source, learning, and having fun. You get an enthusiastic collaborator who helps you find the coolest version of your idea. What would make someone say "whoa"? What's the fastest path to something you can share? The questions are generative, not interrogative.
+
+### The design doc
+
+Both modes end with a design doc written to `~/.gstack/projects/` — and that doc feeds directly into `/plan-ceo-review` and `/plan-eng-review`. The full lifecycle is now: `office-hours → plan → implement → review → QA → ship → retro`.
+
+After the design doc is approved, `/office-hours` reflects on what it noticed about how you think — not generic praise, but specific callbacks to things you said during the session. The observations appear in the design doc too, so you re-encounter them when you re-read later.
 
 ---
 
@@ -381,6 +440,54 @@ I want the model imagining the production incident before it happens.
 
 ---
 
+## `/debug`
+
+When something is broken and you don't know why, `/debug` is your systematic debugger. It follows the Iron Law: **no fixes without root cause investigation first.**
+
+Instead of guessing and patching, it traces data flow, matches against known bug patterns, and tests hypotheses one at a time. If three fix attempts fail, it stops and questions the architecture instead of thrashing. This prevents the "let me try one more thing" spiral that wastes hours.
+
+---
+
+## `/qa`
+
+This is my **QA lead mode**.
+
+`/browse` gives the agent eyes. `/qa` gives it a testing methodology.
+
+The most common use case: you're on a feature branch, you just finished coding, and you want to verify everything works. Just say `/qa` — it reads your git diff, identifies which pages and routes your changes affect, spins up the browser, and tests each one. No URL required. No manual test plan.
+
+Four modes:
+
+- **Diff-aware** (automatic on feature branches) — reads `git diff main`, identifies affected pages, tests them specifically
+- **Full** — systematic exploration of the entire app. 5-15 minutes. Documents 5-10 well-evidenced issues.
+- **Quick** (`--quick`) — 30-second smoke test. Homepage + top 5 nav targets.
+- **Regression** (`--regression baseline.json`) — run full mode, then diff against a previous baseline.
+
+### Automatic regression tests
+
+When `/qa` fixes a bug and verifies it, it automatically generates a regression test that catches the exact scenario that broke. Tests include full attribution tracing back to the QA report.
+
+### Example
+
+```
+You:   /qa https://staging.myapp.com
+
+Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
+
+        QA Report: staging.myapp.com — Health Score: 72/100
+
+        Top 3 Issues:
+        1. CRITICAL: Checkout form submits with empty required fields
+        2. HIGH: Mobile nav menu doesn't close after selecting an item
+        3. MEDIUM: Dashboard chart overlaps sidebar below 1024px
+
+        [Full report with screenshots saved to .gstack/qa-reports/]
+```
+
+**Testing authenticated pages:** Use `/setup-browser-cookies` first to import your real browser sessions, then `/qa` can test pages behind login.
+
+---
+
 ## `/ship`
 
 This is my **release machine mode**.
@@ -404,6 +511,69 @@ Every `/ship` run builds a code path map from your diff, searches for correspond
 `/ship` checks the [Review Readiness Dashboard](#review-readiness-dashboard) before creating the PR. If the Eng Review is missing, it asks — but won't block you. Decisions are saved per-branch so you're never re-asked.
 
 A lot of branches die when the interesting work is done and only the boring release work is left. Humans procrastinate that part. AI should not.
+
+---
+
+## `/document-release`
+
+This is my **technical writer mode**.
+
+After `/ship` creates the PR but before it merges, `/document-release` reads every documentation file in the project and cross-references it against the diff. It updates file paths, command lists, project structure trees, and anything else that drifted. Risky or subjective changes get surfaced as questions — everything else is handled automatically.
+
+```
+You:   /document-release
+
+Claude: Analyzing 21 files changed across 3 commits. Found 8 documentation files.
+
+        README.md: updated skill count from 9 to 10, added new skill to table
+        CLAUDE.md: added new directory to project structure
+        CONTRIBUTING.md: current — no changes needed
+        TODOS.md: marked 2 items complete, added 1 new item
+
+        All docs updated and committed. PR body updated with doc diff.
+```
+
+It also polishes CHANGELOG voice (without ever overwriting entries), cleans up completed TODOS, checks cross-doc consistency, and asks about VERSION bumps only when appropriate.
+
+---
+
+## `/retro`
+
+This is my **engineering manager mode**.
+
+At the end of the week I want to know what actually happened. Not vibes — data. `/retro` analyzes commit history, work patterns, and shipping velocity and writes a candid retrospective.
+
+It is team-aware. It identifies who is running the command, gives you the deepest treatment on your own work, then breaks down every contributor with specific praise and growth opportunities. It computes metrics like commits, LOC, test ratio, PR sizes, and fix ratio. It detects coding sessions from commit timestamps, finds hotspot files, tracks shipping streaks, and identifies the biggest ship of the week.
+
+It also tracks test health: total test files, tests added this period, regression test commits, and trend deltas. If test ratio drops below 20%, it flags it as a growth area.
+
+### Example
+
+```
+You:   /retro
+
+Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
+
+        ## Your Week
+        32 commits, +2.4k LOC, 41% tests. Peak hours: 9-11pm.
+        Biggest ship: cookie import system (browser decryption + picker UI).
+        What you did well: shipped a complete feature with encryption, UI, and
+        18 unit tests in one focused push...
+
+        ## Team Breakdown
+
+        ### Alice
+        12 commits focused on app/services/. Every PR under 200 LOC — disciplined.
+        Opportunity: test ratio at 12% — worth investing before payment gets more complex.
+
+        ### Bob
+        3 commits — fixed the N+1 query on dashboard. Small but high-impact.
+        Opportunity: only 1 active day this week — check if blocked on anything.
+
+        [Top 3 team wins, 3 things to improve, 3 habits for next week]
+```
+
+It saves a JSON snapshot to `.context/retros/` so the next run can show trends.
 
 ---
 
@@ -452,46 +622,6 @@ For the full command reference, see [BROWSER.md](../BROWSER.md).
 
 ---
 
-## `/qa`
-
-This is my **QA lead mode**.
-
-`/browse` gives the agent eyes. `/qa` gives it a testing methodology.
-
-The most common use case: you're on a feature branch, you just finished coding, and you want to verify everything works. Just say `/qa` — it reads your git diff, identifies which pages and routes your changes affect, spins up the browser, and tests each one. No URL required. No manual test plan.
-
-Four modes:
-
-- **Diff-aware** (automatic on feature branches) — reads `git diff main`, identifies affected pages, tests them specifically
-- **Full** — systematic exploration of the entire app. 5-15 minutes. Documents 5-10 well-evidenced issues.
-- **Quick** (`--quick`) — 30-second smoke test. Homepage + top 5 nav targets.
-- **Regression** (`--regression baseline.json`) — run full mode, then diff against a previous baseline.
-
-### Automatic regression tests
-
-When `/qa` fixes a bug and verifies it, it automatically generates a regression test that catches the exact scenario that broke. Tests include full attribution tracing back to the QA report.
-
-### Example
-
-```
-You:   /qa https://staging.myapp.com
-
-Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
-
-        QA Report: staging.myapp.com — Health Score: 72/100
-
-        Top 3 Issues:
-        1. CRITICAL: Checkout form submits with empty required fields
-        2. HIGH: Mobile nav menu doesn't close after selecting an item
-        3. MEDIUM: Dashboard chart overlaps sidebar below 1024px
-
-        [Full report with screenshots saved to .gstack/qa-reports/]
-```
-
-**Testing authenticated pages:** Use `/setup-browser-cookies` first to import your real browser sessions, then `/qa` can test pages behind login.
-
----
-
 ## `/setup-browser-cookies`
 
 This is my **session manager mode**.
@@ -520,69 +650,6 @@ You:   /setup-browser-cookies github.com
 
 Claude: Imported 12 cookies for github.com from Comet.
 ```
-
----
-
-## `/retro`
-
-This is my **engineering manager mode**.
-
-At the end of the week I want to know what actually happened. Not vibes — data. `/retro` analyzes commit history, work patterns, and shipping velocity and writes a candid retrospective.
-
-It is team-aware. It identifies who is running the command, gives you the deepest treatment on your own work, then breaks down every contributor with specific praise and growth opportunities. It computes metrics like commits, LOC, test ratio, PR sizes, and fix ratio. It detects coding sessions from commit timestamps, finds hotspot files, tracks shipping streaks, and identifies the biggest ship of the week.
-
-It also tracks test health: total test files, tests added this period, regression test commits, and trend deltas. If test ratio drops below 20%, it flags it as a growth area.
-
-### Example
-
-```
-You:   /retro
-
-Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
-
-        ## Your Week
-        32 commits, +2.4k LOC, 41% tests. Peak hours: 9-11pm.
-        Biggest ship: cookie import system (browser decryption + picker UI).
-        What you did well: shipped a complete feature with encryption, UI, and
-        18 unit tests in one focused push...
-
-        ## Team Breakdown
-
-        ### Alice
-        12 commits focused on app/services/. Every PR under 200 LOC — disciplined.
-        Opportunity: test ratio at 12% — worth investing before payment gets more complex.
-
-        ### Bob
-        3 commits — fixed the N+1 query on dashboard. Small but high-impact.
-        Opportunity: only 1 active day this week — check if blocked on anything.
-
-        [Top 3 team wins, 3 things to improve, 3 habits for next week]
-```
-
-It saves a JSON snapshot to `.context/retros/` so the next run can show trends.
-
----
-
-## `/document-release`
-
-This is my **technical writer mode**.
-
-After `/ship` creates the PR but before it merges, `/document-release` reads every documentation file in the project and cross-references it against the diff. It updates file paths, command lists, project structure trees, and anything else that drifted. Risky or subjective changes get surfaced as questions — everything else is handled automatically.
-
-```
-You:   /document-release
-
-Claude: Analyzing 21 files changed across 3 commits. Found 8 documentation files.
-
-        README.md: updated skill count from 9 to 10, added new skill to table
-        CLAUDE.md: added new directory to project structure
-        CONTRIBUTING.md: current — no changes needed
-        TODOS.md: marked 2 items complete, added 1 new item
-
-        All docs updated and committed. PR body updated with doc diff.
-```
-
-It also polishes CHANGELOG voice (without ever overwriting entries), cleans up completed TODOS, checks cross-doc consistency, and asks about VERSION bumps only when appropriate.
 
 ---
 

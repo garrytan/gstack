@@ -7,6 +7,32 @@ description: |
   responsive layouts, test forms and uploads, handle dialogs, and assert element states.
   ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
   user flow, or file a bug with evidence.
+
+  gstack also includes development workflow skills. When you notice the user is at
+  these stages, suggest the appropriate skill:
+  - Brainstorming a new idea → suggest /office-hours
+  - Reviewing a plan (strategy) → suggest /plan-ceo-review
+  - Reviewing a plan (architecture) → suggest /plan-eng-review
+  - Reviewing a plan (design) → suggest /plan-design-review
+  - Creating a design system → suggest /design-consultation
+  - Debugging errors → suggest /debug
+  - Testing the app → suggest /qa
+  - Code review before merge → suggest /review
+  - Visual design audit → suggest /design-review
+  - Ready to deploy / create PR → suggest /ship
+  - Post-ship doc updates → suggest /document-release
+  - Weekly retrospective → suggest /retro
+
+  If the user pushes back on skill suggestions ("stop suggesting things",
+  "I don't need suggestions", "too aggressive"):
+  1. Stop suggesting for the rest of this session
+  2. Run: gstack-config set proactive false
+  3. Say: "Got it — I'll stop suggesting skills. Just tell me to be proactive
+     again if you change your mind."
+
+  If the user says "be proactive again" or "turn on suggestions":
+  1. Run: gstack-config set proactive true
+  2. Say: "Proactive suggestions are back on."
 allowed-tools:
   - Bash
   - Read
@@ -26,11 +52,18 @@ touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
 _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
+echo "PROACTIVE: $_PROACTIVE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
+mkdir -p ~/.gstack/analytics
+echo '{"skill":"gstack","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 ```
+
+If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
+them when the user explicitly asks. The user opted out of proactive suggestions.
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
@@ -119,6 +152,35 @@ Hey gstack team — ran into this while using /{skill-name}:
 ```
 
 Slug: lowercase, hyphens, max 60 chars (e.g. `browse-js-no-await`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
+
+## Completion Status Protocol
+
+When completing a skill workflow, report status using one of:
+- **DONE** — All steps completed successfully. Evidence provided for each claim.
+- **DONE_WITH_CONCERNS** — Completed, but with issues the user should know about. List each concern.
+- **BLOCKED** — Cannot proceed. State what is blocking and what was tried.
+- **NEEDS_CONTEXT** — Missing information required to continue. State exactly what you need.
+
+### Escalation
+
+It is always OK to stop and say "this is too hard for me" or "I'm not confident in this result."
+
+Bad work is worse than no work. You will not be penalized for escalating.
+- If you have attempted a task 3 times without success, STOP and escalate.
+- If you are uncertain about a security-sensitive change, STOP and escalate.
+- If the scope of work exceeds what you can verify, STOP and escalate.
+
+Escalation format:
+```
+STATUS: BLOCKED | NEEDS_CONTEXT
+REASON: [1-2 sentences]
+ATTEMPTED: [what you tried]
+RECOMMENDATION: [what the user should do next]
+```
+
+If `PROACTIVE` is `false`: do NOT proactively suggest other gstack skills during this session.
+Only run skills the user explicitly invokes. This preference persists across sessions via
+`gstack-config`.
 
 # gstack browse: QA Testing & Dogfooding
 
@@ -467,7 +529,9 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 ### Server
 | Command | Description |
 |---------|-------------|
+| `handoff [message]` | Open visible Chrome at current page for user takeover |
 | `restart` | Restart server |
+| `resume` | Re-snapshot after user takeover, return control to AI |
 | `status` | Health check |
 | `stop` | Shutdown server |
 

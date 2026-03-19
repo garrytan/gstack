@@ -72,6 +72,11 @@ describe('gen-skill-docs', () => {
     { dir: 'plan-design-review', name: 'plan-design-review' },
     { dir: 'design-review', name: 'design-review' },
     { dir: 'design-consultation', name: 'design-consultation' },
+    { dir: 'document-release', name: 'document-release' },
+    { dir: 'careful', name: 'careful' },
+    { dir: 'freeze', name: 'freeze' },
+    { dir: 'guard', name: 'guard' },
+    { dir: 'unfreeze', name: 'unfreeze' },
   ];
 
   test('every skill has a SKILL.md.tmpl template', () => {
@@ -159,6 +164,26 @@ describe('gen-skill-docs', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('No raw function names');
     expect(content).toContain('plain English');
+  });
+
+  test('generated SKILL.md contains telemetry line', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('skill-usage.jsonl');
+    expect(content).toContain('~/.gstack/analytics');
+  });
+
+  test('preamble-using skills have correct skill name in telemetry', () => {
+    const PREAMBLE_SKILLS = [
+      { dir: '.', name: 'gstack' },
+      { dir: 'ship', name: 'ship' },
+      { dir: 'review', name: 'review' },
+      { dir: 'qa', name: 'qa' },
+      { dir: 'retro', name: 'retro' },
+    ];
+    for (const skill of PREAMBLE_SKILLS) {
+      const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
+      expect(content).toContain(`"skill":"${skill.name}"`);
+    }
   });
 
   test('qa and qa-only templates use QA_METHODOLOGY placeholder', () => {

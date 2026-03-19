@@ -218,6 +218,7 @@ describe('Update check preamble', () => {
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
+    'office-hours/SKILL.md', 'debug/SKILL.md',
     'plan-design-review/SKILL.md',
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
@@ -446,6 +447,7 @@ describe('No hardcoded branch names in SKILL templates', () => {
     'document-release/SKILL.md.tmpl',
     'plan-eng-review/SKILL.md.tmpl',
     'plan-design-review/SKILL.md.tmpl',
+    'codex/SKILL.md.tmpl',
   ];
 
   // Patterns that indicate hardcoded 'main' in git commands
@@ -528,6 +530,7 @@ describe('v0.4.1 preamble features', () => {
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
+    'office-hours/SKILL.md', 'debug/SKILL.md',
     'plan-design-review/SKILL.md',
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
@@ -546,6 +549,108 @@ describe('v0.4.1 preamble features', () => {
       expect(content).toContain('_SESSIONS');
       expect(content).toContain('RECOMMENDATION');
     });
+  }
+
+  for (const skill of skillsWithPreamble) {
+    test(`${skill} contains escalation protocol`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
+      expect(content).toContain('DONE_WITH_CONCERNS');
+      expect(content).toContain('BLOCKED');
+      expect(content).toContain('NEEDS_CONTEXT');
+    });
+  }
+});
+
+// --- Structural tests for new skills ---
+
+describe('office-hours skill structure', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+
+  // Original structural assertions
+  for (const section of ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6',
+                          'Design Doc', 'Supersedes', 'APPROVED', 'Premise Challenge',
+                          'Alternatives', 'Smart-skip']) {
+    test(`contains ${section}`, () => expect(content).toContain(section));
+  }
+
+  // Dual-mode structure
+  for (const section of ['Startup mode', 'Builder mode']) {
+    test(`contains ${section}`, () => expect(content).toContain(section));
+  }
+
+  // Mode detection question
+  test('contains explicit mode detection question', () => {
+    expect(content).toContain("what's your goal");
+  });
+
+  // Six forcing questions (startup mode)
+  for (const question of ['Demand Reality', 'Status Quo', 'Desperate Specificity',
+                           'Narrowest Wedge', 'Observation & Surprise', 'Future-Fit']) {
+    test(`contains forcing question: ${question}`, () => expect(content).toContain(question));
+  }
+
+  // Builder mode questions
+  test('contains builder brainstorming questions', () => {
+    expect(content).toContain('coolest version');
+    expect(content).toContain('delightful');
+  });
+
+  // Intrapreneurship adaptation
+  test('contains intrapreneurship adaptation', () => {
+    expect(content).toContain('Intrapreneurship');
+  });
+
+  // YC founder discovery engine
+  test('contains YC apply CTA with ref tracking', () => {
+    expect(content).toContain('ycombinator.com/apply?ref=gstack');
+  });
+
+  test('contains "What I noticed" design doc section', () => {
+    expect(content).toContain('What I noticed about how you think');
+  });
+
+  test('contains golden age framing', () => {
+    expect(content).toContain('golden age');
+  });
+
+  test('contains Garry Tan personal plea', () => {
+    expect(content).toContain('Garry Tan, the creator of GStack');
+  });
+
+  test('contains founder signal synthesis phase', () => {
+    expect(content).toContain('Founder Signal Synthesis');
+  });
+
+  test('contains three-tier decision rubric', () => {
+    expect(content).toContain('Top tier');
+    expect(content).toContain('Middle tier');
+    expect(content).toContain('Base tier');
+  });
+
+  test('contains anti-slop examples', () => {
+    expect(content).toContain('GOOD:');
+    expect(content).toContain('BAD:');
+  });
+
+  test('contains "One more thing" transition beat', () => {
+    expect(content).toContain('One more thing');
+  });
+
+  // Operating principles per mode
+  test('contains startup operating principles', () => {
+    expect(content).toContain('Specificity is the only currency');
+  });
+
+  test('contains builder operating principles', () => {
+    expect(content).toContain('Delight is the currency');
+  });
+});
+
+describe('debug skill structure', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'debug', 'SKILL.md'), 'utf-8');
+  for (const section of ['Iron Law', 'Root Cause', 'Pattern Analysis', 'Hypothesis',
+                          'DEBUG REPORT', '3-strike', 'BLOCKED']) {
+    test(`contains ${section}`, () => expect(content).toContain(section));
   }
 });
 
@@ -1015,4 +1120,140 @@ describe('QA report template', () => {
     expect(content).toContain('### Deferred Tests');
     expect(content).toContain('**Precondition:**');
   });
+});
+
+// --- Codex skill validation ---
+
+describe('Codex skill', () => {
+  test('codex/SKILL.md exists and has correct frontmatter', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('name: codex');
+    expect(content).toContain('version: 1.0.0');
+    expect(content).toContain('allowed-tools:');
+  });
+
+  test('codex/SKILL.md contains all three modes', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Step 2A: Review Mode');
+    expect(content).toContain('Step 2B: Challenge');
+    expect(content).toContain('Step 2C: Consult Mode');
+  });
+
+  test('codex/SKILL.md contains gate verdict logic', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('[P1]');
+    expect(content).toContain('GATE: PASS');
+    expect(content).toContain('GATE: FAIL');
+  });
+
+  test('codex/SKILL.md contains session continuity', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('codex-session-id');
+    expect(content).toContain('codex exec resume');
+  });
+
+  test('codex/SKILL.md contains cost tracking', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('tokens used');
+    expect(content).toContain('Est. cost');
+  });
+
+  test('codex/SKILL.md contains cross-model comparison', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('CROSS-MODEL ANALYSIS');
+    expect(content).toContain('Agreement rate');
+  });
+
+  test('codex/SKILL.md contains review log persistence', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('codex-review');
+    expect(content).toContain('reviews.jsonl');
+  });
+
+  test('codex/SKILL.md uses which for binary discovery, not hardcoded path', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('which codex');
+    expect(content).not.toContain('/opt/homebrew/bin/codex');
+  });
+
+  test('codex/SKILL.md contains error handling for missing binary and auth', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('NOT_FOUND');
+    expect(content).toContain('codex login');
+  });
+
+  test('codex/SKILL.md uses mktemp for temp files', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('mktemp');
+  });
+
+  test('codex integration in /review offers second opinion', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Codex second opinion');
+    expect(content).toContain('codex review');
+    expect(content).toContain('adversarial');
+  });
+
+  test('codex integration in /ship offers review gate', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Codex');
+    expect(content).toContain('codex review');
+    expect(content).toContain('codex-review');
+  });
+
+  test('codex integration in /plan-eng-review offers plan critique', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Codex');
+    expect(content).toContain('codex exec');
+  });
+
+  test('Review Readiness Dashboard includes Codex Review row', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Codex Review');
+    expect(content).toContain('codex-review');
+  });
+});
+
+// --- Trigger phrase validation ---
+
+describe('Skill trigger phrases', () => {
+  // Skills that must have "Use when" trigger phrases in their description.
+  // Excluded: root gstack (browser tool), gstack-upgrade (gstack-specific),
+  // humanizer (text tool)
+  const SKILLS_REQUIRING_TRIGGERS = [
+    'qa', 'qa-only', 'ship', 'review', 'debug', 'office-hours',
+    'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
+    'design-review', 'design-consultation', 'retro', 'document-release',
+    'codex', 'browse', 'setup-browser-cookies',
+  ];
+
+  for (const skill of SKILLS_REQUIRING_TRIGGERS) {
+    test(`${skill}/SKILL.md has "Use when" trigger phrases`, () => {
+      const skillPath = path.join(ROOT, skill, 'SKILL.md');
+      if (!fs.existsSync(skillPath)) return;
+      const content = fs.readFileSync(skillPath, 'utf-8');
+      // Extract description from frontmatter
+      const frontmatterEnd = content.indexOf('---', 4);
+      const frontmatter = content.slice(0, frontmatterEnd);
+      expect(frontmatter).toMatch(/Use when/i);
+    });
+  }
+
+  // Skills with proactive triggers should have "Proactively suggest" in description
+  const SKILLS_REQUIRING_PROACTIVE = [
+    'qa', 'qa-only', 'ship', 'review', 'debug', 'office-hours',
+    'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
+    'design-review', 'design-consultation', 'retro', 'document-release',
+  ];
+
+  for (const skill of SKILLS_REQUIRING_PROACTIVE) {
+    test(`${skill}/SKILL.md has "Proactively suggest" phrase`, () => {
+      const skillPath = path.join(ROOT, skill, 'SKILL.md');
+      if (!fs.existsSync(skillPath)) return;
+      const content = fs.readFileSync(skillPath, 'utf-8');
+      const frontmatterEnd = content.indexOf('---', 4);
+      const frontmatter = content.slice(0, frontmatterEnd);
+      expect(frontmatter).toMatch(/Proactively suggest/i);
+    });
+  }
 });

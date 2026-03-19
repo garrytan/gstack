@@ -115,23 +115,27 @@ describe('selectTests', () => {
     expect(result.selected).toContain('plan-ceo-review-selective');
     expect(result.selected).toContain('retro');
     expect(result.selected).toContain('retro-base-branch');
-    expect(result.selected.length).toBe(4);
+    // Also selects journey routing tests (*/SKILL.md.tmpl matches retro/SKILL.md.tmpl)
+    expect(result.selected.length).toBeGreaterThanOrEqual(4);
   });
 
   test('works with LLM_JUDGE_TOUCHFILES', () => {
     const result = selectTests(['qa/SKILL.md'], LLM_JUDGE_TOUCHFILES);
     expect(result.selected).toContain('qa/SKILL.md workflow');
     expect(result.selected).toContain('qa/SKILL.md health rubric');
-    expect(result.selected.length).toBe(2);
+    expect(result.selected).toContain('qa/SKILL.md anti-refusal');
+    expect(result.selected.length).toBe(3);
   });
 
-  test('SKILL.md.tmpl root template only selects root-dependent tests', () => {
+  test('SKILL.md.tmpl root template selects root-dependent tests and routing tests', () => {
     const result = selectTests(['SKILL.md.tmpl'], E2E_TOUCHFILES);
     // Should select the 7 tests that depend on root SKILL.md
     expect(result.selected).toContain('skillmd-setup-discovery');
     expect(result.selected).toContain('contributor-mode');
     expect(result.selected).toContain('session-awareness');
-    // Should NOT select unrelated tests
+    // Also selects journey routing tests (SKILL.md.tmpl in their touchfiles)
+    expect(result.selected).toContain('journey-ideation');
+    // Should NOT select unrelated non-routing tests
     expect(result.selected).not.toContain('plan-ceo-review');
     expect(result.selected).not.toContain('retro');
   });
