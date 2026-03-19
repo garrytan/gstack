@@ -1,23 +1,14 @@
 {
-  "name": "Gstack (Bun)",
-  "image": "oven/bun:1.3.10",
-  "features": {
-    "ghcr.io/devcontainers/features/git:1": {
-      "version": "latest"
-    },
-    "ghcr.io/devcontainers/features/github-cli:1": {
-      "version": "latest"
-    }
+  "name": "Node.js & TypeScript",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
   },
   "customizations": {
     "vscode": {
-      "extensions": ["oven.bun-vscode", "ms-vscode.vscode-typescript-next"],
-      "settings": {
-        "typescript.tsdk": "node_modules/typescript/lib",
-        "typescript.enablePromptUseWorkspaceTsdk": true
-      }
+      "extensions": ["oven.bun-vscode"]
     }
   },
-  "postCreateCommand": "bun install",
-  "remoteUser": "bun"
+  "postCreateCommand": "bun install --frozen-lockfile",
+  "remoteUser": "node"
 }
