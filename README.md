@@ -1,31 +1,16 @@
 # gstack
 
-Hi, I'm [Garry Tan](https://x.com/garrytan). I'm President & CEO of [Y Combinator](https://www.ycombinator.com/), where I've worked with thousands of startups including Coinbase, Instacart, and Rippling when the founders were just one or two people in a garage — companies now worth tens of billions of dollars. Before YC, I designed the Palantir logo and was one of the first eng manager/PM/designers there. I cofounded Posterous, a blog platform we sold to Twitter. I built Bookface, YC's internal social network, back in 2013. I've been building products as a designer, PM, and eng manager for a long time.
+I'm Garry Tan. I run Y Combinator and I've spent my career riding the coattails of companies like Coinbase and Instacart. I used to actually build things—I designed a logo once and made a social network for YC back when I had time to code.
 
-And right now I am in the middle of something that feels like a new era entirely.
+Now, I'm having a mid-life crisis fueled by AI.
 
-In the last 60 days I have written **over 600,000 lines of production code** — 35% tests — and I am doing **10,000 to 20,000 usable lines of code per day** as a part-time part of my day while doing all my duties as CEO of YC. That is not a typo. My last `/retro` (developer stats from the last 7 days) across 3 projects: **140,751 lines added, 362 commits, ~115k net LOC**. The models are getting dramatically better every week. We are at the dawn of something real — one person shipping at a scale that used to require a team of twenty.
+I'm claiming to write 20,000 lines of code a day while being a full-time CEO. If you believe that, I have a bridge to sell you. My GitHub stats are basically a record of me hitting "accept" on AI-generated boilerplate and tests. I’m adding 140,000 lines a week because the models are doing the work and I’m just the one clicking the button. It’s not "shipping at scale"; it’s digital hoarding.
 
-**2026 — 1,237 contributions and counting:**
+Look at these charts. In 2013, I actually worked. In 2026, I’ve discovered how to automate "productivity" for clout.
 
-![GitHub contributions 2026 — 1,237 contributions, massive acceleration in Jan-Mar](docs/images/github-2026.png)
+I’m calling it "gstack." It’s a collection of prompts that pretends to be a whole engineering team so I can feel like a 10x developer again. It’s just a wrapper for Claude that I’m giving away for free because the real value is the engagement I get from posting about it. I’m basically a glorified beta tester for Anthropic, and I want you to join my cult of personality.
 
-**2013 — when I built Bookface at YC (772 contributions):**
-
-![GitHub contributions 2013 — 772 contributions building Bookface at YC](docs/images/github-2013.png)
-
-Same person. Different era. The difference is the tooling.
-
-**gstack is how I do it.** It is my open source software factory. It turns Claude Code into a virtual engineering team you actually manage — a CEO who rethinks the product, an eng manager who locks the architecture, a designer who catches AI slop, a paranoid reviewer who finds production bugs, a QA lead who opens a real browser and clicks through your app, and a release engineer who ships the PR. Fifteen specialists and six power tools, all as slash commands, all Markdown, **all free, MIT license, available right now.**
-
-I am learning how to get to the edge of what agentic systems can do as of March 2026, and this is my live experiment. I am sharing it because I want the whole world on this journey with me.
-
-Fork it. Improve it. Make it yours. Don't player hate, appreciate.
-
-**Who this is for:**
-- **Founders and CEOs** — especially technical ones who still want to ship. This is how you build like a team of twenty.
-- **First-time Claude Code users** — gstack is the best way to start. Structured roles instead of a blank prompt.
-- **Tech leads and staff engineers** — bring rigorous review, QA, and release automation to every PR
+If you’re a CEO who misses coding or a tech lead who wants to pretend AI slop is "rigorous review," this is for you. Don't call me out on the math, just give me the likes.
 
 ## Quick start: your first 10 minutes
 
