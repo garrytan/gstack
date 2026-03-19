@@ -6,12 +6,6 @@ description: |
   and code quality metrics with persistent history and trend tracking.
   Team-aware: breaks down per-person contributions with praise and growth areas.
   Use when asked to "weekly retro", "what did we ship", or "engineering retrospective".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Glob
-  - AskUserQuestion
 ---
 
 {{PREAMBLE}}
@@ -28,7 +22,7 @@ say `origin/<default>` below.
 
 # /retro — Weekly Engineering Retrospective
 
-Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using Claude Code as a force multiplier.
+Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using Codex as a force multiplier.
 
 ## User-invocable
 When the user types `/retro`, run this skill.
@@ -109,6 +103,9 @@ git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep=
 
 # 12. Test files changed in window
 git log origin/<default> --since="<window>" --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
+
+# 13. Newly added test files in window
+git log origin/<default> --since="<window>" --diff-filter=A --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
 ```
 
 ### Step 2: Compute Metrics
@@ -130,7 +127,7 @@ Calculate and present these metrics in a summary table:
 | Detected sessions | N |
 | Avg LOC/session-hour | N |
 | Greptile signal | N% (Y catches, Z FPs) |
-| Test Health | N total tests · M added this period · K regression tests |
+| Test Health | N total test files · M test files touched this period · A newly added test files · K regression test commits |
 
 Then show a **per-author leaderboard** immediately below:
 
@@ -142,6 +139,13 @@ bob                       3   +120/-40     tests/
 ```
 
 Sort by commits descending. The current user (from `git config user.name`) always appears first, labeled "You (name)".
+
+Metric derivation rules:
+- **Commits to main:** count non-merge commits returned by command 1. If you want merge commits called out separately, mention them in the narrative instead of inflating this row.
+- **PRs merged:** count unique `#NNN` values from command 5. If commit subjects do not contain PR numbers, report `0` and note that the repo does not encode PR numbers consistently.
+- **Version range:** if the repo has a `VERSION` file, read the oldest and newest `VERSION` contents touched within the window. If `VERSION` did not change during the window, show `unchanged`. If the repo has no `VERSION` file, omit the row instead of guessing from tags.
+- **Test Health:** report `N total test files · M test files touched this period · A newly added test files · K regression test commits`, where `N` comes from command 10, `M` from command 12, `A` from command 13, and `K` is the number of lines returned by command 11.
+- **Compare mode:** compute the current and prior windows with the exact same metric rules; only the date bounds change.
 
 **Greptile signal (if history exists):** Read `~/.gstack/greptile-history.md` (fetched in Step 1, command 8). Filter entries within the retro time window by date. Count entries by type: `fix`, `fp`, `already-fixed`. Compute signal ratio: `(fix + already-fixed) / (fix + already-fixed + fp)`. If no entries exist in the window or the file doesn't exist, skip the Greptile metric row. Skip unparseable lines silently.
 
@@ -422,7 +426,8 @@ Narrative covering:
 
 ### Test Health
 - Total test files: N (from command 10)
-- Tests added this period: M (from command 12 — test files changed)
+- Test files touched this period: M (from command 12)
+- Newly added test files this period: A (from command 13)
 - Regression test commits: list `test(qa):` and `test(design):` and `test: coverage` commits from command 11
 - If prior retro exists and has `test_health`: show delta "Test count: {last} → {now} (+{delta})"
 - If test ratio < 20%: flag as growth area — "100% test coverage is the goal. Tests make vibe coding safe."
@@ -484,9 +489,10 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 
 1. Compute metrics for the current window (default 7d) using `--since="7 days ago"`
 2. Compute metrics for the immediately prior same-length window using both `--since` and `--until` to avoid overlap (e.g., `--since="14 days ago" --until="7 days ago"` for a 7d window)
-3. Show a side-by-side comparison table with deltas and arrows
-4. Write a brief narrative highlighting the biggest improvements and regressions
-5. Save only the current-window snapshot to `.context/retros/` (same as a normal retro run); do **not** persist the prior-window metrics.
+3. Use the same commands, metric formulas, and omission rules for both windows. Do not redefine any metric for compare mode.
+4. Show a side-by-side comparison table with deltas and arrows
+5. Write a brief narrative highlighting the biggest improvements and regressions
+6. Save only the current-window snapshot to `.context/retros/` (same as a normal retro run); do **not** persist the prior-window metrics.
 
 ## Tone
 
@@ -509,5 +515,5 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - If the window has zero commits, say so and suggest a different window
 - Round LOC/hour to nearest 50
 - Treat merge commits as PR boundaries
-- Do not read CLAUDE.md or other docs — this skill is self-contained
+- Do not read AGENTS.md or other docs — this skill is self-contained
 - On first run (no prior retros), skip comparison sections gracefully

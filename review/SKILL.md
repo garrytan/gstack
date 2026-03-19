@@ -5,14 +5,6 @@ description: |
   Pre-landing PR review. Analyzes diff against the base branch for SQL safety, LLM trust
   boundary violations, conditional side effects, and other structural issues. Use when
   asked to "review this PR", "code review", "pre-landing review", or "check my diff".
-allowed-tools:
-  - Bash
-  - Read
-  - Edit
-  - Write
-  - Grep
-  - Glob
-  - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -20,20 +12,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -47,13 +39,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -63,11 +55,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -156,7 +148,7 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 ## Step 2: Read the checklist
 
-Read `.claude/skills/review/checklist.md`.
+Read `../review/checklist.md`.
 
 **If the file cannot be read, STOP and report the error.** Do not proceed without the checklist.
 
@@ -164,7 +156,8 @@ Read `.claude/skills/review/checklist.md`.
 
 ## Step 2.5: Check for Greptile review comments
 
-Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+Read `../review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+That shared reference is the source of truth for Greptile storage: derive `REMOTE_SLUG`, then write outcomes to both `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` and `~/.gstack/greptile-history.md`. Do not invent a third history path.
 
 **If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
 
@@ -204,7 +197,7 @@ Follow the output format specified in the checklist. Respect the suppressions �
 Check if the diff touches frontend files using `gstack-diff-scope`:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-diff-scope <base> 2>/dev/null)
 ```
 
 **If `SCOPE_FRONTEND=false`:** Skip design review silently. No output.
@@ -213,7 +206,7 @@ eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 
 1. **Check for DESIGN.md.** If `DESIGN.md` or `design-system.md` exists in the repo root, read it. All design findings are calibrated against it — patterns blessed in DESIGN.md are not flagged. If not found, use universal design principles.
 
-2. **Read `.claude/skills/review/design-checklist.md`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
+2. **Read `../review/design-checklist.md`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
 
 3. **Read each changed frontend file** (full file, not just diff hunks). Frontend files are identified by the patterns listed in the checklist.
 
@@ -227,7 +220,7 @@ eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 6. **Log the result** for the Review Readiness Dashboard:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 echo '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
 ```
@@ -257,7 +250,7 @@ Apply each fix directly. For each one, output a one-line summary:
 
 ### Step 5c: Batch-ask about ASK items
 
-If there are ASK items remaining, present them in ONE AskUserQuestion:
+If there are ASK items remaining, present them in ONE pause for user input:
 
 - List each item with a number, the severity label, the problem, and a recommended fix
 - For each item, provide options: A) Fix as recommended, B) Skip
@@ -278,7 +271,7 @@ I auto-fixed 5 issues. 2 need your input:
 RECOMMENDATION: Fix both — #1 is a real race condition, #2 prevents silent data corruption.
 ```
 
-If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead of batching.
+If 3 or fewer ASK items, you may use individual pause for user input calls instead of batching.
 
 ### Step 5d: Apply user-approved fixes
 
@@ -296,7 +289,7 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
 1. **VALID & ACTIONABLE comments:** These are included in your findings — they follow the Fix-First flow (auto-fixed if mechanical, batched into ASK if not) (A: Fix it now, B: Acknowledge, C: False positive). If the user chooses A (fix), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation). If the user chooses C (false positive), reply using the **False Positive reply template** (include evidence + suggested re-rank), save to both per-project and global greptile-history.
 
-2. **FALSE POSITIVE comments:** Present each one via AskUserQuestion:
+2. **FALSE POSITIVE comments:** Present each one via pause for user input:
    - Show the Greptile comment: file:line (or [top-level]) + body summary + permalink URL
    - Explain concisely why it's a false positive
    - Options:
@@ -306,11 +299,13 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
    If the user chooses A, reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history.
 
-3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no user question needed:
    - Include what was done and the fixing commit SHA
    - Save to both per-project and global greptile-history
 
-4. **SUPPRESSED comments:** Skip silently — these are known false positives from previous triage.
+For every new Greptile outcome that greptile-triage.md tells you to persist, the write contract is the same: append once to `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` and once to `~/.gstack/greptile-history.md` via greptile-triage.md.
+
+4. **SUPPRESSED comments:** Skip silently — these are known false positives from previous triage. They were already written to history when they were first triaged, so do not append duplicate history entries.
 
 ---
 
@@ -328,7 +323,7 @@ If TODOS.md doesn't exist, skip this step silently.
 
 ## Step 5.6: Documentation staleness check
 
-Cross-reference the diff against documentation files. For each `.md` file in the repo root (README.md, ARCHITECTURE.md, CONTRIBUTING.md, CLAUDE.md, etc.):
+Cross-reference the diff against documentation files. For each `.md` file in the repo root (README.md, ARCHITECTURE.md, CONTRIBUTING.md, AGENTS.md, etc.):
 
 1. Check if code changes in the diff affect features, components, or workflows described in that doc file.
 2. If the doc file was NOT updated in this branch but the code it describes WAS changed, flag it as an INFORMATIONAL finding:

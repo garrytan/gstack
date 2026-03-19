@@ -7,15 +7,6 @@ description: |
   in source code, committing each fix atomically and re-verifying with before/after
   screenshots. For plan-mode design review (before implementation), use /plan-design-review.
   Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - AskUserQuestion
-  - WebSearch
 ---
 
 {{PREAMBLE}}
@@ -209,7 +200,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:**
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`

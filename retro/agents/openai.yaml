@@ -1,0 +1,4 @@
+interface:
+  display_name: "Retro"
+  short_description: "Run a retrospective over recent work in the repository."
+  default_prompt: "Run the retro workflow on recent project activity and summarize what to keep, change, and follow up on."

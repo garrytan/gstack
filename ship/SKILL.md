@@ -3,15 +3,6 @@ name: ship
 version: 1.0.0
 description: |
   Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy", "push to main", "create a PR", or "merge and push".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - AskUserQuestion
-  - WebSearch
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -19,20 +10,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -46,13 +37,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -62,11 +53,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -139,9 +130,9 @@ branch name wherever the instructions say "the base branch."
 
 ---
 
-# Ship: Fully Automated Ship Workflow
+# Ship: Automated Workflow with Explicit Pause Gates
 
-You are running the `/ship` workflow. This is a **non-interactive, fully automated** workflow. Do NOT ask for confirmation at any step. The user said `/ship` which means DO IT. Run straight through and output the PR URL at the end.
+You are running the `/ship` workflow. This workflow auto-executes by default, but it has a short, explicit list of pause gates for decisions that require user judgment. Outside those gates, run straight through and output the PR URL at the end.
 
 **Only stop for:**
 - On the base branch (abort)
@@ -163,6 +154,14 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
 - Test coverage gaps (auto-generate and commit, or flag in PR body)
 
+## Operating Contract
+
+- Run the workflow in order: Step 1 → Step 2 → Step 2.5 → Step 3 → Step 3.25 → Step 3.4 and beyond. Do not skip ahead.
+- Automation is the default, but the **Only stop for** list wins whenever it conflicts with automation language elsewhere in the file.
+- If a step requires pause for user input, stop with one decision, explain what already succeeded, and resume at that exact step after the answer.
+- If a step says "continue silently," still keep a short internal checkpoint of what passed so later summaries and the PR body stay accurate.
+- The commands in this file are the repo-default ship commands. If AGENTS.md, package scripts, or repo-local docs define stricter required commands for this codebase, follow the repo-local commands instead of improvising.
+
 ---
 
 ## Step 1: Pre-flight
@@ -180,10 +179,10 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 After completing the review, read the review log and config to display the dashboard.
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 cat ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_REVIEWS"
 echo "---CONFIG---"
-~/.claude/skills/gstack/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
+~/.codex/skills/gstack-codex/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
 ```
 
 Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite). Ignore entries with timestamps older than 7 days. For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
@@ -217,21 +216,21 @@ If the Eng Review is NOT "CLEAR":
 
 1. **Check for a prior override on this branch:**
    ```bash
-   eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+   eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
    grep '"skill":"ship-review-override"' ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_OVERRIDE"
    ```
    If an override exists, display the dashboard and note "Review gate previously accepted — continuing." Do NOT ask again.
 
-2. **If no override exists,** use AskUserQuestion:
+2. **If no override exists,** use pause for user input:
    - Show that Eng Review is missing or has open issues
    - RECOMMENDATION: Choose C if the change is obviously trivial (< 20 lines, typo fix, config-only); Choose B for larger changes
    - Options: A) Ship anyway  B) Abort — run /plan-eng-review first  C) Change is too small to need eng review
    - If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block
-   - For Design Review: run `eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 3.5, but consider running /design-review for a full visual audit post-implementation." Still never block.
+   - For Design Review: run `eval $(~/.codex/skills/gstack-codex/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 3.5, but consider running /design-review for a full visual audit post-implementation." Still never block.
 
 3. **If the user chooses A or C,** persist the decision so future `/ship` runs on this branch skip the gate:
    ```bash
-   eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+   eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
    echo '{"skill":"ship-review-override","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","decision":"USER_CHOICE"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
    ```
    Substitute USER_CHOICE with "ship_anyway" or "not_relevant".
@@ -284,7 +283,7 @@ Store conventions as prose context for use in Phase 8e.5 or Step 3.4. **Skip the
 
 **If BOOTSTRAP_DECLINED** appears: Print "Test bootstrap previously declined — skipping." **Skip the rest of bootstrap.**
 
-**If NO runtime detected** (no config files found): Use AskUserQuestion:
+**If NO runtime detected** (no config files found): pause and ask the user:
 "I couldn't detect your project's language. What runtime are you using?"
 Options: A) Node.js/TypeScript B) Ruby/Rails C) Python D) Go E) Rust F) PHP G) Elixir H) This project doesn't need tests.
 If user picks H → write `.gstack/no-test-bootstrap` and continue without tests.
@@ -312,7 +311,7 @@ If WebSearch is unavailable, use this built-in knowledge table:
 
 ### B3. Framework selection
 
-Use AskUserQuestion:
+Pause and ask the user:
 "I detected this is a [Runtime/Framework] project with no test framework. I researched current best practices. Here are the options:
 A) [Primary] — [rationale]. Includes: [packages]. Supports: unit, integration, smoke, e2e
 B) [Alternative] — [rationale]. Includes: [packages]
@@ -381,9 +380,9 @@ Write TESTING.md with:
 - Test layers: Unit tests (what, where, when), Integration tests, Smoke tests, E2E tests
 - Conventions: file naming, assertion style, setup/teardown patterns
 
-### B7. Update CLAUDE.md
+### B7. Update AGENTS.md
 
-First check: If CLAUDE.md already has a `## Testing` section → skip. Don't duplicate.
+First check: If AGENTS.md already has a `## Testing` section → skip. Don't duplicate.
 
 Append a `## Testing` section:
 - Run command and test directory
@@ -402,7 +401,7 @@ Append a `## Testing` section:
 git status --porcelain
 ```
 
-Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, AGENTS.md, .github/workflows/test.yml if created):
 `git commit -m "chore: bootstrap test framework ({framework name})"`
 
 ---
@@ -441,7 +440,7 @@ Evals are mandatory when prompt-related files change. Skip this step entirely if
 git diff origin/<base> --name-only
 ```
 
-Match against these patterns (from CLAUDE.md):
+Match against these patterns (from AGENTS.md):
 - `app/services/*_prompt_builder.rb`
 - `app/services/*_generation_service.rb`, `*_writer_service.rb`, `*_designer_service.rb`
 - `app/services/*_evaluator.rb`, `*_scorer.rb`, `*_classifier_service.rb`, `*_analyzer.rb`
@@ -635,7 +634,7 @@ Coverage line: `Test Coverage Audit: N new code paths. M covered (X%). K tests g
 
 Review the diff for structural issues that tests don't catch.
 
-1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
+1. Read `../review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
 2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
 
@@ -648,7 +647,7 @@ Review the diff for structural issues that tests don't catch.
 Check if the diff touches frontend files using `gstack-diff-scope`:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-diff-scope <base> 2>/dev/null)
 ```
 
 **If `SCOPE_FRONTEND=false`:** Skip design review silently. No output.
@@ -657,7 +656,7 @@ eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 
 1. **Check for DESIGN.md.** If `DESIGN.md` or `design-system.md` exists in the repo root, read it. All design findings are calibrated against it — patterns blessed in DESIGN.md are not flagged. If not found, use universal design principles.
 
-2. **Read `.claude/skills/review/design-checklist.md`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
+2. **Read `../review/design-checklist.md`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
 
 3. **Read each changed frontend file** (full file, not just diff hunks). Frontend files are identified by the patterns listed in the checklist.
 
@@ -671,7 +670,7 @@ eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 6. **Log the result** for the Review Readiness Dashboard:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 echo '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
 ```
@@ -686,11 +685,11 @@ Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "is
 5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
    `[AUTO-FIXED] [file:line] Problem → what you did`
 
-6. **If ASK items remain,** present them in ONE AskUserQuestion:
+6. **If ASK items remain,** present them in ONE pause for user input:
    - List each with number, severity, problem, recommended fix
    - Per-item options: A) Fix  B) Skip
    - Overall RECOMMENDATION
-   - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
+   - If 3 or fewer ASK items, you may use individual pause for user input calls instead
 
 7. **After all fixes (auto + user-approved):**
    - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
@@ -706,7 +705,8 @@ Save the review output — it goes into the PR body in Step 8.
 
 ## Step 3.75: Address Greptile review comments (if PR exists)
 
-Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+Read `../review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+That shared reference is the source of truth for Greptile storage: derive `REMOTE_SLUG`, then write outcomes to both `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` and `~/.gstack/greptile-history.md`. Do not invent a third history path.
 
 **If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Continue to Step 4.
 
@@ -718,18 +718,18 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
 For each classified comment:
 
-**VALID & ACTIONABLE:** Use AskUserQuestion with:
+**VALID & ACTIONABLE:** Use pause for user input with:
 - The comment (file:line or [top-level] + body summary + permalink URL)
 - `RECOMMENDATION: Choose A because [one-line reason]`
 - Options: A) Fix now, B) Acknowledge and ship anyway, C) It's a false positive
 - If user chooses A: apply the fix, commit the fixed files (`git add <fixed-files> && git commit -m "fix: address Greptile review — <brief description>"`), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation), and save to both per-project and global greptile-history (type: fix).
 - If user chooses C: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp).
 
-**VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+**VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no user question needed:
 - Include what was done and the fixing commit SHA
 - Save to both per-project and global greptile-history (type: already-fixed)
 
-**FALSE POSITIVE:** Use AskUserQuestion:
+**FALSE POSITIVE:** Use pause for user input:
 - Show the comment and why you think it's wrong (file:line or [top-level] + body summary + permalink URL)
 - Options:
   - A) Reply to Greptile explaining the false positive (recommended if clearly wrong)
@@ -737,7 +737,9 @@ For each classified comment:
   - C) Ignore silently
 - If user chooses A: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp)
 
-**SUPPRESSED:** Skip silently — these are known false positives from previous triage.
+**SUPPRESSED:** Skip silently — these are known false positives from previous triage. They were already written to history when they were first triaged, so do not append duplicate history entries.
+
+For every new Greptile outcome that greptile-triage.md tells you to persist, the write contract is the same: append once to `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` and once to `~/.gstack/greptile-history.md` via greptile-triage.md.
 
 **After all comments are resolved:** If any fixes were applied, the tests from Step 3 are now stale. **Re-run tests** (Step 3) before continuing to Step 4. If no fixes were applied, continue to Step 4.
 
@@ -788,11 +790,11 @@ For each classified comment:
 
 Cross-reference the project's TODOS.md against the changes being shipped. Mark completed items automatically; prompt only if the file is missing or disorganized.
 
-Read `.claude/skills/review/TODOS-format.md` for the canonical format reference.
+Read `../review/TODOS-format.md` for the canonical format reference.
 
 **1. Check if TODOS.md exists** in the repository root.
 
-**If TODOS.md does not exist:** Use AskUserQuestion:
+**If TODOS.md does not exist:** Use pause for user input:
 - Message: "GStack recommends maintaining a TODOS.md organized by skill/component, then priority (P0 at top through P4, then Completed at bottom). See TODOS-format.md for the full format. Would you like to create one?"
 - Options: A) Create it now, B) Skip for now
 - If A: Create `TODOS.md` with a skeleton (# TODOS heading + ## Completed section). Continue to step 3.
@@ -805,7 +807,7 @@ Read TODOS.md and verify it follows the recommended structure:
 - Each item has `**Priority:**` field with P0-P4 value
 - A `## Completed` section at the bottom
 
-**If disorganized** (missing priority fields, no component groupings, no Completed section): Use AskUserQuestion:
+**If disorganized** (missing priority fields, no component groupings, no Completed section): Use pause for user input:
 - Message: "TODOS.md doesn't follow the recommended structure (skill/component groupings, P0-P4 priority, Completed section). Would you like to reorganize it?"
 - Options: A) Reorganize now (recommended), B) Leave as-is
 - If A: Reorganize in-place following TODOS-format.md. Preserve all content — only restructure, never delete items.
@@ -870,7 +872,7 @@ Save this summary — it goes into the PR body in Step 8.
 git commit -m "$(cat <<'EOF'
 chore: bump version and changelog (vX.Y.Z.W)
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <codex@openai.com>
 EOF
 )"
 ```
@@ -925,7 +927,7 @@ gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 - [x] All Rails tests pass (N runs, 0 failures)
 - [x] All Vitest tests pass (N tests)
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+Generated with [Codex](https://openai.com/codex/)
 EOF
 )"
 ```
@@ -939,7 +941,7 @@ EOF
 - **Never skip tests.** If tests fail, stop.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
-- **Never ask for confirmation** except for MINOR/MAJOR version bumps and pre-landing review ASK items (batched into at most one AskUserQuestion).
+- **Never ask for confirmation** except for MINOR/MAJOR version bumps and pre-landing review ASK items (batched into at most one pause for user input).
 - **Always use the 4-digit version format** from the VERSION file.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.

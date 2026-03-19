@@ -1,39 +1,28 @@
 #!/usr/bin/env bash
-# Remove local dev skill symlinks. Restores global gstack as the active install.
+# Remove local dev bundle symlink. Restores the global gstack-codex install as the active one.
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SKILLS_DIR="$REPO_ROOT/.claude/skills"
+SKILLS_DIR="$REPO_ROOT/.codex/skills"
 
 if [ ! -d "$SKILLS_DIR" ]; then
-  echo "Nothing to tear down — .claude/skills/ doesn't exist."
+  echo "Nothing to tear down — .codex/skills/ doesn't exist."
   exit 0
 fi
 
-# Remove individual skill symlinks
 removed=()
-for link in "$SKILLS_DIR"/*/; do
-  name="$(basename "$link")"
-  [ "$name" = "gstack" ] && continue
-  if [ -L "${link%/}" ]; then
-    rm "${link%/}"
-    removed+=("$name")
-  fi
-done
-
-# Remove the gstack symlink
-if [ -L "$SKILLS_DIR/gstack" ]; then
-  rm "$SKILLS_DIR/gstack"
-  removed+=("gstack")
+if [ -L "$SKILLS_DIR/gstack-codex" ]; then
+  rm "$SKILLS_DIR/gstack-codex"
+  removed+=("gstack-codex")
 fi
 
 # Clean up empty dirs
 rmdir "$SKILLS_DIR" 2>/dev/null || true
-rmdir "$REPO_ROOT/.claude" 2>/dev/null || true
+rmdir "$REPO_ROOT/.codex" 2>/dev/null || true
 
 if [ ${#removed[@]} -gt 0 ]; then
   echo "Removed: ${removed[*]}"
 else
   echo "No symlinks found."
 fi
-echo "Dev mode deactivated. Global gstack (~/.claude/skills/gstack) is now active."
+echo "Dev mode deactivated. Global gstack-codex (~/.codex/skills/gstack-codex) is now active."

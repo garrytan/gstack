@@ -1,17 +1,18 @@
 /**
- * Claude CLI subprocess runner for skill E2E testing.
+ * Codex CLI subprocess runner for skill smoke testing.
  *
- * Spawns `claude -p` as a completely independent process (not via Agent SDK),
- * so it works inside Claude Code sessions. Pipes prompt via stdin, streams
- * NDJSON output for real-time progress, scans for browse errors.
+ * Spawns `codex exec --json` as an independent process, pipes the prompt over stdin,
+ * streams JSONL events for real-time progress, and scans the transcript for browse errors.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+const ROOT = path.resolve(import.meta.dir, '..', '..');
 const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
 const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json');
+const LOCAL_CODEX = path.join(ROOT, 'node_modules', '.bin', 'codex');
 
 /** Sanitize test name for use as filename: strip leading slashes, replace / with - */
 export function sanitizeTestName(name: string): string {
@@ -61,6 +62,32 @@ export interface ParsedNDJSON {
   toolCalls: Array<{ tool: string; input: any; output: string }>;
 }
 
+export function deriveExitReason(
+  timedOut: boolean,
+  exitCode: number,
+  resultLine: any | null,
+): string {
+  if (timedOut) {
+    return 'timeout';
+  }
+
+  let exitReason = exitCode === 0 ? 'success' : `exit_code_${exitCode}`;
+
+  if (resultLine) {
+    if (resultLine.is_error) {
+      return 'error_api';
+    }
+    if (resultLine.subtype === 'success') {
+      return 'success';
+    }
+    if (resultLine.subtype) {
+      return resultLine.subtype;
+    }
+  }
+
+  return exitReason;
+}
+
 /**
  * Parse an array of NDJSON lines into structured transcript data.
  * Pure function — no I/O, no side effects. Used by both the streaming
@@ -79,7 +106,7 @@ export function parseNDJSON(lines: string[]): ParsedNDJSON {
       const event = JSON.parse(line);
       transcript.push(event);
 
-      // Track turns and tool calls from assistant events
+      // Legacy session format.
       if (event.type === 'assistant') {
         turnCount++;
         const content = event.message?.content || [];
@@ -95,7 +122,63 @@ export function parseNDJSON(lines: string[]): ParsedNDJSON {
         }
       }
 
-      if (event.type === 'result') resultLine = event;
+      if (event.type === 'result') {
+        resultLine = event;
+      }
+
+      // codex exec JSONL format.
+      if (event.type === 'turn.started') {
+        turnCount++;
+      }
+
+      if (event.type === 'turn.completed') {
+        resultLine = {
+          ...(resultLine || { type: 'result' }),
+          subtype: 'success',
+          usage: {
+            input_tokens: event.usage?.input_tokens || 0,
+            output_tokens: event.usage?.output_tokens || 0,
+            cache_read_input_tokens: event.usage?.cached_input_tokens || 0,
+          },
+        };
+      }
+
+      if (event.type === 'turn.failed') {
+        resultLine = {
+          ...(resultLine || { type: 'result' }),
+          subtype: 'error',
+          is_error: true,
+          error: event.error,
+        };
+      }
+
+      const item = event.item;
+      if (event.type === 'item.completed' && item) {
+        if (item.type === 'agent_message' && typeof item.text === 'string') {
+          resultLine = {
+            ...(resultLine || { type: 'result', subtype: 'success' }),
+            result: item.text,
+          };
+        }
+
+        if (item.type === 'command_execution') {
+          toolCallCount++;
+          toolCalls.push({
+            tool: 'Bash',
+            input: { command: item.command || '' },
+            output: item.aggregated_output || '',
+          });
+        }
+
+        if (item.type === 'mcp_tool_call') {
+          toolCallCount++;
+          toolCalls.push({
+            tool: `${item.server || 'mcp'}:${item.tool || 'unknown'}`,
+            input: item.arguments || {},
+            output: JSON.stringify(item.result || item.error || {}),
+          });
+        }
+      }
     } catch { /* skip malformed lines */ }
   }
 
@@ -106,13 +189,19 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function resolveCodexBinary(): string {
+  return fs.existsSync(LOCAL_CODEX) ? LOCAL_CODEX : 'codex';
+}
+
 // --- Main runner ---
 
 export async function runSkillTest(options: {
   prompt: string;
   workingDirectory: string;
-  maxTurns?: number;
-  allowedTools?: string[];
   timeout?: number;
   testName?: string;
   runId?: string;
@@ -120,8 +209,6 @@ export async function runSkillTest(options: {
   const {
     prompt,
     workingDirectory,
-    maxTurns = 15,
-    allowedTools = ['Bash', 'Read', 'Write'],
     timeout = 120_000,
     testName,
     runId,
@@ -140,36 +227,48 @@ export async function runSkillTest(options: {
     } catch { /* non-fatal */ }
   }
 
-  // Spawn claude -p with streaming NDJSON output. Prompt piped via stdin to
-  // avoid shell escaping issues. --verbose is required for stream-json mode.
+  // Spawn codex exec --json with streaming JSONL output. Prompt is piped via stdin to
+  // avoid shell escaping issues.
   const args = [
-    '-p',
-    '--output-format', 'stream-json',
-    '--verbose',
-    '--dangerously-skip-permissions',
-    '--max-turns', String(maxTurns),
-    '--allowed-tools', ...allowedTools,
+    'exec',
+    '--json',
+    '--sandbox', 'danger-full-access',
+    '--skip-git-repo-check',
+    '-C', workingDirectory,
+    '-',
   ];
+  const codexBinary = resolveCodexBinary();
 
-  // Write prompt to a temp file and pipe it via shell to avoid stdin buffering issues
-  const promptFile = path.join(workingDirectory, '.prompt-tmp');
+  // Write prompt to a temp file and redirect it into codex. Using `exec` makes the
+  // codex process replace the shell so timeout kills target the real child process.
+  const promptFile = path.join(
+    workingDirectory,
+    `.prompt-tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   fs.writeFileSync(promptFile, prompt);
 
-  const proc = Bun.spawn(['sh', '-c', `cat "${promptFile}" | claude ${args.map(a => `"${a}"`).join(' ')}`], {
+  const proc = Bun.spawn(['sh', '-c', `exec ${shellQuote(codexBinary)} ${args.map(shellQuote).join(' ')} < ${shellQuote(promptFile)}`], {
     cwd: workingDirectory,
     stdout: 'pipe',
     stderr: 'pipe',
   });
 
-  // Race against timeout
+  // Treat timeout as an idle timeout. Long Codex turns can legitimately run for
+  // several minutes while still streaming progress, so only kill when output has
+  // gone quiet for too long.
   let stderr = '';
   let exitReason = 'unknown';
   let timedOut = false;
 
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-  }, timeout);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const armIdleTimeout = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      proc.kill();
+    }, timeout);
+  };
+  armIdleTimeout();
 
   // Stream NDJSON from stdout for real-time progress
   const collectedLines: string[] = [];
@@ -185,6 +284,7 @@ export async function runSkillTest(options: {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      armIdleTimeout();
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split('\n');
       buf = lines.pop() || '';
@@ -195,39 +295,45 @@ export async function runSkillTest(options: {
         // Real-time progress to stderr + persistent logs
         try {
           const event = JSON.parse(line);
-          if (event.type === 'assistant') {
+          if (event.type === 'turn.started') {
             liveTurnCount++;
-            const content = event.message?.content || [];
-            for (const item of content) {
-              if (item.type === 'tool_use') {
-                liveToolCount++;
-                const elapsed = Math.round((Date.now() - startTime) / 1000);
-                const progressLine = `  [${elapsed}s] turn ${liveTurnCount} tool #${liveToolCount}: ${item.name}(${truncate(JSON.stringify(item.input || {}), 80)})\n`;
-                process.stderr.write(progressLine);
+          }
 
-                // Persist progress.log
-                if (runDir) {
-                  try { fs.appendFileSync(path.join(runDir, 'progress.log'), progressLine); } catch { /* non-fatal */ }
-                }
+          const item = event.item;
+          if (event.type === 'item.completed' && item) {
+            const isTrackedTool = item.type === 'command_execution' || item.type === 'mcp_tool_call';
+            if (isTrackedTool) {
+              liveToolCount++;
+              const elapsed = Math.round((Date.now() - startTime) / 1000);
+              const toolName = item.type === 'command_execution'
+                ? 'Bash'
+                : `${item.server || 'mcp'}:${item.tool || 'unknown'}`;
+              const toolInput = item.type === 'command_execution'
+                ? { command: item.command || '' }
+                : (item.arguments || {});
+              const progressLine = `  [${elapsed}s] turn ${liveTurnCount} tool #${liveToolCount}: ${toolName}(${truncate(JSON.stringify(toolInput), 80)})\n`;
+              process.stderr.write(progressLine);
 
-                // Write heartbeat (atomic)
-                if (runId && testName) {
-                  try {
-                    const toolDesc = `${item.name}(${truncate(JSON.stringify(item.input || {}), 60)})`;
-                    atomicWriteSync(HEARTBEAT_PATH, JSON.stringify({
-                      runId,
-                      pid: proc.pid,
-                      startedAt,
-                      currentTest: testName,
-                      status: 'running',
-                      turn: liveTurnCount,
-                      toolCount: liveToolCount,
-                      lastTool: toolDesc,
-                      lastToolAt: new Date().toISOString(),
-                      elapsedSec: elapsed,
-                    }, null, 2) + '\n');
-                  } catch { /* non-fatal */ }
-                }
+              if (runDir) {
+                try { fs.appendFileSync(path.join(runDir, 'progress.log'), progressLine); } catch { /* non-fatal */ }
+              }
+
+              if (runId && testName) {
+                try {
+                  const toolDesc = `${toolName}(${truncate(JSON.stringify(toolInput), 60)})`;
+                  atomicWriteSync(HEARTBEAT_PATH, JSON.stringify({
+                    runId,
+                    pid: proc.pid,
+                    startedAt,
+                    currentTest: testName,
+                    status: 'running',
+                    turn: liveTurnCount,
+                    toolCount: liveToolCount,
+                    lastTool: toolDesc,
+                    lastToolAt: new Date().toISOString(),
+                    elapsedSec: elapsed,
+                  }, null, 2) + '\n');
+                } catch { /* non-fatal */ }
               }
             }
           }
@@ -248,17 +354,11 @@ export async function runSkillTest(options: {
 
   stderr = await stderrPromise;
   const exitCode = await proc.exited;
-  clearTimeout(timeoutId);
+  if (timeoutId) clearTimeout(timeoutId);
 
   try { fs.unlinkSync(promptFile); } catch { /* non-fatal */ }
 
-  if (timedOut) {
-    exitReason = 'timeout';
-  } else if (exitCode === 0) {
-    exitReason = 'success';
-  } else {
-    exitReason = `exit_code_${exitCode}`;
-  }
+  exitReason = deriveExitReason(timedOut, exitCode, null);
 
   const duration = Date.now() - startTime;
 
@@ -277,16 +377,7 @@ export async function runSkillTest(options: {
   }
 
   // Use resultLine for structured result data
-  if (resultLine) {
-    if (resultLine.is_error) {
-      // claude -p can return subtype=success with is_error=true (e.g. API connection failure)
-      exitReason = 'error_api';
-    } else if (resultLine.subtype === 'success') {
-      exitReason = 'success';
-    } else if (resultLine.subtype) {
-      exitReason = resultLine.subtype;
-    }
-  }
+  exitReason = deriveExitReason(timedOut, exitCode, resultLine);
 
   // Save failure transcript to persistent run directory (or fallback to workingDirectory)
   if (browseErrors.length > 0 || exitReason !== 'success') {
@@ -314,7 +405,7 @@ export async function runSkillTest(options: {
   }
 
   // Cost from result line (exact) or estimate from chars
-  const turnsUsed = resultLine?.num_turns || 0;
+  const turnsUsed = resultLine?.num_turns || parsed.turnCount;
   const estimatedCost = resultLine?.total_cost_usd || 0;
   const inputChars = prompt.length;
   const outputChars = (resultLine?.result || '').length;

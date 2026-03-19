@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan CEO Review"
+  short_description: "Review a plan for product ambition, user value, and strategic clarity."
+  default_prompt: "Review the plan like a product-minded CEO and tighten the ambition, user value, and clarity."

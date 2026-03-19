@@ -1,13 +1,82 @@
 /**
  * Shared LLM-as-judge helpers for eval and E2E tests.
  *
- * Provides callJudge (generic JSON-from-LLM), judge (doc quality scorer),
+ * Provides callJudge (generic JSON-from-Codex), judge (doc quality scorer),
  * and outcomeJudge (planted-bug detection scorer).
- *
- * Requires: ANTHROPIC_API_KEY env var
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+const ROOT = path.resolve(import.meta.dir, '..', '..');
+const LOCAL_CODEX = path.join(ROOT, 'node_modules', '.bin', 'codex');
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function resolveCodexBinary(): string {
+  return fs.existsSync(LOCAL_CODEX) ? LOCAL_CODEX : 'codex';
+}
+
+export function extractAssistantText(stdout: string): string {
+  const messages: string[] = [];
+
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue;
+
+    try {
+      const event = JSON.parse(line);
+      const item = event.item;
+      if (event.type === 'item.completed'
+        && item?.type === 'agent_message'
+        && typeof item.text === 'string') {
+        messages.push(item.text);
+      }
+    } catch {
+      // Ignore malformed JSONL lines; callers will fall back to raw output if needed.
+    }
+  }
+
+  return messages.join('\n').trim();
+}
+
+async function runCodexPrompt(prompt: string): Promise<string> {
+  const promptFile = path.join(
+    os.tmpdir(),
+    `gstack-codex-judge-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`,
+  );
+  fs.writeFileSync(promptFile, prompt);
+
+  const modelName = process.env.CODEX_JUDGE_MODEL || 'gpt-5.4-mini';
+  const codexBinary = resolveCodexBinary();
+
+  const proc = Bun.spawn([
+    'sh',
+    '-lc',
+    `cat ${shellQuote(promptFile)} | ${shellQuote(codexBinary)} exec --json --sandbox read-only --skip-git-repo-check -C ${shellQuote(ROOT)} -m ${shellQuote(modelName)} -`,
+  ], {
+    cwd: ROOT,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  try { fs.unlinkSync(promptFile); } catch { /* non-fatal */ }
+
+  const assistantText = extractAssistantText(stdout);
+  if (exitCode !== 0) {
+    throw new Error(`Codex judge failed with exit code ${exitCode}: ${(stderr || assistantText || stdout).slice(0, 500)}`);
+  }
+
+  return assistantText || stdout;
+}
 
 export interface JudgeScore {
   clarity: number;       // 1-5
@@ -26,31 +95,22 @@ export interface OutcomeJudgeResult {
 }
 
 /**
- * Call claude-sonnet-4-6 with a prompt, extract JSON response.
- * Retries once on 429 rate limit errors.
+ * Call Codex with a prompt, extract the JSON object from the final response.
+ * Retries once on transient failures.
  */
 export async function callJudge<T>(prompt: string): Promise<T> {
-  const client = new Anthropic();
+  let text = '';
 
-  const makeRequest = () => client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  let response;
-  try {
-    response = await makeRequest();
-  } catch (err: any) {
-    if (err.status === 429) {
-      await new Promise(r => setTimeout(r, 1000));
-      response = await makeRequest();
-    } else {
-      throw err;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      text = await runCodexPrompt(prompt);
+      break;
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : '';
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`Judge returned non-JSON: ${text.slice(0, 200)}`);
   return JSON.parse(jsonMatch[0]) as T;
@@ -75,11 +135,11 @@ Rate the following ${section} on three dimensions (1-5 scale):
 - **actionability** (1-5): Can an agent construct correct command invocations from this reference alone?
 
 Scoring guide:
-- 5: Excellent — no ambiguity, all info present
-- 4: Good — minor gaps an experienced agent could infer
-- 3: Adequate — some guessing required
-- 2: Poor — significant info missing
-- 1: Unusable — agent would fail without external help
+- 5: Excellent - no ambiguity, all info present
+- 4: Good - minor gaps an experienced agent could infer
+- 3: Adequate - some guessing required
+- 2: Poor - significant info missing
+- 1: Unusable - agent would fail without external help
 
 Respond with ONLY valid JSON in this exact format:
 {"clarity": N, "completeness": N, "actionability": N, "reasoning": "brief explanation"}

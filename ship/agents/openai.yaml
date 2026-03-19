@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ship"
+  short_description: "Run the pre-merge ship workflow for the current branch."
+  default_prompt: "Run the gstack-codex ship workflow, check release readiness, and carry the branch through the shipping checklist."

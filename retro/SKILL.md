@@ -6,12 +6,6 @@ description: |
   and code quality metrics with persistent history and trend tracking.
   Team-aware: breaks down per-person contributions with praise and growth areas.
   Use when asked to "weekly retro", "what did we ship", or "engineering retrospective".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Glob
-  - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -19,20 +13,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -46,13 +40,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -62,11 +56,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -132,7 +126,7 @@ say `origin/<default>` below.
 
 # /retro — Weekly Engineering Retrospective
 
-Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using Claude Code as a force multiplier.
+Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using Codex as a force multiplier.
 
 ## User-invocable
 When the user types `/retro`, run this skill.
@@ -213,6 +207,9 @@ git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep=
 
 # 12. Test files changed in window
 git log origin/<default> --since="<window>" --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
+
+# 13. Newly added test files in window
+git log origin/<default> --since="<window>" --diff-filter=A --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
 ```
 
 ### Step 2: Compute Metrics
@@ -234,7 +231,7 @@ Calculate and present these metrics in a summary table:
 | Detected sessions | N |
 | Avg LOC/session-hour | N |
 | Greptile signal | N% (Y catches, Z FPs) |
-| Test Health | N total tests · M added this period · K regression tests |
+| Test Health | N total test files · M test files touched this period · A newly added test files · K regression test commits |
 
 Then show a **per-author leaderboard** immediately below:
 
@@ -246,6 +243,13 @@ bob                       3   +120/-40     tests/
 ```
 
 Sort by commits descending. The current user (from `git config user.name`) always appears first, labeled "You (name)".
+
+Metric derivation rules:
+- **Commits to main:** count non-merge commits returned by command 1. If you want merge commits called out separately, mention them in the narrative instead of inflating this row.
+- **PRs merged:** count unique `#NNN` values from command 5. If commit subjects do not contain PR numbers, report `0` and note that the repo does not encode PR numbers consistently.
+- **Version range:** if the repo has a `VERSION` file, read the oldest and newest `VERSION` contents touched within the window. If `VERSION` did not change during the window, show `unchanged`. If the repo has no `VERSION` file, omit the row instead of guessing from tags.
+- **Test Health:** report `N total test files · M test files touched this period · A newly added test files · K regression test commits`, where `N` comes from command 10, `M` from command 12, `A` from command 13, and `K` is the number of lines returned by command 11.
+- **Compare mode:** compute the current and prior windows with the exact same metric rules; only the date bounds change.
 
 **Greptile signal (if history exists):** Read `~/.gstack/greptile-history.md` (fetched in Step 1, command 8). Filter entries within the retro time window by date. Count entries by type: `fix`, `fp`, `already-fixed`. Compute signal ratio: `(fix + already-fixed) / (fix + already-fixed + fp)`. If no entries exist in the window or the file doesn't exist, skip the Greptile metric row. Skip unparseable lines silently.
 
@@ -526,7 +530,8 @@ Narrative covering:
 
 ### Test Health
 - Total test files: N (from command 10)
-- Tests added this period: M (from command 12 — test files changed)
+- Test files touched this period: M (from command 12)
+- Newly added test files this period: A (from command 13)
 - Regression test commits: list `test(qa):` and `test(design):` and `test: coverage` commits from command 11
 - If prior retro exists and has `test_health`: show delta "Test count: {last} → {now} (+{delta})"
 - If test ratio < 20%: flag as growth area — "100% test coverage is the goal. Tests make vibe coding safe."
@@ -588,9 +593,10 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 
 1. Compute metrics for the current window (default 7d) using `--since="7 days ago"`
 2. Compute metrics for the immediately prior same-length window using both `--since` and `--until` to avoid overlap (e.g., `--since="14 days ago" --until="7 days ago"` for a 7d window)
-3. Show a side-by-side comparison table with deltas and arrows
-4. Write a brief narrative highlighting the biggest improvements and regressions
-5. Save only the current-window snapshot to `.context/retros/` (same as a normal retro run); do **not** persist the prior-window metrics.
+3. Use the same commands, metric formulas, and omission rules for both windows. Do not redefine any metric for compare mode.
+4. Show a side-by-side comparison table with deltas and arrows
+5. Write a brief narrative highlighting the biggest improvements and regressions
+6. Save only the current-window snapshot to `.context/retros/` (same as a normal retro run); do **not** persist the prior-window metrics.
 
 ## Tone
 
@@ -613,5 +619,5 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - If the window has zero commits, say so and suggest a different window
 - Round LOC/hour to nearest 50
 - Treat merge commits as PR boundaries
-- Do not read CLAUDE.md or other docs — this skill is self-contained
+- Do not read AGENTS.md or other docs — this skill is self-contained
 - On first run (no prior retros), skip comparison sections gracefully

@@ -7,15 +7,6 @@ description: |
   generates font+color preview pages. Creates DESIGN.md as your project's design source
   of truth. For existing sites, use /plan-design-review to infer the system instead.
   Use when asked to "design system", "brand guidelines", or "create DESIGN.md".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - AskUserQuestion
-  - WebSearch
 ---
 
 {{PREAMBLE}}
@@ -50,7 +41,7 @@ ls src/ app/ pages/ components/ 2>/dev/null | head -30
 Look for brainstorm output:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 ls ~/.gstack/projects/$SLUG/*brainstorm* 2>/dev/null | head -5
 ls .context/*brainstorm* .context/attachments/*brainstorm* 2>/dev/null | head -5
 ```
@@ -71,7 +62,7 @@ If browse is not available, that's fine — visual research is optional. The ski
 
 Ask the user a single question that covers everything you need to know. Pre-fill what you can infer from the codebase.
 
-**AskUserQuestion Q1 — include ALL of these:**
+**User question Q1 — include ALL of these:**
 1. Confirm what the product is, who it's for, what space/industry
 2. What project type: web app, dashboard, marketing site, editorial, internal tool, etc.
 3. "Want me to research what top products in your space are doing for design, or should I work from my design knowledge?"
@@ -128,7 +119,7 @@ If the user said no research, skip entirely and proceed to Phase 3 using your bu
 
 This is the soul of the skill. Propose EVERYTHING as one coherent package.
 
-**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
+**User question Q2 — present the full proposal with SAFE/RISK breakdown:**
 
 ```
 Based on [product context] and [research findings / my design knowledge]:
@@ -222,7 +213,7 @@ When the user wants to change a specific section, go deep on that section:
 - **Aesthetic:** Walk through which directions fit their product and why
 - **Layout/Spacing/Motion:** Present the approaches with concrete tradeoffs for their product type
 
-Each drill-down is one focused AskUserQuestion. After the user decides, re-check coherence with the rest of the system.
+Each drill-down is one focused pause for user input. After the user decides, re-check coherence with the rest of the system.
 
 ---
 
@@ -331,7 +322,7 @@ Write `DESIGN.md` to the repo root with this structure:
 | [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
 ```
 
-**Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
+**Update AGENTS.md** (or create it if it doesn't exist) — append this section:
 
 ```markdown
 ## Design System
@@ -341,10 +332,10 @@ Do not deviate without explicit user approval.
 In QA mode, flag any code that doesn't match DESIGN.md.
 ```
 
-**AskUserQuestion Q-final — show summary and confirm:**
+**User question Q-final — show summary and confirm:**
 
 List all decisions. Flag any that used agent defaults without explicit user confirmation (the user should know what they're shipping). Options:
-- A) Ship it — write DESIGN.md and CLAUDE.md
+- A) Ship it — write DESIGN.md and AGENTS.md
 - B) I want to change something (specify what)
 - C) Start over
 

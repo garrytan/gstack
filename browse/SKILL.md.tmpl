@@ -8,11 +8,6 @@ description: |
   ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
   user flow, or file a bug with evidence. Use when asked to "open in browser", "test the
   site", "take a screenshot", or "dogfood this".
-allowed-tools:
-  - Bash
-  - Read
-  - AskUserQuestion
-
 ---
 
 {{PREAMBLE}}
@@ -113,3 +108,22 @@ After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the R
 ## Full Command List
 
 {{COMMAND_REFERENCE}}
+
+## Command Construction Rules
+
+Use these rules when turning the reference above into concrete commands:
+
+- **Selectors:** `<sel>` accepts a CSS selector or a snapshot ref like `@e3` / `@c1` when the command supports refs. When you already have a fresh snapshot, prefer refs over fragile CSS selectors.
+- **Fresh refs:** `@e` and `@c` refs expire after navigation, reload, or major DOM changes. Run `snapshot` again before reusing an old ref.
+- **URLs:** `goto`, `newtab`, and `diff` expect full URLs such as `https://example.com/path`. Do not pass relative paths.
+- **Paths:** Screenshot, PDF, cookie import, upload, and `eval <file>` paths should be absolute when possible. `eval <file>` is restricted to files under `/tmp` or the current working directory.
+- **Viewport format:** `viewport <WxH>` uses pixel dimensions such as `375x812` or `1280x720`.
+- **Wait modes:** `wait <sel>` waits for a selector; `wait --networkidle` waits for requests to settle; `wait --load` waits for the page load event.
+- **Dialog handlers:** `dialog-accept [text]` and `dialog-dismiss` arm the next dialog before the action that triggers it.
+- **State checks:** `is <prop> <sel>` only accepts these properties: `visible`, `hidden`, `enabled`, `disabled`, `checked`, `editable`, `focused`.
+- **Browser import:** `cookie-import-browser [browser]` accepts `Comet`, `Chrome`, `Arc`, `Brave`, or `Edge`. Add `--domain <domain>` to skip the picker and filter cookies.
+- **Storage writes:** `storage` with no args prints storage JSON. `storage set <key> <value>` writes to `localStorage`.
+- **Screenshots:** In `screenshot [--viewport] [--clip x,y,w,h] [selector|@ref] [path]`, the optional selector/ref chooses an element crop and the final optional path chooses the output file.
+- **Chain mode:** `chain` reads JSON from stdin in the form `[["cmd","arg1"],["cmd2","arg1","arg2"]]` and runs the commands in order.
+
+When you need to explore an unfamiliar page, default to this sequence: `goto` -> `snapshot -i` -> interact with `@e` refs -> `snapshot -D` -> `console --errors`.

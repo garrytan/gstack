@@ -1,0 +1,4 @@
+interface:
+  display_name: "Browse"
+  short_description: "Drive the persistent Playwright browser for QA, screenshots, and app exploration."
+  default_prompt: "Use the gstack-codex browse runtime to inspect the target app, interact with it, and gather evidence."

@@ -3,24 +3,15 @@ name: ship
 version: 1.0.0
 description: |
   Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy", "push to main", "create a PR", or "merge and push".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - AskUserQuestion
-  - WebSearch
 ---
 
 {{PREAMBLE}}
 
 {{BASE_BRANCH_DETECT}}
 
-# Ship: Fully Automated Ship Workflow
+# Ship: Automated Workflow with Explicit Pause Gates
 
-You are running the `/ship` workflow. This is a **non-interactive, fully automated** workflow. Do NOT ask for confirmation at any step. The user said `/ship` which means DO IT. Run straight through and output the PR URL at the end.
+You are running the `/ship` workflow. This workflow auto-executes by default, but it has a short, explicit list of pause gates for decisions that require user judgment. Outside those gates, run straight through and output the PR URL at the end.
 
 **Only stop for:**
 - On the base branch (abort)
@@ -42,6 +33,14 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
 - Test coverage gaps (auto-generate and commit, or flag in PR body)
 
+## Operating Contract
+
+- Run the workflow in order: Step 1 → Step 2 → Step 2.5 → Step 3 → Step 3.25 → Step 3.4 and beyond. Do not skip ahead.
+- Automation is the default, but the **Only stop for** list wins whenever it conflicts with automation language elsewhere in the file.
+- If a step requires pause for user input, stop with one decision, explain what already succeeded, and resume at that exact step after the answer.
+- If a step says "continue silently," still keep a short internal checkpoint of what passed so later summaries and the PR body stay accurate.
+- The commands in this file are the repo-default ship commands. If AGENTS.md, package scripts, or repo-local docs define stricter required commands for this codebase, follow the repo-local commands instead of improvising.
+
 ---
 
 ## Step 1: Pre-flight
@@ -60,21 +59,21 @@ If the Eng Review is NOT "CLEAR":
 
 1. **Check for a prior override on this branch:**
    ```bash
-   eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+   eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
    grep '"skill":"ship-review-override"' ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_OVERRIDE"
    ```
    If an override exists, display the dashboard and note "Review gate previously accepted — continuing." Do NOT ask again.
 
-2. **If no override exists,** use AskUserQuestion:
+2. **If no override exists,** use pause for user input:
    - Show that Eng Review is missing or has open issues
    - RECOMMENDATION: Choose C if the change is obviously trivial (< 20 lines, typo fix, config-only); Choose B for larger changes
    - Options: A) Ship anyway  B) Abort — run /plan-eng-review first  C) Change is too small to need eng review
    - If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block
-   - For Design Review: run `eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 3.5, but consider running /design-review for a full visual audit post-implementation." Still never block.
+   - For Design Review: run `eval $(~/.codex/skills/gstack-codex/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 3.5, but consider running /design-review for a full visual audit post-implementation." Still never block.
 
 3. **If the user chooses A or C,** persist the decision so future `/ship` runs on this branch skip the gate:
    ```bash
-   eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+   eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
    echo '{"skill":"ship-review-override","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","decision":"USER_CHOICE"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
    ```
    Substitute USER_CHOICE with "ship_anyway" or "not_relevant".
@@ -133,7 +132,7 @@ Evals are mandatory when prompt-related files change. Skip this step entirely if
 git diff origin/<base> --name-only
 ```
 
-Match against these patterns (from CLAUDE.md):
+Match against these patterns (from AGENTS.md):
 - `app/services/*_prompt_builder.rb`
 - `app/services/*_generation_service.rb`, `*_writer_service.rb`, `*_designer_service.rb`
 - `app/services/*_evaluator.rb`, `*_scorer.rb`, `*_classifier_service.rb`, `*_analyzer.rb`
@@ -327,7 +326,7 @@ Coverage line: `Test Coverage Audit: N new code paths. M covered (X%). K tests g
 
 Review the diff for structural issues that tests don't catch.
 
-1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
+1. Read `../review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
 2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
 
@@ -345,11 +344,11 @@ Review the diff for structural issues that tests don't catch.
 5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
    `[AUTO-FIXED] [file:line] Problem → what you did`
 
-6. **If ASK items remain,** present them in ONE AskUserQuestion:
+6. **If ASK items remain,** present them in ONE pause for user input:
    - List each with number, severity, problem, recommended fix
    - Per-item options: A) Fix  B) Skip
    - Overall RECOMMENDATION
-   - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
+   - If 3 or fewer ASK items, you may use individual pause for user input calls instead
 
 7. **After all fixes (auto + user-approved):**
    - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
@@ -365,7 +364,8 @@ Save the review output — it goes into the PR body in Step 8.
 
 ## Step 3.75: Address Greptile review comments (if PR exists)
 
-Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+Read `../review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+That shared reference is the source of truth for Greptile storage: derive `REMOTE_SLUG`, then write outcomes to both `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` and `~/.gstack/greptile-history.md`. Do not invent a third history path.
 
 **If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Continue to Step 4.
 
@@ -377,18 +377,18 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
 For each classified comment:
 
-**VALID & ACTIONABLE:** Use AskUserQuestion with:
+**VALID & ACTIONABLE:** Use pause for user input with:
 - The comment (file:line or [top-level] + body summary + permalink URL)
 - `RECOMMENDATION: Choose A because [one-line reason]`
 - Options: A) Fix now, B) Acknowledge and ship anyway, C) It's a false positive
 - If user chooses A: apply the fix, commit the fixed files (`git add <fixed-files> && git commit -m "fix: address Greptile review — <brief description>"`), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation), and save to both per-project and global greptile-history (type: fix).
 - If user chooses C: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp).
 
-**VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+**VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no user question needed:
 - Include what was done and the fixing commit SHA
 - Save to both per-project and global greptile-history (type: already-fixed)
 
-**FALSE POSITIVE:** Use AskUserQuestion:
+**FALSE POSITIVE:** Use pause for user input:
 - Show the comment and why you think it's wrong (file:line or [top-level] + body summary + permalink URL)
 - Options:
   - A) Reply to Greptile explaining the false positive (recommended if clearly wrong)
@@ -396,7 +396,9 @@ For each classified comment:
   - C) Ignore silently
 - If user chooses A: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp)
 
-**SUPPRESSED:** Skip silently — these are known false positives from previous triage.
+**SUPPRESSED:** Skip silently — these are known false positives from previous triage. They were already written to history when they were first triaged, so do not append duplicate history entries.
+
+For every new Greptile outcome that greptile-triage.md tells you to persist, the write contract is the same: append once to `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` and once to `~/.gstack/greptile-history.md` via greptile-triage.md.
 
 **After all comments are resolved:** If any fixes were applied, the tests from Step 3 are now stale. **Re-run tests** (Step 3) before continuing to Step 4. If no fixes were applied, continue to Step 4.
 
@@ -447,11 +449,11 @@ For each classified comment:
 
 Cross-reference the project's TODOS.md against the changes being shipped. Mark completed items automatically; prompt only if the file is missing or disorganized.
 
-Read `.claude/skills/review/TODOS-format.md` for the canonical format reference.
+Read `../review/TODOS-format.md` for the canonical format reference.
 
 **1. Check if TODOS.md exists** in the repository root.
 
-**If TODOS.md does not exist:** Use AskUserQuestion:
+**If TODOS.md does not exist:** Use pause for user input:
 - Message: "GStack recommends maintaining a TODOS.md organized by skill/component, then priority (P0 at top through P4, then Completed at bottom). See TODOS-format.md for the full format. Would you like to create one?"
 - Options: A) Create it now, B) Skip for now
 - If A: Create `TODOS.md` with a skeleton (# TODOS heading + ## Completed section). Continue to step 3.
@@ -464,7 +466,7 @@ Read TODOS.md and verify it follows the recommended structure:
 - Each item has `**Priority:**` field with P0-P4 value
 - A `## Completed` section at the bottom
 
-**If disorganized** (missing priority fields, no component groupings, no Completed section): Use AskUserQuestion:
+**If disorganized** (missing priority fields, no component groupings, no Completed section): Use pause for user input:
 - Message: "TODOS.md doesn't follow the recommended structure (skill/component groupings, P0-P4 priority, Completed section). Would you like to reorganize it?"
 - Options: A) Reorganize now (recommended), B) Leave as-is
 - If A: Reorganize in-place following TODOS-format.md. Preserve all content — only restructure, never delete items.
@@ -529,7 +531,7 @@ Save this summary — it goes into the PR body in Step 8.
 git commit -m "$(cat <<'EOF'
 chore: bump version and changelog (vX.Y.Z.W)
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <codex@openai.com>
 EOF
 )"
 ```
@@ -584,7 +586,7 @@ gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 - [x] All Rails tests pass (N runs, 0 failures)
 - [x] All Vitest tests pass (N tests)
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+Generated with [Codex](https://openai.com/codex/)
 EOF
 )"
 ```
@@ -598,7 +600,7 @@ EOF
 - **Never skip tests.** If tests fail, stop.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
-- **Never ask for confirmation** except for MINOR/MAJOR version bumps and pre-landing review ASK items (batched into at most one AskUserQuestion).
+- **Never ask for confirmation** except for MINOR/MAJOR version bumps and pre-landing review ASK items (batched into at most one pause for user input).
 - **Always use the 4-digit version format** from the VERSION file.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.

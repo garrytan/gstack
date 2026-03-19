@@ -6,13 +6,6 @@ description: |
   data flow, diagrams, edge cases, test coverage, performance. Walks through
   issues interactively with opinionated recommendations. Use when asked to
   "review the architecture", "engineering review", or "lock in the plan".
-allowed-tools:
-  - Read
-  - Write
-  - Grep
-  - Glob
-  - AskUserQuestion
-  - Bash
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -20,20 +13,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -47,13 +40,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -63,11 +56,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -165,6 +158,13 @@ When evaluating architecture, think "boring by default." When reviewing tests, t
 
 ## BEFORE YOU START:
 
+### Operating Contract
+- Work sections in fixed order: Step 0 → Architecture → Code Quality → Tests → Performance.
+- A section issue is "resolved" only after the user explicitly chose an option, accepted the recommendation, or said to leave it alone.
+- If a section has no issues, say so clearly and move to the next section instead of inventing filler questions.
+- After the Test Review section, always write the test-plan artifact before moving to Performance.
+- If an artifact path or repo detail is missing, use the documented fallback paths in this file instead of inventing a new location.
+
 ### Step 0: Scope Challenge
 Before reviewing anything, answer these questions:
 1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
@@ -172,9 +172,9 @@ Before reviewing anything, answer these questions:
 3. **Complexity check:** If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
 4. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
 
-5. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with CC+gstack, recommend the complete version. Boil the lake.
+5. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with Codex + gstack, recommend the complete version. Boil the lake.
 
-If the complexity check triggers (8+ files or 2+ new classes/services), proactively recommend scope reduction via AskUserQuestion — explain what's overbuilt, propose a minimal version that achieves the core goal, and ask whether to reduce or proceed as-is. If the complexity check does not trigger, present your Step 0 findings and proceed directly to Section 1.
+If the complexity check triggers (8+ files or 2+ new classes/services), proactively recommend scope reduction via pause for user input — explain what's overbuilt, propose a minimal version that achieves the core goal, and ask whether to reduce or proceed as-is. If the complexity check does not trigger, present your Step 0 findings and proceed directly to Section 1.
 
 Always work through the full interactive review: one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
 
@@ -192,7 +192,7 @@ Evaluate:
 * Whether key flows deserve ASCII diagrams in the plan or in code comments.
 * For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+**STOP.** For each issue found in this section, ask the user in plain text individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one pause for user input. Only proceed to the next section after ALL issues in this section are resolved.
 
 ### 2. Code quality review
 Evaluate:
@@ -203,21 +203,21 @@ Evaluate:
 * Areas that are over-engineered or under-engineered relative to my preferences.
 * Existing ASCII diagrams in touched files — are they still accurate after this change?
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+**STOP.** For each issue found in this section, ask the user in plain text individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one pause for user input. Only proceed to the next section after ALL issues in this section are resolved.
 
 ### 3. Test review
 Make a diagram of all new UX, new data flow, new codepaths, and new branching if statements or outcomes. For each, note what is new about the features discussed in this branch and plan. Then, for each new item in the diagram, make sure there is a JS or Rails test.
 
-For LLM/prompt changes: check the "Prompt/LLM changes" file patterns listed in CLAUDE.md. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against. Then use AskUserQuestion to confirm the eval scope with the user.
+For LLM/prompt changes: check the "Prompt/LLM changes" file patterns listed in AGENTS.md. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against. Then use pause for user input to confirm the eval scope with the user.
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+**STOP.** For each issue found in this section, ask the user in plain text individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one pause for user input. Only proceed to the next section after ALL issues in this section are resolved.
 
 ### Test Plan Artifact
 
 After producing the test diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input (replacing the lossy git-diff heuristic):
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 mkdir -p ~/.gstack/projects/$SLUG
@@ -253,17 +253,17 @@ Evaluate:
 * Caching opportunities.
 * Slow or high-complexity code paths.
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+**STOP.** For each issue found in this section, ask the user in plain text individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one pause for user input. Only proceed to the next section after ALL issues in this section are resolved.
 
 ## CRITICAL RULE — How to ask questions
-Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
+Follow the pause for user input format from the Preamble above. Additional rules for plan reviews:
+* **One issue = one plain-text user question.** Never combine multiple issues into one question.
 * Describe the problem concretely, with file and line references.
 * Present 2-3 options, including "do nothing" where that's reasonable.
 * For each option, specify in one line: effort (human: ~X / CC: ~Y), risk, and maintenance burden. If the complete option is only marginally more effort than the shortcut with CC, recommend the complete option.
 * **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference (DRY, explicit > clever, minimal diff, etc.).
 * Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch:** If a section has no issues, say so and move on. If an issue has an obvious fix with no real alternatives, state what you'll do and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine decision with meaningful tradeoffs.
+* **Escape hatch:** If a section has no issues, say so and move on. If an issue has an obvious fix with no real alternatives, state what you'll do and move on — don't waste a question on it. Only use pause for user input when there is a genuine decision with meaningful tradeoffs.
 
 ## Required outputs
 
@@ -274,7 +274,7 @@ Every plan review MUST produce a "NOT in scope" section listing work that was co
 List existing code/flows that already partially solve sub-problems in this plan, and whether the plan reuses them or unnecessarily rebuilds them.
 
 ### TODOS.md updates
-After all review sections are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `.claude/skills/review/TODOS-format.md`.
+After all review sections are complete, present each potential TODO as its own individual pause for user input. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `../review/TODOS-format.md`.
 
 For each TODO, describe:
 * **What:** One-line description of the work.
@@ -326,7 +326,7 @@ Check the git log for this branch. If there are prior commits suggesting a previ
 After producing the Completion Summary above, persist the review result:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 echo '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"MODE"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
 ```
@@ -343,10 +343,10 @@ Substitute values from the Completion Summary:
 After completing the review, read the review log and config to display the dashboard.
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 cat ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_REVIEWS"
 echo "---CONFIG---"
-~/.claude/skills/gstack/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
+~/.codex/skills/gstack-codex/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
 ```
 
 Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite). Ignore entries with timestamps older than 7 days. For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
@@ -377,4 +377,4 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - If \`skip_eng_review\` config is \`true\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
 ## Unresolved decisions
-If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+If the user does not respond to a user question or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.

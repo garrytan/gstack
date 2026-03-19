@@ -1,15 +1,15 @@
 # Architecture
 
-This document explains **why** gstack is built the way it is. For setup and commands, see CLAUDE.md. For contributing, see CONTRIBUTING.md.
+This document explains **why** gstack is built the way it is. For setup and commands, see AGENTS.md. For contributing, see CONTRIBUTING.md.
 
 ## The core idea
 
-gstack gives Claude Code a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.
+gstack gives Codex a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.
 
 The key insight: an AI agent interacting with a browser needs **sub-second latency** and **persistent state**. If every command cold-starts a browser, you're waiting 3-5 seconds per tool call. If the browser dies between commands, you lose cookies, tabs, and login sessions. So gstack runs a long-lived Chromium daemon that the CLI talks to over localhost HTTP.
 
 ```
-Claude Code                     gstack
+Codex                     gstack
 ─────────                      ──────
                                ┌──────────────────────┐
   Tool call: $B snapshot -i    │  CLI (compiled binary)│
@@ -39,7 +39,7 @@ First call starts everything (~3s). Every call after: ~100-200ms.
 
 Node.js would work. Bun is better here for three reasons:
 
-1. **Compiled binaries.** `bun build --compile` produces a single ~58MB executable. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs. This matters because gstack installs into `~/.claude/skills/` where users don't expect to manage a Node.js project.
+1. **Compiled binaries.** `bun build --compile` produces a single ~58MB executable. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs. This matters because gstack-codex installs into `~/.codex/skills/` where users don't expect to manage a Node.js project.
 
 2. **Native SQLite.** Cookie decryption reads Chromium's SQLite cookie database directly. Bun has `new Database()` built in — no `better-sqlite3`, no native addon compilation, no gyp. One less thing that breaks on different machines.
 
@@ -180,7 +180,7 @@ The `console`, `network`, and `dialog` commands read from the in-memory buffers,
 
 ### The problem
 
-SKILL.md files tell Claude how to use the browse commands. If the docs list a flag that doesn't exist, or miss a command that was added, the agent hits errors. Hand-maintained docs always drift from code.
+SKILL.md files tell Codex how to use the browse commands. If the docs list a flag that doesn't exist, or miss a command that was added, the agent hits errors. Hand-maintained docs always drift from code.
 
 ### The solution
 
@@ -198,7 +198,7 @@ Templates contain the workflows, tips, and examples that require human judgment.
 |-------------|--------|-------------------|
 | `{{COMMAND_REFERENCE}}` | `commands.ts` | Categorized command table |
 | `{{SNAPSHOT_FLAGS}}` | `snapshot.ts` | Flag reference with examples |
-| `{{PREAMBLE}}` | `gen-skill-docs.ts` | Startup block: update check, session tracking, contributor mode, AskUserQuestion format |
+| `{{PREAMBLE}}` | `gen-skill-docs.ts` | Startup block: update check, session tracking, contributor mode, shared user decision format |
 | `{{BROWSE_SETUP}}` | `gen-skill-docs.ts` | Binary discovery + setup instructions |
 | `{{BASE_BRANCH_DETECT}}` | `gen-skill-docs.ts` | Dynamic base branch detection for PR-targeting skills (ship, review, qa, plan-ceo-review) |
 | `{{QA_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared QA methodology block for /qa and /qa-only |
@@ -215,13 +215,13 @@ Every skill starts with a `{{PREAMBLE}}` block that runs before the skill's own 
 1. **Update check** — calls `gstack-update-check`, reports if an upgrade is available.
 2. **Session tracking** — touches `~/.gstack/sessions/$PPID` and counts active sessions (files modified in the last 2 hours). When 3+ sessions are running, all skills enter "ELI16 mode" — every question re-grounds the user on context because they're juggling windows.
 3. **Contributor mode** — reads `gstack_contributor` from config. When true, the agent files casual field reports to `~/.gstack/contributor-logs/` when gstack itself misbehaves.
-4. **AskUserQuestion format** — universal format: context, question, `RECOMMENDATION: Choose X because ___`, lettered options. Consistent across all skills.
+4. **User decision format** — universal format: context, question, `RECOMMENDATION: Choose X because ___`, lettered options. Consistent across all skills.
 
 ### Why committed, not generated at runtime?
 
 Three reasons:
 
-1. **Claude reads SKILL.md at skill load time.** There's no build step when a user invokes `/browse`. The file must already exist and be correct.
+1. **Codex reads SKILL.md at skill load time.** There's no build step when a user invokes `/browse`. The file must already exist and be correct.
 2. **CI can validate freshness.** `gen:skill-docs --dry-run` + `git diff --exit-code` catches stale docs before merge.
 3. **Git blame works.** You can see when a command was added and in which commit.
 
@@ -230,7 +230,7 @@ Three reasons:
 | Tier | What | Cost | Speed |
 |------|------|------|-------|
 | 1 — Static validation | Parse every `$B` command in SKILL.md, validate against registry | Free | <2s |
-| 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, check for errors | ~$3.85 | ~20min |
+| 2 — E2E via `codex exec --json` | Spawn real Codex session, run each skill, check for errors | ~$3.85 | ~20min |
 | 3 — LLM-as-judge | Sonnet scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
 Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea is: catch 95% of issues for free, use LLMs only for judgment calls.
@@ -271,10 +271,10 @@ The server doesn't try to self-heal. If Chromium crashes (`browser.on('disconnec
 
 ### Session runner (`test/helpers/session-runner.ts`)
 
-E2E tests spawn `claude -p` as a completely independent subprocess — not via the Agent SDK, which can't nest inside Claude Code sessions. The runner:
+E2E tests spawn `codex exec --json` as a completely independent subprocess — not via the Agent SDK, which can't nest inside Codex sessions. The runner:
 
 1. Writes the prompt to a temp file (avoids shell escaping issues)
-2. Spawns `sh -c 'cat prompt | claude -p --output-format stream-json --verbose'`
+2. Spawns `sh -c 'cat prompt | codex exec --json'`
 3. Streams NDJSON from stdout for real-time progress
 4. Races against a configurable timeout
 5. Parses the full NDJSON transcript into structured results
@@ -344,7 +344,7 @@ The `EvalCollector` accumulates test results and writes them in two ways:
 | Tier | What | Cost | Speed |
 |------|------|------|-------|
 | 1 — Static validation | Parse `$B` commands, validate against registry, observability unit tests | Free | <5s |
-| 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, scan for errors | ~$3.85 | ~20min |
+| 2 — E2E via `codex exec --json` | Spawn real Codex session, run each skill, scan for errors | ~$3.85 | ~20min |
 | 3 — LLM-as-judge | Sonnet scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
 Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.

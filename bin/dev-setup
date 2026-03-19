@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Set up gstack for local development — test skills from within this repo.
+# Set up gstack-codex for local development — test skills from within this repo.
 #
-# Creates .claude/skills/gstack → (symlink to repo root) so Claude Code
+# Creates .codex/skills/gstack-codex -> (symlink to repo root) so Codex
 # discovers skills from your working tree. Changes take effect immediately.
 #
 # Also copies .env from the main worktree if this is a Conductor workspace
@@ -28,23 +28,22 @@ if [ ! -d "$REPO_ROOT/node_modules" ]; then
   (cd "$REPO_ROOT" && bun install)
 fi
 
-# 3. Create .claude/skills/ inside the repo
-mkdir -p "$REPO_ROOT/.claude/skills"
+# 3. Create .codex/skills/ inside the repo
+mkdir -p "$REPO_ROOT/.codex/skills"
 
-# 4. Symlink .claude/skills/gstack → repo root
-# This makes setup think it's inside a real .claude/skills/ directory
-GSTACK_LINK="$REPO_ROOT/.claude/skills/gstack"
+# 4. Symlink .codex/skills/gstack-codex -> repo root
+GSTACK_LINK="$REPO_ROOT/.codex/skills/gstack-codex"
 if [ -L "$GSTACK_LINK" ]; then
   echo "Updating existing symlink..."
   rm "$GSTACK_LINK"
 elif [ -d "$GSTACK_LINK" ]; then
-  echo "Error: .claude/skills/gstack is a real directory, not a symlink." >&2
+  echo "Error: .codex/skills/gstack-codex is a real directory, not a symlink." >&2
   echo "Remove it manually if you want to use dev mode." >&2
   exit 1
 fi
 ln -s "$REPO_ROOT" "$GSTACK_LINK"
 
-# 5. Run setup via the symlink so it detects .claude/skills/ as its parent
+# 5. Run setup via the symlink so it detects the vendored bundle layout
 "$GSTACK_LINK/setup"
 
 echo ""

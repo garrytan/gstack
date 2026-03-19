@@ -116,6 +116,21 @@ describe('gen-skill-docs', () => {
     expect(output).not.toContain('STALE');
   });
 
+  test('metadata files are fresh (match --dry-run)', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-metadata.ts', '--dry-run'], {
+      cwd: ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    for (const skill of ALL_SKILLS) {
+      const file = skill.dir === '.' ? 'agents/openai.yaml' : `${skill.dir}/agents/openai.yaml`;
+      expect(output).toContain(`FRESH: ${file}`);
+    }
+    expect(output).not.toContain('STALE');
+  });
+
   test('no generated SKILL.md contains unresolved placeholders', () => {
     for (const skill of ALL_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
@@ -161,6 +176,14 @@ describe('gen-skill-docs', () => {
     expect(content).toContain('plain English');
   });
 
+  test('generated skills keep plain-English user decision phrasing', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('User Decision Format');
+    expect(content).toContain('pause and ask the user in plain text');
+    expect(content).not.toContain('call pause for user input');
+    expect(content).not.toContain('an pause for user input');
+  });
+
   test('qa and qa-only templates use QA_METHODOLOGY placeholder', () => {
     const qaTmpl = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md.tmpl'), 'utf-8');
     expect(qaTmpl).toContain('{{QA_METHODOLOGY}}');
@@ -196,18 +219,11 @@ describe('gen-skill-docs', () => {
     const qaOnlyContent = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
     expect(qaOnlyContent).toContain('Never fix bugs');
     expect(qaOnlyContent).toContain('NEVER fix anything');
-    // Should not have Edit, Glob, or Grep in allowed-tools
-    expect(qaOnlyContent).not.toMatch(/allowed-tools:[\s\S]*?Edit/);
-    expect(qaOnlyContent).not.toMatch(/allowed-tools:[\s\S]*?Glob/);
-    expect(qaOnlyContent).not.toMatch(/allowed-tools:[\s\S]*?Grep/);
+    expect(qaOnlyContent).not.toContain('Phase 8: Fix Loop');
   });
 
   test('qa has fix-loop tools and phases', () => {
     const qaContent = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
-    // Should have Edit, Glob, Grep in allowed-tools
-    expect(qaContent).toContain('Edit');
-    expect(qaContent).toContain('Glob');
-    expect(qaContent).toContain('Grep');
     // Should have fix-loop phases
     expect(qaContent).toContain('Phase 7');
     expect(qaContent).toContain('Phase 8');

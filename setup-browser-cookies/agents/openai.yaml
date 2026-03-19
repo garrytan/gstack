@@ -1,0 +1,4 @@
+interface:
+  display_name: "Setup Browser Cookies"
+  short_description: "Import cookies from a local browser so browse/QA workflows can access authenticated pages."
+  default_prompt: "Set up authenticated browser access by importing cookies from the local browser into gstack-codex."

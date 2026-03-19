@@ -8,11 +8,6 @@ description: |
   ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
   user flow, or file a bug with evidence. Use when asked to "open in browser", "test the
   site", "take a screenshot", or "dogfood this".
-allowed-tools:
-  - Bash
-  - Read
-  - AskUserQuestion
-
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -20,20 +15,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -47,13 +42,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -63,11 +58,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -131,8 +126,8 @@ State persists between calls (cookies, tabs, login sessions).
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.codex/skills/gstack-codex/browse/dist/browse" ] && B="$_ROOT/.codex/skills/gstack-codex/browse/dist/browse"
+[ -z "$B" ] && B=~/.codex/skills/gstack-codex/browse/dist/browse
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -141,8 +136,8 @@ fi
 ```
 
 If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then pause for confirmation.
+2. Run: `./setup` from the gstack-codex bundle root
 3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
 
 ## Core QA Patterns
@@ -352,3 +347,22 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `restart` | Restart server |
 | `status` | Health check |
 | `stop` | Shutdown server |
+
+## Command Construction Rules
+
+Use these rules when turning the reference above into concrete commands:
+
+- **Selectors:** `<sel>` accepts a CSS selector or a snapshot ref like `@e3` / `@c1` when the command supports refs. When you already have a fresh snapshot, prefer refs over fragile CSS selectors.
+- **Fresh refs:** `@e` and `@c` refs expire after navigation, reload, or major DOM changes. Run `snapshot` again before reusing an old ref.
+- **URLs:** `goto`, `newtab`, and `diff` expect full URLs such as `https://example.com/path`. Do not pass relative paths.
+- **Paths:** Screenshot, PDF, cookie import, upload, and `eval <file>` paths should be absolute when possible. `eval <file>` is restricted to files under `/tmp` or the current working directory.
+- **Viewport format:** `viewport <WxH>` uses pixel dimensions such as `375x812` or `1280x720`.
+- **Wait modes:** `wait <sel>` waits for a selector; `wait --networkidle` waits for requests to settle; `wait --load` waits for the page load event.
+- **Dialog handlers:** `dialog-accept [text]` and `dialog-dismiss` arm the next dialog before the action that triggers it.
+- **State checks:** `is <prop> <sel>` only accepts these properties: `visible`, `hidden`, `enabled`, `disabled`, `checked`, `editable`, `focused`.
+- **Browser import:** `cookie-import-browser [browser]` accepts `Comet`, `Chrome`, `Arc`, `Brave`, or `Edge`. Add `--domain <domain>` to skip the picker and filter cookies.
+- **Storage writes:** `storage` with no args prints storage JSON. `storage set <key> <value>` writes to `localStorage`.
+- **Screenshots:** In `screenshot [--viewport] [--clip x,y,w,h] [selector|@ref] [path]`, the optional selector/ref chooses an element crop and the final optional path chooses the output file.
+- **Chain mode:** `chain` reads JSON from stdin in the form `[["cmd","arg1"],["cmd2","arg1","arg2"]]` and runs the commands in order.
+
+When you need to explore an unfamiliar page, default to this sequence: `goto` -> `snapshot -i` -> interact with `@e` refs -> `snapshot -D` -> `console --errors`.

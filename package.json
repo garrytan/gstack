@@ -1,22 +1,26 @@
 {
-  "name": "gstack",
+  "name": "gstack-codex",
   "version": "0.3.3",
-  "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
+  "description": "Garry's Stack — Codex skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
   "bin": {
     "browse": "./browse/dist/browse"
   },
   "scripts": {
-    "build": "bun run gen:skill-docs && bun build --compile browse/src/cli.ts --outfile browse/dist/browse && bun build --compile browse/src/find-browse.ts --outfile browse/dist/find-browse && git rev-parse HEAD > browse/dist/.version && rm -f .*.bun-build || true",
+    "build": "bun run gen:skill-docs && bun run gen:skill-metadata && bun build --compile browse/src/cli.ts --outfile browse/dist/browse && bun build --compile browse/src/find-browse.ts --outfile browse/dist/find-browse && git rev-parse HEAD > browse/dist/.version && rm -f .*.bun-build || true",
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
+    "gen:skill-metadata": "bun run scripts/gen-skill-metadata.ts",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
     "test": "bun test browse/test/ test/ --ignore test/skill-e2e.test.ts --ignore test/skill-llm-eval.test.ts",
-    "test:evals": "EVALS=1 bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts",
-    "test:evals:all": "EVALS=1 EVALS_ALL=1 bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts",
     "test:e2e": "EVALS=1 bun test test/skill-e2e.test.ts",
     "test:e2e:all": "EVALS=1 EVALS_ALL=1 bun test test/skill-e2e.test.ts",
+    "test:llm-eval": "EVALS=1 CODEX_JUDGE_MODEL=gpt-5.4-mini bun test test/skill-llm-eval.test.ts",
+    "test:evals": "EVALS=1 CODEX_JUDGE_MODEL=gpt-5.4-mini bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts",
+    "test:evals:all": "EVALS=1 EVALS_ALL=1 CODEX_JUDGE_MODEL=gpt-5.4-mini bun test test/skill-llm-eval.test.ts test/skill-e2e.test.ts",
+    "test:smoke": "bun test test/codex-migration.test.ts test/gen-skill-docs.test.ts test/skill-validation.test.ts",
+    "test:exec": "EVALS=1 bun test test/skill-exec-smoke.test.ts",
     "skill:check": "bun run scripts/skill-check.ts",
     "dev:skill": "bun run scripts/dev-skill.ts",
     "start": "bun run browse/src/server.ts",
@@ -39,11 +43,12 @@
     "playwright",
     "headless",
     "cli",
-    "claude",
+    "codex",
+    "skills",
     "ai-agent",
     "devtools"
   ],
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.78.0"
+    "@openai/codex": "^0.115.0"
   }
 }

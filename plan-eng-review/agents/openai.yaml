@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Eng Review"
+  short_description: "Review a plan for architecture, implementation risk, and test completeness."
+  default_prompt: "Review the plan from an engineering angle, tighten scope, and call out missing implementation and test details."

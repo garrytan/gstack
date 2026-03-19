@@ -538,7 +538,7 @@ describe('v0.4.1 preamble features', () => {
     test(`${skill} contains RECOMMENDATION format`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
       expect(content).toContain('RECOMMENDATION: Choose');
-      expect(content).toContain('AskUserQuestion');
+      expect(content).toContain('User Decision Format');
     });
 
     test(`${skill} contains session awareness`, () => {
@@ -663,7 +663,7 @@ describe('Completeness Principle in generated SKILL.md files', () => {
 
   test('Completeness Principle includes compression table', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('CC+gstack');
+    expect(content).toContain('Codex + gstack');
     expect(content).toContain('Compression');
   });
 
@@ -812,7 +812,7 @@ describe('Test Bootstrap ({{TEST_BOOTSTRAP}}) integration', () => {
     const content = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Test Framework Bootstrap');
     expect(content).toContain('TESTING.md');
-    expect(content).toContain('CLAUDE.md');
+    expect(content).toContain('AGENTS.md');
   });
 
   test('TEST_BOOTSTRAP appears in ship/SKILL.md', () => {
@@ -863,7 +863,7 @@ describe('Test Bootstrap ({{TEST_BOOTSTRAP}}) integration', () => {
     expect(content).toContain('100% test coverage');
   });
 
-  test('WebSearch is in allowed-tools for qa, ship, design-review', () => {
+  test('WebSearch guidance remains present for qa, ship, design-review', () => {
     const qa = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
     const ship = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     const qaDesign = fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md'), 'utf-8');
@@ -982,12 +982,13 @@ describe('Retro test health tracking', () => {
     expect(content).toContain('# 10. Test file count');
     expect(content).toContain('# 11. Regression test commits');
     expect(content).toContain('# 12. Test files changed');
+    expect(content).toContain('# 13. Newly added test files');
   });
 
   test('retro/SKILL.md has Test Health metrics row', () => {
     const content = fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Test Health');
-    expect(content).toContain('regression tests');
+    expect(content).toContain('regression test commits');
   });
 
   test('retro/SKILL.md has Test Health narrative section', () => {

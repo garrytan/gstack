@@ -7,15 +7,6 @@ description: |
   in source code, committing each fix atomically and re-verifying with before/after
   screenshots. For plan-mode design review (before implementation), use /plan-design-review.
   Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - AskUserQuestion
-  - WebSearch
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -23,20 +14,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -50,13 +41,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -66,11 +57,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -163,8 +154,8 @@ fi
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.codex/skills/gstack-codex/browse/dist/browse" ] && B="$_ROOT/.codex/skills/gstack-codex/browse/dist/browse"
+[ -z "$B" ] && B=~/.codex/skills/gstack-codex/browse/dist/browse
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -173,8 +164,8 @@ fi
 ```
 
 If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then pause for confirmation.
+2. Run: `./setup` from the gstack-codex bundle root
 3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
 
 **Check test framework (bootstrap if needed):**
@@ -209,7 +200,7 @@ Store conventions as prose context for use in Phase 8e.5 or Step 3.4. **Skip the
 
 **If BOOTSTRAP_DECLINED** appears: Print "Test bootstrap previously declined — skipping." **Skip the rest of bootstrap.**
 
-**If NO runtime detected** (no config files found): Use AskUserQuestion:
+**If NO runtime detected** (no config files found): pause and ask the user:
 "I couldn't detect your project's language. What runtime are you using?"
 Options: A) Node.js/TypeScript B) Ruby/Rails C) Python D) Go E) Rust F) PHP G) Elixir H) This project doesn't need tests.
 If user picks H → write `.gstack/no-test-bootstrap` and continue without tests.
@@ -237,7 +228,7 @@ If WebSearch is unavailable, use this built-in knowledge table:
 
 ### B3. Framework selection
 
-Use AskUserQuestion:
+Pause and ask the user:
 "I detected this is a [Runtime/Framework] project with no test framework. I researched current best practices. Here are the options:
 A) [Primary] — [rationale]. Includes: [packages]. Supports: unit, integration, smoke, e2e
 B) [Alternative] — [rationale]. Includes: [packages]
@@ -306,9 +297,9 @@ Write TESTING.md with:
 - Test layers: Unit tests (what, where, when), Integration tests, Smoke tests, E2E tests
 - Conventions: file naming, assertion style, setup/teardown patterns
 
-### B7. Update CLAUDE.md
+### B7. Update AGENTS.md
 
-First check: If CLAUDE.md already has a `## Testing` section → skip. Don't duplicate.
+First check: If AGENTS.md already has a `## Testing` section → skip. Don't duplicate.
 
 Append a `## Testing` section:
 - Run command and test directory
@@ -327,7 +318,7 @@ Append a `## Testing` section:
 git status --porcelain
 ```
 
-Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, AGENTS.md, .github/workflows/test.yml if created):
 `git commit -m "chore: bootstrap test framework ({framework name})"`
 
 ---
@@ -431,7 +422,7 @@ After the first navigation, check if the URL changed to a login-like path:
 ```bash
 $B url
 ```
-If URL contains `/login`, `/signin`, `/auth`, or `/sso`: the site requires authentication. AskUserQuestion: "This site requires authentication. Want to import cookies from your browser? Run `/setup-browser-cookies` first if needed."
+If URL contains `/login`, `/signin`, `/auth`, or `/sso`: the site requires authentication. Pause and ask the user: "This site requires authentication. Want to import cookies from your browser? Run `/setup-browser-cookies` first if needed."
 
 ### Design Audit Checklist (10 categories, ~80 items)
 
@@ -592,7 +583,7 @@ Compare screenshots and observations across pages for:
 
 **Project-scoped:**
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 ```
 Write to: `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
@@ -811,7 +802,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:**
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`

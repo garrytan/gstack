@@ -7,13 +7,6 @@ description: |
   then fixes the plan to get there. Works in plan mode. For live site
   visual audits, use /design-review. Use when asked to "review the design plan"
   or "design critique".
-allowed-tools:
-  - Read
-  - Edit
-  - Grep
-  - Glob
-  - Bash
-  - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -21,20 +14,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -48,13 +41,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -64,11 +57,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -208,7 +201,7 @@ git diff <base> --stat
 
 Then read:
 - The plan file (current plan or branch diff)
-- CLAUDE.md — project conventions
+- AGENTS.md — project conventions
 - DESIGN.md — if it exists, ALL design decisions calibrate against it
 - TODOS.md — any design-related TODOs this plan touches
 
@@ -243,7 +236,7 @@ Explain what a 10 looks like for THIS plan.
 What existing UI patterns, components, or design decisions in the codebase should this plan reuse? Don't reinvent what already works.
 
 ### 0D. Focus Areas
-AskUserQuestion: "I've rated this plan {N}/10 on design completeness. The biggest gaps are {X, Y, Z}. Want me to review all 7 dimensions, or focus on specific areas?"
+pause for user input: "I've rated this plan {N}/10 on design completeness. The biggest gaps are {X, Y, Z}. Want me to review all 7 dimensions, or focus on specific areas?"
 
 **STOP.** Do NOT proceed until user responds.
 
@@ -256,7 +249,7 @@ Pattern:
 2. Gap: "It's a 4 because the plan doesn't define content hierarchy. A 10 would have clear primary/secondary/tertiary for every screen."
 3. Fix: Edit the plan to add what's missing
 4. Re-rate: "Now 8/10 — still missing mobile nav hierarchy"
-5. AskUserQuestion if there's a genuine design choice to resolve
+5. pause for user input if there's a genuine design choice to resolve
 6. Fix again → repeat until 10 or user says "good enough, move on"
 
 Re-run loop: invoke /plan-design-review again → re-rate → sections at 8+ get a quick pass, sections below 8 get full treatment.
@@ -266,7 +259,7 @@ Re-run loop: invoke /plan-design-review again → re-rate → sections at 8+ get
 ### Pass 1: Information Architecture
 Rate 0-10: Does the plan define what the user sees first, second, third?
 FIX TO 10: Add information hierarchy to the plan. Include ASCII diagram of screen/page structure and navigation flow. Apply "constraint worship" — if you can only show 3 things, which 3?
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues, say so and move on. Do NOT proceed until user responds.
+**STOP.** pause for user input once per issue. Do NOT batch. Recommend + WHY. If no issues, say so and move on. Do NOT proceed until user responds.
 
 ### Pass 2: Interaction State Coverage
 Rate 0-10: Does the plan specify loading, empty, error, success, partial states?
@@ -278,7 +271,7 @@ FIX TO 10: Add interaction state table to the plan:
 ```
 For each state: describe what the user SEES, not backend behavior.
 Empty states are features — specify warmth, primary action, context.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
+**STOP.** pause for user input once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 3: User Journey & Emotional Arc
 Rate 0-10: Does the plan consider the user's emotional experience?
@@ -290,7 +283,7 @@ FIX TO 10: Add user journey storyboard:
   ...
 ```
 Apply time-horizon design: 5-sec visceral, 5-min behavioral, 5-year reflective.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
+**STOP.** pause for user input once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 4: AI Slop Risk
 Rate 0-10: Does the plan describe specific, intentional UI — or generic patterns?
@@ -299,18 +292,18 @@ FIX TO 10: Rewrite vague UI descriptions with specific alternatives.
 - "Hero section" → what makes this hero feel like THIS product?
 - "Clean, modern UI" → meaningless. Replace with actual design decisions.
 - "Dashboard with widgets" → what makes this NOT every other dashboard?
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
+**STOP.** pause for user input once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 5: Design System Alignment
 Rate 0-10: Does the plan align with DESIGN.md?
 FIX TO 10: If DESIGN.md exists, annotate with specific tokens/components. If no DESIGN.md, flag the gap and recommend `/design-consultation`.
 Flag any new component — does it fit the existing vocabulary?
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
+**STOP.** pause for user input once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 6: Responsive & Accessibility
 Rate 0-10: Does the plan specify mobile/tablet, keyboard nav, screen readers?
 FIX TO 10: Add responsive specs per viewport — not "stacked on mobile" but intentional layout changes. Add a11y: keyboard nav patterns, ARIA landmarks, touch target sizes (44px min), color contrast requirements.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
+**STOP.** pause for user input once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 7: Unresolved Design Decisions
 Surface ambiguities that will haunt implementation:
@@ -321,16 +314,16 @@ Surface ambiguities that will haunt implementation:
   Mobile nav pattern?          | Desktop nav hides behind hamburger
   ...
 ```
-Each decision = one AskUserQuestion with recommendation + WHY + alternatives. Edit the plan with each decision as it's made.
+Each decision = one pause for user input with recommendation + WHY + alternatives. Edit the plan with each decision as it's made.
 
 ## CRITICAL RULE — How to ask questions
-Follow the AskUserQuestion format from the Preamble above. Additional rules for plan design reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
+Follow the pause for user input format from the Preamble above. Additional rules for plan design reviews:
+* **One issue = one plain-text user question.** Never combine multiple issues into one question.
 * Describe the design gap concretely — what's missing, what the user will experience if it's not specified.
 * Present 2-3 options. For each: effort to specify now, risk if deferred.
 * **Map to Design Principles above.** One sentence connecting your recommendation to a specific principle.
 * Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch:** If a section has no issues, say so and move on. If a gap has an obvious fix, state what you'll add and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine design choice with meaningful tradeoffs.
+* **Escape hatch:** If a section has no issues, say so and move on. If a gap has an obvious fix, state what you'll add and move on — don't waste a question on it. Only use pause for user input when there is a genuine design choice with meaningful tradeoffs.
 
 ## Required Outputs
 
@@ -341,7 +334,7 @@ Design decisions considered and explicitly deferred, with one-line rationale eac
 Existing DESIGN.md, UI patterns, and components that the plan should reuse.
 
 ### TODOS.md updates
-After all review passes are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step.
+After all review passes are complete, present each potential TODO as its own individual pause for user input. Never batch TODOs — one per question. Never silently skip this step.
 
 For design debt: missing a11y, unresolved responsive behavior, deferred empty states. Each TODO gets:
 * **What:** One-line description of the work.
@@ -381,14 +374,14 @@ If all passes 8+: "Plan is design-complete. Run /design-review after implementat
 If any below 8: note what's unresolved and why (user chose to defer).
 
 ### Unresolved Decisions
-If any AskUserQuestion goes unanswered, note it here. Never silently default to an option.
+If any pause for user input goes unanswered, note it here. Never silently default to an option.
 
 ## Review Log
 
 After producing the Completion Summary above, persist the review result:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 echo '{"skill":"plan-design-review","timestamp":"TIMESTAMP","status":"STATUS","overall_score":N,"unresolved":N,"decisions_made":N}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
 ```
@@ -405,10 +398,10 @@ Substitute values from the Completion Summary:
 After completing the review, read the review log and config to display the dashboard.
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 cat ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_REVIEWS"
 echo "---CONFIG---"
-~/.claude/skills/gstack/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
+~/.codex/skills/gstack-codex/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
 ```
 
 Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite). Ignore entries with timestamps older than 7 days. For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:

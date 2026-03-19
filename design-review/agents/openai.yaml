@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Review"
+  short_description: "Audit the rendered product for design quality, UX, and polish."
+  default_prompt: "Run the design review workflow, audit the experience visually, and recommend the highest-leverage improvements."

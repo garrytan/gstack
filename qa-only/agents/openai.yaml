@@ -1,0 +1,4 @@
+interface:
+  display_name: "QA Only"
+  short_description: "Run report-only QA without making code changes."
+  default_prompt: "Run the report-only gstack-codex QA workflow and return a clear bug report without changing code."

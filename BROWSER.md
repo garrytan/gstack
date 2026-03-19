@@ -11,7 +11,7 @@ This document covers the command reference and internals of gstack's headless br
 | Snapshot | `snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o] [-C]` | Get refs, diff, annotate |
 | Interact | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport`, `upload` | Use the page |
 | Inspect | `js`, `eval`, `css`, `attrs`, `is`, `console`, `network`, `dialog`, `cookies`, `storage`, `perf` | Debug and verify |
-| Visual | `screenshot [--viewport] [--clip x,y,w,h] [sel\|@ref] [path]`, `pdf`, `responsive` | See what Claude sees |
+| Visual | `screenshot [--viewport] [--clip x,y,w,h] [sel\|@ref] [path]`, `pdf`, `responsive` | Capture visual evidence |
 | Compare | `diff <url1> <url2>` | Spot differences between environments |
 | Dialogs | `dialog-accept [text]`, `dialog-dismiss` | Control alert/confirm/prompt handling |
 | Tabs | `tabs`, `tab`, `newtab`, `closetab` | Multi-page workflows |
@@ -26,7 +26,7 @@ gstack's browser is a compiled CLI binary that talks to a persistent local Chrom
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Claude Code                                                    │
+│  Codex                                                    │
 │                                                                 │
 │  "browse goto https://staging.myapp.com"                        │
 │       │                                                         │
@@ -175,7 +175,7 @@ MCP (Model Context Protocol) works well for remote services, but for local brows
 
 - **Context bloat**: every MCP call includes full JSON schemas and protocol framing. A simple "get the page text" costs 10x more context tokens than it should.
 - **Connection fragility**: persistent WebSocket/stdio connections drop and fail to reconnect.
-- **Unnecessary abstraction**: Claude Code already has a Bash tool. A CLI that prints to stdout is the simplest possible interface.
+- **Unnecessary abstraction**: Codex already has a Bash tool. A CLI that prints to stdout is the simplest possible interface.
 
 gstack skips all of this. Compiled binary. Plain text in, plain text out. No protocol. No schema. No connection management.
 
@@ -241,13 +241,13 @@ Tests spin up a local HTTP server (`browse/test/test-server.ts`) serving HTML fi
 
 ### Deploying to the active skill
 
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
+The active skill lives at `~/.codex/skills/gstack-codex/`. After making changes:
 
 1. Push your branch
-2. Pull in the skill directory: `cd ~/.claude/skills/gstack && git pull`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
+2. Pull in the skill directory: `cd ~/.codex/skills/gstack-codex && git pull`
+3. Rebuild: `cd ~/.codex/skills/gstack-codex && bun run build`
 
-Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+Or copy the binary directly: `cp browse/dist/browse ~/.codex/skills/gstack-codex/browse/dist/browse`
 
 ### Adding a new command
 

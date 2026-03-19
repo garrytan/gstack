@@ -5,14 +5,6 @@ description: |
   Pre-landing PR review. Analyzes diff against the base branch for SQL safety, LLM trust
   boundary violations, conditional side effects, and other structural issues. Use when
   asked to "review this PR", "code review", "pre-landing review", or "check my diff".
-allowed-tools:
-  - Bash
-  - Read
-  - Edit
-  - Write
-  - Grep
-  - Glob
-  - AskUserQuestion
 ---
 
 {{PREAMBLE}}
@@ -35,7 +27,7 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 ## Step 2: Read the checklist
 
-Read `.claude/skills/review/checklist.md`.
+Read `../review/checklist.md`.
 
 **If the file cannot be read, STOP and report the error.** Do not proceed without the checklist.
 
@@ -43,7 +35,8 @@ Read `.claude/skills/review/checklist.md`.
 
 ## Step 2.5: Check for Greptile review comments
 
-Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+Read `../review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+That shared reference is the source of truth for Greptile storage: derive `REMOTE_SLUG`, then write outcomes to both `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` and `~/.gstack/greptile-history.md`. Do not invent a third history path.
 
 **If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
 
@@ -103,7 +96,7 @@ Apply each fix directly. For each one, output a one-line summary:
 
 ### Step 5c: Batch-ask about ASK items
 
-If there are ASK items remaining, present them in ONE AskUserQuestion:
+If there are ASK items remaining, present them in ONE pause for user input:
 
 - List each item with a number, the severity label, the problem, and a recommended fix
 - For each item, provide options: A) Fix as recommended, B) Skip
@@ -124,7 +117,7 @@ I auto-fixed 5 issues. 2 need your input:
 RECOMMENDATION: Fix both — #1 is a real race condition, #2 prevents silent data corruption.
 ```
 
-If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead of batching.
+If 3 or fewer ASK items, you may use individual pause for user input calls instead of batching.
 
 ### Step 5d: Apply user-approved fixes
 
@@ -142,7 +135,7 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
 1. **VALID & ACTIONABLE comments:** These are included in your findings — they follow the Fix-First flow (auto-fixed if mechanical, batched into ASK if not) (A: Fix it now, B: Acknowledge, C: False positive). If the user chooses A (fix), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation). If the user chooses C (false positive), reply using the **False Positive reply template** (include evidence + suggested re-rank), save to both per-project and global greptile-history.
 
-2. **FALSE POSITIVE comments:** Present each one via AskUserQuestion:
+2. **FALSE POSITIVE comments:** Present each one via pause for user input:
    - Show the Greptile comment: file:line (or [top-level]) + body summary + permalink URL
    - Explain concisely why it's a false positive
    - Options:
@@ -152,11 +145,13 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
    If the user chooses A, reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history.
 
-3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no user question needed:
    - Include what was done and the fixing commit SHA
    - Save to both per-project and global greptile-history
 
-4. **SUPPRESSED comments:** Skip silently — these are known false positives from previous triage.
+For every new Greptile outcome that greptile-triage.md tells you to persist, the write contract is the same: append once to `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` and once to `~/.gstack/greptile-history.md` via greptile-triage.md.
+
+4. **SUPPRESSED comments:** Skip silently — these are known false positives from previous triage. They were already written to history when they were first triaged, so do not append duplicate history entries.
 
 ---
 
@@ -174,7 +169,7 @@ If TODOS.md doesn't exist, skip this step silently.
 
 ## Step 5.6: Documentation staleness check
 
-Cross-reference the diff against documentation files. For each `.md` file in the repo root (README.md, ARCHITECTURE.md, CONTRIBUTING.md, CLAUDE.md, etc.):
+Cross-reference the diff against documentation files. For each `.md` file in the repo root (README.md, ARCHITECTURE.md, CONTRIBUTING.md, AGENTS.md, etc.):
 
 1. Check if code changes in the diff affect features, components, or workflows described in that doc file.
 2. If the doc file was NOT updated in this branch but the code it describes WAS changed, flag it as an INFORMATIONAL finding:

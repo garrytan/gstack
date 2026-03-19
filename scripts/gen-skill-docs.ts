@@ -98,20 +98,20 @@ function generatePreamble(): string {
   return `## Preamble (run first)
 
 \`\`\`bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 \`\`\`
 
-If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`~/.claude/skills/gstack/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If \`JUST_UPGRADED <from> <to>\`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`gstack-upgrade/SKILL.md\` from the gstack-codex bundle and follow the inline upgrade flow. If \`JUST_UPGRADED <from> <to>\`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If \`LAKE_INTRO\` is \`no\`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -125,13 +125,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run \`open\` if the user says yes. Always run \`touch\` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the \`_BRANCH\` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** \`RECOMMENDATION: Choose [X] because [one-line reason]\` — always prefer the complete option over shortcuts (see Completeness Principle). Include \`Completeness: X/10\` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: \`A) ... B) ... C) ...\` — when an option involves effort, show both scales: \`(human: ~X / CC: ~Y)\`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the \`_BRANCH\` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** \`RECOMMENDATION: Choose [X] because [one-line reason]\`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include \`Completeness: X/10\` for each option.
+4. **Options:** Lettered options: \`A) ... B) ... C) ...\`. When an option involves effort, show both scales: \`(human: ~X / Codex: ~Y)\`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -141,11 +141,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
 - **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -206,8 +206,8 @@ function generateBrowseSetup(): string {
 \`\`\`bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.codex/skills/gstack-codex/browse/dist/browse" ] && B="$_ROOT/.codex/skills/gstack-codex/browse/dist/browse"
+[ -z "$B" ] && B=~/.codex/skills/gstack-codex/browse/dist/browse
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -216,8 +216,8 @@ fi
 \`\`\`
 
 If \`NEEDS_SETUP\`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: \`cd <SKILL_DIR> && ./setup\`
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then pause for confirmation.
+2. Run: \`./setup\` from the gstack-codex bundle root
 3. If \`bun\` is not installed: \`curl -fsSL https://bun.sh/install | bash\``;
 }
 
@@ -302,6 +302,24 @@ Run full mode, then load \`baseline.json\` from a previous run. Diff: which issu
 
 ## Workflow
 
+Before Phase 1, keep these outputs in sync for the entire run:
+
+- \`qa-report-*.md\`: the primary report, updated as soon as each issue is found or fixed
+- \`screenshots/\`: evidence for every issue and every verified fix
+- \`baseline.json\`: the machine-readable score + issue summary written during wrap-up
+- A running issue list with severity, repro steps, evidence paths, and fix status
+
+Every phase should leave behind a concrete artifact or decision:
+
+- Phase 1: initialized report directory, timer started, report template copied
+- Phase 2: authenticated session or an explicit block note (2FA/CAPTCHA/credential gap)
+- Phase 3: app map, initial screenshot, framework guess, top navigation inventory
+- Phase 4: pages visited list plus notes/screenshots for anything suspicious
+- Phase 5: each issue recorded immediately with severity, repro, and evidence
+- Phase 6: completed summary table, health score, baseline.json, and top-3 priorities
+
+If you cannot complete a phase, write the blocker into the report immediately and continue with the highest-value remaining work unless the workflow explicitly says to stop.
+
 ### Phase 1: Initialize
 
 1. Find browse binary (see Setup above)
@@ -381,6 +399,11 @@ Then follow the **per-page exploration checklist** (see \`qa/references/issue-ta
 
 **Quick mode:** Only visit homepage + top 5 navigation targets from the Orient phase. Skip the per-page checklist — just check: loads? Console errors? Broken links visible?
 
+**Stop conditions for Phase 4:** move on when one of these is true:
+- you have covered the requested scope
+- every high-traffic/core path in scope has been exercised once
+- a blocking auth/environment issue prevents deeper testing and has been documented
+
 ### Phase 5: Document
 
 Document each issue **immediately when found** — don't batch them.
@@ -435,16 +458,37 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 - New issues (in current but not baseline)
 - Append the regression section to the report
 
+At the end of the workflow, the agent should be able to hand the user three deliverables without extra work:
+- a readable QA report
+- a machine-readable baseline file
+- a prioritized list of what to fix next
+
 ---
 
 ## Health Score Rubric
 
-Compute each category score (0-100), then take the weighted average.
+Compute each category score (0-100), then compute the weighted average.
+
+Scoring rules:
+- A **finding** is one distinct, reproducible defect. Do not double-count the same defect across multiple categories.
+- If multiple severities could apply, use the highest severity that clearly matches the user impact.
+- Convert percentages to decimals when calculating the final score (\`15%\` → \`0.15\`).
+- Round the final score to the nearest whole number.
+- If one defect spans multiple categories, score it once in the category that best matches the primary user harm.
+- Count repeated identical console errors as one finding per unique root cause per page load. Count a new console finding only when the message or stack trace meaningfully differs.
+
+Category tie-breakers:
+- **Visual**: layout, spacing, clipping, overlap, missing images, incorrect styling
+- **Functional**: broken buttons, disabled actions, bad state transitions, failed submissions, wrong behavior
+- **UX**: confusing flows, misleading labels, missing feedback, poor navigation cues
+- **Content**: stale copy, typos, incorrect text/data presentation that is not caused by business logic
+- **Performance**: slow responses, jank, long spinners, unnecessary heavy work
+- **Accessibility**: keyboard traps, missing labels, focus issues, semantics, screen-reader failures
 
 ### Console (weight: 15%)
 - 0 errors → 100
 - 1-3 errors → 70
-- 4-10 errors → 40
+- 4-9 errors → 40
 - 10+ errors → 10
 
 ### Links (weight: 10%)
@@ -472,7 +516,7 @@ Minimum 0 per category.
 | Accessibility | 15% |
 
 ### Final Score
-\`score = Σ (category_score × weight)\`
+\`score = round((console × 0.15) + (links × 0.10) + (visual × 0.10) + (functional × 0.20) + (ux × 0.15) + (performance × 0.10) + (content × 0.05) + (accessibility × 0.15))\`
 
 ---
 
@@ -525,7 +569,7 @@ function generateDesignReviewLite(): string {
 Check if the diff touches frontend files using \`gstack-diff-scope\`:
 
 \`\`\`bash
-eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-diff-scope <base> 2>/dev/null)
 \`\`\`
 
 **If \`SCOPE_FRONTEND=false\`:** Skip design review silently. No output.
@@ -534,7 +578,7 @@ eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 
 1. **Check for DESIGN.md.** If \`DESIGN.md\` or \`design-system.md\` exists in the repo root, read it. All design findings are calibrated against it — patterns blessed in DESIGN.md are not flagged. If not found, use universal design principles.
 
-2. **Read \`.claude/skills/review/design-checklist.md\`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
+2. **Read \`../review/design-checklist.md\`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
 
 3. **Read each changed frontend file** (full file, not just diff hunks). Frontend files are identified by the patterns listed in the checklist.
 
@@ -548,7 +592,7 @@ eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 6. **Log the result** for the Review Readiness Dashboard:
 
 \`\`\`bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 echo '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
 \`\`\`
@@ -647,7 +691,7 @@ After the first navigation, check if the URL changed to a login-like path:
 \`\`\`bash
 $B url
 \`\`\`
-If URL contains \`/login\`, \`/signin\`, \`/auth\`, or \`/sso\`: the site requires authentication. AskUserQuestion: "This site requires authentication. Want to import cookies from your browser? Run \`/setup-browser-cookies\` first if needed."
+If URL contains \`/login\`, \`/signin\`, \`/auth\`, or \`/sso\`: the site requires authentication. Pause and ask the user: "This site requires authentication. Want to import cookies from your browser? Run \`/setup-browser-cookies\` first if needed."
 
 ### Design Audit Checklist (10 categories, ~80 items)
 
@@ -808,7 +852,7 @@ Compare screenshots and observations across pages for:
 
 **Project-scoped:**
 \`\`\`bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 \`\`\`
 Write to: \`~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md\`
@@ -898,10 +942,10 @@ function generateReviewDashboard(): string {
 After completing the review, read the review log and config to display the dashboard.
 
 \`\`\`bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 cat ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_REVIEWS"
 echo "---CONFIG---"
-~/.claude/skills/gstack/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
+~/.codex/skills/gstack-codex/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
 \`\`\`
 
 Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite). Ignore entries with timestamps older than 7 days. For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
@@ -963,7 +1007,7 @@ Store conventions as prose context for use in Phase 8e.5 or Step 3.4. **Skip the
 
 **If BOOTSTRAP_DECLINED** appears: Print "Test bootstrap previously declined — skipping." **Skip the rest of bootstrap.**
 
-**If NO runtime detected** (no config files found): Use AskUserQuestion:
+**If NO runtime detected** (no config files found): pause and ask the user:
 "I couldn't detect your project's language. What runtime are you using?"
 Options: A) Node.js/TypeScript B) Ruby/Rails C) Python D) Go E) Rust F) PHP G) Elixir H) This project doesn't need tests.
 If user picks H → write \`.gstack/no-test-bootstrap\` and continue without tests.
@@ -991,7 +1035,7 @@ If WebSearch is unavailable, use this built-in knowledge table:
 
 ### B3. Framework selection
 
-Use AskUserQuestion:
+Pause and ask the user:
 "I detected this is a [Runtime/Framework] project with no test framework. I researched current best practices. Here are the options:
 A) [Primary] — [rationale]. Includes: [packages]. Supports: unit, integration, smoke, e2e
 B) [Alternative] — [rationale]. Includes: [packages]
@@ -1060,9 +1104,9 @@ Write TESTING.md with:
 - Test layers: Unit tests (what, where, when), Integration tests, Smoke tests, E2E tests
 - Conventions: file naming, assertion style, setup/teardown patterns
 
-### B7. Update CLAUDE.md
+### B7. Update AGENTS.md
 
-First check: If CLAUDE.md already has a \`## Testing\` section → skip. Don't duplicate.
+First check: If AGENTS.md already has a \`## Testing\` section → skip. Don't duplicate.
 
 Append a \`## Testing\` section:
 - Run command and test directory
@@ -1081,7 +1125,7 @@ Append a \`## Testing\` section:
 git status --porcelain
 \`\`\`
 
-Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, AGENTS.md, .github/workflows/test.yml if created):
 \`git commit -m "chore: bootstrap test framework ({framework name})"\`
 
 ---`;
@@ -1104,6 +1148,25 @@ const RESOLVERS: Record<string, () => string> = {
 
 const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n`;
 
+function cleanupForCodex(content: string): string {
+  let next = content;
+  const legacySkillsDir = ['.', 'claude', '/skills'].join('');
+  const legacyInstructionsFile = ['CLAUDE', '.md'].join('');
+  const legacyQuestionTool = ['Ask', 'User', 'Question'].join('');
+  const legacyBrowserTool = ['mcp__', 'claude-in-chrome', '__*'].join('');
+
+  next = next.replace(/\nallowed-tools:\n(?:  - .+\n)+/g, '\n');
+  next = next.replace(new RegExp(legacyQuestionTool, 'g'), 'ask the user in plain text');
+  next = next.replace(new RegExp(legacyBrowserTool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), 'other browser MCP tools');
+  next = next.replace(new RegExp(`${legacySkillsDir.replace('.', '\\.')}/review/`, 'g'), '../review/');
+  next = next.replace(new RegExp(`~/${legacySkillsDir.replace('.', '\\.')}/gstack/bin/`, 'g'), '~/.codex/skills/gstack-codex/bin/');
+  next = next.replace(new RegExp(`${legacySkillsDir.replace('.', '\\.')}/gstack/bin/`, 'g'), '.codex/skills/gstack-codex/bin/');
+  next = next.replace(new RegExp(legacyInstructionsFile.replace('.', '\\.'), 'g'), 'AGENTS.md');
+  next = next.replace(/CC\+gstack/g, 'Codex + gstack');
+
+  return next;
+}
+
 function processTemplate(tmplPath: string): { outputPath: string; content: string } {
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
   const relTmplPath = path.relative(ROOT, tmplPath);
@@ -1121,6 +1184,8 @@ function processTemplate(tmplPath: string): { outputPath: string; content: strin
   if (remaining) {
     throw new Error(`Unresolved placeholders in ${relTmplPath}: ${remaining.join(', ')}`);
   }
+
+  content = cleanupForCodex(content);
 
   // Prepend generated header (after frontmatter)
   const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath));

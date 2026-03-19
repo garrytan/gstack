@@ -4,16 +4,16 @@
 
 ### Added
 
-- **Skills now discoverable via natural language.** All 12 skills that were missing explicit trigger phrases now have them — say "deploy this" and Claude finds `/ship`, say "check my diff" and it finds `/review`. Following Anthropic's best practice: "the description field is not a summary — it's when to trigger."
+- **Skills now discoverable via natural language.** All 12 skills that were missing explicit trigger phrases now have them — say "deploy this" and Codex finds `/ship`, say "check my diff" and it finds `/review`. Following Codex's best practice: "the description field is not a summary — it's when to trigger."
 
 ## [0.6.4.0] - 2026-03-17
 
 ### Added
 
-- **`/plan-design-review` is now interactive — rates 0-10, fixes the plan.** Instead of producing a report with letter grades, the designer now works like CEO and Eng review: rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. One AskUserQuestion per design choice. The output is a better plan, not a document about the plan.
+- **`/plan-design-review` is now interactive — rates 0-10, fixes the plan.** Instead of producing a report with letter grades, the designer now works like CEO and Eng review: rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. One ask the user directly per design choice. The output is a better plan, not a document about the plan.
 - **CEO review now calls in the designer.** When `/plan-ceo-review` detects UI scope in a plan, it activates a Design & UX section (Section 11) covering information architecture, interaction state coverage, AI slop risk, and responsive intention. For deep design work, it recommends `/plan-design-review`.
 - **14 of 15 skills now have full test coverage (E2E + LLM-judge + validation).** Added LLM-judge quality evals for 10 skills that were missing them: ship, retro, qa-only, plan-ceo-review, plan-eng-review, plan-design-review, design-review, design-consultation, document-release, gstack-upgrade. Added real E2E test for gstack-upgrade (was a `.todo`). Added design-consultation to command validation.
-- **Bisect commit style.** CLAUDE.md now requires every commit to be a single logical change — renames separate from rewrites, test infrastructure separate from test implementations.
+- **Bisect commit style.** AGENTS.md now requires every commit to be a single logical change — renames separate from rewrites, test infrastructure separate from test implementations.
 
 ### Changed
 
@@ -56,7 +56,7 @@ because it's 90% of the value" when option A is 70 lines more code.
 
 Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
-- **Completeness scoring**: every AskUserQuestion option now shows a completeness
+- **Completeness scoring**: every ask the user directly option now shows a completeness
   score (1-10), biasing toward the complete solution
 - **Dual time estimates**: effort estimates show both human-team and CC+gstack time
   (e.g., "human: ~2 weeks / CC: ~1 hour") with a task-type compression reference table
@@ -83,7 +83,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
 ## 0.6.0 — 2026-03-17
 
-- **100% test coverage is the key to great vibe coding.** gstack now bootstraps test frameworks from scratch when your project doesn't have one. Detects your runtime, researches the best framework, asks you to pick, installs it, writes 3-5 real tests for your actual code, sets up CI/CD (GitHub Actions), creates TESTING.md, and adds test culture instructions to CLAUDE.md. Every Claude Code session after that writes tests naturally.
+- **100% test coverage is the key to great vibe coding.** gstack now bootstraps test frameworks from scratch when your project doesn't have one. Detects your runtime, researches the best framework, asks you to pick, installs it, writes 3-5 real tests for your actual code, sets up CI/CD (GitHub Actions), creates TESTING.md, and adds test culture instructions to AGENTS.md. Every Codex session after that writes tests naturally.
 - **Every bug fix now gets a regression test.** When `/qa` fixes a bug and verifies it, Phase 8e.5 automatically generates a regression test that catches the exact scenario that broke. Tests include full attribution tracing back to the QA report. Auto-incrementing filenames prevent collisions across sessions.
 - **Ship with confidence — coverage audit shows what's tested and what's not.** `/ship` Step 3.4 builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with quality stars (★★★ = edge cases + errors, ★★ = happy path, ★ = smoke test). Gaps get tests auto-generated. PR body shows "Tests: 42 → 47 (+5 new)".
 - **Your retro tracks test health.** `/retro` now shows total test files, tests added this period, regression test commits, and trend deltas. If test ratio drops below 20%, it flags it as a growth area.
@@ -124,7 +124,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ### For contributors
 
 - Added SELECTIVE EXPANSION mode to `plan-ceo-review/SKILL.md.tmpl` with cherry-pick ceremony, neutral recommendation posture, and HOLD SCOPE baseline.
-- Rewrote EXPANSION mode's Step 0D to include opt-in ceremony — distill vision into discrete proposals, present each as AskUserQuestion.
+- Rewrote EXPANSION mode's Step 0D to include opt-in ceremony — distill vision into discrete proposals, present each as ask the user directly.
 - Added CEO plan persistence (0D-POST step): structured markdown with YAML frontmatter (`status: ACTIVE/ARCHIVED/PROMOTED`), scope decisions table, archival flow.
 - Added `docs/designs` promotion step after Review Log.
 - Mode Quick Reference table expanded to 4 columns.
@@ -156,12 +156,12 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - **Know your actual design system.** Both skills extract your live site's fonts, colors, heading scale, and spacing patterns via JS — then offer to save the inferred system as a `DESIGN.md` baseline. Finally know how many fonts you're actually using.
 - **AI Slop detection is a headline metric.** Every report opens with two scores: Design Score and AI Slop Score. The AI slop checklist catches the 10 most recognizable AI-generated patterns — the 3-column feature grid, purple gradients, decorative blobs, emoji bullets, generic hero copy.
 - **Design regression tracking.** Reports write a `design-baseline.json`. Next run auto-compares: per-category grade deltas, new findings, resolved findings. Watch your design score improve over time.
-- **80-item design audit checklist** across 10 categories: visual hierarchy, typography, color/contrast, spacing/layout, interaction states, responsive, motion, content/microcopy, AI slop, and performance-as-design. Distilled from Vercel's 100+ rules, Anthropic's frontend design skill, and 6 other design frameworks.
+- **80-item design audit checklist** across 10 categories: visual hierarchy, typography, color/contrast, spacing/layout, interaction states, responsive, motion, content/microcopy, AI slop, and performance-as-design. Distilled from Vercel's 100+ rules, Codex's frontend design skill, and 6 other design frameworks.
 
 ### For contributors
 
 - Added `{{DESIGN_METHODOLOGY}}` resolver to `gen-skill-docs.ts` — shared design audit methodology injected into both `/plan-design-review` and `/qa-design-review` templates, following the `{{QA_METHODOLOGY}}` pattern.
-- Added `~/.gstack-dev/plans/` as a local plans directory for long-range vision docs (not checked in). CLAUDE.md and TODOS.md updated.
+- Added `~/.gstack-dev/plans/` as a local plans directory for long-range vision docs (not checked in). AGENTS.md and TODOS.md updated.
 - Added `/setup-design-md` to TODOS.md (P2) for interactive DESIGN.md creation from scratch.
 
 ## 0.4.5 — 2026-03-16
@@ -204,7 +204,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
 ### For contributors
 
-- Merged ELI16 rules into base AskUserQuestion format — one format instead of two, no `_SESSIONS >= 3` conditional.
+- Merged ELI16 rules into base ask the user directly format — one format instead of two, no `_SESSIONS >= 3` conditional.
 - Added `_BRANCH` detection to preamble bash block (`git branch --show-current` with fallback).
 - Added regression guard tests for branch detection and simplification rules.
 
@@ -223,7 +223,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - Smart eval wrapping: single-line → expression `(...)`, multi-line → block `{...}` with explicit `return`.
 - 6 new async wrapping unit tests, 40 new contributor mode preamble validation tests.
 - Calibration example framed as historical ("used to fail") to avoid implying a live bug post-fix.
-- Added "Writing SKILL templates" section to CLAUDE.md — rules for natural language over bash-isms, dynamic branch detection, self-contained code blocks.
+- Added "Writing SKILL templates" section to AGENTS.md — rules for natural language over bash-isms, dynamic branch detection, self-contained code blocks.
 - Hardcoded-main regression test scans all `.tmpl` files for git commands with hardcoded `main`.
 - QA template cleaned up: removed `REPORT_DIR` shell variable, simplified port detection to prose.
 - gstack-upgrade template: explicit cross-step prose for variable references between bash blocks.
@@ -239,7 +239,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
 - Renamed `{{UPDATE_CHECK}}` to `{{PREAMBLE}}` across all 11 skill templates — one startup block now handles update check, session tracking, contributor mode, and question formatting.
 - DRY'd plan-ceo-review and plan-eng-review question formatting to reference the preamble baseline instead of duplicating rules.
-- Added CHANGELOG style guide and vendored symlink awareness docs to CLAUDE.md.
+- Added CHANGELOG style guide and vendored symlink awareness docs to AGENTS.md.
 
 ## 0.4.0 — 2026-03-16
 
@@ -317,12 +317,12 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - **Incremental eval saves** — `savePartial()` writes `_partial-e2e.json` after each test completes. Crash-resilient: partial results survive killed runs. Never cleaned up.
 - **Machine-readable diagnostics** — `exit_reason`, `timeout_at_turn`, `last_tool_call` fields in eval JSON. Enables `jq` queries for automated fix loops.
 - **API connectivity pre-check** — E2E suite throws immediately on ConnectionRefused before burning test budget.
-- **`is_error` detection** — `claude -p` can return `subtype: "success"` with `is_error: true` on API failures. Now correctly classified as `error_api`.
-- **Stream-json NDJSON parser** — `parseNDJSON()` pure function for real-time E2E progress from `claude -p --output-format stream-json --verbose`.
+- **`is_error` detection** — `codex exec --json` can still surface success-like metadata alongside API failures. The harness now classifies those runs as `error_api`.
+- **Streamed JSONL parser** — `parseNDJSON()` handles real-time E2E progress from `codex exec --json`.
 - **Eval persistence** — results saved to `~/.gstack-dev/evals/` with auto-comparison against previous run.
 - **Eval CLI tools** — `eval:list`, `eval:compare`, `eval:summary` for inspecting eval history.
 - **All 9 skills converted to `.tmpl` templates** — plan-ceo-review, plan-eng-review, retro, review, ship now use `{{UPDATE_CHECK}}` placeholder. Single source of truth for update check preamble.
-- **3-tier eval suite** — Tier 1: static validation (free), Tier 2: E2E via `claude -p` (~$3.85/run), Tier 3: LLM-as-judge (~$0.15/run). Gated by `EVALS=1`.
+- **3-tier eval suite** — Tier 1: static validation (free), Tier 2: E2E via `codex exec --json` (~$3.85/run), Tier 3: LLM-as-judge (~$0.15/run). Gated by `EVALS=1`.
 - **Planted-bug outcome testing** — eval fixtures with known bugs, LLM judge scores detection.
 - 15 observability unit tests covering heartbeat schema, progress.log format, NDJSON naming, savePartial, finalize, watcher rendering, stale detection, non-fatal I/O.
 - E2E tests for plan-ceo-review, plan-eng-review, retro skills.
@@ -350,7 +350,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - **Command registry** (`browse/src/commands.ts`) — single source of truth for all browse commands with categories and enriched descriptions. Zero side effects, safe to import from build scripts and tests.
 - **Snapshot flags metadata** (`SNAPSHOT_FLAGS` array in `browse/src/snapshot.ts`) — metadata-driven parser replaces hand-coded switch/case. Adding a flag in one place updates the parser, docs, and tests.
 - **Tier 1 static validation** — 43 tests: parses `$B` commands from SKILL.md code blocks, validates against command registry and snapshot flag metadata
-- **Tier 2 E2E tests** via Agent SDK — spawns real Claude sessions, runs skills, scans for browse errors. Gated by `SKILL_E2E=1` env var (~$0.50/run)
+- **Tier 2 E2E tests** via Agent SDK — spawns real Codex sessions, runs skills, scans for browse errors. Gated by `SKILL_E2E=1` env var (~$0.50/run)
 - **Tier 3 LLM-as-judge evals** — Haiku scores generated docs on clarity/completeness/actionability (threshold ≥4/5), plus regression test vs hand-maintained baseline. Gated by `ANTHROPIC_API_KEY`
 - **`bun run skill:check`** — health dashboard showing all skills, command counts, validation status, template freshness
 - **`bun run dev:skill`** — watch mode that regenerates and validates SKILL.md on every template or source file change
@@ -375,7 +375,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ### Fixed
 - Cookie import picker now returns JSON instead of HTML — `jsonResponse()` referenced `url` out of scope, crashing every API call
 - `help` command routed correctly (was unreachable due to META_COMMANDS dispatch ordering)
-- Stale servers from global install no longer shadow local changes — removed legacy `~/.claude/skills/gstack` fallback from `resolveServerScript()`
+- Stale servers from global install no longer shadow local changes — removed legacy `~/.codex/skills/gstack-codex` fallback from `resolveServerScript()`
 - Crash log path references updated from `/tmp/` to `.gstack/`
 
 ### Added
@@ -393,7 +393,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - `.version` file written at build time for binary version tracking
 - Route-level tests for cookie picker (13 tests) and find-browse version check (10 tests)
 - Config resolution tests (14 tests) covering git root detection, BROWSE_STATE_FILE override, ensureStateDir, readVersionHash, resolveServerScript, and version mismatch detection
-- Browser interaction guidance in CLAUDE.md — prevents Claude from using mcp\_\_claude-in-chrome\_\_\* tools
+- Browser interaction guidance in AGENTS.md — prevents Codex from using non-project browser MCP tools
 - CONTRIBUTING.md with quick start, dev mode explanation, and instructions for testing branches in other repos
 
 ### Changed
@@ -410,7 +410,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ### Removed
 - `CONDUCTOR_PORT` magic offset (`browse_port = CONDUCTOR_PORT - 45600`)
 - Port scan range 9400-9409
-- Legacy fallback to `~/.claude/skills/gstack/browse/src/server.ts`
+- Legacy fallback to `~/.codex/skills/gstack-codex/browse/src/server.ts`
 - `DEVELOPING_GSTACK.md` (renamed to CONTRIBUTING.md)
 
 ## 0.3.1 — 2026-03-12
@@ -420,7 +420,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - `cookie-import-browser` command — decrypt and import cookies from real Chromium browsers (Comet, Chrome, Arc, Brave, Edge)
 - Interactive cookie picker web UI served from the browse server (dark theme, two-panel layout, domain search, import/remove)
 - Direct CLI import with `--domain` flag for non-interactive use
-- `/setup-browser-cookies` skill for Claude Code integration
+- `/setup-browser-cookies` skill for Codex integration
 - macOS Keychain access with async 10s timeout (no event loop blocking)
 - Per-browser AES key caching (one Keychain prompt per browser per session)
 - DB lock fallback: copies locked cookie DB to /tmp for safe reads
@@ -476,5 +476,5 @@ Initial release.
 
 - Five skills: `/plan-ceo-review`, `/plan-eng-review`, `/review`, `/ship`, `/browse`
 - Headless browser CLI with 40+ commands, ref-based interaction, persistent Chromium daemon
-- One-command install as Claude Code skills (submodule or global clone)
+- One-command install as Codex skills (submodule or global clone)
 - `setup` script for binary compilation and skill symlinking

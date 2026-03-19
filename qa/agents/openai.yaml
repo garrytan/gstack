@@ -1,0 +1,4 @@
+interface:
+  display_name: "QA"
+  short_description: "Run the QA workflow, fix bugs you find, and re-verify the result."
+  default_prompt: "Run the full gstack-codex QA workflow, fix issues found in scope, and verify each fix."

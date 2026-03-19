@@ -161,7 +161,7 @@ Most plans describe what the backend does but never specify what the user actual
 
 `/plan-design-review` catches all of this during planning, when it's cheap to fix.
 
-It works like `/plan-ceo-review` and `/plan-eng-review` — interactive, one issue at a time, with the **STOP + AskUserQuestion** pattern. It rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. The rating drives the work: rate low = lots of fixes, rate high = quick pass.
+It works like `/plan-ceo-review` and `/plan-eng-review` — interactive, one issue at a time, with the **STOP + ask the user directly** pattern. It rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. The rating drives the work: rate low = lots of fixes, rate high = quick pass.
 
 Seven passes over the plan: information architecture, interaction state coverage, user journey, AI slop risk, design system alignment, responsive/accessibility, and unresolved design decisions. For each pass, it finds gaps and either fixes them directly (obvious ones) or asks you to make a design choice (genuine tradeoffs).
 
@@ -170,7 +170,7 @@ Seven passes over the plan: information architecture, interaction state coverage
 ```
 You:   /plan-design-review
 
-Claude: Initial Design Rating: 4/10
+Codex: Initial Design Rating: 4/10
 
         "This plan describes a user dashboard but never specifies
          what the user sees first. It says 'cards with icons' —
@@ -218,21 +218,21 @@ If you want, the agent will research what's already out there in your space — 
 
 After you agree on the system, it generates an interactive HTML preview page — not just swatches and font samples, but realistic product pages. If you are building a dashboard, you see a dashboard with a sidebar, data tables, and stat cards. If you are building a marketing site, you see a hero section with real copy and a CTA. Everything rendered in your design system, with your product name, in light and dark mode. You see what your product could feel like before a single line of production code is written.
 
-Then it writes `DESIGN.md` to your repo root — your project's design source of truth — and updates `CLAUDE.md` so every future Claude Code session respects the system. From that point on, `/design-review` can audit against it, and any agent working on your frontend knows the rules.
+Then it writes `DESIGN.md` to your repo root — your project's design source of truth — and updates `AGENTS.md` so every future Codex session respects the system. From that point on, `/design-review` can audit against it, and any agent working on your frontend knows the rules.
 
 ### Example
 
 ```
 You:   /design-consultation
 
-Claude: From the README, this looks like a developer analytics dashboard
+Codex: From the README, this looks like a developer analytics dashboard
         for engineering teams. Sound right? Tell me about the feeling
         you want — and would you like me to look at what's out there
         first so we can see the landscape?
 
 You:    Yes, it's for eng managers. Show me what's out there.
 
-Claude: [browses Linear, Vercel, Datadog, Posthog — takes screenshots]
+Codex: [browses Linear, Vercel, Datadog, Posthog — takes screenshots]
 
         Here's the landscape. They all converge on clean sans-serifs
         and muted blue-gray palettes. Linear stands out with dark-first
@@ -267,7 +267,7 @@ Claude: [browses Linear, Vercel, Datadog, Posthog — takes screenshots]
 
 You:    Love the serif risk. Let's see it.
 
-Claude: Preview opened in your browser.
+Codex: Preview opened in your browser.
         [/tmp/design-consultation-preview-1710000000.html]
 
         The page shows a realistic dashboard: sidebar nav, header with
@@ -280,8 +280,8 @@ Claude: Preview opened in your browser.
 
 You:    Ship it.
 
-Claude: Wrote DESIGN.md (typography, color, spacing, layout, motion).
-        Updated CLAUDE.md with design system guidelines.
+Codex: Wrote DESIGN.md (typography, color, spacing, layout, motion).
+        Updated AGENTS.md with design system guidelines.
         All future sessions will respect these choices.
 ```
 
@@ -302,7 +302,7 @@ The self-regulation heuristic is tuned for design work — CSS-only changes get 
 ```
 You:   /design-review https://myapp.com
 
-Claude: [Runs full 80-item visual audit on the live site]
+Codex: [Runs full 80-item visual audit on the live site]
         Design Score: C  |  AI Slop Score: D
         12 findings (4 high, 5 medium, 3 polish)
 
@@ -421,7 +421,7 @@ It is a compiled binary that talks to a persistent Chromium daemon — built on 
 You:   /browse staging.myapp.com — log in, test the signup flow, and check
        every page I changed in this branch
 
-Claude: [18 tool calls, ~60 seconds]
+Codex: [18 tool calls, ~60 seconds]
 
         > browse goto https://staging.myapp.com/signup
         > browse snapshot -i
@@ -476,7 +476,7 @@ When `/qa` fixes a bug and verifies it, it automatically generates a regression 
 ```
 You:   /qa https://staging.myapp.com
 
-Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
+Codex: [Explores 12 pages, fills 3 forms, tests 2 flows]
 
         QA Report: staging.myapp.com — Health Score: 72/100
 
@@ -503,14 +503,14 @@ It auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge), d
 ```
 You:   /setup-browser-cookies
 
-Claude: Cookie picker opened — select the domains you want to import
+Codex: Cookie picker opened — select the domains you want to import
         in your browser, then tell me when you're done.
 
         [You pick github.com, myapp.com in the browser UI]
 
 You:    done
 
-Claude: Imported 2 domains (47 cookies). Session is ready.
+Codex: Imported 2 domains (47 cookies). Session is ready.
 ```
 
 Or skip the UI entirely:
@@ -518,7 +518,7 @@ Or skip the UI entirely:
 ```
 You:   /setup-browser-cookies github.com
 
-Claude: Imported 12 cookies for github.com from Comet.
+Codex: Imported 12 cookies for github.com from Comet.
 ```
 
 ---
@@ -538,7 +538,7 @@ It also tracks test health: total test files, tests added this period, regressio
 ```
 You:   /retro
 
-Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
+Codex: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
 
         ## Your Week
         32 commits, +2.4k LOC, 41% tests. Peak hours: 9-11pm.
@@ -572,10 +572,10 @@ After `/ship` creates the PR but before it merges, `/document-release` reads eve
 ```
 You:   /document-release
 
-Claude: Analyzing 21 files changed across 3 commits. Found 8 documentation files.
+Codex: Analyzing 21 files changed across 3 commits. Found 8 documentation files.
 
         README.md: updated skill count from 9 to 10, added new skill to table
-        CLAUDE.md: added new directory to project structure
+        AGENTS.md: added new directory to project structure
         CONTRIBUTING.md: current — no changes needed
         TODOS.md: marked 2 items complete, added 1 new item
 
@@ -615,7 +615,7 @@ Every false positive you confirm gets saved to `~/.gstack/greptile-history.md`. 
 ```
 You:   /ship
 
-Claude: [syncs main, runs tests, pre-landing review...]
+Codex: [syncs main, runs tests, pre-landing review...]
 
         Greptile found 3 comments on this PR:
 
@@ -638,7 +638,7 @@ Claude: [syncs main, runs tests, pre-landing review...]
 
 You:    A
 
-Claude: Replied to Greptile. All tests pass.
+Codex: Replied to Greptile. All tests pass.
         PR: github.com/you/app/pull/42
 ```
 

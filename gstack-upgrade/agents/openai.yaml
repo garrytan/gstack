@@ -1,0 +1,4 @@
+interface:
+  display_name: "gstack Upgrade"
+  short_description: "Upgrade the local gstack-codex install and manage upgrade settings."
+  default_prompt: "Handle the gstack-codex upgrade flow, update the local install, and explain any follow-up clearly."

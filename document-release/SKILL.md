@@ -3,17 +3,9 @@ name: document-release
 version: 1.0.0
 description: |
   Post-ship documentation update. Reads all project docs, cross-references the
-  diff, updates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,
+  diff, updates README/ARCHITECTURE/CONTRIBUTING/AGENTS.md to match what shipped,
   polishes CHANGELOG voice, cleans up TODOS, and optionally bumps VERSION. Use when
   asked to "update the docs", "sync documentation", or "post-ship docs".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -21,20 +13,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -48,13 +40,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -64,11 +56,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -167,7 +159,7 @@ subjective decisions.
 
 **NEVER do:**
 - Overwrite, replace, or regenerate CHANGELOG entries — polish wording only, preserve all content
-- Bump VERSION without asking — always use AskUserQuestion for version changes
+- Bump VERSION without asking — always use pause for user input for version changes
 - Use `Write` tool on CHANGELOG.md — always use `Edit` with exact `old_string` matches
 
 ---
@@ -230,7 +222,7 @@ Read each documentation file and cross-reference it against the diff. Use these 
 - Are workflow descriptions (dev setup, contributor mode, etc.) current?
 - Flag anything that would fail or confuse a first-time contributor.
 
-**CLAUDE.md / project instructions:**
+**AGENTS.md / project instructions:**
 - Does the project structure section match the actual file tree?
 - Are listed commands and scripts accurate?
 - Do build/test instructions match what's in package.json (or equivalent)?
@@ -266,7 +258,7 @@ from 9 to 10."
 
 ## Step 4: Ask About Risky/Questionable Changes
 
-For each risky or questionable update identified in Step 2, use AskUserQuestion with:
+For each risky or questionable update identified in Step 2, use pause for user input with:
 - Context: project name, branch, which doc file, what we're reviewing
 - The specific documentation decision
 - `RECOMMENDATION: Choose [X] because [one-line reason]`
@@ -291,7 +283,7 @@ preserved them. This skill must NEVER do that.
 3. Never regenerate a CHANGELOG entry from scratch. The entry was written by `/ship` from the
    actual diff and commit history. It is the source of truth. You are polishing prose, not
    rewriting history.
-4. If an entry looks wrong or incomplete, use AskUserQuestion — do NOT silently fix it.
+4. If an entry looks wrong or incomplete, use pause for user input — do NOT silently fix it.
 5. Use Edit tool with exact `old_string` matches — never use Write to overwrite CHANGELOG.md.
 
 **If CHANGELOG was not modified in this branch:** skip this step.
@@ -304,7 +296,7 @@ preserved them. This skill must NEVER do that.
 - "You can now..." not "Refactored the..."
 - Flag and rewrite any entry that reads like a commit message.
 - Internal/contributor changes belong in a separate "### For contributors" subsection.
-- Auto-fix minor voice adjustments. Use AskUserQuestion if a rewrite would alter meaning.
+- Auto-fix minor voice adjustments. Use pause for user input if a rewrite would alter meaning.
 
 ---
 
@@ -312,14 +304,14 @@ preserved them. This skill must NEVER do that.
 
 After auditing each file individually, do a cross-doc consistency pass:
 
-1. Does the README's feature/capability list match what CLAUDE.md (or project instructions) describes?
+1. Does the README's feature/capability list match what AGENTS.md (or project instructions) describes?
 2. Does ARCHITECTURE's component list match CONTRIBUTING's project structure description?
 3. Does CHANGELOG's latest version match the VERSION file?
-4. **Discoverability:** Is every documentation file reachable from README.md or CLAUDE.md? If
-   ARCHITECTURE.md exists but neither README nor CLAUDE.md links to it, flag it. Every doc
+4. **Discoverability:** Is every documentation file reachable from README.md or AGENTS.md? If
+   ARCHITECTURE.md exists but neither README nor AGENTS.md links to it, flag it. Every doc
    should be discoverable from one of the two entry-point files.
 5. Flag any contradictions between documents. Auto-fix clear factual inconsistencies (e.g., a
-   version mismatch). Use AskUserQuestion for narrative contradictions.
+   version mismatch). Use pause for user input for narrative contradictions.
 
 ---
 
@@ -336,12 +328,12 @@ If TODOS.md does not exist, skip this step.
    evidence in the diff.
 
 2. **Items needing description updates:** If a TODO references files or components that were
-   significantly changed, its description may be stale. Use AskUserQuestion to confirm whether
+   significantly changed, its description may be stale. Use pause for user input to confirm whether
    the TODO should be updated, completed, or left as-is.
 
 3. **New deferred work:** Check the diff for `TODO`, `FIXME`, `HACK`, and `XXX` comments. For
    each one that represents meaningful deferred work (not a trivial inline note), use
-   AskUserQuestion to ask whether it should be captured in TODOS.md.
+   pause for user input to ask whether it should be captured in TODOS.md.
 
 ---
 
@@ -357,7 +349,7 @@ If TODOS.md does not exist, skip this step.
 git diff <base>...HEAD -- VERSION
 ```
 
-3. **If VERSION was NOT bumped:** Use AskUserQuestion:
+3. **If VERSION was NOT bumped:** Use pause for user input:
    - RECOMMENDATION: Choose C (Skip) because docs-only changes rarely warrant a version bump
    - A) Bump PATCH (X.Y.Z+1) — if doc changes ship alongside code changes
    - B) Bump MINOR (X.Y+1.0) — if this is a significant standalone release
@@ -372,7 +364,7 @@ git diff <base>...HEAD -- VERSION
       that are NOT mentioned in the CHANGELOG entry for the current version?
    c. **If the CHANGELOG entry covers everything:** Skip — output "VERSION: Already bumped to
       vX.Y.Z, covers all changes."
-   d. **If there are significant uncovered changes:** Use AskUserQuestion explaining what the
+   d. **If there are significant uncovered changes:** Use pause for user input explaining what the
       current version covers vs what's new, and ask:
       - RECOMMENDATION: Choose A because the new changes warrant their own version
       - A) Bump to next patch (X.Y.Z+1) — give the new changes their own version
@@ -399,7 +391,7 @@ committing.
 git commit -m "$(cat <<'EOF'
 docs: update project documentation for vX.Y.Z.W
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <codex@openai.com>
 EOF
 )"
 ```
@@ -472,6 +464,6 @@ Where status is one of:
 - **Never bump VERSION silently.** Always ask. Even if already bumped, check whether it covers the full scope of changes.
 - **Be explicit about what changed.** Every edit gets a one-line summary.
 - **Generic heuristics, not project-specific.** The audit checks work on any repo.
-- **Discoverability matters.** Every doc file should be reachable from README or CLAUDE.md.
+- **Discoverability matters.** Every doc file should be reachable from README or AGENTS.md.
 - **Voice: friendly, user-forward, not obscure.** Write like you're explaining to a smart person
   who hasn't seen the code.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Consultation"
+  short_description: "Research and propose an intentional design direction before implementation."
+  default_prompt: "Research the design space, propose a coherent direction, and capture a practical design system for the project."

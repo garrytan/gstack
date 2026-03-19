@@ -247,7 +247,7 @@
 
 ### Smart default QA tier
 
-**What:** After a few runs, check index.md for user's usual tier pick, skip the AskUserQuestion.
+**What:** After a few runs, check index.md for user's usual tier pick, skip the ask the user directly.
 
 **Why:** Reduces friction for repeat users.
 
@@ -432,9 +432,9 @@ Shipped as `/design-consultation` on garrytan/design branch. Renamed from `/setu
 
 ### `{{DOC_VOICE}}` shared resolver
 
-**What:** Create a placeholder resolver in gen-skill-docs.ts encoding the gstack voice guide (friendly, user-forward, lead with benefits). Inject into /ship Step 5, /document-release Step 5, and reference from CLAUDE.md.
+**What:** Create a placeholder resolver in gen-skill-docs.ts encoding the gstack voice guide (friendly, user-forward, lead with benefits). Inject into /ship Step 5, /document-release Step 5, and reference from AGENTS.md.
 
-**Why:** DRY — voice rules currently live inline in 3 places (CLAUDE.md CHANGELOG style section, /ship Step 5, /document-release Step 5). When the voice evolves, all three drift.
+**Why:** DRY — voice rules currently live inline in 3 places (AGENTS.md CHANGELOG style section, /ship Step 5, /document-release Step 5). When the voice evolves, all three drift.
 
 **Context:** Same pattern as `{{QA_METHODOLOGY}}` — shared block injected into multiple templates to prevent drift. ~20 lines in gen-skill-docs.ts.
 
@@ -476,7 +476,7 @@ Shipped as `/design-consultation` on garrytan/design branch. Renamed from `/setu
 
 **Why:** Without measurement, we can't know if the Completeness Principle is working. Could surface patterns (e.g., certain skills still bias toward shortcuts).
 
-**Context:** Would require logging choices (e.g., append to a JSONL file when AskUserQuestion resolves), parsing them, and displaying trends. Similar pattern to eval persistence.
+**Context:** Would require logging choices (e.g., append to a JSONL file when ask the user directly resolves), parsing them, and displaying trends. Similar pattern to eval persistence.
 
 **Effort:** M (human) / S (CC)
 **Priority:** P3
@@ -486,9 +486,9 @@ Shipped as `/design-consultation` on garrytan/design branch. Renamed from `/setu
 
 ### On-demand hook skills (/careful, /freeze, /guard)
 
-**What:** Three new skills that use Claude Code's session-scoped PreToolUse hooks to add safety guardrails on demand.
+**What:** Three new skills that use Codex's session-scoped PreToolUse hooks to add safety guardrails on demand.
 
-**Why:** Anthropic's internal skill best practices recommend on-demand hooks for safety. Claude Code already handles destructive command permissions, but these add an explicit opt-in layer for high-risk sessions (touching prod, debugging live systems).
+**Why:** Codex's internal skill best practices recommend on-demand hooks for safety. Codex already handles destructive command permissions, but these add an explicit opt-in layer for high-risk sessions (touching prod, debugging live systems).
 
 **Skills:**
 - `/careful` — PreToolUse hook on Bash tool. Warns (not blocks) before destructive commands: `rm -rf`, `DROP TABLE`, `git push --force`, `git reset --hard`, `kubectl delete`, `docker system prune`. Uses `permissionDecision: "ask"` so user can override.
@@ -505,7 +505,7 @@ Shipped as `/design-consultation` on garrytan/design branch. Renamed from `/setu
 
 **What:** Track which skills get invoked, how often, from which repo.
 
-**Why:** Enables finding undertriggering skills and measuring adoption. Anthropic uses a PreToolUse hook for this; simpler approach is appending JSONL from the preamble.
+**Why:** Enables finding undertriggering skills and measuring adoption. Codex uses a PreToolUse hook for this; simpler approach is appending JSONL from the preamble.
 
 **Context:** Add to `generatePreamble()` in `scripts/gen-skill-docs.ts`. Append to `~/.gstack/analytics/skill-usage.jsonl` with skill name, timestamp, and repo name. `mkdir -p` ensures the directory exists.
 

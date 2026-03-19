@@ -1,0 +1,4 @@
+interface:
+  display_name: "gstack Codex"
+  short_description: "Use the shared gstack-codex browser toolkit and workflow bundle."
+  default_prompt: "Use gstack-codex to browse, QA, review, or ship work with the Codex-native workflow that best fits the task."

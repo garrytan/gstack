@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review"
+  short_description: "Perform a pre-landing review of the current diff against the base branch."
+  default_prompt: "Review the current diff, surface real issues, auto-fix the mechanical ones, and summarize the rest clearly."

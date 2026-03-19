@@ -6,11 +6,6 @@ description: |
   structured report with health score, screenshots, and repro steps — but never
   fixes anything. Use when asked to "just report bugs", "qa report only", or
   "test but don't fix". For the full test-fix-verify loop, use /qa instead.
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -18,20 +13,20 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || .codex/skills/gstack-codex/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_CONTRIB=$(~/.codex/skills/gstack-codex/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `gstack-upgrade/SKILL.md` from the gstack-codex bundle and follow the inline upgrade flow. If `JUST_UPGRADED <from> <to>`: tell the user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -45,13 +40,13 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## AskUserQuestion Format
+## User Decision Format
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+When a workflow needs a decision, pause and ask the user in plain text using this structure:
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or git state), and the current plan/task. Keep it to 1-2 sentences.
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it does, not what it is called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`. Prefer the complete option over shortcuts when the remaining work is still a lake, not an ocean. Include `Completeness: X/10` for each option.
+4. **Options:** Lettered options: `A) ... B) ... C) ...`. When an option involves effort, show both scales: `(human: ~X / Codex: ~Y)`
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -61,11 +56,11 @@ Per-skill instructions may add additional formatting rules on top of this baseli
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When you present options:
 
-- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with CC+gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
+- If Option A is the complete implementation (full parity, all edge cases, 100% coverage) and Option B is a shortcut that saves modest effort — **always recommend A**. The delta between 80 lines and 150 lines is meaningless with Codex + gstack. "Good enough" is the wrong instinct when "complete" costs minutes more.
 - **Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module, full feature implementation, handling all edge cases, complete error paths. An "ocean" is not — rewriting an entire system from scratch, adding features to dependencies you don't control, multi-quarter platform migrations. Recommend boiling lakes. Flag oceans as out of scope.
-- **When estimating effort**, always show both scales: human team time and CC+gstack time. The compression ratio varies by task type — use this reference:
+- **When estimating effort**, always show both scales: human team time and Codex + gstack time. The compression ratio varies by task type — use this reference:
 
-| Task type | Human team | CC+gstack | Compression |
+| Task type | Human team | Codex + gstack | Compression |
 |-----------|-----------|-----------|-------------|
 | Boilerplate / scaffolding | 2 days | 15 min | ~100x |
 | Test writing | 1 day | 15 min | ~50x |
@@ -144,8 +139,8 @@ You are a QA engineer. Test web applications like a real user — click everythi
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.codex/skills/gstack-codex/browse/dist/browse" ] && B="$_ROOT/.codex/skills/gstack-codex/browse/dist/browse"
+[ -z "$B" ] && B=~/.codex/skills/gstack-codex/browse/dist/browse
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -154,8 +149,8 @@ fi
 ```
 
 If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then pause for confirmation.
+2. Run: `./setup` from the gstack-codex bundle root
 3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
 
 **Create output directories:**
@@ -173,7 +168,7 @@ Before falling back to git diff heuristics, check for richer test plan sources:
 
 1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
    ```bash
-   eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+   eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
    ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
 2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
@@ -239,6 +234,24 @@ Run full mode, then load `baseline.json` from a previous run. Diff: which issues
 ---
 
 ## Workflow
+
+Before Phase 1, keep these outputs in sync for the entire run:
+
+- `qa-report-*.md`: the primary report, updated as soon as each issue is found or fixed
+- `screenshots/`: evidence for every issue and every verified fix
+- `baseline.json`: the machine-readable score + issue summary written during wrap-up
+- A running issue list with severity, repro steps, evidence paths, and fix status
+
+Every phase should leave behind a concrete artifact or decision:
+
+- Phase 1: initialized report directory, timer started, report template copied
+- Phase 2: authenticated session or an explicit block note (2FA/CAPTCHA/credential gap)
+- Phase 3: app map, initial screenshot, framework guess, top navigation inventory
+- Phase 4: pages visited list plus notes/screenshots for anything suspicious
+- Phase 5: each issue recorded immediately with severity, repro, and evidence
+- Phase 6: completed summary table, health score, baseline.json, and top-3 priorities
+
+If you cannot complete a phase, write the blocker into the report immediately and continue with the highest-value remaining work unless the workflow explicitly says to stop.
 
 ### Phase 1: Initialize
 
@@ -319,6 +332,11 @@ Then follow the **per-page exploration checklist** (see `qa/references/issue-tax
 
 **Quick mode:** Only visit homepage + top 5 navigation targets from the Orient phase. Skip the per-page checklist — just check: loads? Console errors? Broken links visible?
 
+**Stop conditions for Phase 4:** move on when one of these is true:
+- you have covered the requested scope
+- every high-traffic/core path in scope has been exercised once
+- a blocking auth/environment issue prevents deeper testing and has been documented
+
 ### Phase 5: Document
 
 Document each issue **immediately when found** — don't batch them.
@@ -373,16 +391,37 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 - New issues (in current but not baseline)
 - Append the regression section to the report
 
+At the end of the workflow, the agent should be able to hand the user three deliverables without extra work:
+- a readable QA report
+- a machine-readable baseline file
+- a prioritized list of what to fix next
+
 ---
 
 ## Health Score Rubric
 
-Compute each category score (0-100), then take the weighted average.
+Compute each category score (0-100), then compute the weighted average.
+
+Scoring rules:
+- A **finding** is one distinct, reproducible defect. Do not double-count the same defect across multiple categories.
+- If multiple severities could apply, use the highest severity that clearly matches the user impact.
+- Convert percentages to decimals when calculating the final score (`15%` → `0.15`).
+- Round the final score to the nearest whole number.
+- If one defect spans multiple categories, score it once in the category that best matches the primary user harm.
+- Count repeated identical console errors as one finding per unique root cause per page load. Count a new console finding only when the message or stack trace meaningfully differs.
+
+Category tie-breakers:
+- **Visual**: layout, spacing, clipping, overlap, missing images, incorrect styling
+- **Functional**: broken buttons, disabled actions, bad state transitions, failed submissions, wrong behavior
+- **UX**: confusing flows, misleading labels, missing feedback, poor navigation cues
+- **Content**: stale copy, typos, incorrect text/data presentation that is not caused by business logic
+- **Performance**: slow responses, jank, long spinners, unnecessary heavy work
+- **Accessibility**: keyboard traps, missing labels, focus issues, semantics, screen-reader failures
 
 ### Console (weight: 15%)
 - 0 errors → 100
 - 1-3 errors → 70
-- 4-10 errors → 40
+- 4-9 errors → 40
 - 10+ errors → 10
 
 ### Links (weight: 10%)
@@ -410,7 +449,7 @@ Minimum 0 per category.
 | Accessibility | 15% |
 
 ### Final Score
-`score = Σ (category_score × weight)`
+`score = round((console × 0.15) + (links × 0.10) + (visual × 0.10) + (functional × 0.20) + (ux × 0.15) + (performance × 0.10) + (content × 0.05) + (accessibility × 0.15))`
 
 ---
 
@@ -466,7 +505,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:** Write test outcome artifact for cross-session context:
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval $(~/.codex/skills/gstack-codex/bin/gstack-slug 2>/dev/null)
 mkdir -p ~/.gstack/projects/$SLUG
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`

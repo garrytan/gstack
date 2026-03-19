@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Design Review"
+  short_description: "Review a plan for UX, interaction design, and visual completeness."
+  default_prompt: "Review the plan from a design perspective and add the missing UX and visual-system decisions."

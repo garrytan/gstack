@@ -1,0 +1,4 @@
+interface:
+  display_name: "Document Release"
+  short_description: "Update project docs and release notes after shipping changes."
+  default_prompt: "Audit the repository docs after shipping, update the accurate ones, and summarize the documentation changes cleanly."

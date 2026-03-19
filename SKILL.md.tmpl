@@ -7,11 +7,6 @@ description: |
   responsive layouts, test forms and uploads, handle dialogs, and assert element states.
   ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
   user flow, or file a bug with evidence.
-allowed-tools:
-  - Bash
-  - Read
-  - AskUserQuestion
-
 ---
 
 {{PREAMBLE}}
@@ -26,7 +21,7 @@ Auto-shuts down after 30 min idle. State persists between calls (cookies, tabs, 
 ## IMPORTANT
 
 - Use the compiled binary via Bash: `$B <command>`
-- NEVER use `mcp__claude-in-chrome__*` tools. They are slow and unreliable.
+- NEVER use `other browser MCP tools` tools. They are slow and unreliable.
 - Browser persists between calls — cookies, login sessions, and tabs carry over.
 - Dialogs (alert/confirm/prompt) are auto-accepted by default — no browser lockup.
 - **Show screenshots:** After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the Read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
@@ -229,6 +224,20 @@ $B css ".button" "background-color"
 {{SNAPSHOT_FLAGS}}
 
 ## Command Reference
+
+### Argument Conventions
+- Selector arguments accept either CSS selectors or `@e` / `@c` refs from `snapshot`.
+- Quote any argument that contains spaces, commas, shell metacharacters, or user-provided text.
+- Output paths should be absolute, under `/tmp`, or safely inside the current workspace.
+- Commands run against the current tab and current page state until you change context with `goto`, `newtab`, or `tab`.
+- When a command shows flags and positional args, keep the same argument order shown in the `Usage` column.
+
+### High-Signal Notes
+- `snapshot [flags...] [selector]`: the optional selector scopes the snapshot tree; run a new snapshot after navigation because `@e` / `@c` refs expire.
+- `fill <selector> <value>` writes a literal value into a field; `type <text>` types into the focused element. Quote the full text argument when it includes spaces or punctuation.
+- `chain` reads a JSON array of command arrays from stdin, for example `[["goto","https://example.com"],["snapshot","-i"]]`.
+- `cookie-import-browser [browser] [--domain <domain>]` imports cookies from a real browser profile. Browser is optional; use it when you need authenticated state.
+- `screenshot`, `pdf`, `responsive`, `snapshot -a -o`, `eval`, and `cookie-import` all require safe file paths. Prefer `/tmp/...` or a workspace path you can inspect afterward.
 
 {{COMMAND_REFERENCE}}
 

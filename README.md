@@ -1,66 +1,102 @@
-# gstack
+# gstack-codex
 
-Hi, I'm [Garry Tan](https://x.com/garrytan). I'm President & CEO of [Y Combinator](https://www.ycombinator.com/), where I've worked with thousands of startups including Coinbase, Instacart, and Rippling when the founders were just one or two people in a garage — companies now worth tens of billions of dollars. Before YC, I designed the Palantir logo and was one of the first eng manager/PM/designers there. I cofounded Posterous, a blog platform we sold to Twitter. I built Bookface, YC's internal social network, back in 2013. I've been building products as a designer, PM, and eng manager for a long time.
+`gstack-codex` is a Codex-first fork of [garrytan/gstack](https://github.com/garrytan/gstack).
+It keeps the strong parts of the original stack:
 
-And right now I am in the middle of something that feels like a new era entirely.
+- the Bun + Playwright persistent browser runtime
+- the skill-per-workflow layout
+- the generated `SKILL.md` pipeline
+- the `.gstack/` runtime state model
 
-In the last 60 days I have written **over 600,000 lines of production code** — 35% tests — and I am doing **10,000 to 20,000 usable lines of code per day** as a part-time part of my day while doing all my duties as CEO of YC. That is not a typo. My last `/retro` (developer stats from the last 7 days) across 3 projects: **140,751 lines added, 362 commits, ~115k net LOC**. The models are getting dramatically better every week. We are at the dawn of something real — one person shipping at a scale that used to require a team of twenty.
+It replaces the Claude-specific parts with Codex-native conventions:
 
-**2026 — 1,237 contributions and counting:**
+- install roots live under `~/.codex/skills` or `.codex/skills`
+- the repo uses `AGENTS.md`, not the legacy Claude-only instruction file
+- workflow prompts assume plain-text user decisions instead of Claude-only tool names
+- skill discovery includes `agents/openai.yaml` metadata for each shipped skill
+- the intentional fork deltas are tracked in `docs/codex-fork-ledger.md`
 
-![GitHub contributions 2026 — 1,237 contributions, massive acceleration in Jan-Mar](docs/images/github-2026.png)
-
-**2013 — when I built Bookface at YC (772 contributions):**
-
-![GitHub contributions 2013 — 772 contributions building Bookface at YC](docs/images/github-2013.png)
-
-Same person. Different era. The difference is the tooling.
-
-**gstack is how I do it.** It is my open source software factory. It turns Claude Code into a virtual engineering team you actually manage — a CEO who rethinks the product, an eng manager who locks the architecture, a designer who catches AI slop, a paranoid reviewer who finds production bugs, a QA lead who opens a real browser and clicks through your app, and a release engineer who ships the PR. Thirteen specialists, all as slash commands, all Markdown, **all free, MIT license, available right now.**
-
-I am learning how to get to the edge of what agentic systems can do as of March 2026, and this is my live experiment. I am sharing it because I want the whole world on this journey with me.
-
-Fork it. Improve it. Make it yours. Don't player hate, appreciate.
+The result is a Codex-friendly “software factory” bundle: plan review, code review,
+QA, browser automation, design review, release workflow, and documentation updates
+in one repo.
 
 **Who this is for:**
 - **Founders and CEOs** — especially technical ones who still want to ship. This is how you build like a team of twenty.
-- **First-time Claude Code users** — gstack is the best way to start. Structured roles instead of a blank prompt.
-- **Tech leads and staff engineers** — bring rigorous review, QA, and release automation to every PR
+- **First-time Codex users** — gstack gives you structured roles instead of a blank prompt.
+- **Tech leads and staff engineers** — bring rigorous review, QA, and release automation to every PR.
 
 ## Quick start: your first 10 minutes
 
-1. Install gstack (30 seconds — see below)
-2. Run `/plan-ceo-review` on any feature idea
-3. Run `/review` on any branch with changes
-4. Run `/qa` on your staging URL
+1. Install `gstack-codex` (30 seconds — see below).
+2. Run `/plan-ceo-review` on any feature idea.
+3. Run `/review` on any branch with changes.
+4. Run `/qa` on your staging URL.
 5. Stop there. You'll know if this is for you.
 
 Expect first useful run in under 5 minutes on any repo with tests already set up.
 
-**If you only read one more section, read this one.**
-
 ## Install — takes 30 seconds
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+
+**Requirements:** [Codex](https://openai.com/codex/), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+
 
 ### Step 1: Install on your machine
 
-Open Claude Code and paste this. Claude does the rest.
+If you already have a checkout of the fork:
 
-> Install gstack: run **`git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /browse, /qa, /qa-only, /qa-design-review, /setup-browser-cookies, /retro, /document-release. Then ask the user if they also want to add gstack to the current project so teammates get it.
+```bash
+mkdir -p ~/.codex/skills
+cp -Rf /path/to/gstack-codex ~/.codex/skills/gstack-codex
+cd ~/.codex/skills/gstack-codex
+./setup
+```
+
+If you have a published fork URL, use `git clone <fork-url> ~/.codex/skills/gstack-codex` instead of the `cp -Rf` step.
+
+Then add a `gstack` section to your global `AGENTS.md` telling Codex:
+
+- use `/browse` from gstack for all web browsing
+- never fall back to other browser MCP tools when gstack browse is available
+- available skills: `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/review`, `/ship`, `/browse`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/retro`, `/document-release`
 
 ### Step 2: Add to your repo so teammates get it (optional)
 
-> Add gstack to this project: run **`cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`** then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /browse, /qa, /qa-only, /qa-design-review, /setup-browser-cookies, /retro, /document-release, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+```bash
+mkdir -p .codex/skills
+cp -Rf ~/.codex/skills/gstack-codex .codex/skills/gstack-codex
+rm -rf .codex/skills/gstack-codex/.git
+cd .codex/skills/gstack-codex
+./setup
+```
 
-Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
+Then add a `gstack` section to this project's `AGENTS.md` with the same browsing
+and skill guidance, plus a note that if the skills stop working, run:
+
+```bash
+cd .codex/skills/gstack-codex && ./setup
+```
+
+Real files get committed to your repo (not a submodule), so `git clone` just works.
+Everything lives inside `.codex/`. Nothing touches your PATH or runs in the background.
+
+## What this fork changes
+
+- Bundle root: `gstack-codex`
+- User install: `~/.codex/skills/gstack-codex`
+- Vendored install: `.codex/skills/gstack-codex`
+- Root instruction file: `AGENTS.md`
+- Per-skill Codex metadata: `agents/openai.yaml`
+- Browser runtime: still `browse/dist/browse`
+- Rebase guide: `docs/codex-fork-ledger.md`
+
+Nothing touches your PATH or installs a background daemon globally. The browser
+server is still started on demand by the browse binary.
 
 ## See it work
 
 ```
 You:    I want to add photo upload for sellers.
 You:    /plan-ceo-review
-Claude: "Photo upload" is not the feature. The real job is helping
+Codex:  "Photo upload" is not the feature. The real job is helping
         sellers create listings that actually sell. What if we
         auto-identify the product, pull specs and comps from the
         web, and draft the listing automatically? That's 10 stars.
@@ -68,13 +104,13 @@ Claude: "Photo upload" is not the feature. The real job is helping
         [8 expansion proposals, you cherry-pick 5, defer 3 to backlog]
 
 You:    /plan-design-review
-Claude: Design Score: B  |  AI Slop Score: C
+Codex:  Design Score: B  |  AI Slop Score: C
         "Upload flow looks like a default Bootstrap form."
         [80-item audit, infers your design system, exports DESIGN.md]
         [flags 3 AI slop patterns: gradient hero, icon grid, uniform radius]
 
 You:    /plan-eng-review
-Claude: ┌─────────┐    ┌──────────┐    ┌──────────┐    ┌─────────┐
+Codex:  ┌─────────┐    ┌──────────┐    ┌──────────┐    ┌─────────┐
         │ Upload  │───▶│ Classify │───▶│ Enrich   │───▶│ Draft   │
         │ (sync)  │    │ (async)  │    │ (async)  │    │ (async) │
         └─────────┘    └──────────┘    └──────────┘    └─────────┘
@@ -82,30 +118,33 @@ Claude: ┌─────────┐    ┌──────────�
         [14-case test matrix, 6 failure modes mapped, 3 security concerns]
 
 You:    Approve plan. Exit plan mode.
-        [Claude writes 2,400 lines across 11 files — models, services,
+        [Codex writes 2,400 lines across 11 files — models, services,
          controllers, views, migrations, and tests. ~8 minutes.]
 
 You:    /review
-Claude: [AUTO-FIXED] Orphan S3 cleanup on failed upload
+Codex:  [AUTO-FIXED] Orphan S3 cleanup on failed upload
         [AUTO-FIXED] Missing index on listings.status
         [ASK] Race condition on hero image selection → You: yes
         [traces every new enum value through all switch statements]
         3 issues — 2 auto-fixed, 1 fixed.
 
 You:    /qa https://staging.myapp.com
-Claude: [opens real browser, logs in, uploads photos, clicks through flows]
+Codex:  [opens real browser, logs in, uploads photos, clicks through flows]
         Upload → classify → enrich → draft: end to end ✓
         Mobile: ✓  |  Slow connection: ✓  |  Bad image: ✓
         [finds bug: preview doesn't clear on second upload — fixes it]
         Regression test generated.
 
 You:    /ship
-Claude: Tests: 42 → 51 (+9 new)
+Codex:  Tests: 42 → 51 (+9 new)
         Coverage: 14/14 code paths (100%)
         PR: github.com/you/app/pull/42
 ```
 
-One feature. Seven commands. The agent reframed the product, ran an 80-item design audit, drew the architecture, wrote 2,400 lines of code, found a race condition I would have missed, auto-fixed two issues, opened a real browser to QA test, found and fixed a bug I didn't know about, wrote 9 tests, and generated a regression test. That is not a copilot. That is a team.
+One feature. Seven workflows. The agent reframed the product, ran a design audit,
+drew the architecture, wrote code, found a race condition, opened a real browser
+to QA test, fixed a regression, and updated the release surface. That is closer to
+an opinionated team operating system than a single autocomplete tool.
 
 ## The team
 
@@ -131,19 +170,19 @@ One feature. Seven commands. The agent reframed the product, ran an 80-item desi
 
 **Design is at the heart.** `/design-consultation` doesn't just pick fonts. It researches what's out there in your space, proposes safe choices AND creative risks, generates realistic mockups of your actual product, and writes `DESIGN.md` — and then `/design-review` and `/plan-eng-review` read what you chose. Design decisions flow through the whole system.
 
-**`/qa` was a massive unlock.** It let me go from 6 to 12 parallel workers. Claude Code saying *"I SEE THE ISSUE"* and then actually fixing it, generating a regression test, and verifying the fix — that changed how I work. The agent has eyes now.
+**`/qa` was a massive unlock.** It let me go from 6 to 12 parallel workers. Codex saying *"I SEE THE ISSUE"* and then actually fixing it, generating a regression test, and verifying the fix — that changed how I work. The agent has eyes now.
 
 **Smart review routing.** Just like at a well-run startup: CEO doesn't have to look at infra bug fixes, design review isn't needed for backend changes. gstack tracks what reviews are run, figures out what's appropriate, and just does the smart thing. The Review Readiness Dashboard tells you where you stand before you ship.
 
 **Test everything.** `/ship` bootstraps test frameworks from scratch if your project doesn't have one. Every `/ship` run produces a coverage audit. Every `/qa` bug fix generates a regression test. 100% test coverage is the goal — tests make vibe coding safe instead of yolo coding.
 
-**`/document-release` is the engineer you never had.** It reads every doc file in your project, cross-references the diff, and updates everything that drifted. README, ARCHITECTURE, CONTRIBUTING, CLAUDE.md, TODOS — all kept current automatically.
+**`/document-release` is the engineer you never had.** It reads every doc file in your project, cross-references the diff, and updates everything that drifted. README, ARCHITECTURE, CONTRIBUTING, AGENTS.md, TODOS — all kept current automatically.
 
 ## 10 sessions at once
 
 gstack is powerful with one session. It is transformative with ten.
 
-[Conductor](https://conductor.build) runs multiple Claude Code sessions in parallel — each in its own isolated workspace. One session running `/qa` on staging, another doing `/review` on a PR, a third implementing a feature, and seven more on other branches. All at the same time.
+[Conductor](https://conductor.build) runs multiple Codex sessions in parallel — each in its own isolated workspace. One session running `/qa` on staging, another doing `/review` on a PR, a third implementing a feature, and seven more on other branches. All at the same time.
 
 One person, ten parallel agents, each with the right cognitive mode. That is a different way of building software.
 
@@ -175,19 +214,19 @@ Thirteen specialists. All slash commands. All Markdown. All free. **[github.com/
 
 ## Troubleshooting
 
-**Skill not showing up?** `cd ~/.claude/skills/gstack && ./setup`
+**Skill not showing up?** `cd ~/.codex/skills/gstack-codex && ./setup`
 
-**`/browse` fails?** `cd ~/.claude/skills/gstack && bun install && bun run build`
+**`/browse` fails?** `cd ~/.codex/skills/gstack-codex && bun install && bun run build`
 
 **Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`
 
-**Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a gstack section. Add this:
+**Codex says it can't see the skills?** Make sure your project's `AGENTS.md` has a gstack section. Add this:
 
 ```
 ## gstack
-Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
+Use /browse from gstack for all web browsing. Never use other browser MCP tools.
 Available skills: /plan-ceo-review, /plan-eng-review, /plan-design-review,
-/design-consultation, /review, /ship, /browse, /qa, /qa-only, /qa-design-review,
+/design-consultation, /review, /ship, /browse, /qa, /qa-only, /design-review,
 /setup-browser-cookies, /retro, /document-release.
 ```
 
