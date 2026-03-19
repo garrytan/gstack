@@ -288,3 +288,33 @@ Use AskUserQuestion with only the applicable options:
 
 ## Unresolved decisions
 If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+
+## Execution Handoff
+
+After the review is complete and the user has resolved all decisions:
+
+1. Check if orch is available:
+```bash
+PATH="$HOME/go/bin:$PATH" which orch 2>/dev/null && echo "ORCH_AVAILABLE" || echo "ORCH_NOT_AVAILABLE"
+```
+
+2. If `ORCH_AVAILABLE` AND the task is substantial (8+ files or 2+ phases):
+
+Count the scope from the review:
+- Files touched (from the plan or Step 0 analysis)
+- Phases/sections in the implementation plan
+
+If substantial, AskUserQuestion:
+
+"This plan is reviewed and ready to execute. It touches [N files / N phases], which is a good fit for multi-agent execution.
+
+RECOMMENDATION: Choose A — orch agents can build this autonomously while you do other things. (human: ~Xh / CC+orch: ~Ymin)
+
+A) Spin up orch agents to build this (runs /orch)
+B) I'll build it myself in this session
+C) I'll handle it later"
+
+If A: Tell the user to run `/orch` — it will detect the review artifacts from this session and offer to generate specs and launch agents.
+
+3. If `ORCH_NOT_AVAILABLE` OR the task is small (< 8 files and < 2 phases):
+Skip this section silently. Don't recommend orch for small tasks or when it's not installed.

@@ -1,0 +1,222 @@
+---
+name: orch
+version: 1.0.0
+description: |
+  Multi-agent orchestration via orch. Bridges gstack planning workflows into
+  parallel Claude Code agent execution. Detects plans, generates role specs,
+  spins up agents. Use when asked to "spin up agents", "run orch", "execute
+  this plan", "start building", or when a task is too large for one session.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# Orch: Multi-Agent Orchestration
+
+You are running the `/orch` skill. This bridges gstack planning into orch execution.
+
+## What is orch?
+
+Orch runs multiple Claude Code instances in parallel via tmux. Each agent has its
+own context window, runs autonomously, and can communicate with other agents via
+file-based messaging. Agents persist even if you close your terminal.
+
+Use orch when:
+- The task will take 1+ hours of autonomous work
+- There's parallel work (backend + frontend, multiple subsystems)
+- You want a persistent reviewer watching the engineer's output
+- You want to walk away and check back later
+
+Don't use orch when:
+- The task fits in one session (< 30 min)
+- You want tight interactive control
+- The work is purely serial
+
+## Step 0: Detect orch
+
+```bash
+PATH="$HOME/go/bin:$PATH" which orch 2>/dev/null && echo "ORCH_FOUND" || echo "ORCH_NOT_FOUND"
+```
+
+If `ORCH_NOT_FOUND`:
+Tell the user:
+"orch is not installed. Install it from: https://github.com/jeffdhooton/orch
+Then run: `go install github.com/jeffdhooton/orch/cmd/orch@latest`"
+**STOP.** Do not continue.
+
+## Step 1: Check context
+
+Run these checks to understand the current state:
+
+```bash
+# Check for recent gstack review artifacts
+eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
+echo "SLUG: $SLUG"
+echo "BRANCH: $BRANCH"
+
+# Recent review artifacts
+REVIEW_LOG=$(ls -t ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null | head -1)
+[ -n "$REVIEW_LOG" ] && echo "REVIEW_LOG: $REVIEW_LOG" && tail -1 "$REVIEW_LOG" || echo "NO_REVIEW_LOG"
+
+# Recent test plan from /plan-eng-review
+TEST_PLAN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-test-plan-*.md 2>/dev/null | head -1)
+[ -n "$TEST_PLAN" ] && echo "TEST_PLAN: $TEST_PLAN" || echo "NO_TEST_PLAN"
+
+# Recent CEO plan
+CEO_PLAN=$(ls -t ~/.gstack/projects/$SLUG/ceo-plans/*.md 2>/dev/null | head -1)
+[ -n "$CEO_PLAN" ] && echo "CEO_PLAN: $CEO_PLAN" || echo "NO_CEO_PLAN"
+
+# Check for plan documents in the repo
+echo "---REPO_PLANS---"
+ls specs/*/SPEC.md specs/*/*.md 2>/dev/null | head -10
+ls *.md 2>/dev/null | grep -i -E 'plan|spec' | head -5
+
+# Check if orch agents are already running
+echo "---ORCH_STATUS---"
+PATH="$HOME/go/bin:$PATH" orch ps 2>/dev/null || echo "NO_AGENTS"
+```
+
+## Step 2: Decide path
+
+Based on the context detected in Step 1, follow the appropriate branch:
+
+### If agents are already running
+Show the orch ps output. Then AskUserQuestion:
+
+"Orch agents are already running. What would you like to do?
+
+A) Attach to an agent — jump into its tmux session
+B) Send a message to an agent
+C) Tear down all agents — stop everything
+D) Show logs — see what agents have been doing"
+
+Handle the user's choice:
+- A: Ask which agent, then run `PATH="$HOME/go/bin:$PATH" orch attach <name>`
+- B: Ask which agent and what message, then run `PATH="$HOME/go/bin:$PATH" orch send <name> "<message>"`
+- C: Run `PATH="$HOME/go/bin:$PATH" orch down --all`
+- D: Run `PATH="$HOME/go/bin:$PATH" orch logs`
+
+### If a recent gstack review exists (REVIEW_LOG found)
+Read the review log to check status. Then AskUserQuestion:
+
+"Found reviewed plan from /plan-eng-review. Ready to execute.
+
+RECOMMENDATION: Choose A — the plan has been reviewed, generate specs and spin up agents.
+
+A) Generate specs from this plan and spin up agents
+B) I want to review the plan first (show it)
+C) I'll handle it manually"
+
+- A: Proceed to Step 3
+- B: Read and display the plan, then re-offer A or C
+- C: Stop
+
+### If plan documents exist but no review
+Show the plans found. Then AskUserQuestion:
+
+"Found plan document(s) but no review on record.
+
+RECOMMENDATION: Choose B — running /plan-eng-review first catches issues before agents burn context on a flawed plan. (human: ~30min / CC+gstack: ~5min)
+
+A) Generate specs from [plan] and spin up agents anyway
+B) Run /plan-eng-review first (recommended)
+C) Skip review, just execute"
+
+- A: Proceed to Step 3 with the plan path
+- B: Tell user to run `/plan-eng-review` and come back
+- C: Proceed to Step 3
+
+### If nothing exists
+AskUserQuestion:
+
+"No existing plans or review artifacts found. What do you want to build?
+
+Tell me the task, and I'll help you decide the best path.
+
+A) Write a plan first, then execute (recommended for large tasks — 2+ hours of work)
+B) Generate specs directly from a task description
+C) This is small enough to do right here without orch"
+
+- A: Tell user to write a plan or run `/plan-eng-review` or `/plan-ceo-review`
+- B: Ask for the task description, proceed to Step 3 with `--task`
+- C: Stop — tell user to proceed normally in their current session
+
+## Step 3: Generate and launch
+
+### Determine the specgen command
+
+If a plan document path is available (from review artifacts or repo):
+```bash
+PATH="$HOME/go/bin:$PATH" orch specgen --from-plan <plan-path> --skills gstack --dir <project-dir>
+```
+
+If only a task description:
+```bash
+PATH="$HOME/go/bin:$PATH" orch specgen --task "<task description>" --skills gstack --dir <project-dir>
+```
+
+Where `<project-dir>` is the current working directory (from `pwd`).
+
+### Show generated specs
+
+After specgen completes, briefly summarize what was generated:
+```bash
+ls -la <output-dir>/*.md
+```
+
+Read each generated spec file and give a 1-2 line summary of what each agent will do.
+
+### Confirm launch
+
+AskUserQuestion:
+
+"Specs generated. Ready to spin up agents?
+
+A) Launch agents now
+B) Let me review the specs first (I'll show you the files)
+C) Cancel — I'll launch manually later"
+
+- A: Proceed to launch
+- B: Read and display each spec, then re-offer A or C
+- C: Stop with instructions for manual launch
+
+### Launch agents
+
+```bash
+PATH="$HOME/go/bin:$PATH" orch up-dir <spec-dir> --skills gstack --dir <project-dir>
+```
+
+### Show status
+
+```bash
+PATH="$HOME/go/bin:$PATH" orch ps
+```
+
+Display the result in a formatted table:
+
+```
++================================================+
+|              AGENTS RUNNING                     |
++================================================+
+| Agent     | Role      | Status   | Spec         |
+|-----------|-----------|----------|--------------|
+| engineer  | builder   | running  | engineer.md  |
+| reviewer  | reviewer  | running  | reviewer.md  |
++------------------------------------------------+
+
+Commands:
+  orch ps              — check status
+  orch logs engineer   — see what engineer is doing
+  orch attach engineer — jump into the session
+  orch send engineer "focus on the API first"
+  orch down --all      — stop everything
++================================================+
+```
+
+Tell the user: "Agents are running. You can close this terminal. Check back with `orch ps` or run `/orch` again to manage them."

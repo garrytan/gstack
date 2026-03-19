@@ -18,7 +18,7 @@ CACHE_FILE="$STATE_DIR/last-update-check"
 MARKER_FILE="$STATE_DIR/just-upgraded-from"
 SNOOZE_FILE="$STATE_DIR/update-snoozed"
 VERSION_FILE="$GSTACK_DIR/VERSION"
-REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/garrytan/gstack/main/VERSION}"
+REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/jeffdhooton/gstack/main/VERSION}"
 
 # ─── Force flag (busts cache for standalone /gstack-upgrade) ──
 if [ "${1:-}" = "--force" ]; then

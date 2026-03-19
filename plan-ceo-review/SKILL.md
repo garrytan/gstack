@@ -871,6 +871,36 @@ At the end of the review, if the vision produced a compelling feature direction,
 
 If promoted, copy the CEO plan content to `docs/designs/{FEATURE}.md` (create the directory if needed) and update the `status` field in the original CEO plan from `ACTIVE` to `PROMOTED`.
 
+## Execution Handoff
+
+After the review is complete and the user has resolved all decisions, if the review produced a concrete execution plan (not just strategic direction):
+
+1. Check if orch is available:
+```bash
+PATH="$HOME/go/bin:$PATH" which orch 2>/dev/null && echo "ORCH_AVAILABLE" || echo "ORCH_NOT_AVAILABLE"
+```
+
+2. If `ORCH_AVAILABLE` AND the task is substantial (8+ files or 2+ phases):
+
+Count the scope from the review:
+- Files touched (from the plan or system audit)
+- Phases/sections in the implementation plan
+
+If substantial, AskUserQuestion:
+
+"This plan is reviewed and ready to execute. It touches [N files / N phases], which is a good fit for multi-agent execution.
+
+RECOMMENDATION: Choose A — orch agents can build this autonomously while you do other things. (human: ~Xh / CC+orch: ~Ymin)
+
+A) Spin up orch agents to build this (runs /orch)
+B) I'll build it myself in this session
+C) I'll handle it later"
+
+If A: Tell the user to run `/orch` — it will detect the review artifacts from this session and offer to generate specs and launch agents.
+
+3. If `ORCH_NOT_AVAILABLE` OR the task is small OR the review was purely strategic (no concrete implementation plan):
+Skip this section silently.
+
 ## Formatting Rules
 * NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
 * Label with NUMBER + LETTER (e.g., "3A", "3B").
