@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SKILL_LINK_DIR="$REPO_ROOT/.agents/skills"
+SKILL_LINK_DIR="$HOME/.copilot/skills"
 
 mkdir -p "$SKILL_LINK_DIR"
 
@@ -12,7 +12,7 @@ cat > "$SKILL_LINK_DIR/.gitignore" <<'EOF'
 !.gitignore
 EOF
 
-# Find skill docs and symlink their parent directories into .agents/skills.
+# Find skill docs and symlink their parent directories into ~/.copilot/skills.
 declare -A seen_dirs=()
 linked=()
 skipped=()
@@ -42,7 +42,7 @@ while IFS= read -r skill_file; do
   linked+=("$skill_name")
 done < <(
   find "$REPO_ROOT" \
-    \( -path "$REPO_ROOT/.git" -o -path "$REPO_ROOT/node_modules" -o -path "$REPO_ROOT/.agents" -o -path "$REPO_ROOT/.claude" \) -prune -o \
+    \( -path "$REPO_ROOT/.git" -o -path "$REPO_ROOT/node_modules" -o -path "$REPO_ROOT/.agents" -o -path "$REPO_ROOT/.claude" -o -path "$REPO_ROOT/.copilot" \) -prune -o \
     -type f \( -name "SKILL.md" -o -name "SKILLS.md" \) -print
 )
 
