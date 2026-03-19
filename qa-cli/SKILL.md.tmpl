@@ -1,0 +1,383 @@
+---
+name: qa-cli
+version: 1.0.0
+description: |
+  Systematically QA test CLI tools, servers, and non-browser projects. Discovers test
+  commands, runs them, exercises the real CLI with smoke tests, hits server endpoints,
+  and verifies everything works end-to-end. Use when asked to "test this CLI",
+  "smoke test", "does this work", "qa the server", or "run the full test suite".
+  Proactively suggest when the user finishes a feature on a project that has no
+  web UI — CLI tools, API servers, libraries, background services.
+  For browser-based web app testing, use /qa instead.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /qa-cli: Test CLI tools, servers, and headless projects
+
+You are a QA engineer for projects that don't have a browser UI. CLI tools, API servers,
+libraries, background services, dev tools — anything where the tests run in a terminal,
+not a browser.
+
+Your job: discover how to test this project, run everything, exercise the real CLI or
+server, and report what's passing, what's broken, and what's untested.
+
+---
+
+## Phase 1: Discovery
+
+Figure out what this project is and how to test it.
+
+### 1a. Detect project type
+
+```bash
+ls package.json Cargo.toml pyproject.toml go.mod Makefile Gemfile 2>/dev/null
+```
+
+Read whichever config file exists. Extract:
+- Test command (e.g., `npm test`, `cargo test`, `pytest`, `go test ./...`, `make test`)
+- Build command
+- Binary/CLI entry point (from `bin` field, `main`, or build output)
+- Server start command (if applicable)
+
+### 1b. Read project docs
+
+```bash
+cat CLAUDE.md 2>/dev/null | head -60
+cat README.md 2>/dev/null | head -60
+```
+
+Look for:
+- How to run tests
+- How to build
+- CLI usage examples
+- Server startup instructions
+- Known issues or test prerequisites (e.g., "needs docker", "needs ollama running")
+
+### 1c. Inventory existing tests
+
+```bash
+find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' 2>/dev/null | grep -v node_modules | grep -v vendor | sort
+```
+
+Count total test files and note which areas have coverage.
+
+### 1d. Check for a test plan
+
+```bash
+eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
+```
+
+If a test plan exists (from `/plan-eng-review`), read it. Use it as the primary guide
+for what to test. Fall back to discovery if no plan exists.
+
+### 1e. Report findings
+
+Output a summary:
+
+```
+project: {name}
+type: {node/rust/python/go/ruby/other}
+test command: {command}
+build command: {command}
+cli entry: {path}
+server entry: {path or "none"}
+test files: {count}
+test plan: {found/not found}
+```
+
+---
+
+## Phase 2: Build
+
+Build the project before testing. A project that doesn't build can't be tested.
+
+```bash
+# Run the build command detected in Phase 1
+```
+
+**If build fails:** Report the error, diagnose the root cause, and fix it if possible.
+If it's a missing dependency or env var, tell the user what's needed. Don't proceed
+to Phase 3 until the build passes.
+
+**If build succeeds:** Note the build time and move on.
+
+---
+
+## Phase 3: Test Suite
+
+Run the project's existing test suite.
+
+```bash
+# Run the test command detected in Phase 1
+```
+
+**Parse the output.** Extract:
+- Total tests
+- Passing
+- Failing (list each with name and error message)
+- Skipped
+- Duration
+
+**If tests fail:**
+- For each failure: read the test file, understand what it's testing, check if the
+  failure is a real bug or a flaky/env issue
+- Categorize: **BUG** (real failure), **FLAKY** (timing/env dependent), **STALE** (test
+  is wrong, code is right)
+
+---
+
+## Phase 4: CLI Smoke Tests
+
+If the project has a CLI binary (detected in Phase 1), exercise it with real commands.
+
+### 4a. Basic smoke
+
+```bash
+# Version and help must work
+{cli} --version
+{cli} --help
+```
+
+**If either fails:** This is a critical bug. Report it.
+
+### 4b. Command discovery
+
+Read the `--help` output. Extract all available subcommands. For each subcommand:
+
+```bash
+{cli} {subcommand} --help
+```
+
+Verify help text exists and is coherent.
+
+### 4c. Happy path smoke
+
+For each major command, run it with safe, read-only arguments. Use small fixtures or
+the project's own repo as test data. Don't modify external state (no pushes, no API
+writes, no destructive operations).
+
+Examples of safe smoke tests:
+- `prism scan --repo StressTestor/pr-prism` (reads from GitHub, writes to local DB)
+- `prism dupes` (reads local DB, outputs to stdout)
+- `prism stats` (reads local DB)
+- `prism doctor` (checks config)
+- `prism compare 1 2` (reads local DB)
+
+**For each command:**
+- Did it exit 0?
+- Did it produce expected output (not empty, not a stack trace)?
+- Did it complete in reasonable time?
+
+### 4d. Error path smoke
+
+Test that bad inputs produce helpful errors, not stack traces:
+
+```bash
+{cli} nonexistent-command 2>&1        # should show help or "unknown command"
+{cli} scan --repo invalid 2>&1        # should show "invalid repo format"
+{cli} dupes 2>&1                      # without prior scan — should say "run scan first"
+```
+
+**For each error test:**
+- Did it exit non-zero?
+- Was the error message actionable (tells the user what to do)?
+- Was it a clean error or a raw stack trace?
+
+---
+
+## Phase 5: Server Smoke Tests (if applicable)
+
+If the project has a server component (detected in Phase 1):
+
+### 5a. Start the server
+
+```bash
+# Start in background, wait for it to be ready
+{server_start_command} &
+SERVER_PID=$!
+sleep 2
+
+# Health check
+curl -sf http://localhost:{port}/health || echo "HEALTH CHECK FAILED"
+```
+
+### 5b. Exercise endpoints
+
+For each documented endpoint:
+- Hit it with curl
+- Verify response status code
+- Verify response body is valid JSON (or expected format)
+- Check for error responses on bad input
+
+### 5c. Stop the server
+
+```bash
+kill $SERVER_PID 2>/dev/null
+```
+
+---
+
+## Phase 6: Coverage Gap Analysis
+
+Compare what's tested vs what exists:
+
+```bash
+# List all source files
+find src/ lib/ server/ -name '*.ts' -o -name '*.rs' -o -name '*.py' -o -name '*.go' 2>/dev/null | grep -v node_modules | sort
+
+# List all test files
+find . -name '*.test.*' -o -name '*.spec.*' 2>/dev/null | grep -v node_modules | sort
+```
+
+For each source module, check if a corresponding test file exists. Flag untested modules.
+
+Rank coverage gaps by criticality:
+- **Critical:** Core business logic with no tests
+- **High:** Error handling paths with no tests
+- **Medium:** Utility functions with no tests
+- **Low:** Config/constants with no tests
+
+---
+
+## Phase 7: Report
+
+Output the full QA report directly in the conversation.
+
+```
+## qa-cli report: {project name}
+
+**date:** {date}
+**project:** {name} v{version}
+**type:** {cli/server/library}
+
+### build
+- status: PASS/FAIL
+- time: {duration}
+- issues: {list or "none"}
+
+### test suite
+- total: {N} tests across {M} files
+- passing: {N}
+- failing: {N} {list each with name + error}
+- skipped: {N}
+- duration: {time}
+
+### cli smoke tests
+| command | status | notes |
+|---------|--------|-------|
+| --version | PASS | returns {version} |
+| --help | PASS | lists {N} commands |
+| {subcommand} | PASS/FAIL | {notes} |
+
+### error handling
+| input | expected | actual | status |
+|-------|----------|--------|--------|
+| bad command | helpful error | {what happened} | PASS/FAIL |
+
+### server endpoints (if applicable)
+| endpoint | method | status | response |
+|----------|--------|--------|----------|
+| /health | GET | 200 | ok |
+
+### coverage gaps
+| module | has tests | criticality |
+|--------|-----------|-------------|
+| {file} | yes/no | critical/high/medium/low |
+
+### health score
+{N}/100
+
+Scoring:
+- Build passes: 20 points
+- Test suite passes: 30 points (proportional to pass rate)
+- CLI smoke tests pass: 20 points
+- Error handling clean: 15 points
+- No critical coverage gaps: 15 points
+
+### summary
+{2-3 sentence assessment: what's solid, what's broken, what's undertested}
+```
+
+---
+
+## Phase 8: Fix Loop (if issues found)
+
+For each failing test or broken smoke test, in severity order:
+
+### 8a. Diagnose
+
+Read the failing test and the source code it tests. Understand the root cause.
+
+### 8b. Fix
+
+Make the **minimal fix**. Don't refactor, don't improve unrelated code.
+
+### 8c. Commit
+
+```bash
+git add {files}
+git commit -m "fix(qa-cli): {short description}"
+```
+
+One commit per fix. Never bundle.
+
+### 8d. Re-test
+
+Run the specific failing test again. Then run the full suite to check for regressions.
+
+### 8e. Update report
+
+Mark the issue as fixed in the report. Note what was changed.
+
+---
+
+## Phase 9: Final Summary
+
+After all fixes:
+
+```
+### before/after
+
+| metric | before | after |
+|--------|--------|-------|
+| health score | {N}/100 | {N}/100 |
+| failing tests | {N} | {N} |
+| broken CLI commands | {N} | {N} |
+| critical gaps | {N} | {N} |
+
+### fixes applied
+- {commit hash}: {description}
+
+### remaining issues
+- {list anything not fixed, with reason}
+
+### ship readiness
+{READY / NOT READY — {reason}}
+```
+
+---
+
+## Important Rules
+
+- **Never skip the build step.** A project that doesn't build isn't testable.
+- **Never run destructive commands during smoke tests.** No `--force`, no `reset -y`,
+  no pushing to remotes, no deleting production data.
+- **If a test requires external services** (databases, APIs, Docker), note it as a
+  prerequisite and skip gracefully if the service isn't available.
+- **One commit per fix.** Never bundle fixes. Message format: `fix(qa-cli): description`.
+- **Read the test plan first.** If `/plan-eng-review` produced a test plan, use it
+  as the primary guide for what to test. It's more specific than discovery.
+- **If the project has no tests at all**, that IS the finding. Report it as a critical
+  gap. Don't try to write the entire test suite — that's a separate task.
+- **Be terse in the report.** One line per test, one line per command. Tables over prose.
+  The user wants to scan, not read an essay.

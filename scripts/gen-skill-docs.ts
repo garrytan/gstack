@@ -1219,6 +1219,7 @@ function findTemplates(): string[] {
     path.join(ROOT, 'freeze', 'SKILL.md.tmpl'),
     path.join(ROOT, 'guard', 'SKILL.md.tmpl'),
     path.join(ROOT, 'unfreeze', 'SKILL.md.tmpl'),
+    path.join(ROOT, 'qa-cli', 'SKILL.md.tmpl'),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) templates.push(p);

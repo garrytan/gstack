@@ -16,7 +16,8 @@ description: |
   - Reviewing a plan (design) → suggest /plan-design-review
   - Creating a design system → suggest /design-consultation
   - Debugging errors → suggest /investigate
-  - Testing the app → suggest /qa
+  - Testing the app (web) → suggest /qa
+  - Testing CLI tools, servers, or headless projects → suggest /qa-cli
   - Code review before merge → suggest /review
   - Visual design audit → suggest /design-review
   - Ready to deploy / create PR → suggest /ship
