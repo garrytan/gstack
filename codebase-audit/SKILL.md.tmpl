@@ -342,11 +342,36 @@ After writing the report file, print a summary directly to the conversation. Thi
 5. **Report location**: Full path to the written report
 6. **Regression delta** (if applicable): Score change, count of fixed/new findings
 
-### 4.7 Presentation preference
+### 4.7 Next steps
 
-After printing the conversation summary, use AskUserQuestion to ask: "Full findings are in the report file. Would you like me to display all findings inline here, or is the top-5 summary sufficient?"
+After printing the conversation summary, use AskUserQuestion to offer next steps:
 
-If the user wants inline findings, print all findings grouped by severity.
+"Audit complete. What would you like to do?"
+
+Options:
+- **A) Show all findings inline** — Display all findings grouped by severity in this conversation
+- **B) Fix selected findings** — Pick which findings to address now. I'll create a plan and start fixing.
+- **C) Quick fixes only** — Auto-fix mechanical issues (gitignore patterns, narrowing broad exception catches, adding named constants, etc.) without a full plan. Commits each fix atomically.
+- **D) Done** — I'll review the report file later
+
+**If the user picks A:** Print all findings grouped by severity. Then re-ask with options B, C, D.
+
+**If the user picks B:** Present each Important and Critical finding as a numbered item. Ask which ones to fix (user can pick by number, "all", or "all important"). Then:
+1. Exit the read-only audit constraint — you may now edit source code
+2. For each selected finding, create a focused implementation plan using the finding's description, evidence, and recommendation as the specification
+3. Work through the fixes one at a time, committing each atomically with a message referencing the finding ID (e.g., `fix: add io.LimitReader to HTTP response reads (audit I-3)`)
+4. After all fixes, re-run the relevant checklist patterns to verify the fixes resolved the findings
+
+**If the user picks C:** Identify findings that are purely mechanical fixes — no judgment calls, no architectural decisions. Examples:
+- Adding patterns to .gitignore
+- Narrowing `except Exception` to specific exception types
+- Replacing magic numbers with named constants
+- Adding missing `timeout=` parameters to HTTP calls
+- Adding `t.Parallel()` to independent tests
+
+For each mechanical fix: apply the fix, commit atomically, move to the next. Skip anything that requires a design decision. Report what was fixed and what was skipped.
+
+**If the user picks D:** End the skill. The report and baseline are saved.
 
 ---
 
@@ -370,10 +395,10 @@ If the user wants inline findings, print all findings grouped by severity.
 4. No hallucinating findings. Every finding must reference a specific file and line (or component for non-code findings). If you can't point to it, don't report it.
 5. Use the severity calibration definitions exactly as specified. Do not inflate or deflate severity.
 6. In quick mode, respect the 2-minute target. Do not run Phase 2 or the full Phase 3 checklist.
-7. AskUserQuestion fires in two places: (1) Phase 1 if >50K LOC, to scope the audit; (2) end of Phase 4, for presentation preference. Do not use it elsewhere.
+7. AskUserQuestion fires in three places: (1) Phase 1 if >50K LOC, to scope the audit; (2) end of Phase 4, for next steps (show findings / fix / quick fix / done); (3) within fix mode (B), for finding selection. Do not use it elsewhere.
 8. All bash blocks are self-contained. Do not rely on shell variables persisting between code blocks.
 9. When reading files for context, read enough surrounding lines to understand the code — do not make judgments from a single line in isolation.
 10. Cap detailed findings at 50. Summarize overflow in a table.
 11. Be aware of your knowledge cutoff. Do not flag dependency versions, language versions, or API usage as "deprecated" or "nonexistent" based solely on your training data. If uncertain whether a version exists, state the uncertainty rather than asserting it as a finding.
 12. Always use the Read tool to read files — never use `cat` via Bash. The Read tool provides better context and is the expected convention.
-13. Do NOT write to plan files or enter plan mode. This skill produces a report, not an implementation plan. Write only to `~/.gstack/projects/$SLUG/audits/`. If the session is in plan mode, exit plan mode after writing the report — the audit is complete, not a proposal for future work.
+13. Do NOT write to plan files or enter plan mode during the audit phases (1-4). The audit produces a report, not an implementation plan. Write only to `~/.gstack/projects/$SLUG/audits/` during the audit. If the user then selects "Fix selected findings" or "Quick fixes only" in the next-steps prompt, you may edit source code and commit changes — but the audit phase itself is always read-only.
