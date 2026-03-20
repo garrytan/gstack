@@ -5,6 +5,39 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
+
+function extractDescription(content: string): string {
+  const fmEnd = content.indexOf('\n---', 4);
+  expect(fmEnd).toBeGreaterThan(0);
+  const frontmatter = content.slice(4, fmEnd);
+  const lines = frontmatter.split('\n');
+  let description = '';
+  let inDescription = false;
+  const descLines: string[] = [];
+
+  for (const line of lines) {
+    if (line.match(/^description:\s*\|?\s*$/)) {
+      inDescription = true;
+      continue;
+    }
+    if (line.match(/^description:\s*\S/)) {
+      return line.replace(/^description:\s*/, '').trim();
+    }
+    if (inDescription) {
+      if (line === '' || line.match(/^\s/)) {
+        descLines.push(line.replace(/^  /, ''));
+      } else {
+        break;
+      }
+    }
+  }
+
+  if (descLines.length > 0) {
+    description = descLines.join('\n').trim();
+  }
+  return description;
+}
 
 // Dynamic template discovery — matches the generator's findTemplates() behavior.
 // New skills automatically get test coverage without updating a static list.
@@ -95,6 +128,14 @@ describe('gen-skill-docs', () => {
       expect(content.startsWith('---\n')).toBe(true);
       expect(content).toContain('name:');
       expect(content).toContain('description:');
+    }
+  });
+
+  test(`every generated SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
+    for (const skill of ALL_SKILLS) {
+      const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
+      const description = extractDescription(content);
+      expect(description.length).toBeLessThanOrEqual(MAX_SKILL_DESCRIPTION_LENGTH);
     }
   });
 
