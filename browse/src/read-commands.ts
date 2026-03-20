@@ -37,11 +37,17 @@ function wrapForEvaluate(code: string): string {
 
 // Security: Path validation to prevent path traversal attacks
 const SAFE_DIRECTORIES = ['/tmp', process.cwd()];
+// Normalize path separators to forward slashes for cross-platform comparison (Windows uses backslashes)
+const normSep = (p: string) => p.replace(/\\/g, '/');
 
 export function validateReadPath(filePath: string): void {
   if (path.isAbsolute(filePath)) {
     const resolved = path.resolve(filePath);
-    const isSafe = SAFE_DIRECTORIES.some(dir => resolved === dir || resolved.startsWith(dir + '/'));
+    const resolvedNorm = normSep(resolved);
+    const isSafe = SAFE_DIRECTORIES.some(dir => {
+      const dirNorm = normSep(dir);
+      return resolvedNorm === dirNorm || resolvedNorm.startsWith(dirNorm + '/');
+    });
     if (!isSafe) {
       throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
     }

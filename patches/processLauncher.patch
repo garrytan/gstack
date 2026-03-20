@@ -1,0 +1,14 @@
+--- a/lib/server/utils/processLauncher.js	1985-10-26 16:15:00.000000000 +0800
++++ b/lib/server/utils/processLauncher.js	2026-03-20 15:43:03.110644000 +0800
+@@ -102,7 +102,10 @@
+   installedHandlers.clear();
+ }
+ async function launchProcess(options) {
+-  const stdio = options.stdio === "pipe" ? ["ignore", "pipe", "pipe", "pipe", "pipe"] : ["pipe", "pipe", "pipe"];
++  // On Windows under Bun, 5-element stdio arrays are not correctly handled (fd 3/4 pipes fail).
++  // Fall back to 3-element stdio and use CDP-over-WebSocket transport instead.
++  const isBunWindows = process.platform === "win32" && typeof Bun !== "undefined";
++  const stdio = options.stdio === "pipe" && !isBunWindows ? ["ignore", "pipe", "pipe", "pipe", "pipe"] : ["pipe", "pipe", "pipe"];
+   options.log(`<launching> ${options.command} ${options.args ? options.args.join(" ") : ""}`);
+   const spawnOptions = {
+     // On non-windows platforms, `detached: true` makes child process a leader of a new

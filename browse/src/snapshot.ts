@@ -312,7 +312,9 @@ export async function handleSnapshot(
     // Validate output path (consistent with screenshot/pdf/responsive)
     const resolvedPath = require('path').resolve(screenshotPath);
     const safeDirs = ['/tmp', process.cwd()];
-    if (!safeDirs.some((dir: string) => resolvedPath === dir || resolvedPath.startsWith(dir + '/'))) {
+    const normSep = (p: string) => p.replace(/\\/g, '/');
+    const resolvedPathNorm = normSep(resolvedPath);
+    if (!safeDirs.some((dir: string) => { const d = normSep(dir); return resolvedPathNorm === d || resolvedPathNorm.startsWith(d + '/'); })) {
       throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
     }
     try {

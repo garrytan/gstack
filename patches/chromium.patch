@@ -1,0 +1,50 @@
+--- a/lib/server/chromium/chromium.js	1985-10-26 16:15:00.000000000 +0800
++++ b/lib/server/chromium/chromium.js	2026-03-20 16:17:17.807119900 +0800
+@@ -257,6 +257,11 @@
+   async defaultArgs(options, isPersistent, userDataDir) {
+     const chromeArguments = this._innerDefaultArgs(options);
+     chromeArguments.push(`--user-data-dir=${userDataDir}`);
++    // On Windows under Bun, use CDP-over-WebSocket (port) instead of pipe transport.
++    // Bun cannot correctly pass fd 3/4 pipe handles to child processes on Windows.
++    const isBunWindows = process.platform === "win32" && typeof Bun !== "undefined";
++    if (isBunWindows && options.cdpPort === void 0)
++      options.cdpPort = 0;  // Force WebSocket transport; also signals waitForReadyState to wait for WS URL
+     if (options.cdpPort !== void 0)
+       chromeArguments.push(`--remote-debugging-port=${options.cdpPort}`);
+     else
+@@ -327,6 +332,35 @@
+ async function waitForReadyState(options, browserLogsCollector) {
+   if (options.cdpPort === void 0 && !options.args?.some((a) => a.startsWith("--remote-debugging-port")))
+     return {};
++  // On Windows under Bun: Chrome's stderr is block-buffered, so log messages arrive late.
++  // Poll the HTTP CDP endpoint directly instead of waiting for the log message.
++  const isBunWindows = process.platform === "win32" && typeof Bun !== "undefined";
++  if (isBunWindows && options.cdpPort !== void 0 && options.cdpPort > 0) {
++    const port = options.cdpPort;
++    const result = new import_manualPromise.ManualPromise();
++    // Also watch for profile-lock errors in logs
++    browserLogsCollector.onMessage((message) => {
++      if (message.includes("Failed to create a ProcessSingleton for your profile directory.")) {
++        result.reject(new Error("Failed to create a ProcessSingleton for your profile directory. This usually means that the profile is already in use by another instance of Chromium."));
++      }
++    });
++    (async () => {
++      while (!result.isDone()) {
++        try {
++          const resp = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(500) });
++          if (resp.ok) {
++            const data = await resp.json();
++            if (data && data.webSocketDebuggerUrl) {
++              result.resolve({ wsEndpoint: data.webSocketDebuggerUrl });
++              return;
++            }
++          }
++        } catch {}
++        await new Promise(resolve => setTimeout(resolve, 100));
++      }
++    })();
++    return result;
++  }
+   const result = new import_manualPromise.ManualPromise();
+   browserLogsCollector.onMessage((message) => {
+     if (message.includes("Failed to create a ProcessSingleton for your profile directory.")) {

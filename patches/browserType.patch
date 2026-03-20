@@ -1,0 +1,17 @@
+--- a/lib/server/browserType.js	1985-10-26 16:15:00.000000000 +0800
++++ b/lib/server/browserType.js	2026-03-20 16:02:38.280613900 +0800
+@@ -193,6 +193,14 @@
+       handleSIGHUP = true
+     } = options;
+     const env = options.env ? (0, import_processLauncher.envArrayToObject)(options.env) : process.env;
++    // On Windows under Bun: pre-allocate a specific CDP port before Chrome launches.
++    // We use HTTP polling to detect Chrome readiness, avoiding the buffered-stderr timing issue.
++    if (process.platform === "win32" && typeof Bun !== "undefined" && options.cdpPort === void 0) {
++      options.cdpPort = await new Promise((resolve) => {
++        const srv = require('net').createServer();
++        srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => resolve(p)); });
++      });
++    }
+     const prepared = await progress.race(this._prepareToLaunch(options, isPersistent, userDataDir));
+     let transport = void 0;
+     let browserProcess = void 0;

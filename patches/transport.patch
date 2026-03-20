@@ -1,0 +1,55 @@
+--- a/lib/server/transport.js	1985-10-26 16:15:00.000000000 +0800
++++ b/lib/server/transport.js	2026-03-20 16:14:30.067142000 +0800
+@@ -35,12 +35,41 @@
+   },
+   threshold: 10 * 1024
+ };
++// On Windows under Bun: the bundled ws npm library's WebSocket upgrade via http.request()
++// fails with "Unexpected server response: 101". Use Bun's native WebSocket instead,
++// wrapped in an adapter that mimics the ws EventEmitter + addEventListener API.
++function createBunNativeWsAdapter(url) {
++  const nativeWs = new WebSocket(url);
++  const listeners = {};
++  function emit(event, ...args) {
++    if (listeners[event]) listeners[event].slice().forEach(fn => fn(...args));
++  }
++  const adapter = {
++    get readyState() { return nativeWs.readyState; },
++    on(event, fn) { (listeners[event] = listeners[event] || []).push(fn); return adapter; },
++    once(event, fn) {
++      const wrapper = (...args) => { fn(...args); adapter.off(event, wrapper); };
++      return adapter.on(event, wrapper);
++    },
++    off(event, fn) { if (listeners[event]) listeners[event] = listeners[event].filter(f => f !== fn); return adapter; },
++    addEventListener(event, fn) { adapter.on(event, fn); },
++    removeEventListener(event, fn) { adapter.off(event, fn); },
++    send(data) { nativeWs.send(data); },
++    close() { nativeWs.close(); },
++  };
++  nativeWs.onopen = () => emit('open');
++  nativeWs.onmessage = (e) => emit('message', { data: e.data });
++  nativeWs.onclose = (e) => emit('close', { code: e.code, reason: e.reason });
++  nativeWs.onerror = (e) => emit('error', Object.assign(new Error('WebSocket error'), { type: 'error' }));
++  return adapter;
++}
++const isBunWindows = process.platform === "win32" && typeof Bun !== "undefined";
+ class WebSocketTransport {
+   constructor(progress, url, logUrl, options) {
+     this.headers = [];
+     this.wsEndpoint = url;
+     this._logUrl = logUrl;
+-    this._ws = new import_utilsBundle.ws(url, [], {
++    this._ws = isBunWindows ? createBunNativeWsAdapter(url) : new import_utilsBundle.ws(url, [], {
+       maxPayload: 256 * 1024 * 1024,
+       // 256Mb,
+       headers: options.headers,
+@@ -157,7 +186,8 @@
+     this._ws.close();
+   }
+   async closeAndWait() {
+-    if (this._ws.readyState === import_utilsBundle.ws.CLOSED)
++    const CLOSED = 3; // WebSocket.CLOSED — same value in both ws npm library and native WebSocket
++    if (this._ws.readyState === CLOSED)
+       return;
+     const promise = new Promise((f) => this._ws.once("close", f));
+     this.close();
