@@ -732,12 +732,17 @@ describe('setup script validation', () => {
 
   test('create_codex_runtime_root exposes only runtime assets', () => {
     const fnStart = setupContent.indexOf('create_codex_runtime_root()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('gstack-upgrade/SKILL.md', fnStart));
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
+    // Review runtime assets (individual files, not the whole dir)
+    expect(fnBody).toContain('checklist.md');
+    expect(fnBody).toContain('design-checklist.md');
+    expect(fnBody).toContain('greptile-triage.md');
+    expect(fnBody).toContain('TODOS-format.md');
     expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$codex_gstack"');
   });
 

@@ -212,7 +212,7 @@ create_codex_runtime_root() {
     rm -f "$codex_gstack"
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade"
+  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     ln -snf "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
@@ -229,6 +229,12 @@ create_codex_runtime_root() {
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
   fi
+  # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$codex_gstack/review/$f"
+    fi
+  done
 }
 
 # 4. Install for Claude (default)
