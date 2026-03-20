@@ -116,26 +116,30 @@ jobs:
           PROMPT_EOF
           )
 
+            # Build JSON payload via file to avoid "Argument list too long" errors
+            jq -n \
+              --arg prompt "$PROMPT" \
+              --arg file "$file" \
+              --arg content "$CONTENT" \
+              --arg ours "$OURS" \
+              --arg theirs "$THEIRS" \
+              '{
+                model: "claude-sonnet-4-20250514",
+                max_tokens: 16000,
+                messages: [{
+                  role: "user",
+                  content: ($prompt + "\n\n## File: " + $file + "\n\n### Current file with conflict markers:\n" + $content + "\n\n### Our version (fork main):\n" + $ours + "\n\n### Their version (upstream main):\n" + $theirs + "\n\nOutput the resolved file content:")
+                }]
+              }' > /tmp/claude-payload.json
+
             # Call Claude API
             RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
               -H "Content-Type: application/json" \
               -H "x-api-key: $ANTHROPIC_API_KEY" \
               -H "anthropic-version: 2023-06-01" \
-              -d "$(jq -n \
-                --arg prompt "$PROMPT" \
-                --arg file "$file" \
-                --arg content "$CONTENT" \
-                --arg ours "$OURS" \
-                --arg theirs "$THEIRS" \
-                '{
-                  model: "claude-sonnet-4-20250514",
-                  max_tokens: 16000,
-                  messages: [{
-                    role: "user",
-                    content: ($prompt + "\n\n## File: " + $file + "\n\n### Current file with conflict markers:\n" + $content + "\n\n### Our version (fork main):\n" + $ours + "\n\n### Their version (upstream main):\n" + $theirs + "\n\nOutput the resolved file content:")
-                  }]
-                }'
-              )")
+              -d @/tmp/claude-payload.json)
+
+            rm -f /tmp/claude-payload.json
 
             # Extract the text content from Claude's response
             RESOLVED=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
