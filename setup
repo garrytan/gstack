@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register all skills with Claude Code
+# gstack setup — build browser binary + register skills with Claude Code, Codex CLI, Gemini CLI
 set -e
 
 if ! command -v bun >/dev/null 2>&1; then
@@ -66,36 +66,71 @@ fi
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 
-# 4. Only create skill symlinks if we're inside a .claude/skills directory
-SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
-if [ "$SKILLS_BASENAME" = "skills" ]; then
-  linked=()
+# 4. Create skill symlinks for all detected agent skill directories
+link_skills_to() {
+  local skills_dir="$1"
+  local agent_name="$2"
+  local linked=()
+  mkdir -p "$skills_dir"
   for skill_dir in "$GSTACK_DIR"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
-      # Skip node_modules
       [ "$skill_name" = "node_modules" ] && continue
-      target="$SKILLS_DIR/$skill_name"
-      # Create or update symlink; skip if a real file/directory exists
+      target="$skills_dir/$skill_name"
       if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "gstack/$skill_name" "$target"
+        ln -snf "$GSTACK_DIR/$skill_name" "$target"
         linked+=("$skill_name")
       fi
     fi
   done
-
-  echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
+  # Ensure gstack dir itself is accessible
+  local gstack_link="$skills_dir/gstack"
+  if [ -L "$gstack_link" ] || [ ! -e "$gstack_link" ]; then
+    ln -snf "$GSTACK_DIR" "$gstack_link"
   fi
-else
-  echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
-  echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  $agent_name: linked ${#linked[@]} skills"
+  fi
+}
+
+SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
+echo "gstack ready."
+echo "  browse: $BROWSE_BIN"
+
+LINKED_ANY=0
+
+# Link if we're already inside a skills directory (original behavior)
+if [ "$SKILLS_BASENAME" = "skills" ]; then
+  link_skills_to "$SKILLS_DIR" "$(basename "$(dirname "$SKILLS_DIR")")"
+  LINKED_ANY=1
 fi
 
-# 4. First-time welcome + legacy cleanup
+# Claude Code: ~/.claude/skills/
+CLAUDE_SKILLS="$HOME/.claude/skills"
+if [ -d "$HOME/.claude" ] && [ "$SKILLS_DIR" != "$CLAUDE_SKILLS" ]; then
+  link_skills_to "$CLAUDE_SKILLS" "Claude Code"
+  LINKED_ANY=1
+fi
+
+# Codex CLI: ~/.agents/skills/
+CODEX_SKILLS="$HOME/.agents/skills"
+if command -v codex >/dev/null 2>&1 || [ -d "$HOME/.agents" ]; then
+  if [ "$SKILLS_DIR" != "$CODEX_SKILLS" ]; then
+    link_skills_to "$CODEX_SKILLS" "Codex CLI"
+    LINKED_ANY=1
+  fi
+fi
+
+# Gemini CLI: register as extension if gemini is installed
+if command -v gemini >/dev/null 2>&1; then
+  echo "  Gemini CLI: detected (use 'gemini extensions link $GSTACK_DIR' to register)"
+fi
+
+if [ "$LINKED_ANY" -eq 0 ]; then
+  echo "  (no agent skill directories found — skills not linked)"
+fi
+
+# 5. First-time welcome + legacy cleanup
 if [ ! -d "$HOME/.gstack" ]; then
   mkdir -p "$HOME/.gstack"
   echo "  Welcome! Run /gstack-upgrade anytime to stay current."
