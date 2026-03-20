@@ -75,6 +75,9 @@ gstack/
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── retro/           # Retrospective skill
 ├── document-release/ # /document-release skill (post-ship doc updates)
+├── lib/             # Shared instruction fragments for skill templates
+│   └── memory.md    # Synthetic memory protocol (included by reference)
+├── scripts/         # Build + DX tooling (also init-memory.sh, gstack-status.sh, gstack-reset.sh)
 ├── setup            # One-time setup: build binary + symlink skills
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
@@ -222,3 +225,23 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
 
 Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+
+## gstack Synthetic Memory
+
+gstack skills use `.gstack/` for file-backed session memory. This prevents
+information loss during long sessions when context window compaction silently
+summarizes away critical details like specific findings, user decisions, and
+pending work items.
+
+Key rules:
+
+- `.gstack/findings.md` is the source of truth for all findings — not conversation
+- `.gstack/session.json` tracks current skill state, phase, and progress
+- `.gstack/decisions.log` records all user decisions with timestamps
+- `.gstack/handoff.md` carries context between skill invocations
+- Skills run checkpoints every 5 tool calls to re-sync state
+- `/ship` reads findings.md and blocks on unresolved P0 issues
+
+If `.gstack/` doesn't exist, skills auto-create it via `scripts/init-memory.sh`.
+The directory is gitignored — it's session-local state, not project config.
+The full protocol is documented in `lib/memory.md`.
