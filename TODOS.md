@@ -163,6 +163,18 @@
 **Priority:** P2
 **Depends on:** None
 
+### Gstack notes system for deferred test failures
+
+**What:** Add lightweight notes persistence — JSON files in `~/.gstack/projects/{SLUG}/notes/`, surfaced at session start via preamble, manual resolve.
+
+**Why:** Gives solo devs a "fix it later" path for pre-existing test failures that auto-surfaces reminders next session. Currently the triage offers fix/TODO/skip but no lightweight "remind me" option.
+
+**Context:** Deferred from the test failure ownership PR because auto-resolve by test name matching is fragile (renamed tests, split failures, changed filenames break matching). Start with manual resolve only. Schema: `{type, title, description, test_file, error_summary, branch_when_noticed, created, priority, status}`. Surface in preamble with cap of 5 notes shown.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** Test failure ownership triage (bin/gstack-repo-mode + test failure triage in ship/SKILL.md)
+
 ### Post-deploy verification (ship + browse)
 
 **What:** After push, browse staging/preview URL, screenshot key pages, check console for JS errors, compare staging vs prod via snapshot diff. Include verification screenshots in PR body. STOP if critical errors found.

@@ -68,7 +68,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
 
   // Ship
-  'ship-base-branch': ['ship/**'],
+  'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode'],
 
   // Retro
   'retro':             ['retro/**'],
@@ -92,7 +92,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'qa-bootstrap': ['qa/**', 'browse/src/**', 'ship/**'],
 
   // Ship coverage audit
-  'ship-coverage-audit': ['ship/**'],
+  'ship-coverage-audit': ['ship/**', 'bin/gstack-repo-mode'],
 
   // Design
   'design-consultation-core':     ['design-consultation/**'],

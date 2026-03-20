@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.5.0] - 2026-03-20 — See Something, Say Something
+
+### Added
+
+- **Solo dev repos get test failures fixed, not just flagged.** gstack now detects whether you're a solo dev (80%+ of commits) or on a team, and adapts its behavior. Solo devs get offered "investigate and fix now" for pre-existing test failures — because you're the only one who will. Team repos get "blame + assign GitHub issue" to route problems to the right person.
+- **Pre-existing test failures no longer block shipping.** When `/ship` hits a test failure that wasn't caused by your branch, gstack classifies it (in-branch vs pre-existing) and offers options: fix now, add as P0 TODO, assign to the author, or skip. Only in-branch failures block the workflow.
+- **`bin/gstack-repo-mode` detects solo vs collaborative repos.** Uses 90-day git history with an 80% threshold, 7-day cache, and config override (`gstack-config set repo_mode solo`). Every skill's preamble now outputs `REPO_MODE`.
+- **"See Something, Say Something" is now a universal principle.** Every gstack skill notices issues outside your branch — deprecation warnings, dead code, env problems — and flags them. In solo mode, it offers to fix. In collaborative mode, it flags and moves on.
+
+### Fixed
+
+- **Shell injection via branch names prevented.** `gstack-repo-mode` computes the project slug directly from `git remote` instead of eval'ing `gstack-slug`, which could execute shell metacharacters in branch names.
+- **Feature-branch sampling bias eliminated.** Repo mode detection now uses the default branch (`origin/main`) for git history, not `HEAD`, so feature branches with unusual commit patterns don't skew the solo/collaborative classification.
+- **Repo mode config values validated.** Only `solo`, `collaborative`, and `unknown` are accepted — arbitrary strings can't be injected via `source <(...)`.
+
 ## [0.9.4.0] - 2026-03-20 — Codex Reviews On By Default
 
 ### Changed

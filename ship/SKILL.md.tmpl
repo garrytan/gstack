@@ -26,7 +26,7 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 **Only stop for:**
 - On the base branch (abort)
 - Merge conflicts that can't be auto-resolved (stop, show conflicts)
-- Test failures (stop, show failures)
+- In-branch test failures (pre-existing failures are triaged, not auto-blocking)
 - Pre-landing review finds ASK items that need user judgment
 - MINOR or MAJOR version bump needed (ask — see Step 4)
 - Greptile review comments that need user decision (complex fixes, false positives)
@@ -118,7 +118,11 @@ wait
 
 After both complete, read the output files and check pass/fail.
 
-**If any test fails:** Show the failures and **STOP**. Do not proceed.
+**If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
+
+{{TEST_FAILURE_TRIAGE}}
+
+**After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped), continue to Step 3.25.
 
 **If all pass:** Continue silently — just note the counts briefly.
 

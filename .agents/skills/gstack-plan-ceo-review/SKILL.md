@@ -27,6 +27,8 @@ _PROACTIVE=$(~/.codex/skills/gstack/bin/gstack-config get proactive 2>/dev/null 
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 echo "PROACTIVE: $_PROACTIVE"
+source <(~/.codex/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || REPO_MODE=unknown
+echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.codex/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -126,6 +128,18 @@ AI-assisted coding makes the marginal cost of completeness near-zero. When you p
 - BAD: "We can skip edge case handling to save time." (Edge case handling costs minutes with CC.)
 - BAD: "Let's defer test coverage to a follow-up PR." (Tests are the cheapest lake to boil.)
 - BAD: Quoting only human-team effort: "This would take 2 weeks." (Say: "2 weeks human / ~1 hour CC.")
+
+## Repo Ownership Mode — See Something, Say Something
+
+`REPO_MODE` from the preamble tells you who owns issues in this repo:
+
+- **`solo`** — One person does 80%+ of the work. They own everything. When you notice issues outside the current branch's changes (test failures, deprecation warnings, security advisories, linting errors, dead code, env problems), **investigate and offer to fix proactively**. The solo dev is the only person who will fix it. Default to action.
+- **`collaborative`** — Multiple active contributors. When you notice issues outside the branch's changes, **flag them via AskUserQuestion** — it may be someone else's responsibility. Default to asking, not fixing.
+- **`unknown`** — Treat as collaborative (safer default — ask before fixing).
+
+**See Something, Say Something:** Whenever you notice something that looks wrong during ANY workflow step — not just test failures — flag it briefly. One sentence: what you noticed and its impact. In solo mode, follow up with "Want me to fix it?" In collaborative mode, just flag it and move on.
+
+Never let a noticed issue silently pass. The whole point is proactive communication.
 
 ## Contributor Mode
 
