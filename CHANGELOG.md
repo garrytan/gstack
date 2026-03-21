@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.9.5.0] - 2026-03-20 — Synthetic Memory
+## [0.9.6.0] - 2026-03-21 — Synthetic Memory
 
 ### Added
 
@@ -10,6 +10,12 @@
 - **`/investigate` tracks hypotheses and fix attempts on disk.** After context compaction, the agent won't re-test a hypothesis it already disproved or forget how many fixes it's tried. The Iron Law's "3 failed fixes" rule now actually works across compaction boundaries.
 - **`/retro` incorporates findings patterns.** Weekly retrospectives now include systemic issue detection from accumulated findings (e.g., "4 SQL injection findings across sessions — consider a linter rule").
 - **New utility scripts:** `gstack-status` shows current session state at a glance, `gstack-reset` archives and clears memory for a fresh start.
+
+## [0.9.5.0] - 2026-03-21 — CEO Review ↔ Office Hours Chaining
+
+### Added
+
+- **CEO review saves context when handing off to `/office-hours`.** When `/plan-ceo-review` suggests running `/office-hours` first, it now saves a handoff note with your system audit findings and any discussion so far. When you come back and re-invoke `/plan-ceo-review`, it picks up that context automatically — no more starting from scratch.
 
 ## [0.9.4.1] - 2026-03-20
 
