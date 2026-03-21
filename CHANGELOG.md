@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.6.0] - 2026-03-21 — Skill Engineering Pipeline
+
+### Added
+
+- **Your skills now get size warnings and error alerts.** When you run `bun run gen:skill-docs`, every generated SKILL.md now shows its line count. Skills over 500 lines get a warning, over 800 get an error — so you can see which skills need to be split before they degrade Claude's instruction adherence.
+- **Auto-split your oversized skills with ref markers.** Add `<!-- ref:filename.md -->` ... `<!-- /ref -->` markers in your `.tmpl` files and `gen-skill-docs` will automatically extract that content into `references/` files, replacing it with a link. Claude loads these on-demand instead of always — less token waste, better focus.
+- **Scaffold new skills instantly with `gstack-init-skill`.** Run `bin/gstack-init-skill my-skill --description "..."` to create a correctly structured skill directory with SKILL.md.tmpl, references/, and scripts/ — ready to edit.
+- **Orphaned reference file detection.** If you remove a ref marker from a template, `--dry-run` now flags the leftover reference file so stale docs don't accumulate.
+- **Anthropic skill engineering rules file.** Path-scoped rules at `.claude/rules/skill-engineering.md` automatically load when editing skill templates — covering progressive disclosure, size limits, frontmatter requirements, and directory structure.
+
+### For contributors
+
+- `autoSplit()` and `validateSize()` are now exported from `gen-skill-docs.ts` for direct testing
+- `import.meta.main` guard added so the module can be imported without triggering generation
+- 22 new tests in `test/phase2-auto-split.test.ts` covering auto-split parsing, size validation, and skeleton generation
+
 ## [0.9.5.0] - 2026-03-21 — CEO Review ↔ Office Hours Chaining
 
 ### Added
