@@ -2,6 +2,8 @@
 name: document-release
 version: 1.0.0
 description: |
+  MANUAL TRIGGER ONLY: only run this skill when the user explicitly types /document-release in their message.
+  Do not auto-trigger this skill from semantic similarity alone.
   Post-ship documentation update. Reads all project docs, cross-references the
   diff, updates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,
   polishes CHANGELOG voice, cleans up TODOS, and optionally bumps VERSION. Use when

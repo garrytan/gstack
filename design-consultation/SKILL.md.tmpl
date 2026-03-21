@@ -2,6 +2,8 @@
 name: design-consultation
 version: 1.0.0
 description: |
+  MANUAL TRIGGER ONLY: only run this skill when the user explicitly types /design-consultation in their message.
+  Do not auto-trigger this skill from semantic similarity alone.
   Design consultation: understands your product, researches the landscape, proposes a
   complete design system (aesthetic, typography, color, layout, spacing, motion), and
   generates font+color preview pages. Creates DESIGN.md as your project's design source

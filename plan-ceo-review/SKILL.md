@@ -2,6 +2,8 @@
 name: plan-ceo-review
 version: 1.0.0
 description: |
+  MANUAL TRIGGER ONLY: only run this skill when the user explicitly types /plan-ceo-review in their message.
+  Do not auto-trigger this skill from semantic similarity alone.
   CEO/founder-mode plan review. Rethink the problem, find the 10-star product,
   challenge premises, expand scope when it creates a better product. Four modes:
   SCOPE EXPANSION (dream big), SELECTIVE EXPANSION (hold scope + cherry-pick

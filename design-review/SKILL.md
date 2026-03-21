@@ -2,6 +2,8 @@
 name: design-review
 version: 2.0.0
 description: |
+  MANUAL TRIGGER ONLY: only run this skill when the user explicitly types /design-review in their message.
+  Do not auto-trigger this skill from semantic similarity alone.
   Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems,
   AI slop patterns, and slow interactions — then fixes them. Iteratively fixes issues
   in source code, committing each fix atomically and re-verifying with before/after

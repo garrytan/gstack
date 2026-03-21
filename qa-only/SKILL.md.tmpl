@@ -2,6 +2,8 @@
 name: qa-only
 version: 1.0.0
 description: |
+  MANUAL TRIGGER ONLY: only run this skill when the user explicitly types /qa-only in their message.
+  Do not auto-trigger this skill from semantic similarity alone.
   Report-only QA testing. Systematically tests a web application and produces a
   structured report with health score, screenshots, and repro steps — but never
   fixes anything. Use when asked to "just report bugs", "qa report only", or
