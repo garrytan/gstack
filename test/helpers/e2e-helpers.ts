@@ -30,6 +30,13 @@ export const evalsEnabled = !!process.env.EVALS;
 // Set EVALS_ALL=1 to force all tests. Set EVALS_BASE to override base branch.
 export let selectedTests: string[] | null = null; // null = run all
 
+// EVALS_FAST: skip the 8 slowest tests (all Opus quality tests) for quick feedback
+const FAST_EXCLUDED_TESTS = [
+  'plan-ceo-review-selective', 'plan-ceo-review', 'retro', 'retro-base-branch',
+  'design-consultation-core', 'design-consultation-existing',
+  'qa-fix-loop', 'design-review-fix',
+];
+
 if (evalsEnabled && !process.env.EVALS_ALL) {
   const baseBranch = process.env.EVALS_BASE
     || detectBaseBranch(ROOT)
@@ -46,6 +53,17 @@ if (evalsEnabled && !process.env.EVALS_ALL) {
     process.stderr.write('\n');
   }
   // If changedFiles is empty (e.g., on main branch), selectedTests stays null → run all
+}
+
+// Apply EVALS_FAST filter after diff-based selection
+if (evalsEnabled && process.env.EVALS_FAST) {
+  if (selectedTests === null) {
+    // Run all minus excluded
+    selectedTests = Object.keys(E2E_TOUCHFILES).filter(t => !FAST_EXCLUDED_TESTS.includes(t));
+  } else {
+    selectedTests = selectedTests.filter(t => !FAST_EXCLUDED_TESTS.includes(t));
+  }
+  process.stderr.write(`EVALS_FAST: excluded ${FAST_EXCLUDED_TESTS.length} slow tests, running ${selectedTests.length}\n\n`);
 }
 
 export const describeE2E = evalsEnabled ? describe : describe.skip;
@@ -164,6 +182,9 @@ export function recordE2E(
     exit_reason: result.exitReason,
     timeout_at_turn: result.exitReason === 'timeout' ? result.costEstimate.turnsUsed : undefined,
     last_tool_call: lastTool,
+    model: result.model,
+    first_response_ms: result.firstResponseMs,
+    max_inter_turn_ms: result.maxInterTurnMs,
     ...extra,
   });
 }
