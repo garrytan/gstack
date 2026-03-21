@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.5.0] - 2026-03-21 — CEO Review ↔ Office Hours Chaining
+
+### Added
+
+- **CEO review saves context when handing off to `/office-hours`.** When `/plan-ceo-review` suggests running `/office-hours` first, it now saves a handoff note with your system audit findings and any discussion so far. When you come back and re-invoke `/plan-ceo-review`, it picks up that context automatically — no more starting from scratch.
+
 ## [0.9.4.1] - 2026-03-20
 
 ### Changed
