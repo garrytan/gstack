@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# gstack-init-skill — scaffold a new skill directory with correct structure
+#
+# Usage:
+#   gstack-init-skill <name> [--description "..."]
+#
+# Creates:
+#   <name>/SKILL.md.tmpl    — template with frontmatter skeleton
+#   <name>/references/      — for progressive disclosure content
+#   <name>/scripts/         — for executable helper scripts
+
+set -euo pipefail
+
+GSTACK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+usage() {
+  echo "Usage: gstack-init-skill <name> [--description \"...\"]"
+  echo ""
+  echo "Creates a new skill directory with Anthropic-compliant structure."
+  echo ""
+  echo "Arguments:"
+  echo "  <name>             Skill name in kebab-case (e.g. my-skill)"
+  echo "  --description      Optional skill description"
+  exit 1
+}
+
+# Parse arguments
+NAME=""
+DESCRIPTION=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --description)
+      DESCRIPTION="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage
+      ;;
+    *)
+      if [[ -z "$NAME" ]]; then
+        NAME="$1"
+      else
+        echo "Unexpected argument: $1" >&2
+        usage
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$NAME" ]]; then
+  echo "Error: skill name is required" >&2
+  usage
+fi
+
+# Validate kebab-case
+if [[ ! "$NAME" =~ ^[a-z][a-z0-9-]*$ ]]; then
+  echo "Error: skill name must be kebab-case (e.g. my-skill)" >&2
+  exit 1
+fi
+
+SKILL_DIR="$GSTACK_ROOT/$NAME"
+
+if [[ -d "$SKILL_DIR" ]]; then
+  echo "Error: directory $NAME/ already exists" >&2
+  exit 1
+fi
+
+# Create directory structure
+mkdir -p "$SKILL_DIR/references"
+mkdir -p "$SKILL_DIR/scripts"
+
+# Default description
+if [[ -z "$DESCRIPTION" ]]; then
+  DESCRIPTION="TODO: Describe WHAT this skill does and WHEN to use it. Keep under 1024 chars."
+fi
+
+# Create SKILL.md.tmpl — use printf to avoid shell expansion of description content
+{
+  printf '%s\n' "---"
+  printf 'name: %s\n' "$NAME"
+  printf 'description: |\n'
+  printf '  %s\n' "$DESCRIPTION"
+  printf '%s\n' "---"
+  printf '\n'
+  printf '%s\n' '{{PREAMBLE}}'
+  printf '\n'
+  printf '# %s\n' "$NAME"
+  printf '\n'
+  cat << 'TMPL'
+TODO: Add core instructions here. Target: <500 lines total.
+
+## Workflow
+
+1. Step one
+2. Step two
+3. Step three
+
+## Error Handling
+
+- If X fails, do Y
+- If Z is missing, ask the user
+
+## Examples
+
+```bash
+# Example command
+```
+TMPL
+} > "$SKILL_DIR/SKILL.md.tmpl"
+
+echo "Created $NAME/ with:"
+echo "  $NAME/SKILL.md.tmpl     — edit this template"
+echo "  $NAME/references/       — put detailed docs here"
+echo "  $NAME/scripts/          — put helper scripts here"
+echo ""
+echo "Next steps:"
+echo "  1. Edit $NAME/SKILL.md.tmpl"
+echo "  2. Run: bun run gen:skill-docs"
+echo "  3. Run: bun test"
