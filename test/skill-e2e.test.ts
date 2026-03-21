@@ -2232,7 +2232,7 @@ A civic tech data platform for government employees to access, visualize, and sh
     try { fs.rmSync(designDir, { recursive: true, force: true }); } catch {}
   });
 
-  testIfSelected('design-consultation-core', async () => {
+  testConcurrentIfSelected('design-consultation-core', async () => {
     const result = await runSkillTest({
       prompt: `Read design-consultation/SKILL.md for the design consultation workflow.
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the design workflow.
@@ -2293,7 +2293,7 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
     }
   }, 420_000);
 
-  testIfSelected('design-consultation-research', async () => {
+  testConcurrentIfSelected('design-consultation-research', async () => {
     // Test WebSearch integration — research phase only, no DESIGN.md generation
     const researchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-research-'));
 
@@ -2341,8 +2341,8 @@ Do NOT generate a full DESIGN.md — just research notes.`,
     try { fs.rmSync(researchDir, { recursive: true, force: true }); } catch {}
   }, 120_000);
 
-  testIfSelected('design-consultation-existing', async () => {
-    // Pre-create a minimal DESIGN.md
+  testConcurrentIfSelected('design-consultation-existing', async () => {
+    // Pre-create a minimal DESIGN.md (independent of core test)
     fs.writeFileSync(path.join(designDir, 'DESIGN.md'), `# Design System — CivicPulse
 
 ## Typography
@@ -2387,7 +2387,7 @@ Skip research. Skip font preview. Skip any AskUserQuestion calls — this is non
     }
   }, 420_000);
 
-  testIfSelected('design-consultation-preview', async () => {
+  testConcurrentIfSelected('design-consultation-preview', async () => {
     // Test preview HTML generation only — no DESIGN.md (covered by core test)
     const previewDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-preview-'));
 
