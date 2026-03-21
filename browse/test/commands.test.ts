@@ -8,7 +8,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
-import { resolveServerScript } from '../src/cli';
+import { resolveServerScript, acquireStartLock, releaseStartLock } from '../src/cli';
 import { handleReadCommand } from '../src/read-commands';
 import { handleWriteCommand } from '../src/write-commands';
 import { handleMetaCommand } from '../src/meta-commands';
@@ -35,6 +35,27 @@ afterAll(() => {
   // bm.close() can hang — just let process exit handle it
   setTimeout(() => process.exit(0), 500);
 });
+
+async function runCliStatus(stateFile: string): Promise<{ code: number; stdout: string; stderr: string }> {
+  const cliPath = path.resolve(__dirname, '../src/cli.ts');
+  const cliEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) cliEnv[k] = v;
+  }
+  cliEnv.BROWSE_STATE_FILE = stateFile;
+
+  return await new Promise((resolve) => {
+    const proc = spawn('bun', ['run', cliPath, 'status'], {
+      timeout: 15000,
+      env: cliEnv,
+    });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => stdout += d.toString());
+    proc.stderr.on('data', (d) => stderr += d.toString());
+    proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+  });
+}
 
 // ─── Navigation ─────────────────────────────────────────────────
 
@@ -654,6 +675,44 @@ describe('CLI server script resolution', () => {
 // ─── CLI lifecycle ──────────────────────────────────────────────
 
 describe('CLI lifecycle', () => {
+  test('startup lock serializes concurrent callers', async () => {
+    const lockFile = `/tmp/browse-start-lock-${Date.now()}.lock`;
+    let active = 0;
+    let maxActive = 0;
+    const order: string[] = [];
+
+    await Promise.all([
+      (async () => {
+        const lock = await acquireStartLock(lockFile);
+        try {
+          active++;
+          maxActive = Math.max(maxActive, active);
+          await Bun.sleep(150);
+          order.push('first');
+        } finally {
+          active--;
+          releaseStartLock(lock);
+        }
+      })(),
+      (async () => {
+        await Bun.sleep(10);
+        const lock = await acquireStartLock(lockFile);
+        try {
+          active++;
+          maxActive = Math.max(maxActive, active);
+          order.push('second');
+        } finally {
+          active--;
+          releaseStartLock(lock);
+        }
+      })(),
+    ]);
+
+    expect(maxActive).toBe(1);
+    expect(order).toEqual(['first', 'second']);
+    expect(fs.existsSync(lockFile)).toBe(false);
+  });
+
   test('dead state file triggers a clean restart', async () => {
     const stateFile = `/tmp/browse-test-state-${Date.now()}.json`;
     fs.writeFileSync(stateFile, JSON.stringify({
@@ -662,23 +721,7 @@ describe('CLI lifecycle', () => {
       pid: 999999,
     }));
 
-    const cliPath = path.resolve(__dirname, '../src/cli.ts');
-    const cliEnv: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined) cliEnv[k] = v;
-    }
-    cliEnv.BROWSE_STATE_FILE = stateFile;
-    const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-      const proc = spawn('bun', ['run', cliPath, 'status'], {
-        timeout: 15000,
-        env: cliEnv,
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout.on('data', (d) => stdout += d.toString());
-      proc.stderr.on('data', (d) => stderr += d.toString());
-      proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
-    });
+    const result = await runCliStatus(stateFile);
 
     let restartedPid: number | null = null;
     if (fs.existsSync(stateFile)) {
@@ -692,6 +735,31 @@ describe('CLI lifecycle', () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('Status: healthy');
     expect(result.stderr).toContain('Starting server');
+  }, 20000);
+
+  test('concurrent CLI status calls converge on one healthy startup', async () => {
+    const stateDir = fs.mkdtempSync('/tmp/browse-startup-race-');
+    const stateFile = path.join(stateDir, 'browse.json');
+
+    const [first, second] = await Promise.all([
+      runCliStatus(stateFile),
+      runCliStatus(stateFile),
+    ]);
+
+    let restartedPid: number | null = null;
+    if (fs.existsSync(stateFile)) {
+      restartedPid = JSON.parse(fs.readFileSync(stateFile, 'utf-8')).pid;
+      fs.unlinkSync(stateFile);
+    }
+    if (restartedPid) {
+      try { process.kill(restartedPid, 'SIGTERM'); } catch {}
+    }
+    fs.rmSync(stateDir, { recursive: true, force: true });
+
+    expect(first.code).toBe(0);
+    expect(second.code).toBe(0);
+    expect(`${first.stdout}${second.stdout}`).toContain('Status: healthy');
+    expect(`${first.stderr}${second.stderr}`).not.toContain('ENOENT');
   }, 20000);
 });
 

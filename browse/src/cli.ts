@@ -16,6 +16,8 @@ import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
 const MAX_START_WAIT = IS_WINDOWS ? 15000 : 8000; // Node+Chromium takes longer on Windows
+const START_LOCK_POLL_MS = 100;
+const START_LOCK_STALE_MS = MAX_START_WAIT + 10000;
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -85,6 +87,11 @@ interface ServerState {
   binaryVersion?: string;
 }
 
+interface StartLock {
+  fd: number;
+  file: string;
+}
+
 // ─── State File ────────────────────────────────────────────────
 function readState(): ServerState | null {
   try {
@@ -102,6 +109,63 @@ function isProcessAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+export function getStartLockFile(stateFile: string = config.stateFile): string {
+  return `${stateFile}.lock`;
+}
+
+function isStartLockStale(lockFile: string): boolean {
+  try {
+    const stat = fs.statSync(lockFile);
+    const ageMs = Date.now() - stat.mtimeMs;
+
+    try {
+      const raw = fs.readFileSync(lockFile, 'utf-8');
+      const parsed = JSON.parse(raw) as { pid?: number };
+      if (parsed.pid && !isProcessAlive(parsed.pid)) {
+        return true;
+      }
+    } catch {
+      // Fall back to age-based cleanup for corrupt or partial lock files.
+    }
+
+    return ageMs > START_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+export async function acquireStartLock(lockFile: string = getStartLockFile()): Promise<StartLock> {
+  const deadline = Date.now() + START_LOCK_STALE_MS;
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+
+  while (Date.now() < deadline) {
+    try {
+      const fd = fs.openSync(lockFile, 'wx', 0o600);
+      fs.writeFileSync(fd, JSON.stringify({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+      }));
+      return { fd, file: lockFile };
+    } catch (err: any) {
+      if (err.code !== 'EEXIST') throw err;
+
+      if (isStartLockStale(lockFile)) {
+        try { fs.unlinkSync(lockFile); } catch {}
+        continue;
+      }
+
+      await Bun.sleep(START_LOCK_POLL_MS);
+    }
+  }
+
+  throw new Error(`Timed out waiting for browse startup lock: ${lockFile}`);
+}
+
+export function releaseStartLock(lock: StartLock): void {
+  try { fs.closeSync(lock.fd); } catch {}
+  try { fs.unlinkSync(lock.file); } catch {}
 }
 
 // ─── Process Management ─────────────────────────────────────────
@@ -164,6 +228,14 @@ function cleanupLegacyState(): void {
 async function startServer(): Promise<ServerState> {
   ensureStateDir(config);
 
+  const existing = readState();
+  if (existing && isProcessAlive(existing.pid) && !hasBinaryVersionMismatch(existing)) {
+    const healthy = await waitForHealthyState(existing, MAX_START_WAIT);
+    if (healthy) {
+      return healthy;
+    }
+  }
+
   // Clean up stale state file
   try { fs.unlinkSync(config.stateFile); } catch {}
 
@@ -186,7 +258,7 @@ async function startServer(): Promise<ServerState> {
   const start = Date.now();
   while (Date.now() - start < MAX_START_WAIT) {
     const state = readState();
-    if (state && isProcessAlive(state.pid)) {
+    if (state && isProcessAlive(state.pid) && await isServerHealthy(state)) {
       return state;
     }
     await Bun.sleep(100);
@@ -206,37 +278,69 @@ async function startServer(): Promise<ServerState> {
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
 
-async function ensureServer(): Promise<ServerState> {
-  const state = readState();
+function hasBinaryVersionMismatch(state: ServerState): boolean {
+  const currentVersion = readVersionHash();
+  return Boolean(currentVersion && state.binaryVersion && currentVersion !== state.binaryVersion);
+}
 
-  if (state && isProcessAlive(state.pid)) {
-    // Check for binary version mismatch (auto-restart on update)
-    const currentVersion = readVersionHash();
-    if (currentVersion && state.binaryVersion && currentVersion !== state.binaryVersion) {
-      console.error('[browse] Binary updated, restarting server...');
-      await killServer(state.pid);
-      return startServer();
+async function isServerHealthy(state: ServerState): Promise<boolean> {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${state.port}/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!resp.ok) return false;
+
+    const health = await resp.json() as any;
+    return health.status === 'healthy';
+  } catch {
+    return false;
+  }
+}
+
+async function waitForHealthyState(state: ServerState, timeoutMs: number): Promise<ServerState | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(state.pid) || hasBinaryVersionMismatch(state)) {
+      return null;
     }
+    if (await isServerHealthy(state)) {
+      return state;
+    }
+    await Bun.sleep(START_LOCK_POLL_MS);
+  }
+  return null;
+}
 
-    // Server appears alive — do a health check
-    try {
-      const resp = await fetch(`http://127.0.0.1:${state.port}/health`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (resp.ok) {
-        const health = await resp.json() as any;
-        if (health.status === 'healthy') {
-          return state;
-        }
-      }
-    } catch {
-      // Health check failed — server is dead or unhealthy
+async function ensureServer(): Promise<ServerState> {
+  const existing = readState();
+  if (existing && isProcessAlive(existing.pid) && !hasBinaryVersionMismatch(existing)) {
+    const healthy = await waitForHealthyState(existing, 500);
+    if (healthy) {
+      return healthy;
     }
   }
 
-  // Need to (re)start
-  console.error('[browse] Starting server...');
-  return startServer();
+  const lock = await acquireStartLock();
+  try {
+    const state = readState();
+
+    if (state && isProcessAlive(state.pid)) {
+      if (hasBinaryVersionMismatch(state)) {
+        console.error('[browse] Binary updated, restarting server...');
+        await killServer(state.pid);
+      } else {
+        const healthy = await waitForHealthyState(state, MAX_START_WAIT);
+        if (healthy) {
+          return healthy;
+        }
+      }
+    }
+
+    console.error('[browse] Starting server...');
+    return startServer();
+  } finally {
+    releaseStartLock(lock);
+  }
 }
 
 // ─── Command Dispatch ──────────────────────────────────────────
@@ -289,7 +393,7 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
-      const newState = await startServer();
+      const newState = await ensureServer();
       return sendCommand(newState, command, args, retries + 1);
     }
     throw err;

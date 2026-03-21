@@ -353,7 +353,7 @@ async function start() {
     serverPath: path.resolve(import.meta.dir, 'server.ts'),
     binaryVersion: readVersionHash() || undefined,
   };
-  const tmpFile = config.stateFile + '.tmp';
+  const tmpFile = `${config.stateFile}.${process.pid}.tmp`;
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.stateFile);
 
