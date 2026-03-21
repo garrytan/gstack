@@ -1659,11 +1659,137 @@ function extractHookSafetyProse(tmplContent: string): string | null {
   return `> **Safety Advisory:** This skill includes safety checks that ${safetyChecks}. When using this skill, always pause and verify before executing potentially destructive operations. If uncertain about a command's safety, ask the user for confirmation before proceeding.`;
 }
 
+// ─── Auto-Split Parser ──────────────────────────────────────
+
+export interface ExtractedReference {
+  filename: string;
+  content: string;
+}
+
+interface AutoSplitResult {
+  content: string;
+  references: ExtractedReference[];
+}
+
+/**
+ * Parse <!-- ref:filename.md --> ... <!-- /ref --> markers and extract content
+ * to separate reference files. Replaces extracted blocks with markdown links.
+ *
+ * Constraints:
+ * - No nesting (ref markers cannot contain other ref markers)
+ * - Markers must be at line start (not inside code blocks)
+ * - Missing <!-- /ref --> = error
+ * - Extracted content >500 lines = warning
+ */
+export function autoSplit(content: string, relPath: string): AutoSplitResult {
+  const references: ExtractedReference[] = [];
+  const lines = content.split('\n');
+  const outputLines: string[] = [];
+
+  let inCodeBlock = false;
+  let inRef: { filename: string; startLine: number; lines: string[] } | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Track fenced code blocks (``` or ~~~) — only at 0-3 spaces indent per CommonMark
+    if (line.match(/^\s{0,3}(`{3,}|~{3,})/)) {
+      inCodeBlock = !inCodeBlock;
+    }
+
+    // Skip markers inside code blocks
+    if (inCodeBlock) {
+      if (inRef) {
+        inRef.lines.push(line);
+      } else {
+        outputLines.push(line);
+      }
+      continue;
+    }
+
+    // Check for opening marker: <!-- ref:filename.md -->
+    const openMatch = line.match(/^<!-- ref:(\S+) -->$/);
+    if (openMatch) {
+      if (inRef) {
+        throw new Error(
+          `Nested ref marker "<!-- ref:${openMatch[1]} -->" at line ${i + 1} in ${relPath} ` +
+          `(already inside "<!-- ref:${inRef.filename} -->" from line ${inRef.startLine + 1})`
+        );
+      }
+      inRef = { filename: openMatch[1], startLine: i, lines: [] };
+      continue;
+    }
+
+    // Check for closing marker: <!-- /ref -->
+    if (line.match(/^<!-- \/ref -->$/)) {
+      if (!inRef) {
+        throw new Error(`Orphan <!-- /ref --> at line ${i + 1} in ${relPath} (no matching opening marker)`);
+      }
+
+      const refContent = inRef.lines.join('\n');
+      const refLineCount = inRef.lines.length;
+
+      if (refLineCount > 500) {
+        console.warn(`  WARN: extracted reference ${inRef.filename} is ${refLineCount} lines (>500) in ${relPath}`);
+      }
+
+      references.push({ filename: inRef.filename, content: refContent });
+
+      // Replace with markdown link
+      outputLines.push(`For details, see [references/${inRef.filename}](references/${inRef.filename}).`);
+
+      inRef = null;
+      continue;
+    }
+
+    if (inRef) {
+      inRef.lines.push(line);
+    } else {
+      outputLines.push(line);
+    }
+  }
+
+  // Unclosed ref marker = error
+  if (inRef) {
+    throw new Error(
+      `Missing <!-- /ref --> for "<!-- ref:${inRef.filename} -->" ` +
+      `(opened at line ${inRef.startLine + 1}) in ${relPath}`
+    );
+  }
+
+  return { content: outputLines.join('\n'), references };
+}
+
+// ─── Size Validation ────────────────────────────────────────
+
+const SIZE_WARN = 500;
+const SIZE_ERROR = 800;
+
+interface SizeReport {
+  lineCount: number;
+  level: 'ok' | 'warn' | 'error';
+}
+
+export function validateSize(content: string, relPath: string): SizeReport {
+  const lineCount = content.split('\n').length;
+  let level: SizeReport['level'] = 'ok';
+
+  if (lineCount >= SIZE_ERROR) {
+    level = 'error';
+    console.error(`  ERROR: ${relPath} is ${lineCount} lines (limit: ${SIZE_ERROR})`);
+  } else if (lineCount >= SIZE_WARN) {
+    level = 'warn';
+    console.warn(`  WARN: ${relPath} is ${lineCount} lines (target: <${SIZE_WARN})`);
+  }
+
+  return { lineCount, level };
+}
+
 // ─── Template Processing ────────────────────────────────────
 
 const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n`;
 
-function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath: string; content: string } {
+function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath: string; content: string; references: ExtractedReference[] } {
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
   const relTmplPath = path.relative(ROOT, tmplPath);
   let outputPath = tmplPath.replace(/\.tmpl$/, '');
@@ -1725,6 +1851,10 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     content = content.replace(/\.claude\/skills/g, '.agents/skills');
   }
 
+  // Auto-split: extract <!-- ref:filename.md --> blocks to references/
+  const { content: splitContent, references } = autoSplit(content, relTmplPath);
+  content = splitContent;
+
   // Prepend generated header (after frontmatter)
   const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath));
   const fmEnd = content.indexOf('---', content.indexOf('---') + 3);
@@ -1735,7 +1865,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     content = header + content;
   }
 
-  return { outputPath, content };
+  return { outputPath, content, references };
 }
 
 // ─── Main ───────────────────────────────────────────────────
@@ -1753,7 +1883,11 @@ function findTemplates(): string[] {
   return templates;
 }
 
+// Only run the main loop when executed directly (not when imported for testing)
+if (import.meta.main) {
+
 let hasChanges = false;
+let hasSizeErrors = false;
 
 for (const tmplPath of findTemplates()) {
   // Skip /codex skill for codex host (self-referential — it's a Claude wrapper around codex exec)
@@ -1762,8 +1896,13 @@ for (const tmplPath of findTemplates()) {
     if (dir === 'codex') continue;
   }
 
-  const { outputPath, content } = processTemplate(tmplPath, HOST);
+  const { outputPath, content, references } = processTemplate(tmplPath, HOST);
   const relOutput = path.relative(ROOT, outputPath);
+  const outputDir = path.dirname(outputPath);
+
+  // Size validation on the generated SKILL.md
+  const sizeReport = validateSize(content, relOutput);
+  if (sizeReport.level === 'error') hasSizeErrors = true;
 
   if (DRY_RUN) {
     const existing = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : '';
@@ -1771,11 +1910,47 @@ for (const tmplPath of findTemplates()) {
       console.log(`STALE: ${relOutput}`);
       hasChanges = true;
     } else {
-      console.log(`FRESH: ${relOutput}`);
+      console.log(`FRESH: ${relOutput} (${sizeReport.lineCount} lines)`);
+    }
+
+    // Check references for staleness too
+    for (const ref of references) {
+      const refPath = path.join(outputDir, 'references', ref.filename);
+      const relRef = path.relative(ROOT, refPath);
+      const existingRef = fs.existsSync(refPath) ? fs.readFileSync(refPath, 'utf-8') : '';
+      if (existingRef !== ref.content) {
+        console.log(`STALE: ${relRef}`);
+        hasChanges = true;
+      } else {
+        console.log(`FRESH: ${relRef}`);
+      }
+    }
+
+    // Detect orphaned reference files (exist on disk but no longer in template)
+    const refsDir = path.join(outputDir, 'references');
+    if (fs.existsSync(refsDir)) {
+      const expectedFiles = new Set(references.map(r => r.filename));
+      for (const file of fs.readdirSync(refsDir)) {
+        if (!expectedFiles.has(file)) {
+          const relOrphan = path.relative(ROOT, path.join(refsDir, file));
+          console.log(`ORPHAN: ${relOrphan} (no longer generated — consider removing)`);
+        }
+      }
     }
   } else {
     fs.writeFileSync(outputPath, content);
-    console.log(`GENERATED: ${relOutput}`);
+    console.log(`GENERATED: ${relOutput} (${sizeReport.lineCount} lines)`);
+
+    // Write extracted references
+    if (references.length > 0) {
+      const refsDir = path.join(outputDir, 'references');
+      fs.mkdirSync(refsDir, { recursive: true });
+      for (const ref of references) {
+        const refPath = path.join(refsDir, ref.filename);
+        fs.writeFileSync(refPath, ref.content);
+        console.log(`  EXTRACTED: references/${ref.filename} (${ref.content.split('\n').length} lines)`);
+      }
+    }
   }
 }
 
@@ -1783,3 +1958,12 @@ if (DRY_RUN && hasChanges) {
   console.error('\nGenerated SKILL.md files are stale. Run: bun run gen:skill-docs');
   process.exit(1);
 }
+
+if (hasSizeErrors) {
+  console.warn('\nWarning: One or more SKILL.md files exceed the 800-line limit.');
+  console.warn('Use <!-- ref:filename.md --> markers to extract content to references/.');
+  // Note: This is a warning, not an error. Size enforcement becomes a hard gate
+  // after Phase 4 refactors all oversized skills with progressive disclosure.
+}
+
+} // end if (import.meta.main)
