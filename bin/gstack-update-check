@@ -140,6 +140,30 @@ fi
 # ─── Step 4: Slow path — fetch remote version ────────────────
 mkdir -p "$STATE_DIR"
 
+# Fire Supabase install ping in background (parallel, non-blocking)
+# This logs an update check event for community health metrics.
+# If the endpoint isn't configured or Supabase is down, this is a no-op.
+# Source Supabase config for install ping
+if [ -z "${GSTACK_TELEMETRY_ENDPOINT:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+_SUPA_ENDPOINT="${GSTACK_TELEMETRY_ENDPOINT:-}"
+_SUPA_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+# Respect telemetry opt-out — don't ping Supabase if user set telemetry: off
+_TEL_TIER="$("$GSTACK_DIR/bin/gstack-config" get telemetry 2>/dev/null || true)"
+if [ -n "$_SUPA_ENDPOINT" ] && [ -n "$_SUPA_KEY" ] && [ "${_TEL_TIER:-off}" != "off" ]; then
+  _OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  curl -sf --max-time 5 \
+    -X POST "${_SUPA_ENDPOINT}/update_checks" \
+    -H "Content-Type: application/json" \
+    -H "apikey: ${_SUPA_KEY}" \
+    -H "Authorization: Bearer ${_SUPA_KEY}" \
+    -H "Prefer: return=minimal" \
+    -d "{\"gstack_version\":\"$LOCAL\",\"os\":\"$_OS\"}" \
+    >/dev/null 2>&1 &
+fi
+
+# GitHub raw fetch (primary, always reliable)
 REMOTE=""
 REMOTE="$(curl -sf --max-time 5 "$REMOTE_URL" 2>/dev/null || true)"
 REMOTE="$(echo "$REMOTE" | tr -d '[:space:]')"
@@ -161,4 +185,12 @@ echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
 if check_snooze "$REMOTE"; then
   exit 0  # snoozed — stay quiet
 fi
+
+# Log upgrade_prompted event (only on slow-path fetch, not cached replays)
+TEL_CMD="$GSTACK_DIR/bin/gstack-telemetry-log"
+if [ -x "$TEL_CMD" ]; then
+  "$TEL_CMD" --event-type upgrade_prompted --skill "" --duration 0 \
+    --outcome success --session-id "update-$$-$(date +%s)" 2>/dev/null &
+fi
+
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE"

@@ -10,6 +10,7 @@ import { consoleBuffer, networkBuffer, dialogBuffer } from './buffers';
 import type { Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
+import { TEMP_DIR, isPathWithin } from './platform';
 
 /** Detect await keyword, ignoring comments. Accepted risk: await in string literals triggers wrapping (harmless). */
 function hasAwait(code: string): boolean {
@@ -36,12 +37,12 @@ function wrapForEvaluate(code: string): string {
 }
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = ['/tmp', process.cwd()];
+const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
 
 export function validateReadPath(filePath: string): void {
   if (path.isAbsolute(filePath)) {
     const resolved = path.resolve(filePath);
-    const isSafe = SAFE_DIRECTORIES.some(dir => resolved === dir || resolved.startsWith(dir + '/'));
+    const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
     if (!isSafe) {
       throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
     }

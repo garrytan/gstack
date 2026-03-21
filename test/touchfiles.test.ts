@@ -78,8 +78,9 @@ describe('selectTests', () => {
     const result = selectTests(['plan-ceo-review/SKILL.md'], E2E_TOUCHFILES);
     expect(result.selected).toContain('plan-ceo-review');
     expect(result.selected).toContain('plan-ceo-review-selective');
-    expect(result.selected.length).toBe(2);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 2);
+    expect(result.selected).toContain('plan-ceo-review-benefits');
+    expect(result.selected.length).toBe(3);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 3);
   });
 
   test('global touchfile triggers ALL tests', () => {

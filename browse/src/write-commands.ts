@@ -10,6 +10,7 @@ import { findInstalledBrowsers, importCookies } from './cookie-import-browser';
 import { validateNavigationUrl } from './url-validation';
 import * as fs from 'fs';
 import * as path from 'path';
+import { TEMP_DIR, isPathWithin } from './platform';
 
 export async function handleWriteCommand(
   command: string,
@@ -277,9 +278,9 @@ export async function handleWriteCommand(
       if (!filePath) throw new Error('Usage: browse cookie-import <json-file>');
       // Path validation — prevent reading arbitrary files
       if (path.isAbsolute(filePath)) {
-        const safeDirs = ['/tmp', process.cwd()];
+        const safeDirs = [TEMP_DIR, process.cwd()];
         const resolved = path.resolve(filePath);
-        if (!safeDirs.some(dir => resolved === dir || resolved.startsWith(dir + '/'))) {
+        if (!safeDirs.some(dir => isPathWithin(resolved, dir))) {
           throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
         }
       }

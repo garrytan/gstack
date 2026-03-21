@@ -7,5 +7,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install
-      - run: bun run gen:skill-docs
+      - name: Check Claude host freshness
+        run: bun run gen:skill-docs
       - run: git diff --exit-code || (echo "Generated SKILL.md files are stale. Run: bun run gen:skill-docs" && exit 1)
+      - name: Check Codex host freshness
+        run: bun run gen:skill-docs --host codex
+      - run: git diff --exit-code -- .agents/ || (echo "Generated Codex SKILL.md files are stale. Run: bun run gen:skill-docs --host codex" && exit 1)

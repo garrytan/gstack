@@ -197,6 +197,36 @@ describe('resolveServerScript', () => {
   });
 });
 
+describe('resolveNodeServerScript', () => {
+  const { resolveNodeServerScript } = require('../src/cli');
+
+  test('finds server-node.mjs in dist from dev mode', () => {
+    const srcDir = path.resolve(__dirname, '../src');
+    const distFile = path.resolve(srcDir, '..', 'dist', 'server-node.mjs');
+    const fs = require('fs');
+    // Only test if the file exists (it may not be built yet)
+    if (fs.existsSync(distFile)) {
+      const result = resolveNodeServerScript(srcDir, '');
+      expect(result).toBe(distFile);
+    }
+  });
+
+  test('returns null when server-node.mjs does not exist', () => {
+    const result = resolveNodeServerScript('/nonexistent/$bunfs', '/nonexistent/browse');
+    expect(result).toBeNull();
+  });
+
+  test('finds server-node.mjs adjacent to compiled binary', () => {
+    const distDir = path.resolve(__dirname, '../dist');
+    const distFile = path.join(distDir, 'server-node.mjs');
+    const fs = require('fs');
+    if (fs.existsSync(distFile)) {
+      const result = resolveNodeServerScript('/$bunfs/something', path.join(distDir, 'browse'));
+      expect(result).toBe(distFile);
+    }
+  });
+});
+
 describe('version mismatch detection', () => {
   test('detects when versions differ', () => {
     const stateVersion = 'abc123';

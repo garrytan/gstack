@@ -96,20 +96,66 @@ for (const file of SKILL_FILES) {
   }
 }
 
+// ─── Codex Skills ───────────────────────────────────────────
+
+const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
+if (fs.existsSync(AGENTS_DIR)) {
+  console.log('\n  Codex Skills (.agents/skills/):');
+  const codexDirs = fs.readdirSync(AGENTS_DIR).sort();
+  let codexCount = 0;
+  let codexMissing = 0;
+  for (const dir of codexDirs) {
+    const skillMd = path.join(AGENTS_DIR, dir, 'SKILL.md');
+    if (fs.existsSync(skillMd)) {
+      codexCount++;
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      // Quick validation: must have frontmatter with name + description only
+      const hasClaude = content.includes('.claude/skills');
+      if (hasClaude) {
+        hasErrors = true;
+        console.log(`  \u274c ${dir.padEnd(30)} — contains .claude/skills reference`);
+      } else {
+        console.log(`  \u2705 ${dir.padEnd(30)} — OK`);
+      }
+    } else {
+      codexMissing++;
+      hasErrors = true;
+      console.log(`  \u274c ${dir.padEnd(30)} — SKILL.md missing`);
+    }
+  }
+  console.log(`  Total: ${codexCount} skills, ${codexMissing} missing`);
+} else {
+  console.log('\n  Codex Skills: .agents/skills/ not found (run: bun run gen:skill-docs --host codex)');
+}
+
 // ─── Freshness ──────────────────────────────────────────────
 
-console.log('\n  Freshness:');
+console.log('\n  Freshness (Claude):');
 try {
   execSync('bun run scripts/gen-skill-docs.ts --dry-run', { cwd: ROOT, stdio: 'pipe' });
-  console.log('  \u2705 All generated files are fresh');
+  console.log('  \u2705 All Claude generated files are fresh');
 } catch (err: any) {
   hasErrors = true;
   const output = err.stdout?.toString() || '';
-  console.log('  \u274c Generated files are stale:');
+  console.log('  \u274c Claude generated files are stale:');
   for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
     console.log(`      ${line}`);
   }
   console.log('      Run: bun run gen:skill-docs');
+}
+
+console.log('\n  Freshness (Codex):');
+try {
+  execSync('bun run scripts/gen-skill-docs.ts --host codex --dry-run', { cwd: ROOT, stdio: 'pipe' });
+  console.log('  \u2705 All Codex generated files are fresh');
+} catch (err: any) {
+  hasErrors = true;
+  const output = err.stdout?.toString() || '';
+  console.log('  \u274c Codex generated files are stale:');
+  for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
+    console.log(`      ${line}`);
+  }
+  console.log('      Run: bun run gen:skill-docs --host codex');
 }
 
 console.log('');

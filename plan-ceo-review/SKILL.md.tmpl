@@ -10,6 +10,7 @@ description: |
   or "is this ambitious enough".
   Proactively suggest when the user is questioning scope or ambition of a plan,
   or when the plan feels like it could be thinking bigger.
+benefits-from: [office-hours]
 allowed-tools:
   - Read
   - Grep
@@ -109,6 +110,20 @@ DESIGN=$(ls -t $PROJECTS_DIR/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
 [ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
 ```
 If a design doc exists (from `/office-hours`), read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design.
+
+{{BENEFITS_FROM}}
+
+**Mid-session detection:** During Step 0A (Premise Challenge), if the user can't
+articulate the problem, keeps changing the problem statement, answers with "I'm not
+sure," or is clearly exploring rather than reviewing — offer `/office-hours`:
+
+> "It sounds like you're still figuring out what to build — that's totally fine, but
+> that's what /office-hours is designed for. Want to pause this review and run
+> /office-hours first? It'll help you nail down the problem and approach, then come
+> back here for the strategic review."
+
+Options: A) Yes, run /office-hours first. B) No, keep going.
+If they keep going, proceed normally — no guilt, no re-asking.
 
 When reading TODOS.md, specifically:
 * Note any TODOs this plan touches, blocks, or unlocks
@@ -252,6 +267,10 @@ Repo: {owner/repo}
 ```
 
 Derive the feature slug from the plan being reviewed (e.g., "user-dashboard", "auth-refactor"). Use the date in YYYY-MM-DD format.
+
+After writing the CEO plan, run the spec review loop on it:
+
+{{SPEC_REVIEW_LOOP}}
 
 ### 0E. Temporal Interrogation (EXPANSION, SELECTIVE EXPANSION, and HOLD modes)
 Think ahead to implementation: What decisions will need to be made during implementation that should be resolved NOW in the plan?
@@ -635,7 +654,13 @@ If any AskUserQuestion goes unanswered, note it here. Never silently default.
 
 ## Review Log
 
-After producing the Completion Summary above, persist the review result:
+After producing the Completion Summary above, persist the review result.
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
+`~/.gstack/` (user config directory, not project files). The skill preamble
+already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
+the same pattern. The review dashboard depends on this data. Skipping this
+command breaks the review readiness dashboard in /ship.
 
 ```bash
 eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)

@@ -403,45 +403,7 @@ For each classified comment:
 
 ---
 
-## Step 3.8: Codex second opinion (optional)
-
-Check if the Codex CLI is available:
-
-```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-```
-
-If Codex is available, use AskUserQuestion:
-
-```
-Pre-landing review complete. Want an independent Codex (OpenAI) review before shipping?
-
-A) Run Codex code review — independent diff review with pass/fail gate
-B) Run Codex adversarial challenge — try to break this code
-C) Skip — ship without Codex review
-```
-
-If the user chooses A or B:
-
-**For code review (A):** Run `codex review --base <base>` with a 5-minute timeout.
-Present the full output verbatim under a `CODEX SAYS:` header. Check for `[P1]` markers
-to determine pass/fail gate. Persist the result:
-
-```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p $PROJECTS_DIR/$SLUG/reviews
-echo '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","commit":"COMMIT"}' >> $PROJECTS_DIR/$SLUG/reviews/$BRANCH.jsonl
-```
-
-If GATE is FAIL, use AskUserQuestion: "Codex found critical issues. Ship anyway?"
-If the user says no, stop. If yes, continue to Step 4.
-
-**For adversarial (B):** Run codex exec with the adversarial prompt (see /codex skill).
-Present findings. This is informational — does not block shipping.
-
-If Codex is not available, skip silently. Continue to Step 4.
-
----
+{{CODEX_REVIEW_STEP}}
 
 ## Step 4: Version bump (auto-decide)
 
@@ -682,7 +644,7 @@ doc updates — the user runs `/ship` and documentation stays current without a 
 - **Never skip tests.** If tests fail, stop.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
-- **Never ask for confirmation** except for MINOR/MAJOR version bumps and pre-landing review ASK items (batched into at most one AskUserQuestion).
+- **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), Codex critical findings ([P1]), and the one-time Codex adoption prompt.
 - **Always use the 4-digit version format** from the VERSION file.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.

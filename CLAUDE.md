@@ -21,9 +21,11 @@ bun run eval:summary # aggregate stats across all eval runs
 bun run eval:trend   # per-test pass rate trends (flaky detection)
 ```
 
-`test:evals` requires `ANTHROPIC_API_KEY`. E2E tests stream progress in real-time
-(tool-by-tool via `--output-format stream-json --verbose`). Results are persisted
-to `~/.gstack-dev/evals/` with auto-comparison against the previous run.
+`test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
+use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
+E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
+--verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
+against the previous run.
 
 **Diff-based test selection:** `test:evals` and `test:e2e` auto-select tests based
 on `git diff` against the base branch. Each test declares its file dependencies in

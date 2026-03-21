@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register all skills with Claude Code
+# gstack setup — build browser binary + register skills with Claude Code / Codex
 set -e
 
 if ! command -v bun >/dev/null 2>&1; then
@@ -12,11 +12,56 @@ GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$(dirname "$GSTACK_DIR")"
 BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
 
+IS_WINDOWS=0
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
+esac
+
+# ─── Parse --host flag ─────────────────────────────────────────
+HOST="claude"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --host) HOST="$2"; shift 2 ;;
+    --host=*) HOST="${1#--host=}"; shift ;;
+    *) shift ;;
+  esac
+done
+
+case "$HOST" in
+  claude|codex|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, or auto)" >&2; exit 1 ;;
+esac
+
+# For auto: detect which agents are installed
+INSTALL_CLAUDE=0
+INSTALL_CODEX=0
+if [ "$HOST" = "auto" ]; then
+  command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
+  command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
+  # If neither found, default to claude
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ]; then
+    INSTALL_CLAUDE=1
+  fi
+elif [ "$HOST" = "claude" ]; then
+  INSTALL_CLAUDE=1
+elif [ "$HOST" = "codex" ]; then
+  INSTALL_CODEX=1
+fi
+
 ensure_playwright_browser() {
-  (
-    cd "$GSTACK_DIR"
-    bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
-  ) >/dev/null 2>&1
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    # On Windows, Bun can't launch Chromium due to broken pipe handling
+    # (oven-sh/bun#4253). Use Node.js to verify Chromium works instead.
+    (
+      cd "$GSTACK_DIR"
+      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
+    )
+  else
+    (
+      cd "$GSTACK_DIR"
+      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+    ) >/dev/null 2>&1
+  fi
 }
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
@@ -56,26 +101,49 @@ if ! ensure_playwright_browser; then
     cd "$GSTACK_DIR"
     bunx playwright install chromium
   )
+
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).
+    # Ensure playwright is importable by Node from the gstack directory.
+    if ! command -v node >/dev/null 2>&1; then
+      echo "gstack setup failed: Node.js is required on Windows (Bun cannot launch Chromium due to a pipe bug)" >&2
+      echo "  Install Node.js: https://nodejs.org/" >&2
+      exit 1
+    fi
+    echo "Windows detected — verifying Node.js can load Playwright..."
+    (
+      cd "$GSTACK_DIR"
+      # Bun's node_modules already has playwright; verify Node can require it
+      node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright
+    )
+  fi
 fi
 
 if ! ensure_playwright_browser; then
-  echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    echo "gstack setup failed: Playwright Chromium could not be launched via Node.js" >&2
+    echo "  This is a known issue with Bun on Windows (oven-sh/bun#4253)." >&2
+    echo "  Ensure Node.js is installed and 'node -e \"require('playwright')\"' works." >&2
+  else
+    echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+  fi
   exit 1
 fi
 
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 
-# 4. Only create skill symlinks if we're inside a .claude/skills directory
-SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
-if [ "$SKILLS_BASENAME" = "skills" ]; then
-  linked=()
-  for skill_dir in "$GSTACK_DIR"/*/; do
+# ─── Helper: link Claude skill subdirectories into a skills parent directory ──
+link_claude_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local linked=()
+  for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       # Skip node_modules
       [ "$skill_name" = "node_modules" ] && continue
-      target="$SKILLS_DIR/$skill_name"
+      target="$skills_dir/$skill_name"
       # Create or update symlink; skip if a real file/directory exists
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "gstack/$skill_name" "$target"
@@ -83,19 +151,106 @@ if [ "$SKILLS_BASENAME" = "skills" ]; then
       fi
     fi
   done
-
-  echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
   fi
-else
-  echo "gstack ready."
-  echo "  browse: $BROWSE_BIN"
-  echo "  (skipped skill symlinks — not inside .claude/skills/)"
+}
+
+# ─── Helper: link generated Codex skills into a skills parent directory ──
+# Installs from .agents/skills/gstack-* (the generated Codex-format skills)
+# instead of source dirs (which have Claude paths).
+link_codex_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local agents_dir="$gstack_dir/.agents/skills"
+  local linked=()
+
+  if [ ! -d "$agents_dir" ]; then
+    echo "  warning: no .agents/skills/ directory found — run 'bun run build' first" >&2
+    return 1
+  fi
+
+  for skill_dir in "$agents_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      target="$skills_dir/$skill_name"
+      # Create or update symlink
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+# ─── Helper: create .agents/skills/gstack/ sidecar symlinks ──────────
+# Codex/Gemini/Cursor read skills from .agents/skills/. We link runtime
+# assets (bin/, browse/dist/, review/, qa/, etc.) so skill templates can
+# resolve paths like $SKILL_ROOT/review/design-checklist.md.
+create_agents_sidecar() {
+  local repo_root="$1"
+  local agents_gstack="$repo_root/.agents/skills/gstack"
+  mkdir -p "$agents_gstack"
+
+  # Sidecar directories that skills reference at runtime
+  for asset in bin browse review qa; do
+    local src="$GSTACK_DIR/$asset"
+    local dst="$agents_gstack/$asset"
+    if [ -d "$src" ] || [ -f "$src" ]; then
+      if [ -L "$dst" ] || [ ! -e "$dst" ]; then
+        ln -snf "$src" "$dst"
+      fi
+    fi
+  done
+}
+
+# 4. Install for Claude (default)
+SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
+if [ "$INSTALL_CLAUDE" -eq 1 ]; then
+  if [ "$SKILLS_BASENAME" = "skills" ]; then
+    link_claude_skill_dirs "$GSTACK_DIR" "$SKILLS_DIR"
+    echo "gstack ready (claude)."
+    echo "  browse: $BROWSE_BIN"
+  else
+    echo "gstack ready (claude)."
+    echo "  browse: $BROWSE_BIN"
+    echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  fi
 fi
 
-# 4. First-time welcome + legacy cleanup
+# 5. Install for Codex
+if [ "$INSTALL_CODEX" -eq 1 ]; then
+  CODEX_SKILLS="$HOME/.codex/skills"
+  CODEX_GSTACK="$CODEX_SKILLS/gstack"
+  mkdir -p "$CODEX_SKILLS"
+
+  # Symlink gstack source for runtime assets (bin/, browse/dist/)
+  if [ -L "$CODEX_GSTACK" ] || [ ! -e "$CODEX_GSTACK" ]; then
+    ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"
+  fi
+  # Install generated Codex-format skills (not Claude source dirs)
+  link_codex_skill_dirs "$GSTACK_DIR" "$CODEX_SKILLS"
+
+  echo "gstack ready (codex)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  codex skills: $CODEX_SKILLS"
+fi
+
+# 6. Create .agents/ sidecar symlinks (useful for Codex/Gemini/Cursor workspace-local)
+if [ "$INSTALL_CODEX" -eq 1 ]; then
+  # Detect repo root: if we're inside a skills directory, go up two levels
+  if [ "$SKILLS_BASENAME" = "skills" ]; then
+    REPO_ROOT="$(dirname "$SKILLS_DIR")"
+  else
+    REPO_ROOT="$GSTACK_DIR"
+  fi
+  create_agents_sidecar "$REPO_ROOT"
+fi
+
+# 7. First-time welcome + legacy cleanup
 if [ ! -d "$HOME/.gstack" ]; then
   mkdir -p "$HOME/.gstack"
   echo "  Welcome! Run /gstack-upgrade anytime to stay current."

@@ -34,8 +34,15 @@ echo "BRANCH: $_BRANCH"
 echo "PROACTIVE: $_PROACTIVE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+_SESSION_ID="$$-$(date +%s)"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+for _PF in ~/.gstack/analytics/.pending-*; do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
@@ -54,6 +61,39 @@ touch ~/.gstack/.completeness-intro-seen
 ```
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
+
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+ask the user about telemetry. Use AskUserQuestion:
+
+> Help gstack get better! Community mode shares usage data (which skills you use, how long
+> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
+> No code, file paths, or repo names are ever sent.
+> Change anytime with `gstack-config set telemetry off`.
+
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+
+If B: ask a follow-up AskUserQuestion:
+
+> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
+> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+
+Options:
+- A) Sure, anonymous is fine
+- B) No thanks, fully off
+
+If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+
+Always run:
+```bash
+touch ~/.gstack/.telemetry-prompted
+```
+
+This only happens once. If `TEL_PROMPTED` is `yes`, skip this entirely.
 
 ## AskUserQuestion Format
 
@@ -153,6 +193,34 @@ REASON: [1-2 sentences]
 ATTEMPTED: [what you tried]
 RECOMMENDATION: [what the user should do next]
 ```
+
+## Telemetry (run last)
+
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+Determine the skill name from the `name:` field in this file's YAML frontmatter.
+Determine the outcome from the workflow result (success if completed normally, error
+if it failed, abort if the user interrupted).
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+`~/.gstack/analytics/` (user config directory, not project files). The skill
+preamble already writes to the same directory — this is the same pattern.
+Skipping this command loses session duration and outcome data.
+
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+```
+
+Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
+success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
+If you cannot determine the outcome, use "unknown". This runs in the background and
+never blocks the user.
 
 ## Step 0: Detect base branch
 
@@ -417,52 +485,130 @@ If no documentation files exist, skip this step silently.
 
 ---
 
-## Step 5.7: Codex second opinion (optional)
+## Step 5.7: Codex review
 
-After completing the review, check if the Codex CLI is available:
+Check if the Codex CLI is available and read the user's Codex review preference:
 
 ```bash
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+CODEX_REVIEWS_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
+echo "CODEX_REVIEWS: ${CODEX_REVIEWS_CFG:-not_set}"
 ```
 
-If Codex is available, use AskUserQuestion:
+If `CODEX_NOT_AVAILABLE`: skip this step silently. Continue to the next step.
+
+If `CODEX_REVIEWS` is `disabled`: skip this step silently. Continue to the next step.
+
+If `CODEX_REVIEWS` is `enabled`: run both code review and adversarial challenge automatically (no prompt). Jump to the "Run Codex" section below.
+
+If `CODEX_REVIEWS` is `not_set`: use AskUserQuestion to offer the one-time adoption prompt:
 
 ```
-Review complete. Want an independent second opinion from Codex (OpenAI)?
+GStack recommends enabling Codex code reviews — Codex is the super smart quiet engineer friend who will save your butt.
 
-A) Run Codex code review — independent diff review with pass/fail gate
-B) Run Codex adversarial challenge — try to find ways this code will fail in production
-C) Both — review first, then adversarial challenge
-D) Skip — no Codex review needed
+A) Enable for all future runs (recommended, default)
+B) Try it for now, ask me again later
+C) No thanks, don't ask me again
 ```
 
-If the user chooses A, B, or C:
-
-**For code review (A or C):** Run `codex review --base <base>` with a 5-minute timeout.
-Present the full output verbatim under a `CODEX SAYS (code review):` header.
-Check the output for `[P1]` markers — if found, note `GATE: FAIL`, otherwise `GATE: PASS`.
-After presenting, compare Codex's findings with your own review findings from Steps 4-5
-and output a CROSS-MODEL ANALYSIS showing what both found, what only Codex found,
-and what only Claude found.
-
-**For adversarial challenge (B or C):** Run:
+If the user chooses A: persist the setting and run both:
 ```bash
-codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, failure modes. Be adversarial." -s read-only
+~/.claude/skills/gstack/bin/gstack-config set codex_reviews enabled
 ```
-Present the full output verbatim under a `CODEX SAYS (adversarial challenge):` header.
 
-**Only if a code review ran (user chose A or C):** Persist the Codex review result to the review log:
+If the user chooses B: run both this time but do not persist any setting.
+
+If the user chooses C: persist the opt-out and skip:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","gate":"GATE"}'
+~/.claude/skills/gstack/bin/gstack-config set codex_reviews disabled
+```
+Then skip this step. Continue to the next step.
+
+### Run Codex
+
+Always run **both** code review and adversarial challenge. Use a 5-minute timeout (`timeout: 300000`) on each Bash call.
+
+First, create a temp file for stderr capture:
+```bash
+TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
+```
+
+**Code review:** Run:
+```bash
+codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
+```
+
+After the command completes, read stderr for cost/error info:
+```bash
+cat "$TMPERR"
+```
+
+Present the full output verbatim under a `CODEX SAYS (code review):` header:
+
+```
+CODEX SAYS (code review):
+════════════════════════════════════════════════════════════
+<full codex output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+GATE: PASS                    Tokens: N | Est. cost: ~$X.XX
+```
+
+Check the output for `[P1]` markers. If found: `GATE: FAIL`. If no `[P1]`: `GATE: PASS`.
+
+**If GATE is FAIL:** use AskUserQuestion:
+
+```
+Codex found N critical issues in the diff.
+
+A) Investigate and fix now (recommended)
+B) Ship anyway — these issues may cause production problems
+```
+
+If the user chooses A: read the Codex findings carefully and work to address them. Then re-run `codex review` to verify the gate is now PASS.
+
+If the user chooses B: continue to the next step.
+
+### Error handling (code review)
+
+Before persisting the gate result, check for errors. All errors are non-blocking — Codex is a quality enhancement, not a prerequisite. Check `$TMPERR` output (already read above) for error indicators:
+
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key", tell the user: "Codex authentication failed. Run \`codex login\` in your terminal to authenticate via ChatGPT." Do NOT persist a review log entry. Continue to the adversarial step (it will likely fail too, but try anyway).
+- **Timeout:** If the Bash call times out (5 min), tell the user: "Codex timed out after 5 minutes. The diff may be too large or the API may be slow." Do NOT persist a review log entry. Skip to cleanup.
+- **Empty response:** If codex returned no stdout output, tell the user: "Codex returned no response. Stderr: <paste relevant error>." Do NOT persist a review log entry. Skip to cleanup.
+
+**Only if codex produced a real review (non-empty stdout):** Persist the code review result:
+```bash
+eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+mkdir -p $PROJECTS_DIR/$SLUG/reviews
+echo '{"skill":"codex-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}' >> $PROJECTS_DIR/$SLUG/reviews/$BRANCH.jsonl
 ```
 
 Substitute: STATUS ("clean" if PASS, "issues_found" if FAIL), GATE ("pass" or "fail").
 
-**Do NOT persist a codex-review entry when only the adversarial challenge (B) ran** —
-there is no gate verdict to record, and a false entry would make the Review Readiness
-Dashboard believe a code review happened when it didn't.
+**Adversarial challenge:** Run:
+```bash
+TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
+codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_ADV"
+```
 
-If Codex is not available, skip this step silently.
+After the command completes, read adversarial stderr:
+```bash
+cat "$TMPERR_ADV"
+```
+
+Present the full output verbatim under a `CODEX SAYS (adversarial challenge):` header. This is informational — it never blocks shipping. If the adversarial command timed out or returned no output, note this to the user and continue.
+
+**Cross-model analysis:** After both Codex outputs are presented, compare Codex's findings with your own review findings from the earlier review steps and output:
+
+```
+CROSS-MODEL ANALYSIS:
+  Both found: [findings that overlap between Claude and Codex]
+  Only Codex found: [findings unique to Codex]
+  Only Claude found: [findings unique to Claude's review]
+  Agreement rate: X% (N/M total unique findings overlap)
+```
+
+**Cleanup:** Run `rm -f "$TMPERR" "$TMPERR_ADV"` after processing.
 
 ---
 
