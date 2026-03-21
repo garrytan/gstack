@@ -60,7 +60,7 @@ If `gstack-slug` fails (not a git repo, no remote), use the current directory na
 Scan for build files, configs, and entry points to detect the tech stack:
 
 ```bash
-ls -la package.json Cargo.toml go.mod pyproject.toml Gemfile build.gradle pom.xml Makefile CMakeLists.txt *.csproj *.sln composer.json mix.exs 2>/dev/null
+ls -la package.json Cargo.toml go.mod pyproject.toml Gemfile build.gradle pom.xml Makefile CMakeLists.txt *.csproj *.sln composer.json mix.exs 2>/dev/null || true
 ```
 
 Read whichever build/config files exist to determine: primary language, framework, build tool, test runner, package manager.
@@ -70,10 +70,10 @@ Read whichever build/config files exist to determine: primary language, framewor
 Count lines of code, excluding vendored and build directories:
 
 ```bash
-find . -type f -not -path '*/node_modules/*' -not -path '*/vendor/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -path '*/build/*' -not -path '*/.next/*' -not -path '*/target/*' -not -path '*/__pycache__/*' -not -path '*/venv/*' | head -5000 | xargs wc -l 2>/dev/null | tail -1
+find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' -o -name '*.rb' -o -name '*.go' -o -name '*.rs' -o -name '*.java' -o -name '*.cs' -o -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name '*.swift' -o -name '*.kt' -o -name '*.php' -o -name '*.sh' -o -name '*.bash' -o -name '*.zsh' -o -name '*.vue' -o -name '*.svelte' \) -not -path '*/node_modules/*' -not -path '*/vendor/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -path '*/build/*' -not -path '*/.next/*' -not -path '*/target/*' -not -path '*/__pycache__/*' -not -path '*/venv/*' | head -5000 | xargs wc -l 2>/dev/null | tail -1
 ```
 
-If `cloc` is available, prefer it for a more accurate breakdown by language.
+This counts source code files only. If `cloc` is available, prefer it for a more accurate breakdown by language.
 
 Classify the codebase size:
 - **Small**: <10K LOC
@@ -244,11 +244,9 @@ The audit is planning-for-a-plan. The report is the research; the plan file is t
 
 ### 4.1 Load report template
 
-Read the report template:
+Use the **Read tool** to load the report template:
 
-```bash
-cat ~/.claude/skills/gstack/codebase-audit/report-template.md
-```
+`~/.claude/skills/gstack/codebase-audit/report-template.md`
 
 Use this template to structure the final report. If the template is missing, use the structure described below as a fallback.
 
@@ -327,7 +325,15 @@ Schema:
 }
 ```
 
-Each finding gets a content-based ID: a hash of `file + category + title`. This enables stable comparison across runs.
+Each finding gets a deterministic content-based ID for stable regression comparison. Compute it as:
+
+```bash
+echo -n "file:category:title" | shasum -a 256 | cut -d' ' -f1
+```
+
+For example: `echo -n "browse/src/write-commands.ts:security:Missing path validation on upload" | shasum -a 256 | cut -d' ' -f1` → `a3b7c9...`
+
+Run this for each finding and use the resulting hash as the `id` field. This ensures findings match across runs even if their order changes.
 
 ### 4.5 Regression comparison
 
