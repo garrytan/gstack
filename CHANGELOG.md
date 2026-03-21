@@ -11,6 +11,12 @@
 - **`/retro` incorporates findings patterns.** Weekly retrospectives now include systemic issue detection from accumulated findings (e.g., "4 SQL injection findings across sessions — consider a linter rule").
 - **New utility scripts:** `gstack-status` shows current session state at a glance, `gstack-reset` archives and clears memory for a fresh start.
 
+## [0.9.4.1] - 2026-03-20
+
+### Changed
+
+- **`/retro` no longer nags about PR size.** The retro still reports PR size distribution (Small/Medium/Large/XL) as neutral data, but no longer flags XL PRs as problems or recommends splitting them. AI reviews don't fatigue — the unit of work is the feature, not the diff.
+
 ## [0.9.4.0] - 2026-03-20 — Codex Reviews On By Default
 
 ### Changed
