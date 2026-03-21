@@ -757,6 +757,51 @@ describe('Codex generation (--host codex)', () => {
   });
 });
 
+describe('Droid generation (--host droid)', () => {
+  const FACTORY_DIR = path.join(ROOT, '.factory', 'skills');
+
+  const DROID_SKILLS = (() => {
+    const skills: Array<{ dir: string; droidName: string }> = [];
+    if (fs.existsSync(path.join(ROOT, 'SKILL.md.tmpl'))) {
+      skills.push({ dir: '.', droidName: 'gstack' });
+    }
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
+      skills.push({ dir: entry.name, droidName: entry.name });
+    }
+    return skills;
+  })();
+
+  test('--host droid generates top-level skill output paths inside repo-local .factory/skills', () => {
+    for (const skill of DROID_SKILLS) {
+      const skillMd = path.join(FACTORY_DIR, skill.droidName, 'SKILL.md');
+      expect(fs.existsSync(skillMd)).toBe(true);
+    }
+  });
+
+  test('Droid output uses .factory paths and strips Claude-specific paths', () => {
+    const content = fs.readFileSync(path.join(FACTORY_DIR, 'office-hours', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('~/.factory/skills/gstack');
+    expect(content).not.toContain('~/.claude/skills/gstack');
+    expect(content).not.toContain('.claude/skills');
+  });
+
+  test('--host droid --dry-run freshness', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'droid', '--dry-run'], {
+      cwd: ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    for (const skill of DROID_SKILLS) {
+      expect(output).toContain(`FRESH: .factory/skills/${skill.droidName}/SKILL.md`);
+    }
+    expect(output).not.toContain('STALE');
+  });
+});
+
 // ─── Setup script validation ─────────────────────────────────
 // These tests verify the setup script's install layout matches
 // what the generator produces — catching the bug where setup
@@ -765,9 +810,10 @@ describe('Codex generation (--host codex)', () => {
 describe('setup script validation', () => {
   const setupContent = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
 
-  test('setup has separate link functions for Claude and Codex', () => {
+  test('setup has separate link functions for Claude, Codex, and Droid', () => {
     expect(setupContent).toContain('link_claude_skill_dirs');
     expect(setupContent).toContain('link_codex_skill_dirs');
+    expect(setupContent).toContain('link_droid_skill_dirs');
     // Old unified function must not exist
     expect(setupContent).not.toMatch(/^link_skill_dirs\(\)/m);
   });
@@ -786,10 +832,19 @@ describe('setup script validation', () => {
     // The Codex install section (section 5) should use the Codex function
     const codexSection = setupContent.slice(
       setupContent.indexOf('# 5. Install for Codex'),
-      setupContent.indexOf('# 6. Create')
+      setupContent.indexOf('# ─── Helper: create gstack droids for Droid')
     );
     expect(codexSection).toContain('link_codex_skill_dirs');
     expect(codexSection).not.toContain('link_claude_skill_dirs');
+  });
+
+  test('Droid install uses link_droid_skill_dirs', () => {
+    const droidSection = setupContent.slice(
+      setupContent.indexOf('# 5b. Install for Droid'),
+      setupContent.indexOf('# 6. Create')
+    );
+    expect(droidSection).toContain('link_droid_skill_dirs');
+    expect(droidSection).toContain('~/.factory/skills');
   });
 
   test('link_codex_skill_dirs reads from .agents/skills/', () => {
@@ -809,14 +864,15 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('ln -snf "gstack/$skill_name"');
   });
 
-  test('setup supports --host auto|claude|codex', () => {
+  test('setup supports --host auto|claude|codex|droid', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|auto');
+    expect(setupContent).toContain('claude|codex|droid|auto');
   });
 
-  test('auto mode detects claude and codex binaries', () => {
+  test('auto mode detects claude, codex, and droid environments', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
+    expect(setupContent).toContain('[ -d "$HOME/.factory" ]');
   });
 
   test('create_agents_sidecar links runtime assets', () => {
@@ -865,6 +921,8 @@ describe('telemetry', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('.pending');
     expect(content).toContain('_pending_finalize');
+    expect(content).toContain("find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' -type f -print -quit");
+    expect(content).not.toContain('for _PF in ~/.gstack/analytics/.pending-*;');
   });
 
   test('telemetry blocks appear in all skill files that use PREAMBLE', () => {

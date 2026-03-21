@@ -28,24 +28,28 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, or auto)" >&2; exit 1 ;;
+  claude|codex|droid|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, droid, or auto)" >&2; exit 1 ;;
 esac
 
 # For auto: detect which agents are installed
 INSTALL_CLAUDE=0
 INSTALL_CODEX=0
+INSTALL_DROID=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
-  # If neither found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ]; then
+  [ -d "$HOME/.factory" ] && INSTALL_DROID=1
+  # If none found, default to claude
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_DROID" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
 elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
+elif [ "$HOST" = "droid" ]; then
+  INSTALL_DROID=1
 fi
 
 ensure_playwright_browser() {
@@ -186,6 +190,37 @@ link_codex_skill_dirs() {
   fi
 }
 
+# ─── Helper: link generated Droid skills into the Factory skills dir ──
+# Droid discovers slash commands from top-level ~/.factory/skills/<skill>/SKILL.md
+# directories. We generate Droid-format skills into repo-local .factory/skills/*
+# and link them into the global skills dir, similar to the Claude install layout.
+link_droid_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local droid_dir="$gstack_dir/.factory/skills"
+  local linked=()
+
+  if [ ! -d "$droid_dir" ]; then
+    echo "  warning: no .factory/skills/ directory found — run 'bun run gen:skill-docs --host droid' first" >&2
+    return 1
+  fi
+
+  for skill_dir in "$droid_dir"/*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
 # ─── Helper: create .agents/skills/gstack/ sidecar symlinks ──────────
 # Codex/Gemini/Cursor read skills from .agents/skills/. We link runtime
 # assets (bin/, browse/dist/, review/, qa/, etc.) so skill templates can
@@ -237,6 +272,105 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   echo "gstack ready (codex)."
   echo "  browse: $BROWSE_BIN"
   echo "  codex skills: $CODEX_SKILLS"
+fi
+
+# ─── Helper: create gstack droids for Droid ───────────────────
+create_droid_droids() {
+  local droids_dir="$HOME/.factory/droids"
+  mkdir -p "$droids_dir"
+
+  # gstack-spec-reviewer
+  cat > "$droids_dir/gstack-spec-reviewer.md" << 'DROID'
+---
+name: gstack-spec-reviewer
+description: Adversarial spec reviewer for gstack workflows
+model: inherit
+tools: ["Read", "Grep", "Glob"]
+---
+
+You are the team's adversarial spec reviewer. Given a design document:
+- Review on 5 dimensions: Completeness, Consistency, Clarity, Scope, Feasibility
+- Return quality score (1-10) and specific issues with fixes
+- Be genuinely adversarial — catch what the author missed
+
+Reply with:
+Summary: <one-line finding>
+Findings:
+- <dimension>: <PASS or issue description with fix>
+DROID
+
+  # gstack-design-reviewer
+  cat > "$droids_dir/gstack-design-reviewer.md" << 'DROID'
+---
+name: gstack-design-reviewer
+description: Design reviewer for gstack /design-review skill
+model: inherit
+tools: ["Read", "Grep", "Glob", "Bash"]
+---
+
+You are the team's design reviewer. Review design decisions for:
+- Visual consistency with design system
+- UX best practices and accessibility
+- Typography, color, spacing coherence
+- Component patterns and reusability
+
+Reply with:
+Summary: <one-line finding>
+Findings:
+- <issue or ✅ No blockers>
+DROID
+
+  # gstack-code-reviewer
+  cat > "$droids_dir/gstack-code-reviewer.md" << 'DROID'
+---
+name: gstack-code-reviewer
+description: Code reviewer for gstack /review skill
+model: inherit
+tools: ["Read", "Grep", "Glob", "Bash"]
+---
+
+You are the team's principal code reviewer. Examine the diff and:
+- Flag correctness, security, and migration risks
+- List targeted follow-up tasks if changes are required
+- Confirm tests or manual validation needed before merge
+
+Reply with:
+Summary: <one-line finding>
+Findings:
+- <issue or ✅ No blockers>
+DROID
+
+  echo "  created droids: $droids_dir/"
+}
+
+# 5b. Install for Droid
+if [ "$INSTALL_DROID" -eq 1 ]; then
+  DROID_SKILLS="$HOME/.factory/skills"
+  DROID_GSTACK="$DROID_SKILLS/gstack"
+  mkdir -p "$DROID_SKILLS"
+
+  # Ensure ~/.factory/skills/gstack exists for runtime assets (bin/, browse/dist/,
+  # review sidecars). When the repo is cloned directly into that path, this is
+  # already the active directory and we leave it in place.
+  if [ -L "$DROID_GSTACK" ] || [ ! -e "$DROID_GSTACK" ]; then
+    ln -snf "$GSTACK_DIR" "$DROID_GSTACK"
+  fi
+
+  # Generate Droid-format skills into repo-local .factory/skills/*
+  if command -v bun >/dev/null 2>&1; then
+    (cd "$GSTACK_DIR" && bun run gen:skill-docs --host droid 2>/dev/null) || true
+  fi
+
+  # Link generated Droid skills into ~/.factory/skills/<skill-name>/ for slash
+  # command discovery (/office-hours, /review, etc.).
+  link_droid_skill_dirs "$GSTACK_DIR" "$DROID_SKILLS"
+
+  # Create gstack droids for Droid
+  create_droid_droids
+
+  echo "gstack ready (droid)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  droids: $HOME/.factory/droids/"
 fi
 
 # 6. Create .agents/ sidecar symlinks (useful for Codex/Gemini/Cursor workspace-local)

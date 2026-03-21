@@ -6,7 +6,9 @@ designer, QA lead, release engineer, debugger, and more.
 
 ## Available skills
 
-Skills live in `.agents/skills/`. Invoke them by name (e.g., `/office-hours`).
+Skills live in `.agents/skills/` for Codex-style hosts. Droid installs runtime assets to
+`~/.factory/skills/gstack` and exposes top-level slash-command skills from
+`~/.factory/skills/<skill-name>/`. Invoke them by name (e.g., `/office-hours`).
 
 | Skill | What it does |
 |-------|-------------|
@@ -45,5 +47,6 @@ bun run skill:check      # health dashboard for all skills
 
 - SKILL.md files are **generated** from `.tmpl` templates. Edit the template, not the output.
 - Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
+- Run `bun run gen:skill-docs --host droid` to regenerate Droid-specific output.
 - The browse binary provides headless browser access. Use `$B <command>` in skills.
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.

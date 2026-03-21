@@ -56,13 +56,20 @@ Open Claude Code and paste this. Claude does the rest.
 
 Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
 
-### Codex, Gemini CLI, or Cursor
+### Codex, Droid, Gemini CLI, or Cursor
 
-gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Skills live in `.agents/skills/` and are discovered automatically.
+gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Codex, Gemini CLI, and Cursor discover skills from `.agents/skills/`. Droid installs gstack runtime assets to `~/.factory/skills/gstack` and exposes slash-command skills at `~/.factory/skills/<skill-name>/`.
 
 ```bash
 git clone https://github.com/garrytan/gstack.git ~/.codex/skills/gstack
 cd ~/.codex/skills/gstack && ./setup --host codex
+```
+
+For Droid:
+
+```bash
+git clone https://github.com/garrytan/gstack.git ~/.factory/skills/gstack
+cd ~/.factory/skills/gstack && ./setup --host droid
 ```
 
 Or let setup auto-detect which agents you have installed:
@@ -72,7 +79,7 @@ git clone https://github.com/garrytan/gstack.git ~/gstack
 cd ~/gstack && ./setup --host auto
 ```
 
-This installs to `~/.claude/skills/gstack` and/or `~/.codex/skills/gstack` depending on what's available. All 21 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
+This installs to `~/.claude/skills/gstack`, `~/.codex/skills/gstack`, and/or `~/.factory/skills/gstack` depending on what's available. All 21 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
 
 ## See it work
 
