@@ -173,6 +173,10 @@ link_codex_skill_dirs() {
   for skill_dir in "$agents_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
+      # Skip the sidecar directory — it contains runtime asset symlinks (bin/,
+      # browse/), not a skill. Linking it would overwrite the root gstack
+      # symlink that Step 5 already pointed at the repo root.
+      [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
       # Create or update symlink
       if [ -L "$target" ] || [ ! -e "$target" ]; then
