@@ -231,6 +231,12 @@ Use these exact definitions:
 
 ## Phase 4: Report Generation
 
+### 4.0 Exit plan mode (if active)
+
+**CRITICAL:** If the session is in plan mode, you MUST exit plan mode BEFORE writing any files in this phase. The audit report must be written to `~/.gstack/projects/$SLUG/audits/`, which plan mode restricts. Call ExitPlanMode (or equivalent) to return to normal mode before proceeding. Do NOT write the report to a plan file — that triggers Claude Code's "Ready to code?" flow, which is wrong for an audit report.
+
+If you cannot exit plan mode, tell the user: "I need to exit plan mode to write the audit report. Please approve the plan (which is just a placeholder) so I can write the actual report to ~/.gstack/."
+
 ### 4.1 Load report template
 
 Read the report template:
