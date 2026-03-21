@@ -1,0 +1,319 @@
+# =============================================================================
+# gstack PR Review Pipeline
+#
+# A multi-step AI-powered PR review workflow inspired by gstack's review skills.
+#
+# Step 1: Triage    — HuggingFace Qwen2.5-3B classifies the PR
+# Step 2: Compile   — Claude Sonnet compiles a tailored review prompt
+# Step 3: Review    — Claude reviews the PR and produces structured JSON
+# Step 4: Route     — Deterministic script approves/rejects/comments/merges
+#
+# Required secrets:
+#   ANTHROPIC_API_KEY  — For Claude Code Action (Steps 2 & 3)
+#   HF_TOKEN           — For HuggingFace Inference API (Step 1)
+#
+# Optional secrets:
+#   APP_ID + APP_PRIVATE_KEY — GitHub App for PR approval (recommended)
+#
+# Repository variables (Settings → Variables → Actions):
+#   AUTO_MERGE_ENABLED — Set to "true" to allow auto-merge. Default: "false"
+#
+# Required labels (auto-created by the workflow):
+#   ai-approved, ai-review-passed, needs-work, needs-human-review,
+#   security-review-needed, auto-merge-candidate
+# =============================================================================
+
+name: "gstack PR Review"
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+  # Allow re-triggering via @gstack-review comment
+  issue_comment:
+    types: [created]
+
+# Cancel in-progress runs for the same PR when new commits are pushed
+concurrency:
+  group: gstack-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  # ===========================================================================
+  # Gate: Should we run?
+  # ===========================================================================
+  should-review:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+    steps:
+      - id: check
+        run: |
+          # PR events: always run (unless draft)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Skipping draft PR"
+            else
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              echo "pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          # Comment events: only on @gstack-review trigger
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            COMMENT_BODY="${{ github.event.comment.body }}"
+            if echo "$COMMENT_BODY" | grep -qi "@gstack-review"; then
+              # Verify the comment is on a PR, not a plain issue
+              if [ -n "${{ github.event.issue.pull_request }}" ]; then
+                echo "run=true" >> "$GITHUB_OUTPUT"
+                echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+              else
+                echo "run=false" >> "$GITHUB_OUTPUT"
+              fi
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  # ===========================================================================
+  # Step 1: Triage — Classify the PR using Qwen2.5-3B
+  # ===========================================================================
+  triage:
+    needs: should-review
+    if: needs.should-review.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      triage_json: ${{ steps.run-triage.outputs.triage }}
+      pr_type: ${{ steps.parse.outputs.pr_type }}
+      review_depth: ${{ steps.parse.outputs.review_depth }}
+      auto_mergeable: ${{ steps.parse.outputs.auto_mergeable }}
+      risk_level: ${{ steps.parse.outputs.risk_level }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run triage classifier
+        id: run-triage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          PR_NUMBER: ${{ needs.should-review.outputs.pr_number }}
+          HF_TRIAGE_MODEL: "Qwen/Qwen2.5-3B-Instruct"
+        run: |
+          TRIAGE_OUTPUT=$(python .github/gstack-review/triage.py)
+          echo "$TRIAGE_OUTPUT" > /tmp/triage.json
+          echo "triage<<TRIAGE_EOF" >> "$GITHUB_OUTPUT"
+          echo "$TRIAGE_OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "TRIAGE_EOF" >> "$GITHUB_OUTPUT"
+
+          # Log for debugging
+          echo "::group::Triage Result"
+          echo "$TRIAGE_OUTPUT" | jq .
+          echo "::endgroup::"
+
+      - name: Parse triage outputs
+        id: parse
+        run: |
+          echo "pr_type=$(echo '${{ steps.run-triage.outputs.triage }}' | jq -r '.pr_type')" >> "$GITHUB_OUTPUT"
+          echo "review_depth=$(echo '${{ steps.run-triage.outputs.triage }}' | jq -r '.suggested_review_depth')" >> "$GITHUB_OUTPUT"
+          echo "auto_mergeable=$(echo '${{ steps.run-triage.outputs.triage }}' | jq -r '.auto_mergeable')" >> "$GITHUB_OUTPUT"
+          echo "risk_level=$(echo '${{ steps.run-triage.outputs.triage }}' | jq -r '.risk_level')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload triage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: triage-result
+          path: /tmp/triage.json
+          retention-days: 30
+
+  # ===========================================================================
+  # Step 2: Prompt Compilation — Claude Sonnet tailors the review prompt
+  # ===========================================================================
+  compile-prompt:
+    needs: [should-review, triage]
+    runs-on: ubuntu-latest
+    outputs:
+      compiled_prompt: ${{ steps.compile.outputs.prompt }}
+    steps:
+      # Checkout main branch — always use the canonical skill files,
+      # never the PR branch (which might have modified them)
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Verify skill files exist
+        run: |
+          if [ ! -f "review/SKILL.md" ]; then
+            echo "::error::review/SKILL.md not found on main branch"
+            exit 1
+          fi
+          if [ ! -f "plan-eng-review/SKILL.md" ]; then
+            echo "::error::plan-eng-review/SKILL.md not found on main branch"
+            exit 1
+          fi
+          echo "::notice::Skill files found — review/SKILL.md ($(wc -l < review/SKILL.md) lines), plan-eng-review/SKILL.md ($(wc -l < plan-eng-review/SKILL.md) lines)"
+
+      - name: Download triage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: triage-result
+          path: /tmp/
+
+      - name: Compile review prompt via Claude
+        id: compile
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Read your instructions from: .github/gstack-review/compile-instructions.md
+
+            Then read these input files:
+
+            ## Input 1: Review Skill
+            Read the file at: review/SKILL.md
+
+            ## Input 2: Engineering Review Skill
+            Read the file at: plan-eng-review/SKILL.md
+
+            ## Input 3: Triage Classification
+            ```json
+            ${{ needs.triage.outputs.triage_json }}
+            ```
+
+            ## Input 4: Output Schema
+            Read the file at: .github/gstack-review/review-schema.json
+
+            Now follow the compile-instructions.md to produce the compiled prompt.
+          model: claude-sonnet-4-20250514
+          claude_args: "--output-format=text"
+
+  # ===========================================================================
+  # Step 3: Deep Review — Claude reviews the actual PR diff
+  # ===========================================================================
+  review:
+    needs: [should-review, triage, compile-prompt]
+    runs-on: ubuntu-latest
+    outputs:
+      review_json: ${{ steps.review.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for diff
+
+      - name: Get PR diff
+        id: diff
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.should-review.outputs.pr_number }}
+        run: |
+          # Fetch the diff
+          gh pr diff "$PR_NUMBER" > /tmp/pr-diff.txt
+
+          # Get diff stats
+          DIFF_LINES=$(wc -l < /tmp/pr-diff.txt)
+          echo "diff_lines=${DIFF_LINES}" >> "$GITHUB_OUTPUT"
+
+          # For very large diffs, truncate to keep within token budget
+          if [ "$DIFF_LINES" -gt 3000 ]; then
+            echo "::warning::Large diff (${DIFF_LINES} lines) — truncating to 3000 lines"
+            head -n 3000 /tmp/pr-diff.txt > /tmp/pr-diff-truncated.txt
+            echo "[... diff truncated from ${DIFF_LINES} lines to 3000 ...]" >> /tmp/pr-diff-truncated.txt
+            mv /tmp/pr-diff-truncated.txt /tmp/pr-diff.txt
+          fi
+
+      - name: Run Claude review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are performing an automated code review. Follow the system prompt below EXACTLY.
+            
+            ## System Instructions
+            ${{ needs.compile-prompt.outputs.compiled_prompt }}
+
+            ## PR Information
+            - PR #${{ needs.should-review.outputs.pr_number }}
+            - Type: ${{ needs.triage.outputs.pr_type }}
+            - Risk: ${{ needs.triage.outputs.risk_level }}
+            - Review Depth: ${{ needs.triage.outputs.review_depth }}
+
+            ## Task
+            1. Read the PR diff by running: cat /tmp/pr-diff.txt
+            2. Look at the actual source files for any findings that need more context
+            3. Produce your review as a SINGLE JSON object conforming to the schema
+
+            IMPORTANT: Your entire response must be ONLY the JSON object. No markdown fences.
+            No preamble. No explanation after the JSON. Just the raw JSON.
+
+            Set review_metadata.prompt_version to "v1.0"
+            Set review_metadata.pr_type to "${{ needs.triage.outputs.pr_type }}"
+            Set review_metadata.review_depth to "${{ needs.triage.outputs.review_depth }}"
+            Set review_metadata.triage_source to the _source field from the triage: ${{ needs.triage.outputs.triage_json }}
+          model: claude-sonnet-4-20250514
+
+      - name: Save review result
+        run: |
+          # Extract JSON from Claude's response (strip any accidental markdown)
+          RESPONSE='${{ steps.review.outputs.result }}'
+          echo "$RESPONSE" | sed 's/^```json//; s/^```//; s/```$//' | jq . > /tmp/review.json 2>/dev/null || {
+            echo "::error::Failed to parse review output as JSON"
+            echo "$RESPONSE" > /tmp/review-raw.txt
+            exit 1
+          }
+
+          echo "::group::Review Result"
+          jq . /tmp/review.json
+          echo "::endgroup::"
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-result
+          path: /tmp/review.json
+          retention-days: 90
+
+  # ===========================================================================
+  # Step 4: Route Action — Deterministic approve/reject/comment/merge
+  # ===========================================================================
+  route:
+    needs: [should-review, triage, review]
+    runs-on: ubuntu-latest
+    # Use a GitHub App token if available (needed for merge approval to count)
+    # Falls back to GITHUB_TOKEN for comment-only mode
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/artifacts/
+
+      - name: Generate GitHub App token
+        id: app-token
+        if: ${{ vars.APP_ID != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Route review action
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.should-review.outputs.pr_number }}
+          AUTO_MERGE_ENABLED: ${{ vars.AUTO_MERGE_ENABLED || 'false' }}
+        run: |
+          chmod +x .github/gstack-review/route-action.sh
+          .github/gstack-review/route-action.sh \
+            /tmp/artifacts/review-result/review.json \
+            /tmp/artifacts/triage-result/triage.json

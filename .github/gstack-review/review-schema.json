@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GStack PR Review Result",
+  "description": "Structured output from the AI code review step. This is the contract between Step 3 (Claude review) and Step 4 (action routing).",
+  "type": "object",
+  "required": ["verdict", "confidence", "scores", "overall_score", "findings", "summary", "review_metadata"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["approve", "request_changes", "comment_only"],
+      "description": "The review decision. 'approve' means the PR is ready to merge. 'request_changes' means issues must be addressed. 'comment_only' means feedback is provided but merge is not blocked."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confidence in the verdict. Below 0.7 triggers human-reviewer escalation."
+    },
+    "scores": {
+      "type": "object",
+      "required": ["design", "security", "performance", "test_coverage", "completeness"],
+      "properties": {
+        "design": {
+          "type": "integer", "minimum": 0, "maximum": 10,
+          "description": "Architecture fit, abstraction quality, readability"
+        },
+        "security": {
+          "type": "integer", "minimum": 0, "maximum": 10,
+          "description": "OWASP alignment, input validation, auth, secrets"
+        },
+        "performance": {
+          "type": "integer", "minimum": 0, "maximum": 10,
+          "description": "Query efficiency, resource management, scalability"
+        },
+        "test_coverage": {
+          "type": "integer", "minimum": 0, "maximum": 10,
+          "description": "New code paths tested, edge cases, regression tests"
+        },
+        "completeness": {
+          "type": "integer", "minimum": 0, "maximum": 10,
+          "description": "Does the diff match the PR description? Missing pieces?"
+        }
+      },
+      "additionalProperties": false
+    },
+    "overall_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Weighted average. Security and completeness weigh more for high-risk PRs."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "category", "file", "line", "title", "description"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "major", "minor", "nit"]
+          },
+          "category": {
+            "type": "string",
+            "enum": ["design", "security", "performance", "test_coverage", "completeness", "correctness", "reliability"]
+          },
+          "file": {
+            "type": "string",
+            "description": "Relative file path from repo root"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Line number in the file (use the new file line numbers from the diff)"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "One-line summary of the finding"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Detailed explanation of the issue and its impact"
+          },
+          "suggested_fix": {
+            "type": "string",
+            "description": "Concrete code suggestion or fix approach. Optional but strongly encouraged."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "2-3 sentence human-readable summary of the review outcome"
+    },
+    "review_metadata": {
+      "type": "object",
+      "required": ["pr_type", "review_depth", "files_reviewed", "model_used", "prompt_version"],
+      "properties": {
+        "pr_type": {
+          "type": "string",
+          "description": "PR type from triage step"
+        },
+        "review_depth": {
+          "type": "string",
+          "enum": ["quick", "standard", "deep", "adversarial"],
+          "description": "Review depth from triage step"
+        },
+        "files_reviewed": {
+          "type": "integer",
+          "description": "Number of files included in the review"
+        },
+        "model_used": {
+          "type": "string",
+          "description": "Claude model used for the review"
+        },
+        "prompt_version": {
+          "type": "string",
+          "description": "Version of the prompt template used"
+        },
+        "triage_model": {
+          "type": "string",
+          "description": "Model used for the triage classification step"
+        },
+        "triage_source": {
+          "type": "string",
+          "enum": ["model", "heuristic", "heuristic_fallback"],
+          "description": "Whether triage used the HF model or fell back to heuristics"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "description": "Total review duration in seconds"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
