@@ -20,6 +20,7 @@ const DRY_RUN = process.argv.includes('--dry-run');
 // ─── Template Context ───────────────────────────────────────
 
 type Host = 'claude' | 'codex';
+const CODEX_MAX_DESCRIPTION_LEN = 1024;
 
 const HOST_ARG = process.argv.find(a => a.startsWith('--host'));
 const HOST: Host = (() => {
@@ -1571,6 +1572,19 @@ function codexSkillName(skillDir: string): string {
   return `gstack-${skillDir}`;
 }
 
+function codexDescriptionForSkill(name: string, description: string): string {
+  if (name === 'gstack') {
+    return [
+      'Fast headless browser plus workflow skills for Codex.',
+      'Use it to QA apps, dogfood flows, inspect pages, review code, investigate bugs, ship changes, and run design audits.',
+      'For focused workflows, use the linked gstack-* skills such as gstack-browse, gstack-review, gstack-qa, gstack-investigate, gstack-design-review, and gstack-ship.',
+    ].join(' ');
+  }
+
+  if (description.length <= CODEX_MAX_DESCRIPTION_LEN) return description;
+  return `${description.slice(0, CODEX_MAX_DESCRIPTION_LEN - 3).trimEnd()}...`;
+}
+
 /**
  * Transform frontmatter for Codex: keep only name + description.
  * Strips allowed-tools, hooks, version, and all other fields.
@@ -1621,6 +1635,7 @@ function transformFrontmatter(content: string, host: Host): string {
   if (descLines.length > 0) {
     description = descLines.join('\n').trim();
   }
+  description = codexDescriptionForSkill(name, description);
 
   // Re-emit Codex frontmatter (name + description only)
   const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');

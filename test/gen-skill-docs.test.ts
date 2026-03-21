@@ -666,6 +666,38 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('.agents/skills/gstack');
   });
 
+  test('all Codex skill descriptions stay within the 1024-character loader limit', () => {
+    for (const skill of CODEX_SKILLS) {
+      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = content.slice(4, fmEnd);
+      const lines = frontmatter.split('\n');
+      let inDescription = false;
+      const descLines: string[] = [];
+
+      for (const line of lines) {
+        if (line.match(/^description:\s*\|?\s*$/)) {
+          inDescription = true;
+          continue;
+        }
+        if (line.match(/^description:\s*\S/)) {
+          descLines.push(line.replace(/^description:\s*/, '').trim());
+          break;
+        }
+        if (inDescription) {
+          if (line === '' || line.match(/^\s/)) {
+            descLines.push(line.replace(/^  /, ''));
+          } else {
+            break;
+          }
+        }
+      }
+
+      const description = descLines.join('\n').trim();
+      expect(description.length).toBeLessThanOrEqual(1024);
+    }
+  });
+
   // ─── Path rewriting regression tests ─────────────────────────
 
   test('sidecar paths point to .agents/skills/gstack/review/ (not gstack-review/)', () => {
