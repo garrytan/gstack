@@ -6,6 +6,32 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const MAX_CODEX_DESCRIPTION_LEN = 1024;
+
+function extractDescriptionFromFrontmatter(content: string): string {
+  const frontmatterEnd = content.indexOf('\n---', 4);
+  if (frontmatterEnd === -1) return '';
+
+  const frontmatter = content.slice(4, frontmatterEnd);
+  const lines = frontmatter.split('\n');
+  const descLines: string[] = [];
+  let inDescription = false;
+
+  for (const line of lines) {
+    if (line.match(/^description:\s*\|?\s*$/)) {
+      inDescription = true;
+      continue;
+    }
+    if (!inDescription) continue;
+    if (line === '' || line.match(/^\s/)) {
+      descLines.push(line.replace(/^  /, ''));
+      continue;
+    }
+    break;
+  }
+
+  return descLines.join('\n').trim();
+}
 
 describe('SKILL.md command validation', () => {
   test('all $B commands in SKILL.md are valid browse commands', () => {
@@ -1433,6 +1459,19 @@ describe('Codex skill validation', () => {
       if (!content.includes('$B ')) continue;
       const result = validateSkill(skillMd);
       expect(result.invalid).toHaveLength(0);
+    }
+  });
+
+  test('Codex SKILL.md descriptions stay within the loader limit', () => {
+    const codexDirs = fs.readdirSync(AGENTS_DIR);
+    for (const dir of codexDirs) {
+      const skillMd = path.join(AGENTS_DIR, dir, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      const description = extractDescriptionFromFrontmatter(content);
+      expect(description.length).toBeGreaterThan(0);
+      expect(description.length).toBeLessThanOrEqual(MAX_CODEX_DESCRIPTION_LEN);
     }
   });
 });

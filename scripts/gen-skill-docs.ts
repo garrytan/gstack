@@ -16,6 +16,7 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
+const MAX_CODEX_DESCRIPTION_LEN = 1024;
 
 // ─── Template Context ───────────────────────────────────────
 
@@ -1762,6 +1763,11 @@ function transformFrontmatter(content: string, host: Host): string {
   }
   if (descLines.length > 0) {
     description = descLines.join('\n').trim();
+  }
+  if (description.length > MAX_CODEX_DESCRIPTION_LEN) {
+    throw new Error(
+      `Codex frontmatter description exceeds ${MAX_CODEX_DESCRIPTION_LEN} characters (${description.length})`,
+    );
   }
 
   // Re-emit Codex frontmatter (name + description only)
