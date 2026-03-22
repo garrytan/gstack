@@ -22,6 +22,29 @@ const ALL_SKILLS = (() => {
   return skills;
 })();
 
+function extractFrontmatter(content: string): string {
+  const fmEnd = content.indexOf('\n---', 4);
+  expect(fmEnd).toBeGreaterThan(0);
+  return content.slice(4, fmEnd);
+}
+
+function extractBlockScalarDescription(frontmatter: string): string {
+  const lines = frontmatter.split('\n');
+  const descStart = lines.findIndex(line => line === 'description: |');
+  expect(descStart).toBeGreaterThanOrEqual(0);
+
+  const descLines: string[] = [];
+  for (const line of lines.slice(descStart + 1)) {
+    if (line === '' || line.startsWith('  ')) {
+      descLines.push(line.replace(/^  /, ''));
+      continue;
+    }
+    break;
+  }
+
+  return descLines.join('\n').trim();
+}
+
 describe('gen-skill-docs', () => {
   test('generated SKILL.md contains all command categories', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -720,9 +743,7 @@ describe('Codex generation (--host codex)', () => {
     for (const skill of CODEX_SKILLS) {
       const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
       expect(content.startsWith('---\n')).toBe(true);
-      const fmEnd = content.indexOf('\n---', 4);
-      expect(fmEnd).toBeGreaterThan(0);
-      const frontmatter = content.slice(4, fmEnd);
+      const frontmatter = extractFrontmatter(content);
       // Must have name and description
       expect(frontmatter).toContain('name:');
       expect(frontmatter).toContain('description:');
@@ -797,8 +818,7 @@ describe('Codex generation (--host codex)', () => {
   test('multiline descriptions preserved in Codex output', () => {
     // office-hours has a multiline description — verify it survives the frontmatter transform
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-office-hours', 'SKILL.md'), 'utf-8');
-    const fmEnd = content.indexOf('\n---', 4);
-    const frontmatter = content.slice(4, fmEnd);
+    const frontmatter = extractFrontmatter(content);
     // Description should span multiple lines (block scalar)
     const descLines = frontmatter.split('\n').filter(l => l.startsWith('  '));
     expect(descLines.length).toBeGreaterThan(1);
@@ -813,9 +833,21 @@ describe('Codex generation (--host codex)', () => {
       // Must have safety advisory prose
       expect(content).toContain('Safety Advisory');
       // Must NOT have hooks: in frontmatter
-      const fmEnd = content.indexOf('\n---', 4);
-      const frontmatter = content.slice(4, fmEnd);
+      const frontmatter = extractFrontmatter(content);
       expect(frontmatter).not.toContain('hooks:');
+    }
+  });
+
+  test('root gstack descriptions stay within Codex CLI frontmatter limit', () => {
+    const skillFiles = [
+      path.join(ROOT, 'SKILL.md'),
+      path.join(AGENTS_DIR, 'gstack', 'SKILL.md'),
+    ];
+
+    for (const skillFile of skillFiles) {
+      const content = fs.readFileSync(skillFile, 'utf-8');
+      const description = extractBlockScalarDescription(extractFrontmatter(content));
+      expect(description.length).toBeLessThanOrEqual(1024);
     }
   });
 
