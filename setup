@@ -17,12 +17,14 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
 esac
 
-# ─── Parse --host flag ─────────────────────────────────────────
+# ─── Parse flags ──────────────────────────────────────────────
 HOST="claude"
+LOCAL_INSTALL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
+    --local) LOCAL_INSTALL=1; shift ;;
     *) shift ;;
   esac
 done
@@ -31,6 +33,18 @@ case "$HOST" in
   claude|codex|auto) ;;
   *) echo "Unknown --host value: $HOST (expected claude, codex, or auto)" >&2; exit 1 ;;
 esac
+
+# --local: install to .claude/skills/ in the current working directory
+if [ "$LOCAL_INSTALL" -eq 1 ]; then
+  if [ "$HOST" = "codex" ]; then
+    echo "Error: --local is only supported for Claude Code (not Codex)." >&2
+    exit 1
+  fi
+  SKILLS_DIR="$(pwd)/.claude/skills"
+  mkdir -p "$SKILLS_DIR"
+  HOST="claude"
+  INSTALL_CODEX=0
+fi
 
 # For auto: detect which agents are installed
 INSTALL_CLAUDE=0
@@ -223,7 +237,12 @@ SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
     link_claude_skill_dirs "$GSTACK_DIR" "$SKILLS_DIR"
-    echo "gstack ready (claude)."
+    if [ "$LOCAL_INSTALL" -eq 1 ]; then
+      echo "gstack ready (project-local)."
+      echo "  skills: $SKILLS_DIR"
+    else
+      echo "gstack ready (claude)."
+    fi
     echo "  browse: $BROWSE_BIN"
   else
     echo "gstack ready (claude)."
