@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.0.0] - 2026-03-22 — Autoplan
+
+### Added
+
+- **`/autoplan` — one command, fully reviewed plan.** Hand it a rough plan and it runs the full CEO → design → eng review pipeline automatically. Reads the actual review skill files from disk (same depth, same rigor as running each review manually) and makes intermediate decisions using 6 encoded principles: completeness, boil lakes, pragmatic, DRY, explicit over clever, bias toward action. Taste decisions (close approaches, borderline scope, codex disagreements) surface at a final approval gate. You approve, override, interrogate, or revise. Saves a restore point so you can re-run from scratch. Writes review logs compatible with `/ship`'s dashboard.
+
 ## [0.9.9.0] - 2026-03-21 — Harder Office Hours
 
 ### Changed
