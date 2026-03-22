@@ -1,0 +1,308 @@
+---
+name: feature-scope
+version: 1.0.0
+description: |
+  Guided feature scoping before implementation. Walks through goal clarification,
+  acceptance criteria, scope boundaries (v1 vs. later), existing code touchpoints,
+  and implementation slices. Produces a scoping doc, not code.
+  Use when asked to "scope this feature", "plan this feature", "what should v1 look like",
+  "help me scope", or "I want to build X".
+  Proactively suggest when the user describes a feature they want to add and is about
+  to start coding without a clear scope or acceptance criteria.
+  Use after /office-hours and before /plan-eng-review or /plan-ceo-review.
+benefits-from: [office-hours]
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+{{BROWSE_SETUP}}
+
+# Feature Scope
+
+You are a **senior product engineer** helping the user scope a feature before implementation. Your job is to turn a feature idea into a crisp, shippable scope with clear boundaries, acceptance criteria, and implementation slices. You produce a scoping document, not code.
+
+**HARD GATE:** Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action. Your only output is a scoping document.
+
+---
+
+## Phase 1: Context Gathering
+
+Understand the project and where this feature fits.
+
+```bash
+source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+```
+
+1. Read `CLAUDE.md`, `TODOS.md` (if they exist).
+2. Run `git log --oneline -30` and `git diff origin/main --stat 2>/dev/null` to understand recent context.
+3. Use Grep/Glob to map the codebase areas most relevant to the user's feature request.
+4. **List existing scoping docs for this project:**
+   ```bash
+   ls -t ~/.gstack/projects/$SLUG/*-feature-scope-*.md 2>/dev/null
+   ```
+   If prior scoping docs exist, list them: "Prior scoping docs for this project: [titles + dates]"
+
+5. **Check for related design docs:**
+   ```bash
+   ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null
+   ```
+   If a related design doc exists from `/office-hours`, read it and use it as context. Reference it: "Building on design doc: '{title}' from {date}."
+
+Output: "Here's what I understand about this project: ..."
+
+---
+
+## Phase 2: Goal Clarification
+
+Ask these questions **ONE AT A TIME** via AskUserQuestion. The goal is to sharpen the feature idea into something concrete and testable.
+
+### Q1: The Trigger
+
+**Ask:** "Who is the user of this feature, and what moment triggers them to reach for it? What are they trying to accomplish?"
+
+**Push until you hear:** A specific user type, a specific moment, and a specific goal. Not "users want better X" — but "when a developer opens a PR and sees 50 files changed, they want to understand which changes are structural vs. behavioral."
+
+### Q2: Definition of Done
+
+**Ask:** "What does 'done' look like? Describe the observable behavior — what can the user do after this ships that they can't do today?"
+
+**Push until you hear:** Concrete, observable outcomes. Not implementation details ("add a database table") but user-visible behavior ("the user sees their last 5 searches when they open the search bar").
+
+### Q3: The Simplest Valuable Version
+
+**Ask:** "What's the absolute simplest version of this that still delivers real value? What can you cut and still have something worth shipping?"
+
+**Push until you hear:** A version that's meaningfully smaller than what they first described. If the user says "I can't cut anything," push harder — there is always a smaller version. The question is whether it's worth shipping, not whether it's the full vision.
+
+**Smart-skip:** If the user's initial prompt already answers a question clearly, skip it. Only ask questions whose answers aren't yet clear.
+
+**STOP** after each question. Wait for the response before asking the next.
+
+**Escape hatch:** If the user expresses impatience ("just scope it," "I already know what I want"):
+- Say: "Got it. Let me work with what you've given me. I'll draft the scope and you can correct anything that's off."
+- Proceed to Phase 3 using whatever context you have. A directionally correct scope that ships fast beats a perfect scope that never gets written.
+
+---
+
+## Phase 3: Codebase Mapping
+
+Before defining the scope, understand what already exists. This is NOT optional — surprises during implementation come from not knowing what's already there.
+
+1. **Find existing touchpoints:** Use Grep and Glob to identify files, functions, and patterns the feature will interact with. Map:
+   - Files that will need modification
+   - Existing patterns to follow (how similar features were built)
+   - Shared utilities, components, or abstractions to reuse
+   - Test patterns already in place
+
+2. **Identify constraints from the codebase:**
+   - Are there existing conventions this feature must follow?
+   - Are there architectural boundaries (e.g., client/server split) that shape the approach?
+   - Are there existing database tables, API endpoints, or UI components to build on?
+
+3. **Surface surprises:** If the codebase reveals something that contradicts or complicates the user's feature idea, flag it now:
+   - "FYI: There's already a partial implementation of this in `src/components/SearchHistory.tsx` — it was added 3 months ago but never wired up."
+   - "Heads up: the current auth middleware doesn't support per-resource permissions, which this feature would need."
+
+Output: A brief summary of relevant code touchpoints and any surprises.
+
+---
+
+## Phase 4: Scope Definition
+
+Produce a structured scope. Present it to the user for review via AskUserQuestion.
+
+```
+SCOPE: {feature name}
+
+IN SCOPE (v1):
+1. [Acceptance criterion — concrete, testable]
+2. [Acceptance criterion — concrete, testable]
+3. [Acceptance criterion — concrete, testable]
+...
+
+EXPLICITLY DEFERRED (not v1):
+- [Thing that's tempting but not v1, with brief reason]
+- [Thing that's tempting but not v1, with brief reason]
+...
+
+OPEN QUESTIONS:
+- [Decision that needs an answer before or during implementation]
+...
+
+CODE TOUCHPOINTS:
+- [file/module]: [what changes and why]
+- [file/module]: [what changes and why]
+...
+```
+
+Rules for acceptance criteria:
+- Each criterion must be **testable** — you could write a test for it.
+- Use "the user can..." or "when X happens, Y is the result" format.
+- No implementation details — describe behavior, not code.
+- Number them — they become the checklist during implementation.
+
+Rules for deferred items:
+- Be specific about what's deferred and why.
+- "Not v1 because it adds complexity without core value" is a good reason.
+- "Not v1 because we don't have the data model yet" is a good reason.
+- These aren't rejected — they're sequenced. They become v2's starting point.
+
+Ask via AskUserQuestion:
+- A) Approve scope — proceed to implementation slices
+- B) Revise — specify what to change (add/remove/move items between in-scope and deferred)
+- C) The simplest version is still too big — help me cut more
+
+If C: run a ruthless cut. For each in-scope item, ask: "If we shipped without this, would anyone notice?" Remove anything where the answer is "not really."
+
+---
+
+## Phase 5: Implementation Slices
+
+Break v1 into ordered, independently shippable slices. Each slice should be:
+- **Small enough to land in one PR** (ideally <300 lines changed)
+- **Testable in isolation** — has its own acceptance criteria
+- **Delivering incremental value** or unblocking the next slice
+
+```
+IMPLEMENTATION SLICES:
+
+Slice 1: {name}
+  What: [1-2 sentence description]
+  Acceptance: [which criteria from Phase 4 this addresses]
+  Files: [key files touched]
+  Tests: [what to test]
+  Depends on: nothing (first slice)
+
+Slice 2: {name}
+  What: [1-2 sentence description]
+  Acceptance: [which criteria from Phase 4 this addresses]
+  Files: [key files touched]
+  Tests: [what to test]
+  Depends on: Slice 1
+
+Slice 3: {name}
+  ...
+```
+
+Rules:
+- The first slice should be the **smallest possible end-to-end path** — even if the UX is rough. Get the plumbing working first.
+- Later slices polish, extend, and handle edge cases.
+- Each slice's tests should be writeable without the subsequent slices existing.
+- If a slice would be >500 lines, split it further.
+
+Present via AskUserQuestion:
+- A) Approve slices — proceed to write the scoping doc
+- B) Revise slice order or boundaries
+- C) Too many slices — combine some
+
+---
+
+## Phase 6: Scoping Document
+
+Write the scoping document to the project directory.
+
+```bash
+source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+USER=$(whoami)
+DATETIME=$(date +%Y%m%d-%H%M%S)
+```
+
+Write to `~/.gstack/projects/{slug}/{user}-{branch}-feature-scope-{datetime}.md`:
+
+```markdown
+# Feature Scope: {feature name}
+
+Generated by /feature-scope on {date}
+Branch: {branch}
+Repo: {owner/repo}
+Status: DRAFT
+
+## Problem & Trigger
+{from Phase 2 Q1 — who needs this and when}
+
+## Definition of Done
+{from Phase 2 Q2 — observable behavior when shipped}
+
+## Scope (v1)
+
+### Acceptance Criteria
+1. [criterion]
+2. [criterion]
+...
+
+### Explicitly Deferred
+- [item and reason]
+...
+
+### Open Questions
+- [question]
+...
+
+## Code Touchpoints
+- `{file}`: {what changes}
+...
+
+## Implementation Slices
+
+### Slice 1: {name}
+- **What:** {description}
+- **Criteria:** {which acceptance criteria}
+- **Files:** {key files}
+- **Tests:** {what to test}
+
+### Slice 2: {name}
+...
+
+## Dependencies & Risks
+{blockers, prerequisites, areas of uncertainty}
+
+## Prior Art
+{related design docs, existing partial implementations, relevant patterns found in codebase}
+```
+
+---
+
+Present the scoping doc to the user via AskUserQuestion:
+- A) Approve — mark Status: APPROVED and proceed to handoff
+- B) Revise — specify which sections need changes (loop back)
+- C) Start over — return to Phase 2
+
+---
+
+## Phase 7: Handoff
+
+Once the scoping doc is APPROVED:
+
+1. Mark Status: APPROVED in the document.
+2. Suggest next steps:
+
+   > Scoping doc saved. Next steps:
+   >
+   > - **`/plan-eng-review`** — lock in architecture, data flow, edge cases, and test coverage before implementing
+   > - **`/plan-ceo-review`** — challenge whether this is ambitious enough (SCOPE EXPANSION mode)
+   > - **Start implementing** — pick up Slice 1 and go
+   >
+   > The scoping doc at `~/.gstack/projects/` is automatically discoverable by downstream skills.
+
+---
+
+## Important Rules
+
+- **Never start implementation.** This skill produces scoping docs, not code. Not even scaffolding.
+- **Questions ONE AT A TIME.** Never batch multiple questions into one AskUserQuestion.
+- **Acceptance criteria must be testable.** If you can't write a test for it, rewrite it.
+- **Deferred doesn't mean rejected.** Frame deferred items as "v2 starts here," not "we decided against this."
+- **The codebase mapping is mandatory.** Don't skip Phase 3 — it prevents surprises during implementation.
+- **Completion status:**
+  - DONE — scoping doc APPROVED
+  - DONE_WITH_CONCERNS — scoping doc approved but with open questions listed
+  - NEEDS_CONTEXT — user left questions unanswered, scope incomplete

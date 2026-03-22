@@ -10,6 +10,7 @@ description: |
   gstack also includes development workflow skills. When you notice the user is at
   these stages, suggest the appropriate skill:
   - Brainstorming a new idea → suggest /office-hours
+  - Scoping a feature before implementation → suggest /feature-scope
   - Reviewing a plan (strategy) → suggest /plan-ceo-review
   - Reviewing a plan (architecture) → suggest /plan-eng-review
   - Reviewing a plan (design) → suggest /plan-design-review

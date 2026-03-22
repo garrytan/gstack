@@ -62,6 +62,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Office Hours
   'office-hours-spec-review':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
 
+  // Feature Scope
+  'feature-scope':             ['feature-scope/**'],
+
   // Plan reviews
   'plan-ceo-review':           ['plan-ceo-review/**'],
   'plan-ceo-review-selective': ['plan-ceo-review/**'],
@@ -161,6 +164,9 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
   // Office Hours
   'office-hours/SKILL.md spec review':    ['office-hours/SKILL.md', 'office-hours/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'office-hours/SKILL.md design sketch':  ['office-hours/SKILL.md', 'office-hours/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+
+  // Feature Scope
+  'feature-scope/SKILL.md workflow':      ['feature-scope/SKILL.md', 'feature-scope/SKILL.md.tmpl'],
 
   // Deploy skills
   'land-and-deploy/SKILL.md workflow':    ['land-and-deploy/SKILL.md', 'land-and-deploy/SKILL.md.tmpl'],
