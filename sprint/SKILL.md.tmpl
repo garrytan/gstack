@@ -1,0 +1,534 @@
+---
+name: sprint
+version: 1.0.0
+description: |
+  Sprint & task management via Odoo Project. Create tasks, track sprints,
+  send approval requests, and view dashboards — all from terminal.
+  Use when asked to "manage tasks", "create sprint", "add task", "sprint status",
+  "send for approval", or "close sprint".
+  Proactively suggest when the user mentions task management or sprint planning.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+# /sprint — Sprint & Task Management (Odoo Integration)
+
+Manage sprints and tasks via Odoo Project API. Supports task creation, sprint tracking,
+approval workflows, and notifications — all through Odoo's built-in systems.
+
+## User-invocable
+
+When the user types `/sprint`, run this skill.
+
+## Arguments
+
+- `/sprint` — show current sprint dashboard
+- `/sprint setup` — configure Odoo connection
+- `/sprint add <description>` — create a new task in current sprint
+- `/sprint new [name]` — start a new sprint (milestone)
+- `/sprint close` — close current sprint with summary report
+- `/sprint approve <task_id>` — send task for approval via Odoo chatter
+- `/sprint review` — list tasks pending approval
+- `/sprint report` — generate sprint report
+
+## Step 0: Load Odoo Config
+
+Check for existing Odoo configuration:
+
+```bash
+cat ~/.gstack/odoo-config.json 2>/dev/null || echo "NOT_CONFIGURED"
+```
+
+If `NOT_CONFIGURED`, jump to **Setup Flow**. Otherwise, load the config values
+(url, db, api_key, uid, project_id) and proceed with the requested command.
+
+## Setup Flow (triggered by `/sprint setup` or first run)
+
+Guide the user through Odoo API configuration:
+
+1. Ask for their Odoo instance URL (e.g., `https://odoo.mycompany.com`)
+2. Ask for database name
+3. Ask for API key (Settings → Users → API Keys in Odoo)
+4. Ask for their Odoo user ID (uid)
+
+Then verify the connection:
+
+```bash
+curl -s -X POST "<ODOO_URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.project", "search_read", [[]], {"fields": ["name", "id"], "limit": 20}]
+    }
+  }'
+```
+
+Show the list of projects and ask the user to pick one. Then save config:
+
+```bash
+mkdir -p ~/.gstack
+cat > ~/.gstack/odoo-config.json << 'CONFIGEOF'
+{
+  "url": "<ODOO_URL>",
+  "db": "<DB>",
+  "uid": <UID>,
+  "api_key": "<API_KEY>",
+  "project_id": <PROJECT_ID>,
+  "project_name": "<PROJECT_NAME>"
+}
+CONFIGEOF
+chmod 600 ~/.gstack/odoo-config.json
+```
+
+Confirm setup is complete and show the user their selected project.
+
+## Odoo API Helper
+
+All Odoo operations use JSON-RPC. The pattern for every call:
+
+```bash
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "<MODEL>", "<METHOD>", [<ARGS>], <KWARGS>]
+    }
+  }'
+```
+
+Replace `<MODEL>`, `<METHOD>`, `<ARGS>`, `<KWARGS>` based on the operation.
+
+## Command: Dashboard (default — `/sprint`)
+
+Show the current sprint status by querying Odoo tasks:
+
+```bash
+# 1. Get current sprint (latest milestone)
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.milestone", "search_read",
+        [[["project_id", "=", <PROJECT_ID>], ["is_reached", "=", false]]],
+        {"fields": ["name", "id", "deadline"], "order": "create_date desc", "limit": 1}
+      ]
+    }
+  }'
+```
+
+```bash
+# 2. Get all tasks in current sprint, grouped by stage
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.task", "search_read",
+        [[["project_id", "=", <PROJECT_ID>], ["milestone_id", "=", <MILESTONE_ID>]]],
+        {"fields": ["name", "id", "stage_id", "user_ids", "priority", "date_deadline", "tag_ids"], "order": "stage_id, priority desc"}
+      ]
+    }
+  }'
+```
+
+Format the output as a clean dashboard:
+
+```
+╔══════════════════════════════════════════════════╗
+║  Sprint: <sprint_name>  |  Deadline: <date>      ║
+╠══════════════════════════════════════════════════╣
+║                                                  ║
+║  📋 New (3)                                      ║
+║    #42  Setup CI/CD pipeline         ★★          ║
+║    #43  Design landing page          ★           ║
+║    #44  Write API docs               ★           ║
+║                                                  ║
+║  🔄 In Progress (2)                              ║
+║    #40  User authentication          ★★★         ║
+║    #41  Database migrations          ★★          ║
+║                                                  ║
+║  ✅ Done (5)                                     ║
+║    #35  Project setup                ★           ║
+║    ...                                           ║
+║                                                  ║
+║  Progress: ████████░░ 50% (5/10)                 ║
+╚══════════════════════════════════════════════════╝
+```
+
+## Command: Add Task (`/sprint add <description>`)
+
+Parse the description from the argument. Create a task in Odoo:
+
+```bash
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.task", "create",
+        [{"name": "<TASK_NAME>", "project_id": <PROJECT_ID>, "milestone_id": <MILESTONE_ID>, "user_ids": [<UID>]}],
+        {}
+      ]
+    }
+  }'
+```
+
+After creating, confirm with the task ID and link:
+```
+Task #<ID> created: "<TASK_NAME>"
+Sprint: <sprint_name> | Assigned to: you
+Link: <ODOO_URL>/web#id=<ID>&model=project.task&view_type=form
+```
+
+**Batch mode:** If the user provides multiple tasks (comma-separated or multi-line),
+create all of them in sequence and show a summary table.
+
+## Command: New Sprint (`/sprint new [name]`)
+
+1. If no name given, ask the user for a sprint name
+2. Ask for deadline (default: 2 weeks from today)
+3. Create a milestone in Odoo:
+
+```bash
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.milestone", "create",
+        [{"name": "<SPRINT_NAME>", "project_id": <PROJECT_ID>, "deadline": "<DEADLINE_DATE>"}],
+        {}
+      ]
+    }
+  }'
+```
+
+4. Confirm creation and show the new sprint in dashboard format
+
+## Command: Close Sprint (`/sprint close`)
+
+1. Get current sprint tasks and compute stats:
+   - Total tasks
+   - Completed vs incomplete
+   - Tasks by priority
+
+2. If there are incomplete tasks, ask:
+   - Move to next sprint?
+   - Mark as cancelled?
+   - Leave in current sprint?
+
+3. Mark milestone as reached:
+
+```bash
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.milestone", "write",
+        [[<MILESTONE_ID>], {"is_reached": true}],
+        {}
+      ]
+    }
+  }'
+```
+
+4. Generate sprint report (see Report command)
+
+5. Ask if user wants to create the next sprint immediately
+
+## Command: Approve (`/sprint approve <task_id>`)
+
+Send an approval request via **GitHub Issues** (avoids touching Odoo production for notifications):
+
+1. First, get task details from Odoo to build the approval context:
+
+```bash
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.task", "read",
+        [[<TASK_ID>]],
+        {"fields": ["name", "description", "stage_id", "user_ids"]}
+      ]
+    }
+  }'
+```
+
+2. Create a GitHub Issue for the approval request:
+
+```bash
+gh issue create \
+  --title "🔍 Approval: <TASK_NAME>" \
+  --label "approval,sprint" \
+  --body "$(cat <<'EOF'
+## Approval Required
+
+**Odoo Task:** #<TASK_ID> — <TASK_NAME>
+**Sprint:** <SPRINT_NAME>
+**Odoo Link:** <ODOO_URL>/web#id=<TASK_ID>&model=project.task&view_type=form
+
+### Details
+<TASK_DESCRIPTION>
+
+### Action needed
+- [ ] Reviewed
+- [ ] Approved
+
+Please comment with your approval or feedback.
+Close this issue once approved.
+EOF
+)"
+```
+
+3. Update the Odoo task stage to "Review" so it's visible in both systems:
+
+```bash
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.task", "write",
+        [[<TASK_ID>], {"stage_id": <REVIEW_STAGE_ID>}],
+        {}
+      ]
+    }
+  }'
+```
+
+4. Confirm: "Approval request created as GitHub Issue. Odoo task moved to Review stage."
+
+GitHub notifications will handle alerting reviewers — no need to call Odoo's
+mail system directly.
+
+## Command: Review (`/sprint review`)
+
+List pending approvals from **both** GitHub Issues and Odoo:
+
+```bash
+# GitHub: open approval issues
+gh issue list --label "approval" --state open --json number,title,createdAt,url
+```
+
+```bash
+# Odoo: tasks in Review stage
+curl -s -X POST "<URL>/jsonrpc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+      "service": "object",
+      "method": "execute_kw",
+      "args": ["<DB>", <UID>, "<API_KEY>", "project.task", "search_read",
+        [[["project_id", "=", <PROJECT_ID>], ["stage_id.name", "ilike", "review"]]],
+        {"fields": ["name", "id", "stage_id", "date_last_stage_update"], "order": "date_last_stage_update desc"}
+      ]
+    }
+  }'
+```
+
+Display combined review queue:
+```
+Pending Approval:
+  GH #12  🔍 Approval: Setup CI/CD pipeline     — opened Mar 20
+  GH #15  🔍 Approval: Landing page design       — opened Mar 19
+
+Odoo tasks in Review:
+  #42  Setup CI/CD pipeline     — since Mar 20
+  #45  Landing page design      — since Mar 19
+
+No pending approvals? All clear!
+```
+
+## Command: Report (`/sprint report`)
+
+Generate a sprint summary report:
+
+1. Query all tasks in the current (or most recently closed) sprint
+2. Compute metrics:
+   - Total tasks completed vs planned
+   - Completion rate
+   - Average task cycle time (created → done)
+   - Tasks by priority breakdown
+   - Velocity (tasks/sprint)
+
+3. Format as:
+
+```
+Sprint Report: <sprint_name>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Period: Mar 8 – Mar 22, 2026
+
+Completion:  8/10 tasks (80%)
+Velocity:    8 tasks/sprint
+
+By Priority:
+  ★★★ Critical:  2/2 done
+  ★★  High:      3/4 done (1 carried over)
+  ★   Normal:    3/4 done (1 cancelled)
+
+Carried Over → Next Sprint:
+  #41  Database migrations (★★)
+
+Highlights:
+  - Shipped user auth end-to-end
+  - CI/CD pipeline fully automated
+  - Landing page live
+
+Blockers encountered:
+  - API rate limiting on 3rd party service (resolved)
+```
+
+4. Save report locally:
+
+```bash
+mkdir -p ~/.gstack/sprint-reports
+```
+
+Use the Write tool to save a JSON snapshot to `~/.gstack/sprint-reports/<date>-<sprint_name>.json`.
+
+## Content Approval Flow
+
+When the user asks to approve content (blog posts, docs, marketing material):
+
+1. Ask for the content file path or paste
+2. Create a task in Odoo with the content summary in the description
+3. Create a GitHub Issue with `approval,content` labels containing the full content
+4. If content is a file in the repo, reference the file path in the issue body
+
+```bash
+gh issue create \
+  --title "📝 Content Review: <CONTENT_TITLE>" \
+  --label "approval,content,sprint" \
+  --body "$(cat <<'EOF'
+## Content Review Required
+
+**Type:** <blog/docs/marketing>
+**Odoo Task:** #<TASK_ID>
+**File:** `<FILE_PATH>` (if applicable)
+
+### Content
+<CONTENT_PREVIEW_OR_FULL_TEXT>
+
+### Checklist
+- [ ] Content accuracy reviewed
+- [ ] Grammar/spelling checked
+- [ ] Approved for publishing
+
+Please comment with feedback or close when approved.
+EOF
+)"
+```
+
+5. Confirm with links to both the GitHub Issue and Odoo task
+
+## Deploy Approval Flow
+
+When the user wants deploy approval:
+
+1. Gather deploy context automatically:
+
+```bash
+# Get branch, PR, and change summary
+BRANCH=$(git branch --show-current)
+gh pr view --json title,number,url,additions,deletions,changedFiles 2>/dev/null || echo "NO_PR"
+git diff --stat origin/$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)...HEAD
+```
+
+2. Create a GitHub Issue with deploy context:
+
+```bash
+gh issue create \
+  --title "🚀 Deploy Approval: <BRANCH_OR_PR_TITLE>" \
+  --label "approval,deploy,sprint" \
+  --body "$(cat <<'EOF'
+## Deploy Approval Required
+
+**Branch:** <BRANCH>
+**PR:** <PR_URL> (if exists)
+**Changes:** <N> files, +<ADDITIONS>/-<DELETIONS>
+
+### Changed files
+<GIT_DIFF_STAT>
+
+### Tests
+<TEST_RESULTS or "Run tests before requesting approval">
+
+### Checklist
+- [ ] Code reviewed
+- [ ] Tests passing
+- [ ] Approved for production
+
+Close this issue to confirm deployment approval.
+EOF
+)"
+```
+
+3. Create/update corresponding Odoo task with deploy details
+4. Tell the user: "Deploy approval created on GitHub. Close the issue when approved, then proceed with deployment."
+
+## Tone
+
+- Concise, action-oriented
+- Show task IDs and links for easy reference
+- Use visual formatting (tables, progress bars) for dashboards
+- Confirm every action with what was created/updated
+- If Odoo API errors occur, show the error and suggest fixes (wrong API key, network, permissions)
+
+## Important Rules
+
+- NEVER store Odoo passwords — only API keys (stored in ~/.gstack/odoo-config.json with 600 permissions)
+- Always verify Odoo connection before operations
+- Handle API errors gracefully — show the raw error if debugging is needed
+- All dates in user's local timezone
+- Task IDs always prefixed with # for readability
+- Config file at ~/.gstack/odoo-config.json — never commit to repos
+
+## Telemetry
+
+```bash
+mkdir -p ~/.gstack/analytics
+echo '{"skill":"sprint","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename $(pwd))'","cmd":"<SUBCOMMAND>"}' >> ~/.gstack/analytics/skill-usage.jsonl
+```

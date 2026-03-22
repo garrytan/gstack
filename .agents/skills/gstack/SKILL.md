@@ -26,6 +26,7 @@ description: |
   - Want to scope edits to one module/directory → suggest /freeze
   - Maximum safety mode (destructive warnings + edit restrictions) → suggest /guard
   - Removing edit restrictions → suggest /unfreeze
+  - Sprint/task management or Odoo integration → suggest /sprint
   - Upgrading gstack to latest version → suggest /gstack-upgrade
   
   If the user pushes back on skill suggestions ("stop suggesting things",
