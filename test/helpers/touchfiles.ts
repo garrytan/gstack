@@ -80,6 +80,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'retro':             ['retro/**'],
   'retro-base-branch': ['retro/**'],
 
+  // Global discover
+  'global-discover':   ['bin/gstack-global-discover.ts', 'test/global-discover.test.ts'],
+
   // Document-release
   'document-release': ['document-release/**'],
 
