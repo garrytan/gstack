@@ -358,6 +358,14 @@ describe('REVIEW_DASHBOARD resolver', () => {
     expect(content).toContain('REVIEW READINESS DASHBOARD');
   });
 
+  test('dashboard treats review as a valid Eng Review source', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('plan-eng-review, review, plan-design-review');
+    expect(content).toContain('`review` (diff-scoped pre-landing review)');
+    expect(content).toContain('`plan-eng-review` (plan-stage architecture review)');
+    expect(content).toContain('from either \\`review\\` or \\`plan-eng-review\\`');
+  });
+
   test('resolver output contains key dashboard elements', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('VERDICT');

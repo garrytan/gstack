@@ -250,6 +250,27 @@ If no documentation files exist, skip this step silently.
 
 {{ADVERSARIAL_STEP}}
 
+## Step 5.8: Persist Eng Review result
+
+After all review passes complete, persist the final `/review` outcome so `/ship` can
+recognize that Eng Review was run on this branch.
+
+Run:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"COMMIT"}'
+```
+
+Substitute:
+- `TIMESTAMP` = ISO 8601 datetime
+- `STATUS` = `"clean"` if there are no remaining unresolved findings after Fix-First handling and adversarial review, otherwise `"issues_found"`
+- `issues_found` = total remaining unresolved findings
+- `critical` = remaining unresolved critical findings
+- `informational` = remaining unresolved informational findings
+- `COMMIT` = output of `git rev-parse --short HEAD`
+
+If the review exits early before a real review completes (for example, no diff against the base branch), do **not** write this entry.
+
 ## Important Rules
 
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.

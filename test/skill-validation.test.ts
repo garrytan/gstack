@@ -1351,6 +1351,18 @@ describe('Codex skill', () => {
     expect(content).toContain('Adversarial');
     expect(content).toContain('codex-review');
   });
+
+  test('/review persists a review-log entry for ship readiness', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('"skill":"review"');
+    expect(content).toContain('"issues_found":N');
+    expect(content).toContain('Persist Eng Review result');
+  });
+
+  test('/ship gate suggests /review or /plan-eng-review when Eng Review is missing', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Abort — run /review or /plan-eng-review first');
+  });
 });
 
 // --- Trigger phrase validation ---
