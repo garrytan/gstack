@@ -250,6 +250,43 @@ export async function handleMetaCommand(
       return await handleSnapshot(args, bm);
     }
 
+    // ─── Frame (iframe support) ───────────────────────
+    case 'frame': {
+      const subcommand = args[0];
+      if (!subcommand) throw new Error('Usage: browse frame <list|main|selector>');
+
+      if (subcommand === 'list') {
+        const frames = await bm.listFrames();
+        if (frames.length === 0) return '(no iframes found on this page)';
+        const current = bm.getFrameSelector();
+        return frames.map(f => {
+          const active = current === f.selector ? '→ ' : '  ';
+          const name = f.name ? ` name="${f.name}"` : '';
+          return `${active}[${f.index}]${name} ${f.url} — ${f.selector}`;
+        }).join('\n');
+      }
+
+      if (subcommand === 'main') {
+        bm.setFrameSelector(null);
+        return 'Switched to main frame. Run snapshot to get fresh refs.';
+      }
+
+      // Treat as selector — validate that the frame exists
+      const page = bm.getPage();
+      try {
+        const fl = page.frameLocator(subcommand);
+        // Verify the frame exists by trying to locate an element
+        const count = await fl.locator('body').count();
+        if (count === 0) throw new Error('Frame body not found');
+      } catch {
+        throw new Error(
+          `Iframe not found: ${subcommand}. Run 'frame list' to see available iframes.`
+        );
+      }
+      bm.setFrameSelector(subcommand);
+      return `Switched to iframe: ${subcommand}. Run snapshot to get fresh refs.`;
+    }
+
     // ─── Handoff ────────────────────────────────────
     case 'handoff': {
       const message = args.join(' ') || 'User takeover requested';

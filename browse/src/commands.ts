@@ -30,7 +30,7 @@ export const META_COMMANDS = new Set([
   'screenshot', 'pdf', 'responsive',
   'chain', 'diff',
   'url', 'snapshot',
-  'handoff', 'resume',
+  'handoff', 'resume', 'frame',
 ]);
 
 export const ALL_COMMANDS = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
@@ -98,6 +98,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   // Handoff
   'handoff': { category: 'Server', description: 'Open visible Chrome at current page for user takeover', usage: 'handoff [message]' },
   'resume':  { category: 'Server', description: 'Re-snapshot after user takeover, return control to AI', usage: 'resume' },
+  'frame':   { category: 'Meta', description: 'Switch to iframe context for cross-frame interaction. list: show all iframes. main: return to main frame', usage: 'frame <list|main|selector>' },
 };
 
 // Load-time validation: descriptions must cover exactly the command sets

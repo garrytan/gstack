@@ -15,7 +15,7 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie, type FrameLocator } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
 
@@ -59,6 +59,7 @@ export class BrowserManager {
 
   // ─── Handoff State ─────────────────────────────────────────
   private isHeaded: boolean = false;
+  private frameSelector: string | null = null;
   private consecutiveFailures: number = 0;
 
   async launch() {
@@ -242,6 +243,54 @@ export class BrowserManager {
 
   getRefCount(): number {
     return this.refMap.size;
+  }
+
+
+  // ─── Frame Support ──────────────────────────────────────
+  /**
+   * Set the active iframe selector. When set, snapshot and ref-based
+   * commands scope to this frame. Pass null to return to main frame.
+   */
+  setFrameSelector(selector: string | null) {
+    this.frameSelector = selector;
+    this.clearRefs(); // refs are scoped to frame context
+  }
+
+  getFrameSelector(): string | null {
+    return this.frameSelector;
+  }
+
+  /**
+   * Get a FrameLocator for the active iframe, or null if on the main frame.
+   * Used by snapshot to scope the accessibility tree to the iframe.
+   */
+  getFrameLocator(): FrameLocator | null {
+    if (!this.frameSelector) return null;
+    const page = this.getPage();
+    return page.frameLocator(this.frameSelector);
+  }
+
+  /**
+   * List all iframes on the current page with their URLs and selectors.
+   */
+  async listFrames(): Promise<Array<{ index: number; url: string; name: string; selector: string }>> {
+    const page = this.getPage();
+    const frames = page.frames().filter(f => f !== page.mainFrame() && f.parentFrame() === page.mainFrame());
+    const results: Array<{ index: number; url: string; name: string; selector: string }> = [];
+    for (let i = 0; i < frames.length; i++) {
+      const frame = frames[i];
+      const name = frame.name() || "";
+      const url = frame.url();
+      // Build a selector that can be used with frameLocator()
+      let selector: string;
+      if (name) {
+        selector = `iframe[name="${name}"]`;
+      } else {
+        selector = `iframe >> nth=${i}`;
+      }
+      results.push({ index: i, url, name, selector });
+    }
+    return results;
   }
 
   // ─── Snapshot Diffing ─────────────────────────────────────
@@ -557,6 +606,7 @@ export class BrowserManager {
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) {
         this.clearRefs();
+        this.frameSelector = null; // iframe context is stale after main frame navigation
       }
     });
 

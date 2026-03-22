@@ -325,6 +325,7 @@ Snapshot:       snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o path] [-C]
                 -C/--cursor-interactive: find non-ARIA clickable elements
 Compare:        diff <url1> <url2>
 Multi-step:     chain (reads JSON from stdin)
+Frames:         frame <list|main|selector>
 Tabs:           tabs | tab <id> | newtab [url] | closetab [id]
 Server:         status | cookie <n>=<v> | header <n>:<v>
                 useragent <str> | stop | restart

@@ -492,6 +492,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | Command | Description |
 |---------|-------------|
 | `chain` | Run commands from JSON stdin. Format: [["cmd","arg1",...],...] |
+| `frame <list|main|selector>` | Switch to iframe context for cross-frame interaction. list: show all iframes. main: return to main frame |
 
 ### Tabs
 | Command | Description |

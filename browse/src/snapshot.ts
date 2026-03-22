@@ -138,8 +138,14 @@ export async function handleSnapshot(
   const page = bm.getPage();
 
   // Get accessibility tree via ariaSnapshot
+  // When a frame is active, scope to the iframe content
+  const frameLocator = bm.getFrameLocator();
   let rootLocator: Locator;
-  if (opts.selector) {
+  if (frameLocator) {
+    rootLocator = opts.selector
+      ? frameLocator.locator(opts.selector)
+      : frameLocator.locator('body');
+  } else if (opts.selector) {
     rootLocator = page.locator(opts.selector);
     const count = await rootLocator.count();
     if (count === 0) throw new Error(`Selector not found: ${opts.selector}`);
@@ -204,7 +210,18 @@ export async function handleSnapshot(
     const totalCount = roleNameCounts.get(key) || 1;
 
     let locator: Locator;
-    if (opts.selector) {
+    if (frameLocator) {
+      // Frame-scoped locator
+      if (opts.selector) {
+        locator = frameLocator.locator(opts.selector).getByRole(node.role as any, {
+          name: node.name || undefined,
+        });
+      } else {
+        locator = frameLocator.getByRole(node.role as any, {
+          name: node.name || undefined,
+        });
+      }
+    } else if (opts.selector) {
       locator = page.locator(opts.selector).getByRole(node.role as any, {
         name: node.name || undefined,
       });
