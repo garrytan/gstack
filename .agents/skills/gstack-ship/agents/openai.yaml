@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-ship"
+  short_description: "Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push,..."
+  default_prompt: "Use gstack-ship for this task."
+policy:
+  allow_implicit_invocation: true

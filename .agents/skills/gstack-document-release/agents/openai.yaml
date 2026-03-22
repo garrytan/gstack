@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-document-release"
+  short_description: "Post-ship documentation update. Reads all project docs, cross-references the diff, updates..."
+  default_prompt: "Use gstack-document-release for this task."
+policy:
+  allow_implicit_invocation: true

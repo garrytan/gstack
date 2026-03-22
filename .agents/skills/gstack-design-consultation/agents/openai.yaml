@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-design-consultation"
+  short_description: "Design consultation: understands your product, researches the landscape, proposes a complete design system..."
+  default_prompt: "Use gstack-design-consultation for this task."
+policy:
+  allow_implicit_invocation: true

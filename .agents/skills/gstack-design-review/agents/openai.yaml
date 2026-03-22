@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-design-review"
+  short_description: "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow..."
+  default_prompt: "Use gstack-design-review for this task."
+policy:
+  allow_implicit_invocation: true

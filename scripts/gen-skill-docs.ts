@@ -20,6 +20,7 @@ const DRY_RUN = process.argv.includes('--dry-run');
 // ─── Template Context ───────────────────────────────────────
 
 type Host = 'claude' | 'codex';
+const OPENAI_SHORT_DESCRIPTION_LIMIT = 120;
 
 const HOST_ARG = process.argv.find(a => a.startsWith('--host'));
 const HOST: Host = (() => {
@@ -2200,6 +2201,65 @@ function codexSkillName(skillDir: string): string {
   return `gstack-${skillDir}`;
 }
 
+function extractNameAndDescription(content: string): { name: string; description: string } {
+  const fmStart = content.indexOf('---\n');
+  if (fmStart !== 0) return { name: '', description: '' };
+  const fmEnd = content.indexOf('\n---', fmStart + 4);
+  if (fmEnd === -1) return { name: '', description: '' };
+
+  const frontmatter = content.slice(fmStart + 4, fmEnd);
+  const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
+  const name = nameMatch ? nameMatch[1].trim() : '';
+
+  let description = '';
+  const lines = frontmatter.split('\n');
+  let inDescription = false;
+  const descLines: string[] = [];
+  for (const line of lines) {
+    if (line.match(/^description:\s*\|?\s*$/)) {
+      inDescription = true;
+      continue;
+    }
+    if (line.match(/^description:\s*\S/)) {
+      description = line.replace(/^description:\s*/, '').trim();
+      break;
+    }
+    if (inDescription) {
+      if (line === '' || line.match(/^\s/)) {
+        descLines.push(line.replace(/^  /, ''));
+      } else {
+        break;
+      }
+    }
+  }
+  if (descLines.length > 0) {
+    description = descLines.join('\n').trim();
+  }
+
+  return { name, description };
+}
+
+function condenseOpenAIShortDescription(description: string): string {
+  const firstParagraph = description.split(/\n\s*\n/)[0] || description;
+  const collapsed = firstParagraph.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= OPENAI_SHORT_DESCRIPTION_LIMIT) return collapsed;
+
+  const truncated = collapsed.slice(0, OPENAI_SHORT_DESCRIPTION_LIMIT - 3);
+  const lastSpace = truncated.lastIndexOf(' ');
+  const safe = lastSpace > 40 ? truncated.slice(0, lastSpace) : truncated;
+  return `${safe}...`;
+}
+
+function generateOpenAIYaml(displayName: string, shortDescription: string): string {
+  return `interface:
+  display_name: ${JSON.stringify(displayName)}
+  short_description: ${JSON.stringify(shortDescription)}
+  default_prompt: ${JSON.stringify(`Use ${displayName} for this task.`)}
+policy:
+  allow_implicit_invocation: true
+`;
+}
+
 /**
  * Transform frontmatter for Codex: keep only name + description.
  * Strips allowed-tools, hooks, version, and all other fields.
@@ -2208,48 +2268,12 @@ function codexSkillName(skillDir: string): string {
 function transformFrontmatter(content: string, host: Host): string {
   if (host === 'claude') return content;
 
-  // Find frontmatter boundaries
   const fmStart = content.indexOf('---\n');
-  if (fmStart !== 0) return content; // frontmatter must be at the start
+  if (fmStart !== 0) return content;
   const fmEnd = content.indexOf('\n---', fmStart + 4);
   if (fmEnd === -1) return content;
-
-  const frontmatter = content.slice(fmStart + 4, fmEnd);
   const body = content.slice(fmEnd + 4); // includes the leading \n after ---
-
-  // Parse name
-  const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
-  const name = nameMatch ? nameMatch[1].trim() : '';
-
-  // Parse description — handle both simple and block scalar (|) formats
-  let description = '';
-  const lines = frontmatter.split('\n');
-  let inDescription = false;
-  const descLines: string[] = [];
-  for (const line of lines) {
-    if (line.match(/^description:\s*\|?\s*$/)) {
-      // Block scalar start: "description: |" or "description:"
-      inDescription = true;
-      continue;
-    }
-    if (line.match(/^description:\s*\S/)) {
-      // Simple inline: "description: some text"
-      description = line.replace(/^description:\s*/, '').trim();
-      break;
-    }
-    if (inDescription) {
-      // Block scalar continuation — indented lines (2 spaces) or blank lines
-      if (line === '' || line.match(/^\s/)) {
-        descLines.push(line.replace(/^  /, ''));
-      } else {
-        // End of block scalar — hit a non-indented, non-blank line
-        break;
-      }
-    }
-  }
-  if (descLines.length > 0) {
-    description = descLines.join('\n').trim();
-  }
+  const { name, description } = extractNameAndDescription(content);
 
   // Re-emit Codex frontmatter (name + description only)
   const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
@@ -2296,6 +2320,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
   const relTmplPath = path.relative(ROOT, tmplPath);
   let outputPath = tmplPath.replace(/\.tmpl$/, '');
+  let outputDir: string | null = null;
 
   // Determine skill directory relative to ROOT
   const skillDir = path.relative(ROOT, path.dirname(tmplPath));
@@ -2303,14 +2328,14 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   // For codex host, route output to .agents/skills/{codexSkillName}/SKILL.md
   if (host === 'codex') {
     const codexName = codexSkillName(skillDir === '.' ? '' : skillDir);
-    const outputDir = path.join(ROOT, '.agents', 'skills', codexName);
+    outputDir = path.join(ROOT, '.agents', 'skills', codexName);
     fs.mkdirSync(outputDir, { recursive: true });
     outputPath = path.join(outputDir, 'SKILL.md');
   }
 
   // Extract skill name from frontmatter for TemplateContext
-  const nameMatch = tmplContent.match(/^name:\s*(.+)$/m);
-  const skillName = nameMatch ? nameMatch[1].trim() : path.basename(path.dirname(tmplPath));
+  const { name: extractedName, description: extractedDescription } = extractNameAndDescription(tmplContent);
+  const skillName = extractedName || path.basename(path.dirname(tmplPath));
 
   // Extract benefits-from list from frontmatter (inline YAML: benefits-from: [a, b])
   const benefitsMatch = tmplContent.match(/^benefits-from:\s*\[([^\]]*)\]/m);
@@ -2352,6 +2377,15 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     content = content.replace(/\.claude\/skills\/gstack/g, ctx.paths.localSkillRoot);
     content = content.replace(/\.claude\/skills\/review/g, '.agents/skills/gstack/review');
     content = content.replace(/\.claude\/skills/g, '.agents/skills');
+
+    if (outputDir) {
+      const codexName = codexSkillName(skillDir === '.' ? '' : skillDir);
+      const agentsDir = path.join(outputDir, 'agents');
+      fs.mkdirSync(agentsDir, { recursive: true });
+      const displayName = codexName;
+      const shortDescription = condenseOpenAIShortDescription(extractedDescription);
+      fs.writeFileSync(path.join(agentsDir, 'openai.yaml'), generateOpenAIYaml(displayName, shortDescription));
+    }
   }
 
   // Prepend generated header (after frontmatter)

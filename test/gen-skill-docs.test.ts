@@ -704,6 +704,14 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
+  test('root gstack bundle has OpenAI metadata for Codex skill browsing', () => {
+    const rootMetadata = path.join(ROOT, 'agents', 'openai.yaml');
+    expect(fs.existsSync(rootMetadata)).toBe(true);
+    const content = fs.readFileSync(rootMetadata, 'utf-8');
+    expect(content).toContain('display_name: "gstack"');
+    expect(content).toContain('Use $gstack to locate the bundled gstack skills.');
+  });
+
   test('codexSkillName mapping: root is gstack, others are gstack-{dir}', () => {
     // Root → gstack
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'))).toBe(true);
@@ -730,6 +738,17 @@ describe('Codex generation (--host codex)', () => {
       expect(frontmatter).not.toContain('allowed-tools:');
       expect(frontmatter).not.toContain('version:');
       expect(frontmatter).not.toContain('hooks:');
+    }
+  });
+
+  test('all Codex skills have agents/openai.yaml metadata', () => {
+    for (const skill of CODEX_SKILLS) {
+      const metadata = path.join(AGENTS_DIR, skill.codexName, 'agents', 'openai.yaml');
+      expect(fs.existsSync(metadata)).toBe(true);
+      const content = fs.readFileSync(metadata, 'utf-8');
+      expect(content).toContain(`display_name: "${skill.codexName}"`);
+      expect(content).toContain('short_description:');
+      expect(content).toContain('allow_implicit_invocation: true');
     }
   });
 

@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-careful"
+  short_description: "Safety guardrails for destructive commands. Warns before rm -rf, DROP TABLE, force-push, git reset --hard, kubectl..."
+  default_prompt: "Use gstack-careful for this task."
+policy:
+  allow_implicit_invocation: true

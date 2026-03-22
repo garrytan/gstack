@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-cso"
+  short_description: "Chief Security Officer mode. Performs OWASP Top 10 audit, STRIDE threat modeling, attack surface analysis, auth flow..."
+  default_prompt: "Use gstack-cso for this task."
+policy:
+  allow_implicit_invocation: true
