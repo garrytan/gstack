@@ -428,7 +428,7 @@ From commit diffs, estimate PR sizes and bucket them:
 - **Small** (<100 LOC)
 - **Medium** (100-500 LOC)
 - **Large** (500-1500 LOC)
-- **XL** (1500+ LOC) — flag these with file counts
+- **XL** (1500+ LOC)
 
 ### Step 8: Focus Score + Ship of the Week
 
@@ -620,14 +620,13 @@ Narrative interpreting what the team-wide patterns mean:
 
 Narrative covering:
 - Commit type mix and what it reveals
-- PR size discipline (are PRs staying small?)
+- PR size distribution and what it reveals about shipping cadence
 - Fix-chain detection (sequences of fix commits on the same subsystem)
 - Version bump discipline
 
 ### Code Quality Signals
 - Test LOC ratio trend
 - Hotspot analysis (are the same files churning?)
-- Any XL PRs that should have been split
 - Greptile signal ratio and trend (if history exists): "Greptile: X% signal (Y valid catches, Z false positives)"
 
 ### Test Health
@@ -666,7 +665,7 @@ For each teammate (sorted by commits descending), write a section:
   - "Fixed the N+1 query that was causing 2s load times on the dashboard"
 - **Opportunity for growth**: 1 specific, constructive suggestion. Frame as investment, not criticism. Examples:
   - "Test coverage on the payment module is at 8% — worth investing in before the next feature lands on top of it"
-  - "3 of the 5 PRs were 800+ LOC — breaking these up would catch issues earlier and make review easier"
+  - "Most commits land in a single burst — spacing work across the day could reduce context-switching fatigue"
   - "All commits land between 1-4am — sustainable pace matters for code quality long-term"
 
 **AI collaboration note:** If many commits have `Co-Authored-By` AI trailers (e.g., Claude, Copilot), note the AI-assisted commit percentage as a team metric. Frame it neutrally — "N% of commits were AI-assisted" — without judgment.
