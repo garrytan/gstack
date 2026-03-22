@@ -245,6 +245,92 @@ detect if they included a type prefix. If not, ask or default to `feat:`.
 The naming convention is enforced on **both** Odoo task names and GitHub Issue titles
 to keep the two systems in sync.
 
+## Roles & Ownership
+
+This team has two roles. Every task must have exactly ONE owner — no shared ownership.
+
+### PO (Product Owner) — the human user
+
+| Responsibility | Examples |
+|----------------|----------|
+| **Vision & Strategy** | Decide what to build, product direction, priorities |
+| **Brief tasks** | Describe what's needed (the "what" and "why") |
+| **Review & Approve** | Approve plans, review outputs, accept/reject deliverables |
+| **Deploy decisions** | Final go/no-go for production releases |
+| **Stakeholder comms** | Talk to customers, partners, investors |
+
+PO **does NOT**: write code, write tests, create PRs, debug errors, or pick
+implementation approach. PO focuses on outcomes, not how to get there.
+
+### AI Dev (Claude) — the AI agent
+
+| Responsibility | Examples |
+|----------------|----------|
+| **Plan & Architect** | Break briefs into technical tasks, propose approach |
+| **Implement** | Write code, create files, refactor |
+| **Test & QA** | Write tests, run CI, verify quality |
+| **Document** | Update docs, changelogs, comments |
+| **Report** | Sprint reports, status updates, blocker alerts |
+
+AI Dev **does NOT**: decide product direction, choose what to build next,
+approve releases to production, or skip PO review.
+
+### Task Assignment Rules
+
+Every task has an `owner` field that prevents conflicts:
+
+| Task type | Owner | The other role... |
+|-----------|-------|-------------------|
+| `feat:` | **AI Dev** | PO briefs + approves result |
+| `fix:` | **AI Dev** | PO reports bug + verifies fix |
+| `content:` | **PO drafts → AI Dev reviews** | Or reverse: AI drafts → PO approves |
+| `deploy:` | **AI Dev prepares → PO approves** | AI never deploys without PO approval |
+| `chore:` | **AI Dev** | PO informed, no approval needed |
+| `design:` | **PO decides → AI Dev implements** | AI proposes options, PO picks |
+
+### Conflict Prevention
+
+To prevent two people (or two AI sessions) editing the same thing:
+
+1. **One task = one branch.** Each task gets its own git branch:
+   `sprint-XX/type/short-description` (e.g., `sprint-01/feat/user-auth`)
+
+2. **Check before starting.** Before working on a task, AI Dev must:
+   ```bash
+   # Check if task branch already exists (someone else is working on it)
+   git branch -r | grep "sprint-XX/type/short-description" && echo "BRANCH EXISTS — check if task is already in progress"
+   ```
+
+3. **Lock via stage.** When AI Dev starts a task:
+   - Move Odoo stage: New → In Progress
+   - Assign GitHub Issue to self
+   - This signals "hands off" to any other session
+
+4. **Never work on tasks in "In Progress" stage** unless you are the assignee.
+   If a task is already In Progress, ask the PO before touching it.
+
+5. **Handoff protocol.** When AI Dev finishes:
+   - Move stage: In Progress → Review
+   - Create PR + link to GitHub Issue
+   - `/sprint approve <task_id>` → sends PO notification
+   - PO reviews → approves or requests changes
+
+### Decision Matrix
+
+When unclear who should decide:
+
+| Question | Who decides |
+|----------|-------------|
+| "Should we build X?" | **PO** |
+| "How should we build X?" | **AI Dev** (proposes) → **PO** (approves if major) |
+| "Is this done?" | **PO** (acceptance) |
+| "Is this code correct?" | **AI Dev** (tests prove it) |
+| "Should we deploy?" | **PO** (final call) |
+| "What's the priority?" | **PO** |
+| "What's the deadline?" | **PO** sets, **AI Dev** flags if unrealistic |
+| "Fix this bug" | **AI Dev** (autonomous, PO notified) |
+| "Refactor this" | **AI Dev** (autonomous if chore, PO approves if risky) |
+
 ## User-invocable
 
 When the user types `/sprint`, run this skill.
@@ -464,11 +550,19 @@ If the GitHub Milestone "Sprint XX" doesn't exist yet, create it first:
 gh api repos/<OWNER>/<REPO>/milestones -f title="Sprint XX" -f due_on="<DEADLINE>"
 ```
 
-**Step 3: Confirm with IDs from both systems:**
+**Step 3: Create task branch** (for `feat:`, `fix:`, `design:` tasks):
+
+```bash
+git checkout -b sprint-XX/type/short-description
+```
+
+**Step 4: Confirm with IDs from both systems:**
 ```
 Task created (synced):
   Odoo:   #<ODOO_ID>  — <ODOO_URL>/web#id=<ODOO_ID>&model=project.task
   GitHub: #<GH_NUM>   — <GH_ISSUE_URL>
+  Branch: sprint-XX/type/short-description
+  Owner:  AI Dev (auto-assigned per task type rules)
   Name:   [SPRINT-XX] type: description
 ```
 
