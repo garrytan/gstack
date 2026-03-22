@@ -342,6 +342,23 @@ bun install && bun run build
 
 This affects all projects. To revert: `git checkout main && git pull && bun run build`.
 
+## Community PR triage (wave process)
+
+When community PRs accumulate, batch them into themed waves:
+
+1. **Categorize** — group by theme (security, features, infra, docs)
+2. **Deduplicate** — if two PRs fix the same thing, pick the one that
+   changes fewer lines. Close the other with a note pointing to the winner.
+3. **Collector branch** — create `pr-wave-N`, merge clean PRs, resolve
+   conflicts for dirty ones, verify with `bun test && bun run build`
+4. **Close with context** — every closed PR gets a comment explaining
+   why and what (if anything) supersedes it. Contributors did real work;
+   respect that with clear communication.
+5. **Ship as one PR** — single PR to main with all attributions preserved
+   in merge commits. Include a summary table of what merged and what closed.
+
+See [PR #205](../../pull/205) (v0.8.3) for the first wave as an example.
+
 ## Shipping your changes
 
 When you're happy with your skill edits:
