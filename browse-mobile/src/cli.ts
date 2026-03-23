@@ -357,7 +357,8 @@ async function sendCommand(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ command, args }),
-      signal: AbortSignal.timeout(30000),
+      // First command (goto) may trigger Appium connection + WDA build (~60-120s)
+      signal: AbortSignal.timeout(command === "goto" ? 180000 : 60000),
     });
 
     if (res.status === 401) {
