@@ -235,6 +235,48 @@ $B attrs "#logo"    # returns all attributes as JSON
 $B css ".button" "background-color"
 ```
 
+## Mobile Testing (optional — browse-mobile)
+
+If `browse-mobile` is built (`browse-mobile/dist/browse-mobile`), you can use `$BM` for mobile app automation on iOS Simulator via Appium. This is detected automatically by `/qa` and `/qa-only` when an `app.json` or `app.config.js` is present.
+
+### Mobile commands
+
+```bash
+# Launch an app on the simulator
+$BM goto app://com.example.myapp
+
+# Take a snapshot (accessibility tree with @e refs)
+$BM snapshot -i
+
+# Tap an element by ref
+$BM click @e3
+
+# Tap by accessibility label (for elements without accessibilityRole)
+$BM click ~"Sign In"
+
+# Fill a text field
+$BM fill @e3 "test@example.com"
+
+# Screenshot the simulator
+$BM screenshot /tmp/screen.png
+
+# Scroll and navigate
+$BM scroll down
+$BM back
+$BM viewport landscape
+
+# List tappable elements and input fields
+$BM links
+$BM forms
+```
+
+**Key differences from web (`$B`):**
+- Elements are `XCUIElementType*` (Button, TextField, etc.) instead of HTML roles
+- Many RN components lack `accessibilityRole` — use `~"Label Text"` to click by accessibility label
+- Web-only commands (`console`, `cookies`, `js`, `html`, `css`) return "not supported"
+- Form fill may use coordinate tap + keyboard when elements lack accessibility metadata
+- Requires Appium running (`appium` in a separate terminal) and iOS Simulator booted
+
 ## Snapshot System
 
 {{SNAPSHOT_FLAGS}}

@@ -334,6 +334,7 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 | Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
 | Scope | Full app (or diff-scoped) | `Focus on the billing page` |
 | Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+| Platform | auto-detect | `--mobile`, `--web` |
 
 **Tiers determine which issues get fixed:**
 - **Quick:** Fix critical + high severity only
@@ -380,6 +381,43 @@ If `NEEDS_SETUP`:
 1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
 2. Run: `cd <SKILL_DIR> && ./setup`
 3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
+
+## MOBILE SETUP (optional — check for browse-mobile binary)
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+BM=""
+# Check 1: project-local build (dev mode in gstack repo itself)
+[ -n "$_ROOT" ] && [ -x "$_ROOT/browse-mobile/dist/browse-mobile" ] && BM="$_ROOT/browse-mobile/dist/browse-mobile"
+# Check 2: vendored skills in project (e.g., .claude/skills/gstack/browse-mobile)
+[ -z "$BM" ] && [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse-mobile/dist/browse-mobile" ] && BM="$_ROOT/.claude/skills/gstack/browse-mobile/dist/browse-mobile"
+# Check 3: global gstack install (works from ANY project directory)
+[ -z "$BM" ] && [ -x ~/.claude/skills/gstack/browse/dist/../browse-mobile/dist/browse-mobile ] && BM=~/.claude/skills/gstack/browse/dist/../browse-mobile/dist/browse-mobile
+if [ -n "$BM" ] && [ -x "$BM" ]; then
+  echo "MOBILE_READY: $BM"
+else
+  echo "MOBILE_NOT_AVAILABLE"
+fi
+```
+
+If `MOBILE_READY`: the `$BM` variable points to the browse-mobile binary for mobile app automation via Appium.
+If `MOBILE_NOT_AVAILABLE`: mobile testing is not available — web QA works as usual with `$B`.
+
+**Detect platform and auto-setup (mobile vs web):**
+
+1. Check if `app.json` or `app.config.js`/`app.config.ts` exists in the project root.
+2. If found AND `$BM` is available (MOBILE_READY): **automatically set up the mobile environment** — start Appium, boot simulator, build/install app if needed. Follow the "Mobile project detection" steps in the QA Methodology below. Do NOT ask the user — just do it.
+3. If no mobile config found, or `$BM` is not available: use `$B` as usual. This is WEB MODE (default — zero change to existing behavior).
+
+**In mobile mode, these commands change:**
+- `$B goto <url>` → `$BM goto app://<bundleId>` (launch app) or `$BM click ~"Label"` (navigate)
+- `$B snapshot -i` → `$BM snapshot -i` (accessibility tree from iOS, not ARIA)
+- `$B click @e3` → `$BM click @e3` (tap element) or `$BM click ~"Label Text"` (accessibility label fallback for RN components)
+- `$B fill @e3 "text"` → `$BM fill @e3 "text"` (coordinate tap + keyboard if needed)
+- `$B screenshot` → `$BM screenshot` (simulator capture — always use Read tool to show user)
+- `$B console --errors` → SKIP (not available in mobile mode)
+- `$B links` → `$BM links` (tap targets from last snapshot)
+- `$B scroll` → `$BM scroll down/up` (swipe gestures for ScrollView/FlatList)
 
 **Check test framework (bootstrap if needed):**
 
@@ -589,6 +627,70 @@ This is the **primary mode** for developers verifying their work. When the user 
    $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
    ```
    If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
+
+3b. **Mobile project detection** — if `$BM` is available (MOBILE_READY from setup):
+   ```bash
+   ls app.json app.config.js app.config.ts 2>/dev/null
+   ```
+   If `app.json` or `app.config.*` exists, this is a mobile (Expo/React Native) project.
+   **Automatically set up the entire mobile environment — do not ask the user:**
+
+   **Step 1: Extract bundle ID**
+   ```bash
+   cat app.json 2>/dev/null | grep -o '"bundleIdentifier"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"'
+   ```
+   If no bundleIdentifier found, check `app.config.js` or `app.config.ts` for it.
+
+   **Step 2: Start Appium if not running**
+   ```bash
+   curl -s http://127.0.0.1:4723/status | grep -q '"ready":true' 2>/dev/null
+   ```
+   If Appium is NOT running, start it automatically:
+   ```bash
+   JAVA_HOME=/opt/homebrew/opt/openjdk@17 appium --relaxed-security > /tmp/appium-qa.log 2>&1 &
+   sleep 3
+   curl -s http://127.0.0.1:4723/status | grep -q '"ready":true' && echo "Appium started" || echo "Appium failed to start"
+   ```
+   If Appium fails to start, run `$BM setup-check` to diagnose missing dependencies and show the user what to install. Then continue with web QA as fallback.
+
+   **Step 3: Boot simulator if none running**
+   ```bash
+   xcrun simctl list devices booted | grep -q "Booted"
+   ```
+   If no simulator is booted:
+   ```bash
+   xcrun simctl boot "$(xcrun simctl list devices available | grep iPhone | head -1 | grep -o '[A-F0-9-]\{36\}')" 2>/dev/null
+   open -a Simulator
+   sleep 3
+   ```
+
+   **Step 4: Check if app is installed, build if not**
+   ```bash
+   xcrun simctl listapps booted 2>/dev/null | grep -q "<bundleId>"
+   ```
+   If the app is NOT installed on the simulator:
+   - Check if Metro bundler is running: `lsof -i :8081 | grep -q LISTEN`
+   - If Metro not running, start it: `cd <project_root> && npx expo start --ios &` and wait 10s
+   - Run: `npx expo run:ios` to build and install the app (this may take 2-5 minutes for first build — let it run)
+   - After build completes, verify: `xcrun simctl listapps booted | grep -q "<bundleId>"`
+
+   **Step 5: Activate mobile mode**
+   If all steps succeeded: **MOBILE MODE ACTIVE** — use `$BM` instead of `$B` for all subsequent commands.
+   Set the environment: `BROWSE_MOBILE_BUNDLE_ID=<bundleId>`
+
+   **In mobile mode, the QA flow adapts:**
+   - Launch the app: `$BM goto app://<bundleId>`
+   - If the first snapshot shows "DEVELOPMENT SERVERS" or "localhost:8081" — this is the Expo dev launcher. Automatically click the localhost URL (e.g., `$BM click ~"http://localhost:8081"`) to launch the actual app. Wait 5-10s for the JS bundle to load, then re-snapshot.
+   - Use `$BM snapshot -i` to get the accessibility tree with @e refs
+   - If an element is visible in `$BM text` output but not detected as interactive (common with React Native `Pressable` components missing `accessibilityRole`), use `$BM click ~"Label Text"` (accessibility label selector) — this is the primary fallback for RN components
+   - After each `$BM click`, wait 1-2s — mobile transitions are slower than web
+   - Skip web-only commands: `console --errors`, `html`, `css`, `js`, `cookies` — these return "not_supported" in mobile mode
+   - Test portrait and landscape: `$BM viewport landscape` / `$BM viewport portrait`
+   - Flag missing `accessibilityRole` / `accessibilityLabel` props as accessibility findings — these affect screen readers and are real bugs
+   - For form filling: `$BM fill @e3 "text"` works — if the element resolves to coordinates, it taps to focus then types via keyboard
+   - Take screenshots after every significant interaction: `$BM screenshot <path>` — then use the Read tool to show the screenshot to the user
+   - Use `$BM scroll down` to explore content below the fold (FlatList, ScrollView)
+   - Use `$BM back` for navigation (device back button)
 
 4. **Test each affected page/route:**
    - Navigate to the page
@@ -820,6 +922,15 @@ Minimum 0 per category.
 - Check for stale state (navigate away and back — does data refresh?)
 - Test browser back/forward — does the app handle history correctly?
 - Check for memory leaks (monitor console after extended use)
+
+### Expo / React Native (mobile mode — `$BM`)
+- Many `Pressable` / `TouchableOpacity` components lack `accessibilityRole="button"` — they won't appear as interactive in `$BM snapshot -i`. Use `$BM text` to find visible labels, then `$BM click ~"Label"` to tap by accessibility label.
+- After tapping navigation elements, wait 1-2s before taking a snapshot — RN transitions are animated.
+- Test both portrait and landscape orientation: `$BM viewport landscape` / `$BM viewport portrait`.
+- Flag every component without proper accessibility props (`accessibilityRole`, `accessibilityLabel`) as an accessibility finding — these affect both screen readers and automation.
+- The Expo dev launcher (showing "DEVELOPMENT SERVERS") appears on first launch — click through to the actual app.
+- RevenueCat / in-app purchase errors in development are expected — note but don't flag as bugs.
+- `$BM scroll down` uses swipe gestures — for FlatList/ScrollView content below the fold.
 
 ---
 
