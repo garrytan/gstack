@@ -1388,7 +1388,7 @@ Save this summary — it goes into the PR body in Step 8.
 5. Compose each commit message:
    - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
    - Body: brief description of what this commit contains
-   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer:
+   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag. If the current host uses a commit footer, include it only on that final commit:
 
 ```bash
 git commit -m "$(cat <<'EOF'

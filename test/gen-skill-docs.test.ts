@@ -175,6 +175,14 @@ describe('gen-skill-docs', () => {
     expect(browseTmpl).toContain('{{PREAMBLE}}');
   });
 
+  test('ship and document-release templates use host-aware commit trailer placeholder', () => {
+    const shipTmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
+    const documentReleaseTmpl = fs.readFileSync(path.join(ROOT, 'document-release', 'SKILL.md.tmpl'), 'utf-8');
+
+    expect(shipTmpl).toContain('{{COMMIT_COAUTHOR_TRAILER_BLOCK}}');
+    expect(documentReleaseTmpl).toContain('{{COMMIT_COAUTHOR_TRAILER_BLOCK}}');
+  });
+
   test('generated SKILL.md contains contributor mode check', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('Contributor Mode');
@@ -1167,6 +1175,24 @@ describe('Codex generation (--host codex)', () => {
   test('codex host does not include Codex design block in ship', () => {
     const codexContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(codexContent).not.toContain('Codex design voice');
+  });
+
+  test('codex host omits AI co-author trailers from ship and document-release commit examples', () => {
+    const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const documentReleaseContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-document-release', 'SKILL.md'), 'utf-8');
+
+    expect(shipContent).not.toContain('Co-Authored-By:');
+    expect(documentReleaseContent).not.toContain('Co-Authored-By:');
+    expect(shipContent).not.toContain('noreply@anthropic.com');
+    expect(documentReleaseContent).not.toContain('noreply@anthropic.com');
+  });
+
+  test('Claude output preserves Claude co-author trailers in ship and document-release', () => {
+    const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const documentReleaseContent = fs.readFileSync(path.join(ROOT, 'document-release', 'SKILL.md'), 'utf-8');
+
+    expect(shipContent).toContain('Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>');
+    expect(documentReleaseContent).toContain('Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>');
   });
 });
 
