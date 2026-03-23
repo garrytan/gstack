@@ -55,8 +55,15 @@ async function handleCommand(
   command: string,
   args: string[]
 ): Promise<string> {
-  if (!mobileDriver || !mobileDriver.isConnected) {
-    throw new Error("MobileDriver not connected");
+  if (!mobileDriver) {
+    throw new Error("MobileDriver not initialized");
+  }
+
+  // Auto-reconnect if initial connection failed or session died
+  if (!mobileDriver.isConnected) {
+    console.error("[browse-mobile] Not connected — attempting to connect to Appium...");
+    await mobileDriver.connect();
+    console.error("[browse-mobile] Connected to Appium (reconnect)");
   }
 
   if (UNSUPPORTED_COMMANDS.has(command)) {

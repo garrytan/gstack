@@ -82786,8 +82786,13 @@ import * as fs11 from "fs";
 import * as path10 from "path";
 import * as crypto from "crypto";
 async function handleCommand(command, args) {
-  if (!mobileDriver || !mobileDriver.isConnected) {
-    throw new Error("MobileDriver not connected");
+  if (!mobileDriver) {
+    throw new Error("MobileDriver not initialized");
+  }
+  if (!mobileDriver.isConnected) {
+    console.error("[browse-mobile] Not connected \u2014 attempting to connect to Appium...");
+    await mobileDriver.connect();
+    console.error("[browse-mobile] Connected to Appium (reconnect)");
   }
   if (UNSUPPORTED_COMMANDS.has(command)) {
     return JSON.stringify({
@@ -83230,7 +83235,7 @@ function printSetupCheck() {
     process.exit(1);
   }
 }
-async function startServer2(config) {
+async function startServer2(config, bundleId) {
   const releaseLock = acquireLock(config);
   if (!releaseLock) {
     const start = Date.now();
@@ -83267,7 +83272,8 @@ async function startServer2(config) {
       stdio: "ignore",
       env: {
         ...process.env,
-        BROWSE_MOBILE_STATE_FILE: config.stateFile
+        BROWSE_MOBILE_STATE_FILE: config.stateFile,
+        ...bundleId ? { BROWSE_MOBILE_BUNDLE_ID: bundleId } : {}
       }
     });
     child.unref();
@@ -83284,7 +83290,7 @@ async function startServer2(config) {
     releaseLock();
   }
 }
-async function ensureServer(config) {
+async function ensureServer(config, bundleId) {
   const state2 = readState(config);
   if (state2 && isPidAlive(state2.pid)) {
     try {
@@ -83301,7 +83307,7 @@ async function ensureServer(config) {
       } catch {}
     }
   }
-  return startServer2(config);
+  return startServer2(config, bundleId);
 }
 async function sendCommand(state2, command, args) {
   try {
@@ -83383,7 +83389,11 @@ Examples:
   const config = getConfig();
   const command = args[0];
   const commandArgs = args.slice(1);
-  const state2 = await ensureServer(config);
+  let bundleId = process.env.BROWSE_MOBILE_BUNDLE_ID || "";
+  if (command === "goto" && commandArgs[0]?.startsWith("app://")) {
+    bundleId = commandArgs[0].replace("app://", "");
+  }
+  const state2 = await ensureServer(config, bundleId);
   await sendCommand(state2, command, commandArgs);
 }
 main().catch((err) => {

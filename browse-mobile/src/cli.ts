@@ -242,7 +242,7 @@ function printSetupCheck(): void {
 
 // ─── Server Lifecycle ───
 
-async function startServer(config: Config): Promise<ServerState> {
+async function startServer(config: Config, bundleId?: string): Promise<ServerState> {
   const releaseLock = acquireLock(config);
   if (!releaseLock) {
     // Another process is starting the server — wait for it
@@ -294,6 +294,7 @@ async function startServer(config: Config): Promise<ServerState> {
       env: {
         ...process.env,
         BROWSE_MOBILE_STATE_FILE: config.stateFile,
+        ...(bundleId ? { BROWSE_MOBILE_BUNDLE_ID: bundleId } : {}),
       },
     });
     child.unref();
@@ -317,7 +318,7 @@ async function startServer(config: Config): Promise<ServerState> {
 }
 
 
-async function ensureServer(config: Config): Promise<ServerState> {
+async function ensureServer(config: Config, bundleId?: string): Promise<ServerState> {
   // Check existing state
   const state = readState(config);
   if (state && isPidAlive(state.pid)) {
@@ -340,7 +341,7 @@ async function ensureServer(config: Config): Promise<ServerState> {
     }
   }
 
-  return startServer(config);
+  return startServer(config, bundleId);
 }
 
 async function sendCommand(
@@ -442,7 +443,13 @@ Examples:
   const command = args[0];
   const commandArgs = args.slice(1);
 
-  const state = await ensureServer(config);
+  // Extract bundle ID from goto app:// commands to pass to server
+  let bundleId = process.env.BROWSE_MOBILE_BUNDLE_ID || "";
+  if (command === "goto" && commandArgs[0]?.startsWith("app://")) {
+    bundleId = commandArgs[0].replace("app://", "");
+  }
+
+  const state = await ensureServer(config, bundleId);
   await sendCommand(state, command, commandArgs);
 }
 
