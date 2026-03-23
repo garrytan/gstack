@@ -42,6 +42,23 @@ Validated so far:
 - `bun run skill:check`
 - `npm pack --dry-run --json`
 
+### Review checkpoint pushed for this tranche
+
+The current remote branch checkpoint intentionally contains the host/runtime contract work as two reviewable commits:
+
+- `e106007` — `feat(hosts): centralize shared runtime contract`
+- `e178d39` — `docs(hosts): record phase-one runtime checkpoint`
+
+Those commits are the review target for the current tranche.
+
+### Intentionally deferred from this checkpoint
+
+The current working tree still contains follow-up work that is deliberately not part of the pushed checkpoint yet:
+
+- `/gstack-upgrade` contract cleanup against the new `~/.gstack` primary-install model
+- `browse/src/find-browse.ts` resolution-policy cleanup and its related tests
+- small supporting docs updates that should land with that follow-up rather than muddying this review checkpoint
+
 ### Scoped follow-up after this tranche
 
 The current branch is at a good checkpoint for review, but three follow-up items should land before calling the install/runtime refactor fully complete:

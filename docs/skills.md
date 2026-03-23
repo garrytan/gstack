@@ -774,7 +774,7 @@ Remove the `/freeze` boundary, allowing edits everywhere again. The hooks stay r
 
 ## `/gstack-upgrade`
 
-Keep gstack current with one command. It detects your install type (global at `~/.claude/skills/gstack` vs vendored in your project at `.claude/skills/gstack`), runs the upgrade, syncs both copies if you have dual installs, and shows you what changed.
+Keep gstack current with one command. It upgrades the canonical shared runtime home in `~/.gstack`, refreshes workspace sidecars in `.gstack` when present, and shows you what changed.
 
 ```
 You:   /gstack-upgrade
@@ -789,7 +789,7 @@ Claude: Current version: 0.7.4
         - Safety skills: /careful, /freeze, /guard
         - Proactive skill suggestions
 
-        Upgraded to 0.8.2. Both global and project installs synced.
+        Upgraded to 0.8.2. Shared runtime in `~/.gstack` updated, and the current repo's `.gstack` sidecar refreshed.
 ```
 
 Set `auto_upgrade: true` in `~/.gstack/config.yaml` to skip the prompt entirely — gstack upgrades silently at the start of each session when a new version is available.
