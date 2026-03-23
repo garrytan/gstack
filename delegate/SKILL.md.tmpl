@@ -10,11 +10,9 @@ description: |
 allowed-tools:
   - Bash
   - Read
-  - Write
   - Grep
   - AskUserQuestion
   - mcp__delega__create_task
-  - mcp__delega__delegate_task
   - mcp__delega__list_tasks
   - mcp__delega__list_agents
 ---
@@ -93,7 +91,17 @@ informational notes. Each finding needs:
 
 ## Phase 2: Plan Delegation
 
-Present the delegation plan to the user via AskUserQuestion:
+First, discover available agents so you can suggest assignments:
+
+**Via MCP:**
+Use `mcp__delega__list_agents` to get all registered agents and their names.
+
+**Via CLI:**
+```bash
+delega agents list
+```
+
+Then present the delegation plan to the user via AskUserQuestion:
 
 ```
 DELEGATION PLAN
@@ -130,6 +138,11 @@ Use `mcp__delega__create_task` with:
   and the recommended fix from the original skill output
 - `priority`: Mapped from severity (1-4)
 - `labels`: Source skill (e.g., "review", "qa", "cso") + severity label
+- `assigned_to`: Agent name from the Phase 2 agent list (if assigning)
+
+To assign a task to another agent, pass `assigned_to` when creating the task.
+This creates the task and delegates it in a single call — the API tracks the
+delegation chain automatically.
 
 **Via CLI:**
 ```bash
@@ -137,11 +150,9 @@ delega tasks create \
   --title "Fix auth bypass in login.ts:47" \
   --content "CRITICAL: Raw SQL injection in login handler..." \
   --priority 3 \
-  --labels "cso,p1"
+  --labels "cso,p1" \
+  --assigned-to "security-agent"
 ```
-
-**If assigning to an agent:** Use `mcp__delega__delegate_task` or
-`delega tasks delegate <id> --to <agent>` after creation.
 
 ### Context attachment
 
