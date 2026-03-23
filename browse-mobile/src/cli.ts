@@ -264,11 +264,14 @@ async function startServer(config: Config): Promise<ServerState> {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    // Find server.ts relative to this CLI
-    const serverPath = resolveServerPath();
+    // Spawn ourselves in server mode (--server flag runs the server in-process)
+    // This works both in dev (bun run cli.ts --server) and compiled binary
+    const selfPath = process.argv[0]; // path to this binary or bun
+    const selfArgs = process.argv[1]?.endsWith(".ts")
+      ? [process.argv[1], "--server"] // dev mode: bun run cli.ts --server
+      : ["--server"]; // compiled binary: browse-mobile --server
 
-    // Spawn server as detached background process
-    const child = spawn("bun", ["run", serverPath], {
+    const child = spawn(selfPath, selfArgs, {
       detached: true,
       stdio: "ignore",
       env: {
@@ -296,21 +299,6 @@ async function startServer(config: Config): Promise<ServerState> {
   }
 }
 
-function resolveServerPath(): string {
-  // Check relative to this script
-  const candidates = [
-    path.join(path.dirname(import.meta.path || __filename), "server.ts"),
-    path.join(process.cwd(), "browse-mobile/src/server.ts"),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-
-  throw new Error(
-    "Could not find browse-mobile server.ts. Are you in the gstack directory?"
-  );
-}
 
 async function ensureServer(config: Config): Promise<ServerState> {
   // Check existing state
@@ -389,6 +377,12 @@ async function sendCommand(
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+
+  // Handle --server mode: run the server in-process (used when binary spawns itself)
+  if (args[0] === "--server") {
+    await import("./server");
+    return;
+  }
 
   // Handle setup-check subcommand
   if (args[0] === "setup-check") {
