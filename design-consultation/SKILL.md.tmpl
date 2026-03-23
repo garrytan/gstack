@@ -52,7 +52,7 @@ ls src/ app/ pages/ components/ 2>/dev/null | head -30
 Look for office-hours output:
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+{{SLUG_EVAL}}
 ls ~/.gstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
 ls .context/*office-hours* .context/attachments/*office-hours* 2>/dev/null | head -5
 ```
@@ -130,6 +130,8 @@ Summarize conversationally:
 If the user said no research, skip entirely and proceed to Phase 3 using your built-in design knowledge.
 
 ---
+
+{{DESIGN_OUTSIDE_VOICES}}
 
 ## Phase 3: The Complete Proposal
 

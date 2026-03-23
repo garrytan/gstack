@@ -56,7 +56,7 @@ project where you actually felt the pain.
 
 ### Session awareness
 
-When you have 3+ gstack sessions open simultaneously, every question tells you which project, which branch, and what's happening. No more staring at a question thinking "wait, which window is this?" The format is consistent across all 15 skills.
+When you have 3+ gstack sessions open simultaneously, every question tells you which project, which branch, and what's happening. No more staring at a question thinking "wait, which window is this?" The format is consistent across all skills.
 
 ## Working on gstack inside the gstack repo
 
@@ -250,9 +250,9 @@ bun run build
 
 | Aspect | Claude | Codex |
 |--------|--------|-------|
-| Output directory | `{skill}/SKILL.md` | `.agents/skills/gstack-{skill}/SKILL.md` |
+| Output directory | `{skill}/SKILL.md` | `.agents/skills/gstack-{skill}/SKILL.md` (generated at setup, gitignored) |
 | Frontmatter | Full (name, description, allowed-tools, hooks, version) | Minimal (name + description only) |
-| Paths | `~/.claude/skills/gstack` | `~/.codex/skills/gstack` |
+| Paths | `~/.claude/skills/gstack` | `$GSTACK_ROOT` (`.agents/skills/gstack` in a repo, otherwise `~/.codex/skills/gstack`) |
 | Hook skills | `hooks:` frontmatter (enforced by Claude) | Inline safety advisory prose (advisory only) |
 | `/codex` skill | Included (Claude wraps codex exec) | Excluded (self-referential) |
 
@@ -272,7 +272,7 @@ bun run skill:check
 
 ### Dev setup for .agents/
 
-When you run `bin/dev-setup`, it creates symlinks in both `.claude/skills/` and `.agents/skills/` (if applicable), so Codex-compatible agents can discover your dev skills too.
+When you run `bin/dev-setup`, it creates symlinks in both `.claude/skills/` and `.agents/skills/` (if applicable), so Codex-compatible agents can discover your dev skills too. The `.agents/` directory is generated at setup time from `.tmpl` templates — it is gitignored and not committed.
 
 ### Adding a new skill
 
@@ -280,7 +280,7 @@ When you add a new skill template, both hosts get it automatically:
 1. Create `{skill}/SKILL.md.tmpl`
 2. Run `bun run gen:skill-docs` (Claude output) and `bun run gen:skill-docs --host codex` (Codex output)
 3. The dynamic template discovery picks it up — no static list to update
-4. Commit both `{skill}/SKILL.md` and `.agents/skills/gstack-{skill}/SKILL.md`
+4. Commit `{skill}/SKILL.md` — `.agents/` is generated at setup time and gitignored
 
 ## Conductor workspaces
 
@@ -341,6 +341,23 @@ bun install && bun run build
 ```
 
 This affects all projects. To revert: `git checkout main && git pull && bun run build`.
+
+## Community PR triage (wave process)
+
+When community PRs accumulate, batch them into themed waves:
+
+1. **Categorize** — group by theme (security, features, infra, docs)
+2. **Deduplicate** — if two PRs fix the same thing, pick the one that
+   changes fewer lines. Close the other with a note pointing to the winner.
+3. **Collector branch** — create `pr-wave-N`, merge clean PRs, resolve
+   conflicts for dirty ones, verify with `bun test && bun run build`
+4. **Close with context** — every closed PR gets a comment explaining
+   why and what (if anything) supersedes it. Contributors did real work;
+   respect that with clear communication.
+5. **Ship as one PR** — single PR to main with all attributions preserved
+   in merge commits. Include a summary table of what merged and what closed.
+
+See [PR #205](../../pull/205) (v0.8.3) for the first wave as an example.
 
 ## Shipping your changes
 

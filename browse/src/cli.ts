@@ -206,6 +206,34 @@ async function startServer(): Promise<ServerState> {
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
 
+/**
+ * Acquire an exclusive lockfile to prevent concurrent ensureServer() races (TOCTOU).
+ * Returns a cleanup function that releases the lock.
+ */
+function acquireServerLock(): (() => void) | null {
+  const lockPath = `${config.stateFile}.lock`;
+  try {
+    // O_CREAT | O_EXCL — fails if file already exists (atomic check-and-create)
+    const fd = fs.openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
+    fs.writeSync(fd, `${process.pid}\n`);
+    fs.closeSync(fd);
+    return () => { try { fs.unlinkSync(lockPath); } catch {} };
+  } catch {
+    // Lock already held — check if the holder is still alive
+    try {
+      const holderPid = parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
+      if (holderPid && isProcessAlive(holderPid)) {
+        return null; // Another live process holds the lock
+      }
+      // Stale lock — remove and retry
+      fs.unlinkSync(lockPath);
+      return acquireServerLock();
+    } catch {
+      return null;
+    }
+  }
+}
+
 async function ensureServer(): Promise<ServerState> {
   const state = readState();
 
@@ -234,9 +262,36 @@ async function ensureServer(): Promise<ServerState> {
     }
   }
 
-  // Need to (re)start
-  console.error('[browse] Starting server...');
-  return startServer();
+  // Acquire lock to prevent concurrent restart races (TOCTOU)
+  const releaseLock = acquireServerLock();
+  if (!releaseLock) {
+    // Another process is starting the server — wait for it
+    console.error('[browse] Another instance is starting the server, waiting...');
+    const start = Date.now();
+    while (Date.now() - start < MAX_START_WAIT) {
+      const freshState = readState();
+      if (freshState && isProcessAlive(freshState.pid)) return freshState;
+      await Bun.sleep(200);
+    }
+    throw new Error('Timed out waiting for another instance to start the server');
+  }
+
+  try {
+    // Re-read state under lock in case another process just started the server
+    const freshState = readState();
+    if (freshState && isProcessAlive(freshState.pid)) {
+      return freshState;
+    }
+
+    // Kill the old server to avoid orphaned chromium processes
+    if (state && state.pid) {
+      await killServer(state.pid);
+    }
+    console.error('[browse] Starting server...');
+    return await startServer();
+  } finally {
+    releaseLock();
+  }
 }
 
 // ─── Command Dispatch ──────────────────────────────────────────
@@ -289,6 +344,11 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
+      // Kill the old server to avoid orphaned chromium processes
+      const oldState = readState();
+      if (oldState && oldState.pid) {
+        await killServer(oldState.pid);
+      }
       const newState = await startServer();
       return sendCommand(newState, command, args, retries + 1);
     }

@@ -84,6 +84,8 @@ mkdir -p "$REPORT_DIR/screenshots"
 
 {{DESIGN_METHODOLOGY}}
 
+{{DESIGN_HARD_RULES}}
+
 Record baseline design score and AI slop score at end of Phase 6.
 
 ---
@@ -106,6 +108,8 @@ Record baseline design score and AI slop score at end of Phase 6.
 ```
 
 ---
+
+{{DESIGN_OUTSIDE_VOICES}}
 
 ## Phase 7: Triage
 
@@ -220,7 +224,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:**
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+{{SLUG_SETUP}}
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
 

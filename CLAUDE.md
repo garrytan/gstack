@@ -71,10 +71,20 @@ gstack/
 ├── review/          # PR review skill
 ├── plan-ceo-review/ # /plan-ceo-review skill
 ├── plan-eng-review/ # /plan-eng-review skill
+├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
+├── benchmark/       # /benchmark skill (performance regression detection)
+├── canary/          # /canary skill (post-deploy monitoring loop)
+├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
+├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
 ├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
-├── retro/           # Retrospective skill
+├── retro/           # Retrospective skill (includes /retro global cross-project mode)
+├── bin/             # Standalone scripts (gstack-global-discover for cross-tool session discovery)
 ├── document-release/ # /document-release skill (post-ship doc updates)
+├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
+├── design-consultation/ # /design-consultation skill (design system from scratch)
+├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
+├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
 ├── setup            # One-time setup: build binary + symlink skills
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
@@ -169,7 +179,24 @@ Examples of good bisection:
 When the user says "bisect commit" or "bisect and push," split staged/unstaged
 changes into logical commits and push.
 
-## CHANGELOG style
+## CHANGELOG + VERSION style
+
+**VERSION and CHANGELOG are branch-scoped.** Every feature branch that ships gets its
+own version bump and CHANGELOG entry. The entry describes what THIS branch adds —
+not what was already on main.
+
+**When to write the CHANGELOG entry:**
+- At `/ship` time (Step 5), not during development or mid-branch.
+- The entry covers ALL commits on this branch vs the base branch.
+- Never fold new work into an existing CHANGELOG entry from a prior version that
+  already landed on main. If main has v0.10.0.0 and your branch adds features,
+  bump to v0.10.1.0 with a new entry — don't edit the v0.10.0.0 entry.
+
+**Key questions before writing:**
+1. What branch am I on? What did THIS branch change?
+2. Is the base branch version already released? (If yes, bump and create new entry.)
+3. Does an existing entry on this branch already cover earlier work? (If yes, replace
+   it with one unified entry for the final version.)
 
 CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
 

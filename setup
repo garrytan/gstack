@@ -8,9 +8,12 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 1
 fi
 
-GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILLS_DIR="$(dirname "$GSTACK_DIR")"
-BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
+INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
+SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
+BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
+CODEX_SKILLS="$HOME/.codex/skills"
+CODEX_GSTACK="$CODEX_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -21,31 +24,62 @@ esac
 HOST="claude"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     *) shift ;;
   esac
 done
 
 case "$HOST" in
-  claude|codex|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, or auto)" >&2; exit 1 ;;
+  claude|codex|kiro|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, or auto)" >&2; exit 1 ;;
 esac
 
 # For auto: detect which agents are installed
 INSTALL_CLAUDE=0
 INSTALL_CODEX=0
+INSTALL_KIRO=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
-  # If neither found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ]; then
+  command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
+  # If none found, default to claude
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
 elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
+elif [ "$HOST" = "kiro" ]; then
+  INSTALL_KIRO=1
+fi
+
+migrate_direct_codex_install() {
+  local gstack_dir="$1"
+  local codex_gstack="$2"
+  local migrated_dir="$HOME/.gstack/repos/gstack"
+
+  [ "$gstack_dir" = "$codex_gstack" ] || return 0
+  [ -L "$gstack_dir" ] && return 0
+
+  mkdir -p "$(dirname "$migrated_dir")"
+  if [ -e "$migrated_dir" ] && [ "$migrated_dir" != "$gstack_dir" ]; then
+    echo "gstack setup failed: direct Codex install detected at $gstack_dir" >&2
+    echo "A migrated repo already exists at $migrated_dir; move one of them aside and rerun setup." >&2
+    exit 1
+  fi
+
+  echo "Migrating direct Codex install to $migrated_dir to avoid duplicate skill discovery..."
+  mv "$gstack_dir" "$migrated_dir"
+  SOURCE_GSTACK_DIR="$migrated_dir"
+  INSTALL_GSTACK_DIR="$migrated_dir"
+  INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
+  BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
+}
+
+if [ "$INSTALL_CODEX" -eq 1 ]; then
+  migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
 fi
 
 ensure_playwright_browser() {
@@ -53,12 +87,12 @@ ensure_playwright_browser() {
     # On Windows, Bun can't launch Chromium due to broken pipe handling
     # (oven-sh/bun#4253). Use Node.js to verify Chromium works instead.
     (
-      cd "$GSTACK_DIR"
+      cd "$SOURCE_GSTACK_DIR"
       node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
     )
   else
     (
-      cd "$GSTACK_DIR"
+      cd "$SOURCE_GSTACK_DIR"
       bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
     ) >/dev/null 2>&1
   fi
@@ -68,24 +102,24 @@ ensure_playwright_browser() {
 NEEDS_BUILD=0
 if [ ! -x "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
-elif [ -n "$(find "$GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
+elif [ -n "$(find "$SOURCE_GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
   NEEDS_BUILD=1
-elif [ "$GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
+elif [ "$SOURCE_GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
-elif [ -f "$GSTACK_DIR/bun.lock" ] && [ "$GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN" ]; then
+elif [ -f "$SOURCE_GSTACK_DIR/bun.lock" ] && [ "$SOURCE_GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
 fi
 
 if [ "$NEEDS_BUILD" -eq 1 ]; then
   echo "Building browse binary..."
   (
-    cd "$GSTACK_DIR"
+    cd "$SOURCE_GSTACK_DIR"
     bun install
     bun run build
   )
   # Safety net: write .version if build script didn't (e.g., git not available during build)
-  if [ ! -f "$GSTACK_DIR/browse/dist/.version" ]; then
-    git -C "$GSTACK_DIR" rev-parse HEAD > "$GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
+  if [ ! -f "$SOURCE_GSTACK_DIR/browse/dist/.version" ]; then
+    git -C "$SOURCE_GSTACK_DIR" rev-parse HEAD > "$SOURCE_GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
   fi
 fi
 
@@ -94,11 +128,32 @@ if [ ! -x "$BROWSE_BIN" ]; then
   exit 1
 fi
 
+# 1b. Generate .agents/ Codex skill docs if missing or stale
+# .agents/ is no longer committed — generated at setup time from .tmpl templates.
+# bun run build already does this, but we need it when NEEDS_BUILD=0 (binary is fresh
+# but .agents/ hasn't been generated yet, e.g., fresh clone).
+AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
+NEEDS_AGENTS_GEN=0
+if [ ! -d "$AGENTS_DIR" ]; then
+  NEEDS_AGENTS_GEN=1
+elif [ -n "$(find "$SOURCE_GSTACK_DIR" -maxdepth 2 -name 'SKILL.md.tmpl' -newer "$AGENTS_DIR" -print -quit 2>/dev/null)" ]; then
+  NEEDS_AGENTS_GEN=1
+fi
+
+if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  echo "Generating .agents/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host codex
+  )
+fi
+
 # 2. Ensure Playwright's Chromium is available
 if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
   (
-    cd "$GSTACK_DIR"
+    cd "$SOURCE_GSTACK_DIR"
     bunx playwright install chromium
   )
 
@@ -112,7 +167,7 @@ if ! ensure_playwright_browser; then
     fi
     echo "Windows detected — verifying Node.js can load Playwright..."
     (
-      cd "$GSTACK_DIR"
+      cd "$SOURCE_GSTACK_DIR"
       # Bun's node_modules already has playwright; verify Node can require it
       node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright
     )
@@ -166,13 +221,22 @@ link_codex_skill_dirs() {
   local linked=()
 
   if [ ! -d "$agents_dir" ]; then
-    echo "  warning: no .agents/skills/ directory found — run 'bun run build' first" >&2
+    echo "  Generating .agents/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host codex )
+  fi
+
+  if [ ! -d "$agents_dir" ]; then
+    echo "  warning: .agents/skills/ generation failed — run 'bun run gen:skill-docs --host codex' manually" >&2
     return 1
   fi
 
   for skill_dir in "$agents_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
+      # Skip the sidecar directory — it contains runtime asset symlinks (bin/,
+      # browse/), not a skill. Linking it would overwrite the root gstack
+      # symlink that Step 5 already pointed at the repo root.
+      [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
       # Create or update symlink
       if [ -L "$target" ] || [ ! -e "$target" ]; then
@@ -197,7 +261,7 @@ create_agents_sidecar() {
 
   # Sidecar directories that skills reference at runtime
   for asset in bin browse review qa; do
-    local src="$GSTACK_DIR/$asset"
+    local src="$SOURCE_GSTACK_DIR/$asset"
     local dst="$agents_gstack/$asset"
     if [ -d "$src" ] || [ -f "$src" ]; then
       if [ -L "$dst" ] || [ ! -e "$dst" ]; then
@@ -208,7 +272,7 @@ create_agents_sidecar() {
 
   # Sidecar files that skills reference at runtime
   for file in ETHOS.md; do
-    local src="$GSTACK_DIR/$file"
+    local src="$SOURCE_GSTACK_DIR/$file"
     local dst="$agents_gstack/$file"
     if [ -f "$src" ]; then
       if [ -L "$dst" ] || [ ! -e "$dst" ]; then
@@ -218,11 +282,63 @@ create_agents_sidecar() {
   done
 }
 
+# ─── Helper: create a minimal ~/.codex/skills/gstack runtime root ───────────
+# Codex scans ~/.codex/skills recursively. Exposing the whole repo here causes
+# duplicate skills because source SKILL.md files and generated Codex skills are
+# both discoverable. Keep this directory limited to runtime assets + root skill.
+create_codex_runtime_root() {
+  local gstack_dir="$1"
+  local codex_gstack="$2"
+  local agents_dir="$gstack_dir/.agents/skills"
+
+  if [ -L "$codex_gstack" ]; then
+    rm -f "$codex_gstack"
+  elif [ -d "$codex_gstack" ] && [ "$codex_gstack" != "$gstack_dir" ]; then
+    # Old direct installs left a real directory here with stale source skills.
+    # Remove it so we start fresh with only the minimal runtime assets.
+    rm -rf "$codex_gstack"
+  fi
+
+  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+
+  if [ -f "$agents_dir/gstack/SKILL.md" ]; then
+    ln -snf "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$codex_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+  fi
+  if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
+  fi
+  # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$codex_gstack/review/$f"
+    fi
+  done
+  # ETHOS.md — referenced by "Search Before Building" in all skill preambles
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
+  fi
+}
+
 # 4. Install for Claude (default)
-SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
+SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
+SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
+CODEX_REPO_LOCAL=0
+if [ "$SKILLS_BASENAME" = "skills" ] && [ "$SKILLS_PARENT_BASENAME" = ".agents" ]; then
+  CODEX_REPO_LOCAL=1
+fi
+
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
-    link_claude_skill_dirs "$GSTACK_DIR" "$SKILLS_DIR"
+    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     echo "gstack ready (claude)."
     echo "  browse: $BROWSE_BIN"
   else
@@ -234,34 +350,89 @@ fi
 
 # 5. Install for Codex
 if [ "$INSTALL_CODEX" -eq 1 ]; then
-  CODEX_SKILLS="$HOME/.codex/skills"
-  CODEX_GSTACK="$CODEX_SKILLS/gstack"
+  if [ "$CODEX_REPO_LOCAL" -eq 1 ]; then
+    CODEX_SKILLS="$INSTALL_SKILLS_DIR"
+    CODEX_GSTACK="$INSTALL_GSTACK_DIR"
+  fi
   mkdir -p "$CODEX_SKILLS"
 
-  # Symlink gstack source for runtime assets (bin/, browse/dist/)
-  if [ -L "$CODEX_GSTACK" ] || [ ! -e "$CODEX_GSTACK" ]; then
-    ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"
+  # Skip runtime root creation for repo-local installs — the checkout IS the runtime root.
+  # create_codex_runtime_root would create self-referential symlinks (bin → bin, etc.).
+  if [ "$CODEX_REPO_LOCAL" -eq 0 ]; then
+    create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
   fi
   # Install generated Codex-format skills (not Claude source dirs)
-  link_codex_skill_dirs "$GSTACK_DIR" "$CODEX_SKILLS"
+  link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
 
   echo "gstack ready (codex)."
   echo "  browse: $BROWSE_BIN"
   echo "  codex skills: $CODEX_SKILLS"
 fi
 
-# 6. Create .agents/ sidecar symlinks (useful for Codex/Gemini/Cursor workspace-local)
-if [ "$INSTALL_CODEX" -eq 1 ]; then
-  # Detect repo root: if we're inside a skills directory, go up two levels
-  if [ "$SKILLS_BASENAME" = "skills" ]; then
-    REPO_ROOT="$(dirname "$SKILLS_DIR")"
-  else
-    REPO_ROOT="$GSTACK_DIR"
+# 6. Install for Kiro CLI (copy from .agents/skills, rewrite paths)
+if [ "$INSTALL_KIRO" -eq 1 ]; then
+  KIRO_SKILLS="$HOME/.kiro/skills"
+  AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
+  mkdir -p "$KIRO_SKILLS"
+
+  # Create gstack dir with symlinks for runtime assets, copy+sed for SKILL.md
+  KIRO_GSTACK="$KIRO_SKILLS/gstack"
+  # Remove old whole-dir symlink from previous installs
+  [ -L "$KIRO_GSTACK" ] && rm -f "$KIRO_GSTACK"
+  mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
+  ln -snf "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
+  # ETHOS.md — referenced by "Search Before Building" in all skill preambles
+  if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
+    ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
   fi
-  create_agents_sidecar "$REPO_ROOT"
+  # gstack-upgrade skill
+  if [ -f "$AGENTS_DIR/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$AGENTS_DIR/gstack-upgrade/SKILL.md" "$KIRO_GSTACK/gstack-upgrade/SKILL.md"
+  fi
+  # Review runtime assets (individual files, not whole dir)
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$SOURCE_GSTACK_DIR/review/$f" ]; then
+      ln -snf "$SOURCE_GSTACK_DIR/review/$f" "$KIRO_GSTACK/review/$f"
+    fi
+  done
+
+  # Rewrite root SKILL.md paths for Kiro
+  sed -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
+      -e "s|\.claude/skills/gstack|.kiro/skills/gstack|g" \
+      -e "s|\.claude/skills|.kiro/skills|g" \
+      "$SOURCE_GSTACK_DIR/SKILL.md" > "$KIRO_GSTACK/SKILL.md"
+
+  if [ ! -d "$AGENTS_DIR" ]; then
+    echo "  warning: no .agents/skills/ directory found — run 'bun run build' first" >&2
+  else
+    for skill_dir in "$AGENTS_DIR"/gstack*/; do
+      [ -f "$skill_dir/SKILL.md" ] || continue
+      skill_name="$(basename "$skill_dir")"
+      target_dir="$KIRO_SKILLS/$skill_name"
+      mkdir -p "$target_dir"
+      # Generated Codex skills use $HOME/.codex (not ~/), plus $GSTACK_ROOT variables.
+      # Rewrite the default GSTACK_ROOT value and any remaining literal paths.
+      sed -e 's|\$HOME/.codex/skills/gstack|$HOME/.kiro/skills/gstack|g' \
+          -e "s|~/.codex/skills/gstack|~/.kiro/skills/gstack|g" \
+          -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
+          "$skill_dir/SKILL.md" > "$target_dir/SKILL.md"
+    done
+    echo "gstack ready (kiro)."
+    echo "  browse: $BROWSE_BIN"
+    echo "  kiro skills: $KIRO_SKILLS"
+  fi
 fi
 
-# 7. First-time welcome + legacy cleanup
+# 7. Create .agents/ sidecar symlinks for the real Codex skill target.
+# The root Codex skill ends up pointing at $SOURCE_GSTACK_DIR/.agents/skills/gstack,
+# so the runtime assets must live there for both global and repo-local installs.
+if [ "$INSTALL_CODEX" -eq 1 ]; then
+  create_agents_sidecar "$SOURCE_GSTACK_DIR"
+fi
+
+# 8. First-time welcome + legacy cleanup
 if [ ! -d "$HOME/.gstack" ]; then
   mkdir -p "$HOME/.gstack"
   echo "  Welcome! Run /gstack-upgrade anytime to stay current."
