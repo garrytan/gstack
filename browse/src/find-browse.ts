@@ -27,9 +27,14 @@ function getGitRoot(): string | null {
 export function locateBinary(): string | null {
   const root = getGitRoot();
   const home = homedir();
+  const workspace = root ? join(root, '.gstack', 'browse', 'dist', 'browse') : null;
+  const shared = join(home, '.gstack', 'browse', 'dist', 'browse');
   const markers = ['.codex', '.agents', '.claude'];
 
-  // Workspace-local takes priority (for development)
+  if (existsSync(shared)) return shared;
+  if (workspace && existsSync(workspace)) return workspace;
+
+  // Legacy fallback for older installs
   if (root) {
     for (const m of markers) {
       const local = join(root, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
@@ -37,7 +42,6 @@ export function locateBinary(): string | null {
     }
   }
 
-  // Global fallback
   for (const m of markers) {
     const global = join(home, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
     if (existsSync(global)) return global;

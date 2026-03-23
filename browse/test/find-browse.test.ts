@@ -22,24 +22,20 @@ describe('locateBinary', () => {
     }
   });
 
-  test('priority chain checks .codex, .agents, .claude markers', () => {
-    // Verify the source code implements the correct priority order.
-    // We read the function source to confirm the markers array order.
+  test('prefers shared runtime before workspace fallback and legacy host markers', () => {
     const src = require('fs').readFileSync(require('path').join(__dirname, '../src/find-browse.ts'), 'utf-8');
-    // The markers array should list .codex first, then .agents, then .claude
-    const markersMatch = src.match(/const markers = \[([^\]]+)\]/);
-    expect(markersMatch).not.toBeNull();
-    const markers = markersMatch![1];
-    const codexIdx = markers.indexOf('.codex');
-    const agentsIdx = markers.indexOf('.agents');
-    const claudeIdx = markers.indexOf('.claude');
-    // All three must be present
-    expect(codexIdx).toBeGreaterThanOrEqual(0);
-    expect(agentsIdx).toBeGreaterThanOrEqual(0);
-    expect(claudeIdx).toBeGreaterThanOrEqual(0);
-    // .codex before .agents before .claude
-    expect(codexIdx).toBeLessThan(agentsIdx);
-    expect(agentsIdx).toBeLessThan(claudeIdx);
+    expect(src).toContain("join(root, '.gstack', 'browse', 'dist', 'browse')");
+    expect(src).toContain("join(home, '.gstack', 'browse', 'dist', 'browse')");
+
+    const sharedCheck = src.indexOf("if (existsSync(shared)) return shared;");
+    const workspaceCheck = src.indexOf("if (workspace && existsSync(workspace)) return workspace;");
+    const legacyLocalCheck = src.indexOf("const local = join(root, m, 'skills', 'gstack', 'browse', 'dist', 'browse');");
+
+    expect(sharedCheck).toBeGreaterThanOrEqual(0);
+    expect(workspaceCheck).toBeGreaterThanOrEqual(0);
+    expect(legacyLocalCheck).toBeGreaterThanOrEqual(0);
+    expect(sharedCheck).toBeLessThan(workspaceCheck);
+    expect(workspaceCheck).toBeLessThan(legacyLocalCheck);
   });
 
   test('function signature accepts no arguments', () => {
