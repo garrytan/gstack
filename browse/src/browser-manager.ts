@@ -15,7 +15,14 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
+import { chromium, firefox, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
+
+/** Resolve browser engine from BROWSE_BROWSER env var. Default: chromium. */
+function getBrowserType() {
+  const name = (process.env.BROWSE_BROWSER || 'chromium').toLowerCase();
+  if (name === 'firefox') return firefox;
+  return chromium;
+}
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
 
@@ -62,7 +69,7 @@ export class BrowserManager {
   private consecutiveFailures: number = 0;
 
   async launch() {
-    this.browser = await chromium.launch({ headless: true });
+    this.browser = await getBrowserType().launch({ headless: true });
 
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {
@@ -464,7 +471,7 @@ export class BrowserManager {
     // 2. Launch new headed browser (try-catch — if this fails, headless stays running)
     let newBrowser: Browser;
     try {
-      newBrowser = await chromium.launch({ headless: false, timeout: 15000 });
+      newBrowser = await getBrowserType().launch({ headless: false, timeout: 15000 });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return `ERROR: Cannot open headed browser — ${msg}. Headless browser still running.`;
