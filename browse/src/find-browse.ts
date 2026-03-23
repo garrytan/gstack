@@ -37,7 +37,12 @@ export function locateBinary(): string | null {
     }
   }
 
-  // Global fallback
+  // Global fallback — check $CLAUDE_CONFIG_DIR first, then standard locations
+  const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  if (claudeConfigDir) {
+    const custom = join(claudeConfigDir, 'skills', 'gstack', 'browse', 'dist', 'browse');
+    if (existsSync(custom)) return custom;
+  }
   for (const m of markers) {
     const global = join(home, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
     if (existsSync(global)) return global;

@@ -960,19 +960,23 @@ describe('Codex generation (--host codex)', () => {
 
   // ─── Claude output regression guard ─────────────────────────
 
-  test('Claude output unchanged: review skill still uses .claude/skills/ paths', () => {
+  test('Claude output unchanged: review skill uses CLAUDE_CONFIG_DIR-aware paths', () => {
     // Codex changes must NOT affect Claude output
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('.claude/skills/review/checklist.md');
-    expect(content).toContain('~/.claude/skills/gstack');
+    // Claude output now uses ${CLAUDE_CONFIG_DIR:-$HOME/.claude} instead of hardcoded ~/.claude
+    expect(content).toContain('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/gstack');
+    expect(content).not.toContain('~/.claude/skills/gstack');
     // Must NOT contain Codex paths
     expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
   });
 
-  test('Claude output unchanged: ship skill still uses .claude/skills/ paths', () => {
+  test('Claude output unchanged: ship skill uses CLAUDE_CONFIG_DIR-aware paths', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('~/.claude/skills/gstack');
+    // Claude output now uses ${CLAUDE_CONFIG_DIR:-$HOME/.claude} instead of hardcoded ~/.claude
+    expect(content).toContain('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/gstack');
+    expect(content).not.toContain('~/.claude/skills/gstack');
     expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
   });

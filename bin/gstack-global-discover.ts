@@ -175,7 +175,8 @@ function getGitRemote(cwd: string): string | null {
 // ── Scanners ───────────────────────────────────────────────────────────────
 
 function scanClaudeCode(since: Date): Session[] {
-  const projectsDir = join(homedir(), ".claude", "projects");
+  const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const projectsDir = join(claudeConfigDir, "projects");
   if (!existsSync(projectsDir)) return [];
 
   const sessions: Session[] = [];

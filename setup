@@ -399,7 +399,8 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   done
 
   # Rewrite root SKILL.md paths for Kiro
-  sed -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
+  sed -e 's|${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/gstack|~/.kiro/skills/gstack|g' \
+      -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
       -e "s|\.claude/skills/gstack|.kiro/skills/gstack|g" \
       -e "s|\.claude/skills|.kiro/skills|g" \
       "$SOURCE_GSTACK_DIR/SKILL.md" > "$KIRO_GSTACK/SKILL.md"
@@ -416,6 +417,7 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
       # Rewrite the default GSTACK_ROOT value and any remaining literal paths.
       sed -e 's|\$HOME/.codex/skills/gstack|$HOME/.kiro/skills/gstack|g' \
           -e "s|~/.codex/skills/gstack|~/.kiro/skills/gstack|g" \
+          -e 's|${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/gstack|~/.kiro/skills/gstack|g' \
           -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
           "$skill_dir/SKILL.md" > "$target_dir/SKILL.md"
     done
