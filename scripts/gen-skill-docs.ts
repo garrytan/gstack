@@ -60,6 +60,11 @@ interface TemplateContext {
   paths: HostPaths;
 }
 
+const HOST_COMMIT_COAUTHOR_TRAILERS: Record<Host, string> = {
+  claude: 'Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>',
+  codex: '',
+};
+
 // ─── Shared Design Constants ────────────────────────────────
 
 /** gstack's 10 AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES */
@@ -2795,9 +2800,15 @@ function generateSlugSetup(ctx: TemplateContext): string {
   return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG`;
 }
 
+function generateCommitCoauthorTrailerBlock(ctx: TemplateContext): string {
+  const trailer = HOST_COMMIT_COAUTHOR_TRAILERS[ctx.host];
+  return trailer ? `\n\n${trailer}` : '';
+}
+
 const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   SLUG_EVAL: generateSlugEval,
   SLUG_SETUP: generateSlugSetup,
+  COMMIT_COAUTHOR_TRAILER_BLOCK: generateCommitCoauthorTrailerBlock,
   COMMAND_REFERENCE: generateCommandReference,
   SNAPSHOT_FLAGS: generateSnapshotFlags,
   PREAMBLE: generatePreamble,
