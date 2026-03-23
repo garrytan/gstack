@@ -22,6 +22,7 @@ bun run eval:summary # aggregate stats across all eval runs
 
 `test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
 use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
+Copilot E2E tests (`test/copilot-e2e.test.ts`) require the standalone Copilot CLI (`npm install -g @github/copilot`).
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
 against the previous run.

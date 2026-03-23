@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.10.0] - 2026-03-23 — Copilot CLI Support
+
+### Added
+
+- **gstack now works with GitHub Copilot CLI.** Run `./setup --host copilot` and all 28 skills install to `~/.copilot/skills/`. Works the same as Codex — skills live in `.agents/skills/` and are discovered automatically.
+- **Auto-detection finds Copilot CLI.** `./setup --host auto` now detects `copilot` alongside Claude Code, Codex, and Kiro. Install once, works everywhere.
+- **Session discovery includes Copilot.** The global discover tool (`bin/gstack-global-discover.ts`) scans `~/.copilot/session-state/` so `/retro` and cross-project dashboards count Copilot sessions.
+- **Health checks cover Copilot.** `bun run skill:check` and CI now verify Copilot skill freshness alongside Claude and Codex.
+
+### For contributors
+
+- Added `'copilot'` host type to `gen-skill-docs.ts`, `setup`, `gstack-global-discover.ts`, and `skill-check.ts`.
+- New E2E test infrastructure: `copilot-e2e.test.ts` and `copilot-session-runner.ts` paralleling Codex equivalents.
+- Updated `CONTRIBUTING.md` "Dual-host" → "Multi-host" with Copilot generation commands and testing guidance.
+- Targets the standalone GA Copilot CLI (`copilot` binary via `npm install -g @github/copilot`), not the legacy `gh copilot` extension.
+
 ## [0.11.9.0] - 2026-03-23 — Codex Skill Loading Fix
 
 ### Fixed

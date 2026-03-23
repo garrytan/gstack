@@ -1308,14 +1308,15 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('ln -snf "gstack/$skill_name"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports --host auto|claude|codex|copilot|kiro', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|auto');
+    expect(setupContent).toContain('claude|codex|copilot|kiro|auto');
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
+  test('auto mode detects claude, codex, copilot, and kiro binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
+    expect(setupContent).toContain('command -v copilot');
     expect(setupContent).toContain('command -v kiro-cli');
   });
 

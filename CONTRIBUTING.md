@@ -213,11 +213,11 @@ SKILL.md files are **generated** from `.tmpl` templates. Don't edit the `.md` di
 # 1. Edit the template
 vim SKILL.md.tmpl              # or browse/SKILL.md.tmpl
 
-# 2. Regenerate for both hosts
+# 2. Regenerate for all hosts
 bun run gen:skill-docs
 bun run gen:skill-docs --host codex
 
-# 3. Check health (reports both Claude and Codex)
+# 3. Check health (reports Claude and Codex; Copilot derives from Codex at setup time)
 bun run skill:check
 
 # Or use watch mode — auto-regenerates on save
@@ -228,17 +228,17 @@ For template authoring best practices (natural language over bash-isms, dynamic 
 
 To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
 
-## Dual-host development (Claude + Codex)
+## Multi-host development (Claude + Codex + Copilot)
 
-gstack generates SKILL.md files for two hosts: **Claude** (`.claude/skills/`) and **Codex** (`.agents/skills/`). Every template change needs to be generated for both.
+gstack generates SKILL.md files for multiple hosts: **Claude** (`.claude/skills/`), **Codex** (`.agents/skills/`), and **Copilot** (`.agents/skills/`). Codex and Copilot share the same `.agents/skills/` output directory — only `--host codex` needs to be run during generation. Copilot-specific paths are rewritten at `setup --host copilot` time via sed. Every template change needs to be generated for Claude and Codex.
 
-### Generating for both hosts
+### Generating for all hosts
 
 ```bash
 # Generate Claude output (default)
 bun run gen:skill-docs
 
-# Generate Codex output
+# Generate Codex output (Copilot shares this — paths are rewritten at setup time)
 bun run gen:skill-docs --host codex
 # --host agents is an alias for --host codex
 
@@ -248,37 +248,37 @@ bun run build
 
 ### What changes between hosts
 
-| Aspect | Claude | Codex |
-|--------|--------|-------|
-| Output directory | `{skill}/SKILL.md` | `.agents/skills/gstack-{skill}/SKILL.md` (generated at setup, gitignored) |
-| Frontmatter | Full (name, description, allowed-tools, hooks, version) | Minimal (name + description only) |
-| Paths | `~/.claude/skills/gstack` | `$GSTACK_ROOT` (`.agents/skills/gstack` in a repo, otherwise `~/.codex/skills/gstack`) |
-| Hook skills | `hooks:` frontmatter (enforced by Claude) | Inline safety advisory prose (advisory only) |
-| `/codex` skill | Included (Claude wraps codex exec) | Excluded (self-referential) |
+| Aspect | Claude | Codex | Copilot |
+|--------|--------|-------|---------|
+| Output directory | `{skill}/SKILL.md` | `.agents/skills/gstack-{skill}/SKILL.md` (generated at setup, gitignored) | `.agents/skills/gstack-{skill}/SKILL.md` (generated at setup, gitignored) |
+| Frontmatter | Full (name, description, allowed-tools, hooks, version) | Minimal (name + description only) | Minimal (name + description only) |
+| Paths | `~/.claude/skills/gstack` | `$GSTACK_ROOT` (`.agents/skills/gstack` in a repo, otherwise `~/.codex/skills/gstack`) | `$GSTACK_ROOT` (`.agents/skills/gstack` in a repo, otherwise `~/.copilot/skills/gstack`) |
+| Hook skills | `hooks:` frontmatter (enforced by Claude) | Inline safety advisory prose (advisory only) | Inline safety advisory prose (advisory only) |
+| `/codex` skill | Included (Claude wraps codex exec) | Excluded (self-referential) | Excluded (shares Codex output) |
 
-### Testing Codex output
+### Testing Codex and Copilot output
 
 ```bash
-# Run all static tests (includes Codex validation)
+# Run all static tests (includes Codex and Copilot validation)
 bun test
 
-# Check freshness for both hosts
+# Check freshness for all hosts
 bun run gen:skill-docs --dry-run
 bun run gen:skill-docs --host codex --dry-run
 
-# Health dashboard covers both hosts
+# Health dashboard covers all hosts
 bun run skill:check
 ```
 
 ### Dev setup for .agents/
 
-When you run `bin/dev-setup`, it creates symlinks in both `.claude/skills/` and `.agents/skills/` (if applicable), so Codex-compatible agents can discover your dev skills too. The `.agents/` directory is generated at setup time from `.tmpl` templates — it is gitignored and not committed.
+When you run `bin/dev-setup`, it creates symlinks in both `.claude/skills/` and `.agents/skills/` (if applicable), so Codex, Copilot, and other compatible agents can discover your dev skills too. The `.agents/` directory is generated at setup time from `.tmpl` templates — it is gitignored and not committed.
 
 ### Adding a new skill
 
-When you add a new skill template, both hosts get it automatically:
+When you add a new skill template, all hosts get it automatically:
 1. Create `{skill}/SKILL.md.tmpl`
-2. Run `bun run gen:skill-docs` (Claude output) and `bun run gen:skill-docs --host codex` (Codex output)
+2. Run `bun run gen:skill-docs` (Claude output) and `bun run gen:skill-docs --host codex` (Codex output — Copilot derives from this at setup time)
 3. The dynamic template discovery picks it up — no static list to update
 4. Commit `{skill}/SKILL.md` — `.agents/` is generated at setup time and gitignored
 

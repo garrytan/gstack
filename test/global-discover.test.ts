@@ -151,6 +151,7 @@ describe("gstack-global-discover", () => {
         expect(repo.sessions).toHaveProperty("claude_code");
         expect(repo.sessions).toHaveProperty("codex");
         expect(repo.sessions).toHaveProperty("gemini");
+        expect(repo.sessions).toHaveProperty("copilot");
       }
     });
 
@@ -166,7 +167,8 @@ describe("gstack-global-discover", () => {
       const toolTotal =
         json.tools.claude_code.total_sessions +
         json.tools.codex.total_sessions +
-        json.tools.gemini.total_sessions;
+        json.tools.gemini.total_sessions +
+        json.tools.copilot.total_sessions;
       expect(json.total_sessions).toBe(toolTotal);
     });
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * gstack-global-discover — Discover AI coding sessions across Claude Code, Codex CLI, and Gemini CLI.
+ * gstack-global-discover — Discover AI coding sessions across Claude Code, Codex CLI, Gemini CLI, and Copilot CLI.
  * Resolves each session's working directory to a git repo, deduplicates by normalized remote URL,
  * and outputs structured JSON to stdout.
  *
@@ -17,7 +17,7 @@ import { homedir } from "os";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface Session {
-  tool: "claude_code" | "codex" | "gemini";
+  tool: "claude_code" | "codex" | "gemini" | "copilot";
   cwd: string;
 }
 
@@ -25,7 +25,7 @@ interface Repo {
   name: string;
   remote: string;
   paths: string[];
-  sessions: { claude_code: number; codex: number; gemini: number };
+  sessions: { claude_code: number; codex: number; gemini: number; copilot: number };
 }
 
 interface DiscoveryResult {
@@ -36,6 +36,7 @@ interface DiscoveryResult {
     claude_code: { total_sessions: number; repos: number };
     codex: { total_sessions: number; repos: number };
     gemini: { total_sessions: number; repos: number };
+    copilot: { total_sessions: number; repos: number };
   };
   total_sessions: number;
   total_repos: number;
@@ -440,7 +441,69 @@ function scanGemini(since: Date): Session[] {
   return sessions;
 }
 
-// ── Deduplication ──────────────────────────────────────────────────────────
+function scanCopilot(since: Date): Session[] {
+  // GitHub Copilot CLI (standalone) stores session data in ~/.copilot/session-state/
+  // Each session is a subdirectory: ~/.copilot/session-state/{session-id}/
+  // containing events.jsonl, workspace.yaml, and other session files.
+  const sessionStateDir = join(homedir(), ".copilot", "session-state");
+  if (!existsSync(sessionStateDir)) return [];
+
+  const sessions: Session[] = [];
+
+  try {
+    const sessionDirs = readdirSync(sessionStateDir);
+    for (const sessionId of sessionDirs) {
+      const sessionDir = join(sessionStateDir, sessionId);
+      try {
+        const dirStat = statSync(sessionDir);
+        if (!dirStat.isDirectory() || dirStat.mtime < since) continue;
+
+        // Look for session files within the subdirectory
+        const sessionFiles = readdirSync(sessionDir);
+        let found = false;
+
+        for (const file of sessionFiles) {
+          if (found) break;
+          const filePath = join(sessionDir, file);
+          try {
+            const fileStat = statSync(filePath);
+            if (!fileStat.isFile()) continue;
+            if (!file.endsWith(".json") && !file.endsWith(".jsonl") && !file.endsWith(".yaml")) continue;
+
+            const fd = openSync(filePath, "r");
+            const buf = Buffer.alloc(4096);
+            const bytesRead = readSync(fd, buf, 0, 4096, 0);
+            closeSync(fd);
+            const text = buf.toString("utf-8", 0, bytesRead);
+
+            // Look for cwd in JSON/JSONL metadata
+            for (const line of text.split("\n").slice(0, 15)) {
+              if (!line.trim()) continue;
+              try {
+                const obj = JSON.parse(line);
+                if (obj.cwd && existsSync(obj.cwd)) {
+                  sessions.push({ tool: "copilot", cwd: obj.cwd });
+                  found = true;
+                  break;
+                }
+              } catch {
+                continue;
+              }
+            }
+          } catch {
+            continue;
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    // Directory read error
+  }
+
+  return sessions;
+}
 
 async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
   // Group sessions by cwd
@@ -496,7 +559,7 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
       }
     }
 
-    const sessionCounts = { claude_code: 0, codex: 0, gemini: 0 };
+    const sessionCounts = { claude_code: 0, codex: 0, gemini: 0, copilot: 0 };
     for (const s of data.sessions) {
       sessionCounts[s.tool]++;
     }
@@ -512,8 +575,8 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
   // Sort by total sessions descending
   repos.sort(
     (a, b) =>
-      b.sessions.claude_code + b.sessions.codex + b.sessions.gemini -
-      (a.sessions.claude_code + a.sessions.codex + a.sessions.gemini)
+      b.sessions.claude_code + b.sessions.codex + b.sessions.gemini + b.sessions.copilot -
+      (a.sessions.claude_code + a.sessions.codex + a.sessions.gemini + a.sessions.copilot)
   );
 
   return repos;
@@ -530,12 +593,13 @@ async function main() {
   const ccSessions = scanClaudeCode(sinceDate);
   const codexSessions = scanCodex(sinceDate);
   const geminiSessions = scanGemini(sinceDate);
+  const copilotSessions = scanCopilot(sinceDate);
 
-  const allSessions = [...ccSessions, ...codexSessions, ...geminiSessions];
+  const allSessions = [...ccSessions, ...codexSessions, ...geminiSessions, ...copilotSessions];
 
   // Summary to stderr
   console.error(
-    `Discovered: ${ccSessions.length} CC sessions, ${codexSessions.length} Codex sessions, ${geminiSessions.length} Gemini sessions`
+    `Discovered: ${ccSessions.length} CC sessions, ${codexSessions.length} Codex sessions, ${geminiSessions.length} Gemini sessions, ${copilotSessions.length} Copilot sessions`
   );
 
   // Deduplicate
@@ -547,6 +611,7 @@ async function main() {
   const ccRepos = new Set(repos.filter((r) => r.sessions.claude_code > 0).map((r) => r.remote)).size;
   const codexRepos = new Set(repos.filter((r) => r.sessions.codex > 0).map((r) => r.remote)).size;
   const geminiRepos = new Set(repos.filter((r) => r.sessions.gemini > 0).map((r) => r.remote)).size;
+  const copilotRepos = new Set(repos.filter((r) => r.sessions.copilot > 0).map((r) => r.remote)).size;
 
   const result: DiscoveryResult = {
     window: since,
@@ -556,6 +621,7 @@ async function main() {
       claude_code: { total_sessions: ccSessions.length, repos: ccRepos },
       codex: { total_sessions: codexSessions.length, repos: codexRepos },
       gemini: { total_sessions: geminiSessions.length, repos: geminiRepos },
+      copilot: { total_sessions: copilotSessions.length, repos: copilotRepos },
     },
     total_sessions: allSessions.length,
     total_repos: repos.length,
@@ -566,15 +632,16 @@ async function main() {
   } else {
     // Summary format
     console.log(`Window: ${since} (since ${startDate})`);
-    console.log(`Sessions: ${allSessions.length} total (CC: ${ccSessions.length}, Codex: ${codexSessions.length}, Gemini: ${geminiSessions.length})`);
+    console.log(`Sessions: ${allSessions.length} total (CC: ${ccSessions.length}, Codex: ${codexSessions.length}, Gemini: ${geminiSessions.length}, Copilot: ${copilotSessions.length})`);
     console.log(`Repos: ${repos.length} unique`);
     console.log("");
     for (const repo of repos) {
-      const total = repo.sessions.claude_code + repo.sessions.codex + repo.sessions.gemini;
+      const total = repo.sessions.claude_code + repo.sessions.codex + repo.sessions.gemini + repo.sessions.copilot;
       const tools = [];
       if (repo.sessions.claude_code > 0) tools.push(`CC:${repo.sessions.claude_code}`);
       if (repo.sessions.codex > 0) tools.push(`Codex:${repo.sessions.codex}`);
       if (repo.sessions.gemini > 0) tools.push(`Gemini:${repo.sessions.gemini}`);
+      if (repo.sessions.copilot > 0) tools.push(`Copilot:${repo.sessions.copilot}`);
       console.log(`  ${repo.name} (${total} sessions) — ${tools.join(", ")}`);
       console.log(`    Remote: ${repo.remote}`);
       console.log(`    Paths: ${repo.paths.join(", ")}`);

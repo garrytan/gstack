@@ -54,7 +54,7 @@ Open Claude Code and paste this. Claude does the rest.
 
 Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
 
-### Codex, Gemini CLI, or Cursor
+### Codex, Gemini CLI, Copilot CLI, or Cursor
 
 gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Skills live in `.agents/skills/` and are discovered automatically.
 
@@ -62,20 +62,21 @@ Install to one repo:
 
 ```bash
 git clone https://github.com/garrytan/gstack.git .agents/skills/gstack
-cd .agents/skills/gstack && ./setup --host codex
+cd .agents/skills/gstack && ./setup --host codex   # or --host copilot
 ```
 
-When setup runs from `.agents/skills/gstack`, it installs the generated Codex skills next to it in the same repo and does not write to `~/.codex/skills`.
+When setup runs from `.agents/skills/gstack`, it installs the generated Codex and Copilot skills next to it in the same repo and does not write to `~/.codex/skills` or `~/.copilot/skills`.
 
 Install once for your user account:
 
 ```bash
 git clone https://github.com/garrytan/gstack.git ~/gstack
-cd ~/gstack && ./setup --host codex
+cd ~/gstack && ./setup --host codex   # or --host copilot
 ```
 
 `setup --host codex` creates the runtime root at `~/.codex/skills/gstack` and
-links the generated Codex skills at the top level. This avoids duplicate skill
+links the generated Codex skills at the top level. `setup --host copilot` does
+the same at `~/.copilot/skills/gstack`. This avoids duplicate skill
 discovery from the source repo checkout.
 
 Or let setup auto-detect which agents you have installed:
@@ -85,7 +86,7 @@ git clone https://github.com/garrytan/gstack.git ~/gstack
 cd ~/gstack && ./setup --host auto
 ```
 
-For Codex-compatible hosts, setup now supports both repo-local installs from `.agents/skills/gstack` and user-global installs from `~/.codex/skills/gstack`. All 28 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
+For Codex, Copilot, and other compatible hosts, setup supports both repo-local installs from `.agents/skills/gstack` and user-global installs from `~/.codex/skills/gstack` or `~/.copilot/skills/gstack`. All 28 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
 
 ## See it work
 
@@ -156,7 +157,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/canary` | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures. |
 | `/benchmark` | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. |
 | `/document-release` | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
-| `/retro` | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. `/retro global` runs across all your projects and AI tools (Claude Code, Codex, Gemini). |
+| `/retro` | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. `/retro global` runs across all your projects and AI tools (Claude Code, Codex, Gemini, Copilot). |
 | `/browse` | **QA Engineer** | Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
 | `/setup-browser-cookies` | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | `/autoplan` | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |

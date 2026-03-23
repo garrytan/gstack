@@ -19,7 +19,7 @@ const DRY_RUN = process.argv.includes('--dry-run');
 
 // ─── Template Context ───────────────────────────────────────
 
-type Host = 'claude' | 'codex';
+type Host = 'claude' | 'codex' | 'copilot';
 const OPENAI_SHORT_DESCRIPTION_LIMIT = 120;
 
 const HOST_ARG = process.argv.find(a => a.startsWith('--host'));
@@ -27,8 +27,9 @@ const HOST: Host = (() => {
   if (!HOST_ARG) return 'claude';
   const val = HOST_ARG.includes('=') ? HOST_ARG.split('=')[1] : process.argv[process.argv.indexOf(HOST_ARG) + 1];
   if (val === 'codex' || val === 'agents') return 'codex';
+  if (val === 'copilot') return 'copilot';
   if (val === 'claude') return 'claude';
-  throw new Error(`Unknown host: ${val}. Use claude, codex, or agents.`);
+  throw new Error(`Unknown host: ${val}. Use claude, codex, copilot, or agents.`);
 })();
 
 interface HostPaths {
@@ -46,6 +47,12 @@ const HOST_PATHS: Record<Host, HostPaths> = {
     browseDir: '~/.claude/skills/gstack/browse/dist',
   },
   codex: {
+    skillRoot: '$GSTACK_ROOT',
+    localSkillRoot: '.agents/skills/gstack',
+    binDir: '$GSTACK_BIN',
+    browseDir: '$GSTACK_BROWSE',
+  },
+  copilot: {
     skillRoot: '$GSTACK_ROOT',
     localSkillRoot: '.agents/skills/gstack',
     binDir: '$GSTACK_BIN',
@@ -180,6 +187,13 @@ function generatePreambleBash(ctx: TemplateContext): string {
   const runtimeRoot = ctx.host === 'codex'
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/.codex/skills/gstack"
+[ -n "$_ROOT" ] && [ -d "$_ROOT/.agents/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.agents/skills/gstack"
+GSTACK_BIN="$GSTACK_ROOT/bin"
+GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
+`
+    : ctx.host === 'copilot'
+    ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+GSTACK_ROOT="$HOME/.copilot/skills/gstack"
 [ -n "$_ROOT" ] && [ -d "$_ROOT/.agents/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.agents/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
@@ -2969,8 +2983,8 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   // Determine skill directory relative to ROOT
   const skillDir = path.relative(ROOT, path.dirname(tmplPath));
 
-  // For codex host, route output to .agents/skills/{codexSkillName}/SKILL.md
-  if (host === 'codex') {
+  // For non-Claude hosts (codex, copilot), route output to .agents/skills/{codexSkillName}/SKILL.md
+  if (host === 'codex' || host === 'copilot') {
     const codexName = codexSkillName(skillDir === '.' ? '' : skillDir);
     outputDir = path.join(ROOT, '.agents', 'skills', codexName);
     fs.mkdirSync(outputDir, { recursive: true });
@@ -3002,8 +3016,8 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     throw new Error(`Unresolved placeholders in ${relTmplPath}: ${remaining.join(', ')}`);
   }
 
-  // For codex host: transform frontmatter and replace Claude-specific paths
-  if (host === 'codex') {
+  // For non-Claude hosts (codex, copilot): transform frontmatter and replace Claude-specific paths
+  if (host === 'codex' || host === 'copilot') {
     // Extract hook safety prose BEFORE transforming frontmatter (which strips hooks)
     const safetyProse = extractHookSafetyProse(tmplContent);
 
@@ -3063,8 +3077,8 @@ function findTemplates(): string[] {
 let hasChanges = false;
 
 for (const tmplPath of findTemplates()) {
-  // Skip /codex skill for codex host (self-referential — it's a Claude wrapper around codex exec)
-  if (HOST === 'codex') {
+  // Skip /codex skill for non-Claude hosts (self-referential — it's a Claude wrapper around codex exec)
+  if (HOST === 'codex' || HOST === 'copilot') {
     const dir = path.basename(path.dirname(tmplPath));
     if (dir === 'codex') continue;
   }
