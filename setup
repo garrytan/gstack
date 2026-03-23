@@ -136,8 +136,21 @@ AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
 NEEDS_AGENTS_GEN=0
 if [ ! -d "$AGENTS_DIR" ]; then
   NEEDS_AGENTS_GEN=1
-elif [ -n "$(find "$SOURCE_GSTACK_DIR" -maxdepth 2 -name 'SKILL.md.tmpl' -newer "$AGENTS_DIR" -print -quit 2>/dev/null)" ]; then
-  NEEDS_AGENTS_GEN=1
+else
+  # Find the newest generated SKILL.md by mtime (portable: no ls parsing)
+  NEWEST_GENERATED=""
+  while IFS= read -r -d '' f; do
+    if [ -z "$NEWEST_GENERATED" ] || [ "$f" -nt "$NEWEST_GENERATED" ]; then
+      NEWEST_GENERATED="$f"
+    fi
+  done < <(find "$AGENTS_DIR" -name 'SKILL.md' -print0 2>/dev/null)
+
+  if [ -z "$NEWEST_GENERATED" ]; then
+    # Directory exists but no generated files -- regenerate
+    NEEDS_AGENTS_GEN=1
+  elif [ -n "$(find "$SOURCE_GSTACK_DIR" -maxdepth 2 -name 'SKILL.md.tmpl' -newer "$NEWEST_GENERATED" -print -quit 2>/dev/null)" ]; then
+    NEEDS_AGENTS_GEN=1
+  fi
 fi
 
 if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
