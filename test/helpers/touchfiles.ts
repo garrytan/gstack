@@ -91,12 +91,12 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Document-release
   'document-release': ['document-release/**'],
 
-  // Codex (Claude E2E — tests /codex skill via Claude)
-  'codex-review': ['codex/**'],
+  // Second model review (Claude E2E — tests /second-model-review skill via Claude)
+  'second-model-review': ['second-model-review/**'],
 
   // Codex E2E (tests skills via Codex CLI)
-  'codex-discover-skill':  ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
-  'codex-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts'],
+  'codex-discover-skill':  ['second-model-review/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
+  'codex-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'second-model-review/**', 'test/helpers/codex-session-runner.ts'],
 
   // Gemini E2E (tests skills via Gemini CLI)
   'gemini-discover-skill':  ['.agents/skills/**', 'test/helpers/gemini-session-runner.ts'],

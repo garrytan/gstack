@@ -4,7 +4,7 @@ version: 1.0.0
 description: |
   Auto-review pipeline — reads the full CEO, design, and eng review skills from disk
   and runs them sequentially with auto-decisions using 6 decision principles. Surfaces
-  taste decisions (close approaches, borderline scope, codex disagreements) at a final
+  taste decisions (close approaches, borderline scope, second model disagreements) at a final
   approval gate. One command, fully reviewed plan out.
   Use when asked to "auto review", "autoplan", "run all reviews", "review this plan
   automatically", or "make the decisions for me".
@@ -49,6 +49,16 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+_HOST_AGENT="unknown"
+[ "${CLAUDECODE:-}" = "1" ] && _HOST_AGENT="claude"
+[ "${CODEX:-}" = "1" ] && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\|cursor' && _HOST_AGENT="cursor"
+echo "HOST_AGENT: $_HOST_AGENT"
+_SM_ENABLED=$(~/.claude/skills/gstack/bin/gstack-config get second_model_enabled 2>/dev/null || echo "unset")
+_SM_PROVIDER=$(~/.claude/skills/gstack/bin/gstack-config get second_model_provider 2>/dev/null || echo "")
+echo "SECOND_MODEL: enabled=$_SM_ENABLED second_model_name=$_SM_PROVIDER"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"autoplan","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
@@ -405,12 +415,12 @@ These rules auto-answer every intermediate question:
 Every auto-decision is classified:
 
 **Mechanical** — one clearly right answer. Auto-decide silently.
-Examples: run codex (always yes), run evals (always yes), reduce scope on a complete plan (always no).
+Examples: run second model review (always yes), run evals (always yes), reduce scope on a complete plan (always no).
 
 **Taste** — reasonable people could disagree. Auto-decide with recommendation, but surface at the final gate. Three natural sources:
 1. **Close approaches** — top two are both viable with different tradeoffs.
 2. **Borderline scope** — in blast radius but 3-5 files, or ambiguous radius.
-3. **Codex disagreements** — codex recommends differently and has a valid point.
+3. **Second model disagreements** — the second model recommends differently and has a valid point.
 
 ---
 
@@ -563,17 +573,18 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 ---
 
-## Phase 3: Eng Review + Codex
+## Phase 3: Eng Review + Second Model
 
 Follow plan-eng-review/SKILL.md — all sections, full depth.
 Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
-- Codex review: always run if available (P6)
-  Command: `codex exec "Review this plan for architectural issues, missing edge cases, and hidden complexity. Be adversarial. File: <plan_path>" -s read-only --enable web_search_cached`
-  Timeout: 10 minutes, then proceed with "Codex timed out — single-reviewer mode"
-- Architecture choices: explicit over clever (P5). If codex disagrees with valid reason → TASTE DECISION.
+- Second model review: always run if available (P6). Use the configured second model
+  from `SECOND_MODEL` preamble output. Read `second-model-review/SKILL.md` and follow
+  its review mode instructions with the plan file as input.
+  Timeout: 10 minutes, then proceed with "Second model timed out — single-reviewer mode"
+- Architecture choices: explicit over clever (P5). If the second model disagrees with valid reason → TASTE DECISION.
 - Evals: always include all relevant suites (P1)
 - Test plan: generate artifact at `~/.gstack/projects/$SLUG/{user}-{branch}-test-plan-{datetime}.md`
 - TODOS.md: collect all deferred scope expansions from Phase 1, auto-write
@@ -583,7 +594,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 1. Step 0 (Scope Challenge): Read actual code referenced by the plan. Map each
    sub-problem to existing code. Run the complexity check. Produce concrete findings.
 
-2. Step 0.5 (Codex): Run if available. Present full output under CODEX SAYS header.
+2. Step 0.5 (Second Model): Run if available. Present full output under {SECOND_MODEL_NAME} SAYS header.
 
 3. Section 1 (Architecture): Produce ASCII dependency graph showing new components
    and their relationships to existing ones. Evaluate coupling, scaling, security.

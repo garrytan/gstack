@@ -47,6 +47,13 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+_HOST_AGENT="unknown"
+[ "${CLAUDECODE:-}" = "1" ] && _HOST_AGENT="claude"
+[ "${CODEX:-}" = "1" ] && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\|cursor' && _HOST_AGENT="cursor"
+echo "HOST_AGENT: $_HOST_AGENT"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"design-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
@@ -951,19 +958,28 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 ## Design Outside Voices (parallel)
 
-**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.
+**Automatic:** Outside voices run automatically when the configured second model is available. No opt-in needed.
 
-**Check Codex availability:**
+**Check second model availability:**
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SM_CFG_PROVIDER=$(~/.claude/skills/gstack/bin/gstack-config get second_model_provider 2>/dev/null || echo "codex")
+_SM_BINARY="codex"
+[ "$_SM_CFG_PROVIDER" = "gemini" ] && _SM_BINARY="gemini"
+[ "$_SM_CFG_PROVIDER" = "cursor" ] && _SM_BINARY="agent"
+which $_SM_BINARY 2>/dev/null && echo "SM_AVAILABLE" || echo "SM_NOT_AVAILABLE"
+echo "SM_PROVIDER: $_SM_CFG_PROVIDER"
+echo "SM_BINARY: $_SM_BINARY"
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+**If the second model is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
-```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
+1. **Second model design voice** (via Bash):
+Use the `SM_PROVIDER` and `SM_BINARY` values to construct the right command:
+- If `SM_PROVIDER` is `codex`: `codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached`
+- If `SM_PROVIDER` is `gemini`: `gemini --sandbox -p "<prompt>"`
+- If `SM_PROVIDER` is `cursor`: `agent --trust -p "<prompt>" --model composer-2`
+
+The design prompt: "Review the frontend source code in this repo. Evaluate against these design hard rules:
 - Spacing: systematic (design tokens / CSS variables) or magic numbers?
 - Typography: expressive purposeful fonts or default stacks?
 - Color: CSS variables with defined system, or hardcoded hex scattered?
@@ -992,7 +1008,10 @@ HARD REJECTION — flag if ANY apply:
 6. Carousel with no narrative purpose
 7. App UI made of stacked cards instead of layout
 
-Be specific. Reference file:line for every finding." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+Be specific. Reference file:line for every finding."
+
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/sm-design-XXXXXXXX)
 ```
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
@@ -1010,13 +1029,13 @@ Dispatch a subagent with this prompt:
 For each finding: what's wrong, severity (critical/high/medium), and the file:line."
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "{second-model-name} authentication failed. Check the provider's auth documentation."
+- **Timeout:** "{second-model-name} timed out after 5 minutes."
+- **Empty response:** "{second-model-name} returned no response."
+- On any second model error: proceed with Claude subagent output only, tagged `[single-model]`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a `CODEX SAYS (design source audit):` header.
+Present second model output under a `{SECOND_MODEL_NAME} SAYS (design source audit):` header.
 Present subagent output under a `CLAUDE SUBAGENT (design consistency):` header.
 
 **Synthesis — Litmus scorecard:**
@@ -1026,9 +1045,9 @@ Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` t
 
 **Log the result:**
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SM_PROVIDER","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+Replace STATUS with "clean" or "issues_found". SOURCE: substitute the actual provider name from SM_PROVIDER if the second model ran, append "+subagent" if both ran, "subagent-only" if only subagent, or "unavailable".
 
 ## Phase 7: Triage
 

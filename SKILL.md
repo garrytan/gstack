@@ -10,10 +10,10 @@ description: |
   /plan-ceo-review; architecture /plan-eng-review; design /plan-design-review or
   /design-consultation; auto-review /autoplan; debugging /investigate; QA /qa; code review
   /review; visual audit /design-review; shipping /ship; docs /document-release; retro
-  /retro; second opinion /codex; prod safety /careful or /guard; scoped edits /freeze or
-  /unfreeze; gstack upgrades /gstack-upgrade. If the user opts out of suggestions, stop
-  and run gstack-config set proactive false; if they opt back in, run gstack-config set
-  proactive true.
+  /retro; second opinion /second-model-review; prod safety /careful or /guard; scoped edits
+  /freeze or /unfreeze; gstack upgrades /gstack-upgrade. If the user opts out of
+  suggestions, stop and run gstack-config set proactive false; if they opt back in, run
+  gstack-config set proactive true.
 allowed-tools:
   - Bash
   - Read
@@ -48,6 +48,13 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+_HOST_AGENT="unknown"
+[ "${CLAUDECODE:-}" = "1" ] && _HOST_AGENT="claude"
+[ "${CODEX:-}" = "1" ] && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\|cursor' && _HOST_AGENT="cursor"
+echo "HOST_AGENT: $_HOST_AGENT"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"gstack","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 # zsh-compatible: use find instead of glob to avoid NOMATCH error

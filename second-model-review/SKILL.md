@@ -1,12 +1,13 @@
 ---
-name: codex
+name: second-model-review
 version: 1.0.0
 description: |
-  OpenAI Codex CLI wrapper — three modes. Code review: independent diff review via
-  codex review with pass/fail gate. Challenge: adversarial mode that tries to break
-  your code. Consult: ask codex anything with session continuity for follow-ups.
-  The "200 IQ autistic developer" second opinion. Use when asked to "codex review",
-  "codex challenge", "ask codex", "second opinion", or "consult codex".
+  Second model review — three modes. Code review: independent diff review
+  with pass/fail gate. Challenge: adversarial mode that tries to break your code.
+  Consult: ask another AI model anything with context. Supports Codex (OpenAI),
+  Gemini (Google), and Cursor (Composer). Use when asked to
+  "second model review", "second opinion", "codex review", "gemini review",
+  "challenge my code", or "ask codex/gemini/cursor".
 allowed-tools:
   - Bash
   - Read
@@ -43,8 +44,18 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+_HOST_AGENT="unknown"
+[ "${CLAUDECODE:-}" = "1" ] && _HOST_AGENT="claude"
+[ "${CODEX:-}" = "1" ] && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\|cursor' && _HOST_AGENT="cursor"
+echo "HOST_AGENT: $_HOST_AGENT"
+_SM_ENABLED=$(~/.claude/skills/gstack/bin/gstack-config get second_model_enabled 2>/dev/null || echo "unset")
+_SM_PROVIDER=$(~/.claude/skills/gstack/bin/gstack-config get second_model_provider 2>/dev/null || echo "")
+echo "SECOND_MODEL: enabled=$_SM_ENABLED second_model_name=$_SM_PROVIDER"
 mkdir -p ~/.gstack/analytics
-echo '{"skill":"codex","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"second-model-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
@@ -313,25 +324,58 @@ branch name wherever the instructions say "the base branch."
 
 ---
 
-# /codex — Multi-AI Second Opinion
+# /second-model-review — Multi-AI Second Opinion
 
-You are running the `/codex` skill. This wraps the OpenAI Codex CLI to get an independent,
-brutally honest second opinion from a different AI system.
+You are running the `/second-model-review` skill. This wraps a second model CLI to get an
+independent, brutally honest second opinion from a different AI system.
 
-Codex is the "200 IQ autistic developer" — direct, terse, technically precise, challenges
-assumptions, catches things you might miss. Present its output faithfully, not summarized.
+The second model is direct, terse, technically precise, challenges assumptions, and catches
+things you might miss. Present its output faithfully, not summarized.
 
 ---
 
-## Step 0: Check codex binary
+## Step 0: Determine second model
+
+Check the `HOST_AGENT` line from the preamble to know which agent is running this skill.
+Check the `SECOND_MODEL` line for `enabled=` and `second_model_name=` values.
+
+**Second model lookup table:**
+
+| ID | Display Name | Binary | Install |
+|----|-------------|--------|---------|
+| codex | Codex (OpenAI) | `codex` | `npm install -g @openai/codex` |
+| gemini | Gemini (Google) | `gemini` | `npm install -g @google/gemini-cli` |
+| cursor | Cursor (Composer) | `agent` | Install Cursor: https://cursor.com, then `cursor --install-cli` |
+
+**Self-detection:** If the configured second model matches `HOST_AGENT` (e.g., Codex
+running on Codex), skip it — you cannot be your own second opinion. Instead, detect
+other available models and offer those. If no other model is available, tell the user:
+"The configured second model ({second_model_name}) is the same agent running this session.
+Install a different model for cross-model review."
+
+**If `enabled=unset` or `enabled=false`:** Detect binaries on the fly:
 
 ```bash
-CODEX_BIN=$(which codex 2>/dev/null || echo "")
-[ -z "$CODEX_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CODEX_BIN"
+which codex 2>/dev/null && echo "HAS_CODEX" || true
+which gemini 2>/dev/null && echo "HAS_GEMINI" || true
+which agent 2>/dev/null && echo "HAS_CURSOR" || true
 ```
 
-If `NOT_FOUND`: stop and tell the user:
-"Codex CLI not found. Install it: `npm install -g @openai/codex` or see https://github.com/openai/codex"
+Exclude the binary matching `HOST_AGENT` from the options — only offer *different* models.
+If at least one different model is detected, ask which to use and persist:
+```bash
+~/.claude/skills/gstack/bin/gstack-config set second_model_enabled true
+~/.claude/skills/gstack/bin/gstack-config set second_model_provider <chosen_id>
+```
+If no different model detected, stop: "No second model CLI found that differs from the current agent."
+
+**If `enabled=true`:** Look up the binary for the configured second model and verify it exists:
+
+```bash
+which <binary> 2>/dev/null && echo "READY" || echo "NOT_FOUND"
+```
+
+If `NOT_FOUND`: warn and offer to switch to a detected second model or disable.
 
 ---
 
@@ -339,376 +383,249 @@ If `NOT_FOUND`: stop and tell the user:
 
 Parse the user's input to determine which mode to run:
 
-1. `/codex review` or `/codex review <instructions>` — **Review mode** (Step 2A)
-2. `/codex challenge` or `/codex challenge <focus>` — **Challenge mode** (Step 2B)
-3. `/codex` with no arguments — **Auto-detect:**
+1. `/second-model-review review` or `/second-model-review review <instructions>` — **Review mode** (Step 2A)
+2. `/second-model-review challenge` or `/second-model-review challenge <focus>` — **Challenge mode** (Step 2B)
+3. `/second-model-review` with no arguments — **Auto-detect:**
    - Check for a diff (with fallback if origin isn't available):
      `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
    - If a diff exists, use AskUserQuestion:
      ```
-     Codex detected changes against the base branch. What should it do?
+     {second-model-name} detected changes against the base branch. What should it do?
      A) Review the diff (code review with pass/fail gate)
      B) Challenge the diff (adversarial — try to break it)
      C) Something else — I'll provide a prompt
      ```
-   - If no diff, check for plan files scoped to the current project:
+   - If no diff, check for plan files:
      `ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
-     If no project-scoped match, fall back to: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-     but warn the user: "Note: this plan may be from a different project."
+     If no project-scoped match: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
+     but warn: "Note: this plan may be from a different project."
    - If a plan file exists, offer to review it
-   - Otherwise, ask: "What would you like to ask Codex?"
-4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
+   - Otherwise, ask: "What would you like to ask {second-model-name}?"
+4. `/second-model-review <anything else>` — **Consult mode** (Step 2C)
 
 ---
 
 ## Step 2A: Review Mode
 
-Run Codex code review against the current branch diff.
+Run second model code review against the current branch diff.
 
 1. Create temp files for output capture:
 ```bash
-TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
+TMPERR=$(mktemp /tmp/second-model-err-XXXXXX.txt)
 ```
 
 2. Run the review (5-minute timeout):
+
+**If second model is `codex`:**
 ```bash
-codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
+codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
-Use `timeout: 300000` on the Bash call. If the user provided custom instructions
-(e.g., `/codex review focus on security`), pass them as the prompt argument:
+If custom instructions provided (e.g., `/second-model-review review focus on security`):
 ```bash
-codex review "focus on security" --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
+codex review "focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
-3. Capture the output. Then parse cost from stderr:
+**If second model is `gemini`:**
 ```bash
-grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
+PROMPT="You are a brutally honest technical reviewer. Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Look for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems. Flag critical issues as [P1] and minor ones as [P2]."
+gemini --sandbox -p "$PROMPT" 2>"$TMPERR"
 ```
 
-4. Determine gate verdict by checking the review output for critical findings.
-   If the output contains `[P1]` — the gate is **FAIL**.
-   If no `[P1]` markers are found (only `[P2]` or no findings) — the gate is **PASS**.
+**If second model is `cursor`:**
+```bash
+PROMPT="You are a brutally honest technical reviewer. Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Look for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems. Flag critical issues as [P1] and minor ones as [P2]."
+agent --trust -p "$PROMPT" --model composer-2 2>"$TMPERR"
+```
 
-5. Present the output:
+3. Determine gate verdict: check the output for `[P1]` markers.
+   If `[P1]` found → GATE: FAIL. Otherwise → GATE: PASS.
+
+4. Present the output:
 
 ```
-CODEX SAYS (code review):
+{SECOND_MODEL_NAME} SAYS (code review):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
-GATE: PASS                    Tokens: 14,331 | Est. cost: ~$0.12
+GATE: PASS                    Tokens: N | Est. cost: ~$X.XX
 ```
 
-or
-
-```
-GATE: FAIL (N critical findings)
-```
-
-6. **Cross-model comparison:** If `/review` (Claude's own review) was already run
-   earlier in this conversation, compare the two sets of findings:
+5. **Cross-model comparison:** If `/review` (Claude's own review) was already run,
+   compare the two sets of findings:
 
 ```
 CROSS-MODEL ANALYSIS:
-  Both found: [findings that overlap between Claude and Codex]
-  Only Codex found: [findings unique to Codex]
-  Only Claude found: [findings unique to Claude's /review]
+  Both found: [findings that overlap]
+  Only {second-model-name} found: [unique to external]
+  Only Claude found: [unique to Claude's /review]
   Agreement rate: X% (N/M total unique findings overlap)
 ```
 
-7. Persist the review result:
+6. Persist the review result:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"second-model-review","second_model_name":"SECOND_MODEL_NAME","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N}'
 ```
 
-Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
-GATE ("pass" or "fail"), findings (count of [P1] + [P2] markers),
-findings_fixed (count of findings that were addressed/fixed before shipping).
-
-8. Clean up temp files:
+7. Clean up:
 ```bash
 rm -f "$TMPERR"
 ```
-
-## Plan File Review Report
-
-After displaying the Review Readiness Dashboard in conversation output, also update the
-**plan file** itself so review status is visible to anyone reading the plan.
-
-### Detect the plan file
-
-1. Check if there is an active plan file in this conversation (the host provides plan file
-   paths in system messages — look for plan file references in the conversation context).
-2. If not found, skip this section silently — not every review runs in plan mode.
-
-### Generate the report
-
-Read the review log output you already have from the Review Readiness Dashboard step above.
-Parse each JSONL entry. Each skill logs different fields:
-
-- **plan-ceo-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`mode\`, \`scope_proposed\`, \`scope_accepted\`, \`scope_deferred\`, \`commit\`
-  → Findings: "{scope_proposed} proposals, {scope_accepted} accepted, {scope_deferred} deferred"
-  → If scope fields are 0 or missing (HOLD/REDUCTION mode): "mode: {mode}, {critical_gaps} critical gaps"
-- **plan-eng-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`issues_found\`, \`mode\`, \`commit\`
-  → Findings: "{issues_found} issues, {critical_gaps} critical gaps"
-- **plan-design-review**: \`status\`, \`initial_score\`, \`overall_score\`, \`unresolved\`, \`decisions_made\`, \`commit\`
-  → Findings: "score: {initial_score}/10 → {overall_score}/10, {decisions_made} decisions"
-- **codex-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
-  → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
-
-All fields needed for the Findings column are now present in the JSONL entries.
-For the review you just completed, you may use richer details from your own Completion
-Summary. For prior reviews, use the JSONL fields directly — they contain all required data.
-
-Produce this markdown table:
-
-\`\`\`markdown
-## GSTACK REVIEW REPORT
-
-| Review | Trigger | Why | Runs | Status | Findings |
-|--------|---------|-----|------|--------|----------|
-| CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
-| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
-| Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
-\`\`\`
-
-Below the table, add these lines (omit any that are empty/not applicable):
-
-- **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
-- **UNRESOLVED:** total unresolved decisions across all reviews
-- **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
-  If Eng Review is not CLEAR and not skipped globally, append "eng review required".
-
-### Write to the plan file
-
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
-file you are allowed to edit in plan mode. The plan file review report is part of the
-plan's living status.
-
-- Search the plan file for a \`## GSTACK REVIEW REPORT\` section **anywhere** in the file
-  (not just at the end — content may have been added after it).
-- If found, **replace it** entirely using the Edit tool. Match from \`## GSTACK REVIEW REPORT\`
-  through either the next \`## \` heading or end of file, whichever comes first. This ensures
-  content added after the report section is preserved, not eaten. If the Edit fails
-  (e.g., concurrent edit changed the content), re-read the plan file and retry once.
-- If no such section exists, **append it** to the end of the plan file.
-- Always place it as the very last section in the plan file. If it was found mid-file,
-  move it: delete the old location and append at the end.
 
 ---
 
 ## Step 2B: Challenge (Adversarial) Mode
 
-Codex tries to break your code — finding edge cases, race conditions, security holes,
-and failure modes that a normal review would miss.
+The second model tries to break your code — finding edge cases, race conditions,
+security holes, and failure modes that a normal review would miss.
 
-1. Construct the adversarial prompt. If the user provided a focus area
-(e.g., `/codex challenge security`), include it:
+1. Construct the adversarial prompt:
 
-Default prompt (no focus):
-"Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
+Default (no focus):
+"Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes. Be adversarial. Be thorough. No compliments — just the problems."
 
 With focus (e.g., "security"):
 "Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
 
-2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls (5-minute timeout):
+2. Run with the appropriate second model command (5-minute timeout):
+
+**If second model is `codex`:**
 ```bash
-codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached --json 2>/dev/null | python3 -c "
-import sys, json
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        obj = json.loads(line)
-        t = obj.get('type','')
-        if t == 'item.completed' and 'item' in obj:
-            item = obj['item']
-            itype = item.get('type','')
-            text = item.get('text','')
-            if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}')
-                print()
-            elif itype == 'agent_message' and text:
-                print(text)
-            elif itype == 'command_execution':
-                cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}')
-        elif t == 'turn.completed':
-            usage = obj.get('usage',{})
-            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}')
-    except: pass
-"
+codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached
 ```
 
-This parses codex's JSONL events to extract reasoning traces, tool calls, and the final
-response. The `[codex thinking]` lines show what codex reasoned through before its answer.
+**If second model is `gemini`:**
+```bash
+gemini --sandbox -p "<prompt>"
+```
 
-3. Present the full streamed output:
+**If second model is `cursor`:**
+```bash
+agent --trust -p "<prompt>" --model composer-2
+```
+
+3. Present the full output:
 
 ```
-CODEX SAYS (adversarial challenge):
+{SECOND_MODEL_NAME} SAYS (adversarial challenge):
 ════════════════════════════════════════════════════════════
-<full output from above, verbatim>
+<full output, verbatim>
 ════════════════════════════════════════════════════════════
-Tokens: N | Est. cost: ~$X.XX
 ```
 
 ---
 
 ## Step 2C: Consult Mode
 
-Ask Codex anything about the codebase. Supports session continuity for follow-ups.
+Ask the second model anything about the codebase.
 
-1. **Check for existing session:**
+1. **Session continuity (Codex only):**
+
+If second model is `codex`, check for an existing session:
 ```bash
 cat .context/codex-session-id 2>/dev/null || echo "NO_SESSION"
 ```
 
-If a session file exists (not `NO_SESSION`), use AskUserQuestion:
+If a session exists, use AskUserQuestion:
 ```
 You have an active Codex conversation from earlier. Continue it or start fresh?
 A) Continue the conversation (Codex remembers the prior context)
 B) Start a new conversation
 ```
 
-2. Create temp files:
-```bash
-TMPRESP=$(mktemp /tmp/codex-resp-XXXXXX.txt)
-TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
-```
+For gemini and cursor: sessions always start fresh.
 
-3. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
-or if plan files exist and the user said `/codex` with no arguments:
+2. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
+or if plan files exist and the user said `/second-model-review` with no arguments:
 ```bash
 ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
 ```
-If no project-scoped match, fall back to `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-but warn: "Note: this plan may be from a different project — verify before sending to Codex."
-Read the plan file and prepend the persona to the user's prompt:
-"You are a brutally honest technical reviewer. Review this plan for: logical gaps and
-unstated assumptions, missing error handling or edge cases, overcomplexity (is there a
-simpler approach?), feasibility risks (what could go wrong?), and missing dependencies
-or sequencing issues. Be direct. Be terse. No compliments. Just the problems.
+Read the plan file and prepend the review prompt:
+"You are a brutally honest technical reviewer. Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Look for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems.
 
 THE PLAN:
 <plan content>"
 
-4. Run codex exec with **JSONL output** to capture reasoning traces (5-minute timeout):
+3. Run with the second model command (5-minute timeout):
 
-For a **new session:**
+**If second model is `codex` (new session):**
 ```bash
-codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached --json 2>"$TMPERR" | python3 -c "
-import sys, json
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        obj = json.loads(line)
-        t = obj.get('type','')
-        if t == 'thread.started':
-            tid = obj.get('thread_id','')
-            if tid: print(f'SESSION_ID:{tid}')
-        elif t == 'item.completed' and 'item' in obj:
-            item = obj['item']
-            itype = item.get('type','')
-            text = item.get('text','')
-            if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}')
-                print()
-            elif itype == 'agent_message' and text:
-                print(text)
-            elif itype == 'command_execution':
-                cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}')
-        elif t == 'turn.completed':
-            usage = obj.get('usage',{})
-            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}')
-    except: pass
-"
+codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached
 ```
 
-For a **resumed session** (user chose "Continue"):
+**If second model is `codex` (resumed session):**
 ```bash
-codex exec resume <session-id> "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached --json 2>"$TMPERR" | python3 -c "
-<same python streaming parser as above>
-"
+codex exec resume <session-id> "<prompt>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached
 ```
 
-5. Capture session ID from the streamed output. The parser prints `SESSION_ID:<id>`
-   from the `thread.started` event. Save it for follow-ups:
+**If second model is `gemini`:**
+```bash
+gemini --sandbox -p "<prompt>"
+```
+
+**If second model is `cursor`:**
+```bash
+agent --trust -p "<prompt>" --model composer-2
+```
+
+4. **Save session (Codex only):**
 ```bash
 mkdir -p .context
 ```
-Save the session ID printed by the parser (the line starting with `SESSION_ID:`)
-to `.context/codex-session-id`.
+Save the session ID to `.context/codex-session-id`.
 
-6. Present the full streamed output:
+5. Present the output:
 
 ```
-CODEX SAYS (consult):
+{SECOND_MODEL_NAME} SAYS (consult):
 ════════════════════════════════════════════════════════════
-<full output, verbatim — includes [codex thinking] traces>
+<full output, verbatim>
 ════════════════════════════════════════════════════════════
-Tokens: N | Est. cost: ~$X.XX
-Session saved — run /codex again to continue this conversation.
+Session saved — run /second-model-review again to continue this conversation.
 ```
 
-7. After presenting, note any points where Codex's analysis differs from your own
-   understanding. If there is a disagreement, flag it:
+(Session line only for Codex — other second models start fresh each time.)
+
+6. Note any points where the second model's analysis differs from your own:
    "Note: Claude Code disagrees on X because Y."
 
 ---
 
 ## Model & Reasoning
 
-**Model:** No model is hardcoded — codex uses whatever its current default is (the frontier
-agentic coding model). This means as OpenAI ships newer models, /codex automatically
-uses them. If the user wants a specific model, pass `-m` through to codex.
+**No model is hardcoded** — each second model uses its default frontier model. This means
+as new models ship, /second-model-review automatically uses them. If the user
+wants a specific model:
+- Codex: pass `-m <model>` through to codex
+- Gemini: pass `--model <model>` through to gemini
+- Cursor: pass `--model <model>` through to agent
 
-**Reasoning effort:** All modes use `xhigh` — maximum reasoning power. When reviewing code, breaking code, or consulting on architecture, you want the model thinking as hard as possible.
-
-**Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
-docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
-
-If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
-or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
-
----
-
-## Cost Estimation
-
-Parse token count from stderr. Codex prints `tokens used\nN` to stderr.
-
-Display as: `Tokens: N`
-
-If token count is not available, display: `Tokens: unknown`
+**Reasoning effort** varies by mode:
+- **Review mode:** high — thorough but not slow
+- **Challenge (adversarial) mode:** maximum — think as hard as possible
+- **Consult mode:** high — good balance of depth and speed
 
 ---
 
 ## Error Handling
 
-- **Binary not found:** Detected in Step 0. Stop with install instructions.
-- **Auth error:** Codex prints an auth error to stderr. Surface the error:
-  "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
-- **Timeout:** If the Bash call times out (5 min), tell the user:
-  "Codex timed out after 5 minutes. The diff may be too large or the API may be slow. Try again or use a smaller scope."
-- **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
-  "Codex returned no response. Check stderr for errors."
-- **Session resume failure:** If resume fails, delete the session file and start fresh.
+- **Binary not found:** Detected in Step 0. Stop with install instructions for the configured second model.
+- **Auth error:** Surface the second model's auth error message. Common fixes:
+  - Codex: `codex login`
+  - Gemini: `gemini auth login`
+  - Cursor: check Cursor CLI auth docs
+- **Timeout:** If the command times out (5 min):
+  "Timed out after 5 minutes. The diff may be too large or the API may be slow."
+- **Empty response:** Tell the user and suggest checking stderr.
+- **Session resume failure (Codex):** Delete `.context/codex-session-id` and start fresh.
 
 ---
 
 ## Important Rules
 
-- **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode.
-- **Present output verbatim.** Do not truncate, summarize, or editorialize Codex's output
-  before showing it. Show it in full inside the CODEX SAYS block.
-- **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
-- **5-minute timeout** on all Bash calls to codex (`timeout: 300000`).
-- **No double-reviewing.** If the user already ran `/review`, Codex provides a second
+- **Never modify files.** This skill is read-only. Second Models run in read-only mode.
+- **Present output verbatim.** Do not truncate, summarize, or editorialize the output.
+- **Add synthesis after, not instead of.** Claude commentary comes after the full output.
+- **5-minute timeout** on all commands (`timeout: 300000`).
+- **No double-reviewing.** If the user already ran `/review`, this provides a second
   independent opinion. Do not re-run Claude Code's own review.

@@ -1,0 +1,328 @@
+---
+name: second-model-review
+version: 1.0.0
+description: |
+  Second model review — three modes. Code review: independent diff review
+  with pass/fail gate. Challenge: adversarial mode that tries to break your code.
+  Consult: ask another AI model anything with context. Supports Codex (OpenAI),
+  Gemini (Google), and Cursor (Composer). Use when asked to
+  "second model review", "second opinion", "codex review", "gemini review",
+  "challenge my code", or "ask codex/gemini/cursor".
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /second-model-review — Multi-AI Second Opinion
+
+You are running the `/second-model-review` skill. This wraps a second model CLI to get an
+independent, brutally honest second opinion from a different AI system.
+
+The second model is direct, terse, technically precise, challenges assumptions, and catches
+things you might miss. Present its output faithfully, not summarized.
+
+---
+
+## Step 0: Determine second model
+
+Check the `HOST_AGENT` line from the preamble to know which agent is running this skill.
+Check the `SECOND_MODEL` line for `enabled=` and `second_model_name=` values.
+
+**Second model lookup table:**
+
+| ID | Display Name | Binary | Install |
+|----|-------------|--------|---------|
+| codex | Codex (OpenAI) | `codex` | `npm install -g @openai/codex` |
+| gemini | Gemini (Google) | `gemini` | `npm install -g @google/gemini-cli` |
+| cursor | Cursor (Composer) | `agent` | Install Cursor: https://cursor.com, then `cursor --install-cli` |
+
+**Self-detection:** If the configured second model matches `HOST_AGENT` (e.g., Codex
+running on Codex), skip it — you cannot be your own second opinion. Instead, detect
+other available models and offer those. If no other model is available, tell the user:
+"The configured second model ({second_model_name}) is the same agent running this session.
+Install a different model for cross-model review."
+
+**If `enabled=unset` or `enabled=false`:** Detect binaries on the fly:
+
+```bash
+which codex 2>/dev/null && echo "HAS_CODEX" || true
+which gemini 2>/dev/null && echo "HAS_GEMINI" || true
+which agent 2>/dev/null && echo "HAS_CURSOR" || true
+```
+
+Exclude the binary matching `HOST_AGENT` from the options — only offer *different* models.
+If at least one different model is detected, ask which to use and persist:
+```bash
+~/.claude/skills/gstack/bin/gstack-config set second_model_enabled true
+~/.claude/skills/gstack/bin/gstack-config set second_model_provider <chosen_id>
+```
+If no different model detected, stop: "No second model CLI found that differs from the current agent."
+
+**If `enabled=true`:** Look up the binary for the configured second model and verify it exists:
+
+```bash
+which <binary> 2>/dev/null && echo "READY" || echo "NOT_FOUND"
+```
+
+If `NOT_FOUND`: warn and offer to switch to a detected second model or disable.
+
+---
+
+## Step 1: Detect mode
+
+Parse the user's input to determine which mode to run:
+
+1. `/second-model-review review` or `/second-model-review review <instructions>` — **Review mode** (Step 2A)
+2. `/second-model-review challenge` or `/second-model-review challenge <focus>` — **Challenge mode** (Step 2B)
+3. `/second-model-review` with no arguments — **Auto-detect:**
+   - Check for a diff (with fallback if origin isn't available):
+     `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
+   - If a diff exists, use AskUserQuestion:
+     ```
+     {second-model-name} detected changes against the base branch. What should it do?
+     A) Review the diff (code review with pass/fail gate)
+     B) Challenge the diff (adversarial — try to break it)
+     C) Something else — I'll provide a prompt
+     ```
+   - If no diff, check for plan files:
+     `ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
+     If no project-scoped match: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
+     but warn: "Note: this plan may be from a different project."
+   - If a plan file exists, offer to review it
+   - Otherwise, ask: "What would you like to ask {second-model-name}?"
+4. `/second-model-review <anything else>` — **Consult mode** (Step 2C)
+
+---
+
+## Step 2A: Review Mode
+
+Run second model code review against the current branch diff.
+
+1. Create temp files for output capture:
+```bash
+TMPERR=$(mktemp /tmp/second-model-err-XXXXXX.txt)
+```
+
+2. Run the review (5-minute timeout):
+
+**If second model is `codex`:**
+```bash
+codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+```
+
+If custom instructions provided (e.g., `/second-model-review review focus on security`):
+```bash
+codex review "focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+```
+
+**If second model is `gemini`:**
+```bash
+PROMPT="{{SECOND_MODEL_REVIEW_PROMPT}} Flag critical issues as [P1] and minor ones as [P2]."
+gemini --sandbox -p "$PROMPT" 2>"$TMPERR"
+```
+
+**If second model is `cursor`:**
+```bash
+PROMPT="{{SECOND_MODEL_REVIEW_PROMPT}} Flag critical issues as [P1] and minor ones as [P2]."
+agent --trust -p "$PROMPT" --model composer-2 2>"$TMPERR"
+```
+
+3. Determine gate verdict: check the output for `[P1]` markers.
+   If `[P1]` found → GATE: FAIL. Otherwise → GATE: PASS.
+
+4. Present the output:
+
+```
+{SECOND_MODEL_NAME} SAYS (code review):
+════════════════════════════════════════════════════════════
+<full output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+GATE: PASS                    Tokens: N | Est. cost: ~$X.XX
+```
+
+5. **Cross-model comparison:** If `/review` (Claude's own review) was already run,
+   compare the two sets of findings:
+
+```
+CROSS-MODEL ANALYSIS:
+  Both found: [findings that overlap]
+  Only {second-model-name} found: [unique to external]
+  Only Claude found: [unique to Claude's /review]
+  Agreement rate: X% (N/M total unique findings overlap)
+```
+
+6. Persist the review result:
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"second-model-review","second_model_name":"SECOND_MODEL_NAME","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N}'
+```
+
+7. Clean up:
+```bash
+rm -f "$TMPERR"
+```
+
+---
+
+## Step 2B: Challenge (Adversarial) Mode
+
+The second model tries to break your code — finding edge cases, race conditions,
+security holes, and failure modes that a normal review would miss.
+
+1. Construct the adversarial prompt:
+
+Default (no focus):
+"{{SECOND_MODEL_ADVERSARIAL_PROMPT}}"
+
+With focus (e.g., "security"):
+"Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
+
+2. Run with the appropriate second model command (5-minute timeout):
+
+**If second model is `codex`:**
+```bash
+codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached
+```
+
+**If second model is `gemini`:**
+```bash
+gemini --sandbox -p "<prompt>"
+```
+
+**If second model is `cursor`:**
+```bash
+agent --trust -p "<prompt>" --model composer-2
+```
+
+3. Present the full output:
+
+```
+{SECOND_MODEL_NAME} SAYS (adversarial challenge):
+════════════════════════════════════════════════════════════
+<full output, verbatim>
+════════════════════════════════════════════════════════════
+```
+
+---
+
+## Step 2C: Consult Mode
+
+Ask the second model anything about the codebase.
+
+1. **Session continuity (Codex only):**
+
+If second model is `codex`, check for an existing session:
+```bash
+cat .context/codex-session-id 2>/dev/null || echo "NO_SESSION"
+```
+
+If a session exists, use AskUserQuestion:
+```
+You have an active Codex conversation from earlier. Continue it or start fresh?
+A) Continue the conversation (Codex remembers the prior context)
+B) Start a new conversation
+```
+
+For gemini and cursor: sessions always start fresh.
+
+2. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
+or if plan files exist and the user said `/second-model-review` with no arguments:
+```bash
+ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
+```
+Read the plan file and prepend the review prompt:
+"{{SECOND_MODEL_REVIEW_PROMPT}}
+
+THE PLAN:
+<plan content>"
+
+3. Run with the second model command (5-minute timeout):
+
+**If second model is `codex` (new session):**
+```bash
+codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached
+```
+
+**If second model is `codex` (resumed session):**
+```bash
+codex exec resume <session-id> "<prompt>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached
+```
+
+**If second model is `gemini`:**
+```bash
+gemini --sandbox -p "<prompt>"
+```
+
+**If second model is `cursor`:**
+```bash
+agent --trust -p "<prompt>" --model composer-2
+```
+
+4. **Save session (Codex only):**
+```bash
+mkdir -p .context
+```
+Save the session ID to `.context/codex-session-id`.
+
+5. Present the output:
+
+```
+{SECOND_MODEL_NAME} SAYS (consult):
+════════════════════════════════════════════════════════════
+<full output, verbatim>
+════════════════════════════════════════════════════════════
+Session saved — run /second-model-review again to continue this conversation.
+```
+
+(Session line only for Codex — other second models start fresh each time.)
+
+6. Note any points where the second model's analysis differs from your own:
+   "Note: Claude Code disagrees on X because Y."
+
+---
+
+## Model & Reasoning
+
+**No model is hardcoded** — each second model uses its default frontier model. This means
+as new models ship, /second-model-review automatically uses them. If the user
+wants a specific model:
+- Codex: pass `-m <model>` through to codex
+- Gemini: pass `--model <model>` through to gemini
+- Cursor: pass `--model <model>` through to agent
+
+**Reasoning effort** varies by mode:
+- **Review mode:** high — thorough but not slow
+- **Challenge (adversarial) mode:** maximum — think as hard as possible
+- **Consult mode:** high — good balance of depth and speed
+
+---
+
+## Error Handling
+
+- **Binary not found:** Detected in Step 0. Stop with install instructions for the configured second model.
+- **Auth error:** Surface the second model's auth error message. Common fixes:
+  - Codex: `codex login`
+  - Gemini: `gemini auth login`
+  - Cursor: check Cursor CLI auth docs
+- **Timeout:** If the command times out (5 min):
+  "Timed out after 5 minutes. The diff may be too large or the API may be slow."
+- **Empty response:** Tell the user and suggest checking stderr.
+- **Session resume failure (Codex):** Delete `.context/codex-session-id` and start fresh.
+
+---
+
+## Important Rules
+
+- **Never modify files.** This skill is read-only. Second Models run in read-only mode.
+- **Present output verbatim.** Do not truncate, summarize, or editorialize the output.
+- **Add synthesis after, not instead of.** Claude commentary comes after the full output.
+- **5-minute timeout** on all commands (`timeout: 300000`).
+- **No double-reviewing.** If the user already ran `/review`, this provides a second
+  independent opinion. Do not re-run Claude Code's own review.

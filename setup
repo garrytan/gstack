@@ -184,6 +184,68 @@ fi
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 
+# 3.5. Detect external LLM CLIs (one-time, persisted to gstack-config)
+GSTACK_CONFIG="$GSTACK_DIR/bin/gstack-config"
+EXT_CONFIGURED=$("$GSTACK_CONFIG" get second_model_enabled 2>/dev/null || echo "")
+if [ -z "$EXT_CONFIGURED" ]; then
+  # First time — detect available CLIs
+  DETECTED=()
+  command -v codex  >/dev/null 2>&1 && DETECTED+=("codex")
+  command -v gemini >/dev/null 2>&1 && DETECTED+=("gemini")
+  command -v agent  >/dev/null 2>&1 && DETECTED+=("agent:cursor")
+
+  if [ ${#DETECTED[@]} -gt 0 ]; then
+    echo ""
+    echo "Second model CLIs detected: ${DETECTED[*]}"
+    echo "gstack can use these for independent second opinions during code review."
+    echo ""
+
+    # Build display list with numbers
+    PROVIDER_IDS=()
+    for entry in "${DETECTED[@]}"; do
+      pid="${entry%%:*}"
+      [ "$pid" = "agent" ] && pid="cursor"
+      PROVIDER_IDS+=("$pid")
+    done
+
+    if [ ${#PROVIDER_IDS[@]} -eq 1 ]; then
+      read -r -p "Enable second model integration with ${PROVIDER_IDS[0]}? [Y/n] " REPLY
+      REPLY="${REPLY:-Y}"
+      if [[ "$REPLY" =~ ^[Yy] ]]; then
+        "$GSTACK_CONFIG" set second_model_enabled true
+        "$GSTACK_CONFIG" set second_model_provider "${PROVIDER_IDS[0]}"
+        echo "  Enabled: ${PROVIDER_IDS[0]}"
+      else
+        "$GSTACK_CONFIG" set second_model_enabled false
+        echo "  Skipped. Enable later with: gstack-config set second_model_enabled true"
+      fi
+    else
+      echo "Which second model should gstack use?"
+      for i in "${!PROVIDER_IDS[@]}"; do
+        echo "  $((i+1))) ${PROVIDER_IDS[$i]}"
+      done
+      echo "  0) Skip — no second model"
+      read -r -p "Choice [1]: " CHOICE
+      CHOICE="${CHOICE:-1}"
+      if [ "$CHOICE" = "0" ]; then
+        "$GSTACK_CONFIG" set second_model_enabled false
+        echo "  Skipped. Enable later with: gstack-config set second_model_enabled true"
+      elif [ "$CHOICE" -ge 1 ] 2>/dev/null && [ "$CHOICE" -le ${#PROVIDER_IDS[@]} ]; then
+        CHOSEN="${PROVIDER_IDS[$((CHOICE-1))]}"
+        "$GSTACK_CONFIG" set second_model_enabled true
+        "$GSTACK_CONFIG" set second_model_provider "$CHOSEN"
+        echo "  Enabled: $CHOSEN (change with: gstack-config set second_model_provider <id>)"
+      else
+        echo "  Invalid choice. Skipping."
+        "$GSTACK_CONFIG" set second_model_enabled false
+      fi
+    fi
+  else
+    # No CLIs found — silently mark as checked so we don't re-ask
+    "$GSTACK_CONFIG" set second_model_enabled false
+  fi
+fi
+
 # ─── Helper: link Claude skill subdirectories into a skills parent directory ──
 link_claude_skill_dirs() {
   local gstack_dir="$1"

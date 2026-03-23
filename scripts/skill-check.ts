@@ -105,7 +105,7 @@ for (const file of SKILL_FILES) {
 
 const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
 if (fs.existsSync(AGENTS_DIR)) {
-  console.log('\n  Codex Skills (.agents/skills/):');
+  console.log('\n  Agent Skills (.agents/skills/):');
   const codexDirs = fs.readdirSync(AGENTS_DIR).sort();
   let codexCount = 0;
   let codexMissing = 0;
