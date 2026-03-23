@@ -13,7 +13,7 @@
 export const READ_COMMANDS = new Set([
   'text', 'html', 'links', 'forms', 'accessibility',
   'js', 'eval', 'css', 'attrs',
-  'console', 'network', 'cookies', 'storage', 'perf',
+  'console', 'network', 'cookies', 'storage', 'perf', 'lighthouse',
   'dialog', 'is',
 ]);
 
@@ -60,6 +60,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'cookies': { category: 'Inspection', description: 'All cookies as JSON' },
   'storage': { category: 'Inspection', description: 'Read all localStorage + sessionStorage as JSON, or set <key> <value> to write localStorage', usage: 'storage [set k v]' },
   'perf':    { category: 'Inspection', description: 'Page load timings' },
+  'lighthouse': { category: 'Inspection', description: 'Web Vitals score (FCP, LCP, CLS, TBT, TTFB) + resource breakdown — 0-100 score' },
   // Interaction
   'click':   { category: 'Interaction', description: 'Click element', usage: 'click <sel>' },
   'fill':    { category: 'Interaction', description: 'Fill input', usage: 'fill <sel> <val>' },

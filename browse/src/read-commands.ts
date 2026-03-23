@@ -329,6 +329,90 @@ export async function handleReadCommand(
         .join('\n');
     }
 
+    case 'lighthouse': {
+      // Collect Web Vitals metrics via Performance APIs (no external dependency)
+      const metrics = await page.evaluate(() => {
+        const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+        const paint = performance.getEntriesByType('paint') as PerformanceEntry[];
+        const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+
+        // FCP from paint entries
+        const fcpEntry = paint.find(p => p.name === 'first-contentful-paint');
+        const fcp = fcpEntry ? Math.round(fcpEntry.startTime) : null;
+
+        // LCP from PerformanceObserver (collect what's available)
+        const lcpEntries = performance.getEntriesByType('largest-contentful-paint') as any[];
+        const lcp = lcpEntries.length > 0 ? Math.round(lcpEntries[lcpEntries.length - 1].startTime) : null;
+
+        // DOM timings
+        const domInteractive = nav ? Math.round(nav.domInteractive - nav.startTime) : null;
+        const domComplete = nav ? Math.round(nav.domComplete - nav.startTime) : null;
+        const loadTime = nav ? Math.round(nav.loadEventEnd - nav.startTime) : null;
+        const ttfb = nav ? Math.round(nav.responseStart - nav.requestStart) : null;
+
+        // Resource breakdown
+        const jsBytes = resources.filter(r => r.initiatorType === 'script').reduce((s, r) => s + (r.transferSize || 0), 0);
+        const cssBytes = resources.filter(r => r.initiatorType === 'css' || (r.name && r.name.endsWith('.css'))).reduce((s, r) => s + (r.transferSize || 0), 0);
+        const imgBytes = resources.filter(r => r.initiatorType === 'img').reduce((s, r) => s + (r.transferSize || 0), 0);
+        const totalBytes = resources.reduce((s, r) => s + (r.transferSize || 0), 0);
+        const totalRequests = resources.length;
+
+        // CLS from layout-shift entries
+        const clsEntries = performance.getEntriesByType('layout-shift') as any[];
+        const cls = clsEntries.reduce((sum, e) => sum + (e.hadRecentInput ? 0 : e.value), 0);
+
+        // TBT approximation from long-task entries
+        const longTasks = performance.getEntriesByType('longtask') as any[];
+        const tbt = longTasks.reduce((sum, t) => sum + Math.max(0, t.duration - 50), 0);
+
+        return { fcp, lcp, ttfb, domInteractive, domComplete, loadTime, cls: Math.round(cls * 1000) / 1000, tbt: Math.round(tbt), jsBytes, cssBytes, imgBytes, totalBytes, totalRequests };
+      });
+
+      // Score each metric against Web Vitals thresholds
+      const grade = (val: number | null, good: number, poor: number): string => {
+        if (val === null) return '—';
+        if (val <= good) return 'good';
+        if (val <= poor) return 'needs-work';
+        return 'poor';
+      };
+
+      const fcpGrade = grade(metrics.fcp, 1800, 3000);
+      const lcpGrade = grade(metrics.lcp, 2500, 4000);
+      const ttfbGrade = grade(metrics.ttfb, 800, 1800);
+      const clsGrade = grade(metrics.cls, 0.1, 0.25);
+      const tbtGrade = grade(metrics.tbt, 200, 600);
+
+      // Compute overall score (0-100)
+      let score = 100;
+      if (metrics.fcp !== null) { if (metrics.fcp > 3000) score -= 20; else if (metrics.fcp > 1800) score -= 10; }
+      if (metrics.lcp !== null) { if (metrics.lcp > 4000) score -= 25; else if (metrics.lcp > 2500) score -= 12; }
+      if (metrics.cls > 0.25) score -= 15; else if (metrics.cls > 0.1) score -= 7;
+      if (metrics.tbt > 600) score -= 20; else if (metrics.tbt > 200) score -= 10;
+      if (metrics.jsBytes > 500000) score -= 10; else if (metrics.jsBytes > 300000) score -= 5;
+      score = Math.max(0, Math.min(100, score));
+
+      const kb = (b: number) => `${Math.round(b / 1024)}KB`;
+
+      const lines = [
+        `Score: ${score}/100`,
+        '',
+        'Core Web Vitals:',
+        `  FCP    ${metrics.fcp !== null ? metrics.fcp + 'ms' : '—'}  (${fcpGrade})`,
+        `  LCP    ${metrics.lcp !== null ? metrics.lcp + 'ms' : '—'}  (${lcpGrade})`,
+        `  CLS    ${metrics.cls}  (${clsGrade})`,
+        `  TBT    ${metrics.tbt}ms  (${tbtGrade})`,
+        `  TTFB   ${metrics.ttfb !== null ? metrics.ttfb + 'ms' : '—'}  (${ttfbGrade})`,
+        '',
+        'Resources:',
+        `  JS     ${kb(metrics.jsBytes)}`,
+        `  CSS    ${kb(metrics.cssBytes)}`,
+        `  Images ${kb(metrics.imgBytes)}`,
+        `  Total  ${kb(metrics.totalBytes)} (${metrics.totalRequests} requests)`,
+      ];
+
+      return lines.join('\n');
+    }
+
     default:
       throw new Error(`Unknown read command: ${command}`);
   }
