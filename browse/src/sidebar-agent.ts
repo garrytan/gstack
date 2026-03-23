@@ -23,6 +23,46 @@ let lastLine = 0;
 let authToken: string | null = null;
 let isProcessing = false;
 
+// ─── File drop relay ──────────────────────────────────────────
+
+function getGitRoot(): string | null {
+  try {
+    const { execSync } = require('child_process');
+    return execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function writeToInbox(message: string, pageUrl?: string, sessionId?: string): void {
+  const gitRoot = getGitRoot();
+  if (!gitRoot) {
+    console.error('[sidebar-agent] Cannot write to inbox — not in a git repo');
+    return;
+  }
+
+  const inboxDir = path.join(gitRoot, '.context', 'sidebar-inbox');
+  fs.mkdirSync(inboxDir, { recursive: true });
+
+  const now = new Date();
+  const timestamp = now.toISOString().replace(/:/g, '-');
+  const filename = `${timestamp}-observation.json`;
+  const tmpFile = path.join(inboxDir, `.${filename}.tmp`);
+  const finalFile = path.join(inboxDir, filename);
+
+  const inboxMessage = {
+    type: 'observation',
+    timestamp: now.toISOString(),
+    page: { url: pageUrl || 'unknown', title: '' },
+    userMessage: message,
+    sidebarSessionId: sessionId || 'unknown',
+  };
+
+  fs.writeFileSync(tmpFile, JSON.stringify(inboxMessage, null, 2));
+  fs.renameSync(tmpFile, finalFile);
+  console.log(`[sidebar-agent] Wrote inbox message: ${filename}`);
+}
+
 // ─── Auth ────────────────────────────────────────────────────────
 
 async function refreshToken(): Promise<string | null> {
@@ -203,6 +243,8 @@ async function poll() {
     if (!entry.message && !entry.prompt) continue;
 
     console.log(`[sidebar-agent] Processing: "${entry.message}"`);
+    // Write to inbox so workspace agent can pick it up
+    writeToInbox(entry.message || entry.prompt, entry.pageUrl, entry.sessionId);
     try {
       await askClaude(entry);
     } catch (err) {

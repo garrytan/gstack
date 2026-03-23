@@ -327,6 +327,66 @@ export async function handleMetaCommand(
       }
     }
 
+    // ─── Inbox ──────────────────────────────────────────
+    case 'inbox': {
+      const { execSync } = await import('child_process');
+      let gitRoot: string;
+      try {
+        gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+      } catch {
+        return 'Not in a git repository — cannot locate inbox.';
+      }
+
+      const inboxDir = path.join(gitRoot, '.context', 'sidebar-inbox');
+      if (!fs.existsSync(inboxDir)) return 'Inbox empty.';
+
+      const files = fs.readdirSync(inboxDir)
+        .filter(f => f.endsWith('.json') && !f.startsWith('.'))
+        .sort()
+        .reverse(); // newest first
+
+      if (files.length === 0) return 'Inbox empty.';
+
+      const messages: { timestamp: string; url: string; userMessage: string }[] = [];
+      for (const file of files) {
+        try {
+          const data = JSON.parse(fs.readFileSync(path.join(inboxDir, file), 'utf-8'));
+          messages.push({
+            timestamp: data.timestamp || '',
+            url: data.page?.url || 'unknown',
+            userMessage: data.userMessage || '',
+          });
+        } catch {
+          // Skip malformed files
+        }
+      }
+
+      if (messages.length === 0) return 'Inbox empty.';
+
+      const lines: string[] = [];
+      lines.push(`SIDEBAR INBOX (${messages.length} message${messages.length === 1 ? '' : 's'})`);
+      lines.push('────────────────────────────────');
+
+      for (const msg of messages) {
+        const ts = msg.timestamp ? `[${msg.timestamp}]` : '[unknown]';
+        lines.push(`${ts} ${msg.url}`);
+        lines.push(`  "${msg.userMessage}"`);
+        lines.push('');
+      }
+
+      lines.push('────────────────────────────────');
+
+      // Handle --clear flag
+      if (args.includes('--clear')) {
+        for (const file of files) {
+          try { fs.unlinkSync(path.join(inboxDir, file)); } catch {}
+        }
+        lines.push(`Cleared ${files.length} message${files.length === 1 ? '' : 's'}.`);
+      }
+
+      return lines.join('\n');
+    }
+
     default:
       throw new Error(`Unknown meta command: ${command}`);
   }
