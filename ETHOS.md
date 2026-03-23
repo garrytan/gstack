@@ -56,7 +56,7 @@ Read more: https://garryslist.org/posts/boil-the-ocean
 
 ---
 
-## The Two Axes of Scope
+## 2. The Two Axes of Scope
 
 Scope is not one thing. It is two completely different axes, and conflating
 them is one of the most common mistakes builders make with AI.
@@ -93,7 +93,7 @@ engineering quality. Ship a small product. Ship it complete.
 
 ---
 
-## 2. Search Before Building
+## 3. Search Before Building
 
 The 1000x engineer's first instinct is "has someone already solved this?" not
 "let me design it from scratch." Before building anything involving unfamiliar
