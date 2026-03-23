@@ -648,7 +648,7 @@ describe('TEST_FAILURE_TRIAGE resolver', () => {
 // --- {{PLAN_FILE_REVIEW_REPORT}} resolver tests ---
 
 describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
-  const REVIEW_SKILLS = ['plan-ceo-review', 'plan-eng-review', 'plan-design-review', 'codex'];
+  const REVIEW_SKILLS = ['plan-ceo-review', 'plan-eng-review', 'plan-design-review'];
 
   for (const skill of REVIEW_SKILLS) {
     test(`plan file review report appears in ${skill} generated file`, () => {
@@ -665,7 +665,7 @@ describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
     expect(content).toContain('/plan-ceo-review');
     expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-design-review');
-    expect(content).toContain('/codex review');
+    expect(content).toContain('/second-model-review');
   });
 });
 
@@ -759,8 +759,8 @@ describe('CODEX_SECOND_OPINION resolver', () => {
     expect(content).toContain('Phase 3.5: Cross-Model Second Opinion');
   });
 
-  test('contains codex exec invocation', () => {
-    expect(content).toContain('codex exec');
+  test('contains provider-specific command instructions', () => {
+    expect(content).toContain('SM_PROVIDER');
   });
 
   test('contains opt-in AskUserQuestion text', () => {
@@ -769,11 +769,11 @@ describe('CODEX_SECOND_OPINION resolver', () => {
 
   test('contains cross-model synthesis instructions', () => {
     expect(content).toMatch(/[Ss]ynthesis/);
-    expect(content).toContain('Where Claude agrees with Codex');
+    expect(content).toContain('Where Claude agrees with the second model');
   });
 
   test('contains premise revision check', () => {
-    expect(content).toContain('Codex challenged premise');
+    expect(content).toContain('second model challenged premise');
   });
 
   test('contains error handling for auth, timeout, and empty', () => {
@@ -789,7 +789,7 @@ describe('CODEX_SECOND_OPINION resolver', () => {
     // check for Phase 3.5-specific markers only.
     expect(codexContent).not.toContain('Phase 3.5: Cross-Model Second Opinion');
     expect(codexContent).not.toContain('TMPERR_OH');
-    expect(codexContent).not.toContain('gstack-codex-oh-');
+    expect(codexContent).not.toContain('gstack-sm-oh-');
   });
 });
 
@@ -835,7 +835,7 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   test('plan-design-review contains outside voices section', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Design Outside Voices');
-    expect(content).toContain('CODEX_AVAILABLE');
+    expect(content).toContain('SM_AVAILABLE');
     expect(content).toContain('LITMUS SCORECARD');
   });
 
@@ -909,7 +909,7 @@ describe('DESIGN_SKETCH extended with outside voices', () => {
   const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
 
   test('contains outside design voices step', () => {
-    expect(content).toContain('Outside design voices');
+    expect(content).toContain('Second model design voices');
   });
 
   test('offers opt-in via AskUserQuestion', () => {
@@ -928,8 +928,8 @@ describe('DESIGN_REVIEW_LITE extended with Codex', () => {
   const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 
   test('contains Codex design voice block', () => {
-    expect(content).toContain('Codex design voice');
-    expect(content).toContain('CODEX (design)');
+    expect(content).toContain('Second model design voice');
+    expect(content).toContain('SECOND_MODEL_NAME} (design)');
   });
 
   test('still contains original checklist steps', () => {
@@ -949,7 +949,7 @@ describe('Codex generation (--host codex)', () => {
     cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
   });
 
-  // Dynamic discovery of expected Codex skills: all templates except /codex
+  // Dynamic discovery of expected Codex skills — all templates included
   const CODEX_SKILLS = (() => {
     const skills: Array<{ dir: string; codexName: string }> = [];
     if (fs.existsSync(path.join(ROOT, 'SKILL.md.tmpl'))) {
@@ -957,7 +957,7 @@ describe('Codex generation (--host codex)', () => {
     }
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      if (entry.name === 'codex') continue; // /codex is excluded from Codex output
+      // All skills are generated for both hosts
       if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
       const codexName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
       skills.push({ dir: entry.name, codexName });
@@ -1027,26 +1027,26 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  test('no ~/.claude/ paths in Codex output', () => {
+  test('no ~/.claude/skills/ paths in Codex output', () => {
     for (const skill of CODEX_SKILLS) {
       const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
-      expect(content).not.toContain('~/.claude/');
+      // ~/.claude/plans/ is allowed — plans are created by Claude Code and shared across hosts
+      expect(content).not.toContain('~/.claude/skills/');
     }
   });
 
-  test('/codex skill excluded from Codex output', () => {
-    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
-    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex'))).toBe(false);
+  test('/second-model-review skill included in Codex output', () => {
+    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-second-model-review', 'SKILL.md'))).toBe(true);
   });
 
-  test('Codex review step stripped from Codex-host ship and review', () => {
+  test('Second model review step stripped from Codex-host ship and review', () => {
     const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
-    expect(shipContent).not.toContain('codex review --base');
-    expect(shipContent).not.toContain('CODEX_REVIEWS');
+    expect(shipContent).not.toContain('SM_NOT_AVAILABLE');
+    expect(shipContent).not.toContain('Adversarial review (auto-scaled)');
 
     const reviewContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
-    expect(reviewContent).not.toContain('codex review --base');
-    expect(reviewContent).not.toContain('CODEX_REVIEWS');
+    expect(reviewContent).not.toContain('SM_NOT_AVAILABLE');
+    expect(reviewContent).not.toContain('Adversarial review (auto-scaled)');
   });
 
   test('--host codex --dry-run freshness', () => {

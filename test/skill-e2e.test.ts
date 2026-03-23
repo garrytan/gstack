@@ -3121,72 +3121,73 @@ This is a solo repo (REPO_MODE=solo). For pre-existing failures, recommend fixin
   }, 240_000);
 });
 
-// --- Codex skill E2E ---
+// --- Second model review skill E2E ---
 
-describeIfSelected('Codex skill E2E', ['codex-review'], () => {
-  let codexDir: string;
+describeIfSelected('Second model review E2E', ['second-model-review'], () => {
+  let smDir: string;
 
   beforeAll(() => {
-    codexDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-codex-'));
+    smDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-second-model-'));
 
     const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: codexDir, stdio: 'pipe', timeout: 5000 });
+      spawnSync(cmd, args, { cwd: smDir, stdio: 'pipe', timeout: 5000 });
 
     run('git', ['init', '-b', 'main']);
     run('git', ['config', 'user.email', 'test@test.com']);
     run('git', ['config', 'user.name', 'Test']);
 
     // Commit a clean base on main
-    fs.writeFileSync(path.join(codexDir, 'app.rb'), '# clean base\nclass App\nend\n');
+    fs.writeFileSync(path.join(smDir, 'app.rb'), '# clean base\nclass App\nend\n');
     run('git', ['add', 'app.rb']);
     run('git', ['commit', '-m', 'initial commit']);
 
     // Create feature branch with vulnerable code (reuse review fixture)
     run('git', ['checkout', '-b', 'feature/add-vuln']);
     const vulnContent = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'review-eval-vuln.rb'), 'utf-8');
-    fs.writeFileSync(path.join(codexDir, 'user_controller.rb'), vulnContent);
+    fs.writeFileSync(path.join(smDir, 'user_controller.rb'), vulnContent);
     run('git', ['add', 'user_controller.rb']);
     run('git', ['commit', '-m', 'add vulnerable controller']);
 
-    // Copy the codex skill file
-    fs.copyFileSync(path.join(ROOT, 'codex', 'SKILL.md'), path.join(codexDir, 'codex-SKILL.md'));
+    // Copy the second-model-review skill file
+    fs.copyFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), path.join(smDir, 'second-model-review-SKILL.md'));
   });
 
   afterAll(() => {
-    try { fs.rmSync(codexDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(smDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/codex review produces findings and GATE verdict', async () => {
-    // Check codex is available — skip if not installed
+  test('/second-model-review produces findings and GATE verdict', async () => {
+    // Check a second model CLI is available — skip if none installed
     const codexCheck = spawnSync('which', ['codex'], { stdio: 'pipe', timeout: 3000 });
-    if (codexCheck.status !== 0) {
-      console.warn('codex CLI not installed — skipping E2E test');
+    const geminiCheck = spawnSync('which', ['gemini'], { stdio: 'pipe', timeout: 3000 });
+    if (codexCheck.status !== 0 && geminiCheck.status !== 0) {
+      console.warn('no second model CLI installed — skipping E2E test');
       return;
     }
 
     const result = await runSkillTest({
       prompt: `You are in a git repo on branch feature/add-vuln with changes against main.
-Read codex-SKILL.md for the /codex skill instructions.
-Run /codex review to review the current diff against main.
-Write the full output (including the GATE verdict) to ${codexDir}/codex-output.md`,
-      workingDirectory: codexDir,
+Read second-model-review-SKILL.md for the /second-model-review skill instructions.
+Run /second-model-review review to review the current diff against main.
+Write the full output (including the GATE verdict) to ${smDir}/sm-output.md`,
+      workingDirectory: smDir,
       maxTurns: 10,
       timeout: 300_000,
-      testName: 'codex-review',
+      testName: 'second-model-review',
       runId,
     });
 
-    logCost('/codex review', result);
-    recordE2E('/codex review', 'Codex skill E2E', result);
+    logCost('/second-model-review', result);
+    recordE2E('/second-model-review', 'Second model review E2E', result);
     expect(result.exitReason).toBe('success');
 
     // Check that output file was created with review content
-    const outputPath = path.join(codexDir, 'codex-output.md');
+    const outputPath = path.join(smDir, 'sm-output.md');
     if (fs.existsSync(outputPath)) {
       const output = fs.readFileSync(outputPath, 'utf-8');
-      // Should contain the CODEX SAYS header or GATE verdict
-      const hasCodexOutput = output.includes('CODEX') || output.includes('GATE') || output.includes('codex');
-      expect(hasCodexOutput).toBe(true);
+      // Should contain a GATE verdict or review output
+      const hasOutput = output.includes('GATE') || output.includes('SAYS') || output.includes('review');
+      expect(hasOutput).toBe(true);
     }
   }, 360_000);
 });

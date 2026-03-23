@@ -49,6 +49,13 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+_HOST_AGENT="unknown"
+[ "${CLAUDECODE:-}" = "1" ] && _HOST_AGENT="claude"
+[ "${CODEX:-}" = "1" ] && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\|cursor' && _HOST_AGENT="cursor"
+echo "HOST_AGENT: $_HOST_AGENT"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"office-hours","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
@@ -646,20 +653,26 @@ Use AskUserQuestion to confirm. If the user disagrees with a premise, revise und
 **Binary check first — no question if unavailable:**
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SM_CFG_PROVIDER=$(~/.claude/skills/gstack/bin/gstack-config get second_model_provider 2>/dev/null || echo "codex")
+_SM_BINARY="codex"
+[ "$_SM_CFG_PROVIDER" = "gemini" ] && _SM_BINARY="gemini"
+[ "$_SM_CFG_PROVIDER" = "cursor" ] && _SM_BINARY="agent"
+which $_SM_BINARY 2>/dev/null && echo "SM_AVAILABLE" || echo "SM_NOT_AVAILABLE"
+echo "SM_PROVIDER: $_SM_CFG_PROVIDER"
+echo "SM_BINARY: $_SM_BINARY"
 ```
 
-If `CODEX_NOT_AVAILABLE`: skip Phase 3.5 entirely — no message, no AskUserQuestion. Proceed directly to Phase 4.
+If `SM_NOT_AVAILABLE`: skip Phase 3.5 entirely — no message, no AskUserQuestion. Proceed directly to Phase 4.
 
-If `CODEX_AVAILABLE`: use AskUserQuestion:
+If `SM_AVAILABLE`: use AskUserQuestion:
 
-> Want a second opinion from a different AI model? Codex will independently review your problem statement, key answers, premises, and any landscape findings from this session. It hasn't seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
+> Want a second opinion from a different AI model? {second-model-name} will independently review your problem statement, key answers, premises, and any landscape findings from this session. It hasn't seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
 > A) Yes, get a second opinion
 > B) No, proceed to alternatives
 
-If B: skip Phase 3.5 entirely. Remember that Codex did NOT run (affects design doc, founder signals, and Phase 4 below).
+If B: skip Phase 3.5 entirely. Remember that the second model did NOT run (affects design doc, founder signals, and Phase 4 below).
 
-**If A: Run the Codex cold read.**
+**If A: Run the second model cold read.**
 
 1. Assemble a structured context block from Phases 1-3:
    - Mode (Startup or Builder)
@@ -672,7 +685,7 @@ If B: skip Phase 3.5 entirely. Remember that Codex did NOT run (affects design d
 2. **Write the assembled prompt to a temp file** (prevents shell injection from user-derived content):
 
 ```bash
-CODEX_PROMPT_FILE=$(mktemp /tmp/gstack-codex-oh-XXXXXXXX.txt)
+SM_PROMPT_FILE=$(mktemp /tmp/gstack-sm-oh-XXXXXXXX.txt)
 ```
 
 Write the full prompt (context block + instructions) to this file. Use the mode-appropriate variant:
@@ -681,44 +694,46 @@ Write the full prompt (context block + instructions) to this file. Use the mode-
 
 **Builder mode instructions:** "You are an independent technical advisor reading a transcript of a builder brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the COOLEST version of this they haven't considered? 2) What's the ONE thing from their answers that reveals what excites them most? Quote it. 3) What existing open source project or tool gets them 50% of the way there — and what's the 50% they'd need to build? 4) If you had a weekend to build this, what would you build first? Be specific. Be direct. No preamble."
 
-3. Run Codex:
+3. Run the second model using the provider-specific command:
+- If `SM_PROVIDER` is `codex`: `codex exec "$(cat "$SM_PROMPT_FILE")" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached`
+- If `SM_PROVIDER` is `gemini`: `gemini --sandbox -p "$(cat "$SM_PROMPT_FILE")"`
+- If `SM_PROVIDER` is `cursor`: `agent --trust -p "$(cat "$SM_PROMPT_FILE")" --model composer-2`
 
 ```bash
-TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_OH"
+TMPERR_OH=$(mktemp /tmp/sm-oh-err-XXXXXXXX)
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
 cat "$TMPERR_OH"
-rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
+rm -f "$TMPERR_OH" "$SM_PROMPT_FILE"
 ```
 
-**Error handling:** All errors are non-blocking — Codex second opinion is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate. Skipping second opinion."
-- **Timeout:** "Codex timed out after 5 minutes. Skipping second opinion."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>. Skipping second opinion."
+**Error handling:** All errors are non-blocking — the second model opinion is a quality enhancement, not a prerequisite.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "{second-model-name} authentication failed. Check the provider's auth documentation. Skipping second opinion."
+- **Timeout:** "{second-model-name} timed out after 5 minutes. Skipping second opinion."
+- **Empty response:** "{second-model-name} returned no response. Stderr: <paste relevant error>. Skipping second opinion."
 
 On any error, proceed to Phase 4 — do NOT fall back to a Claude subagent (this is brainstorming, not adversarial review).
 
 4. **Presentation:**
 
 ```
-SECOND OPINION (Codex):
+{SECOND_MODEL_NAME} SAYS (second opinion):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 ```
 
-5. **Cross-model synthesis:** After presenting Codex output, provide 3-5 bullet synthesis:
-   - Where Claude agrees with Codex
+5. **Cross-model synthesis:** After presenting the second model output, provide 3-5 bullet synthesis:
+   - Where Claude agrees with the second model
    - Where Claude disagrees and why
-   - Whether Codex's challenged premise changes Claude's recommendation
+   - Whether the second model's challenged premise changes Claude's recommendation
 
-6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
+6. **Premise revision check:** If the second model challenged an agreed premise, use AskUserQuestion:
 
-> Codex challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
-> A) Revise this premise based on Codex's input
+> The second model challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
+> A) Revise this premise based on the second model's input
 > B) Keep the original premise — proceed to alternatives
 
 If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).
@@ -817,33 +832,39 @@ Reference the wireframe screenshot in the design doc's "Recommended Approach" se
 The screenshot file at `/tmp/gstack-sketch.png` can be referenced by downstream skills
 (`/plan-design-review`, `/design-review`) to see what was originally envisioned.
 
-**Step 6: Outside design voices** (optional)
+**Step 6: Second model design voices** (optional)
 
 After the wireframe is approved, offer outside design perspectives:
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SM_CFG_PROVIDER=$(~/.claude/skills/gstack/bin/gstack-config get second_model_provider 2>/dev/null || echo "codex")
+_SM_BINARY="codex"
+[ "$_SM_CFG_PROVIDER" = "gemini" ] && _SM_BINARY="gemini"
+[ "$_SM_CFG_PROVIDER" = "cursor" ] && _SM_BINARY="agent"
+which $_SM_BINARY 2>/dev/null && echo "SM_AVAILABLE" || echo "SM_NOT_AVAILABLE"
 ```
 
-If Codex is available, use AskUserQuestion:
-> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
+If the second model is available, use AskUserQuestion:
+> "Want outside design perspectives on the chosen approach? The second model proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
 >
 > A) Yes — get outside design voices
 > B) No — proceed without
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, `model_reasoning_effort="medium"`):
-```bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
-```
-Use a 5-minute timeout (`timeout: 300000`). After completion: `cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"`
+1. **Second model** (via Bash): Use the provider-specific command:
+- If `SM_PROVIDER` is `codex`: `codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached`
+- If `SM_PROVIDER` is `gemini`: `gemini --sandbox -p "<prompt>"`
+- If `SM_PROVIDER` is `cursor`: `agent --trust -p "<prompt>" --model composer-2`
+
+Prompt: "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated."
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes).
 
 2. **Claude subagent** (via Agent tool):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
-Present Codex output under `CODEX SAYS (design sketch):` and subagent output under `CLAUDE SUBAGENT (design direction):`.
+Present second model output under `{SECOND_MODEL_NAME} SAYS (design sketch):` and subagent output under `CLAUDE SUBAGENT (design direction):`.
 Error handling: all non-blocking. On failure, skip and continue.
 
 ---
