@@ -103,7 +103,7 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
     evalCollector?.finalize();
   });
 
-  test('journey-ideation', async () => {
+  test.concurrent('journey-ideation', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-ideation-'));
     try {
       initGitRepo(tmpDir);
@@ -135,9 +135,9 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-plan-eng', async () => {
+  test.concurrent('journey-plan-eng', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-plan-eng-'));
     try {
       initGitRepo(tmpDir);
@@ -187,9 +187,9 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-think-bigger', async () => {
+  test.concurrent('journey-think-bigger', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-think-bigger-'));
     try {
       initGitRepo(tmpDir);
@@ -241,7 +241,7 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
     }
   }, 180_000);
 
-  test('journey-debug', async () => {
+  test.concurrent('journey-debug', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-debug-'));
     try {
       initGitRepo(tmpDir);
@@ -299,9 +299,9 @@ export default app;
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-qa', async () => {
+  test.concurrent('journey-qa', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-qa-'));
     try {
       initGitRepo(tmpDir);
@@ -338,9 +338,9 @@ export default app;
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-code-review', async () => {
+  test.concurrent('journey-code-review', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-code-review-'));
     try {
       initGitRepo(tmpDir);
@@ -365,7 +365,7 @@ export default app;
         workingDirectory: tmpDir,
         maxTurns: 5,
         allowedTools: ['Skill', 'Read', 'Bash', 'Glob', 'Grep'],
-        timeout: 60_000,
+        timeout: 120_000,
         testName,
         runId,
       });
@@ -381,9 +381,9 @@ export default app;
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-ship', async () => {
+  test.concurrent('journey-ship', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-ship-'));
     try {
       initGitRepo(tmpDir);
@@ -423,9 +423,9 @@ export default app;
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-docs', async () => {
+  test.concurrent('journey-docs', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-docs-'));
     try {
       initGitRepo(tmpDir);
@@ -463,9 +463,9 @@ export default app;
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-retro', async () => {
+  test.concurrent('journey-retro', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-retro-'));
     try {
       initGitRepo(tmpDir);
@@ -493,7 +493,7 @@ export default app;
         workingDirectory: tmpDir,
         maxTurns: 5,
         allowedTools: ['Skill', 'Read', 'Bash', 'Glob', 'Grep'],
-        timeout: 60_000,
+        timeout: 120_000,
         testName,
         runId,
       });
@@ -509,9 +509,9 @@ export default app;
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-design-system', async () => {
+  test.concurrent('journey-design-system', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-design-system-'));
     try {
       initGitRepo(tmpDir);
@@ -547,9 +547,9 @@ export default app;
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 
-  test('journey-visual-qa', async () => {
+  test.concurrent('journey-visual-qa', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-visual-qa-'));
     try {
       initGitRepo(tmpDir);
@@ -601,5 +601,5 @@ body { font-family: sans-serif; }
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 150_000);
 });

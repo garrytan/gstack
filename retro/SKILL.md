@@ -31,10 +31,20 @@ _PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 echo "PROACTIVE: $_PROACTIVE"
+source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+REPO_MODE=${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+_SESSION_ID="$$-$(date +%s)"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"retro","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+for _PF in ~/.gstack/analytics/.pending-*; do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
@@ -53,6 +63,39 @@ touch ~/.gstack/.completeness-intro-seen
 ```
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
+
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+ask the user about telemetry. Use AskUserQuestion:
+
+> Help gstack get better! Community mode shares usage data (which skills you use, how long
+> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
+> No code, file paths, or repo names are ever sent.
+> Change anytime with `gstack-config set telemetry off`.
+
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+
+If B: ask a follow-up AskUserQuestion:
+
+> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
+> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+
+Options:
+- A) Sure, anonymous is fine
+- B) No thanks, fully off
+
+If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+
+Always run:
+```bash
+touch ~/.gstack/.telemetry-prompted
+```
+
+This only happens once. If `TEL_PROMPTED` is `yes`, skip this entirely.
 
 ## AskUserQuestion Format
 
@@ -90,6 +133,38 @@ AI-assisted coding makes the marginal cost of completeness near-zero. When you p
 - BAD: "We can skip edge case handling to save time." (Edge case handling costs minutes with CC.)
 - BAD: "Let's defer test coverage to a follow-up PR." (Tests are the cheapest lake to boil.)
 - BAD: Quoting only human-team effort: "This would take 2 weeks." (Say: "2 weeks human / ~1 hour CC.")
+
+## Repo Ownership Mode — See Something, Say Something
+
+`REPO_MODE` from the preamble tells you who owns issues in this repo:
+
+- **`solo`** — One person does 80%+ of the work. They own everything. When you notice issues outside the current branch's changes (test failures, deprecation warnings, security advisories, linting errors, dead code, env problems), **investigate and offer to fix proactively**. The solo dev is the only person who will fix it. Default to action.
+- **`collaborative`** — Multiple active contributors. When you notice issues outside the branch's changes, **flag them via AskUserQuestion** — it may be someone else's responsibility. Default to asking, not fixing.
+- **`unknown`** — Treat as collaborative (safer default — ask before fixing).
+
+**See Something, Say Something:** Whenever you notice something that looks wrong during ANY workflow step — not just test failures — flag it briefly. One sentence: what you noticed and its impact. In solo mode, follow up with "Want me to fix it?" In collaborative mode, just flag it and move on.
+
+Never let a noticed issue silently pass. The whole point is proactive communication.
+
+## Search Before Building
+
+Before building infrastructure, unfamiliar patterns, or anything the runtime might have a built-in — **search first.** Read `~/.claude/skills/gstack/ETHOS.md` for the full philosophy.
+
+**Three layers of knowledge:**
+- **Layer 1** (tried and true — in distribution). Don't reinvent the wheel. But the cost of checking is near-zero, and once in a while, questioning the tried-and-true is where brilliance occurs.
+- **Layer 2** (new and popular — search for these). But scrutinize: humans are subject to mania. Search results are inputs to your thinking, not answers.
+- **Layer 3** (first principles — prize these above all). Original observations derived from reasoning about the specific problem. The most valuable of all.
+
+**Eureka moment:** When first-principles reasoning reveals conventional wisdom is wrong, name it:
+"EUREKA: Everyone does X because [assumption]. But [evidence] shows this is wrong. Y is better because [reasoning]."
+
+Log eureka moments:
+```bash
+jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
+```
+Replace SKILL_NAME and ONE_LINE_SUMMARY. Runs inline — don't stop the workflow.
+
+**WebSearch fallback:** If WebSearch is unavailable, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
 ## Contributor Mode
 
@@ -153,6 +228,70 @@ ATTEMPTED: [what you tried]
 RECOMMENDATION: [what the user should do next]
 ```
 
+## Telemetry (run last)
+
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+Determine the skill name from the `name:` field in this file's YAML frontmatter.
+Determine the outcome from the workflow result (success if completed normally, error
+if it failed, abort if the user interrupted).
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+`~/.gstack/analytics/` (user config directory, not project files). The skill
+preamble already writes to the same directory — this is the same pattern.
+Skipping this command loses session duration and outcome data.
+
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+```
+
+Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
+success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
+If you cannot determine the outcome, use "unknown". This runs in the background and
+never blocks the user.
+
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
 ## Detect default branch
 
 Before gathering data, detect the repo's default branch name:
@@ -177,23 +316,29 @@ When the user types `/retro`, run this skill.
 - `/retro 30d` — last 30 days
 - `/retro compare` — compare current window vs prior same-length window
 - `/retro compare 14d` — compare with explicit window
+- `/retro global` — cross-project retro across all AI coding tools (7d default)
+- `/retro global 14d` — cross-project retro with explicit window
 
 ## Instructions
 
 Parse the argument to determine the time window. Default to 7 days if no argument given. All times should be reported in the user's **local timezone** (use the system default — do NOT set `TZ`).
 
-**Midnight-aligned windows:** For day (`d`) and week (`w`) units, compute an absolute start date at local midnight, not a relative string. For example, if today is 2026-03-18 and the window is 7 days: the start date is 2026-03-11. Use `--since="2026-03-11"` for git log queries — git interprets a bare date as midnight in the local timezone, so this captures full calendar days regardless of what time the retro runs. For week units, multiply by 7 to get days (e.g., `2w` = 14 days back). For hour (`h`) units, use `--since="N hours ago"` since midnight alignment does not apply to sub-day windows.
+**Midnight-aligned windows:** For day (`d`) and week (`w`) units, compute an absolute start date at local midnight, not a relative string. For example, if today is 2026-03-18 and the window is 7 days: the start date is 2026-03-11. Use `--since="2026-03-11T00:00:00"` for git log queries — the explicit `T00:00:00` suffix ensures git starts from midnight. Without it, git uses the current wall-clock time (e.g., `--since="2026-03-11"` at 11pm means 11pm, not midnight). For week units, multiply by 7 to get days (e.g., `2w` = 14 days back). For hour (`h`) units, use `--since="N hours ago"` since midnight alignment does not apply to sub-day windows.
 
-**Argument validation:** If the argument doesn't match a number followed by `d`, `h`, or `w`, the word `compare`, or `compare` followed by a number and `d`/`h`/`w`, show this usage and stop:
+**Argument validation:** If the argument doesn't match a number followed by `d`, `h`, or `w`, the word `compare` (optionally followed by a window), or the word `global` (optionally followed by a window), show this usage and stop:
 ```
-Usage: /retro [window]
+Usage: /retro [window | compare | global]
   /retro              — last 7 days (default)
   /retro 24h          — last 24 hours
   /retro 14d          — last 14 days
   /retro 30d          — last 30 days
   /retro compare      — compare this period vs prior period
   /retro compare 14d  — compare with explicit window
+  /retro global       — cross-project retro across all AI tools (7d default)
+  /retro global 14d   — cross-project retro with explicit window
 ```
+
+**If the first argument is `global`:** Skip the normal repo-scoped retro (Steps 1-14). Instead, follow the **Global Retrospective** flow at the end of this document. The optional second argument is the time window (default 7d). This mode does NOT require being inside a git repo.
 
 ### Step 1: Gather Raw Data
 
@@ -244,6 +389,9 @@ find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec
 
 # 11. Regression test commits in window
 git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep="test(design):" --grep="test: coverage"
+
+# 12. gstack skill usage telemetry (if available)
+cat ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 
 # 12. Test files changed in window
 git log origin/<default> --since="<window>" --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
@@ -305,6 +453,20 @@ If TODOS.md doesn't exist, skip the Backlog Health row.
 
 If the JSONL file doesn't exist or has no entries in the window, skip the Skill Usage row.
 
+**Eureka Moments (if logged):** Read `~/.gstack/analytics/eureka.jsonl` if it exists. Filter entries within the retro time window by `ts` field. For each eureka moment, show the skill that flagged it, the branch, and a one-line summary of the insight. Present as:
+
+```
+| Eureka Moments | 2 this period |
+```
+
+If moments exist, list them:
+```
+  EUREKA /office-hours (branch: garrytan/auth-rethink): "Session tokens don't need server storage — browser crypto API makes client-side JWT validation viable"
+  EUREKA /plan-eng-review (branch: garrytan/cache-layer): "Redis isn't needed here — Bun's built-in LRU cache handles this workload"
+```
+
+If the JSONL file doesn't exist or has no entries in the window, skip the Eureka Moments row.
+
 ### Step 3: Commit Time Distribution
 
 Show hourly histogram in local time using bar chart:
@@ -364,7 +526,7 @@ From commit diffs, estimate PR sizes and bucket them:
 - **Small** (<100 LOC)
 - **Medium** (100-500 LOC)
 - **Large** (500-1500 LOC)
-- **XL** (1500+ LOC) — flag these with file counts
+- **XL** (1500+ LOC)
 
 ### Step 8: Focus Score + Ship of the Week
 
@@ -556,14 +718,13 @@ Narrative interpreting what the team-wide patterns mean:
 
 Narrative covering:
 - Commit type mix and what it reveals
-- PR size discipline (are PRs staying small?)
+- PR size distribution and what it reveals about shipping cadence
 - Fix-chain detection (sequences of fix commits on the same subsystem)
 - Version bump discipline
 
 ### Code Quality Signals
 - Test LOC ratio trend
 - Hotspot analysis (are the same files churning?)
-- Any XL PRs that should have been split
 - Greptile signal ratio and trend (if history exists): "Greptile: X% signal (Y valid catches, Z false positives)"
 
 ### Test Health
@@ -602,7 +763,7 @@ For each teammate (sorted by commits descending), write a section:
   - "Fixed the N+1 query that was causing 2s load times on the dashboard"
 - **Opportunity for growth**: 1 specific, constructive suggestion. Frame as investment, not criticism. Examples:
   - "Test coverage on the payment module is at 8% — worth investing in before the next feature lands on top of it"
-  - "3 of the 5 PRs were 800+ LOC — breaking these up would catch issues earlier and make review easier"
+  - "Most commits land in a single burst — spacing work across the day could reduce context-switching fatigue"
   - "All commits land between 1-4am — sustainable pace matters for code quality long-term"
 
 **AI collaboration note:** If many commits have `Co-Authored-By` AI trailers (e.g., Claude, Copilot), note the AI-assisted commit percentage as a team metric. Frame it neutrally — "N% of commits were AI-assisted" — without judgment.
@@ -624,12 +785,299 @@ Small, practical, realistic. Each must be something that takes <5 minutes to ado
 
 ---
 
+## Global Retrospective Mode
+
+When the user runs `/retro global` (or `/retro global 14d`), follow this flow instead of the repo-scoped Steps 1-14. This mode works from any directory — it does NOT require being inside a git repo.
+
+### Global Step 1: Compute time window
+
+Same midnight-aligned logic as the regular retro. Default 7d. The second argument after `global` is the window (e.g., `14d`, `30d`, `24h`).
+
+### Global Step 2: Run discovery
+
+Locate and run the discovery script using this fallback chain:
+
+```bash
+DISCOVER_BIN=""
+[ -x ~/.claude/skills/gstack/bin/gstack-global-discover ] && DISCOVER_BIN=~/.claude/skills/gstack/bin/gstack-global-discover
+[ -z "$DISCOVER_BIN" ] && [ -x .claude/skills/gstack/bin/gstack-global-discover ] && DISCOVER_BIN=.claude/skills/gstack/bin/gstack-global-discover
+[ -z "$DISCOVER_BIN" ] && which gstack-global-discover >/dev/null 2>&1 && DISCOVER_BIN=$(which gstack-global-discover)
+[ -z "$DISCOVER_BIN" ] && [ -f bin/gstack-global-discover.ts ] && DISCOVER_BIN="bun run bin/gstack-global-discover.ts"
+echo "DISCOVER_BIN: $DISCOVER_BIN"
+```
+
+If no binary is found, tell the user: "Discovery script not found. Run `bun run build` in the gstack directory to compile it." and stop.
+
+Run the discovery:
+```bash
+$DISCOVER_BIN --since "<window>" --format json 2>/tmp/gstack-discover-stderr
+```
+
+Read the stderr output from `/tmp/gstack-discover-stderr` for diagnostic info. Parse the JSON output from stdout.
+
+If `total_sessions` is 0, say: "No AI coding sessions found in the last <window>. Try a longer window: `/retro global 30d`" and stop.
+
+### Global Step 3: Run git log on each discovered repo
+
+For each repo in the discovery JSON's `repos` array, find the first valid path in `paths[]` (directory exists with `.git/`). If no valid path exists, skip the repo and note it.
+
+**For local-only repos** (where `remote` starts with `local:`): skip `git fetch` and use the local default branch. Use `git log HEAD` instead of `git log origin/$DEFAULT`.
+
+**For repos with remotes:**
+
+```bash
+git -C <path> fetch origin --quiet 2>/dev/null
+```
+
+Detect the default branch for each repo: first try `git symbolic-ref refs/remotes/origin/HEAD`, then check common branch names (`main`, `master`), then fall back to `git rev-parse --abbrev-ref HEAD`. Use the detected branch as `<default>` in the commands below.
+
+```bash
+# Commits with stats
+git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%H|%aN|%ai|%s" --shortstat
+
+# Commit timestamps for session detection, streak, and context switching
+git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%at|%aN|%ai|%s" | sort -n
+
+# Per-author commit counts
+git -C <path> shortlog origin/$DEFAULT --since="<start_date>T00:00:00" -sn --no-merges
+
+# PR numbers from commit messages
+git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%s" | grep -oE '#[0-9]+' | sort -n | uniq
+```
+
+For repos that fail (deleted paths, network errors): skip and note "N repos could not be reached."
+
+### Global Step 4: Compute global shipping streak
+
+For each repo, get commit dates (capped at 365 days):
+
+```bash
+git -C <path> log origin/$DEFAULT --since="365 days ago" --format="%ad" --date=format:"%Y-%m-%d" | sort -u
+```
+
+Union all dates across all repos. Count backward from today — how many consecutive days have at least one commit to ANY repo? If the streak hits 365 days, display as "365+ days".
+
+### Global Step 5: Compute context switching metric
+
+From the commit timestamps gathered in Step 3, group by date. For each date, count how many distinct repos had commits that day. Report:
+- Average repos/day
+- Maximum repos/day
+- Which days were focused (1 repo) vs. fragmented (3+ repos)
+
+### Global Step 6: Per-tool productivity patterns
+
+From the discovery JSON, analyze tool usage patterns:
+- Which AI tool is used for which repos (exclusive vs. shared)
+- Session count per tool
+- Behavioral patterns (e.g., "Codex used exclusively for myapp, Claude Code for everything else")
+
+### Global Step 7: Aggregate and generate narrative
+
+Structure the output with the **shareable personal card first**, then the full
+team/project breakdown below. The personal card is designed to be screenshot-friendly
+— everything someone would want to share on X/Twitter in one clean block.
+
+---
+
+**Tweetable summary** (first line, before everything else):
+```
+Week of Mar 14: 5 projects, 138 commits, 250k LOC across 5 repos | 48 AI sessions | Streak: 52d 🔥
+```
+
+## 🚀 Your Week: [user name] — [date range]
+
+This section is the **shareable personal card**. It contains ONLY the current user's
+stats — no team data, no project breakdowns. Designed to screenshot and post.
+
+Use the user identity from `git config user.name` to filter all per-repo git data.
+Aggregate across all repos to compute personal totals.
+
+Render as a single visually clean block. Left border only — no right border (LLMs
+can't align right borders reliably). Pad repo names to the longest name so columns
+align cleanly. Never truncate project names.
+
+```
+╔═══════════════════════════════════════════════════════════════
+║  [USER NAME] — Week of [date]
+╠═══════════════════════════════════════════════════════════════
+║
+║  [N] commits across [M] projects
+║  +[X]k LOC added · [Y]k LOC deleted · [Z]k net
+║  [N] AI coding sessions (CC: X, Codex: Y, Gemini: Z)
+║  [N]-day shipping streak 🔥
+║
+║  PROJECTS
+║  ─────────────────────────────────────────────────────────
+║  [repo_name_full]        [N] commits    +[X]k LOC    [solo/team]
+║  [repo_name_full]        [N] commits    +[X]k LOC    [solo/team]
+║  [repo_name_full]        [N] commits    +[X]k LOC    [solo/team]
+║
+║  SHIP OF THE WEEK
+║  [PR title] — [LOC] lines across [N] files
+║
+║  TOP WORK
+║  • [1-line description of biggest theme]
+║  • [1-line description of second theme]
+║  • [1-line description of third theme]
+║
+║  Powered by gstack · github.com/garrytan/gstack
+╚═══════════════════════════════════════════════════════════════
+```
+
+**Rules for the personal card:**
+- Only show repos where the user has commits. Skip repos with 0 commits.
+- Sort repos by user's commit count descending.
+- **Never truncate repo names.** Use the full repo name (e.g., `analyze_transcripts`
+  not `analyze_trans`). Pad the name column to the longest repo name so all columns
+  align. If names are long, widen the box — the box width adapts to content.
+- For LOC, use "k" formatting for thousands (e.g., "+64.0k" not "+64010").
+- Role: "solo" if user is the only contributor, "team" if others contributed.
+- Ship of the Week: the user's single highest-LOC PR across ALL repos.
+- Top Work: 3 bullet points summarizing the user's major themes, inferred from
+  commit messages. Not individual commits — synthesize into themes.
+  E.g., "Built /retro global — cross-project retrospective with AI session discovery"
+  not "feat: gstack-global-discover" + "feat: /retro global template".
+- The card must be self-contained. Someone seeing ONLY this block should understand
+  the user's week without any surrounding context.
+- Do NOT include team members, project totals, or context switching data here.
+
+**Personal streak:** Use the user's own commits across all repos (filtered by
+`--author`) to compute a personal streak, separate from the team streak.
+
+---
+
+## Global Engineering Retro: [date range]
+
+Everything below is the full analysis — team data, project breakdowns, patterns.
+This is the "deep dive" that follows the shareable card.
+
+### All Projects Overview
+| Metric | Value |
+|--------|-------|
+| Projects active | N |
+| Total commits (all repos, all contributors) | N |
+| Total LOC | +N / -N |
+| AI coding sessions | N (CC: X, Codex: Y, Gemini: Z) |
+| Active days | N |
+| Global shipping streak (any contributor, any repo) | N consecutive days |
+| Context switches/day | N avg (max: M) |
+
+### Per-Project Breakdown
+For each repo (sorted by commits descending):
+- Repo name (with % of total commits)
+- Commits, LOC, PRs merged, top contributor
+- Key work (inferred from commit messages)
+- AI sessions by tool
+
+**Your Contributions** (sub-section within each project):
+For each project, add a "Your contributions" block showing the current user's
+personal stats within that repo. Use the user identity from `git config user.name`
+to filter. Include:
+- Your commits / total commits (with %)
+- Your LOC (+insertions / -deletions)
+- Your key work (inferred from YOUR commit messages only)
+- Your commit type mix (feat/fix/refactor/chore/docs breakdown)
+- Your biggest ship in this repo (highest-LOC commit or PR)
+
+If the user is the only contributor, say "Solo project — all commits are yours."
+If the user has 0 commits in a repo (team project they didn't touch this period),
+say "No commits this period — [N] AI sessions only." and skip the breakdown.
+
+Format:
+```
+**Your contributions:** 47/244 commits (19%), +4.2k/-0.3k LOC
+  Key work: Writer Chat, email blocking, security hardening
+  Biggest ship: PR #605 — Writer Chat eats the admin bar (2,457 ins, 46 files)
+  Mix: feat(3) fix(2) chore(1)
+```
+
+### Cross-Project Patterns
+- Time allocation across projects (% breakdown, use YOUR commits not total)
+- Peak productivity hours aggregated across all repos
+- Focused vs. fragmented days
+- Context switching trends
+
+### Tool Usage Analysis
+Per-tool breakdown with behavioral patterns:
+- Claude Code: N sessions across M repos — patterns observed
+- Codex: N sessions across M repos — patterns observed
+- Gemini: N sessions across M repos — patterns observed
+
+### Ship of the Week (Global)
+Highest-impact PR across ALL projects. Identify by LOC and commit messages.
+
+### 3 Cross-Project Insights
+What the global view reveals that no single-repo retro could show.
+
+### 3 Habits for Next Week
+Considering the full cross-project picture.
+
+---
+
+### Global Step 8: Load history & compare
+
+```bash
+ls -t ~/.gstack/retros/global-*.json 2>/dev/null | head -5
+```
+
+**Only compare against a prior retro with the same `window` value** (e.g., 7d vs 7d). If the most recent prior retro has a different window, skip comparison and note: "Prior global retro used a different window — skipping comparison."
+
+If a matching prior retro exists, load it with the Read tool. Show a **Trends vs Last Global Retro** table with deltas for key metrics: total commits, LOC, sessions, streak, context switches/day.
+
+If no prior global retros exist, append: "First global retro recorded — run again next week to see trends."
+
+### Global Step 9: Save snapshot
+
+```bash
+mkdir -p ~/.gstack/retros
+```
+
+Determine the next sequence number for today:
+```bash
+today=$(date +%Y-%m-%d)
+existing=$(ls ~/.gstack/retros/global-${today}-*.json 2>/dev/null | wc -l | tr -d ' ')
+next=$((existing + 1))
+```
+
+Use the Write tool to save JSON to `~/.gstack/retros/global-${today}-${next}.json`:
+
+```json
+{
+  "type": "global",
+  "date": "2026-03-21",
+  "window": "7d",
+  "projects": [
+    {
+      "name": "gstack",
+      "remote": "https://github.com/garrytan/gstack",
+      "commits": 47,
+      "insertions": 3200,
+      "deletions": 800,
+      "sessions": { "claude_code": 15, "codex": 3, "gemini": 0 }
+    }
+  ],
+  "totals": {
+    "commits": 182,
+    "insertions": 15300,
+    "deletions": 4200,
+    "projects": 5,
+    "active_days": 6,
+    "sessions": { "claude_code": 48, "codex": 8, "gemini": 3 },
+    "global_streak_days": 52,
+    "avg_context_switches_per_day": 2.1
+  },
+  "tweetable": "Week of Mar 14: 5 projects, 182 commits, 15.3k LOC | CC: 48, Codex: 8, Gemini: 3 | Focus: gstack (58%) | Streak: 52d"
+}
+```
+
+---
+
 ## Compare Mode
 
 When the user runs `/retro compare` (or `/retro compare 14d`):
 
-1. Compute metrics for the current window (default 7d) using the midnight-aligned start date (same logic as the main retro — e.g., if today is 2026-03-18 and window is 7d, use `--since="2026-03-11"`)
-2. Compute metrics for the immediately prior same-length window using both `--since` and `--until` with midnight-aligned dates to avoid overlap (e.g., for a 7d window starting 2026-03-11: prior window is `--since="2026-03-04" --until="2026-03-11"`)
+1. Compute metrics for the current window (default 7d) using the midnight-aligned start date (same logic as the main retro — e.g., if today is 2026-03-18 and window is 7d, use `--since="2026-03-11T00:00:00"`)
+2. Compute metrics for the immediately prior same-length window using both `--since` and `--until` with midnight-aligned dates to avoid overlap (e.g., for a 7d window starting 2026-03-11: prior window is `--since="2026-03-04T00:00:00" --until="2026-03-11T00:00:00"`)
 3. Show a side-by-side comparison table with deltas and arrows
 4. Write a brief narrative highlighting the biggest improvements and regressions
 5. Save only the current-window snapshot to `.context/retros/` (same as a normal retro run); do **not** persist the prior-window metrics.
@@ -657,3 +1105,4 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - Treat merge commits as PR boundaries
 - Do not read CLAUDE.md or other docs — this skill is self-contained
 - On first run (no prior retros), skip comparison sections gracefully
+- **Global mode:** Does NOT require being inside a git repo. Saves snapshots to `~/.gstack/retros/` (not `.context/retros/`). Gracefully skip AI tools that aren't installed. Only compare against prior global retros with the same window value. If streak hits 365d cap, display as "365+ days".

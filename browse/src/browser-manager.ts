@@ -122,7 +122,7 @@ export class BrowserManager {
 
     // Validate URL before allocating page to avoid zombie tabs on rejection
     if (url) {
-      validateNavigationUrl(url);
+      await validateNavigationUrl(url);
     }
 
     const page = await this.context.newPage();

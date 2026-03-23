@@ -128,6 +128,8 @@ AskUserQuestion: "I've rated this plan {N}/10 on design completeness. The bigges
 
 **STOP.** Do NOT proceed until user responds.
 
+{{DESIGN_OUTSIDE_VOICES}}
+
 ## The 0-10 Rating Method
 
 For each design section, rate the plan 0-10 on that dimension. If it's not a 10, explain WHAT would make it a 10 — then do the work to get it there.
@@ -176,6 +178,8 @@ Apply time-horizon design: 5-sec visceral, 5-min behavioral, 5-year reflective.
 ### Pass 4: AI Slop Risk
 Rate 0-10: Does the plan describe specific, intentional UI — or generic patterns?
 FIX TO 10: Rewrite vague UI descriptions with specific alternatives.
+
+{{DESIGN_HARD_RULES}}
 - "Cards with icons" → what differentiates these from every SaaS template?
 - "Hero section" → what makes this hero feel like THIS product?
 - "Clean, modern UI" → meaningless. Replace with actual design decisions.
@@ -266,23 +270,30 @@ If any AskUserQuestion goes unanswered, note it here. Never silently default to 
 
 ## Review Log
 
-After producing the Completion Summary above, persist the review result:
+After producing the Completion Summary above, persist the review result.
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
+`~/.gstack/` (user config directory, not project files). The skill preamble
+already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
+the same pattern. The review dashboard depends on this data. Skipping this
+command breaks the review readiness dashboard in /ship.
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
-echo '{"skill":"plan-design-review","timestamp":"TIMESTAMP","status":"STATUS","overall_score":N,"unresolved":N,"decisions_made":N,"commit":"COMMIT"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-design-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"unresolved":N,"decisions_made":N,"commit":"COMMIT"}'
 ```
 
 Substitute values from the Completion Summary:
 - **TIMESTAMP**: current ISO 8601 datetime
 - **STATUS**: "clean" if overall score 8+ AND 0 unresolved; otherwise "issues_open"
-- **overall_score**: final overall design score (0-10)
+- **initial_score**: initial overall design score before fixes (0-10)
+- **overall_score**: final overall design score after fixes (0-10)
 - **unresolved**: number of unresolved design decisions
 - **decisions_made**: number of design decisions added to the plan
 - **COMMIT**: output of `git rev-parse --short HEAD`
 
 {{REVIEW_DASHBOARD}}
+
+{{PLAN_FILE_REVIEW_REPORT}}
 
 ## Next Steps — Review Chaining
 

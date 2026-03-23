@@ -7,6 +7,7 @@ const BLOCKED_METADATA_HOSTS = new Set([
   '169.254.169.254',  // AWS/GCP/Azure instance metadata
   'fd00::',           // IPv6 unique local (metadata in some cloud setups)
   'metadata.google.internal', // GCP metadata
+  'metadata.azure.internal',  // Azure IMDS
 ]);
 
 /**
@@ -43,7 +44,23 @@ function isMetadataIp(hostname: string): boolean {
   return false;
 }
 
-export function validateNavigationUrl(url: string): void {
+/**
+ * Resolve a hostname to its IP addresses and check if any resolve to blocked metadata IPs.
+ * Mitigates DNS rebinding: even if the hostname looks safe, the resolved IP might not be.
+ */
+async function resolvesToBlockedIp(hostname: string): Promise<boolean> {
+  try {
+    const dns = await import('node:dns');
+    const { resolve4 } = dns.promises;
+    const addresses = await resolve4(hostname);
+    return addresses.some(addr => BLOCKED_METADATA_HOSTS.has(addr));
+  } catch {
+    // DNS resolution failed — not a rebinding risk
+    return false;
+  }
+}
+
+export async function validateNavigationUrl(url: string): Promise<void> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -62,6 +79,13 @@ export function validateNavigationUrl(url: string): void {
   if (BLOCKED_METADATA_HOSTS.has(hostname) || isMetadataIp(hostname)) {
     throw new Error(
       `Blocked: ${parsed.hostname} is a cloud metadata endpoint. Access is denied for security.`
+    );
+  }
+
+  // DNS rebinding protection: resolve hostname and check if it points to metadata IPs
+  if (await resolvesToBlockedIp(hostname)) {
+    throw new Error(
+      `Blocked: ${parsed.hostname} resolves to a cloud metadata IP. Possible DNS rebinding attack.`
     );
   }
 }

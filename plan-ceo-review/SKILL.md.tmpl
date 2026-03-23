@@ -10,12 +10,14 @@ description: |
   or "is this ambitious enough".
   Proactively suggest when the user is questioning scope or ambition of a plan,
   or when the plan feels like it could be thinking bigger.
+benefits-from: [office-hours]
 allowed-tools:
   - Read
   - Grep
   - Glob
   - Bash
   - AskUserQuestion
+  - WebSearch
 ---
 
 {{PREAMBLE}}
@@ -37,7 +39,7 @@ Do NOT make any code changes. Do NOT start implementation. Your only job right n
 
 ## Prime Directives
 1. Zero silent failures. Every failure mode must be visible — to the system, to the team, to the user. If a failure can happen silently, that is a critical defect in the plan.
-2. Every error has a name. Don't say "handle errors." Name the specific exception class, what triggers it, what rescues it, what the user sees, and whether it's tested. rescue StandardError is a code smell — call it out.
+2. Every error has a name. Don't say "handle errors." Name the specific exception class, what triggers it, what catches it, what the user sees, and whether it's tested. Catch-all error handling (e.g., catch Exception, rescue StandardError, except Exception) is a code smell — call it out.
 3. Data flows have shadow paths. Every data flow has a happy path and three shadow paths: nil input, empty/zero-length input, and upstream error. Trace all four for every new flow.
 4. Interactions have edge cases. Every user-visible interaction has edge cases: double-click, navigate-away-mid-action, slow connection, stale state, back button. Map them.
 5. Observability is scope, not afterthought. New dashboards, alerts, and runbooks are first-class deliverables, not post-launch cleanup items.
@@ -95,8 +97,8 @@ Run the following commands:
 git log --oneline -30                          # Recent history
 git diff <base> --stat                           # What's already changed
 git stash list                                 # Any stashed work
-grep -r "TODO\|FIXME\|HACK\|XXX" --include="*.rb" --include="*.js" -l
-find . -name "*.rb" -newer Gemfile.lock | head -20  # Recently touched files
+grep -r "TODO\|FIXME\|HACK\|XXX" -l --exclude-dir=node_modules --exclude-dir=vendor --exclude-dir=.git . | head -30
+git log --since=30.days --name-only --format="" | sort | uniq -c | sort -rn | head -20  # Recently touched files
 ```
 Then read CLAUDE.md, TODOS.md, and any existing architecture docs.
 
@@ -109,6 +111,44 @@ DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head
 [ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
 ```
 If a design doc exists (from `/office-hours`), read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design.
+
+**Handoff note check** (reuses $SLUG and $BRANCH from the design doc check above):
+```bash
+HANDOFF=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null | head -1)
+[ -n "$HANDOFF" ] && echo "HANDOFF_FOUND: $HANDOFF" || echo "NO_HANDOFF"
+```
+If this block runs in a separate shell from the design doc check, recompute $SLUG and $BRANCH first using the same commands from that block.
+If a handoff note is found: read it. This contains system audit findings and discussion
+from a prior CEO review session that paused so the user could run `/office-hours`. Use it
+as additional context alongside the design doc. The handoff note helps you avoid re-asking
+questions the user already answered. Do NOT skip any steps — run the full review, but use
+the handoff note to inform your analysis and avoid redundant questions.
+
+Tell the user: "Found a handoff note from your prior CEO review session. I'll use that
+context to pick up where we left off."
+
+{{BENEFITS_FROM}}
+
+**Mid-session detection:** During Step 0A (Premise Challenge), if the user can't
+articulate the problem, keeps changing the problem statement, answers with "I'm not
+sure," or is clearly exploring rather than reviewing — offer `/office-hours`:
+
+> "It sounds like you're still figuring out what to build — that's totally fine, but
+> that's what /office-hours is designed for. Want to run /office-hours right now?
+> We'll pick up right where we left off."
+
+Options: A) Yes, run /office-hours now. B) No, keep going.
+If they keep going, proceed normally — no guilt, no re-asking.
+
+If they choose A: Read the office-hours skill file from disk:
+`~/.claude/skills/gstack/office-hours/SKILL.md`
+
+Follow it inline, skipping these sections (already handled by parent skill):
+Preamble, AskUserQuestion Format, Completeness Principle, Search Before Building,
+Contributor Mode, Completion Status Protocol, Telemetry.
+
+Note current Step 0A progress so you don't re-ask questions already answered.
+After completion, re-run the design doc check and resume the review.
 
 When reading TODOS.md, specifically:
 * Note any TODOs this plan touches, blocks, or unlocks
@@ -131,6 +171,22 @@ Analyze the plan. If it involves ANY of: new UI screens/pages, changes to existi
 ### Taste Calibration (EXPANSION and SELECTIVE EXPANSION modes)
 Identify 2-3 files or patterns in the existing codebase that are particularly well-designed. Note them as style references for the review. Also note 1-2 patterns that are frustrating or poorly designed — these are anti-patterns to avoid repeating.
 Report findings before proceeding to Step 0.
+
+### Landscape Check
+
+Read ETHOS.md for the Search Before Building framework (the preamble's Search Before Building section has the path). Before challenging scope, understand the landscape. WebSearch for:
+- "[product category] landscape {current year}"
+- "[key feature] alternatives"
+- "why [incumbent/conventional approach] [succeeds/fails]"
+
+If WebSearch is unavailable, skip this check and note: "Search unavailable — proceeding with in-distribution knowledge only."
+
+Run the three-layer synthesis:
+- **[Layer 1]** What's the tried-and-true approach in this space?
+- **[Layer 2]** What are the search results saying?
+- **[Layer 3]** First-principles reasoning — where might the conventional wisdom be wrong?
+
+Feed into the Premise Challenge (0A) and Dream State Mapping (0C). If you find a eureka moment, surface it during the Expansion opt-in ceremony as a differentiation opportunity. Log it (see preamble).
 
 ## Step 0: Nuclear Scope Challenge + Mode Selection
 
@@ -209,8 +265,7 @@ Rules:
 After the opt-in/cherry-pick ceremony, write the plan to disk so the vision and decisions survive beyond this conversation. Only run this step for EXPANSION and SELECTIVE EXPANSION modes.
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG/ceo-plans
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG/ceo-plans
 ```
 
 Before writing, check for existing CEO plans in the ceo-plans/ directory. If any are >30 days old or their branch has been merged/deleted, offer to archive them:
@@ -253,6 +308,10 @@ Repo: {owner/repo}
 ```
 
 Derive the feature slug from the plan being reviewed (e.g., "user-dashboard", "auth-refactor"). Use the date in YYYY-MM-DD format.
+
+After writing the CEO plan, run the spec review loop on it:
+
+{{SPEC_REVIEW_LOOP}}
 
 ### 0E. Temporal Interrogation (EXPANSION, SELECTIVE EXPANSION, and HOLD modes)
 Think ahead to implementation: What decisions will need to be made during implementation that should be resolved NOW in the plan?
@@ -325,24 +384,24 @@ For every new method, service, or codepath that can fail, fill in this table:
 ```
   METHOD/CODEPATH          | WHAT CAN GO WRONG           | EXCEPTION CLASS
   -------------------------|-----------------------------|-----------------
-  ExampleService#call      | API timeout                 | Faraday::TimeoutError
+  ExampleService#call      | API timeout                 | TimeoutError
                            | API returns 429             | RateLimitError
-                           | API returns malformed JSON  | JSON::ParserError
-                           | DB connection pool exhausted| ActiveRecord::ConnectionTimeoutError
-                           | Record not found            | ActiveRecord::RecordNotFound
+                           | API returns malformed JSON  | JSONParseError
+                           | DB connection pool exhausted| ConnectionPoolExhausted
+                           | Record not found            | RecordNotFound
   -------------------------|-----------------------------|-----------------
 
   EXCEPTION CLASS              | RESCUED?  | RESCUE ACTION          | USER SEES
   -----------------------------|-----------|------------------------|------------------
-  Faraday::TimeoutError        | Y         | Retry 2x, then raise   | "Service temporarily unavailable"
+  TimeoutError                 | Y         | Retry 2x, then raise   | "Service temporarily unavailable"
   RateLimitError               | Y         | Backoff + retry         | Nothing (transparent)
-  JSON::ParserError            | N ← GAP   | —                      | 500 error ← BAD
-  ConnectionTimeoutError       | N ← GAP   | —                      | 500 error ← BAD
-  ActiveRecord::RecordNotFound | Y         | Return nil, log warning | "Not found" message
+  JSONParseError               | N ← GAP   | —                      | 500 error ← BAD
+  ConnectionPoolExhausted      | N ← GAP   | —                      | 500 error ← BAD
+  RecordNotFound               | Y         | Return nil, log warning | "Not found" message
 ```
 Rules for this section:
-* `rescue StandardError` is ALWAYS a smell. Name the specific exceptions.
-* `rescue => e` with only `Rails.logger.error(e.message)` is insufficient. Log the full context: what was being attempted, with what arguments, for what user/request.
+* Catch-all error handling (`rescue StandardError`, `catch (Exception e)`, `except Exception`) is ALWAYS a smell. Name the specific exceptions.
+* Catching an error with only a generic log message is insufficient. Log the full context: what was being attempted, with what arguments, for what user/request.
 * Every rescued error must either: retry with backoff, degrade gracefully with a user-visible message, or re-raise with added context. "Swallow and continue" is almost never acceptable.
 * For each GAP (unrescued error that should be rescued): specify the rescue action and what the user should see.
 * For LLM/AI service calls specifically: what happens when the response is malformed? When it's empty? When it hallucinates invalid JSON? When the model returns a refusal? Each of these is a distinct failure mode.
@@ -530,6 +589,8 @@ Required ASCII diagram: user flow showing screens/states and transitions.
 If this plan has significant UI scope, recommend: "Consider running /plan-design-review for a deep design review of this plan before implementation."
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
+{{CODEX_PLAN_REVIEW}}
+
 ## Post-Implementation Design Audit (if UI scope detected)
 After implementation, run `/design-review` on the live site to catch visual issues that can only be evaluated with rendered output.
 
@@ -624,6 +685,7 @@ List every ASCII diagram in files this plan touches. Still accurate?
   | TODOS.md updates     | ___ items proposed                          |
   | Scope proposals      | ___ proposed, ___ accepted (EXP + SEL)      |
   | CEO plan             | written / skipped (HOLD/REDUCTION)           |
+  | Outside voice        | ran (codex/claude) / skipped                 |
   | Lake Score           | X/Y recommendations chose complete option   |
   | Diagrams produced    | ___ (list types)                            |
   | Stale diagrams found | ___                                         |
@@ -634,14 +696,28 @@ List every ASCII diagram in files this plan touches. Still accurate?
 ### Unresolved Decisions
 If any AskUserQuestion goes unanswered, note it here. Never silently default.
 
-## Review Log
+## Handoff Note Cleanup
 
-After producing the Completion Summary above, persist the review result:
+After producing the Completion Summary, clean up any handoff notes for this branch —
+the review is complete and the context is no longer needed.
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
-echo '{"skill":"plan-ceo-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"MODE","commit":"COMMIT"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+{{SLUG_EVAL}}
+rm -f ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null || true
+```
+
+## Review Log
+
+After producing the Completion Summary above, persist the review result.
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
+`~/.gstack/` (user config directory, not project files). The skill preamble
+already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
+the same pattern. The review dashboard depends on this data. Skipping this
+command breaks the review readiness dashboard in /ship.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-ceo-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"MODE","scope_proposed":N,"scope_accepted":N,"scope_deferred":N,"commit":"COMMIT"}'
 ```
 
 Before running this command, substitute the placeholder values from the Completion Summary you just produced:
@@ -650,9 +726,14 @@ Before running this command, substitute the placeholder values from the Completi
 - **unresolved**: number from "Unresolved decisions" in the summary
 - **critical_gaps**: number from "Failure modes: ___ CRITICAL GAPS" in the summary
 - **MODE**: the mode the user selected (SCOPE_EXPANSION / SELECTIVE_EXPANSION / HOLD_SCOPE / SCOPE_REDUCTION)
+- **scope_proposed**: number from "Scope proposals: ___ proposed" in the summary (0 for HOLD/REDUCTION)
+- **scope_accepted**: number from "Scope proposals: ___ accepted" in the summary (0 for HOLD/REDUCTION)
+- **scope_deferred**: number of items deferred to TODOS.md from scope decisions (0 for HOLD/REDUCTION)
 - **COMMIT**: output of `git rev-parse --short HEAD`
 
 {{REVIEW_DASHBOARD}}
+
+{{PLAN_FILE_REVIEW_REPORT}}
 
 ## Next Steps — Review Chaining
 

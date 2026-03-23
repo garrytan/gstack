@@ -205,17 +205,19 @@ Templates contain the workflows, tips, and examples that require human judgment.
 | `{{DESIGN_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared design audit methodology for /plan-design-review and /design-review |
 | `{{REVIEW_DASHBOARD}}` | `gen-skill-docs.ts` | Review Readiness Dashboard for /ship pre-flight |
 | `{{TEST_BOOTSTRAP}}` | `gen-skill-docs.ts` | Test framework detection, bootstrap, CI/CD setup for /qa, /ship, /design-review |
+| `{{CODEX_PLAN_REVIEW}}` | `gen-skill-docs.ts` | Optional cross-model plan review (Codex or Claude subagent fallback) for /plan-ceo-review and /plan-eng-review |
 
 This is structurally sound — if a command exists in code, it appears in docs. If it doesn't exist, it can't appear.
 
 ### The preamble
 
-Every skill starts with a `{{PREAMBLE}}` block that runs before the skill's own logic. It handles four things in a single bash command:
+Every skill starts with a `{{PREAMBLE}}` block that runs before the skill's own logic. It handles five things in a single bash command:
 
 1. **Update check** — calls `gstack-update-check`, reports if an upgrade is available.
 2. **Session tracking** — touches `~/.gstack/sessions/$PPID` and counts active sessions (files modified in the last 2 hours). When 3+ sessions are running, all skills enter "ELI16 mode" — every question re-grounds the user on context because they're juggling windows.
 3. **Contributor mode** — reads `gstack_contributor` from config. When true, the agent files casual field reports to `~/.gstack/contributor-logs/` when gstack itself misbehaves.
 4. **AskUserQuestion format** — universal format: context, question, `RECOMMENDATION: Choose X because ___`, lettered options. Consistent across all skills.
+5. **Search Before Building** — before building infrastructure or unfamiliar patterns, search first. Three layers of knowledge: tried-and-true (Layer 1), new-and-popular (Layer 2), first-principles (Layer 3). When first-principles reasoning reveals conventional wisdom is wrong, the agent names the "eureka moment" and logs it. See `ETHOS.md` for the full builder philosophy.
 
 ### Why committed, not generated at runtime?
 
@@ -284,7 +286,7 @@ The `parseNDJSON()` function is pure — no I/O, no side effects — making it i
 ### Observability data flow
 
 ```
-  skill-e2e.test.ts
+  skill-e2e-*.test.ts
         │
         │ generates runId, passes testName + runId to each call
         │

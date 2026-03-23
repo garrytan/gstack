@@ -10,6 +10,7 @@ import { consoleBuffer, networkBuffer, dialogBuffer } from './buffers';
 import type { Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
+import { TEMP_DIR, isPathWithin } from './platform';
 
 /** Detect await keyword, ignoring comments. Accepted risk: await in string literals triggers wrapping (harmless). */
 function hasAwait(code: string): boolean {
@@ -36,12 +37,12 @@ function wrapForEvaluate(code: string): string {
 }
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = ['/tmp', process.cwd()];
+const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
 
 export function validateReadPath(filePath: string): void {
   if (path.isAbsolute(filePath)) {
     const resolved = path.resolve(filePath);
-    const isSafe = SAFE_DIRECTORIES.some(dir => resolved === dir || resolved.startsWith(dir + '/'));
+    const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
     if (!isSafe) {
       throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
     }
@@ -289,7 +290,21 @@ export async function handleReadCommand(
         localStorage: { ...localStorage },
         sessionStorage: { ...sessionStorage },
       }));
-      return JSON.stringify(storage, null, 2);
+      // Redact values that look like secrets (tokens, keys, passwords, JWTs)
+      const SENSITIVE_KEY = /(^|[_.-])(token|secret|key|password|credential|auth|jwt|session|csrf)($|[_.-])|api.?key/i;
+      const SENSITIVE_VALUE = /^(eyJ|sk-|sk_live_|sk_test_|pk_live_|pk_test_|rk_live_|sk-ant-|ghp_|gho_|github_pat_|xox[bpsa]-|AKIA[A-Z0-9]{16}|AIza|SG\.|Bearer\s|sbp_)/;
+      const redacted = JSON.parse(JSON.stringify(storage));
+      for (const storeType of ['localStorage', 'sessionStorage'] as const) {
+        const store = redacted[storeType];
+        if (!store) continue;
+        for (const [key, value] of Object.entries(store)) {
+          if (typeof value !== 'string') continue;
+          if (SENSITIVE_KEY.test(key) || SENSITIVE_VALUE.test(value)) {
+            store[key] = `[REDACTED — ${value.length} chars]`;
+          }
+        }
+      }
+      return JSON.stringify(redacted, null, 2);
     }
 
     case 'perf': {

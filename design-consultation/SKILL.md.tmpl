@@ -52,7 +52,7 @@ ls src/ app/ pages/ components/ 2>/dev/null | head -30
 Look for office-hours output:
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+{{SLUG_EVAL}}
 ls ~/.gstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
 ls .context/*office-hours* .context/attachments/*office-hours* 2>/dev/null | head -5
 ```
@@ -112,7 +112,12 @@ If browse is not available, rely on WebSearch results and your built-in design k
 
 **Step 3: Synthesize findings**
 
-The goal of research is NOT to copy. It is to get in the ballpark — to understand the visual language users in this category already expect. This gives you the baseline. The interesting design work starts after you have the baseline: deciding where to follow conventions (so the product feels literate) and where to break from them (so the product is memorable).
+**Three-layer synthesis:**
+- **Layer 1 (tried and true):** What design patterns does every product in this category share? These are table stakes — users expect them.
+- **Layer 2 (new and popular):** What are the search results and current design discourse saying? What's trending? What new patterns are emerging?
+- **Layer 3 (first principles):** Given what we know about THIS product's users and positioning — is there a reason the conventional design approach is wrong? Where should we deliberately break from the category norms?
+
+**Eureka check:** If Layer 3 reasoning reveals a genuine design insight — a reason the category's visual language fails THIS product — name it: "EUREKA: Every [category] product does X because they assume [assumption]. But this product's users [evidence] — so we should do Y instead." Log the eureka moment (see preamble).
 
 Summarize conversationally:
 > "I looked at what's out there. Here's the landscape: they converge on [patterns]. Most of them feel [observation — e.g., interchangeable, polished but generic, etc.]. The opportunity to stand out is [gap]. Here's where I'd play it safe and where I'd take a risk..."
@@ -125,6 +130,8 @@ Summarize conversationally:
 If the user said no research, skip entirely and proceed to Phase 3 using your built-in design knowledge.
 
 ---
+
+{{DESIGN_OUTSIDE_VOICES}}
 
 ## Phase 3: The Complete Proposal
 

@@ -11,6 +11,7 @@ allowed-tools:
   - Edit
   - Grep
   - Glob
+  - Agent
   - AskUserQuestion
   - WebSearch
 ---
@@ -31,10 +32,20 @@ _PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 echo "PROACTIVE: $_PROACTIVE"
+source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+REPO_MODE=${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+_SESSION_ID="$$-$(date +%s)"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"ship","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+for _PF in ~/.gstack/analytics/.pending-*; do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
@@ -53,6 +64,39 @@ touch ~/.gstack/.completeness-intro-seen
 ```
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
+
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+ask the user about telemetry. Use AskUserQuestion:
+
+> Help gstack get better! Community mode shares usage data (which skills you use, how long
+> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
+> No code, file paths, or repo names are ever sent.
+> Change anytime with `gstack-config set telemetry off`.
+
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+
+If B: ask a follow-up AskUserQuestion:
+
+> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
+> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+
+Options:
+- A) Sure, anonymous is fine
+- B) No thanks, fully off
+
+If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+
+Always run:
+```bash
+touch ~/.gstack/.telemetry-prompted
+```
+
+This only happens once. If `TEL_PROMPTED` is `yes`, skip this entirely.
 
 ## AskUserQuestion Format
 
@@ -90,6 +134,38 @@ AI-assisted coding makes the marginal cost of completeness near-zero. When you p
 - BAD: "We can skip edge case handling to save time." (Edge case handling costs minutes with CC.)
 - BAD: "Let's defer test coverage to a follow-up PR." (Tests are the cheapest lake to boil.)
 - BAD: Quoting only human-team effort: "This would take 2 weeks." (Say: "2 weeks human / ~1 hour CC.")
+
+## Repo Ownership Mode — See Something, Say Something
+
+`REPO_MODE` from the preamble tells you who owns issues in this repo:
+
+- **`solo`** — One person does 80%+ of the work. They own everything. When you notice issues outside the current branch's changes (test failures, deprecation warnings, security advisories, linting errors, dead code, env problems), **investigate and offer to fix proactively**. The solo dev is the only person who will fix it. Default to action.
+- **`collaborative`** — Multiple active contributors. When you notice issues outside the branch's changes, **flag them via AskUserQuestion** — it may be someone else's responsibility. Default to asking, not fixing.
+- **`unknown`** — Treat as collaborative (safer default — ask before fixing).
+
+**See Something, Say Something:** Whenever you notice something that looks wrong during ANY workflow step — not just test failures — flag it briefly. One sentence: what you noticed and its impact. In solo mode, follow up with "Want me to fix it?" In collaborative mode, just flag it and move on.
+
+Never let a noticed issue silently pass. The whole point is proactive communication.
+
+## Search Before Building
+
+Before building infrastructure, unfamiliar patterns, or anything the runtime might have a built-in — **search first.** Read `~/.claude/skills/gstack/ETHOS.md` for the full philosophy.
+
+**Three layers of knowledge:**
+- **Layer 1** (tried and true — in distribution). Don't reinvent the wheel. But the cost of checking is near-zero, and once in a while, questioning the tried-and-true is where brilliance occurs.
+- **Layer 2** (new and popular — search for these). But scrutinize: humans are subject to mania. Search results are inputs to your thinking, not answers.
+- **Layer 3** (first principles — prize these above all). Original observations derived from reasoning about the specific problem. The most valuable of all.
+
+**Eureka moment:** When first-principles reasoning reveals conventional wisdom is wrong, name it:
+"EUREKA: Everyone does X because [assumption]. But [evidence] shows this is wrong. Y is better because [reasoning]."
+
+Log eureka moments:
+```bash
+jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
+```
+Replace SKILL_NAME and ONE_LINE_SUMMARY. Runs inline — don't stop the workflow.
+
+**WebSearch fallback:** If WebSearch is unavailable, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
 ## Contributor Mode
 
@@ -153,6 +229,70 @@ ATTEMPTED: [what you tried]
 RECOMMENDATION: [what the user should do next]
 ```
 
+## Telemetry (run last)
+
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+Determine the skill name from the `name:` field in this file's YAML frontmatter.
+Determine the outcome from the workflow result (success if completed normally, error
+if it failed, abort if the user interrupted).
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+`~/.gstack/analytics/` (user config directory, not project files). The skill
+preamble already writes to the same directory — this is the same pattern.
+Skipping this command loses session duration and outcome data.
+
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+```
+
+Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
+success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
+If you cannot determine the outcome, use "unknown". This runs in the background and
+never blocks the user.
+
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
 ## Step 0: Detect base branch
 
 Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
@@ -179,7 +319,7 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 **Only stop for:**
 - On the base branch (abort)
 - Merge conflicts that can't be auto-resolved (stop, show conflicts)
-- Test failures (stop, show failures)
+- In-branch test failures (pre-existing failures are triaged, not auto-blocking)
 - Pre-landing review finds ASK items that need user judgment
 - MINOR or MAJOR version bump needed (ask — see Step 4)
 - Greptile review comments that need user decision (complex fixes, false positives)
@@ -213,15 +353,10 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 After completing the review, read the review log and config to display the dashboard.
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-cat ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_REVIEWS"
-echo "---CONFIG---"
-~/.claude/skills/gstack/bin/gstack-config get skip_eng_review 2>/dev/null || echo "false"
-echo "---HEAD---"
-git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+~/.claude/skills/gstack/bin/gstack-review-read
 ```
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, codex-review). Ignore entries with timestamps older than 7 days. For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
 
 ```
 +====================================================================+
@@ -232,7 +367,8 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 | Eng Review      |  1   | 2026-03-16 15:00    | CLEAR     | YES      |
 | CEO Review      |  0   | —                   | —         | no       |
 | Design Review   |  0   | —                   | —         | no       |
-| Codex Review    |  0   | —                   | —         | no       |
+| Adversarial     |  0   | —                   | —         | no       |
+| Outside Voice   |  0   | —                   | —         | no       |
 +--------------------------------------------------------------------+
 | VERDICT: CLEARED — Eng Review passed                                |
 +====================================================================+
@@ -242,7 +378,8 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Codex Review (optional):** Independent second opinion from OpenAI Codex CLI. Shows pass/fail gate. Recommend for critical code changes where a second AI perspective adds value. Skip when Codex CLI is not installed.
+- **Adversarial Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, Codex structured, Claude adversarial subagent, Codex adversarial. No configuration needed.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days with status "clean" (or \`skip_eng_review\` is \`true\`)
@@ -260,7 +397,7 @@ If the Eng Review is NOT "CLEAR":
 
 1. **Check for a prior override on this branch:**
    ```bash
-   source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+   eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
    grep '"skill":"ship-review-override"' ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_OVERRIDE"
    ```
    If an override exists, display the dashboard and note "Review gate previously accepted — continuing." Do NOT ask again.
@@ -274,7 +411,7 @@ If the Eng Review is NOT "CLEAR":
 
 3. **If the user chooses A or C,** persist the decision so future `/ship` runs on this branch skip the gate:
    ```bash
-   source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+   eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
    echo '{"skill":"ship-review-override","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","decision":"USER_CHOICE"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
    ```
    Substitute USER_CHOICE with "ship_anyway" or "not_relevant".
@@ -468,7 +605,105 @@ wait
 
 After both complete, read the output files and check pass/fail.
 
-**If any test fails:** Show the failures and **STOP**. Do not proceed.
+**If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
+
+## Test Failure Ownership Triage
+
+When tests fail, do NOT immediately stop. First, determine ownership:
+
+### Step T1: Classify each failure
+
+For each failing test:
+
+1. **Get the files changed on this branch:**
+   ```bash
+   git diff origin/<base>...HEAD --name-only
+   ```
+
+2. **Classify the failure:**
+   - **In-branch** if: the failing test file itself was modified on this branch, OR the test output references code that was changed on this branch, OR you can trace the failure to a change in the branch diff.
+   - **Likely pre-existing** if: neither the test file nor the code it tests was modified on this branch, AND the failure is unrelated to any branch change you can identify.
+   - **When ambiguous, default to in-branch.** It is safer to stop the developer than to let a broken test ship. Only classify as pre-existing when you are confident.
+
+   This classification is heuristic — use your judgment reading the diff and the test output. You do not have a programmatic dependency graph.
+
+### Step T2: Handle in-branch failures
+
+**STOP.** These are your failures. Show them and do not proceed. The developer must fix their own broken tests before shipping.
+
+### Step T3: Handle pre-existing failures
+
+Check `REPO_MODE` from the preamble output.
+
+**If REPO_MODE is `solo`:**
+
+Use AskUserQuestion:
+
+> These test failures appear pre-existing (not caused by your branch changes):
+>
+> [list each failure with file:line and brief error description]
+>
+> Since this is a solo repo, you're the only one who will fix these.
+>
+> RECOMMENDATION: Choose A — fix now while the context is fresh. Completeness: 9/10.
+> A) Investigate and fix now (human: ~2-4h / CC: ~15min) — Completeness: 10/10
+> B) Add as P0 TODO — fix after this branch lands — Completeness: 7/10
+> C) Skip — I know about this, ship anyway — Completeness: 3/10
+
+**If REPO_MODE is `collaborative` or `unknown`:**
+
+Use AskUserQuestion:
+
+> These test failures appear pre-existing (not caused by your branch changes):
+>
+> [list each failure with file:line and brief error description]
+>
+> This is a collaborative repo — these may be someone else's responsibility.
+>
+> RECOMMENDATION: Choose B — assign it to whoever broke it so the right person fixes it. Completeness: 9/10.
+> A) Investigate and fix now anyway — Completeness: 10/10
+> B) Blame + assign GitHub issue to the author — Completeness: 9/10
+> C) Add as P0 TODO — Completeness: 7/10
+> D) Skip — ship anyway — Completeness: 3/10
+
+### Step T4: Execute the chosen action
+
+**If "Investigate and fix now":**
+- Switch to /investigate mindset: root cause first, then minimal fix.
+- Fix the pre-existing failure.
+- Commit the fix separately from the branch's changes: `git commit -m "fix: pre-existing test failure in <test-file>"`
+- Continue with the workflow.
+
+**If "Add as P0 TODO":**
+- If `TODOS.md` exists, add the entry following the format in `review/TODOS-format.md` (or `.claude/skills/review/TODOS-format.md`).
+- If `TODOS.md` does not exist, create it with the standard header and add the entry.
+- Entry should include: title, the error output, which branch it was noticed on, and priority P0.
+- Continue with the workflow — treat the pre-existing failure as non-blocking.
+
+**If "Blame + assign GitHub issue" (collaborative only):**
+- Find who likely broke it. Check BOTH the test file AND the production code it tests:
+  ```bash
+  # Who last touched the failing test?
+  git log --format="%an (%ae)" -1 -- <failing-test-file>
+  # Who last touched the production code the test covers? (often the actual breaker)
+  git log --format="%an (%ae)" -1 -- <source-file-under-test>
+  ```
+  If these are different people, prefer the production code author — they likely introduced the regression.
+- Create a GitHub issue assigned to that person:
+  ```bash
+  gh issue create \
+    --title "Pre-existing test failure: <test-name>" \
+    --body "Found failing on branch <current-branch>. Failure is pre-existing.\n\n**Error:**\n```\n<first 10 lines>\n```\n\n**Last modified by:** <author>\n**Noticed by:** gstack /ship on <date>" \
+    --assignee "<github-username>"
+  ```
+- If `gh` is not available or `--assignee` fails (user not in org, etc.), create the issue without assignee and note who should look at it in the body.
+- Continue with the workflow.
+
+**If "Skip":**
+- Continue with the workflow.
+- Note in output: "Pre-existing test failure skipped: <test-name>"
+
+**After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped), continue to Step 3.25.
 
 **If all pass:** Continue silently — just note the counts briefly.
 
@@ -540,6 +775,27 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 100% coverage is the goal — every untested path is a path where bugs hide and vibe coding becomes yolo coding. Evaluate what was ACTUALLY coded (from the diff), not what was planned.
 
+### Test Framework Detection
+
+Before analyzing coverage, detect the project's test framework:
+
+1. **Read CLAUDE.md** — look for a `## Testing` section with test command and framework name. If found, use that as the authoritative source.
+2. **If CLAUDE.md has no testing section, auto-detect:**
+
+```bash
+# Detect project runtime
+[ -f Gemfile ] && echo "RUNTIME:ruby"
+[ -f package.json ] && echo "RUNTIME:node"
+[ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
+[ -f go.mod ] && echo "RUNTIME:go"
+[ -f Cargo.toml ] && echo "RUNTIME:rust"
+# Check for existing test infrastructure
+ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini phpunit.xml 2>/dev/null
+ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
+```
+
+3. **If no framework detected:** falls through to the Test Framework Bootstrap step (Step 2.5) which handles full setup.
+
 **0. Before/after test count:**
 
 ```bash
@@ -602,9 +858,41 @@ Quality scoring rubric:
 - ★★   Tests correct behavior, happy path only
 - ★    Smoke test / existence check / trivial assertion (e.g., "it renders", "it doesn't throw")
 
+### E2E Test Decision Matrix
+
+When checking each branch, also determine whether a unit test or E2E/integration test is the right tool:
+
+**RECOMMEND E2E (mark as [→E2E] in the diagram):**
+- Common user flow spanning 3+ components/services (e.g., signup → verify email → first login)
+- Integration point where mocking hides real failures (e.g., API → queue → worker → DB)
+- Auth/payment/data-destruction flows — too important to trust unit tests alone
+
+**RECOMMEND EVAL (mark as [→EVAL] in the diagram):**
+- Critical LLM call that needs a quality eval (e.g., prompt change → test output still meets quality bar)
+- Changes to prompt templates, system instructions, or tool definitions
+
+**STICK WITH UNIT TESTS:**
+- Pure function with clear inputs/outputs
+- Internal helper with no side effects
+- Edge case of a single function (null input, empty array)
+- Obscure/rare flow that isn't customer-facing
+
+### REGRESSION RULE (mandatory)
+
+**IRON RULE:** When the coverage audit identifies a REGRESSION — code that previously worked but the diff broke — a regression test is written immediately. No AskUserQuestion. No skipping. Regressions are the highest-priority test because they prove something broke.
+
+A regression is when:
+- The diff modifies existing behavior (not new code)
+- The existing test suite (if any) doesn't cover the changed path
+- The change introduces a new failure mode for existing callers
+
+When uncertain whether a change is a regression, err on the side of writing the test.
+
+Format: commit as `test: regression test for {what broke}`
+
 **4. Output ASCII coverage diagram:**
 
-Include BOTH code paths and user flows in the same diagram:
+Include BOTH code paths and user flows in the same diagram. Mark E2E-worthy and eval-worthy paths:
 
 ```
 CODE PATH COVERAGE
@@ -625,9 +913,9 @@ USER FLOW COVERAGE
 [+] Payment checkout flow
     │
     ├── [★★★ TESTED] Complete purchase — checkout.e2e.ts:15
-    ├── [GAP]         Double-click submit — NO TEST
-    ├── [GAP]         Navigate away during payment — NO TEST
-    └── [★   TESTED] Form validation errors (checks render only) — checkout.test.ts:40
+    ├── [GAP] [→E2E] Double-click submit — needs E2E, not just unit
+    ├── [GAP]         Navigate away during payment — unit test sufficient
+    └── [★   TESTED]  Form validation errors (checks render only) — checkout.test.ts:40
 
 [+] Error states
     │
@@ -635,12 +923,16 @@ USER FLOW COVERAGE
     ├── [GAP]         Network timeout UX (what does user see?) — NO TEST
     └── [GAP]         Empty cart submission — NO TEST
 
+[+] LLM integration
+    │
+    └── [GAP] [→EVAL] Prompt template change — needs eval test
+
 ─────────────────────────────────
-COVERAGE: 5/12 paths tested (42%)
+COVERAGE: 5/13 paths tested (38%)
   Code paths: 3/5 (60%)
-  User flows: 2/7 (29%)
+  User flows: 2/8 (25%)
 QUALITY:  ★★★: 2  ★★: 2  ★: 1
-GAPS: 7 paths need tests
+GAPS: 8 paths need tests (2 need E2E, 1 needs eval)
 ─────────────────────────────────
 ```
 
@@ -652,6 +944,8 @@ If test framework detected (or bootstrapped in Step 2.5):
 - Prioritize error handlers and edge cases first (happy paths are more likely already tested)
 - Read 2-3 existing test files to match conventions exactly
 - Generate unit tests. Mock all external dependencies (DB, API, Redis).
+- For paths marked [→E2E]: generate integration/E2E tests using the project's E2E framework (Playwright, Cypress, Capybara, etc.)
+- For paths marked [→EVAL]: generate eval tests using the project's eval framework, or flag for manual eval if none exists
 - Write tests that exercise the specific uncovered path with real assertions
 - Run each test. Passes → commit as `test: coverage for {feature}`
 - Fails → fix once. Still fails → revert, note gap in diagram.
@@ -671,6 +965,37 @@ find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec
 
 For PR body: `Tests: {before} → {after} (+{delta} new)`
 Coverage line: `Test Coverage Audit: N new code paths. M covered (X%). K tests generated, J committed.`
+
+### Test Plan Artifact
+
+After producing the coverage diagram, write a test plan artifact so `/qa` and `/qa-only` can consume it:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+USER=$(whoami)
+DATETIME=$(date +%Y%m%d-%H%M%S)
+```
+
+Write to `~/.gstack/projects/{slug}/{user}-{branch}-ship-test-plan-{datetime}.md`:
+
+```markdown
+# Test Plan
+Generated by /ship on {date}
+Branch: {branch}
+Repo: {owner/repo}
+
+## Affected Pages/Routes
+- {URL path} — {what to test and why}
+
+## Key Interactions to Verify
+- {interaction description} on {page}
+
+## Edge Cases
+- {edge case} on {page}
+
+## Critical Paths
+- {end-to-end flow that must work}
+```
 
 ---
 
@@ -714,12 +1039,32 @@ source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 6. **Log the result** for the Review Readiness Dashboard:
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
-echo '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
 ```
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of `git rev-parse --short HEAD`.
+
+7. **Codex design voice** (optional, automatic if available):
+
+```bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+```
+
+If Codex is available, run a lightweight design check on the diff:
+
+```bash
+TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
+codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+```
+
+Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+```bash
+cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
+```
+
+**Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
+
+Present Codex output under a `CODEX (design):` header, merged with the checklist findings above.
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 
@@ -786,44 +1131,139 @@ For each classified comment:
 
 ---
 
-## Step 3.8: Codex second opinion (optional)
+## Step 3.8: Adversarial review (auto-scaled)
 
-Check if the Codex CLI is available:
+Adversarial review thoroughness scales automatically based on diff size. No configuration needed.
+
+**Detect diff size and tool availability:**
 
 ```bash
+DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+# Respect old opt-out
+OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
+echo "DIFF_SIZE: $DIFF_TOTAL"
+echo "OLD_CFG: ${OLD_CFG:-not_set}"
 ```
 
-If Codex is available, use AskUserQuestion:
+If `OLD_CFG` is `disabled`: skip this step silently. Continue to the next step.
 
-```
-Pre-landing review complete. Want an independent Codex (OpenAI) review before shipping?
+**User override:** If the user explicitly requested a specific tier (e.g., "run all passes", "paranoid review", "full adversarial", "do all 4 passes", "thorough review"), honor that request regardless of diff size. Jump to the matching tier section.
 
-A) Run Codex code review — independent diff review with pass/fail gate
-B) Run Codex adversarial challenge — try to break this code
-C) Skip — ship without Codex review
-```
+**Auto-select tier based on diff size:**
+- **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
+- **Medium (50–199 lines changed):** Run Codex adversarial challenge (or Claude adversarial subagent if Codex unavailable). Jump to the "Medium tier" section.
+- **Large (200+ lines changed):** Run all remaining passes — Codex structured review + Claude adversarial subagent + Codex adversarial. Jump to the "Large tier" section.
 
-If the user chooses A or B:
+---
 
-**For code review (A):** Run `codex review --base <base>` with a 5-minute timeout.
-Present the full output verbatim under a `CODEX SAYS:` header. Check for `[P1]` markers
-to determine pass/fail gate. Persist the result:
+### Medium tier (50–199 lines)
+
+Claude's structured review already ran. Now add a **cross-model adversarial challenge**.
+
+**If Codex is available:** run the Codex adversarial challenge. **If Codex is NOT available:** fall back to the Claude adversarial subagent instead.
+
+**Codex adversarial:**
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-BRANCH_SLUG=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
-mkdir -p ~/.gstack/projects/$SLUG
-echo '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE"}' >> ~/.gstack/projects/$SLUG/$BRANCH_SLUG-reviews.jsonl
+TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
+codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_ADV"
 ```
 
-If GATE is FAIL, use AskUserQuestion: "Codex found critical issues. Ship anyway?"
-If the user says no, stop. If yes, continue to Step 4.
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. After the command completes, read stderr:
+```bash
+cat "$TMPERR_ADV"
+```
 
-**For adversarial (B):** Run codex exec with the adversarial prompt (see /codex skill).
-Present findings. This is informational — does not block shipping.
+Present the full output verbatim. This is informational — it never blocks shipping.
 
-If Codex is not available, skip silently. Continue to Step 4.
+**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
+
+On any Codex error, fall back to the Claude adversarial subagent automatically.
+
+**Claude adversarial subagent** (fallback when Codex unavailable or errored):
+
+Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
+
+Subagent prompt:
+"Read the diff for this branch with `git diff origin/<base>`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
+
+Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+
+If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing without adversarial review."
+
+**Persist the review result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "claude" if subagent ran. If both failed, do NOT persist.
+
+**Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing (if Codex was used).
+
+---
+
+### Large tier (200+ lines)
+
+Claude's structured review already ran. Now run **all three remaining passes** for maximum coverage:
+
+**1. Codex structured review (if available):**
+```bash
+TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
+codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. Present output under `CODEX SAYS (code review):` header.
+Check for `[P1]` markers: found → `GATE: FAIL`, not found → `GATE: PASS`.
+
+If GATE is FAIL, use AskUserQuestion:
+```
+Codex found N critical issues in the diff.
+
+A) Investigate and fix now (recommended)
+B) Continue — review will still complete
+```
+
+If A: address the findings. After fixing, re-run tests (Step 3) since code has changed. Re-run `codex review` to verify.
+
+Read stderr for errors (same error handling as medium tier).
+
+After stderr: `rm -f "$TMPERR"`
+
+**2. Claude adversarial subagent:** Dispatch a subagent with the adversarial prompt (same prompt as medium tier). This always runs regardless of Codex availability.
+
+**3. Codex adversarial challenge (if available):** Run `codex exec` with the adversarial prompt (same as medium tier).
+
+If Codex is not available for steps 1 and 3, note to the user: "Codex CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex for full 4-pass coverage: `npm install -g @openai/codex`"
+
+**Persist the review result AFTER all passes complete** (not after each sub-step):
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+
+---
+
+### Cross-model synthesis (medium and large tiers)
+
+After all passes complete, synthesize findings across all sources:
+
+```
+ADVERSARIAL REVIEW SYNTHESIS (auto: TIER, N lines):
+════════════════════════════════════════════════════════════
+  High confidence (found by multiple sources): [findings agreed on by >1 pass]
+  Unique to Claude structured review: [from earlier step]
+  Unique to Claude adversarial: [from subagent, if ran]
+  Unique to Codex: [from codex adversarial or code review, if ran]
+  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
+════════════════════════════════════════════════════════════
+```
+
+High-confidence findings (agreed on by multiple sources) should be prioritized for fixes.
 
 ---
 
@@ -1066,7 +1506,7 @@ doc updates — the user runs `/ship` and documentation stays current without a 
 - **Never skip tests.** If tests fail, stop.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
-- **Never ask for confirmation** except for MINOR/MAJOR version bumps and pre-landing review ASK items (batched into at most one AskUserQuestion).
+- **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).
 - **Always use the 4-digit version format** from the VERSION file.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.

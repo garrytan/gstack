@@ -80,7 +80,7 @@ export function renderDashboard(heartbeat: HeartbeatData | null, partial: Partia
     lines.push(`Heartbeat: ${HEARTBEAT_PATH} (not found)`);
     lines.push(`Partial:   ${PARTIAL_PATH} (not found)`);
     lines.push('');
-    lines.push('Start a run with: EVALS=1 bun test test/skill-e2e.test.ts');
+    lines.push('Start a run with: EVALS=1 bun test test/skill-e2e-*.test.ts');
     return lines.join('\n');
   }
 

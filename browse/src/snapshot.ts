@@ -20,6 +20,7 @@
 import type { Page, Locator } from 'playwright';
 import type { BrowserManager, RefEntry } from './browser-manager';
 import * as Diff from 'diff';
+import { TEMP_DIR, isPathWithin } from './platform';
 
 // Roles considered "interactive" for the -i flag
 const INTERACTIVE_ROLES = new Set([
@@ -61,7 +62,7 @@ export const SNAPSHOT_FLAGS: Array<{
   { short: '-s', long: '--selector', description: 'Scope to CSS selector', takesValue: true, valueHint: '<sel>', optionKey: 'selector' },
   { short: '-D', long: '--diff', description: 'Unified diff against previous snapshot (first call stores baseline)', optionKey: 'diff' },
   { short: '-a', long: '--annotate', description: 'Annotated screenshot with red overlay boxes and ref labels', optionKey: 'annotate' },
-  { short: '-o', long: '--output', description: 'Output path for annotated screenshot (default: /tmp/browse-annotated.png)', takesValue: true, valueHint: '<path>', optionKey: 'outputPath' },
+  { short: '-o', long: '--output', description: 'Output path for annotated screenshot (default: <temp>/browse-annotated.png)', takesValue: true, valueHint: '<path>', optionKey: 'outputPath' },
   { short: '-C', long: '--cursor-interactive', description: 'Cursor-interactive elements (@c refs — divs with pointer, onclick)', optionKey: 'cursorInteractive' },
 ];
 
@@ -308,11 +309,11 @@ export async function handleSnapshot(
 
   // ─── Annotated screenshot (-a) ────────────────────────────
   if (opts.annotate) {
-    const screenshotPath = opts.outputPath || '/tmp/browse-annotated.png';
+    const screenshotPath = opts.outputPath || `${TEMP_DIR}/browse-annotated.png`;
     // Validate output path (consistent with screenshot/pdf/responsive)
     const resolvedPath = require('path').resolve(screenshotPath);
-    const safeDirs = ['/tmp', process.cwd()];
-    if (!safeDirs.some((dir: string) => resolvedPath === dir || resolvedPath.startsWith(dir + '/'))) {
+    const safeDirs = [TEMP_DIR, process.cwd()];
+    if (!safeDirs.some((dir: string) => isPathWithin(resolvedPath, dir))) {
       throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
     }
     try {

@@ -36,10 +36,20 @@ _PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 echo "PROACTIVE: $_PROACTIVE"
+source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+REPO_MODE=${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+_SESSION_ID="$$-$(date +%s)"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"design-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+for _PF in ~/.gstack/analytics/.pending-*; do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
@@ -58,6 +68,39 @@ touch ~/.gstack/.completeness-intro-seen
 ```
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
+
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+ask the user about telemetry. Use AskUserQuestion:
+
+> Help gstack get better! Community mode shares usage data (which skills you use, how long
+> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
+> No code, file paths, or repo names are ever sent.
+> Change anytime with `gstack-config set telemetry off`.
+
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+
+If B: ask a follow-up AskUserQuestion:
+
+> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
+> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+
+Options:
+- A) Sure, anonymous is fine
+- B) No thanks, fully off
+
+If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+
+Always run:
+```bash
+touch ~/.gstack/.telemetry-prompted
+```
+
+This only happens once. If `TEL_PROMPTED` is `yes`, skip this entirely.
 
 ## AskUserQuestion Format
 
@@ -95,6 +138,38 @@ AI-assisted coding makes the marginal cost of completeness near-zero. When you p
 - BAD: "We can skip edge case handling to save time." (Edge case handling costs minutes with CC.)
 - BAD: "Let's defer test coverage to a follow-up PR." (Tests are the cheapest lake to boil.)
 - BAD: Quoting only human-team effort: "This would take 2 weeks." (Say: "2 weeks human / ~1 hour CC.")
+
+## Repo Ownership Mode — See Something, Say Something
+
+`REPO_MODE` from the preamble tells you who owns issues in this repo:
+
+- **`solo`** — One person does 80%+ of the work. They own everything. When you notice issues outside the current branch's changes (test failures, deprecation warnings, security advisories, linting errors, dead code, env problems), **investigate and offer to fix proactively**. The solo dev is the only person who will fix it. Default to action.
+- **`collaborative`** — Multiple active contributors. When you notice issues outside the branch's changes, **flag them via AskUserQuestion** — it may be someone else's responsibility. Default to asking, not fixing.
+- **`unknown`** — Treat as collaborative (safer default — ask before fixing).
+
+**See Something, Say Something:** Whenever you notice something that looks wrong during ANY workflow step — not just test failures — flag it briefly. One sentence: what you noticed and its impact. In solo mode, follow up with "Want me to fix it?" In collaborative mode, just flag it and move on.
+
+Never let a noticed issue silently pass. The whole point is proactive communication.
+
+## Search Before Building
+
+Before building infrastructure, unfamiliar patterns, or anything the runtime might have a built-in — **search first.** Read `~/.claude/skills/gstack/ETHOS.md` for the full philosophy.
+
+**Three layers of knowledge:**
+- **Layer 1** (tried and true — in distribution). Don't reinvent the wheel. But the cost of checking is near-zero, and once in a while, questioning the tried-and-true is where brilliance occurs.
+- **Layer 2** (new and popular — search for these). But scrutinize: humans are subject to mania. Search results are inputs to your thinking, not answers.
+- **Layer 3** (first principles — prize these above all). Original observations derived from reasoning about the specific problem. The most valuable of all.
+
+**Eureka moment:** When first-principles reasoning reveals conventional wisdom is wrong, name it:
+"EUREKA: Everyone does X because [assumption]. But [evidence] shows this is wrong. Y is better because [reasoning]."
+
+Log eureka moments:
+```bash
+jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
+```
+Replace SKILL_NAME and ONE_LINE_SUMMARY. Runs inline — don't stop the workflow.
+
+**WebSearch fallback:** If WebSearch is unavailable, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
 ## Contributor Mode
 
@@ -157,6 +232,70 @@ REASON: [1-2 sentences]
 ATTEMPTED: [what you tried]
 RECOMMENDATION: [what the user should do next]
 ```
+
+## Telemetry (run last)
+
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+Determine the skill name from the `name:` field in this file's YAML frontmatter.
+Determine the outcome from the workflow result (success if completed normally, error
+if it failed, abort if the user interrupted).
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+`~/.gstack/analytics/` (user config directory, not project files). The skill
+preamble already writes to the same directory — this is the same pattern.
+Skipping this command loses session duration and outcome data.
+
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+```
+
+Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
+success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
+If you cannot determine the outcome, use "unknown". This runs in the background and
+never blocks the user.
+
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
 
 # /design-review: Design Audit → Fix → Verify
 
@@ -635,8 +774,7 @@ Compare screenshots and observations across pages for:
 
 **Project-scoped:**
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
 Write to: `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
 
@@ -718,6 +856,75 @@ Tie everything to user goals and product objectives. Always suggest specific imp
 10. **Depth over breadth.** 5-10 well-documented findings with screenshots and specific suggestions > 20 vague observations.
 11. **Show screenshots to the user.** After every `$B screenshot`, `$B snapshot -a -o`, or `$B responsive` command, use the Read tool on the output file(s) so the user can see them inline. For `responsive` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
 
+### Design Hard Rules
+
+**Classifier — determine rule set before evaluating:**
+- **MARKETING/LANDING PAGE** (hero-driven, brand-forward, conversion-focused) → apply Landing Page Rules
+- **APP UI** (workspace-driven, data-dense, task-focused: dashboards, admin, settings) → apply App UI Rules
+- **HYBRID** (marketing shell with app-like sections) → apply Landing Page Rules to hero/marketing sections, App UI Rules to functional sections
+
+**Hard rejection criteria** (instant-fail patterns — flag if ANY apply):
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+**Litmus checks** (answer YES/NO for each — used for cross-model consensus scoring):
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+**Landing page rules** (apply when classifier = MARKETING/LANDING):
+- First viewport reads as one composition, not a dashboard
+- Brand-first hierarchy: brand > headline > body > CTA
+- Typography: expressive, purposeful — no default stacks (Inter, Roboto, Arial, system)
+- No flat single-color backgrounds — use gradients, images, subtle patterns
+- Hero: full-bleed, edge-to-edge, no inset/tiled/rounded variants
+- Hero budget: brand, one headline, one supporting sentence, one CTA group, one image
+- No cards in hero. Cards only when card IS the interaction
+- One job per section: one purpose, one headline, one short supporting sentence
+- Motion: 2-3 intentional motions minimum (entrance, scroll-linked, hover/reveal)
+- Color: define CSS variables, avoid purple-on-white defaults, one accent color default
+- Copy: product language not design commentary. "If deleting 30% improves it, keep deleting"
+- Beautiful defaults: composition-first, brand as loudest text, two typefaces max, cardless by default, first viewport as poster not document
+
+**App UI rules** (apply when classifier = APP UI):
+- Calm surface hierarchy, strong typography, few colors
+- Dense but readable, minimal chrome
+- Organize: primary workspace, navigation, secondary context, one accent
+- Avoid: dashboard-card mosaics, thick borders, decorative gradients, ornamental icons
+- Copy: utility language — orientation, status, action. Not mood/brand/aspiration
+- Cards only when card IS the interaction
+- Section headings state what area is or what user can do ("Selected KPIs", "Plan status")
+
+**Universal rules** (apply to ALL types):
+- Define CSS variables for color system
+- No default font stacks (Inter, Roboto, Arial, system)
+- One job per section
+- "If deleting 30% of the copy improves it, keep deleting"
+- Cards earn their existence — no decorative card grids
+
+**AI Slop blacklist** (the 10 patterns that scream "AI-generated"):
+1. Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes
+2. **The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.
+3. Icons in colored circles as section decoration (SaaS starter template look)
+4. Centered everything (`text-align: center` on all headings, descriptions, cards)
+5. Uniform bubbly border-radius on every element (same large radius on everything)
+6. Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)
+7. Emoji as design elements (rockets in headings, emoji as bullet points)
+8. Colored left-border on cards (`border-left: 3px solid <accent>`)
+9. Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")
+10. Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)
+
+Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.
+
 Record baseline design score and AI slop score at end of Phase 6.
 
 ---
@@ -740,6 +947,87 @@ Record baseline design score and AI slop score at end of Phase 6.
 ```
 
 ---
+
+## Design Outside Voices (parallel)
+
+**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.
+
+**Check Codex availability:**
+```bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+```
+
+**If Codex is available**, launch both voices simultaneously:
+
+1. **Codex design voice** (via Bash):
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
+- Spacing: systematic (design tokens / CSS variables) or magic numbers?
+- Typography: expressive purposeful fonts or default stacks?
+- Color: CSS variables with defined system, or hardcoded hex scattered?
+- Responsive: breakpoints defined? calc(100svh - header) for heroes? Mobile tested?
+- A11y: ARIA landmarks, alt text, contrast ratios, 44px touch targets?
+- Motion: 2-3 intentional animations, or zero / ornamental only?
+- Cards: used only when card IS the interaction? No decorative card grids?
+
+First classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then apply matching rules.
+
+LITMUS CHECKS — answer YES/NO:
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+HARD REJECTION — flag if ANY apply:
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+Be specific. Reference file:line for every finding." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+```
+Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+```bash
+cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+```
+
+2. **Claude design subagent** (via Agent tool):
+Dispatch a subagent with this prompt:
+"Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
+- Are spacing values systematic across the codebase?
+- Is there ONE color system or scattered approaches?
+- Do responsive breakpoints follow a consistent set?
+- Is the accessibility approach consistent or spotty?
+
+For each finding: what's wrong, severity (critical/high/medium), and the file:line."
+
+**Error handling (all non-blocking):**
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response."
+- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+
+Present Codex output under a `CODEX SAYS (design source audit):` header.
+Present subagent output under a `CLAUDE SUBAGENT (design consistency):` header.
+
+**Synthesis — Litmus scorecard:**
+
+Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
+Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` tags.
+
+**Log the result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
 
 ## Phase 7: Triage
 
@@ -854,8 +1142,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:**
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
 

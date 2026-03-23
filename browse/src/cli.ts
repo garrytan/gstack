@@ -14,7 +14,8 @@ import * as path from 'path';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 
 const config = resolveConfig();
-const MAX_START_WAIT = 8000; // 8 seconds to start
+const IS_WINDOWS = process.platform === 'win32';
+const MAX_START_WAIT = IS_WINDOWS ? 15000 : 8000; // Node+Chromium takes longer on Windows
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -26,7 +27,9 @@ export function resolveServerScript(
   }
 
   // Dev mode: cli.ts runs directly from browse/src
-  if (metaDir.startsWith('/') && !metaDir.includes('$bunfs')) {
+  // On macOS/Linux, import.meta.dir starts with /
+  // On Windows, it starts with a drive letter (e.g., C:\...)
+  if (!metaDir.includes('$bunfs')) {
     const direct = path.resolve(metaDir, 'server.ts');
     if (fs.existsSync(direct)) {
       return direct;
@@ -47,6 +50,31 @@ export function resolveServerScript(
 }
 
 const SERVER_SCRIPT = resolveServerScript();
+
+/**
+ * On Windows, resolve the Node.js-compatible server bundle.
+ * Falls back to null if not found (server will use Bun instead).
+ */
+export function resolveNodeServerScript(
+  metaDir: string = import.meta.dir,
+  execPath: string = process.execPath
+): string | null {
+  // Dev mode
+  if (!metaDir.includes('$bunfs')) {
+    const distScript = path.resolve(metaDir, '..', 'dist', 'server-node.mjs');
+    if (fs.existsSync(distScript)) return distScript;
+  }
+
+  // Compiled binary: browse/dist/browse → browse/dist/server-node.mjs
+  if (execPath) {
+    const adjacent = path.resolve(path.dirname(execPath), 'server-node.mjs');
+    if (fs.existsSync(adjacent)) return adjacent;
+  }
+
+  return null;
+}
+
+const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
 
 interface ServerState {
   pid: number;
@@ -139,8 +167,14 @@ async function startServer(): Promise<ServerState> {
   // Clean up stale state file
   try { fs.unlinkSync(config.stateFile); } catch {}
 
-  // Start server as detached background process
-  const proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
+  // Start server as detached background process.
+  // On Windows, Bun can't launch/connect to Playwright's Chromium (oven-sh/bun#4253, #9911).
+  // Fall back to running the server under Node.js with Bun API polyfills.
+  const useNode = IS_WINDOWS && NODE_SERVER_SCRIPT;
+  const serverCmd = useNode
+    ? ['node', NODE_SERVER_SCRIPT]
+    : ['bun', 'run', SERVER_SCRIPT];
+  const proc = Bun.spawn(serverCmd, {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, BROWSE_STATE_FILE: config.stateFile },
   });
@@ -172,6 +206,34 @@ async function startServer(): Promise<ServerState> {
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
 
+/**
+ * Acquire an exclusive lockfile to prevent concurrent ensureServer() races (TOCTOU).
+ * Returns a cleanup function that releases the lock.
+ */
+function acquireServerLock(): (() => void) | null {
+  const lockPath = `${config.stateFile}.lock`;
+  try {
+    // O_CREAT | O_EXCL — fails if file already exists (atomic check-and-create)
+    const fd = fs.openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
+    fs.writeSync(fd, `${process.pid}\n`);
+    fs.closeSync(fd);
+    return () => { try { fs.unlinkSync(lockPath); } catch {} };
+  } catch {
+    // Lock already held — check if the holder is still alive
+    try {
+      const holderPid = parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
+      if (holderPid && isProcessAlive(holderPid)) {
+        return null; // Another live process holds the lock
+      }
+      // Stale lock — remove and retry
+      fs.unlinkSync(lockPath);
+      return acquireServerLock();
+    } catch {
+      return null;
+    }
+  }
+}
+
 async function ensureServer(): Promise<ServerState> {
   const state = readState();
 
@@ -200,9 +262,36 @@ async function ensureServer(): Promise<ServerState> {
     }
   }
 
-  // Need to (re)start
-  console.error('[browse] Starting server...');
-  return startServer();
+  // Acquire lock to prevent concurrent restart races (TOCTOU)
+  const releaseLock = acquireServerLock();
+  if (!releaseLock) {
+    // Another process is starting the server — wait for it
+    console.error('[browse] Another instance is starting the server, waiting...');
+    const start = Date.now();
+    while (Date.now() - start < MAX_START_WAIT) {
+      const freshState = readState();
+      if (freshState && isProcessAlive(freshState.pid)) return freshState;
+      await Bun.sleep(200);
+    }
+    throw new Error('Timed out waiting for another instance to start the server');
+  }
+
+  try {
+    // Re-read state under lock in case another process just started the server
+    const freshState = readState();
+    if (freshState && isProcessAlive(freshState.pid)) {
+      return freshState;
+    }
+
+    // Kill the old server to avoid orphaned chromium processes
+    if (state && state.pid) {
+      await killServer(state.pid);
+    }
+    console.error('[browse] Starting server...');
+    return await startServer();
+  } finally {
+    releaseLock();
+  }
 }
 
 // ─── Command Dispatch ──────────────────────────────────────────
@@ -255,6 +344,11 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
+      // Kill the old server to avoid orphaned chromium processes
+      const oldState = readState();
+      if (oldState && oldState.pid) {
+        await killServer(oldState.pid);
+      }
       const newState = await startServer();
       return sendCommand(newState, command, args, retries + 1);
     }

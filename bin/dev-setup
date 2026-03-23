@@ -44,11 +44,25 @@ elif [ -d "$GSTACK_LINK" ]; then
 fi
 ln -s "$REPO_ROOT" "$GSTACK_LINK"
 
-# 5. Run setup via the symlink so it detects .claude/skills/ as its parent
+# 5. Create .agents/skills/gstack → repo root (for Codex/Gemini/Cursor)
+mkdir -p "$REPO_ROOT/.agents/skills"
+AGENTS_LINK="$REPO_ROOT/.agents/skills/gstack"
+if [ -L "$AGENTS_LINK" ]; then
+  rm "$AGENTS_LINK"
+elif [ -d "$AGENTS_LINK" ]; then
+  echo "Warning: .agents/skills/gstack is a real directory, skipping." >&2
+fi
+if [ ! -e "$AGENTS_LINK" ]; then
+  ln -s "$REPO_ROOT" "$AGENTS_LINK"
+fi
+
+# 6. Run setup via the symlink so it detects .claude/skills/ as its parent
 "$GSTACK_LINK/setup"
 
 echo ""
 echo "Dev mode active. Skills resolve from this working tree."
+echo "  .claude/skills/gstack → $REPO_ROOT"
+echo "  .agents/skills/gstack → $REPO_ROOT"
 echo "Edit any SKILL.md and test immediately — no copy/deploy needed."
 echo ""
 echo "To tear down: bin/dev-teardown"

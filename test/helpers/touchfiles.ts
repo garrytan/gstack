@@ -40,7 +40,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'skillmd-setup-discovery':  ['SKILL.md', 'SKILL.md.tmpl'],
   'skillmd-no-local-binary':  ['SKILL.md', 'SKILL.md.tmpl'],
   'skillmd-outside-git':      ['SKILL.md', 'SKILL.md.tmpl'],
-  'contributor-mode':         ['SKILL.md', 'SKILL.md.tmpl'],
+
+  'contributor-mode':           ['SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'session-awareness':        ['SKILL.md', 'SKILL.md.tmpl'],
 
   // QA
@@ -50,6 +51,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'qa-b8-checkout': ['qa/**', 'browse/src/**', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json'],
   'qa-only-no-fix': ['qa-only/**', 'qa/templates/**'],
   'qa-fix-loop':    ['qa/**', 'browse/src/**'],
+  'qa-bootstrap':   ['qa/**', 'ship/**'],
 
   // Review
   'review-sql-injection':     ['review/**', 'test/fixtures/review-eval-vuln.rb'],
@@ -57,42 +59,71 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'review-base-branch':       ['review/**'],
   'review-design-lite':       ['review/**', 'test/fixtures/review-eval-design-slop.*'],
 
+  // Office Hours
+  'office-hours-spec-review':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
+
   // Plan reviews
   'plan-ceo-review':           ['plan-ceo-review/**'],
   'plan-ceo-review-selective': ['plan-ceo-review/**'],
+  'plan-ceo-review-benefits':  ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
   'plan-eng-review':           ['plan-eng-review/**'],
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
 
   // Ship
-  'ship-base-branch': ['ship/**'],
+  'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode'],
+  'ship-local-workflow': ['ship/**', 'scripts/gen-skill-docs.ts'],
+
+  // Setup browser cookies
+  'setup-cookies-detect': ['setup-browser-cookies/**'],
 
   // Retro
   'retro':             ['retro/**'],
   'retro-base-branch': ['retro/**'],
 
+  // Global discover
+  'global-discover':   ['bin/gstack-global-discover.ts', 'test/global-discover.test.ts'],
+
   // Document-release
   'document-release': ['document-release/**'],
 
-  // Codex
+  // Codex (Claude E2E — tests /codex skill via Claude)
   'codex-review': ['codex/**'],
 
-  // QA bootstrap
-  'qa-bootstrap': ['qa/**', 'browse/src/**', 'ship/**'],
+  // Codex E2E (tests skills via Codex CLI)
+  'codex-discover-skill':  ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
+  'codex-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts'],
 
-  // Ship coverage audit
-  'ship-coverage-audit': ['ship/**'],
+  // Gemini E2E (tests skills via Gemini CLI)
+  'gemini-discover-skill':  ['.agents/skills/**', 'test/helpers/gemini-session-runner.ts'],
+  'gemini-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'test/helpers/gemini-session-runner.ts'],
+
+
+  // Coverage audit (shared fixture) + triage
+  'ship-coverage-audit': ['ship/**', 'test/fixtures/coverage-audit-fixture.ts', 'bin/gstack-repo-mode'],
+  'review-coverage-audit': ['review/**', 'test/fixtures/coverage-audit-fixture.ts'],
+  'plan-eng-coverage-audit': ['plan-eng-review/**', 'test/fixtures/coverage-audit-fixture.ts'],
+  'ship-triage': ['ship/**', 'bin/gstack-repo-mode'],
 
   // Design
-  'design-consultation-core':     ['design-consultation/**'],
-  'design-consultation-research': ['design-consultation/**'],
-  'design-consultation-existing': ['design-consultation/**'],
-  'design-consultation-preview':  ['design-consultation/**'],
-  'plan-design-review-plan-mode':   ['plan-design-review/**'],
-  'plan-design-review-no-ui-scope': ['plan-design-review/**'],
-  'design-review-fix':              ['design-review/**', 'browse/src/**'],
+  'design-consultation-core':       ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'design-consultation-existing':   ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'design-consultation-research':   ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'design-consultation-preview':    ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'plan-design-review-plan-mode':   ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
+  'plan-design-review-no-ui-scope': ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
+  'design-review-fix':              ['design-review/**', 'browse/src/**', 'scripts/gen-skill-docs.ts'],
 
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**'],
+
+  // Deploy skills
+  'land-and-deploy-workflow':   ['land-and-deploy/**', 'scripts/gen-skill-docs.ts'],
+  'canary-workflow':            ['canary/**', 'browse/src/**'],
+  'benchmark-workflow':         ['benchmark/**', 'browse/src/**'],
+  'setup-deploy-workflow':      ['setup-deploy/**', 'scripts/gen-skill-docs.ts'],
+
+  // Autoplan
+  'autoplan-core':  ['autoplan/**', 'plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**'],
 
   // Skill routing — journey-stage tests (depend on ALL skill descriptions)
   'journey-ideation':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
@@ -136,6 +167,16 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
   'design-review/SKILL.md fix loop':      ['design-review/SKILL.md', 'design-review/SKILL.md.tmpl'],
   'design-consultation/SKILL.md research': ['design-consultation/SKILL.md', 'design-consultation/SKILL.md.tmpl'],
 
+  // Office Hours
+  'office-hours/SKILL.md spec review':    ['office-hours/SKILL.md', 'office-hours/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+  'office-hours/SKILL.md design sketch':  ['office-hours/SKILL.md', 'office-hours/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+
+  // Deploy skills
+  'land-and-deploy/SKILL.md workflow':    ['land-and-deploy/SKILL.md', 'land-and-deploy/SKILL.md.tmpl'],
+  'canary/SKILL.md monitoring loop':      ['canary/SKILL.md', 'canary/SKILL.md.tmpl'],
+  'benchmark/SKILL.md perf collection':   ['benchmark/SKILL.md', 'benchmark/SKILL.md.tmpl'],
+  'setup-deploy/SKILL.md platform setup': ['setup-deploy/SKILL.md', 'setup-deploy/SKILL.md.tmpl'],
+
   // Other skills
   'retro/SKILL.md instructions':          ['retro/SKILL.md', 'retro/SKILL.md.tmpl'],
   'qa-only/SKILL.md workflow':            ['qa-only/SKILL.md', 'qa-only/SKILL.md.tmpl'],
@@ -147,6 +188,8 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
  */
 export const GLOBAL_TOUCHFILES = [
   'test/helpers/session-runner.ts',
+  'test/helpers/codex-session-runner.ts',
+  'test/helpers/gemini-session-runner.ts',
   'test/helpers/eval-store.ts',
   'test/helpers/llm-judge.ts',
   'scripts/gen-skill-docs.ts',

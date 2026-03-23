@@ -8,6 +8,7 @@ description: |
   "review the architecture", "engineering review", or "lock in the plan".
   Proactively suggest when the user has a plan or design doc and is about to
   start coding — to catch architecture issues before implementation.
+benefits-from: [office-hours]
 allowed-tools:
   - Read
   - Write
@@ -15,6 +16,7 @@ allowed-tools:
   - Glob
   - AskUserQuestion
   - Bash
+  - WebSearch
 ---
 
 {{PREAMBLE}}
@@ -73,39 +75,26 @@ DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head
 ```
 If a design doc exists, read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design — check the prior version for context on what changed and why.
 
+{{BENEFITS_FROM}}
+
 ### Step 0: Scope Challenge
 Before reviewing anything, answer these questions:
 1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
 2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective. Be ruthless about scope creep.
 3. **Complexity check:** If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
-4. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
+4. **Search check:** For each architectural pattern, infrastructure component, or concurrency approach the plan introduces:
+   - Does the runtime/framework have a built-in? Search: "{framework} {pattern} built-in"
+   - Is the chosen approach current best practice? Search: "{pattern} best practice {current year}"
+   - Are there known footguns? Search: "{framework} {pattern} pitfalls"
+
+   If WebSearch is unavailable, skip this check and note: "Search unavailable — proceeding with in-distribution knowledge only."
+
+   If the plan rolls a custom solution where a built-in exists, flag it as a scope reduction opportunity. Annotate recommendations with **[Layer 1]**, **[Layer 2]**, **[Layer 3]**, or **[EUREKA]** (see preamble's Search Before Building section). If you find a eureka moment — a reason the standard approach is wrong for this case — present it as an architectural insight.
+5. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
 
 5. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with CC+gstack, recommend the complete version. Boil the lake.
 
 If the complexity check triggers (8+ files or 2+ new classes/services), proactively recommend scope reduction via AskUserQuestion — explain what's overbuilt, propose a minimal version that achieves the core goal, and ask whether to reduce or proceed as-is. If the complexity check does not trigger, present your Step 0 findings and proceed directly to Section 1.
-
-### Step 0.5: Codex plan review (optional)
-
-Check if the Codex CLI is available: `which codex 2>/dev/null`
-
-If available, after presenting Step 0 findings, use AskUserQuestion:
-```
-Want an independent Codex (OpenAI) review of this plan before the detailed review?
-A) Yes — let Codex critique the plan independently
-B) No — proceed with the Claude review only
-```
-
-If the user chooses A: tell Codex to read the plan file itself (avoids ARG_MAX limits for large plans):
-```bash
-codex exec "You are a brutally honest technical reviewer. Read the plan file at <plan-file-path> and review it for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached
-```
-
-Replace `<plan-file-path>` with the actual path to the plan file detected earlier. Codex has filesystem access in read-only mode and will read the file itself.
-
-Present the full output under a `CODEX SAYS (plan review):` header. Note any concerns
-that should inform the subsequent engineering review sections.
-
-If Codex is not available, skip silently.
 
 Always work through the full interactive review: one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
 
@@ -137,45 +126,12 @@ Evaluate:
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
 
 ### 3. Test review
-Make a diagram of all new UX, new data flow, new codepaths, and new branching if statements or outcomes. For each, note what is new about the features discussed in this branch and plan. Then, for each new item in the diagram, make sure there is a JS or Rails test.
+
+{{TEST_COVERAGE_AUDIT_PLAN}}
 
 For LLM/prompt changes: check the "Prompt/LLM changes" file patterns listed in CLAUDE.md. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against. Then use AskUserQuestion to confirm the eval scope with the user.
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
-
-### Test Plan Artifact
-
-After producing the test diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input (replacing the lossy git-diff heuristic):
-
-```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-USER=$(whoami)
-DATETIME=$(date +%Y%m%d-%H%M%S)
-mkdir -p ~/.gstack/projects/$SLUG
-```
-
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-plan-{datetime}.md`:
-
-```markdown
-# Test Plan
-Generated by /plan-eng-review on {date}
-Branch: {branch}
-Repo: {owner/repo}
-
-## Affected Pages/Routes
-- {URL path} — {what to test and why}
-
-## Key Interactions to Verify
-- {interaction description} on {page}
-
-## Edge Cases
-- {edge case} on {page}
-
-## Critical Paths
-- {end-to-end flow that must work}
-```
-
-This file is consumed by `/qa` and `/qa-only` as primary test input. Include only the information that helps a QA tester know **what to test and where** — not implementation details.
 
 ### 4. Performance review
 Evaluate:
@@ -185,6 +141,8 @@ Evaluate:
 * Slow or high-complexity code paths.
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+
+{{CODEX_PLAN_REVIEW}}
 
 ## CRITICAL RULE — How to ask questions
 Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
@@ -241,6 +199,7 @@ At the end of the review, fill in and display this summary so the user can see a
 - What already exists: written
 - TODOS.md updates: ___ items proposed to user
 - Failure modes: ___ critical gaps flagged
+- Outside voice: ran (codex/claude) / skipped
 - Lake Score: X/Y recommendations chose complete option
 
 ## Retrospective learning
@@ -254,12 +213,16 @@ Check the git log for this branch. If there are prior commits suggesting a previ
 
 ## Review Log
 
-After producing the Completion Summary above, persist the review result:
+After producing the Completion Summary above, persist the review result.
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
+`~/.gstack/` (user config directory, not project files). The skill preamble
+already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
+the same pattern. The review dashboard depends on this data. Skipping this
+command breaks the review readiness dashboard in /ship.
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
-echo '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"MODE","commit":"COMMIT"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"MODE","commit":"COMMIT"}'
 ```
 
 Substitute values from the Completion Summary:
@@ -267,10 +230,13 @@ Substitute values from the Completion Summary:
 - **STATUS**: "clean" if 0 unresolved decisions AND 0 critical gaps; otherwise "issues_open"
 - **unresolved**: number from "Unresolved decisions" count
 - **critical_gaps**: number from "Failure modes: ___ critical gaps flagged"
+- **issues_found**: total issues found across all review sections (Architecture + Code Quality + Performance + Test gaps)
 - **MODE**: FULL_REVIEW / SCOPE_REDUCED
 - **COMMIT**: output of `git rev-parse --short HEAD`
 
 {{REVIEW_DASHBOARD}}
+
+{{PLAN_FILE_REVIEW_REPORT}}
 
 ## Next Steps — Review Chaining
 

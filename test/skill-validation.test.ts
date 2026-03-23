@@ -99,6 +99,20 @@ describe('SKILL.md command validation', () => {
     const result = validateSkill(skill);
     expect(result.snapshotFlagErrors).toHaveLength(0);
   });
+
+  test('all $B commands in autoplan/SKILL.md are valid browse commands', () => {
+    const skill = path.join(ROOT, 'autoplan', 'SKILL.md');
+    if (!fs.existsSync(skill)) return;
+    const result = validateSkill(skill);
+    expect(result.invalid).toHaveLength(0);
+  });
+
+  test('all snapshot flags in autoplan/SKILL.md are valid', () => {
+    const skill = path.join(ROOT, 'autoplan', 'SKILL.md');
+    if (!fs.existsSync(skill)) return;
+    const result = validateSkill(skill);
+    expect(result.snapshotFlagErrors).toHaveLength(0);
+  });
 });
 
 describe('Command registry consistency', () => {
@@ -223,6 +237,11 @@ describe('Update check preamble', () => {
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
+    'canary/SKILL.md',
+    'benchmark/SKILL.md',
+    'land-and-deploy/SKILL.md',
+    'setup-deploy/SKILL.md',
+    'cso/SKILL.md',
   ];
 
   for (const skill of skillsWithUpdateCheck) {
@@ -535,6 +554,11 @@ describe('v0.4.1 preamble features', () => {
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
+    'canary/SKILL.md',
+    'benchmark/SKILL.md',
+    'land-and-deploy/SKILL.md',
+    'setup-deploy/SKILL.md',
+    'cso/SKILL.md',
   ];
 
   for (const skill of skillsWithPreamble) {
@@ -644,6 +668,59 @@ describe('office-hours skill structure', () => {
   test('contains builder operating principles', () => {
     expect(content).toContain('Delight is the currency');
   });
+
+  // Spec Review Loop (Phase 5.5)
+  test('contains spec review loop', () => {
+    expect(content).toContain('Spec Review Loop');
+  });
+
+  test('contains adversarial review dimensions', () => {
+    for (const dim of ['Completeness', 'Consistency', 'Clarity', 'Scope', 'Feasibility']) {
+      expect(content).toContain(dim);
+    }
+  });
+
+  test('contains subagent dispatch instruction', () => {
+    expect(content).toMatch(/Agent.*tool|subagent/i);
+  });
+
+  test('contains max 3 iterations', () => {
+    expect(content).toMatch(/3.*iteration|maximum.*3/i);
+  });
+
+  test('contains quality score', () => {
+    expect(content).toContain('quality score');
+  });
+
+  test('contains spec review metrics path', () => {
+    expect(content).toContain('spec-review.jsonl');
+  });
+
+  test('contains convergence guard', () => {
+    expect(content).toMatch(/convergence/i);
+  });
+
+  // Visual Sketch (Phase 4.5)
+  test('contains visual sketch section', () => {
+    expect(content).toContain('Visual Sketch');
+  });
+
+  test('contains wireframe generation', () => {
+    expect(content).toMatch(/wireframe|sketch/i);
+  });
+
+  test('contains DESIGN.md awareness', () => {
+    expect(content).toContain('DESIGN.md');
+  });
+
+  test('contains browse rendering', () => {
+    expect(content).toContain('$B goto');
+    expect(content).toContain('$B screenshot');
+  });
+
+  test('contains rough aesthetic instruction', () => {
+    expect(content).toMatch(/rough|hand-drawn/i);
+  });
 });
 
 describe('investigate skill structure', () => {
@@ -668,6 +745,10 @@ describe('Contributor mode preamble structure', () => {
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
+    'canary/SKILL.md',
+    'benchmark/SKILL.md',
+    'land-and-deploy/SKILL.md',
+    'setup-deploy/SKILL.md',
   ];
 
   for (const skill of skillsWithPreamble) {
@@ -756,7 +837,7 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
-  ];
+    'cso/SKILL.md',  ];
 
   for (const skill of skillsWithPreamble) {
     test(`${skill} contains Completeness Principle section`, () => {
@@ -856,6 +937,22 @@ describe('CEO review mode validation', () => {
     expect(content).toContain('HOLD SCOPE');
     expect(content).toContain('REDUCTION');
   });
+
+  // Skill chaining (benefits-from)
+  test('contains prerequisite skill offer for office-hours', () => {
+    expect(content).toContain('Prerequisite Skill Offer');
+    expect(content).toContain('/office-hours');
+  });
+
+  test('contains mid-session detection', () => {
+    expect(content).toContain('Mid-session detection');
+    expect(content).toMatch(/still figuring out|seems lost/i);
+  });
+
+  // Spec review on CEO plans
+  test('contains spec review loop for CEO plan documents', () => {
+    expect(content).toContain('Spec Review Loop');
+  });
 });
 
 // --- gstack-slug helper ---
@@ -897,6 +994,34 @@ describe('gstack-slug', () => {
     expect(lines.length).toBe(2);
     expect(lines[0]).toMatch(/^SLUG=.+/);
     expect(lines[1]).toMatch(/^BRANCH=.+/);
+  });
+
+  test('output values contain only safe characters (no shell metacharacters)', () => {
+    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    const slug = result.stdout.toString().match(/SLUG=(.*)/)?.[1] ?? '';
+    const branch = result.stdout.toString().match(/BRANCH=(.*)/)?.[1] ?? '';
+    // Only alphanumeric, dot, dash, underscore are allowed (#133)
+    expect(slug).toMatch(/^[a-zA-Z0-9._-]+$/);
+    expect(branch).toMatch(/^[a-zA-Z0-9._-]+$/);
+  });
+  test('eval sets variables under bash with set -euo pipefail', () => {
+    const result = Bun.spawnSync(
+      ['bash', '-c', 'set -euo pipefail; eval "$(./bin/gstack-slug 2>/dev/null)"; echo "SLUG=$SLUG"; echo "BRANCH=$BRANCH"'],
+      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+    );
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    expect(output).toMatch(/^SLUG=.+/m);
+    expect(output).toMatch(/^BRANCH=.+/m);
+  });
+
+  test('no templates or bin scripts use source process substitution for gstack-slug', () => {
+    const result = Bun.spawnSync(
+      ['grep', '-r', 'source <(.*gstack-slug', '--include=*.tmpl', '--include=gstack-review-*', '.'],
+      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+    );
+    // grep returns exit code 1 when no matches found — that's what we want
+    expect(result.stdout.toString().trim()).toBe('');
   });
 });
 
@@ -1167,7 +1292,7 @@ describe('Codex skill', () => {
   test('codex/SKILL.md contains review log persistence', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(content).toContain('codex-review');
-    expect(content).toContain('reviews.jsonl');
+    expect(content).toContain('gstack-review-log');
   });
 
   test('codex/SKILL.md uses which for binary discovery, not hardcoded path', () => {
@@ -1187,18 +1312,55 @@ describe('Codex skill', () => {
     expect(content).toContain('mktemp');
   });
 
-  test('codex integration in /review offers second opinion', () => {
+  test('adversarial review in /review auto-scales by diff size', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Codex second opinion');
-    expect(content).toContain('codex review');
-    expect(content).toContain('adversarial');
+    expect(content).toContain('Adversarial review (auto-scaled)');
+    // Diff size thresholds
+    expect(content).toContain('< 50');
+    expect(content).toContain('50–199');
+    expect(content).toContain('200+');
+    // All three tiers present
+    expect(content).toContain('Small');
+    expect(content).toContain('Medium tier');
+    expect(content).toContain('Large tier');
+    // Claude adversarial subagent dispatch
+    expect(content).toContain('Agent tool');
+    expect(content).toContain('FIXABLE');
+    expect(content).toContain('INVESTIGATE');
+    // Codex fallback logic
+    expect(content).toContain('CODEX_NOT_AVAILABLE');
+    expect(content).toContain('fall back to the Claude adversarial subagent');
+    // Review log uses new skill name
+    expect(content).toContain('adversarial-review');
+    expect(content).toContain('xhigh');
+    expect(content).toContain('ADVERSARIAL REVIEW SYNTHESIS');
   });
 
-  test('codex integration in /ship offers review gate', () => {
+  test('adversarial review in /ship auto-scales by diff size', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Codex');
-    expect(content).toContain('codex review');
-    expect(content).toContain('codex-review');
+    expect(content).toContain('Adversarial review (auto-scaled)');
+    expect(content).toContain('< 50');
+    expect(content).toContain('200+');
+    expect(content).toContain('adversarial-review');
+    expect(content).toContain('xhigh');
+    expect(content).toContain('Investigate and fix');
+  });
+
+  test('codex-host ship/review do NOT contain adversarial review step', () => {
+    // .agents/ is gitignored — generate on demand
+    Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    const shipContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(shipContent).not.toContain('codex review --base');
+    expect(shipContent).not.toContain('CODEX_REVIEWS');
+
+    const reviewContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-review', 'SKILL.md'), 'utf-8');
+    expect(reviewContent).not.toContain('codex review --base');
+    expect(reviewContent).not.toContain('codex_reviews');
+    expect(reviewContent).not.toContain('CODEX_REVIEWS');
+    expect(reviewContent).not.toContain('adversarial-review');
+    expect(reviewContent).not.toContain('Investigate and fix');
   });
 
   test('codex integration in /plan-eng-review offers plan critique', () => {
@@ -1207,9 +1369,9 @@ describe('Codex skill', () => {
     expect(content).toContain('codex exec');
   });
 
-  test('Review Readiness Dashboard includes Codex Review row', () => {
+  test('Review Readiness Dashboard includes Adversarial Review row', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Codex Review');
+    expect(content).toContain('Adversarial');
     expect(content).toContain('codex-review');
   });
 });
@@ -1256,4 +1418,131 @@ describe('Skill trigger phrases', () => {
       expect(frontmatter).toMatch(/Proactively suggest/i);
     });
   }
+});
+
+// ─── Codex Skill Validation ──────────────────────────────────
+
+describe('Codex skill validation', () => {
+  const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
+
+  // .agents/ is gitignored (v0.11.2.0) — generate on demand for tests
+  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+    cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+  });
+
+  // Discover all Claude skills with templates (except /codex which is Claude-only)
+  const CLAUDE_SKILLS_WITH_TEMPLATES = (() => {
+    const skills: string[] = [];
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (entry.name === 'codex') continue; // Claude-only skill
+      if (fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) {
+        skills.push(entry.name);
+      }
+    }
+    return skills;
+  })();
+
+  test('all skills (except /codex) have both Claude and Codex variants', () => {
+    for (const skillDir of CLAUDE_SKILLS_WITH_TEMPLATES) {
+      // Claude variant
+      const claudeMd = path.join(ROOT, skillDir, 'SKILL.md');
+      expect(fs.existsSync(claudeMd)).toBe(true);
+
+      // Codex variant
+      const codexName = skillDir.startsWith('gstack-') ? skillDir : `gstack-${skillDir}`;
+      const codexMd = path.join(AGENTS_DIR, codexName, 'SKILL.md');
+      expect(fs.existsSync(codexMd)).toBe(true);
+    }
+    // Root template has both too
+    expect(fs.existsSync(path.join(ROOT, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'))).toBe(true);
+  });
+
+  test('/codex skill is Claude-only — no Codex variant', () => {
+    // Claude variant should exist
+    expect(fs.existsSync(path.join(ROOT, 'codex', 'SKILL.md'))).toBe(true);
+    // Codex variant must NOT exist
+    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
+  });
+
+  test('Codex skill names follow gstack-{name} convention', () => {
+    const codexDirs = fs.readdirSync(AGENTS_DIR);
+    for (const dir of codexDirs) {
+      // Every directory should start with gstack
+      expect(dir.startsWith('gstack')).toBe(true);
+      // Root is just 'gstack', others are 'gstack-{name}'
+      if (dir !== 'gstack') {
+        expect(dir.startsWith('gstack-')).toBe(true);
+      }
+    }
+  });
+
+  test('$B commands in Codex SKILL.md files are valid browse commands', () => {
+    const codexDirs = fs.readdirSync(AGENTS_DIR);
+    for (const dir of codexDirs) {
+      const skillMd = path.join(AGENTS_DIR, dir, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      // Only validate if the skill contains $B commands
+      if (!content.includes('$B ')) continue;
+      const result = validateSkill(skillMd);
+      expect(result.invalid).toHaveLength(0);
+    }
+  });
+});
+
+// --- Repo mode and test failure triage validation ---
+
+describe('Repo mode preamble validation', () => {
+  test('generated SKILL.md preamble contains REPO_MODE output', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('REPO_MODE:');
+    expect(content).toContain('gstack-repo-mode');
+  });
+
+  test('generated SKILL.md contains See Something Say Something section', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('See Something, Say Something');
+    expect(content).toContain('REPO_MODE');
+    expect(content).toContain('solo');
+    expect(content).toContain('collaborative');
+  });
+});
+
+describe('Test failure triage in ship skill', () => {
+  test('ship/SKILL.md contains Test Failure Ownership Triage', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Test Failure Ownership Triage');
+  });
+
+  test('ship/SKILL.md triage uses git diff for classification', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('git diff origin/<base>...HEAD --name-only');
+  });
+
+  test('ship/SKILL.md triage has solo and collaborative paths', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('REPO_MODE');
+    expect(content).toContain('solo');
+    expect(content).toContain('collaborative');
+    expect(content).toContain('Investigate and fix now');
+    expect(content).toContain('Add as P0 TODO');
+  });
+
+  test('ship/SKILL.md triage has GitHub issue assignment for collaborative mode', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('gh issue create');
+    expect(content).toContain('--assignee');
+  });
+
+  test('{{TEST_FAILURE_TRIAGE}} placeholder is fully resolved in ship/SKILL.md', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).not.toContain('{{TEST_FAILURE_TRIAGE}}');
+  });
+
+  test('ship/SKILL.md uses in-branch language for stop condition', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('In-branch test failures');
+  });
 });

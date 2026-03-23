@@ -680,7 +680,61 @@ describeIfSelected('Design skill evals', ['design-review/SKILL.md fix loop', 'de
   }, 30_000);
 });
 
-// Block 4: Other skills
+// Block 4: Deploy skills
+describeIfSelected('Deploy skill evals', [
+  'land-and-deploy/SKILL.md workflow', 'canary/SKILL.md monitoring loop',
+  'benchmark/SKILL.md perf collection', 'setup-deploy/SKILL.md platform setup',
+], () => {
+  testIfSelected('land-and-deploy/SKILL.md workflow', async () => {
+    await runWorkflowJudge({
+      testName: 'land-and-deploy/SKILL.md workflow',
+      suite: 'Deploy skill evals',
+      skillPath: 'land-and-deploy/SKILL.md',
+      startMarker: '## Step 1: Pre-flight',
+      endMarker: '## Important Rules',
+      judgeContext: 'a merge-deploy-verify workflow for landing PRs to production',
+      judgeGoal: 'how to merge a PR via GitHub CLI, wait for CI and deploy workflows (with platform-specific strategies for Fly.io/Render/Vercel/Netlify), run canary health checks on production, and offer revert if something breaks — with timing data logged for retrospectives',
+    });
+  }, 30_000);
+
+  testIfSelected('canary/SKILL.md monitoring loop', async () => {
+    await runWorkflowJudge({
+      testName: 'canary/SKILL.md monitoring loop',
+      suite: 'Deploy skill evals',
+      skillPath: 'canary/SKILL.md',
+      startMarker: '### Phase 2: Baseline Capture',
+      endMarker: '## Important Rules',
+      judgeContext: 'a post-deploy canary monitoring workflow using a headless browser daemon',
+      judgeGoal: 'how to capture baseline screenshots and metrics before deploy, run a continuous monitoring loop checking each page every 60 seconds for console errors and performance regressions, fire alerts with evidence (screenshots), and produce a health report with per-page status and verdict',
+    });
+  }, 30_000);
+
+  testIfSelected('benchmark/SKILL.md perf collection', async () => {
+    await runWorkflowJudge({
+      testName: 'benchmark/SKILL.md perf collection',
+      suite: 'Deploy skill evals',
+      skillPath: 'benchmark/SKILL.md',
+      startMarker: '### Phase 3: Performance Data Collection',
+      endMarker: '## Important Rules',
+      judgeContext: 'a performance regression detection workflow using browser-based Web Vitals measurement',
+      judgeGoal: 'how to collect real performance metrics (TTFB, FCP, LCP, bundle sizes, request counts) via performance.getEntries(), compare against baselines with regression thresholds, produce a performance report with delta analysis, and track trends over time',
+    });
+  }, 30_000);
+
+  testIfSelected('setup-deploy/SKILL.md platform setup', async () => {
+    await runWorkflowJudge({
+      testName: 'setup-deploy/SKILL.md platform setup',
+      suite: 'Deploy skill evals',
+      skillPath: 'setup-deploy/SKILL.md',
+      startMarker: '### Step 2: Detect platform',
+      endMarker: '## Important Rules',
+      judgeContext: 'a deployment configuration setup workflow that detects deploy platforms and writes config to CLAUDE.md',
+      judgeGoal: 'how to detect deploy platforms (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, custom), gather platform-specific configuration (URLs, status commands, health checks, custom hooks), and persist everything to CLAUDE.md for future automated use',
+    });
+  }, 30_000);
+});
+
+// Block 5: Other skills
 describeIfSelected('Other skill evals', [
   'retro/SKILL.md instructions', 'qa-only/SKILL.md workflow', 'gstack-upgrade/SKILL.md upgrade flow',
 ], () => {
