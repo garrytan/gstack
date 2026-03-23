@@ -230,9 +230,9 @@ IMPORTANT:
 - This repo has a Dockerfile without USER directive and an unpinned third-party GitHub Action.
 - Focus on infrastructure findings, NOT code-level OWASP scanning.`,
       workingDirectory: csoInfraDir,
-      maxTurns: 25,
+      maxTurns: 60,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Agent'],
-      timeout: 240_000,
+      timeout: 360_000,
     });
 
     logCost('cso', result);
@@ -245,5 +245,5 @@ IMPORTANT:
     ).toBe(true);
 
     recordE2E(evalCollector, 'cso-infra-scope', 'e2e-cso', result);
-  }, 240_000);
+  }, 360_000);
 });
