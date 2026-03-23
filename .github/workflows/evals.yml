@@ -1,0 +1,93 @@
+name: E2E Evals
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: evals-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install
+
+      - run: bun run build
+
+      - name: Verify browse binary
+        run: test -f browse/dist/browse || (echo "Browse binary missing after build" && exit 1)
+
+      - name: Install Claude CLI
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: Download previous eval baseline
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: eval-results
+          branch: main
+          path: /tmp/eval-baseline
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      - name: Copy baseline for comparison
+        run: |
+          if [ -d /tmp/eval-baseline ]; then
+            mkdir -p ~/.gstack-dev/evals
+            cp /tmp/eval-baseline/*.json ~/.gstack-dev/evals/ 2>/dev/null || true
+          fi
+
+      - name: Run E2E evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EVALS_CONCURRENCY: "40"
+        run: bun run test:evals
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: ~/.gstack-dev/evals/*.json
+          retention-days: 90
+
+      - name: Post PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RESULT=$(ls -t ~/.gstack-dev/evals/*.json 2>/dev/null | grep -v _partial | head -1)
+          if [ -z "$RESULT" ]; then
+            echo "No eval results found"
+            exit 0
+          fi
+
+          TOTAL=$(jq .total_tests "$RESULT")
+          PASSED=$(jq .passed "$RESULT")
+          FAILED=$(jq .failed "$RESULT")
+          COST=$(jq .total_cost_usd "$RESULT")
+          WALL=$(jq '.wall_clock_ms // 0 | . / 1000 | floor' "$RESULT")
+
+          STATUS="pass"
+          [ "$FAILED" -gt 0 ] && STATUS="FAIL"
+
+          BODY="**E2E Evals:** ${STATUS} ${PASSED}/${TOTAL} passed | \$${COST} | ${WALL}s wall clock"
+
+          if [ "$FAILED" -gt 0 ]; then
+            FAILURES=$(jq -r '.tests[] | select(.passed == false) | "- FAIL \(.name): \(.exit_reason // "unknown")"' "$RESULT")
+            BODY="${BODY}
+
+          Failures:
+          ${FAILURES}"
+          fi
+
+          gh pr comment ${{ github.event.pull_request.number }} --body "$BODY"

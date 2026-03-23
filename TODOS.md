@@ -338,17 +338,6 @@
 **Depends on:** Video recording
 
 
-### GitHub Actions eval upload
-
-**What:** Run eval suite in CI, upload result JSON as artifact, post summary comment on PR.
-
-**Why:** CI integration catches quality regressions before merge and provides persistent eval records per PR.
-
-**Context:** Requires `ANTHROPIC_API_KEY` in CI secrets. Cost is ~$4/run. Eval persistence system (v0.3.6) writes JSON to `~/.gstack-dev/evals/` — CI would upload as GitHub Actions artifacts and use `eval:compare` to post delta comment.
-
-**Effort:** M
-**Priority:** P2
-**Depends on:** Eval persistence (shipped in v0.3.6)
 
 ### E2E model pinning — SHIPPED
 
@@ -538,6 +527,14 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
 
 ## Completed
+
+### CI eval pipeline (v0.9.9.0)
+- GitHub Actions eval upload on Ubicloud runners ($0.006/run)
+- Within-file test concurrency (test() → testConcurrentIfSelected())
+- Eval artifact upload + PR comment with pass/fail + cost
+- Baseline comparison via artifact download from main
+- EVALS_CONCURRENCY=40 for ~6min wall clock (was ~18min)
+**Completed:** v0.9.9.0
 
 ### Deploy pipeline (v0.9.8.0)
 - /land-and-deploy — merge PR, wait for CI/deploy, canary verification
