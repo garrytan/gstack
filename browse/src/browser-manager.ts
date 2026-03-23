@@ -62,7 +62,19 @@ export class BrowserManager {
   private consecutiveFailures: number = 0;
 
   async launch() {
-    this.browser = await chromium.launch({ headless: true });
+    const cdpUrl = process.env.BROWSE_CDP_URL;
+
+    if (cdpUrl) {
+      // Connect to an existing Chrome instance via CDP WebSocket URL.
+      // Use case: Chrome sidebar extension, remote debugging, real browser sessions.
+      // Launch Chrome with: chrome --remote-debugging-port=9222
+      // Then: BROWSE_CDP_URL=ws://localhost:9222 browse server
+      console.error(`[browse] Connecting to existing Chrome via CDP: ${cdpUrl}`);
+      this.browser = await chromium.connectOverCDP(cdpUrl);
+      this.isHeaded = true; // connected Chrome is always headed
+    } else {
+      this.browser = await chromium.launch({ headless: true });
+    }
 
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {
@@ -71,20 +83,45 @@ export class BrowserManager {
       process.exit(1);
     });
 
-    const contextOptions: BrowserContextOptions = {
-      viewport: { width: 1280, height: 720 },
-    };
-    if (this.customUserAgent) {
-      contextOptions.userAgent = this.customUserAgent;
+    if (cdpUrl) {
+      // When connecting via CDP, use existing contexts if available
+      const contexts = this.browser.contexts();
+      if (contexts.length > 0) {
+        this.context = contexts[0];
+        console.error(`[browse] Using existing browser context (${contexts.length} available)`);
+      } else {
+        const contextOptions: BrowserContextOptions = {
+          viewport: { width: 1280, height: 720 },
+        };
+        this.context = await this.browser.newContext(contextOptions);
+      }
+    } else {
+      const contextOptions: BrowserContextOptions = {
+        viewport: { width: 1280, height: 720 },
+      };
+      if (this.customUserAgent) {
+        contextOptions.userAgent = this.customUserAgent;
+      }
+      this.context = await this.browser.newContext(contextOptions);
     }
-    this.context = await this.browser.newContext(contextOptions);
 
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
     }
 
-    // Create first tab
-    await this.newTab();
+    // Create first tab (or attach to existing pages in CDP mode)
+    const existingPages = cdpUrl ? this.context.pages() : [];
+    if (existingPages.length > 0) {
+      for (let i = 0; i < existingPages.length; i++) {
+        this.pages.set(i, existingPages[i]);
+        this.setupPageHandlers(existingPages[i]);
+      }
+      this.activeTabId = 0;
+      this.nextTabId = existingPages.length;
+      console.error(`[browse] Attached to ${existingPages.length} existing tab(s)`);
+    } else {
+      await this.newTab();
+    }
   }
 
   async close() {
