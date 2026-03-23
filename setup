@@ -26,6 +26,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
+    --enforcement) INSTALL_ENFORCEMENT=1; shift ;;
     *) shift ;;
   esac
 done
@@ -37,6 +38,7 @@ esac
 
 # For auto: detect which agents are installed
 INSTALL_CLAUDE=0
+INSTALL_ENFORCEMENT=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
 if [ "$HOST" = "auto" ]; then
@@ -428,7 +430,19 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   create_agents_sidecar "$SOURCE_GSTACK_DIR"
 fi
 
-# 8. First-time welcome + legacy cleanup
+# 8. Optional: install Rippletide for plan decision enforcement
+if [ "$INSTALL_ENFORCEMENT" -eq 1 ]; then
+  echo ""
+  echo "Installing Rippletide enforcement..."
+  npx rippletide-code@latest connect
+  echo ""
+  echo "Rippletide connected. Plan decisions from /plan-eng-review, /plan-ceo-review,"
+  echo "and /plan-design-review will now be enforced via Claude Code hooks."
+  echo ""
+  echo "Note: check CLAUDE.md and re-add the '## gstack' section if it was overwritten."
+fi
+
+# 9. First-time welcome + legacy cleanup
 if [ ! -d "$HOME/.gstack" ]; then
   mkdir -p "$HOME/.gstack"
   echo "  Welcome! Run /gstack-upgrade anytime to stay current."

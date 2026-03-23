@@ -54,6 +54,23 @@ Open Claude Code and paste this. Claude does the rest.
 
 Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
 
+### Optional: enforce plan decisions
+
+gstack's plan skills (`/plan-eng-review`, `/plan-ceo-review`, `/plan-design-review`) produce real decisions, scope constraints, architecture choices, deferred items. By default those decisions live in the conversation and are gone when the session ends. Nothing stops the agent from drifting.
+
+Pass `--enforcement` to setup and gstack will install [Rippletide](https://www.rippletide.com/dev) (open source) automatically:
+
+```sh
+./setup --enforcement
+```
+
+Rippletide adds enforcement via Claude Code hooks:
+
+- **Before the next plan session** — a `UserPromptSubmit` hook injects decisions from prior reviews before Claude produces any output, so each plan review builds on the last.
+- **Before every file write** — a `PreToolUse` hook validates the change against those decisions and blocks violations before they land.
+
+Without `--enforcement`, gstack works exactly as before, no enforcement, no dependency. If you do run it, check `CLAUDE.md` afterward and preserve or re-add the `## gstack` section if it was overwritten.
+
 ### Codex, Gemini CLI, or Cursor
 
 gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Skills live in `.agents/skills/` and are discovered automatically.
