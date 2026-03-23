@@ -8,6 +8,7 @@
 import type { BrowserManager } from './browser-manager';
 import { findInstalledBrowsers, importCookies } from './cookie-import-browser';
 import { validateNavigationUrl } from './url-validation';
+import { devices } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TEMP_DIR, isPathWithin } from './platform';
@@ -194,6 +195,42 @@ export async function handleWriteCommand(
       const [w, h] = size.split('x').map(Number);
       await bm.setViewport(w, h);
       return `Viewport set to ${w}x${h}`;
+    }
+
+    case 'device': {
+      const subcommand = args[0];
+      if (!subcommand) throw new Error('Usage: browse device <name|list|clear>');
+
+      if (subcommand === 'list') {
+        const names = Object.keys(devices);
+        return `${names.length} devices available:\n${names.join('\n')}`;
+      }
+
+      if (subcommand === 'clear') {
+        await bm.setDevice(null);
+        return 'Device profile cleared. Using default viewport (1280x720).';
+      }
+
+      const name = args.join(' ');
+      const descriptor = devices[name];
+      if (!descriptor) {
+        const match = Object.keys(devices).find(k =>
+          k.toLowerCase().includes(name.toLowerCase())
+        );
+        if (match) {
+          throw new Error(`Device "${name}" not found. Did you mean "${match}"?`);
+        }
+        throw new Error(`Device "${name}" not found. Run "device list" to see available profiles.`);
+      }
+
+      await bm.setDevice({
+        viewport: descriptor.viewport,
+        userAgent: descriptor.userAgent,
+        deviceScaleFactor: descriptor.deviceScaleFactor,
+        isMobile: descriptor.isMobile,
+        hasTouch: descriptor.hasTouch,
+      });
+      return `Device: ${name}\n  Viewport: ${descriptor.viewport.width}x${descriptor.viewport.height}\n  DPR: ${descriptor.deviceScaleFactor}\n  Mobile: ${descriptor.isMobile}\n  Touch: ${descriptor.hasTouch}\n  UA: ${descriptor.userAgent.slice(0, 80)}...`;
     }
 
     case 'cookie': {
