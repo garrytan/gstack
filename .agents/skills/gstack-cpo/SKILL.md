@@ -11,7 +11,7 @@ description: |
   "product decision", "kill criteria", "go/no-go", "CPO", or any product/strategic
   fork where the user needs structured judgment before committing resources.
   Proactively suggest when the user faces a product or strategic decision — before
-  code is written. Use before /plan-eng-review or /build.
+  code is written. Use before /plan-eng-review.
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -458,7 +458,7 @@ timestamp: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 EOF
 ```
 
-This makes CPO decisions visible to other skills. `/build`, `/review`, and `/retro` can read `~/.cpo/signals/cpo-latest.yaml` to check if a decision exists before implementation.
+This makes CPO decisions visible to other skills. `/review` and `/retro` can read `~/.cpo/signals/cpo-latest.yaml` to check if a decision exists before implementation.
 
 **After any D/E/F/K/L pick completes:** re-offer remaining unused picks.
 
@@ -492,7 +492,6 @@ Confirm: *"Brief saved to `~/.cpo/briefs/[filename]`. Run `/plan-eng-review` to 
 - Architecture/implementation → *"Run `/plan-eng-review` to lock in the plan."*
 - Scope expansion → *"Run `/plan-ceo-review` to rethink the ambition."*
 - New idea exploration → *"Run `/office-hours` to pressure-test the premise."*
-- Ready to build → *"Run `/build` to start implementation."*
 - Ready to ship (PR exists) → *"Run `/ship` to push a PR, or `/land-and-deploy` to merge, deploy, and verify production."*
 - Post-launch monitoring → *"Run `/canary [url]` to watch for regressions after deploy."*
 - Process/team patterns → *"Run `/retro` to check if this pattern has historical precedent."*
