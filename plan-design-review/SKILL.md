@@ -259,6 +259,42 @@ success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was
 If you cannot determine the outcome, use "unknown". This runs in the background and
 never blocks the user.
 
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
 ## Step 0: Detect base branch
 
 Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
@@ -384,6 +420,113 @@ AskUserQuestion: "I've rated this plan {N}/10 on design completeness. The bigges
 
 **STOP.** Do NOT proceed until user responds.
 
+## Design Outside Voices (parallel)
+
+Use AskUserQuestion:
+> "Want outside design voices before the detailed review? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent completeness review."
+>
+> A) Yes — run outside design voices
+> B) No — proceed without
+
+If user chooses B, skip this step and continue.
+
+**Check Codex availability:**
+```bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+```
+
+**If Codex is available**, launch both voices simultaneously:
+
+1. **Codex design voice** (via Bash):
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+codex exec "Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
+
+HARD REJECTION — flag if ANY apply:
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+LITMUS CHECKS — answer YES or NO for each:
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then flag violations of the matching rule set:
+- MARKETING: First viewport as one composition, brand-first hierarchy, full-bleed hero, 2-3 intentional motions, composition-first layout
+- APP UI: Calm surface hierarchy, dense but readable, utility language, minimal chrome
+- UNIVERSAL: CSS variables for colors, no default font stacks, one job per section, cards earn existence
+
+For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+```
+Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+```bash
+cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+```
+
+2. **Claude design subagent** (via Agent tool):
+Dispatch a subagent with this prompt:
+"Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
+
+1. Information hierarchy: what does the user see first, second, third? Is it right?
+2. Missing states: loading, empty, error, success, partial — which are unspecified?
+3. User journey: what's the emotional arc? Where does it break?
+4. Specificity: does the plan describe SPECIFIC UI ("48px Söhne Bold header, #1a1a1a on white") or generic patterns ("clean modern card-based layout")?
+5. What design decisions will haunt the implementer if left ambiguous?
+
+For each finding: what's wrong, severity (critical/high/medium), and the fix."
+
+**Error handling (all non-blocking):**
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response."
+- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+
+Present Codex output under a `CODEX SAYS (design critique):` header.
+Present subagent output under a `CLAUDE SUBAGENT (design completeness):` header.
+
+**Synthesis — Litmus scorecard:**
+
+```
+DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
+═══════════════════════════════════════════════════════════════
+  Check                                    Claude  Codex  Consensus
+  ─────────────────────────────────────── ─────── ─────── ─────────
+  1. Brand unmistakable in first screen?   —       —      —
+  2. One strong visual anchor?             —       —      —
+  3. Scannable by headlines only?          —       —      —
+  4. Each section has one job?             —       —      —
+  5. Cards actually necessary?             —       —      —
+  6. Motion improves hierarchy?            —       —      —
+  7. Premium without decorative shadows?   —       —      —
+  ─────────────────────────────────────── ─────── ─────── ─────────
+  Hard rejections triggered:               —       —      —
+═══════════════════════════════════════════════════════════════
+```
+
+Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
+
+**Pass integration (respects existing 7-pass contract):**
+- Hard rejections → raised as the FIRST items in Pass 1, tagged `[HARD REJECTION]`
+- Litmus DISAGREE items → raised in the relevant pass with both perspectives
+- Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
+- Passes can skip discovery and go straight to fixing for pre-identified issues
+
+**Log the result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+
 ## The 0-10 Rating Method
 
 For each design section, rate the plan 0-10 on that dimension. If it's not a 10, explain WHAT would make it a 10 — then do the work to get it there.
@@ -432,6 +575,75 @@ Apply time-horizon design: 5-sec visceral, 5-min behavioral, 5-year reflective.
 ### Pass 4: AI Slop Risk
 Rate 0-10: Does the plan describe specific, intentional UI — or generic patterns?
 FIX TO 10: Rewrite vague UI descriptions with specific alternatives.
+
+### Design Hard Rules
+
+**Classifier — determine rule set before evaluating:**
+- **MARKETING/LANDING PAGE** (hero-driven, brand-forward, conversion-focused) → apply Landing Page Rules
+- **APP UI** (workspace-driven, data-dense, task-focused: dashboards, admin, settings) → apply App UI Rules
+- **HYBRID** (marketing shell with app-like sections) → apply Landing Page Rules to hero/marketing sections, App UI Rules to functional sections
+
+**Hard rejection criteria** (instant-fail patterns — flag if ANY apply):
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+**Litmus checks** (answer YES/NO for each — used for cross-model consensus scoring):
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+**Landing page rules** (apply when classifier = MARKETING/LANDING):
+- First viewport reads as one composition, not a dashboard
+- Brand-first hierarchy: brand > headline > body > CTA
+- Typography: expressive, purposeful — no default stacks (Inter, Roboto, Arial, system)
+- No flat single-color backgrounds — use gradients, images, subtle patterns
+- Hero: full-bleed, edge-to-edge, no inset/tiled/rounded variants
+- Hero budget: brand, one headline, one supporting sentence, one CTA group, one image
+- No cards in hero. Cards only when card IS the interaction
+- One job per section: one purpose, one headline, one short supporting sentence
+- Motion: 2-3 intentional motions minimum (entrance, scroll-linked, hover/reveal)
+- Color: define CSS variables, avoid purple-on-white defaults, one accent color default
+- Copy: product language not design commentary. "If deleting 30% improves it, keep deleting"
+- Beautiful defaults: composition-first, brand as loudest text, two typefaces max, cardless by default, first viewport as poster not document
+
+**App UI rules** (apply when classifier = APP UI):
+- Calm surface hierarchy, strong typography, few colors
+- Dense but readable, minimal chrome
+- Organize: primary workspace, navigation, secondary context, one accent
+- Avoid: dashboard-card mosaics, thick borders, decorative gradients, ornamental icons
+- Copy: utility language — orientation, status, action. Not mood/brand/aspiration
+- Cards only when card IS the interaction
+- Section headings state what area is or what user can do ("Selected KPIs", "Plan status")
+
+**Universal rules** (apply to ALL types):
+- Define CSS variables for color system
+- No default font stacks (Inter, Roboto, Arial, system)
+- One job per section
+- "If deleting 30% of the copy improves it, keep deleting"
+- Cards earn their existence — no decorative card grids
+
+**AI Slop blacklist** (the 10 patterns that scream "AI-generated"):
+1. Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes
+2. **The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.
+3. Icons in colored circles as section decoration (SaaS starter template look)
+4. Centered everything (`text-align: center` on all headings, descriptions, cards)
+5. Uniform bubbly border-radius on every element (same large radius on everything)
+6. Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)
+7. Emoji as design elements (rockets in headings, emoji as bullet points)
+8. Colored left-border on cards (`border-left: 3px solid <accent>`)
+9. Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")
+10. Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)
+
+Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.
 - "Cards with icons" → what differentiates these from every SaaS template?
 - "Hero section" → what makes this hero feel like THIS product?
 - "Clean, modern UI" → meaningless. Replace with actual design decisions.
@@ -551,7 +763,7 @@ After completing the review, read the review log and config to display the dashb
 ~/.claude/skills/gstack/bin/gstack-review-read
 ```
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, adversarial-review, codex-review). Ignore entries with timestamps older than 7 days. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
 
 ```
 +====================================================================+
@@ -563,6 +775,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 | CEO Review      |  0   | —                   | —         | no       |
 | Design Review   |  0   | —                   | —         | no       |
 | Adversarial     |  0   | —                   | —         | no       |
+| Outside Voice   |  0   | —                   | —         | no       |
 +--------------------------------------------------------------------+
 | VERDICT: CLEARED — Eng Review passed                                |
 +====================================================================+
@@ -573,6 +786,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
 - **Adversarial Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, Codex structured, Claude adversarial subagent, Codex adversarial. No configuration needed.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days with status "clean" (or \`skip_eng_review\` is \`true\`)

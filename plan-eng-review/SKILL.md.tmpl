@@ -96,29 +96,6 @@ Before reviewing anything, answer these questions:
 
 If the complexity check triggers (8+ files or 2+ new classes/services), proactively recommend scope reduction via AskUserQuestion — explain what's overbuilt, propose a minimal version that achieves the core goal, and ask whether to reduce or proceed as-is. If the complexity check does not trigger, present your Step 0 findings and proceed directly to Section 1.
 
-### Step 0.5: Codex plan review (optional)
-
-Check if the Codex CLI is available: `which codex 2>/dev/null`
-
-If available, after presenting Step 0 findings, use AskUserQuestion:
-```
-Want an independent Codex (OpenAI) review of this plan before the detailed review?
-A) Yes — let Codex critique the plan independently
-B) No — proceed with the Claude review only
-```
-
-If the user chooses A: tell Codex to read the plan file itself (avoids ARG_MAX limits for large plans):
-```bash
-codex exec "You are a brutally honest technical reviewer. Read the plan file at <plan-file-path> and review it for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached
-```
-
-Replace `<plan-file-path>` with the actual path to the plan file detected earlier. Codex has filesystem access in read-only mode and will read the file itself.
-
-Present the full output under a `CODEX SAYS (plan review):` header. Note any concerns
-that should inform the subsequent engineering review sections.
-
-If Codex is not available, skip silently.
-
 Always work through the full interactive review: one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
 
 **Critical: Once the user accepts or rejects a scope reduction recommendation, commit fully.** Do not re-argue for smaller scope during later review sections. Do not silently reduce scope or skip planned components.
@@ -164,6 +141,8 @@ Evaluate:
 * Slow or high-complexity code paths.
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+
+{{CODEX_PLAN_REVIEW}}
 
 ## CRITICAL RULE — How to ask questions
 Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
@@ -220,6 +199,7 @@ At the end of the review, fill in and display this summary so the user can see a
 - What already exists: written
 - TODOS.md updates: ___ items proposed to user
 - Failure modes: ___ critical gaps flagged
+- Outside voice: ran (codex/claude) / skipped
 - Lake Score: X/Y recommendations chose complete option
 
 ## Retrospective learning

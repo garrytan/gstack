@@ -45,10 +45,10 @@ const HOST_PATHS: Record<Host, HostPaths> = {
     browseDir: '~/.claude/skills/gstack/browse/dist',
   },
   codex: {
-    skillRoot: '~/.codex/skills/gstack',
+    skillRoot: '$GSTACK_ROOT',
     localSkillRoot: '.agents/skills/gstack',
-    binDir: '~/.codex/skills/gstack/bin',
-    browseDir: '~/.codex/skills/gstack/browse/dist',
+    binDir: '$GSTACK_BIN',
+    browseDir: '$GSTACK_BROWSE',
   },
 };
 
@@ -59,6 +59,44 @@ interface TemplateContext {
   host: Host;
   paths: HostPaths;
 }
+
+// ─── Shared Design Constants ────────────────────────────────
+
+/** gstack's 10 AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES */
+const AI_SLOP_BLACKLIST = [
+  'Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes',
+  '**The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.',
+  'Icons in colored circles as section decoration (SaaS starter template look)',
+  'Centered everything (`text-align: center` on all headings, descriptions, cards)',
+  'Uniform bubbly border-radius on every element (same large radius on everything)',
+  'Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)',
+  'Emoji as design elements (rockets in headings, emoji as bullet points)',
+  'Colored left-border on cards (`border-left: 3px solid <accent>`)',
+  'Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")',
+  'Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)',
+];
+
+/** OpenAI hard rejection criteria (from "Designing Delightful Frontends with GPT-5.4", Mar 2026) */
+const OPENAI_HARD_REJECTIONS = [
+  'Generic SaaS card grid as first impression',
+  'Beautiful image with weak brand',
+  'Strong headline with no clear action',
+  'Busy imagery behind text',
+  'Sections repeating same mood statement',
+  'Carousel with no narrative purpose',
+  'App UI made of stacked cards instead of layout',
+];
+
+/** OpenAI litmus checks — 7 yes/no tests for cross-model consensus scoring */
+const OPENAI_LITMUS_CHECKS = [
+  'Brand/product unmistakable in first screen?',
+  'One strong visual anchor present?',
+  'Page understandable by scanning headlines only?',
+  'Each section has one job?',
+  'Are cards actually necessary?',
+  'Does motion improve hierarchy or atmosphere?',
+  'Would design feel premium with all decorative shadows removed?',
+];
 
 // ─── Placeholder Resolvers ──────────────────────────────────
 
@@ -138,10 +176,19 @@ function generateSnapshotFlags(_ctx: TemplateContext): string {
 }
 
 function generatePreambleBash(ctx: TemplateContext): string {
+  const runtimeRoot = ctx.host === 'codex'
+    ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+GSTACK_ROOT="$HOME/.codex/skills/gstack"
+[ -n "$_ROOT" ] && [ -d "$_ROOT/.agents/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.agents/skills/gstack"
+GSTACK_BIN="$GSTACK_ROOT/bin"
+GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
+`
+    : '';
+
   return `## Preamble (run first)
 
 \`\`\`bash
-_UPD=$(${ctx.paths.binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
+${runtimeRoot}_UPD=$(${ctx.paths.binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
@@ -157,7 +204,7 @@ REPO_MODE=\${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL=$(${ctx.paths.binDir}/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
@@ -491,7 +538,43 @@ rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 Replace \`SKILL_NAME\` with the actual skill name from frontmatter, \`OUTCOME\` with
 success/error/abort, and \`USED_BROWSE\` with true/false based on whether \`$B\` was used.
 If you cannot determine the outcome, use "unknown". This runs in the background and
-never blocks the user.`;
+never blocks the user.
+
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a \`## GSTACK REVIEW REPORT\` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\\\`\\\`\\\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\\\`\\\`\\\`
+
+Then write a \`## GSTACK REVIEW REPORT\` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before \`---CONFIG---\`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is \`NO_REVIEWS\` or empty: write this placeholder table:
+
+\\\`\\\`\\\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \\\`/plan-ceo-review\\\` | Scope & strategy | 0 | — | — |
+| Codex Review | \\\`/codex review\\\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \\\`/plan-eng-review\\\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \\\`/plan-design-review\\\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \\\`/autoplan\\\` for full review pipeline, or individual reviews above.
+\\\`\\\`\\\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.`;
 }
 
 function generatePreamble(ctx: TemplateContext): string {
@@ -831,13 +914,40 @@ Minimum 0 per category.
 12. **Never refuse to use the browser.** When the user invokes /qa or /qa-only, they are requesting browser-based testing. Never suggest evals, unit tests, or other alternatives as a substitute. Even if the diff appears to have no UI changes, backend changes affect app behavior — always open the browser and test.`;
 }
 
-function generateDesignReviewLite(_ctx: TemplateContext): string {
+function generateDesignReviewLite(ctx: TemplateContext): string {
+  const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
+  const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join(' ');
+  // Codex block only for Claude host
+  const codexBlock = ctx.host === 'codex' ? '' : `
+
+7. **Codex design voice** (optional, automatic if available):
+
+\`\`\`bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+\`\`\`
+
+If Codex is available, run a lightweight design check on the diff:
+
+\`\`\`bash
+TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
+codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+\`\`\`
+
+Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
+\`\`\`bash
+cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
+\`\`\`
+
+**Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
+
+Present Codex output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
+
   return `## Design Review (conditional, diff-scoped)
 
 Check if the diff touches frontend files using \`gstack-diff-scope\`:
 
 \`\`\`bash
-source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
+source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null)
 \`\`\`
 
 **If \`SCOPE_FRONTEND=false\`:** Skip design review silently. No output.
@@ -860,10 +970,10 @@ source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 6. **Log the result** for the Review Readiness Dashboard:
 
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
+${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
 \`\`\`
 
-Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of \`git rev-parse --short HEAD\`.`;
+Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of \`git rev-parse --short HEAD\`.${codexBlock}`;
 }
 
 // NOTE: design-checklist.md is a subset of this methodology for code-level detection.
@@ -1060,16 +1170,7 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 
 The test: would a human designer at a respected studio ever ship this?
 
-- Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes
-- **The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.
-- Icons in colored circles as section decoration (SaaS starter template look)
-- Centered everything (\`text-align: center\` on all headings, descriptions, cards)
-- Uniform bubbly border-radius on every element (same large radius on everything)
-- Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)
-- Emoji as design elements (rockets in headings, emoji as bullet points)
-- Colored left-border on cards (\`border-left: 3px solid <accent>\`)
-- Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")
-- Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)
+${AI_SLOP_BLACKLIST.map(item => `- ${item}`).join('\n')}
 
 **10. Performance as Design** (6 items)
 - LCP < 2.0s (web apps), < 1.5s (informational sites)
@@ -1118,7 +1219,7 @@ Compare screenshots and observations across pages for:
 
 **Project-scoped:**
 \`\`\`bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 \`\`\`
 Write to: \`~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md\`
 
@@ -1210,7 +1311,7 @@ After completing the review, read the review log and config to display the dashb
 ~/.claude/skills/gstack/bin/gstack-review-read
 \`\`\`
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, adversarial-review, codex-review). Ignore entries with timestamps older than 7 days. For the Adversarial row, show whichever is more recent between \`adversarial-review\` (new auto-scaled) and \`codex-review\` (legacy). For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Adversarial row, show whichever is more recent between \`adversarial-review\` (new auto-scaled) and \`codex-review\` (legacy). For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
 
 \`\`\`
 +====================================================================+
@@ -1222,6 +1323,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 | CEO Review      |  0   | —                   | —         | no       |
 | Design Review   |  0   | —                   | —         | no       |
 | Adversarial     |  0   | —                   | —         | no       |
+| Outside Voice   |  0   | —                   | —         | no       |
 +--------------------------------------------------------------------+
 | VERDICT: CLEARED — Eng Review passed                                |
 +====================================================================+
@@ -1232,6 +1334,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
 - **Adversarial Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, Codex structured, Claude adversarial subagent, Codex adversarial. No configuration needed.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days with status "clean" (or \\\`skip_eng_review\\\` is \\\`true\\\`)
@@ -1714,7 +1817,7 @@ The plan should be complete enough that when implementation begins, every test i
 After producing the coverage diagram, write a test plan artifact to the project directory so \`/qa\` and \`/qa-only\` can consume it as primary test input:
 
 \`\`\`bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 \`\`\`
@@ -1778,7 +1881,7 @@ Coverage line: \`Test Coverage Audit: N new code paths. M covered (X%). K tests 
 After producing the coverage diagram, write a test plan artifact so \`/qa\` and \`/qa-only\` can consume it:
 
 \`\`\`bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 \`\`\`
@@ -1920,11 +2023,43 @@ Say to the user via AskUserQuestion:
 > not per-product — it captures the thinking behind this specific change."
 
 Options:
-- A) Run /${first} first (in another window, then come back)
+- A) Run /${first} now (we'll pick up the review right after)
 - B) Skip — proceed with standard review
 
 If they skip: "No worries — standard review. If you ever want sharper input, try
-/${first} first next time." Then proceed normally. Do not re-offer later in the session.`;
+/${first} first next time." Then proceed normally. Do not re-offer later in the session.
+
+If they choose A:
+
+Say: "Running /${first} inline. Once the design doc is ready, I'll pick up
+the review right where we left off."
+
+Read the ${first} skill file from disk using the Read tool:
+\`~/.claude/skills/gstack/${first}/SKILL.md\`
+
+Follow it inline, **skipping these sections** (already handled by the parent skill):
+- Preamble (run first)
+- AskUserQuestion Format
+- Completeness Principle — Boil the Lake
+- Search Before Building
+- Contributor Mode
+- Completion Status Protocol
+- Telemetry (run last)
+
+If the Read fails (file not found), say:
+"Could not load /${first} — proceeding with standard review."
+
+After /${first} completes, re-run the design doc check:
+\`\`\`bash
+SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
+DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
+[ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
+[ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
+\`\`\`
+
+If a design doc is now found, read it and continue the review.
+If none was produced (user may have cancelled), proceed with standard review.`;
 }
 
 function generateDesignSketch(_ctx: TemplateContext): string {
@@ -1984,7 +2119,123 @@ If they approve or say "good enough," proceed.
 
 Reference the wireframe screenshot in the design doc's "Recommended Approach" section.
 The screenshot file at \`/tmp/gstack-sketch.png\` can be referenced by downstream skills
-(\`/plan-design-review\`, \`/design-review\`) to see what was originally envisioned.`;
+(\`/plan-design-review\`, \`/design-review\`) to see what was originally envisioned.
+
+**Step 6: Outside design voices** (optional)
+
+After the wireframe is approved, offer outside design perspectives:
+
+\`\`\`bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+\`\`\`
+
+If Codex is available, use AskUserQuestion:
+> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
+>
+> A) Yes — get outside design voices
+> B) No — proceed without
+
+If user chooses A, launch both voices simultaneously:
+
+1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
+\`\`\`bash
+TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
+codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
+\`\`\`
+Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
+
+2. **Claude subagent** (via Agent tool):
+"For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
+
+Present Codex output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
+Error handling: all non-blocking. On failure, skip and continue.`;
+}
+
+function generateCodexSecondOpinion(ctx: TemplateContext): string {
+  // Codex host: strip entirely — Codex should never invoke itself
+  if (ctx.host === 'codex') return '';
+
+  return `## Phase 3.5: Cross-Model Second Opinion (optional)
+
+**Binary check first — no question if unavailable:**
+
+\`\`\`bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+\`\`\`
+
+If \`CODEX_NOT_AVAILABLE\`: skip Phase 3.5 entirely — no message, no AskUserQuestion. Proceed directly to Phase 4.
+
+If \`CODEX_AVAILABLE\`: use AskUserQuestion:
+
+> Want a second opinion from a different AI model? Codex will independently review your problem statement, key answers, premises, and any landscape findings from this session. It hasn't seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
+> A) Yes, get a second opinion
+> B) No, proceed to alternatives
+
+If B: skip Phase 3.5 entirely. Remember that Codex did NOT run (affects design doc, founder signals, and Phase 4 below).
+
+**If A: Run the Codex cold read.**
+
+1. Assemble a structured context block from Phases 1-3:
+   - Mode (Startup or Builder)
+   - Problem statement (from Phase 1)
+   - Key answers from Phase 2A/2B (summarize each Q&A in 1-2 sentences, include verbatim user quotes)
+   - Landscape findings (from Phase 2.75, if search was run)
+   - Agreed premises (from Phase 3)
+   - Codebase context (project name, languages, recent activity)
+
+2. **Write the assembled prompt to a temp file** (prevents shell injection from user-derived content):
+
+\`\`\`bash
+CODEX_PROMPT_FILE=$(mktemp /tmp/gstack-codex-oh-XXXXXXXX.txt)
+\`\`\`
+
+Write the full prompt (context block + instructions) to this file. Use the mode-appropriate variant:
+
+**Startup mode instructions:** "You are an independent technical advisor reading a transcript of a startup brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the STRONGEST version of what this person is trying to build? Steelman it in 2-3 sentences. 2) What is the ONE thing from their answers that reveals the most about what they should actually build? Quote it and explain why. 3) Name ONE agreed premise you think is wrong, and what evidence would prove you right. 4) If you had 48 hours and one engineer to build a prototype, what would you build? Be specific — tech stack, features, what you'd skip. Be direct. Be terse. No preamble."
+
+**Builder mode instructions:** "You are an independent technical advisor reading a transcript of a builder brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the COOLEST version of this they haven't considered? 2) What's the ONE thing from their answers that reveals what excites them most? Quote it. 3) What existing open source project or tool gets them 50% of the way there — and what's the 50% they'd need to build? 4) If you had a weekend to build this, what would you build first? Be specific. Be direct. No preamble."
+
+3. Run Codex:
+
+\`\`\`bash
+TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
+codex exec "$(cat "$CODEX_PROMPT_FILE")" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_OH"
+\`\`\`
+
+Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
+\`\`\`bash
+cat "$TMPERR_OH"
+rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
+\`\`\`
+
+**Error handling:** All errors are non-blocking — Codex second opinion is a quality enhancement, not a prerequisite.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate. Skipping second opinion."
+- **Timeout:** "Codex timed out after 5 minutes. Skipping second opinion."
+- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>. Skipping second opinion."
+
+On any error, proceed to Phase 4 — do NOT fall back to a Claude subagent (this is brainstorming, not adversarial review).
+
+4. **Presentation:**
+
+\`\`\`
+SECOND OPINION (Codex):
+════════════════════════════════════════════════════════════
+<full codex output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+\`\`\`
+
+5. **Cross-model synthesis:** After presenting Codex output, provide 3-5 bullet synthesis:
+   - Where Claude agrees with Codex
+   - Where Claude disagrees and why
+   - Whether Codex's challenged premise changes Claude's recommendation
+
+6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
+
+> Codex challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
+> A) Revise this premise based on Codex's input
+> B) Keep the original premise — proceed to alternatives
+
+If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).`;
 }
 
 function generateAdversarialStep(ctx: TemplateContext): string {
@@ -2035,7 +2286,7 @@ TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_ADV"
 \`\`\`
 
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
+Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_ADV"
 \`\`\`
@@ -2080,7 +2331,7 @@ TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
 codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
 \`\`\`
 
-Use a 5-minute timeout. Present output under \`CODEX SAYS (code review):\` header.
+Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`CODEX SAYS (code review):\` header.
 Check for \`[P1]\` markers: found → \`GATE: FAIL\`, not found → \`GATE: PASS\`.
 
 If GATE is FAIL, use AskUserQuestion:
@@ -2131,6 +2382,130 @@ High-confidence findings (agreed on by multiple sources) should be prioritized f
 ---`;
 }
 
+function generateCodexPlanReview(ctx: TemplateContext): string {
+  // Codex host: strip entirely — Codex should never invoke itself
+  if (ctx.host === 'codex') return '';
+
+  return `## Outside Voice — Independent Plan Challenge (optional, recommended)
+
+After all review sections are complete, offer an independent second opinion from a
+different AI system. Two models agreeing on a plan is stronger signal than one model's
+thorough review.
+
+**Check tool availability:**
+
+\`\`\`bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+\`\`\`
+
+Use AskUserQuestion:
+
+> "All review sections are complete. Want an outside voice? A different AI system can
+> give a brutally honest, independent challenge of this plan — logical gaps, feasibility
+> risks, and blind spots that are hard to catch from inside the review. Takes about 2
+> minutes."
+>
+> RECOMMENDATION: Choose A — an independent second opinion catches structural blind
+> spots. Two different AI models agreeing on a plan is stronger signal than one model's
+> thorough review. Completeness: A=9/10, B=7/10.
+
+Options:
+- A) Get the outside voice (recommended)
+- B) Skip — proceed to outputs
+
+**If B:** Print "Skipping outside voice." and continue to the next section.
+
+**If A:** Construct the plan review prompt. Read the plan file being reviewed (the file
+the user pointed this review at, or the branch diff scope). If a CEO plan document
+was written in Step 0D-POST, read that too — it contains the scope decisions and vision.
+
+Construct this prompt (substitute the actual plan content — if plan content exceeds 30KB,
+truncate to the first 30KB and note "Plan truncated for size"):
+
+"You are a brutally honest technical reviewer examining a development plan that has
+already been through a multi-section review. Your job is NOT to repeat that review.
+Instead, find what it missed. Look for: logical gaps and unstated assumptions that
+survived the review scrutiny, overcomplexity (is there a fundamentally simpler
+approach the review was too deep in the weeds to see?), feasibility risks the review
+took for granted, missing dependencies or sequencing issues, and strategic
+miscalibration (is this the right thing to build at all?). Be direct. Be terse. No
+compliments. Just the problems.
+
+THE PLAN:
+<plan content>"
+
+**If CODEX_AVAILABLE:**
+
+\`\`\`bash
+TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
+codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_PV"
+\`\`\`
+
+Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
+\`\`\`bash
+cat "$TMPERR_PV"
+\`\`\`
+
+Present the full output verbatim:
+
+\`\`\`
+CODEX SAYS (plan review — outside voice):
+════════════════════════════════════════════════════════════
+<full codex output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+\`\`\`
+
+**Error handling:** All errors are non-blocking — the outside voice is informational.
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run \\\`codex login\\\` to authenticate."
+- Timeout: "Codex timed out after 5 minutes."
+- Empty response: "Codex returned no response."
+
+On any Codex error, fall back to the Claude adversarial subagent.
+
+**If CODEX_NOT_AVAILABLE (or Codex errored):**
+
+Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
+
+Subagent prompt: same plan review prompt as above.
+
+Present findings under an \`OUTSIDE VOICE (Claude subagent):\` header.
+
+If the subagent fails or times out: "Outside voice unavailable. Continuing to outputs."
+
+**Cross-model tension:**
+
+After presenting the outside voice findings, note any points where the outside voice
+disagrees with the review findings from earlier sections. Flag these as:
+
+\`\`\`
+CROSS-MODEL TENSION:
+  [Topic]: Review said X. Outside voice says Y. [Your assessment of who's right.]
+\`\`\`
+
+For each substantive tension point, auto-propose as a TODO via AskUserQuestion:
+
+> "Cross-model disagreement on [topic]. The review found [X] but the outside voice
+> argues [Y]. Worth investigating further?"
+
+Options:
+- A) Add to TODOS.md
+- B) Skip — not substantive
+
+If no tension points exist, note: "No cross-model tension — both reviewers agree."
+
+**Persist the result:**
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-plan-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+\`\`\`
+
+Substitute: STATUS = "clean" if no findings, "issues_found" if findings exist.
+SOURCE = "codex" if Codex ran, "claude" if subagent ran.
+
+**Cleanup:** Run \`rm -f "$TMPERR_PV"\` after processing (if Codex was used).
+
+---`;
+}
+
 function generateDeployBootstrap(_ctx: TemplateContext): string {
   return `\`\`\`bash
 # Check for persisted deploy config in CLAUDE.md
@@ -2167,7 +2542,262 @@ in the decision tree below.
 If you want to persist deploy settings for future runs, suggest the user run \`/setup-deploy\`.`;
 }
 
+// ─── Design Outside Voices (parallel Codex + Claude subagent) ───────
+
+function generateDesignOutsideVoices(ctx: TemplateContext): string {
+  // Codex host: strip entirely — Codex should never invoke itself
+  if (ctx.host === 'codex') return '';
+
+  const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join('\n');
+  const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join('\n');
+
+  // Skill-specific configuration
+  const isPlanDesignReview = ctx.skillName === 'plan-design-review';
+  const isDesignReview = ctx.skillName === 'design-review';
+  const isDesignConsultation = ctx.skillName === 'design-consultation';
+
+  // Determine opt-in behavior and reasoning effort
+  const isAutomatic = isDesignReview; // design-review runs automatically
+  const reasoningEffort = isDesignConsultation ? 'medium' : 'high'; // creative vs analytical
+
+  // Build skill-specific Codex prompt
+  let codexPrompt: string;
+  let subagentPrompt: string;
+
+  if (isPlanDesignReview) {
+    codexPrompt = `Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
+
+HARD REJECTION — flag if ANY apply:
+${rejectionList}
+
+LITMUS CHECKS — answer YES or NO for each:
+${litmusList}
+
+HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then flag violations of the matching rule set:
+- MARKETING: First viewport as one composition, brand-first hierarchy, full-bleed hero, 2-3 intentional motions, composition-first layout
+- APP UI: Calm surface hierarchy, dense but readable, utility language, minimal chrome
+- UNIVERSAL: CSS variables for colors, no default font stacks, one job per section, cards earn existence
+
+For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging.`;
+
+    subagentPrompt = `Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
+
+1. Information hierarchy: what does the user see first, second, third? Is it right?
+2. Missing states: loading, empty, error, success, partial — which are unspecified?
+3. User journey: what's the emotional arc? Where does it break?
+4. Specificity: does the plan describe SPECIFIC UI ("48px Söhne Bold header, #1a1a1a on white") or generic patterns ("clean modern card-based layout")?
+5. What design decisions will haunt the implementer if left ambiguous?
+
+For each finding: what's wrong, severity (critical/high/medium), and the fix.`;
+  } else if (isDesignReview) {
+    codexPrompt = `Review the frontend source code in this repo. Evaluate against these design hard rules:
+- Spacing: systematic (design tokens / CSS variables) or magic numbers?
+- Typography: expressive purposeful fonts or default stacks?
+- Color: CSS variables with defined system, or hardcoded hex scattered?
+- Responsive: breakpoints defined? calc(100svh - header) for heroes? Mobile tested?
+- A11y: ARIA landmarks, alt text, contrast ratios, 44px touch targets?
+- Motion: 2-3 intentional animations, or zero / ornamental only?
+- Cards: used only when card IS the interaction? No decorative card grids?
+
+First classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then apply matching rules.
+
+LITMUS CHECKS — answer YES/NO:
+${litmusList}
+
+HARD REJECTION — flag if ANY apply:
+${rejectionList}
+
+Be specific. Reference file:line for every finding.`;
+
+    subagentPrompt = `Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
+- Are spacing values systematic across the codebase?
+- Is there ONE color system or scattered approaches?
+- Do responsive breakpoints follow a consistent set?
+- Is the accessibility approach consistent or spotty?
+
+For each finding: what's wrong, severity (critical/high/medium), and the file:line.`;
+  } else if (isDesignConsultation) {
+    codexPrompt = `Given this product context, propose a complete design direction:
+- Visual thesis: one sentence describing mood, material, and energy
+- Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
+- Color system: CSS variables for background, surface, primary text, muted text, accent
+- Layout: composition-first, not component-first. First viewport as poster, not document
+- Differentiation: 2 deliberate departures from category norms
+- Anti-slop: no purple gradients, no 3-column icon grids, no centered everything, no decorative blobs
+
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it.`;
+
+    subagentPrompt = `Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
+- Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
+- 2 deliberate departures from category norms
+- What emotional reaction should the user have in the first 3 seconds?
+
+Be bold. Be specific. No hedging.`;
+  } else {
+    // Unknown skill — return empty
+    return '';
+  }
+
+  // Build the opt-in section
+  const optInSection = isAutomatic ? `
+**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.` : `
+Use AskUserQuestion:
+> "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
+>
+> A) Yes — run outside design voices
+> B) No — proceed without
+
+If user chooses B, skip this step and continue.`;
+
+  // Build the synthesis section
+  const synthesisSection = isPlanDesignReview ? `
+**Synthesis — Litmus scorecard:**
+
+\`\`\`
+DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
+═══════════════════════════════════════════════════════════════
+  Check                                    Claude  Codex  Consensus
+  ─────────────────────────────────────── ─────── ─────── ─────────
+  1. Brand unmistakable in first screen?   —       —      —
+  2. One strong visual anchor?             —       —      —
+  3. Scannable by headlines only?          —       —      —
+  4. Each section has one job?             —       —      —
+  5. Cards actually necessary?             —       —      —
+  6. Motion improves hierarchy?            —       —      —
+  7. Premium without decorative shadows?   —       —      —
+  ─────────────────────────────────────── ─────── ─────── ─────────
+  Hard rejections triggered:               —       —      —
+═══════════════════════════════════════════════════════════════
+\`\`\`
+
+Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
+
+**Pass integration (respects existing 7-pass contract):**
+- Hard rejections → raised as the FIRST items in Pass 1, tagged \`[HARD REJECTION]\`
+- Litmus DISAGREE items → raised in the relevant pass with both perspectives
+- Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
+- Passes can skip discovery and go straight to fixing for pre-identified issues` :
+  isDesignConsultation ? `
+**Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
+- Areas of agreement between all three voices (Claude main + Codex + subagent)
+- Genuine divergences as creative alternatives for the user to choose from
+- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."` : `
+**Synthesis — Litmus scorecard:**
+
+Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
+Merge findings into the triage with \`[codex]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
+
+  const escapedCodexPrompt = codexPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$');
+
+  return `## Design Outside Voices (parallel)
+${optInSection}
+
+**Check Codex availability:**
+\`\`\`bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+\`\`\`
+
+**If Codex is available**, launch both voices simultaneously:
+
+1. **Codex design voice** (via Bash):
+\`\`\`bash
+TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+codex exec "${escapedCodexPrompt}" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+\`\`\`
+Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
+\`\`\`bash
+cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+\`\`\`
+
+2. **Claude design subagent** (via Agent tool):
+Dispatch a subagent with this prompt:
+"${subagentPrompt}"
+
+**Error handling (all non-blocking):**
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response."
+- On any Codex error: proceed with Claude subagent output only, tagged \`[single-model]\`.
+- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+
+Present Codex output under a \`CODEX SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
+Present subagent output under a \`CLAUDE SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\` header.
+${synthesisSection}
+
+**Log the result:**
+\`\`\`bash
+${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+\`\`\`
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".`;
+}
+
+// ─── Design Hard Rules (OpenAI framework + gstack slop blacklist) ───
+
+function generateDesignHardRules(_ctx: TemplateContext): string {
+  const slopItems = AI_SLOP_BLACKLIST.map((item, i) => `${i + 1}. ${item}`).join('\n');
+  const rejectionItems = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join('\n');
+  const litmusItems = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join('\n');
+
+  return `### Design Hard Rules
+
+**Classifier — determine rule set before evaluating:**
+- **MARKETING/LANDING PAGE** (hero-driven, brand-forward, conversion-focused) → apply Landing Page Rules
+- **APP UI** (workspace-driven, data-dense, task-focused: dashboards, admin, settings) → apply App UI Rules
+- **HYBRID** (marketing shell with app-like sections) → apply Landing Page Rules to hero/marketing sections, App UI Rules to functional sections
+
+**Hard rejection criteria** (instant-fail patterns — flag if ANY apply):
+${rejectionItems}
+
+**Litmus checks** (answer YES/NO for each — used for cross-model consensus scoring):
+${litmusItems}
+
+**Landing page rules** (apply when classifier = MARKETING/LANDING):
+- First viewport reads as one composition, not a dashboard
+- Brand-first hierarchy: brand > headline > body > CTA
+- Typography: expressive, purposeful — no default stacks (Inter, Roboto, Arial, system)
+- No flat single-color backgrounds — use gradients, images, subtle patterns
+- Hero: full-bleed, edge-to-edge, no inset/tiled/rounded variants
+- Hero budget: brand, one headline, one supporting sentence, one CTA group, one image
+- No cards in hero. Cards only when card IS the interaction
+- One job per section: one purpose, one headline, one short supporting sentence
+- Motion: 2-3 intentional motions minimum (entrance, scroll-linked, hover/reveal)
+- Color: define CSS variables, avoid purple-on-white defaults, one accent color default
+- Copy: product language not design commentary. "If deleting 30% improves it, keep deleting"
+- Beautiful defaults: composition-first, brand as loudest text, two typefaces max, cardless by default, first viewport as poster not document
+
+**App UI rules** (apply when classifier = APP UI):
+- Calm surface hierarchy, strong typography, few colors
+- Dense but readable, minimal chrome
+- Organize: primary workspace, navigation, secondary context, one accent
+- Avoid: dashboard-card mosaics, thick borders, decorative gradients, ornamental icons
+- Copy: utility language — orientation, status, action. Not mood/brand/aspiration
+- Cards only when card IS the interaction
+- Section headings state what area is or what user can do ("Selected KPIs", "Plan status")
+
+**Universal rules** (apply to ALL types):
+- Define CSS variables for color system
+- No default font stacks (Inter, Roboto, Arial, system)
+- One job per section
+- "If deleting 30% of the copy improves it, keep deleting"
+- Cards earn their existence — no decorative card grids
+
+**AI Slop blacklist** (the 10 patterns that scream "AI-generated"):
+${slopItems}
+
+Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.`;
+}
+
+function generateSlugEval(ctx: TemplateContext): string {
+  return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"`;
+}
+
+function generateSlugSetup(ctx: TemplateContext): string {
+  return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG`;
+}
+
 const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
+  SLUG_EVAL: generateSlugEval,
+  SLUG_SETUP: generateSlugSetup,
   COMMAND_REFERENCE: generateCommandReference,
   SNAPSHOT_FLAGS: generateSnapshotFlags,
   PREAMBLE: generatePreamble,
@@ -2175,6 +2805,8 @@ const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   BASE_BRANCH_DETECT: generateBaseBranchDetect,
   QA_METHODOLOGY: generateQAMethodology,
   DESIGN_METHODOLOGY: generateDesignMethodology,
+  DESIGN_HARD_RULES: generateDesignHardRules,
+  DESIGN_OUTSIDE_VOICES: generateDesignOutsideVoices,
   DESIGN_REVIEW_LITE: generateDesignReviewLite,
   REVIEW_DASHBOARD: generateReviewDashboard,
   PLAN_FILE_REVIEW_REPORT: generatePlanFileReviewReport,
@@ -2186,9 +2818,11 @@ const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   SPEC_REVIEW_LOOP: generateSpecReviewLoop,
   DESIGN_SKETCH: generateDesignSketch,
   BENEFITS_FROM: generateBenefitsFrom,
+  CODEX_SECOND_OPINION: generateCodexSecondOpinion,
   CODEX_REVIEW_STEP: generateAdversarialStep,
   ADVERSARIAL_STEP: generateAdversarialStep,
   DEPLOY_BOOTSTRAP: generateDeployBootstrap,
+  CODEX_PLAN_REVIEW: generateCodexPlanReview,
 };
 
 // ─── Codex Helpers ───────────────────────────────────────────

@@ -1004,6 +1004,25 @@ describe('gstack-slug', () => {
     expect(slug).toMatch(/^[a-zA-Z0-9._-]+$/);
     expect(branch).toMatch(/^[a-zA-Z0-9._-]+$/);
   });
+  test('eval sets variables under bash with set -euo pipefail', () => {
+    const result = Bun.spawnSync(
+      ['bash', '-c', 'set -euo pipefail; eval "$(./bin/gstack-slug 2>/dev/null)"; echo "SLUG=$SLUG"; echo "BRANCH=$BRANCH"'],
+      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+    );
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    expect(output).toMatch(/^SLUG=.+/m);
+    expect(output).toMatch(/^BRANCH=.+/m);
+  });
+
+  test('no templates or bin scripts use source process substitution for gstack-slug', () => {
+    const result = Bun.spawnSync(
+      ['grep', '-r', 'source <(.*gstack-slug', '--include=*.tmpl', '--include=gstack-review-*', '.'],
+      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+    );
+    // grep returns exit code 1 when no matches found — that's what we want
+    expect(result.stdout.toString().trim()).toBe('');
+  });
 });
 
 // --- Test Bootstrap validation ---
@@ -1328,6 +1347,10 @@ describe('Codex skill', () => {
   });
 
   test('codex-host ship/review do NOT contain adversarial review step', () => {
+    // .agents/ is gitignored — generate on demand
+    Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
     const shipContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(shipContent).not.toContain('codex review --base');
     expect(shipContent).not.toContain('CODEX_REVIEWS');
@@ -1401,6 +1424,11 @@ describe('Skill trigger phrases', () => {
 
 describe('Codex skill validation', () => {
   const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
+
+  // .agents/ is gitignored (v0.11.2.0) — generate on demand for tests
+  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+    cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+  });
 
   // Discover all Claude skills with templates (except /codex which is Claude-only)
   const CLAUDE_SKILLS_WITH_TEMPLATES = (() => {

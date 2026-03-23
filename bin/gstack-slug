@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # gstack-slug — output project slug and sanitized branch name
-# Usage: source <(gstack-slug)  → sets SLUG and BRANCH variables
+# Usage: eval "$(gstack-slug)"  → sets SLUG and BRANCH variables
 # Or:    gstack-slug            → prints SLUG=... and BRANCH=... lines
 #
 # Security: output is sanitized to [a-zA-Z0-9._-] only, preventing

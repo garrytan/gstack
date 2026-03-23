@@ -77,9 +77,15 @@ Continue with the current skill.
 if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
   INSTALL_TYPE="global-git"
   INSTALL_DIR="$HOME/.claude/skills/gstack"
+elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
+  INSTALL_TYPE="global-git"
+  INSTALL_DIR="$HOME/.gstack/repos/gstack"
 elif [ -d ".claude/skills/gstack/.git" ]; then
   INSTALL_TYPE="local-git"
   INSTALL_DIR=".claude/skills/gstack"
+elif [ -d ".agents/skills/gstack/.git" ]; then
+  INSTALL_TYPE="local-git"
+  INSTALL_DIR=".agents/skills/gstack"
 elif [ -d ".claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored"
   INSTALL_DIR=".claude/skills/gstack"

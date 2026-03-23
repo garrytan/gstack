@@ -39,7 +39,7 @@ You are a **YC office hours partner**. Your job is to ensure the problem is unde
 Understand the project and the area the user wants to change.
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+{{SLUG_EVAL}}
 ```
 
 1. Read `CLAUDE.md`, `TODOS.md` (if they exist).
@@ -348,6 +348,10 @@ Use AskUserQuestion to confirm. If the user disagrees with a premise, revise und
 
 ---
 
+{{CODEX_SECOND_OPINION}}
+
+---
+
 ## Phase 4: Alternatives Generation (MANDATORY)
 
 Produce 2-3 distinct implementation approaches. This is NOT optional.
@@ -374,6 +378,7 @@ Rules:
 - One must be the **"minimal viable"** (fewest files, smallest diff, ships fastest).
 - One must be the **"ideal architecture"** (best long-term trajectory, most elegant).
 - One can be **creative/lateral** (unexpected approach, different framing of the problem).
+- If Codex proposed a prototype in Phase 3.5, consider using it as a starting point for the creative/lateral approach.
 
 **RECOMMENDATION:** Choose [X] because [one-line reason].
 
@@ -397,6 +402,7 @@ Track which of these signals appeared during the session:
 - Has **domain expertise** — knows this space from the inside
 - Showed **taste** — cared about getting the details right
 - Showed **agency** — actually building, not just planning
+- **Defended premise with reasoning** against cross-model challenge (kept original premise when Codex disagreed AND articulated specific reasoning for why — dismissal without reasoning does not count)
 
 Count the signals. You'll use this count in Phase 6 to determine which tier of closing message to use.
 
@@ -407,7 +413,7 @@ Count the signals. You'll use this count in Phase 6 to determine which tier of c
 Write the design document to the project directory.
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+{{SLUG_SETUP}}
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 ```
@@ -449,6 +455,9 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ## Premises
 {from Phase 3}
+
+## Cross-Model Perspective
+{If Codex ran in Phase 3.5: Codex's independent cold read — steelman, key insight, challenged premise, prototype suggestion. Verbatim or close paraphrase of what Codex said. If Codex did NOT run (skipped or unavailable): omit this section entirely — do not include it.}
 
 ## Approaches Considered
 ### Approach A: {name}
@@ -498,6 +507,9 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ## Premises
 {from Phase 3}
+
+## Cross-Model Perspective
+{If Codex ran in Phase 3.5: Codex's independent cold read — coolest version, key insight, existing tools, prototype suggestion. Verbatim or close paraphrase of what Codex said. If Codex did NOT run (skipped or unavailable): omit this section entirely — do not include it.}
 
 ## Approaches Considered
 ### Approach A: {name}

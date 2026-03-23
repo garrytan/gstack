@@ -107,7 +107,7 @@ State what you examined and why nothing was flagged (1-2 sentences minimum).
 Before doing anything, save the plan file's current state to an external file:
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+{{SLUG_SETUP}}
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
 DATETIME=$(date +%Y%m%d-%H%M%S)
 echo "RESTORE_PATH=$HOME/.gstack/projects/$SLUG/${BRANCH}-autoplan-restore-${DATETIME}.md"

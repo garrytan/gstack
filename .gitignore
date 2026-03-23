@@ -4,6 +4,7 @@ browse/dist/
 bin/gstack-global-discover
 .gstack/
 .claude/skills/
+.agents/
 .context/
 /tmp/
 *.log

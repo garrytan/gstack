@@ -261,6 +261,42 @@ success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was
 If you cannot determine the outcome, use "unknown". This runs in the background and
 never blocks the user.
 
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
 # /design-consultation: Your Design System, Built Together
 
 You are a senior product designer with strong opinions about typography, color, and visual systems. You don't present menus — you listen, think, research, and propose. You're opinionated but not dogmatic. You explain your reasoning and welcome pushback.
@@ -291,7 +327,7 @@ ls src/ app/ pages/ components/ 2>/dev/null | head -30
 Look for office-hours output:
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ls ~/.gstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
 ls .context/*office-hours* .context/attachments/*office-hours* 2>/dev/null | head -5
 ```
@@ -386,6 +422,71 @@ Summarize conversationally:
 If the user said no research, skip entirely and proceed to Phase 3 using your built-in design knowledge.
 
 ---
+
+## Design Outside Voices (parallel)
+
+Use AskUserQuestion:
+> "Want outside design voices? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent design direction proposal."
+>
+> A) Yes — run outside design voices
+> B) No — proceed without
+
+If user chooses B, skip this step and continue.
+
+**Check Codex availability:**
+```bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+```
+
+**If Codex is available**, launch both voices simultaneously:
+
+1. **Codex design voice** (via Bash):
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+codex exec "Given this product context, propose a complete design direction:
+- Visual thesis: one sentence describing mood, material, and energy
+- Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
+- Color system: CSS variables for background, surface, primary text, muted text, accent
+- Layout: composition-first, not component-first. First viewport as poster, not document
+- Differentiation: 2 deliberate departures from category norms
+- Anti-slop: no purple gradients, no 3-column icon grids, no centered everything, no decorative blobs
+
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+```
+Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+```bash
+cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+```
+
+2. **Claude design subagent** (via Agent tool):
+Dispatch a subagent with this prompt:
+"Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
+- Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
+- 2 deliberate departures from category norms
+- What emotional reaction should the user have in the first 3 seconds?
+
+Be bold. Be specific. No hedging."
+
+**Error handling (all non-blocking):**
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response."
+- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+
+Present Codex output under a `CODEX SAYS (design direction):` header.
+Present subagent output under a `CLAUDE SUBAGENT (design direction):` header.
+
+**Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
+- Areas of agreement between all three voices (Claude main + Codex + subagent)
+- Genuine divergences as creative alternatives for the user to choose from
+- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."
+
+**Log the result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
 
 ## Phase 3: The Complete Proposal
 

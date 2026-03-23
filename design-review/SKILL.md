@@ -261,6 +261,42 @@ success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was
 If you cannot determine the outcome, use "unknown". This runs in the background and
 never blocks the user.
 
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
 # /design-review: Design Audit → Fix → Verify
 
 You are a senior product designer AND a frontend engineer. Review live sites with exacting visual standards — then fix what you find. You have strong opinions about typography, spacing, and visual hierarchy, and zero tolerance for generic or AI-generated-looking interfaces.
@@ -738,7 +774,7 @@ Compare screenshots and observations across pages for:
 
 **Project-scoped:**
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
 Write to: `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
 
@@ -820,6 +856,75 @@ Tie everything to user goals and product objectives. Always suggest specific imp
 10. **Depth over breadth.** 5-10 well-documented findings with screenshots and specific suggestions > 20 vague observations.
 11. **Show screenshots to the user.** After every `$B screenshot`, `$B snapshot -a -o`, or `$B responsive` command, use the Read tool on the output file(s) so the user can see them inline. For `responsive` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
 
+### Design Hard Rules
+
+**Classifier — determine rule set before evaluating:**
+- **MARKETING/LANDING PAGE** (hero-driven, brand-forward, conversion-focused) → apply Landing Page Rules
+- **APP UI** (workspace-driven, data-dense, task-focused: dashboards, admin, settings) → apply App UI Rules
+- **HYBRID** (marketing shell with app-like sections) → apply Landing Page Rules to hero/marketing sections, App UI Rules to functional sections
+
+**Hard rejection criteria** (instant-fail patterns — flag if ANY apply):
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+**Litmus checks** (answer YES/NO for each — used for cross-model consensus scoring):
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+**Landing page rules** (apply when classifier = MARKETING/LANDING):
+- First viewport reads as one composition, not a dashboard
+- Brand-first hierarchy: brand > headline > body > CTA
+- Typography: expressive, purposeful — no default stacks (Inter, Roboto, Arial, system)
+- No flat single-color backgrounds — use gradients, images, subtle patterns
+- Hero: full-bleed, edge-to-edge, no inset/tiled/rounded variants
+- Hero budget: brand, one headline, one supporting sentence, one CTA group, one image
+- No cards in hero. Cards only when card IS the interaction
+- One job per section: one purpose, one headline, one short supporting sentence
+- Motion: 2-3 intentional motions minimum (entrance, scroll-linked, hover/reveal)
+- Color: define CSS variables, avoid purple-on-white defaults, one accent color default
+- Copy: product language not design commentary. "If deleting 30% improves it, keep deleting"
+- Beautiful defaults: composition-first, brand as loudest text, two typefaces max, cardless by default, first viewport as poster not document
+
+**App UI rules** (apply when classifier = APP UI):
+- Calm surface hierarchy, strong typography, few colors
+- Dense but readable, minimal chrome
+- Organize: primary workspace, navigation, secondary context, one accent
+- Avoid: dashboard-card mosaics, thick borders, decorative gradients, ornamental icons
+- Copy: utility language — orientation, status, action. Not mood/brand/aspiration
+- Cards only when card IS the interaction
+- Section headings state what area is or what user can do ("Selected KPIs", "Plan status")
+
+**Universal rules** (apply to ALL types):
+- Define CSS variables for color system
+- No default font stacks (Inter, Roboto, Arial, system)
+- One job per section
+- "If deleting 30% of the copy improves it, keep deleting"
+- Cards earn their existence — no decorative card grids
+
+**AI Slop blacklist** (the 10 patterns that scream "AI-generated"):
+1. Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes
+2. **The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.
+3. Icons in colored circles as section decoration (SaaS starter template look)
+4. Centered everything (`text-align: center` on all headings, descriptions, cards)
+5. Uniform bubbly border-radius on every element (same large radius on everything)
+6. Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)
+7. Emoji as design elements (rockets in headings, emoji as bullet points)
+8. Colored left-border on cards (`border-left: 3px solid <accent>`)
+9. Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")
+10. Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)
+
+Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.
+
 Record baseline design score and AI slop score at end of Phase 6.
 
 ---
@@ -842,6 +947,87 @@ Record baseline design score and AI slop score at end of Phase 6.
 ```
 
 ---
+
+## Design Outside Voices (parallel)
+
+**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.
+
+**Check Codex availability:**
+```bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+```
+
+**If Codex is available**, launch both voices simultaneously:
+
+1. **Codex design voice** (via Bash):
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
+- Spacing: systematic (design tokens / CSS variables) or magic numbers?
+- Typography: expressive purposeful fonts or default stacks?
+- Color: CSS variables with defined system, or hardcoded hex scattered?
+- Responsive: breakpoints defined? calc(100svh - header) for heroes? Mobile tested?
+- A11y: ARIA landmarks, alt text, contrast ratios, 44px touch targets?
+- Motion: 2-3 intentional animations, or zero / ornamental only?
+- Cards: used only when card IS the interaction? No decorative card grids?
+
+First classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then apply matching rules.
+
+LITMUS CHECKS — answer YES/NO:
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+HARD REJECTION — flag if ANY apply:
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+Be specific. Reference file:line for every finding." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+```
+Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+```bash
+cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+```
+
+2. **Claude design subagent** (via Agent tool):
+Dispatch a subagent with this prompt:
+"Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
+- Are spacing values systematic across the codebase?
+- Is there ONE color system or scattered approaches?
+- Do responsive breakpoints follow a consistent set?
+- Is the accessibility approach consistent or spotty?
+
+For each finding: what's wrong, severity (critical/high/medium), and the file:line."
+
+**Error handling (all non-blocking):**
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response."
+- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+
+Present Codex output under a `CODEX SAYS (design source audit):` header.
+Present subagent output under a `CLAUDE SUBAGENT (design consistency):` header.
+
+**Synthesis — Litmus scorecard:**
+
+Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
+Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` tags.
+
+**Log the result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
 
 ## Phase 7: Triage
 
@@ -956,7 +1142,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:**
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
 

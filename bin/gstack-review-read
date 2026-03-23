@@ -3,7 +3,7 @@
 # Usage: gstack-review-read
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source <("$SCRIPT_DIR/gstack-slug" 2>/dev/null)
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 cat "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null || echo "NO_REVIEWS"
 echo "---CONFIG---"

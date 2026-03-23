@@ -105,13 +105,13 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'ship-triage': ['ship/**', 'bin/gstack-repo-mode'],
 
   // Design
-  'design-consultation-core':       ['design-consultation/**'],
-  'design-consultation-existing':   ['design-consultation/**'],
-  'design-consultation-research':   ['design-consultation/**'],
-  'design-consultation-preview':    ['design-consultation/**'],
-  'plan-design-review-plan-mode':   ['plan-design-review/**'],
-  'plan-design-review-no-ui-scope': ['plan-design-review/**'],
-  'design-review-fix':              ['design-review/**', 'browse/src/**'],
+  'design-consultation-core':       ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'design-consultation-existing':   ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'design-consultation-research':   ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'design-consultation-preview':    ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'plan-design-review-plan-mode':   ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
+  'plan-design-review-no-ui-scope': ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
+  'design-review-fix':              ['design-review/**', 'browse/src/**', 'scripts/gen-skill-docs.ts'],
 
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**'],
