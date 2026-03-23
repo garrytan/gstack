@@ -53,8 +53,8 @@ if (!evalsEnabled) {
 
 // Codex E2E touchfiles — keyed by test name, same pattern as E2E_TOUCHFILES
 const CODEX_E2E_TOUCHFILES: Record<string, string[]> = {
-  'codex-discover-skill':    ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
-  'codex-review-findings':   ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts'],
+  'codex-discover-skill':    ['second-model-review/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
+  'codex-review-findings':   ['review/**', '.agents/skills/gstack-review/**', 'second-model-review/**', 'test/helpers/codex-session-runner.ts'],
 };
 
 let selectedTests: string[] | null = null; // null = run all

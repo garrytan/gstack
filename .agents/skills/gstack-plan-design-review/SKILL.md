@@ -37,6 +37,13 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+_HOST_AGENT="unknown"
+[ "${CLAUDECODE:-}" = "1" ] && _HOST_AGENT="claude"
+[ "${CODEX:-}" = "1" ] && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\|cursor' && _HOST_AGENT="cursor"
+echo "HOST_AGENT: $_HOST_AGENT"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"plan-design-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 for _PF in ~/.gstack/analytics/.pending-*; do [ -f "$_PF" ] && ~/.codex/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
@@ -543,7 +550,7 @@ After completing the review, read the review log and config to display the dashb
 ~/.codex/skills/gstack/bin/gstack-review-read
 ```
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, adversarial-review, codex-review). Ignore entries with timestamps older than 7 days. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, second-model-review, adversarial-review, codex-review). Ignore entries with timestamps older than 7 days. For the Second Model row, show whichever is more recent between `second-model-review` (current), `adversarial-review` (new auto-scaled), and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
 
 ```
 +====================================================================+
@@ -554,7 +561,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 | Eng Review      |  1   | 2026-03-16 15:00    | CLEAR     | YES      |
 | CEO Review      |  0   | —                   | —         | no       |
 | Design Review   |  0   | —                   | —         | no       |
-| Adversarial     |  0   | —                   | —         | no       |
+| Adversarial   |  0   | —                   | —         | no       |
 +--------------------------------------------------------------------+
 | VERDICT: CLEARED — Eng Review passed                                |
 +====================================================================+
@@ -564,12 +571,12 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, Codex structured, Claude adversarial subagent, Codex adversarial. No configuration needed.
+- **Second Model Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, second model structured, Claude adversarial subagent, second model adversarial. Supports Codex, Gemini, and Cursor.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days with status "clean" (or \`skip_eng_review\` is \`true\`)
 - **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
-- CEO, Design, and Codex reviews are shown for context but never block shipping
+- CEO, Design, and Second Model reviews are shown for context but never block shipping
 - If \`skip_eng_review\` config is \`true\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
 **Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
@@ -601,7 +608,7 @@ Parse each JSONL entry. Each skill logs different fields:
   → Findings: "{issues_found} issues, {critical_gaps} critical gaps"
 - **plan-design-review**: \`status\`, \`initial_score\`, \`overall_score\`, \`unresolved\`, \`decisions_made\`, \`commit\`
   → Findings: "score: {initial_score}/10 → {overall_score}/10, {decisions_made} decisions"
-- **codex-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
+- **second-model-review** (or legacy **codex-review**): \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
   → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
 
 All fields needed for the Findings column are now present in the JSONL entries.
@@ -616,15 +623,15 @@ Produce this markdown table:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
+| Second Model Review | \`/second-model-review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
 | Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 \`\`\`
 
 Below the table, add these lines (omit any that are empty/not applicable):
 
-- **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
+- **SECOND MODEL:** (only if second-model-review ran) — one-line summary of second model fixes
+- **CROSS-MODEL:** (only if both Claude and second model reviews exist) — overlap analysis
 - **UNRESOLVED:** total unresolved decisions across all reviews
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".

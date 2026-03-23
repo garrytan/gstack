@@ -466,7 +466,7 @@ describe('No hardcoded branch names in SKILL templates', () => {
     'document-release/SKILL.md.tmpl',
     'plan-eng-review/SKILL.md.tmpl',
     'plan-design-review/SKILL.md.tmpl',
-    'codex/SKILL.md.tmpl',
+    'second-model-review/SKILL.md.tmpl',
   ];
 
   // Patterns that indicate hardcoded 'main' in git commands
@@ -1228,68 +1228,63 @@ describe('QA report template', () => {
   });
 });
 
-// --- Codex skill validation ---
+// --- Second model review skill validation ---
 
-describe('Codex skill', () => {
-  test('codex/SKILL.md exists and has correct frontmatter', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('name: codex');
+describe('Second model review skill', () => {
+  test('second-model-review/SKILL.md exists and has correct frontmatter', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('name: second-model-review');
     expect(content).toContain('version: 1.0.0');
     expect(content).toContain('allowed-tools:');
   });
 
-  test('codex/SKILL.md contains all three modes', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+  test('second-model-review/SKILL.md contains all three modes', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Step 2A: Review Mode');
     expect(content).toContain('Step 2B: Challenge');
     expect(content).toContain('Step 2C: Consult Mode');
   });
 
-  test('codex/SKILL.md contains gate verdict logic', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+  test('second-model-review/SKILL.md contains gate verdict logic', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('[P1]');
     expect(content).toContain('GATE: PASS');
     expect(content).toContain('GATE: FAIL');
   });
 
-  test('codex/SKILL.md contains session continuity', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+  test('second-model-review/SKILL.md contains session continuity', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('codex-session-id');
     expect(content).toContain('codex exec resume');
   });
 
-  test('codex/SKILL.md contains cost tracking', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('tokens used');
-    expect(content).toContain('Est. cost');
-  });
-
-  test('codex/SKILL.md contains cross-model comparison', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+  test('second-model-review/SKILL.md contains cross-model comparison', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('CROSS-MODEL ANALYSIS');
     expect(content).toContain('Agreement rate');
   });
 
-  test('codex/SKILL.md contains review log persistence', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('codex-review');
+  test('second-model-review/SKILL.md contains review log persistence', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('second-model-review');
     expect(content).toContain('gstack-review-log');
   });
 
-  test('codex/SKILL.md uses which for binary discovery, not hardcoded path', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('which codex');
-    expect(content).not.toContain('/opt/homebrew/bin/codex');
+  test('second-model-review/SKILL.md supports multiple providers', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Codex (OpenAI)');
+    expect(content).toContain('Gemini (Google)');
+    expect(content).toContain('Cursor (Composer)');
   });
 
-  test('codex/SKILL.md contains error handling for missing binary and auth', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+  test('second-model-review/SKILL.md contains error handling', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('NOT_FOUND');
-    expect(content).toContain('codex login');
+    expect(content).toContain('Auth error');
   });
 
-  test('codex/SKILL.md uses mktemp for temp files', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+  test('second-model-review/SKILL.md uses mktemp for temp files', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'second-model-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('mktemp');
   });
 
@@ -1308,11 +1303,11 @@ describe('Codex skill', () => {
     expect(content).toContain('Agent tool');
     expect(content).toContain('FIXABLE');
     expect(content).toContain('INVESTIGATE');
-    // Codex fallback logic
-    expect(content).toContain('CODEX_NOT_AVAILABLE');
+    // Second model fallback logic
+    expect(content).toContain('SM_NOT_AVAILABLE');
     expect(content).toContain('fall back to the Claude adversarial subagent');
     // Review log uses new skill name
-    expect(content).toContain('adversarial-review');
+    expect(content).toContain('second-model-review');
     expect(content).toContain('xhigh');
     expect(content).toContain('ADVERSARIAL REVIEW SYNTHESIS');
   });
@@ -1322,21 +1317,19 @@ describe('Codex skill', () => {
     expect(content).toContain('Adversarial review (auto-scaled)');
     expect(content).toContain('< 50');
     expect(content).toContain('200+');
-    expect(content).toContain('adversarial-review');
+    expect(content).toContain('second-model-review');
     expect(content).toContain('xhigh');
     expect(content).toContain('Investigate and fix');
   });
 
   test('codex-host ship/review do NOT contain adversarial review step', () => {
     const shipContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
-    expect(shipContent).not.toContain('codex review --base');
-    expect(shipContent).not.toContain('CODEX_REVIEWS');
+    expect(shipContent).not.toContain('SM_NOT_AVAILABLE');
+    expect(shipContent).not.toContain('Adversarial review (auto-scaled)');
 
     const reviewContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-review', 'SKILL.md'), 'utf-8');
-    expect(reviewContent).not.toContain('codex review --base');
-    expect(reviewContent).not.toContain('codex_reviews');
-    expect(reviewContent).not.toContain('CODEX_REVIEWS');
-    expect(reviewContent).not.toContain('adversarial-review');
+    expect(reviewContent).not.toContain('SM_NOT_AVAILABLE');
+    expect(reviewContent).not.toContain('Adversarial review (auto-scaled)');
     expect(reviewContent).not.toContain('Investigate and fix');
   });
 
@@ -1346,10 +1339,10 @@ describe('Codex skill', () => {
     expect(content).toContain('codex exec');
   });
 
-  test('Review Readiness Dashboard includes Adversarial Review row', () => {
+  test('Review Readiness Dashboard includes Second Model Review row', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Adversarial');
-    expect(content).toContain('codex-review');
+    expect(content).toContain('Second Model');
+    expect(content).toContain('second-model-review');
   });
 });
 
@@ -1363,7 +1356,7 @@ describe('Skill trigger phrases', () => {
     'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
     'design-review', 'design-consultation', 'retro', 'document-release',
-    'codex', 'browse', 'setup-browser-cookies',
+    'second-model-review', 'browse', 'setup-browser-cookies',
   ];
 
   for (const skill of SKILLS_REQUIRING_TRIGGERS) {
@@ -1402,12 +1395,11 @@ describe('Skill trigger phrases', () => {
 describe('Codex skill validation', () => {
   const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
 
-  // Discover all Claude skills with templates (except /codex which is Claude-only)
+  // Discover all Claude skills with templates
   const CLAUDE_SKILLS_WITH_TEMPLATES = (() => {
     const skills: string[] = [];
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      if (entry.name === 'codex') continue; // Claude-only skill
       if (fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) {
         skills.push(entry.name);
       }
@@ -1415,7 +1407,7 @@ describe('Codex skill validation', () => {
     return skills;
   })();
 
-  test('all skills (except /codex) have both Claude and Codex variants', () => {
+  test('all skills have both Claude and Codex variants', () => {
     for (const skillDir of CLAUDE_SKILLS_WITH_TEMPLATES) {
       // Claude variant
       const claudeMd = path.join(ROOT, skillDir, 'SKILL.md');
@@ -1431,11 +1423,9 @@ describe('Codex skill validation', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'))).toBe(true);
   });
 
-  test('/codex skill is Claude-only — no Codex variant', () => {
-    // Claude variant should exist
-    expect(fs.existsSync(path.join(ROOT, 'codex', 'SKILL.md'))).toBe(true);
-    // Codex variant must NOT exist
-    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
+  test('/second-model-review skill has both Claude and Codex variants', () => {
+    expect(fs.existsSync(path.join(ROOT, 'second-model-review', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-second-model-review', 'SKILL.md'))).toBe(true);
   });
 
   test('Codex skill names follow gstack-{name} convention', () => {

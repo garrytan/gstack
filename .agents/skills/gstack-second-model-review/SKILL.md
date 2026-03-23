@@ -1,12 +1,12 @@
 ---
-name: setup-deploy
+name: second-model-review
 description: |
-  Configure deployment settings for /land-and-deploy. Detects your deploy
-  platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, custom),
-  production URL, health check endpoints, and deploy status commands. Writes
-  the configuration to CLAUDE.md so all future deploys are automatic.
-  Use when: "setup deploy", "configure deployment", "set up land-and-deploy",
-  "how do I deploy with gstack", "add deploy config".
+  Second model review — three modes. Code review: independent diff review
+  with pass/fail gate. Challenge: adversarial mode that tries to break your code.
+  Consult: ask another AI model anything with context. Supports Codex (OpenAI),
+  Gemini (Google), and Cursor (Composer). Use when asked to
+  "second model review", "second opinion", "codex review", "gemini review",
+  "challenge my code", or "ask codex/gemini/cursor".
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -43,8 +43,11 @@ ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
 ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
 ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\|cursor' && _HOST_AGENT="cursor"
 echo "HOST_AGENT: $_HOST_AGENT"
+_SM_ENABLED=$(~/.codex/skills/gstack/bin/gstack-config get second_model_enabled 2>/dev/null || echo "unset")
+_SM_PROVIDER=$(~/.codex/skills/gstack/bin/gstack-config get second_model_provider 2>/dev/null || echo "")
+echo "SECOND_MODEL: enabled=$_SM_ENABLED second_model_name=$_SM_PROVIDER"
 mkdir -p ~/.gstack/analytics
-echo '{"skill":"setup-deploy","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"second-model-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 for _PF in ~/.gstack/analytics/.pending-*; do [ -f "$_PF" ] && ~/.codex/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
@@ -257,201 +260,327 @@ success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was
 If you cannot determine the outcome, use "unknown". This runs in the background and
 never blocks the user.
 
-# /setup-deploy — Configure Deployment for gstack
+## Step 0: Detect base branch
 
-You are helping the user configure their deployment so `/land-and-deploy` works
-automatically. Your job is to detect the deploy platform, production URL, health
-checks, and deploy status commands — then persist everything to CLAUDE.md.
+Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
 
-After this runs once, `/land-and-deploy` reads CLAUDE.md and skips detection entirely.
+1. Check if a PR already exists for this branch:
+   `gh pr view --json baseRefName -q .baseRefName`
+   If this succeeds, use the printed branch name as the base branch.
 
-## User-invocable
-When the user types `/setup-deploy`, run this skill.
+2. If no PR exists (command fails), detect the repo's default branch:
+   `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`
 
-## Instructions
+3. If both commands fail, fall back to `main`.
 
-### Step 1: Check existing configuration
+Print the detected base branch name. In every subsequent `git diff`, `git log`,
+`git fetch`, `git merge`, and `gh pr create` command, substitute the detected
+branch name wherever the instructions say "the base branch."
+
+---
+
+# /second-model-review — Multi-AI Second Opinion
+
+You are running the `/second-model-review` skill. This wraps a second model CLI to get an
+independent, brutally honest second opinion from a different AI system.
+
+The second model is direct, terse, technically precise, challenges assumptions, and catches
+things you might miss. Present its output faithfully, not summarized.
+
+---
+
+## Step 0: Determine second model
+
+Check the `HOST_AGENT` line from the preamble to know which agent is running this skill.
+Check the `SECOND_MODEL` line for `enabled=` and `second_model_name=` values.
+
+**Second model lookup table:**
+
+| ID | Display Name | Binary | Install |
+|----|-------------|--------|---------|
+| codex | Codex (OpenAI) | `codex` | `npm install -g @openai/codex` |
+| gemini | Gemini (Google) | `gemini` | `npm install -g @google/gemini-cli` |
+| cursor | Cursor (Composer) | `agent` | Install Cursor: https://cursor.com, then `cursor --install-cli` |
+
+**Self-detection:** If the configured second model matches `HOST_AGENT` (e.g., Codex
+running on Codex), skip it — you cannot be your own second opinion. Instead, detect
+other available models and offer those. If no other model is available, tell the user:
+"The configured second model ({second_model_name}) is the same agent running this session.
+Install a different model for cross-model review."
+
+**If `enabled=unset` or `enabled=false`:** Detect binaries on the fly:
 
 ```bash
-grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG"
+which codex 2>/dev/null && echo "HAS_CODEX" || true
+which gemini 2>/dev/null && echo "HAS_GEMINI" || true
+which agent 2>/dev/null && echo "HAS_CURSOR" || true
 ```
 
-If configuration already exists, show it and ask:
+Exclude the binary matching `HOST_AGENT` from the options — only offer *different* models.
+If at least one different model is detected, ask which to use and persist:
+```bash
+~/.codex/skills/gstack/bin/gstack-config set second_model_enabled true
+~/.codex/skills/gstack/bin/gstack-config set second_model_provider <chosen_id>
+```
+If no different model detected, stop: "No second model CLI found that differs from the current agent."
 
-- **Context:** Deploy configuration already exists in CLAUDE.md.
-- **RECOMMENDATION:** Choose A to update if your setup changed.
-- A) Reconfigure from scratch (overwrite existing)
-- B) Edit specific fields (show current config, let me change one thing)
-- C) Done — configuration looks correct
-
-If the user picks C, stop.
-
-### Step 2: Detect platform
-
-Run the platform detection from the deploy bootstrap:
+**If `enabled=true`:** Look up the binary for the configured second model and verify it exists:
 
 ```bash
-# Platform config files
-[ -f fly.toml ] && echo "PLATFORM:fly" && cat fly.toml
-[ -f render.yaml ] && echo "PLATFORM:render" && cat render.yaml
-[ -f vercel.json ] || [ -d .vercel ] && echo "PLATFORM:vercel"
-[ -f netlify.toml ] && echo "PLATFORM:netlify" && cat netlify.toml
-[ -f Procfile ] && echo "PLATFORM:heroku"
-[ -f railway.json ] || [ -f railway.toml ] && echo "PLATFORM:railway"
-
-# GitHub Actions deploy workflows
-for f in .github/workflows/*.yml .github/workflows/*.yaml; do
-  [ -f "$f" ] && grep -qiE "deploy|release|production|staging|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
-done
-
-# Project type
-[ -f package.json ] && grep -q '"bin"' package.json 2>/dev/null && echo "PROJECT_TYPE:cli"
-ls *.gemspec 2>/dev/null && echo "PROJECT_TYPE:library"
+which <binary> 2>/dev/null && echo "READY" || echo "NOT_FOUND"
 ```
 
-### Step 3: Platform-specific setup
+If `NOT_FOUND`: warn and offer to switch to a detected second model or disable.
 
-Based on what was detected, guide the user through platform-specific configuration.
+---
 
-#### Fly.io
+## Step 1: Detect mode
 
-If `fly.toml` detected:
+Parse the user's input to determine which mode to run:
 
-1. Extract app name: `grep -m1 "^app" fly.toml | sed 's/app = "\(.*\)"/\1/'`
-2. Check if `fly` CLI is installed: `which fly 2>/dev/null`
-3. If installed, verify: `fly status --app {app} 2>/dev/null`
-4. Infer URL: `https://{app}.fly.dev`
-5. Set deploy status command: `fly status --app {app}`
-6. Set health check: `https://{app}.fly.dev` (or `/health` if the app has one)
+1. `/second-model-review review` or `/second-model-review review <instructions>` — **Review mode** (Step 2A)
+2. `/second-model-review challenge` or `/second-model-review challenge <focus>` — **Challenge mode** (Step 2B)
+3. `/second-model-review` with no arguments — **Auto-detect:**
+   - Check for a diff (with fallback if origin isn't available):
+     `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
+   - If a diff exists, use AskUserQuestion:
+     ```
+     {second-model-name} detected changes against the base branch. What should it do?
+     A) Review the diff (code review with pass/fail gate)
+     B) Challenge the diff (adversarial — try to break it)
+     C) Something else — I'll provide a prompt
+     ```
+   - If no diff, check for plan files:
+     `ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
+     If no project-scoped match: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
+     but warn: "Note: this plan may be from a different project."
+   - If a plan file exists, offer to review it
+   - Otherwise, ask: "What would you like to ask {second-model-name}?"
+4. `/second-model-review <anything else>` — **Consult mode** (Step 2C)
 
-Ask the user to confirm the production URL. Some Fly apps use custom domains.
+---
 
-#### Render
+## Step 2A: Review Mode
 
-If `render.yaml` detected:
+Run second model code review against the current branch diff.
 
-1. Extract service name and type from render.yaml
-2. Check for Render API key: `echo $RENDER_API_KEY | head -c 4` (don't expose the full key)
-3. Infer URL: `https://{service-name}.onrender.com`
-4. Render deploys automatically on push to the connected branch — no deploy workflow needed
-5. Set health check: the inferred URL
-
-Ask the user to confirm. Render uses auto-deploy from the connected git branch — after
-merge to main, Render picks it up automatically. The "deploy wait" in /land-and-deploy
-should poll the Render URL until it responds with the new version.
-
-#### Vercel
-
-If vercel.json or .vercel detected:
-
-1. Check for `vercel` CLI: `which vercel 2>/dev/null`
-2. If installed: `vercel ls --prod 2>/dev/null | head -3`
-3. Vercel deploys automatically on push — preview on PR, production on merge to main
-4. Set health check: the production URL from vercel project settings
-
-#### Netlify
-
-If netlify.toml detected:
-
-1. Extract site info from netlify.toml
-2. Netlify deploys automatically on push
-3. Set health check: the production URL
-
-#### GitHub Actions only
-
-If deploy workflows detected but no platform config:
-
-1. Read the workflow file to understand what it does
-2. Extract the deploy target (if mentioned)
-3. Ask the user for the production URL
-
-#### Custom / Manual
-
-If nothing detected:
-
-Use AskUserQuestion to gather the information:
-
-1. **How are deploys triggered?**
-   - A) Automatically on push to main (Fly, Render, Vercel, Netlify, etc.)
-   - B) Via GitHub Actions workflow
-   - C) Via a deploy script or CLI command (describe it)
-   - D) Manually (SSH, dashboard, etc.)
-   - E) This project doesn't deploy (library, CLI, tool)
-
-2. **What's the production URL?** (Free text — the URL where the app runs)
-
-3. **How can gstack check if a deploy succeeded?**
-   - A) HTTP health check at a specific URL (e.g., /health, /api/status)
-   - B) CLI command (e.g., `fly status`, `kubectl rollout status`)
-   - C) Check the GitHub Actions workflow status
-   - D) No automated way — just check the URL loads
-
-4. **Any pre-merge or post-merge hooks?**
-   - Commands to run before merging (e.g., `bun run build`)
-   - Commands to run after merge but before deploy verification
-
-### Step 4: Write configuration
-
-Read CLAUDE.md (or create it). Find and replace the `## Deploy Configuration` section
-if it exists, or append it at the end.
-
-```markdown
-## Deploy Configuration (configured by /setup-deploy)
-- Platform: {platform}
-- Production URL: {url}
-- Deploy workflow: {workflow file or "auto-deploy on push"}
-- Deploy status command: {command or "HTTP health check"}
-- Merge method: {squash/merge/rebase}
-- Project type: {web app / API / CLI / library}
-- Post-deploy health check: {health check URL or command}
-
-### Custom deploy hooks
-- Pre-merge: {command or "none"}
-- Deploy trigger: {command or "automatic on push to main"}
-- Deploy status: {command or "poll production URL"}
-- Health check: {URL or command}
-```
-
-### Step 5: Verify
-
-After writing, verify the configuration works:
-
-1. If a health check URL was configured, try it:
+1. Create temp files for output capture:
 ```bash
-curl -sf "{health-check-url}" -o /dev/null -w "%{http_code}" 2>/dev/null || echo "UNREACHABLE"
+TMPERR=$(mktemp /tmp/second-model-err-XXXXXX.txt)
 ```
 
-2. If a deploy status command was configured, try it:
+2. Run the review (5-minute timeout):
+
+**If second model is `codex`:**
 ```bash
-{deploy-status-command} 2>/dev/null | head -5 || echo "COMMAND_FAILED"
+codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
-Report results. If anything failed, note it but don't block — the config is still
-useful even if the health check is temporarily unreachable.
+If custom instructions provided (e.g., `/second-model-review review focus on security`):
+```bash
+codex review "focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+```
 
-### Step 6: Summary
+**If second model is `gemini`:**
+```bash
+PROMPT="You are a brutally honest technical reviewer. Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Look for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems. Flag critical issues as [P1] and minor ones as [P2]."
+gemini --sandbox -p "$PROMPT" 2>"$TMPERR"
+```
+
+**If second model is `cursor`:**
+```bash
+PROMPT="You are a brutally honest technical reviewer. Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Look for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems. Flag critical issues as [P1] and minor ones as [P2]."
+agent --trust -p "$PROMPT" --model composer-2 2>"$TMPERR"
+```
+
+3. Determine gate verdict: check the output for `[P1]` markers.
+   If `[P1]` found → GATE: FAIL. Otherwise → GATE: PASS.
+
+4. Present the output:
 
 ```
-DEPLOY CONFIGURATION — COMPLETE
-════════════════════════════════
-Platform:      {platform}
-URL:           {url}
-Health check:  {health check}
-Status cmd:    {status command}
-Merge method:  {merge method}
-
-Saved to CLAUDE.md. /land-and-deploy will use these settings automatically.
-
-Next steps:
-- Run /land-and-deploy to merge and deploy your current PR
-- Edit the "## Deploy Configuration" section in CLAUDE.md to change settings
-- Run /setup-deploy again to reconfigure
+{SECOND_MODEL_NAME} SAYS (code review):
+════════════════════════════════════════════════════════════
+<full output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+GATE: PASS                    Tokens: N | Est. cost: ~$X.XX
 ```
+
+5. **Cross-model comparison:** If `/review` (Claude's own review) was already run,
+   compare the two sets of findings:
+
+```
+CROSS-MODEL ANALYSIS:
+  Both found: [findings that overlap]
+  Only {second-model-name} found: [unique to external]
+  Only Claude found: [unique to Claude's /review]
+  Agreement rate: X% (N/M total unique findings overlap)
+```
+
+6. Persist the review result:
+```bash
+~/.codex/skills/gstack/bin/gstack-review-log '{"skill":"second-model-review","second_model_name":"SECOND_MODEL_NAME","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N}'
+```
+
+7. Clean up:
+```bash
+rm -f "$TMPERR"
+```
+
+---
+
+## Step 2B: Challenge (Adversarial) Mode
+
+The second model tries to break your code — finding edge cases, race conditions,
+security holes, and failure modes that a normal review would miss.
+
+1. Construct the adversarial prompt:
+
+Default (no focus):
+"Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes. Be adversarial. Be thorough. No compliments — just the problems."
+
+With focus (e.g., "security"):
+"Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
+
+2. Run with the appropriate second model command (5-minute timeout):
+
+**If second model is `codex`:**
+```bash
+codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached
+```
+
+**If second model is `gemini`:**
+```bash
+gemini --sandbox -p "<prompt>"
+```
+
+**If second model is `cursor`:**
+```bash
+agent --trust -p "<prompt>" --model composer-2
+```
+
+3. Present the full output:
+
+```
+{SECOND_MODEL_NAME} SAYS (adversarial challenge):
+════════════════════════════════════════════════════════════
+<full output, verbatim>
+════════════════════════════════════════════════════════════
+```
+
+---
+
+## Step 2C: Consult Mode
+
+Ask the second model anything about the codebase.
+
+1. **Session continuity (Codex only):**
+
+If second model is `codex`, check for an existing session:
+```bash
+cat .context/codex-session-id 2>/dev/null || echo "NO_SESSION"
+```
+
+If a session exists, use AskUserQuestion:
+```
+You have an active Codex conversation from earlier. Continue it or start fresh?
+A) Continue the conversation (Codex remembers the prior context)
+B) Start a new conversation
+```
+
+For gemini and cursor: sessions always start fresh.
+
+2. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
+or if plan files exist and the user said `/second-model-review` with no arguments:
+```bash
+ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
+```
+Read the plan file and prepend the review prompt:
+"You are a brutally honest technical reviewer. Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Look for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems.
+
+THE PLAN:
+<plan content>"
+
+3. Run with the second model command (5-minute timeout):
+
+**If second model is `codex` (new session):**
+```bash
+codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached
+```
+
+**If second model is `codex` (resumed session):**
+```bash
+codex exec resume <session-id> "<prompt>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached
+```
+
+**If second model is `gemini`:**
+```bash
+gemini --sandbox -p "<prompt>"
+```
+
+**If second model is `cursor`:**
+```bash
+agent --trust -p "<prompt>" --model composer-2
+```
+
+4. **Save session (Codex only):**
+```bash
+mkdir -p .context
+```
+Save the session ID to `.context/codex-session-id`.
+
+5. Present the output:
+
+```
+{SECOND_MODEL_NAME} SAYS (consult):
+════════════════════════════════════════════════════════════
+<full output, verbatim>
+════════════════════════════════════════════════════════════
+Session saved — run /second-model-review again to continue this conversation.
+```
+
+(Session line only for Codex — other second models start fresh each time.)
+
+6. Note any points where the second model's analysis differs from your own:
+   "Note: Claude Code disagrees on X because Y."
+
+---
+
+## Model & Reasoning
+
+**No model is hardcoded** — each second model uses its default frontier model. This means
+as new models ship, /second-model-review automatically uses them. If the user
+wants a specific model:
+- Codex: pass `-m <model>` through to codex
+- Gemini: pass `--model <model>` through to gemini
+- Cursor: pass `--model <model>` through to agent
+
+**Reasoning effort** varies by mode:
+- **Review mode:** high — thorough but not slow
+- **Challenge (adversarial) mode:** maximum — think as hard as possible
+- **Consult mode:** high — good balance of depth and speed
+
+---
+
+## Error Handling
+
+- **Binary not found:** Detected in Step 0. Stop with install instructions for the configured second model.
+- **Auth error:** Surface the second model's auth error message. Common fixes:
+  - Codex: `codex login`
+  - Gemini: `gemini auth login`
+  - Cursor: check Cursor CLI auth docs
+- **Timeout:** If the command times out (5 min):
+  "Timed out after 5 minutes. The diff may be too large or the API may be slow."
+- **Empty response:** Tell the user and suggest checking stderr.
+- **Session resume failure (Codex):** Delete `.context/codex-session-id` and start fresh.
+
+---
 
 ## Important Rules
 
-- **Never expose secrets.** Don't print full API keys, tokens, or passwords.
-- **Confirm with the user.** Always show the detected config and ask for confirmation before writing.
-- **CLAUDE.md is the source of truth.** All configuration lives there — not in a separate config file.
-- **Idempotent.** Running /setup-deploy multiple times overwrites the previous config cleanly.
-- **Platform CLIs are optional.** If `fly` or `vercel` CLI isn't installed, fall back to URL-based health checks.
+- **Never modify files.** This skill is read-only. Second Models run in read-only mode.
+- **Present output verbatim.** Do not truncate, summarize, or editorialize the output.
+- **Add synthesis after, not instead of.** Claude commentary comes after the full output.
+- **5-minute timeout** on all commands (`timeout: 300000`).
+- **No double-reviewing.** If the user already ran `/review`, this provides a second
+  independent opinion. Do not re-run Claude Code's own review.

@@ -22,7 +22,7 @@ description: |
   - Ready to deploy / create PR → suggest /ship
   - Post-ship doc updates → suggest /document-release
   - Weekly retrospective → suggest /retro
-  - Wanting a second opinion or adversarial code review → suggest /codex
+  - Wanting a second opinion or adversarial code review → suggest /second-model-review
   - Working with production or live systems → suggest /careful
   - Want to scope edits to one module/directory → suggest /freeze
   - Maximum safety mode (destructive warnings + edit restrictions) → suggest /guard
@@ -68,6 +68,13 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+_HOST_AGENT="unknown"
+[ "${CLAUDECODE:-}" = "1" ] && _HOST_AGENT="claude"
+[ "${CODEX:-}" = "1" ] && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\|cursor' && _HOST_AGENT="cursor"
+echo "HOST_AGENT: $_HOST_AGENT"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"gstack","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 for _PF in ~/.gstack/analytics/.pending-*; do [ -f "$_PF" ] && ~/.codex/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done

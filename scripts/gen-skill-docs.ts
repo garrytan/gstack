@@ -52,6 +52,48 @@ const HOST_PATHS: Record<Host, HostPaths> = {
   },
 };
 
+// ─── Second Model Registry ──────────────────────────────────
+
+interface SecondModelProvider {
+  id: string;
+  displayName: string;
+  binary: string;
+  installHint: string;
+  reviewCmd: string;
+  execCmd: string;
+  sessionSupport: boolean;
+}
+
+const SECOND_MODEL_PROVIDERS: SecondModelProvider[] = [
+  {
+    id: 'codex',
+    displayName: 'Codex (OpenAI)',
+    binary: 'codex',
+    installHint: 'npm install -g @openai/codex',
+    reviewCmd: 'codex review --base <base> -c \'model_reasoning_effort="high"\' --enable web_search_cached',
+    execCmd: 'codex exec "$PROMPT" -s read-only -c \'model_reasoning_effort="high"\' --enable web_search_cached',
+    sessionSupport: true,
+  },
+  {
+    id: 'gemini',
+    displayName: 'Gemini (Google)',
+    binary: 'gemini',
+    installHint: 'npm install -g @google/gemini-cli',
+    reviewCmd: 'gemini --sandbox -p "$PROMPT"',
+    execCmd: 'gemini --sandbox -p "$PROMPT"',
+    sessionSupport: false,
+  },
+  {
+    id: 'cursor',
+    displayName: 'Cursor (Composer)',
+    binary: 'agent',
+    installHint: 'Install Cursor from https://cursor.com and enable CLI: cursor --install-cli',
+    reviewCmd: 'agent --trust -p "$PROMPT" --model composer-2',
+    execCmd: 'agent --trust -p "$PROMPT" --model composer-2',
+    sessionSupport: false,
+  },
+];
+
 interface TemplateContext {
   skillName: string;
   tmplPath: string;
@@ -137,6 +179,12 @@ function generateSnapshotFlags(_ctx: TemplateContext): string {
   return lines.join('\n');
 }
 
+const SKILLS_NEEDING_SECOND_MODEL = new Set(['review', 'ship', 'plan-eng-review', 'second-model-review', 'autoplan']);
+
+function needsSecondModel(ctx: TemplateContext): boolean {
+  return SKILLS_NEEDING_SECOND_MODEL.has(ctx.skillName);
+}
+
 function generatePreambleBash(ctx: TemplateContext): string {
   return `## Preamble (run first)
 
@@ -163,6 +211,16 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: \${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+_HOST_AGENT="unknown"
+[ "\${CLAUDECODE:-}" = "1" ] && _HOST_AGENT="claude"
+[ "\${CODEX:-}" = "1" ] && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi codex && _HOST_AGENT="codex"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi gemini && _HOST_AGENT="gemini"
+ps -o comm= -p $PPID 2>/dev/null | grep -qi 'agent\\|cursor' && _HOST_AGENT="cursor"
+echo "HOST_AGENT: $_HOST_AGENT"${needsSecondModel(ctx) ? `
+_SM_ENABLED=$(${ctx.paths.binDir}/gstack-config get second_model_enabled 2>/dev/null || echo "unset")
+_SM_PROVIDER=$(${ctx.paths.binDir}/gstack-config get second_model_provider 2>/dev/null || echo "")
+echo "SECOND_MODEL: enabled=$_SM_ENABLED second_model_name=$_SM_PROVIDER"` : ''}
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"${ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 for _PF in ~/.gstack/analytics/.pending-*; do [ -f "$_PF" ] && ${ctx.paths.binDir}/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
@@ -1210,7 +1268,7 @@ After completing the review, read the review log and config to display the dashb
 ~/.claude/skills/gstack/bin/gstack-review-read
 \`\`\`
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, adversarial-review, codex-review). Ignore entries with timestamps older than 7 days. For the Adversarial row, show whichever is more recent between \`adversarial-review\` (new auto-scaled) and \`codex-review\` (legacy). For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, plan-design-review, design-review-lite, second-model-review, adversarial-review, codex-review). Ignore entries with timestamps older than 7 days. For the Second Model row, show whichever is more recent between \`second-model-review\` (current), \`adversarial-review\` (new auto-scaled), and \`codex-review\` (legacy). For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
 
 \`\`\`
 +====================================================================+
@@ -1221,7 +1279,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 | Eng Review      |  1   | 2026-03-16 15:00    | CLEAR     | YES      |
 | CEO Review      |  0   | —                   | —         | no       |
 | Design Review   |  0   | —                   | —         | no       |
-| Adversarial     |  0   | —                   | —         | no       |
+| Adversarial   |  0   | —                   | —         | no       |
 +--------------------------------------------------------------------+
 | VERDICT: CLEARED — Eng Review passed                                |
 +====================================================================+
@@ -1231,12 +1289,12 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \\\`gstack-config set skip_eng_review true\\\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, Codex structured, Claude adversarial subagent, Codex adversarial. No configuration needed.
+- **Second Model Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, second model structured, Claude adversarial subagent, second model adversarial. Supports Codex, Gemini, and Cursor.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days with status "clean" (or \\\`skip_eng_review\\\` is \\\`true\\\`)
 - **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
-- CEO, Design, and Codex reviews are shown for context but never block shipping
+- CEO, Design, and Second Model reviews are shown for context but never block shipping
 - If \\\`skip_eng_review\\\` config is \\\`true\\\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
 **Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
@@ -1270,7 +1328,7 @@ Parse each JSONL entry. Each skill logs different fields:
   → Findings: "{issues_found} issues, {critical_gaps} critical gaps"
 - **plan-design-review**: \\\`status\\\`, \\\`initial_score\\\`, \\\`overall_score\\\`, \\\`unresolved\\\`, \\\`decisions_made\\\`, \\\`commit\\\`
   → Findings: "score: {initial_score}/10 → {overall_score}/10, {decisions_made} decisions"
-- **codex-review**: \\\`status\\\`, \\\`gate\\\`, \\\`findings\\\`, \\\`findings_fixed\\\`
+- **second-model-review** (or legacy **codex-review**): \\\`status\\\`, \\\`gate\\\`, \\\`findings\\\`, \\\`findings_fixed\\\`
   → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
 
 All fields needed for the Findings column are now present in the JSONL entries.
@@ -1285,15 +1343,15 @@ Produce this markdown table:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \\\`/plan-ceo-review\\\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \\\`/codex review\\\` | Independent 2nd opinion | {runs} | {status} | {findings} |
+| Second Model Review | \\\`/second-model-review\\\` | Independent 2nd opinion | {runs} | {status} | {findings} |
 | Eng Review | \\\`/plan-eng-review\\\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \\\`/plan-design-review\\\` | UI/UX gaps | {runs} | {status} | {findings} |
 \\\`\\\`\\\`
 
 Below the table, add these lines (omit any that are empty/not applicable):
 
-- **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
+- **SECOND MODEL:** (only if second-model-review ran) — one-line summary of second model fixes
+- **CROSS-MODEL:** (only if both Claude and second model reviews exist) — overlap analysis
 - **UNRESOLVED:** total unresolved decisions across all reviews
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
@@ -1987,8 +2045,20 @@ The screenshot file at \`/tmp/gstack-sketch.png\` can be referenced by downstrea
 (\`/plan-design-review\`, \`/design-review\`) to see what was originally envisioned.`;
 }
 
+const SECOND_MODEL_REVIEW_PROMPT = 'You are a brutally honest technical reviewer. Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Look for: logical gaps and unstated assumptions, missing error handling or edge cases, overcomplexity (is there a simpler approach?), feasibility risks (what could go wrong?), and missing dependencies or sequencing issues. Be direct. Be terse. No compliments. Just the problems.';
+
+const SECOND_MODEL_ADVERSARIAL_PROMPT = 'Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes. Be adversarial. Be thorough. No compliments — just the problems.';
+
+function generateSecondModelReviewPrompt(_ctx: TemplateContext): string {
+  return SECOND_MODEL_REVIEW_PROMPT;
+}
+
+function generateSecondModelAdversarialPrompt(_ctx: TemplateContext): string {
+  return SECOND_MODEL_ADVERSARIAL_PROMPT;
+}
+
 function generateAdversarialStep(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
+  // Don't generate adversarial step when running on the second model host itself
   if (ctx.host === 'codex') return '';
 
   const isShip = ctx.skillName === 'ship';
@@ -2004,21 +2074,29 @@ Adversarial review thoroughness scales automatically based on diff size. No conf
 DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-# Respect old opt-out
-OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
+_SM_CFG_PROVIDER=$(~/.claude/skills/gstack/bin/gstack-config get second_model_provider 2>/dev/null || echo "codex")
+_SM_CFG_ENABLED=$(~/.claude/skills/gstack/bin/gstack-config get second_model_enabled 2>/dev/null || echo "unset")
+# Check if configured second model binary is available
+# Provider binary lookup: codex=codex, gemini=gemini, cursor=agent
+_SM_BINARY="codex"
+[ "$_SM_CFG_PROVIDER" = "gemini" ] && _SM_BINARY="gemini"
+[ "$_SM_CFG_PROVIDER" = "cursor" ] && _SM_BINARY="agent"
+which $_SM_BINARY 2>/dev/null && echo "SM_AVAILABLE" || echo "SM_NOT_AVAILABLE"
+echo "SM_PROVIDER: $_SM_CFG_PROVIDER"
+echo "SM_BINARY: $_SM_BINARY"
+echo "SM_ENABLED: $_SM_CFG_ENABLED"
 echo "DIFF_SIZE: $DIFF_TOTAL"
-echo "OLD_CFG: \${OLD_CFG:-not_set}"
 \`\`\`
 
-If \`OLD_CFG\` is \`disabled\`: skip this step silently. Continue to the next step.
+If \`SM_ENABLED\` is \`false\`: skip this step silently. Continue to the next step.
+If \`SM_NOT_AVAILABLE\`: note that the configured second model is not installed and skip.
 
 **User override:** If the user explicitly requested a specific tier (e.g., "run all passes", "paranoid review", "full adversarial", "do all 4 passes", "thorough review"), honor that request regardless of diff size. Jump to the matching tier section.
 
 **Auto-select tier based on diff size:**
 - **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
-- **Medium (50–199 lines changed):** Run Codex adversarial challenge (or Claude adversarial subagent if Codex unavailable). Jump to the "Medium tier" section.
-- **Large (200+ lines changed):** Run all remaining passes — Codex structured review + Claude adversarial subagent + Codex adversarial. Jump to the "Large tier" section.
+- **Medium (50–199 lines changed):** Run second model adversarial challenge (or fall back to Claude adversarial subagent if second model unavailable). Jump to the "Medium tier" section.
+- **Large (200+ lines changed):** Run all remaining passes — second model structured review + Claude adversarial subagent + second model adversarial. Jump to the "Large tier" section.
 
 ---
 
@@ -2026,13 +2104,19 @@ If \`OLD_CFG\` is \`disabled\`: skip this step silently. Continue to the next st
 
 Claude's structured review already ran. Now add a **cross-model adversarial challenge**.
 
-**If Codex is available:** run the Codex adversarial challenge. **If Codex is NOT available:** fall back to the Claude adversarial subagent instead.
+**If the configured second model is available:** run the second model adversarial challenge. **If it is NOT available:** fall back to the Claude adversarial subagent instead.
 
-**Codex adversarial:**
+**Second model adversarial:**
+
+Use the \`SM_PROVIDER\` and \`SM_BINARY\` values from the preamble to construct the right command:
+- If \`SM_PROVIDER\` is \`codex\`: \`codex exec "<adversarial prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached\`
+- If \`SM_PROVIDER\` is \`gemini\`: \`gemini --sandbox -p "<adversarial prompt>"\`
+- If \`SM_PROVIDER\` is \`cursor\`: \`agent --trust -p "<adversarial prompt>" --model composer-2\`
+
+The adversarial prompt: "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
 
 \`\`\`bash
-TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
-codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_ADV"
+TMPERR_ADV=$(mktemp /tmp/sm-adv-XXXXXXXX)
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -2043,13 +2127,13 @@ cat "$TMPERR_ADV"
 Present the full output verbatim. This is informational — it never blocks shipping.
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "{second-model-name} authentication failed. Check the provider's auth documentation."
+- **Timeout:** "{second-model-name} timed out after 5 minutes."
+- **Empty response:** "{second-model-name} returned no response. Stderr: <paste relevant error>."
 
-On any Codex error, fall back to the Claude adversarial subagent automatically.
+On any second model error, fall back to the Claude adversarial subagent automatically.
 
-**Claude adversarial subagent** (fallback when Codex unavailable or errored):
+**Claude adversarial subagent** (fallback when second model unavailable or errored):
 
 Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
@@ -2062,11 +2146,11 @@ If the subagent fails or times out: "Claude adversarial subagent unavailable. Co
 
 **Persist the review result:**
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"second-model-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SM_PROVIDER","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "claude" if subagent ran. If both failed, do NOT persist.
+Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: substitute the actual provider name from SM_PROVIDER if the second model ran, "claude" if subagent ran. If both failed, do NOT persist.
 
-**Cleanup:** Run \`rm -f "$TMPERR_ADV"\` after processing (if Codex was used).
+**Cleanup:** Run \`rm -f "$TMPERR_ADV"\` after processing (if second model was used).
 
 ---
 
@@ -2074,40 +2158,45 @@ Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOU
 
 Claude's structured review already ran. Now run **all three remaining passes** for maximum coverage:
 
-**1. Codex structured review (if available):**
+**1. Second model structured review (if available):**
+
+Use the provider-appropriate review command:
+- If \`SM_PROVIDER\` is \`codex\`: \`codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached\`
+- If \`SM_PROVIDER\` is \`gemini\`: \`gemini --sandbox -p "<review prompt>"\`
+- If \`SM_PROVIDER\` is \`cursor\`: \`agent --trust -p "<review prompt>" --model composer-2\`
+
 \`\`\`bash
-TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
-codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
+TMPERR=$(mktemp /tmp/sm-review-XXXXXXXX)
 \`\`\`
 
-Use a 5-minute timeout. Present output under \`CODEX SAYS (code review):\` header.
+Use a 5-minute timeout. Present output under \`{SECOND_MODEL_NAME} SAYS (code review):\` header (substitute the actual provider display name for {SECOND_MODEL_NAME}).
 Check for \`[P1]\` markers: found → \`GATE: FAIL\`, not found → \`GATE: PASS\`.
 
 If GATE is FAIL, use AskUserQuestion:
 \`\`\`
-Codex found N critical issues in the diff.
+{second-model-name} found N critical issues in the diff.
 
 A) Investigate and fix now (recommended)
 B) Continue — review will still complete
 \`\`\`
 
-If A: address the findings${isShip ? '. After fixing, re-run tests (Step 3) since code has changed' : ''}. Re-run \`codex review\` to verify.
+If A: address the findings${isShip ? '. After fixing, re-run tests (Step 3) since code has changed' : ''}. Re-run the second model review to verify.
 
 Read stderr for errors (same error handling as medium tier).
 
 After stderr: \`rm -f "$TMPERR"\`
 
-**2. Claude adversarial subagent:** Dispatch a subagent with the adversarial prompt (same prompt as medium tier). This always runs regardless of Codex availability.
+**2. Claude adversarial subagent:** Dispatch a subagent with the adversarial prompt (same prompt as medium tier). This always runs regardless of second model availability.
 
-**3. Codex adversarial challenge (if available):** Run \`codex exec\` with the adversarial prompt (same as medium tier).
+**3. Second model adversarial challenge (if available):** Run the second model with the adversarial prompt (same as medium tier).
 
-If Codex is not available for steps 1 and 3, note to the user: "Codex CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex for full 4-pass coverage: \`npm install -g @openai/codex\`"
+If the second model is not available for steps 1 and 3, note to the user: "Second model CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install a second model CLI for full 4-pass coverage."
 
 **Persist the review result AFTER all passes complete** (not after each sub-step):
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"second-model-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SM_PROVIDER","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if second model ran, "claude" if only Claude subagent ran. GATE = the second model structured review gate result ("pass"/"fail"), or "informational" if second model was unavailable. If all passes failed, do NOT persist.
 
 ---
 
@@ -2121,8 +2210,8 @@ ADVERSARIAL REVIEW SYNTHESIS (auto: TIER, N lines):
   High confidence (found by multiple sources): [findings agreed on by >1 pass]
   Unique to Claude structured review: [from earlier step]
   Unique to Claude adversarial: [from subagent, if ran]
-  Unique to Codex: [from codex adversarial or code review, if ran]
-  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
+  Unique to {second-model-name}: [from second model adversarial or code review, if ran]
+  Models used: Claude structured ✓  Claude adversarial ✓/✗  {second-model-name} ✓/✗
 ════════════════════════════════════════════════════════════
 \`\`\`
 
@@ -2188,6 +2277,8 @@ const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   BENEFITS_FROM: generateBenefitsFrom,
   CODEX_REVIEW_STEP: generateAdversarialStep,
   ADVERSARIAL_STEP: generateAdversarialStep,
+  SECOND_MODEL_REVIEW_PROMPT: generateSecondModelReviewPrompt,
+  SECOND_MODEL_ADVERSARIAL_PROMPT: generateSecondModelAdversarialPrompt,
   DEPLOY_BOOTSTRAP: generateDeployBootstrap,
 };
 
@@ -2385,12 +2476,6 @@ function findTemplates(): string[] {
 let hasChanges = false;
 
 for (const tmplPath of findTemplates()) {
-  // Skip /codex skill for codex host (self-referential — it's a Claude wrapper around codex exec)
-  if (HOST === 'codex') {
-    const dir = path.basename(path.dirname(tmplPath));
-    if (dir === 'codex') continue;
-  }
-
   const { outputPath, content } = processTemplate(tmplPath, HOST);
   const relOutput = path.relative(ROOT, outputPath);
 
