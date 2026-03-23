@@ -4,7 +4,7 @@ Thanks for wanting to make gstack better. Whether you're fixing a typo in a skil
 
 ## Quick start
 
-gstack skills are Markdown files that Claude Code discovers from a `skills/` directory. Discoverable entrypoints normally live in `~/.claude/skills/gstack/` (for Claude) or `~/.codex/skills/gstack/` (for Codex), while shared runtime assets now live in `~/.gstack`. But when you're developing gstack itself, you want Claude Code to use the skills *in your working tree* — so edits take effect instantly without copying or deploying anything.
+gstack skills are Markdown files that Claude Code discovers from a `skills/` directory. Discoverable entrypoints normally live in host-specific locations like `~/.claude/skills/gstack/` (for Claude) or `~/.codex/skills/gstack/` (for Codex), while the canonical shared runtime lives in `~/.gstack` and the repo-local fallback lives in `.gstack`. But when you're developing gstack itself, you want Claude Code to use the skills *in your working tree* — so edits take effect instantly without copying or deploying anything.
 
 That's what dev mode does. It symlinks your repo into the local `.claude/skills/` directory so Claude Code reads skills straight from your checkout.
 

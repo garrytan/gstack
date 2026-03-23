@@ -226,6 +226,7 @@ materialize_runtime_entry() {
   local dst="$2"
   local resolved_src
   local resolved_dst
+  local materialize_src="$src"
   [ -e "$src" ] || return 0
 
   mkdir -p "$(dirname "$dst")"
@@ -236,6 +237,10 @@ materialize_runtime_entry() {
     resolved_src="$(cd "$(dirname "$src")" && pwd -P)/$(basename "$src")"
   fi
 
+  if [ "$SETUP_MODE" = "install" ]; then
+    materialize_src="$resolved_src"
+  fi
+
   if [ -e "$dst" ]; then
     if [ -d "$dst" ]; then
       resolved_dst="$(cd "$dst" && pwd -P)"
@@ -243,7 +248,7 @@ materialize_runtime_entry() {
       resolved_dst="$(cd "$(dirname "$dst")" && pwd -P)/$(basename "$dst")"
     fi
 
-    if [ "$resolved_src" = "$resolved_dst" ]; then
+    if [ "$resolved_src" = "$resolved_dst" ] && [ ! -L "$dst" ]; then
       return 0
     fi
   fi
@@ -253,7 +258,7 @@ materialize_runtime_entry() {
   if [ "$SETUP_MODE" = "dev" ]; then
     ln -snf "$src" "$dst"
   else
-    cp -R "$src" "$dst"
+    cp -R "$materialize_src" "$dst"
   fi
 }
 

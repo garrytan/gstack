@@ -279,7 +279,7 @@ function generateRepoModeSection(): string {
 Never let a noticed issue silently pass. The whole point is proactive communication.`;
 }
 
-function generateTestFailureTriage(): string {
+function generateTestFailureTriage(ctx: TemplateContext): string {
   return `## Test Failure Ownership Triage
 
 When tests fail, do NOT immediately stop. First, determine ownership:
@@ -348,7 +348,7 @@ Use AskUserQuestion:
 - Continue with the workflow.
 
 **If "Add as P0 TODO":**
-- If \`TODOS.md\` exists, add the entry following the format in \`review/TODOS-format.md\` (or \`.claude/skills/review/TODOS-format.md\`).
+- If \`TODOS.md\` exists, add the entry following the format in \`review/TODOS-format.md\` (or \`${ctx.paths.sharedReviewDir}/TODOS-format.md\`).
 - If \`TODOS.md\` does not exist, create it with the standard header and add the entry.
 - Entry should include: title, the error output, which branch it was noticed on, and priority P0.
 - Continue with the workflow — treat the pre-existing failure as non-blocking.
@@ -501,7 +501,7 @@ When you are in plan mode and about to call ExitPlanMode:
 3. If it does NOT — run this command:
 
 \\\`\\\`\\\`bash
-~/.claude/skills/gstack/bin/gstack-review-read
+${ctx.paths.sharedBinDir}/gstack-review-read
 \\\`\\\`\\\`
 
 Then write a \`## GSTACK REVIEW REPORT\` section to the end of the plan file:
@@ -561,8 +561,9 @@ fi
 
 If \`NEEDS_SETUP\`:
 1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: \`cd <SKILL_DIR> && ./setup\`
-3. If \`bun\` is not installed: \`curl -fsSL https://bun.sh/install | bash\``;
+2. If you're inside a repo and want the workspace fallback too, run \`./.gstack/setup --host auto\` from the repo root.
+3. Otherwise run the shared-runtime setup entrypoint: \`~/.gstack/setup --host auto\`.
+4. If \`bun\` is not installed, ask the user to install it first, then retry setup.`;
 }
 
 function generateBaseBranchDetect(_ctx: TemplateContext): string {
@@ -1528,7 +1529,7 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 type CoverageAuditMode = 'plan' | 'ship' | 'review';
 
-function generateTestCoverageAuditInner(mode: CoverageAuditMode): string {
+function generateTestCoverageAuditInner(mode: CoverageAuditMode, ctx: TemplateContext): string {
   const sections: string[] = [];
 
   // ── Intro (mode-specific) ──
@@ -1749,7 +1750,7 @@ The plan should be complete enough that when implementation begins, every test i
 After producing the coverage diagram, write a test plan artifact to the project directory so \`/qa\` and \`/qa-only\` can consume it as primary test input:
 
 \`\`\`bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+source <(${ctx.paths.sharedBinDir}/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 \`\`\`
@@ -1813,7 +1814,7 @@ Coverage line: \`Test Coverage Audit: N new code paths. M covered (X%). K tests 
 After producing the coverage diagram, write a test plan artifact so \`/qa\` and \`/qa-only\` can consume it:
 
 \`\`\`bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+source <(${ctx.paths.sharedBinDir}/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 \`\`\`
@@ -1860,16 +1861,16 @@ If no test framework detected → include gaps as INFORMATIONAL findings only, n
   return sections.join('\n');
 }
 
-function generateTestCoverageAuditPlan(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('plan');
+function generateTestCoverageAuditPlan(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('plan', ctx);
 }
 
-function generateTestCoverageAuditShip(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('ship');
+function generateTestCoverageAuditShip(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('ship', ctx);
 }
 
-function generateTestCoverageAuditReview(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('review');
+function generateTestCoverageAuditReview(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('review', ctx);
 }
 
 function generateSpecReviewLoop(_ctx: TemplateContext): string {

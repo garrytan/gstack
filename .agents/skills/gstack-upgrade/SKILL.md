@@ -1,9 +1,9 @@
 ---
 name: gstack-upgrade
 description: |
-  Upgrade gstack to the latest version. Detects global vs vendored install,
-  runs the upgrade, and shows what's new. Use when asked to "upgrade gstack",
-  "update gstack", or "get latest version".
+  Upgrade gstack to the latest version. Upgrades the canonical shared runtime in
+  ~/.gstack, resyncs a repo-local .gstack sidecar when present, and shows what's
+  new. Use when asked to "upgrade gstack", "update gstack", or "get latest version".
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

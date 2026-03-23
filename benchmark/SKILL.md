@@ -308,8 +308,9 @@ fi
 
 If `NEEDS_SETUP`:
 1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
+2. If you're inside a repo and want the workspace fallback too, run `./.gstack/setup --host auto` from the repo root.
+3. Otherwise run the shared-runtime setup entrypoint: `~/.gstack/setup --host auto`.
+4. If `bun` is not installed, ask the user to install it first, then retry setup.
 
 # /benchmark — Performance Regression Detection
 

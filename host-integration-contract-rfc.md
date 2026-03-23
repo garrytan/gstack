@@ -69,6 +69,24 @@ The current branch is at a good checkpoint for review, but three follow-up items
 
 That follow-up should stay intentionally narrow. The adapter/runtime contract is now concrete enough that OpenCode or other adjacent hosts can build on it after these remaining install/runtime edges are cleaned up.
 
+### Timeline snapshot — concise roadmap / progress log
+
+This section is intentionally terse so it can be quoted directly into the issue thread as a timeline-style status update.
+
+- **2026-03-23 00:43** — `feat(hosts): centralize shared runtime contract`
+  - Introduced `scripts/host-registry.ts` as the source of truth for layouts, discovery, runtime roots, and path rewrites.
+  - Moved the canonical runtime home to `~/.gstack`, with `.gstack` as the repo-local sidecar/fallback.
+- **2026-03-23 09:07 → 09:11** — follow-up hardening landed on the branch
+  - Validated workspace browse runtime resolution.
+  - Tightened shared-vs-workspace browse precedence.
+  - Hardened `/gstack-upgrade` around the `~/.gstack`-primary model.
+- **2026-03-23 (current working tree)** — workspace discovery contract cleanup is now resolved
+  - Codex/Gemini workspace discovery is modeled as `.gstack/.agents/skills/*`.
+  - Repo-root `.agents/skills/*` remains tracked generated output, not the workspace install root.
+- **Next (still intentionally narrow)**
+  - Land the remaining docs / generated-artifact follow-up for this tranche.
+  - Keep OpenCode / second-host exploration deferred until after this install/runtime cleanup is committed.
+
 ## Why now
 
 There is already community demand for OpenCode support:

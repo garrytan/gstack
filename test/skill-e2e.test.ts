@@ -1896,8 +1896,8 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
     run('git', ['config', 'user.email', 'test@test.com'], upgradeDir);
     run('git', ['config', 'user.name', 'Test'], upgradeDir);
 
-    // Create mock gstack install directory (local-git type)
-    const mockGstack = path.join(upgradeDir, '.claude', 'skills', 'gstack');
+    // Create mock shared runtime install directory (global-git type)
+    const mockGstack = path.join(upgradeDir, '.gstack');
     fs.mkdirSync(mockGstack, { recursive: true });
 
     // Init as a git repo
@@ -1950,23 +1950,24 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
   });
 
   testIfSelected('gstack-upgrade-happy-path', async () => {
-    const mockGstack = path.join(upgradeDir, '.claude', 'skills', 'gstack');
+    const mockGstack = path.join(upgradeDir, '.gstack');
     const result = await runSkillTest({
+      env: { HOME: upgradeDir },
       prompt: `Read gstack-upgrade/SKILL.md for the upgrade workflow.
 
-You are running /gstack-upgrade standalone. The gstack installation is at ./.claude/skills/gstack (local-git type — it has a .git directory with an origin remote).
+You are running /gstack-upgrade standalone. The canonical gstack installation is at ~/.gstack, and in this test HOME points at the temp project so ~/.gstack resolves to ./.gstack. It is a global-git install — it has a .git directory with an origin remote.
 
 Current version: 0.5.0. A new version 0.6.0 is available on origin/main.
 
 Follow the standalone upgrade flow:
-1. Detect install type (local-git)
+1. Detect install type (global-git)
 2. Run git fetch origin && git reset --hard origin/main in the install directory
 3. Run the setup script
 4. Show what's new from CHANGELOG
 
 Skip any AskUserQuestion calls — auto-approve the upgrade. Write a summary of what you did to stdout.
 
-IMPORTANT: The install directory is at ./.claude/skills/gstack — use that exact path.`,
+IMPORTANT: The install directory is ~/.gstack, which resolves to ./.gstack in this test environment — use that exact path.`,
       workingDirectory: upgradeDir,
       maxTurns: 20,
       timeout: 180_000,

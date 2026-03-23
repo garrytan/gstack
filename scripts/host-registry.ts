@@ -104,6 +104,17 @@ const SHARED_LAYOUT_PATHS: LayoutPaths = {
   sharedReviewDir: `${SHARED_RUNTIME_ROOT}/review`,
 };
 
+const AGENTS_GENERATED_SKILL_ROOT = path.posix.join('.agents', 'skills');
+const AGENTS_WORKSPACE_SKILL_ROOT = path.posix.join(
+  WORKSPACE_RUNTIME_ROOT,
+  AGENTS_GENERATED_SKILL_ROOT,
+);
+const AGENTS_GENERATED_ROOT_SKILL_PATH = path.posix.join(
+  AGENTS_GENERATED_SKILL_ROOT,
+  'gstack',
+  'SKILL.md',
+);
+
 const SHARED_RUNTIME_PATH_REWRITES: PathRewriteRule[] = [
   { pattern: /~\/\.claude\/skills\/gstack/g, replacement: SHARED_RUNTIME_ROOT },
   { pattern: /\.claude\/skills\/gstack/g, replacement: SHARED_RUNTIME_ROOT },
@@ -146,7 +157,7 @@ export const LAYOUTS: Record<SkillLayoutId, SkillLayoutProfile> = {
     artifactMaterializationStrategy: 'generated',
     localFirstResolutionPolicy: 'workspace-validated',
     outputPath(root, skillDir) {
-      return path.join(root, '.agents', 'skills', codexSkillName(skillDir), 'SKILL.md');
+      return path.join(root, AGENTS_GENERATED_SKILL_ROOT, codexSkillName(skillDir), 'SKILL.md');
     },
     skillName(skillDir) {
       return codexSkillName(skillDir);
@@ -186,15 +197,15 @@ export const HOSTS: Record<HostId, HostDefinition> = {
     supportedInstallModes: ['user', 'workspace'],
     discoveryMode: 'both',
     globalSkillRoot: '~/.codex/skills',
-    workspaceSkillRoot: '.agents/skills',
-    generatedRootSkillPath: '.agents/skills/gstack/SKILL.md',
+    workspaceSkillRoot: AGENTS_WORKSPACE_SKILL_ROOT,
+    generatedRootSkillPath: AGENTS_GENERATED_ROOT_SKILL_PATH,
     runtimeRoot: SHARED_RUNTIME_ROOT,
     runtimeAssetSidecarRoot: WORKSPACE_RUNTIME_ROOT,
     discoverableSkillEntries: [
       '~/.codex/skills/gstack',
       '~/.codex/skills/gstack-*',
-      '.agents/skills/gstack',
-      '.agents/skills/gstack-*',
+      `${AGENTS_WORKSPACE_SKILL_ROOT}/gstack`,
+      `${AGENTS_WORKSPACE_SKILL_ROOT}/gstack-*`,
     ],
     runtimeSidecarAssets: [...SHARED_RUNTIME_ASSETS],
     artifactMaterializationStrategy: 'generated',
@@ -215,11 +226,14 @@ export const HOSTS: Record<HostId, HostDefinition> = {
     supportedInstallModes: ['workspace'],
     discoveryMode: 'workspace-sidecar',
     globalSkillRoot: null,
-    workspaceSkillRoot: '.agents/skills',
-    generatedRootSkillPath: '.agents/skills/gstack/SKILL.md',
+    workspaceSkillRoot: AGENTS_WORKSPACE_SKILL_ROOT,
+    generatedRootSkillPath: AGENTS_GENERATED_ROOT_SKILL_PATH,
     runtimeRoot: SHARED_RUNTIME_ROOT,
     runtimeAssetSidecarRoot: WORKSPACE_RUNTIME_ROOT,
-    discoverableSkillEntries: ['.agents/skills/gstack', '.agents/skills/gstack-*'],
+    discoverableSkillEntries: [
+      `${AGENTS_WORKSPACE_SKILL_ROOT}/gstack`,
+      `${AGENTS_WORKSPACE_SKILL_ROOT}/gstack-*`,
+    ],
     runtimeSidecarAssets: [...SHARED_RUNTIME_ASSETS],
     artifactMaterializationStrategy: 'generated',
     localFirstResolutionPolicy: 'workspace-validated',

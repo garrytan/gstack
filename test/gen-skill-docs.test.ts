@@ -37,6 +37,11 @@ const ALL_SKILLS = findTemplateSkillDirs().map(dir => ({
 }));
 const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
 const AGENTS_LAYOUT = LAYOUTS[HOSTS.codex.layoutId];
+const AGENTS_WORKSPACE_DISCOVERY_ROOT = path.posix.join(
+  AGENTS_LAYOUT.paths.workspaceRuntimeRoot,
+  '.agents',
+  'skills',
+);
 
 describe('host registry contract', () => {
   test('maps Claude, Codex, and Gemini to the expected layouts', () => {
@@ -52,12 +57,14 @@ describe('host registry contract', () => {
     expect(HOSTS.codex.runtimeAssetSidecarRoot).toBe(AGENTS_LAYOUT.paths.workspaceRuntimeRoot);
     expect(HOSTS.gemini.runtimeAssetSidecarRoot).toBe(AGENTS_LAYOUT.paths.workspaceRuntimeRoot);
 
-    expect(HOSTS.codex.discoverableSkillEntries).toContain('.agents/skills/gstack');
-    expect(HOSTS.codex.discoverableSkillEntries).toContain('.agents/skills/gstack-*');
-    expect(HOSTS.gemini.discoverableSkillEntries).toContain('.agents/skills/gstack');
-    expect(HOSTS.gemini.discoverableSkillEntries).toContain('.agents/skills/gstack-*');
-    expect(HOSTS.codex.discoverableSkillEntries).not.toContain('.gstack');
-    expect(HOSTS.gemini.discoverableSkillEntries).not.toContain('.gstack');
+    expect(HOSTS.codex.workspaceSkillRoot).toBe(AGENTS_WORKSPACE_DISCOVERY_ROOT);
+    expect(HOSTS.gemini.workspaceSkillRoot).toBe(AGENTS_WORKSPACE_DISCOVERY_ROOT);
+    expect(HOSTS.codex.discoverableSkillEntries).toContain(`${AGENTS_WORKSPACE_DISCOVERY_ROOT}/gstack`);
+    expect(HOSTS.codex.discoverableSkillEntries).toContain(`${AGENTS_WORKSPACE_DISCOVERY_ROOT}/gstack-*`);
+    expect(HOSTS.gemini.discoverableSkillEntries).toContain(`${AGENTS_WORKSPACE_DISCOVERY_ROOT}/gstack`);
+    expect(HOSTS.gemini.discoverableSkillEntries).toContain(`${AGENTS_WORKSPACE_DISCOVERY_ROOT}/gstack-*`);
+    expect(HOSTS.codex.discoverableSkillEntries).not.toContain('.agents/skills/gstack');
+    expect(HOSTS.gemini.discoverableSkillEntries).not.toContain('.agents/skills/gstack');
   });
 
   test('shares the same runtime sidecar assets across agents hosts', () => {
@@ -981,6 +988,14 @@ describe('Codex generation (--host codex)', () => {
     expect(content).not.toContain('~/.codex/');
   });
 
+  test('browse setup instructions use shared runtime setup entrypoints', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('./.gstack/setup --host auto');
+    expect(content).toContain('~/.gstack/setup --host auto');
+    expect(content).not.toContain('cd <SKILL_DIR> && ./setup');
+    expect(content).not.toContain('curl -fsSL https://bun.sh/install | bash');
+  });
+
   test('all Claude skills avoid host-specific paths from other runtimes', () => {
     for (const skill of ALL_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
@@ -1076,12 +1091,29 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('RUNTIME_ASSETS="bin browse .agents ETHOS.md VERSION CHANGELOG.md SKILL.md SKILL.md.tmpl package.json scripts setup supabase"');
   });
 
-  test('materialize_runtime_entry skips self-overwrite when setup runs from the runtime home', () => {
+  test('materialize_runtime_entry skips self-overwrite only for real in-place paths', () => {
     const fnStart = setupContent.indexOf('materialize_runtime_entry()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('cp -R "$src" "$dst"', fnStart));
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('cp -R "$materialize_src" "$dst"', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('if [ "$resolved_src" = "$resolved_dst" ]; then');
+    expect(fnBody).toContain('if [ "$resolved_src" = "$resolved_dst" ] && [ ! -L "$dst" ]; then');
     expect(fnBody).toContain('return 0');
+  });
+
+  test('materialize_runtime_entry re-materializes legacy symlinks in install mode', () => {
+    const fnStart = setupContent.indexOf('materialize_runtime_entry()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('cp -R "$materialize_src" "$dst"', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('local materialize_src="$src"');
+    expect(fnBody).toContain('if [ "$SETUP_MODE" = "install" ]; then');
+    expect(fnBody).toContain('materialize_src="$resolved_src"');
+    expect(fnBody).toContain('cp -R "$materialize_src" "$dst"');
+    expect(fnBody).not.toContain('cp -R "$src" "$dst"');
+  });
+
+  test('upgrade template describes shared runtime and workspace sidecar', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'gstack-upgrade', 'SKILL.md.tmpl'), 'utf-8');
+    expect(content).toContain('canonical shared runtime in');
+    expect(content).toContain('repo-local .gstack sidecar');
   });
 
   test('setup does not create a nested workspace runtime when run from ~/.gstack', () => {
