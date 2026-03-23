@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.6.0] - 2026-03-23 — Windows Cookie Import
+
+### Added
+
+- **Windows DPAPI cookie decryption.** The `/setup-browser-cookies` and cookie picker now work on Windows, decrypting Chromium v10 cookies via DPAPI + AES-256-GCM. Supports Chrome, Edge, Brave, Arc, and Comet with platform-aware path resolution (`%LOCALAPPDATA%`), multi-profile detection (Default + Profile N), and Network/Cookies path for newer Chromium.
+- **v20 App-Bound Encryption fallback.** Modern Chrome/Edge (127+) uses v20 encryption that can't be decrypted externally. When this is detected, the picker UI shows a console-script fallback — paste one line in DevTools to send your cookies to gstack.
+- **`/cookie-picker/import-raw` endpoint.** Accepts pre-decrypted cookies directly, used by the console-script fallback and any external cookie export tool.
+
+### Fixed
+
+- **Platform-aware browser open.** Cookie picker now opens correctly on Windows (`cmd /c start`) instead of macOS-only `open`.
+- **SQLite CANTOPEN handling.** Windows exclusive file locks now trigger the copy-to-temp fallback instead of crashing.
+- **`cmd /c start` title arg.** Added empty title argument to prevent URLs being interpreted as window titles.
+- **Dangling setTimeout in DPAPI.** Timer is now cleared on success to prevent unhandled rejections.
+- **Short buffer protection.** `decryptWindows` now validates minimum 31-byte length before attempting decryption.
+
 ## [0.11.5.2] - 2026-03-22 — Outside Voice
 
 ### Added
