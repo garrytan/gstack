@@ -262,6 +262,9 @@ async function ensureServer(): Promise<ServerState> {
     }
   }
 
+  // Ensure .gstack/ directory exists before acquiring lock (fixes ENOENT on first run)
+  ensureStateDir(config);
+
   // Acquire lock to prevent concurrent restart races (TOCTOU)
   const releaseLock = acquireServerLock();
   if (!releaseLock) {
