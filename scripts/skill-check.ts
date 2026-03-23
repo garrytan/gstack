@@ -163,19 +163,5 @@ try {
   console.log('      Run: bun run gen:skill-docs --host codex');
 }
 
-console.log('\n  Freshness (Copilot):');
-try {
-  execSync('bun run scripts/gen-skill-docs.ts --host copilot --dry-run', { cwd: ROOT, stdio: 'pipe' });
-  console.log('  \u2705 All Copilot generated files are fresh');
-} catch (err: any) {
-  hasErrors = true;
-  const output = err.stdout?.toString() || '';
-  console.log('  \u274c Copilot generated files are stale:');
-  for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
-    console.log(`      ${line}`);
-  }
-  console.log('      Run: bun run gen:skill-docs --host copilot');
-}
-
 console.log('');
 process.exit(hasErrors ? 1 : 0);

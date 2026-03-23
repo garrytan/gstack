@@ -216,9 +216,8 @@ vim SKILL.md.tmpl              # or browse/SKILL.md.tmpl
 # 2. Regenerate for all hosts
 bun run gen:skill-docs
 bun run gen:skill-docs --host codex
-bun run gen:skill-docs --host copilot
 
-# 3. Check health (reports Claude, Codex, and Copilot)
+# 3. Check health (reports Claude and Codex; Copilot derives from Codex at setup time)
 bun run skill:check
 
 # Or use watch mode — auto-regenerates on save
@@ -231,7 +230,7 @@ To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot f
 
 ## Multi-host development (Claude + Codex + Copilot)
 
-gstack generates SKILL.md files for multiple hosts: **Claude** (`.claude/skills/`), **Codex** (`.agents/skills/`), and **Copilot** (`.agents/skills/`). Codex and Copilot share the same `.agents/skills/` output directory. Every template change needs to be generated for all hosts.
+gstack generates SKILL.md files for multiple hosts: **Claude** (`.claude/skills/`), **Codex** (`.agents/skills/`), and **Copilot** (`.agents/skills/`). Codex and Copilot share the same `.agents/skills/` output directory — only `--host codex` needs to be run during generation. Copilot-specific paths are rewritten at `setup --host copilot` time (same pattern as Kiro). Every template change needs to be generated for Claude and Codex.
 
 ### Generating for all hosts
 
@@ -239,14 +238,11 @@ gstack generates SKILL.md files for multiple hosts: **Claude** (`.claude/skills/
 # Generate Claude output (default)
 bun run gen:skill-docs
 
-# Generate Codex output
+# Generate Codex output (Copilot shares this — paths are rewritten at setup time)
 bun run gen:skill-docs --host codex
 # --host agents is an alias for --host codex
 
-# Generate Copilot output (same .agents/skills/ directory as codex)
-bun run gen:skill-docs --host copilot
-
-# Or use build, which does all three + compiles binaries
+# Or use build, which does both + compiles binaries
 bun run build
 ```
 
@@ -269,7 +265,6 @@ bun test
 # Check freshness for all hosts
 bun run gen:skill-docs --dry-run
 bun run gen:skill-docs --host codex --dry-run
-bun run gen:skill-docs --host copilot --dry-run
 
 # Health dashboard covers all hosts
 bun run skill:check
@@ -281,9 +276,9 @@ When you run `bin/dev-setup`, it creates symlinks in both `.claude/skills/` and 
 
 ### Adding a new skill
 
-When you add a new skill template, both hosts get it automatically:
+When you add a new skill template, all hosts get it automatically:
 1. Create `{skill}/SKILL.md.tmpl`
-2. Run `bun run gen:skill-docs` (Claude output), `bun run gen:skill-docs --host codex` (Codex output), and `bun run gen:skill-docs --host copilot` (Copilot output)
+2. Run `bun run gen:skill-docs` (Claude output) and `bun run gen:skill-docs --host codex` (Codex output — Copilot derives from this at setup time)
 3. The dynamic template discovery picks it up — no static list to update
 4. Commit `{skill}/SKILL.md` — `.agents/` is generated at setup time and gitignored
 

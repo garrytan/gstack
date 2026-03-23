@@ -92,6 +92,18 @@ export async function runCopilotSkill(opts: {
   try {
     installSkillToTempHome(skillDir, name, tempHome);
 
+    // Copy auth config from real ~/.copilot/ so the spawned process can authenticate.
+    // Copilot CLI stores login state in ~/.copilot/config.json (or $COPILOT_HOME).
+    const realCopilotDir = process.env.COPILOT_HOME || path.join(os.homedir(), '.copilot');
+    const tempCopilotDir = path.join(tempHome, '.copilot');
+    for (const authFile of ['config.json', 'hosts.json']) {
+      const src = path.join(realCopilotDir, authFile);
+      if (fs.existsSync(src)) {
+        fs.mkdirSync(tempCopilotDir, { recursive: true });
+        fs.copyFileSync(src, path.join(tempCopilotDir, authFile));
+      }
+    }
+
     // Build copilot command
     const args = ['-p', prompt];
 

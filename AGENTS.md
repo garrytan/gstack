@@ -44,7 +44,6 @@ bun run skill:check      # health dashboard for all skills
 ## Key conventions
 
 - SKILL.md files are **generated** from `.tmpl` templates. Edit the template, not the output.
-- Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
-- Run `bun run gen:skill-docs --host copilot` to regenerate Copilot-specific output.
+- Run `bun run gen:skill-docs --host codex` to regenerate Codex output (Copilot derives from this at setup time).
 - The browse binary provides headless browser access. Use `$B <command>` in skills.
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.

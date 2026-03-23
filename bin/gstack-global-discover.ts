@@ -443,36 +443,52 @@ function scanGemini(since: Date): Session[] {
 
 function scanCopilot(since: Date): Session[] {
   // GitHub Copilot CLI (standalone) stores session data in ~/.copilot/session-state/
-  const configDir = join(homedir(), ".copilot", "session-state");
-  if (!existsSync(configDir)) return [];
+  // Each session is a subdirectory: ~/.copilot/session-state/{session-id}/
+  // containing events.jsonl, workspace.yaml, and other session files.
+  const sessionStateDir = join(homedir(), ".copilot", "session-state");
+  if (!existsSync(sessionStateDir)) return [];
 
   const sessions: Session[] = [];
 
-  // Scan for conversation log files
   try {
-    const entries = readdirSync(configDir);
-    for (const entry of entries) {
-      const filePath = join(configDir, entry);
+    const sessionDirs = readdirSync(sessionStateDir);
+    for (const sessionId of sessionDirs) {
+      const sessionDir = join(sessionStateDir, sessionId);
       try {
-        const stat = statSync(filePath);
-        if (!stat.isFile() || stat.mtime < since) continue;
-        if (!entry.endsWith(".json") && !entry.endsWith(".jsonl")) continue;
+        const dirStat = statSync(sessionDir);
+        if (!dirStat.isDirectory() || dirStat.mtime < since) continue;
 
-        // Try to extract cwd from the conversation file
-        const fd = openSync(filePath, "r");
-        const buf = Buffer.alloc(4096);
-        const bytesRead = readSync(fd, buf, 0, 4096, 0);
-        closeSync(fd);
-        const text = buf.toString("utf-8", 0, bytesRead);
+        // Look for session files within the subdirectory
+        const sessionFiles = readdirSync(sessionDir);
+        let found = false;
 
-        // Look for cwd in JSON metadata
-        for (const line of text.split("\n").slice(0, 15)) {
-          if (!line.trim()) continue;
+        for (const file of sessionFiles) {
+          if (found) break;
+          const filePath = join(sessionDir, file);
           try {
-            const obj = JSON.parse(line);
-            if (obj.cwd && existsSync(obj.cwd)) {
-              sessions.push({ tool: "copilot", cwd: obj.cwd });
-              break;
+            const fileStat = statSync(filePath);
+            if (!fileStat.isFile()) continue;
+            if (!file.endsWith(".json") && !file.endsWith(".jsonl") && !file.endsWith(".yaml")) continue;
+
+            const fd = openSync(filePath, "r");
+            const buf = Buffer.alloc(4096);
+            const bytesRead = readSync(fd, buf, 0, 4096, 0);
+            closeSync(fd);
+            const text = buf.toString("utf-8", 0, bytesRead);
+
+            // Look for cwd in JSON/JSONL metadata
+            for (const line of text.split("\n").slice(0, 15)) {
+              if (!line.trim()) continue;
+              try {
+                const obj = JSON.parse(line);
+                if (obj.cwd && existsSync(obj.cwd)) {
+                  sessions.push({ tool: "copilot", cwd: obj.cwd });
+                  found = true;
+                  break;
+                }
+              } catch {
+                continue;
+              }
             }
           } catch {
             continue;
