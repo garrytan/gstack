@@ -274,10 +274,12 @@ Do NOT launch the cookie picker UI — just detect and report.`,
 describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
   let upgradeDir: string;
   let remoteDir: string;
+  let tempHome: string;
 
   beforeAll(() => {
     upgradeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-upgrade-'));
     remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-remote-'));
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-home-'));
 
     const run = (cmd: string, args: string[], cwd: string) =>
       spawnSync(cmd, args, { cwd, stdio: 'pipe', timeout: 5000 });
@@ -287,9 +289,13 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
     run('git', ['config', 'user.email', 'test@test.com'], upgradeDir);
     run('git', ['config', 'user.name', 'Test'], upgradeDir);
 
-    // Create mock gstack install directory (local-git type)
-    const mockGstack = path.join(upgradeDir, '.claude', 'skills', 'gstack');
+    // Create canonical shared runtime install directory (global-git type)
+    const mockGstack = path.join(tempHome, '.gstack');
     fs.mkdirSync(mockGstack, { recursive: true });
+
+    // Create a stale workspace sidecar that should be refreshed from ~/.gstack
+    const workspaceSidecar = path.join(upgradeDir, '.gstack');
+    fs.mkdirSync(workspaceSidecar, { recursive: true });
 
     // Init as a git repo
     run('git', ['init'], mockGstack);
@@ -306,6 +312,11 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
       '# Changelog\n\n## 0.5.0 — 2026-03-01\n\n- Initial release\n');
     fs.writeFileSync(path.join(mockGstack, 'setup'),
       '#!/bin/bash\necho "Setup completed"\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(workspaceSidecar, 'VERSION'), '0.4.0\n');
+    fs.writeFileSync(path.join(workspaceSidecar, 'CHANGELOG.md'),
+      '# Changelog\n\n## 0.4.0 — 2026-02-01\n\n- Older workspace copy\n');
+    fs.writeFileSync(path.join(workspaceSidecar, 'setup'),
+      '#!/bin/bash\necho "Workspace setup completed"\n', { mode: 0o755 });
 
     // Initial commit + push
     run('git', ['add', '.'], mockGstack);
@@ -338,48 +349,53 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
   afterAll(() => {
     try { fs.rmSync(upgradeDir, { recursive: true, force: true }); } catch {}
     try { fs.rmSync(remoteDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(tempHome, { recursive: true, force: true }); } catch {}
   });
 
   testConcurrentIfSelected('gstack-upgrade-happy-path', async () => {
-    const mockGstack = path.join(upgradeDir, '.claude', 'skills', 'gstack');
+    const mockGstack = path.join(tempHome, '.gstack');
+    const workspaceSidecar = path.join(upgradeDir, '.gstack');
     const result = await runSkillTest({
       prompt: `Read gstack-upgrade/SKILL.md for the upgrade workflow.
 
-You are running /gstack-upgrade standalone. The gstack installation is at ./.claude/skills/gstack (local-git type — it has a .git directory with an origin remote).
+You are running /gstack-upgrade standalone. The canonical shared runtime install is at ~/.gstack (global-git type — it has a .git directory with an origin remote). The current repo also has a stale workspace sidecar at ./.gstack.
 
-Current version: 0.5.0. A new version 0.6.0 is available on origin/main.
+Current primary version: 0.5.0. A new version 0.6.0 is available on origin/main. The workspace sidecar is still on 0.4.0.
 
 Follow the standalone upgrade flow:
-1. Detect install type (local-git)
-2. Run git fetch origin && git reset --hard origin/main in the install directory
-3. Run the setup script
-4. Show what's new from CHANGELOG
+1. Detect install type from ~/.gstack (global-git)
+2. Run git fetch origin && git reset --hard origin/main in ~/.gstack
+3. Run the setup script from ~/.gstack
+4. Detect the stale workspace .gstack sidecar and refresh it from the primary install
+5. Show what's new from CHANGELOG
 
-Skip any AskUserQuestion calls — auto-approve the upgrade. Write a summary of what you did to stdout.
-
-IMPORTANT: The install directory is at ./.claude/skills/gstack — use that exact path.`,
+Skip any AskUserQuestion calls — auto-approve the upgrade. Write a summary of what you did to stdout.`,
       workingDirectory: upgradeDir,
       maxTurns: 20,
       timeout: 180_000,
       testName: 'gstack-upgrade-happy-path',
       runId,
+      env: { HOME: tempHome },
     });
 
     logCost('/gstack-upgrade happy path', result);
 
-    // Check that the version was updated
+    // Check that the primary install and workspace sidecar were both updated
     const versionAfter = fs.readFileSync(path.join(mockGstack, 'VERSION'), 'utf-8').trim();
+    const workspaceVersionAfter = fs.readFileSync(path.join(workspaceSidecar, 'VERSION'), 'utf-8').trim();
     const output = result.output || '';
     const mentionsUpgrade = output.toLowerCase().includes('0.6.0') ||
       output.toLowerCase().includes('upgrade') ||
       output.toLowerCase().includes('updated');
 
     recordE2E(evalCollector, '/gstack-upgrade happy path', 'gstack-upgrade E2E', result, {
-      passed: versionAfter === '0.6.0' && ['success', 'error_max_turns'].includes(result.exitReason),
+      passed: versionAfter === '0.6.0' && workspaceVersionAfter === '0.6.0' && ['success', 'error_max_turns'].includes(result.exitReason),
     });
 
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
     expect(versionAfter).toBe('0.6.0');
+    expect(workspaceVersionAfter).toBe('0.6.0');
+    expect(mentionsUpgrade).toBe(true);
   }, 240_000);
 });
 

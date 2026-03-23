@@ -124,6 +124,7 @@ export async function runSkillTest(options: {
   runId?: string;
   /** Model to use. Defaults to claude-sonnet-4-6 (overridable via EVALS_MODEL env). */
   model?: string;
+  env?: Record<string, string>;
 }): Promise<SkillTestResult> {
   const {
     prompt,
@@ -133,6 +134,7 @@ export async function runSkillTest(options: {
     timeout = 120_000,
     testName,
     runId,
+    env = {},
   } = options;
   const model = options.model ?? process.env.EVALS_MODEL ?? 'claude-sonnet-4-6';
 
@@ -171,6 +173,10 @@ export async function runSkillTest(options: {
     cwd: workingDirectory,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: {
+      ...process.env,
+      ...env,
+    },
   });
 
   // Race against timeout
