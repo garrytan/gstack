@@ -259,18 +259,14 @@ Skipping this command loses session duration and outcome data.
 Run this bash:
 
 ```bash
-_TEL_END=$(date +%s)
-_TEL_DUR=$(( _TEL_END - _TEL_START ))
-rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-~/.claude/skills/gstack/bin/gstack-telemetry-log \
-  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
-  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-postrun   --skill "SKILL_NAME" --outcome "OUTCOME"   --used-browse "USED_BROWSE" --session-id "SESSION_ID"   --tel-start "TEL_START"
 ```
 
 Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
-success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
-If you cannot determine the outcome, use "unknown". This runs in the background and
-never blocks the user.
+success/error/abort, `USED_BROWSE` with true/false based on whether `$B` was used,
+`SESSION_ID` with the current session id, and `TEL_START` with the session start epoch.
+If you cannot determine the outcome, use `unknown` and `0`. The helper keeps the
+telemetry path fire-and-forget so user-facing skill completion does not block.
 
 If `PROACTIVE` is `false`: do NOT proactively suggest other gstack skills during this session.
 Only run skills the user explicitly invokes. This preference persists across sessions via

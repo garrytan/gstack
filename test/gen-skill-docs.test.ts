@@ -603,6 +603,13 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
+  test('Codex telemetry blocks use codex bin paths end-to-end', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-plan-eng-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
+    expect(content).toContain('~/.codex/skills/gstack/bin/gstack-postrun');
+    expect(content).not.toContain('~/.claude/skills/gstack/bin/gstack-telemetry-log');
+  });
+
   test('/codex skill excluded from Codex output', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex'))).toBe(false);
@@ -755,6 +762,12 @@ describe('Codex generation (--host codex)', () => {
 
   // ─── Claude output regression guard ─────────────────────────
 
+  test('Claude telemetry blocks use claude bin paths end-to-end', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('~/.claude/skills/gstack/bin/gstack-config get telemetry');
+    expect(content).toContain('~/.claude/skills/gstack/bin/gstack-postrun');
+  });
+
   test('Claude output unchanged: review skill still uses .claude/skills/ paths', () => {
     // Codex changes must NOT affect Claude output
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
@@ -877,11 +890,11 @@ describe('telemetry', () => {
   test('generated SKILL.md contains telemetry epilogue', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('Telemetry (run last)');
-    expect(content).toContain('gstack-telemetry-log');
-    expect(content).toContain('_TEL_END');
-    expect(content).toContain('_TEL_DUR');
+    expect(content).toContain('gstack-postrun');
     expect(content).toContain('SKILL_NAME');
     expect(content).toContain('OUTCOME');
+    expect(content).toContain('SESSION_ID');
+    expect(content).toContain('TEL_START');
     expect(content).toContain('PLAN MODE EXCEPTION');
   });
 
@@ -899,6 +912,7 @@ describe('telemetry', () => {
         const content = fs.readFileSync(skillPath, 'utf-8');
         expect(content).toContain('_TEL_START');
         expect(content).toContain('Telemetry (run last)');
+        expect(content).toContain('gstack-postrun');
       }
     }
   });

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# gstack-postrun — shell-light telemetry epilogue for Codex skill runners
+# gstack-postrun — shell-light telemetry epilogue for skill runners
+# Direct invocation avoids shell-evaluated command snippets, but the helper itself
+# must remain fire-and-forget so skill completion never waits on telemetry.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -43,7 +45,7 @@ case "$TEL_START" in
 esac
 
 if [ -x "$TELEMETRY_CMD" ]; then
-  "$TELEMETRY_CMD"     --skill "$SKILL"     --duration "$DURATION"     --outcome "$OUTCOME"     --used-browse "$USED_BROWSE"     --session-id "$SESSION_ID"     >/dev/null 2>&1 || true
+  "$TELEMETRY_CMD"     --skill "$SKILL"     --duration "$DURATION"     --outcome "$OUTCOME"     --used-browse "$USED_BROWSE"     --session-id "$SESSION_ID"     >/dev/null 2>&1 &
 fi
 
 exit 0

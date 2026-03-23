@@ -228,16 +228,14 @@ Skipping this command loses session duration and outcome data.
 Run this bash:
 
 ```bash
-~/.codex/skills/gstack/bin/gstack-postrun \
-  --skill "SKILL_NAME" --outcome "OUTCOME" \
-  --used-browse "USED_BROWSE" --session-id "SESSION_ID" \
-  --tel-start "TEL_START"
+~/.claude/skills/gstack/bin/gstack-postrun   --skill "SKILL_NAME" --outcome "OUTCOME"   --used-browse "USED_BROWSE" --session-id "SESSION_ID"   --tel-start "TEL_START"
 ```
 
 Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
 success/error/abort, `USED_BROWSE` with true/false based on whether `$B` was used,
 `SESSION_ID` with the current session id, and `TEL_START` with the session start epoch.
-If you cannot determine the outcome, use `unknown` and `0`.
+If you cannot determine the outcome, use `unknown` and `0`. The helper keeps the
+telemetry path fire-and-forget so user-facing skill completion does not block.
 
 ## SETUP (run this check BEFORE any browse command)
 

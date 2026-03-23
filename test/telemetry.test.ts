@@ -212,6 +212,75 @@ describe('.pending marker', () => {
   });
 });
 
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await Bun.sleep(25);
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms`);
+}
+
+describe('gstack-postrun', () => {
+  test('computes duration and appends telemetry via fire-and-forget helper', async () => {
+    setConfig('telemetry', 'anonymous');
+    const telStart = Math.floor(Date.now() / 1000) - 2;
+
+    run(`${BIN}/gstack-postrun --skill qa --outcome success --used-browse true --session-id post-123 --tel-start ${telStart}`);
+
+    await waitFor(() => parseJsonl().length === 1);
+    const events = parseJsonl();
+    expect(events[0].skill).toBe('qa');
+    expect(events[0].outcome).toBe('success');
+    expect(events[0].session_id).toBe('post-123');
+    expect(events[0].used_browse).toBe(true);
+    expect(typeof events[0].duration_s).toBe('number');
+    expect(events[0].duration_s).toBeGreaterThanOrEqual(0);
+  });
+
+  test('falls back to duration 0 when tel-start is missing or invalid', async () => {
+    setConfig('telemetry', 'anonymous');
+
+    run(`${BIN}/gstack-postrun --skill qa --outcome success --session-id post-invalid --tel-start nope`);
+
+    await waitFor(() => parseJsonl().length === 1);
+    const events = parseJsonl();
+    expect(events[0].session_id).toBe('post-invalid');
+    expect(events[0].duration_s).toBe(0);
+  });
+
+  test('returns before telemetry command finishes', async () => {
+    const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-postrun-'));
+    const helperPath = path.join(helperDir, 'gstack-postrun');
+    const telemetryPath = path.join(helperDir, 'gstack-telemetry-log');
+    const markerPath = path.join(helperDir, 'marker.txt');
+
+    fs.copyFileSync(path.join(BIN, 'gstack-postrun'), helperPath);
+    fs.writeFileSync(
+      telemetryPath,
+      `#!/usr/bin/env bash
+sleep 1
+printf 'done' > ${JSON.stringify(markerPath)}
+`,
+      'utf-8',
+    );
+    fs.chmodSync(helperPath, 0o755);
+    fs.chmodSync(telemetryPath, 0o755);
+
+    const started = Date.now();
+    execSync(`${helperPath} --skill qa --outcome success --session-id bg-123 --tel-start 1`, {
+      cwd: ROOT,
+      encoding: 'utf-8',
+      timeout: 10000,
+    });
+    const elapsed = Date.now() - started;
+
+    expect(elapsed).toBeLessThan(700);
+    await waitFor(() => fs.existsSync(markerPath), 2500);
+  });
+});
+
 describe('gstack-analytics', () => {
   test('shows "no data" for empty JSONL', () => {
     const output = run(`${BIN}/gstack-analytics`);
