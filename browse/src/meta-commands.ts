@@ -7,6 +7,7 @@ import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from './commands';
 import { validateNavigationUrl } from './url-validation';
+import { devices } from 'playwright';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -158,24 +159,43 @@ export async function handleMetaCommand(
       const page = bm.getPage();
       const prefix = args[0] || `${TEMP_DIR}/browse-responsive`;
       validateOutputPath(prefix);
+      const mobileDevice = devices['iPhone 15 Pro'];
+      const tabletDevice = devices['iPad (gen 7)'];
       const viewports = [
-        { name: 'mobile', width: 375, height: 812 },
-        { name: 'tablet', width: 768, height: 1024 },
-        { name: 'desktop', width: 1280, height: 720 },
+        { name: 'mobile', device: mobileDevice, width: mobileDevice.viewport.width, height: mobileDevice.viewport.height },
+        { name: 'tablet', device: tabletDevice, width: tabletDevice.viewport.width, height: tabletDevice.viewport.height },
+        { name: 'desktop', device: null, width: 1280, height: 720 },
       ];
       const originalViewport = page.viewportSize();
+      const savedDevice = bm.getDevice();
       const results: string[] = [];
 
       for (const vp of viewports) {
-        await page.setViewportSize({ width: vp.width, height: vp.height });
+        if (vp.device) {
+          await bm.setDevice({
+            viewport: vp.device.viewport,
+            userAgent: vp.device.userAgent,
+            deviceScaleFactor: vp.device.deviceScaleFactor,
+            isMobile: vp.device.isMobile,
+            hasTouch: vp.device.hasTouch,
+          });
+        } else {
+          await bm.setDevice(null);
+          await page.setViewportSize({ width: vp.width, height: vp.height });
+        }
         const path = `${prefix}-${vp.name}.png`;
         await page.screenshot({ path, fullPage: true });
         results.push(`${vp.name} (${vp.width}x${vp.height}): ${path}`);
       }
 
-      // Restore original viewport
-      if (originalViewport) {
-        await page.setViewportSize(originalViewport);
+      // Restore previous device/viewport
+      if (savedDevice) {
+        await bm.setDevice(savedDevice);
+      } else {
+        await bm.setDevice(null);
+        if (originalViewport) {
+          await page.setViewportSize(originalViewport);
+        }
       }
 
       return results.join('\n');

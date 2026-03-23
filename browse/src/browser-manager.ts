@@ -42,6 +42,7 @@ export class BrowserManager {
   private nextTabId: number = 1;
   private extraHeaders: Record<string, string> = {};
   private customUserAgent: string | null = null;
+  private activeDevice: { viewport: { width: number; height: number }; userAgent: string; deviceScaleFactor: number; isMobile: boolean; hasTouch: boolean } | null = null;
 
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
@@ -72,10 +73,15 @@ export class BrowserManager {
     });
 
     const contextOptions: BrowserContextOptions = {
-      viewport: { width: 1280, height: 720 },
+      viewport: this.activeDevice?.viewport ?? { width: 1280, height: 720 },
     };
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
+    }
+    if (this.activeDevice) {
+      contextOptions.deviceScaleFactor = this.activeDevice.deviceScaleFactor;
+      contextOptions.isMobile = this.activeDevice.isMobile;
+      contextOptions.hasTouch = this.activeDevice.hasTouch;
     }
     this.context = await this.browser.newContext(contextOptions);
 
@@ -275,6 +281,22 @@ export class BrowserManager {
     await this.getPage().setViewportSize({ width, height });
   }
 
+  // ─── Device Emulation ─────────────────────────────────────
+  async setDevice(descriptor: { viewport: { width: number; height: number }; userAgent: string; deviceScaleFactor: number; isMobile: boolean; hasTouch: boolean } | null) {
+    this.activeDevice = descriptor;
+    if (descriptor) {
+      this.customUserAgent = descriptor.userAgent;
+      await this.getPage().setViewportSize(descriptor.viewport);
+    } else {
+      this.customUserAgent = null;
+      await this.getPage().setViewportSize({ width: 1280, height: 720 });
+    }
+  }
+
+  getDevice() {
+    return this.activeDevice;
+  }
+
   // ─── Extra Headers ─────────────────────────────────────────
   async setExtraHeader(name: string, value: string) {
     this.extraHeaders[name] = value;
@@ -401,10 +423,15 @@ export class BrowserManager {
 
       // 3. Create new context with updated settings
       const contextOptions: BrowserContextOptions = {
-        viewport: { width: 1280, height: 720 },
+        viewport: this.activeDevice?.viewport ?? { width: 1280, height: 720 },
       };
       if (this.customUserAgent) {
         contextOptions.userAgent = this.customUserAgent;
+      }
+      if (this.activeDevice) {
+        contextOptions.deviceScaleFactor = this.activeDevice.deviceScaleFactor;
+        contextOptions.isMobile = this.activeDevice.isMobile;
+        contextOptions.hasTouch = this.activeDevice.hasTouch;
       }
       this.context = await this.browser.newContext(contextOptions);
 
@@ -423,10 +450,15 @@ export class BrowserManager {
         if (this.context) await this.context.close().catch(() => {});
 
         const contextOptions: BrowserContextOptions = {
-          viewport: { width: 1280, height: 720 },
+          viewport: this.activeDevice?.viewport ?? { width: 1280, height: 720 },
         };
         if (this.customUserAgent) {
           contextOptions.userAgent = this.customUserAgent;
+        }
+        if (this.activeDevice) {
+          contextOptions.deviceScaleFactor = this.activeDevice.deviceScaleFactor;
+          contextOptions.isMobile = this.activeDevice.isMobile;
+          contextOptions.hasTouch = this.activeDevice.hasTouch;
         }
         this.context = await this.browser!.newContext(contextOptions);
         await this.newTab();
@@ -473,10 +505,15 @@ export class BrowserManager {
     // 3. Create context and restore state into new headed browser
     try {
       const contextOptions: BrowserContextOptions = {
-        viewport: { width: 1280, height: 720 },
+        viewport: this.activeDevice?.viewport ?? { width: 1280, height: 720 },
       };
       if (this.customUserAgent) {
         contextOptions.userAgent = this.customUserAgent;
+      }
+      if (this.activeDevice) {
+        contextOptions.deviceScaleFactor = this.activeDevice.deviceScaleFactor;
+        contextOptions.isMobile = this.activeDevice.isMobile;
+        contextOptions.hasTouch = this.activeDevice.hasTouch;
       }
       const newContext = await newBrowser.newContext(contextOptions);
 

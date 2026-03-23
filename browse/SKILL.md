@@ -488,6 +488,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `cookie <name>=<value>` | Set cookie on current page domain |
 | `cookie-import <json>` | Import cookies from JSON file |
 | `cookie-import-browser [browser] [--domain d]` | Import cookies from Comet, Chrome, Arc, Brave, or Edge (opens picker, or use --domain for direct import) |
+| `device <name|list|clear>` | Apply Playwright device profile (viewport, user-agent, DPR, touch). Use "list" to show 143 profiles, "clear" to reset |
 | `dialog-accept [text]` | Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response |
 | `dialog-dismiss` | Auto-dismiss next dialog |
 | `fill <sel> <val>` | Fill input |

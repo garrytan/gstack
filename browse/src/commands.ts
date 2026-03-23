@@ -20,7 +20,7 @@ export const READ_COMMANDS = new Set([
 export const WRITE_COMMANDS = new Set([
   'goto', 'back', 'forward', 'reload',
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
-  'viewport', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
+  'viewport', 'device', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
   'upload', 'dialog-accept', 'dialog-dismiss',
 ]);
 
@@ -71,6 +71,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'wait':    { category: 'Interaction', description: 'Wait for element, network idle, or page load (timeout: 15s)', usage: 'wait <sel|--networkidle|--load>' },
   'upload':  { category: 'Interaction', description: 'Upload file(s)', usage: 'upload <sel> <file> [file2...]' },
   'viewport':{ category: 'Interaction', description: 'Set viewport size', usage: 'viewport <WxH>' },
+  'device':  { category: 'Interaction', description: 'Apply Playwright device profile (viewport, user-agent, DPR, touch). Use "list" to show 143 profiles, "clear" to reset', usage: 'device <name|list|clear>' },
   'cookie':  { category: 'Interaction', description: 'Set cookie on current page domain', usage: 'cookie <name>=<value>' },
   'cookie-import': { category: 'Interaction', description: 'Import cookies from JSON file', usage: 'cookie-import <json>' },
   'cookie-import-browser': { category: 'Interaction', description: 'Import cookies from Comet, Chrome, Arc, Brave, or Edge (opens picker, or use --domain for direct import)', usage: 'cookie-import-browser [browser] [--domain d]' },
