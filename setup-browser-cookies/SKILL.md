@@ -257,9 +257,9 @@ When you are in plan mode and about to call ExitPlanMode:
 2. If it DOES — skip (a review skill already wrote a richer report).
 3. If it does NOT — run this command:
 
-\`\`\`bash
+```bash
 ~/.claude/skills/gstack/bin/gstack-review-read
-\`\`\`
+```
 
 Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 
@@ -268,18 +268,18 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
   skills use.
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
-\`\`\`markdown
+```markdown
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
-| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
-| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 
-**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
-\`\`\`
+**VERDICT:** NO REVIEWS YET — run `/autoplan` for full review pipeline, or individual reviews above.
+```
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
 file you are allowed to edit in plan mode. The plan file review report is part of the

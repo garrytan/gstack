@@ -971,10 +971,12 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  test('Codex telemetry blocks use codex bin paths end-to-end', () => {
+  test('Codex telemetry blocks resolve through GSTACK_BIN runtime root', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-plan-eng-review', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
-    expect(content).toContain('~/.codex/skills/gstack/bin/gstack-postrun');
+    expect(content).toContain('GSTACK_ROOT="$HOME/.codex/skills/gstack"');
+    expect(content).toContain('GSTACK_BIN="$GSTACK_ROOT/bin"');
+    expect(content).toContain('$GSTACK_BIN/gstack-config get telemetry');
+    expect(content).toContain('$GSTACK_BIN/gstack-postrun');
     expect(content).not.toContain('~/.claude/skills/gstack/bin/gstack-telemetry-log');
   });
 

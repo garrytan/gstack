@@ -243,18 +243,14 @@ Skipping this command loses session duration and outcome data.
 Run this bash:
 
 ```bash
-_TEL_END=$(date +%s)
-_TEL_DUR=$(( _TEL_END - _TEL_START ))
-rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-~/.claude/skills/gstack/bin/gstack-telemetry-log \
-  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
-  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-postrun   --skill "SKILL_NAME" --outcome "OUTCOME"   --used-browse "USED_BROWSE" --session-id "SESSION_ID"   --tel-start "TEL_START"
 ```
 
 Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
-success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
-If you cannot determine the outcome, use "unknown". This runs in the background and
-never blocks the user.
+success/error/abort, `USED_BROWSE` with true/false based on whether `$B` was used,
+`SESSION_ID` with the current session id, and `TEL_START` with the session start epoch.
+If you cannot determine the outcome, use `unknown` and `0`. The helper keeps the
+telemetry path fire-and-forget so user-facing skill completion does not block.
 
 ## Plan Status Footer
 
@@ -264,9 +260,9 @@ When you are in plan mode and about to call ExitPlanMode:
 2. If it DOES — skip (a review skill already wrote a richer report).
 3. If it does NOT — run this command:
 
-\`\`\`bash
+```bash
 ~/.claude/skills/gstack/bin/gstack-review-read
-\`\`\`
+```
 
 Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 
@@ -275,18 +271,18 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
   skills use.
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
-\`\`\`markdown
+```markdown
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
-| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
-| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 
-**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
-\`\`\`
+**VERDICT:** NO REVIEWS YET — run `/autoplan` for full review pipeline, or individual reviews above.
+```
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
 file you are allowed to edit in plan mode. The plan file review report is part of the
