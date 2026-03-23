@@ -29,6 +29,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/freeze`](#safety--guardrails) | **Edit Lock** | Restrict all file edits to a single directory. Blocks Edit and Write outside the boundary. Accident prevention for debugging. |
 | [`/guard`](#safety--guardrails) | **Full Safety** | Combines /careful + /freeze in one command. Maximum safety for prod work. |
 | [`/unfreeze`](#safety--guardrails) | **Unlock** | Remove the /freeze boundary, allowing edits everywhere again. |
+| [`/delegate`](#delegate) | **Delegation Coordinator** | Turn findings from /review, /qa, and /cso into tracked tasks for other AI agents via [Delega](https://delega.dev). One agent reviews, another fixes. |
 | [`/gstack-upgrade`](#gstack-upgrade) | **Self-Updater** | Upgrade gstack to the latest version. Detects global vs vendored install, syncs both, shows what changed. |
 
 ---
@@ -791,6 +792,73 @@ Full safety mode — combines `/careful` + `/freeze` in one command. Destructive
 ### `/unfreeze`
 
 Remove the `/freeze` boundary, allowing edits everywhere again. The hooks stay registered for the session — they just allow everything. Run `/freeze` again to set a new boundary.
+
+---
+
+## `/delegate`
+
+Bridge single-agent workflows with multi-agent orchestration. After `/review`, `/qa`, or `/cso` produces findings, `/delegate` creates tracked, assigned tasks via [Delega](https://delega.dev) — a task management API built for AI agents.
+
+### Why
+
+gstack skills are excellent at **finding** issues. But the agent that finds a bug isn't always the right agent to fix it. `/cso` finds a SQL injection — that goes to your security agent. `/qa` finds a broken checkout flow — that goes to your frontend agent. `/review` finds a missing test — that goes to whichever agent handles testing.
+
+`/delegate` closes the loop: one agent reviews, another agent gets a tracked task with full context.
+
+### Setup
+
+Delega needs to be available via MCP (preferred) or CLI:
+
+```bash
+# Option 1: MCP server (add to your Claude Code MCP config)
+npx @delega-dev/mcp
+
+# Option 2: CLI
+npm i -g @delega-dev/cli && delega init
+```
+
+### Example
+
+```
+You:   /cso
+Claude: [runs full OWASP + STRIDE audit, finds 4 issues]
+
+You:   /delegate
+Claude: DELEGATION PLAN
+        ═══════════════
+        Found 4 actionable findings from /cso:
+
+        #   Priority   Title                              Assign To
+        ──  ────────   ─────                              ─────────
+        1   P1         SQL injection in search handler     (unassigned)
+        2   P1         Missing rate limit on /login        (unassigned)
+        3   P2         CORS allows * in production         (unassigned)
+        4   P3         Stale bcrypt dependency             (unassigned)
+
+        A) Create all tasks as-is
+        B) Assign agents first
+        C) Assign all to one agent
+        D) Dry run
+
+You:   C — assign all to @security-agent
+
+Claude: DELEGATION COMPLETE
+        ═══════════════════
+        Created 4 tasks, all delegated to @security-agent.
+
+        Track progress: delega tasks list --labels cso
+```
+
+Each task includes full context from the source skill — file paths, line numbers, severity, confidence score, recommended fix, and the branch where the issue was found. The receiving agent has everything needed to act without re-running `/cso`.
+
+### Priority mapping
+
+| gstack severity | Delega priority |
+|----------------|-----------------|
+| CRITICAL / P0 | 4 |
+| HIGH / P1 | 3 |
+| MEDIUM / P2 | 2 |
+| LOW / P3 | 1 |
 
 ---
 
