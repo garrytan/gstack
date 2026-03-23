@@ -1,0 +1,49 @@
+spec_version: "0.1.0"
+name: gstack
+version: 1.1.0
+description: "Virtual engineering team — 27 AI specialists as slash commands. CEO, designer, eng manager, reviewer, QA, release engineer, and more. By Garry Tan."
+author: garrytan
+license: MIT
+model:
+  preferred: claude-opus-4-6
+  fallback:
+    - claude-sonnet-4-5-20250929
+skills:
+  - office-hours
+  - plan-ceo-review
+  - plan-eng-review
+  - plan-design-review
+  - design-consultation
+  - design-review
+  - review
+  - investigate
+  - qa
+  - qa-only
+  - ship
+  - land-and-deploy
+  - canary
+  - benchmark
+  - document-release
+  - retro
+  - browse
+  - setup-browser-cookies
+  - setup-deploy
+  - codex
+  - careful
+  - freeze
+  - guard
+  - unfreeze
+  - gstack-upgrade
+  - autoplan
+  - cso
+tags:
+  - engineering-team
+  - code-review
+  - qa-testing
+  - shipping
+  - design
+  - developer-tools
+  - virtual-team
+runtime:
+  max_turns: 100
+  timeout: 600

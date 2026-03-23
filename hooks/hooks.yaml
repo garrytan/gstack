@@ -1,0 +1,12 @@
+hooks:
+  pre_tool_use:
+    - script: ../freeze/bin/check-freeze.sh
+      description: Check debug scope boundary before file edits
+      timeout: 5
+      compliance: false
+      fail_open: false
+    - script: ../careful/bin/check-careful.sh
+      description: Warn before destructive commands
+      timeout: 5
+      compliance: false
+      fail_open: true
