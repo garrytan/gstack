@@ -34,7 +34,9 @@
   },
   "dependencies": {
     "playwright": "^1.58.2",
-    "diff": "^7.0.0"
+    "diff": "^7.0.0",
+    "webdriverio": "^9.0.0",
+    "fast-xml-parser": "^4.5.0"
   },
   "engines": {
     "bun": ">=1.0.0"
