@@ -79,13 +79,13 @@ TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
 
 2. Run the review (5-minute timeout):
 ```bash
-codex review --base <base> -c 'model_reasoning_effort="high"' --search 2>"$TMPERR"
+codex exec review --base <base> -c 'model_reasoning_effort="high"' --json 2>"$TMPERR"
 ```
 
 Use `timeout: 300000` on the Bash call. If the user provided custom instructions
 (e.g., `/codex review focus on security`), pass them as the prompt argument:
 ```bash
-codex review "focus on security" --base <base> -c 'model_reasoning_effort="high"' --search 2>"$TMPERR"
+codex exec review "focus on security" --base <base> -c 'model_reasoning_effort="high"' --json 2>"$TMPERR"
 ```
 
 3. Capture the output. Then parse cost from stderr:
@@ -314,8 +314,8 @@ uses them. If the user wants a specific model, pass `-m` through to codex.
 
 **Reasoning effort:** All modes use `high` — the maximum reasoning power available. Valid values are `minimal`, `low`, `medium`, `high`. When reviewing code, breaking code, or consulting on architecture, you want the model thinking as hard as possible.
 
-**Web search:** All codex commands use `--search` so Codex can look up
-docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
+**Web search:** Challenge and consult modes use `--search` so Codex can look up
+docs and APIs. Review mode (`codex exec review`) does not need `--search` — it has its own built-in review prompt.
 
 If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
 or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.

@@ -2331,7 +2331,7 @@ Claude's structured review already ran. Now run **all three remaining passes** f
 **1. Codex structured review (if available):**
 \`\`\`bash
 TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
-codex review --base <base> -c 'model_reasoning_effort="high"' --search 2>"$TMPERR"
+codex exec review --base <base> -c 'model_reasoning_effort="high"' --json 2>"$TMPERR"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`CODEX SAYS (code review):\` header.
