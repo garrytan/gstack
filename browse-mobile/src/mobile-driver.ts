@@ -200,12 +200,12 @@ export class MobileDriver {
     if (target.startsWith("app://")) {
       const bundleId = target.replace("app://", "");
       try {
-        await appiumPost(sid, "/execute", {
+        await appiumPost(sid, "/execute/sync", {
           script: "mobile: terminateApp",
           args: [{ bundleId }],
         });
       } catch { /* app may not be running */ }
-      await appiumPost(sid, "/execute", {
+      await appiumPost(sid, "/execute/sync", {
         script: "mobile: launchApp",
         args: [{ bundleId }],
       });
