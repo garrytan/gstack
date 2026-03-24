@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# gstack-skill-install — install a community skill from GitHub
+#
+# Clones a skill repo, validates it, copies the .tmpl + supporting files,
+# and regenerates SKILL.md. One command from discovery to usage.
+#
+# Usage:
+#   gstack-skill-install <owner/repo>              # install from GitHub
+#   gstack-skill-install <owner/repo> --dry-run    # validate without installing
+#   gstack-skill-install --list                    # list installed community skills
+#   gstack-skill-install --remove <skill-name>     # uninstall a community skill
+#
+# Flow: clone → validate → copy .tmpl → gen-skill-docs → ready
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GSTACK_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMMUNITY_DIR="$HOME/.gstack/community-skills"
+
+case "${1:-}" in
+  --list)
+    echo "Installed community skills:"
+    if [ -d "$COMMUNITY_DIR" ]; then
+      for f in "$COMMUNITY_DIR"/*.json; do
+        [ -f "$f" ] || continue
+        python3 -c "
+import json; d=json.load(open('$f'))
+print(f'  /{d[\"name\"]:20s} from {d[\"repo\"]:30s} installed {d[\"installed\"][:10]}')
+" 2>/dev/null
+      done
+    else
+      echo "  (none)"
+    fi
+    exit 0
+    ;;
+  --remove)
+    SKILL="${2:?Usage: gstack-skill-install --remove <skill-name>}"
+    if [ -d "$GSTACK_DIR/$SKILL" ] && [ -f "$COMMUNITY_DIR/$SKILL.json" ]; then
+      rm -rf "$GSTACK_DIR/$SKILL"
+      rm -f "$COMMUNITY_DIR/$SKILL.json"
+      echo "Removed: /$SKILL"
+      echo "Run: bun run gen:skill-docs"
+    else
+      echo "Not a community skill: $SKILL"
+      exit 1
+    fi
+    exit 0
+    ;;
+  --help|-h)
+    echo "Usage: gstack-skill-install <owner/repo> [--dry-run]"
+    exit 0
+    ;;
+esac
+
+REPO="${1:?Usage: gstack-skill-install <owner/repo>}"
+DRY_RUN=""
+[ "${2:-}" = "--dry-run" ] && DRY_RUN=1
+
+# Clone to temp dir
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+echo "Fetching $REPO..."
+gh repo clone "$REPO" "$TMPDIR/skill" -- --depth 1 --quiet 2>/dev/null
+if [ $? -ne 0 ]; then
+  echo "ERROR: Could not clone $REPO"
+  exit 1
+fi
+
+# Find SKILL.md.tmpl
+TMPL=$(find "$TMPDIR/skill" -name "SKILL.md.tmpl" -maxdepth 2 | head -1)
+if [ -z "$TMPL" ]; then
+  echo "ERROR: No SKILL.md.tmpl found in $REPO"
+  exit 1
+fi
+
+SKILL_DIR=$(dirname "$TMPL")
+SKILL_NAME=$(python3 -c "
+import re
+content = open('$TMPL').read()
+m = re.search(r'^name:\s*(\S+)', content, re.M)
+print(m.group(1) if m else '$(basename "$SKILL_DIR")')
+" 2>/dev/null)
+
+echo "Found skill: /$SKILL_NAME"
+
+# Validate
+echo "Validating..."
+if [ -x "$SCRIPT_DIR/gstack-skill-validate" ]; then
+  "$SCRIPT_DIR/gstack-skill-validate" "$TMPL"
+  VALIDATE_EXIT=$?
+  if [ $VALIDATE_EXIT -eq 1 ]; then
+    echo ""
+    echo "BLOCKED: Skill failed security validation. Not installing."
+    exit 1
+  fi
+else
+  echo "  (gstack-skill-validate not found — skipping validation)"
+fi
+
+if [ -n "$DRY_RUN" ]; then
+  echo ""
+  echo "DRY RUN: Would install /$SKILL_NAME from $REPO"
+  echo "  Source: $TMPL"
+  echo "  Target: $GSTACK_DIR/$SKILL_NAME/"
+  exit 0
+fi
+
+# Install
+TARGET="$GSTACK_DIR/$SKILL_NAME"
+mkdir -p "$TARGET"
+cp "$TMPL" "$TARGET/"
+
+# Copy supporting files
+for f in "$SKILL_DIR"/*.md "$SKILL_DIR"/templates/* "$SKILL_DIR"/references/*; do
+  [ -f "$f" ] && [ "$(basename "$f")" != "SKILL.md" ] && cp "$f" "$TARGET/" 2>/dev/null || true
+done
+
+# Record installation
+mkdir -p "$COMMUNITY_DIR"
+cat > "$COMMUNITY_DIR/$SKILL_NAME.json" << MEOF
+{
+  "name": "$SKILL_NAME",
+  "repo": "$REPO",
+  "installed": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "gstack_version": "$(cat "$GSTACK_DIR/VERSION" 2>/dev/null || echo "unknown")"
+}
+MEOF
+
+echo ""
+echo "Installed: /$SKILL_NAME"
+echo ""
+echo "Generate skill docs:"
+echo "  cd $GSTACK_DIR && bun run gen:skill-docs"
+echo ""
+echo "Then use: /$SKILL_NAME"
