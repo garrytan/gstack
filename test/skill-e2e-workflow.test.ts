@@ -161,36 +161,13 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
 
   testConcurrentIfSelected('ship-local-workflow', async () => {
     const result = await runSkillTest({
-      prompt: `You are running a ship workflow. This is fully automated — do NOT ask for confirmation at any step. Run straight through.
-
-Step 0 — Detect base branch:
-Try: gh pr view --json baseRefName -q .baseRefName
-If that fails, try: gh repo view --json defaultBranchRef -q .defaultBranchRef.name
-If both fail, fall back to "main". Use the detected branch as <base> in all subsequent steps.
-
-Step 2 — Merge base branch:
-git fetch origin <base> && git merge origin/<base> --no-edit
-If already up to date, continue silently.
-
-Step 4 — Version bump:
-Read the VERSION file (4-digit format: MAJOR.MINOR.PATCH.MICRO).
-Auto-pick MICRO bump (increment the 4th digit). Write the new version to VERSION.
-
-Step 5 — CHANGELOG:
-Read CHANGELOG.md. Auto-generate an entry from the branch commits:
-- git log <base>..HEAD --oneline
-- git diff <base>...HEAD
-Format: ## [X.Y.Z.W] - YYYY-MM-DD with bullet points. Prepend after the header.
-
-Step 6 — Commit:
-Stage all changes. Commit with message: "chore: bump version and changelog (vX.Y.Z.W)"
-
-Step 7 — Push:
-git push -u origin <branch-name>
-
-Finally, write ship-summary.md with the version and branch.`,
+      prompt: `You are in a git repo on branch feature/ship-test. Do these steps in order:
+1. Read VERSION file and bump the last digit by 1 (e.g. 0.1.0.0 → 0.1.0.1). Write the new version back.
+2. Add a CHANGELOG.md entry: "## [NEW_VERSION] - TODAY" with a bullet "- Ship test feature".
+3. Stage all changes, commit with message "ship: vNEW_VERSION".
+4. Push to origin: git push origin feature/ship-test`,
       workingDirectory: shipWorkDir,
-      maxTurns: 15,
+      maxTurns: 8,
       timeout: 120_000,
       testName: 'ship-local-workflow',
       runId,

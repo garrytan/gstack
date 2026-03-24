@@ -5,11 +5,13 @@
  * tests across multiple files by category.
  */
 
-import { describe, test, afterAll } from 'bun:test';
+import { describe, test, beforeAll, afterAll } from 'bun:test';
 import type { SkillTestResult } from './session-runner';
 import { EvalCollector, judgePassed } from './eval-store';
 import type { EvalTestEntry } from './eval-store';
 import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from './touchfiles';
+import { WorktreeManager } from '../../lib/worktree';
+import type { HarvestResult } from '../../lib/worktree';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -234,6 +236,59 @@ export function testConcurrentIfSelected(testName: string, fn: () => Promise<voi
   (shouldRun ? test.concurrent : test.skip)(testName, fn, timeout);
 }
 
+// --- Worktree isolation ---
+
+let worktreeManager: WorktreeManager | null = null;
+
+export function getWorktreeManager(): WorktreeManager {
+  if (!worktreeManager) {
+    worktreeManager = new WorktreeManager();
+    worktreeManager.pruneStale();
+  }
+  return worktreeManager;
+}
+
+/** Create an isolated worktree for a test. Returns the worktree path. */
+export function createTestWorktree(testName: string): string {
+  return getWorktreeManager().create(testName);
+}
+
+/** Harvest changes and clean up. Call in afterAll(). Returns HarvestResult for eval integration. */
+export function harvestAndCleanup(testName: string): HarvestResult | null {
+  const mgr = getWorktreeManager();
+  const result = mgr.harvest(testName);
+  if (result) {
+    if (result.isDuplicate) {
+      process.stderr.write(`\n  HARVEST [${testName}]: duplicate patch (skipped)\n`);
+    } else {
+      process.stderr.write(`\n  HARVEST [${testName}]: ${result.changedFiles.length} files changed\n`);
+      process.stderr.write(`  Patch: ${result.patchPath}\n`);
+      process.stderr.write(`  ${result.diffStat}\n\n`);
+    }
+  }
+  mgr.cleanup(testName);
+  return result;
+}
+
+/**
+ * Convenience: describe block with automatic worktree isolation + harvest.
+ * Any test file can use this to get real repo context instead of a tmpdir.
+ * Note: tests with planted-bug fixtures should NOT use this — they need their fixture repos.
+ */
+export function describeWithWorktree(
+  name: string,
+  testNames: string[],
+  fn: (getWorktreePath: () => string) => void,
+) {
+  describeIfSelected(name, testNames, () => {
+    let worktreePath: string;
+    beforeAll(() => { worktreePath = createTestWorktree(name); });
+    afterAll(() => { harvestAndCleanup(name); });
+    fn(() => worktreePath);
+  });
+}
+
 export { judgePassed } from './eval-store';
 export { EvalCollector } from './eval-store';
 export type { EvalTestEntry } from './eval-store';
+export type { HarvestResult } from '../../lib/worktree';

@@ -1,5 +1,6 @@
 ---
 name: plan-eng-review
+preamble-tier: 3
 version: 1.0.0
 description: |
   Eng manager-mode plan review. Lock in the execution plan — architecture,
@@ -94,6 +95,12 @@ Before reviewing anything, answer these questions:
 
 5. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with CC+gstack, recommend the complete version. Boil the lake.
 
+6. **Distribution check:** If the plan introduces a new artifact type (CLI binary, library package, container image, mobile app), does it include the build/publish pipeline? Code without distribution is code nobody can use. Check:
+   - Is there a CI/CD workflow for building and publishing the artifact?
+   - Are target platforms defined (linux/darwin/windows, amd64/arm64)?
+   - How will users download or install it (GitHub Releases, package manager, container registry)?
+   If the plan defers distribution, flag it explicitly in the "NOT in scope" section — don't let it silently drop.
+
 If the complexity check triggers (8+ files or 2+ new classes/services), proactively recommend scope reduction via AskUserQuestion — explain what's overbuilt, propose a minimal version that achieves the core goal, and ask whether to reduce or proceed as-is. If the complexity check does not trigger, present your Step 0 findings and proceed directly to Section 1.
 
 Always work through the full interactive review: one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
@@ -111,6 +118,7 @@ Evaluate:
 * Security architecture (auth, data access, API boundaries).
 * Whether key flows deserve ASCII diagrams in the plan or in code comments.
 * For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
+* **Distribution architecture:** If this introduces a new artifact (binary, package, container), how does it get built, published, and updated? Is the CI/CD pipeline part of the plan or deferred?
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
 

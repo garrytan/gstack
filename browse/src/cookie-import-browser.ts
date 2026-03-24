@@ -1,25 +1,28 @@
 /**
  * Chromium browser cookie import — read and decrypt cookies from real browsers
  *
- * Supports macOS Chromium-based browsers: Comet, Chrome, Arc, Brave, Edge.
+ * Supports macOS and Linux Chromium-based browsers.
  * Pure logic module — no Playwright dependency, no HTTP concerns.
  *
- * Decryption pipeline (Chromium macOS "v10" format):
+ * Decryption pipeline:
  *
  *   ┌──────────────────────────────────────────────────────────────────┐
- *   │ 1. Keychain: `security find-generic-password -s "<svc>" -w`     │
- *   │    → base64 password string                                     │
+ *   │ 1. Resolve the cookie DB from the browser profile dir           │
+ *   │    - macOS: ~/Library/Application Support/<browser>/<profile>   │
+ *   │    - Linux: ~/.config/<browser>/<profile>                       │
  *   │                                                                  │
- *   │ 2. Key derivation:                                               │
- *   │    PBKDF2(password, salt="saltysalt", iter=1003, len=16, sha1)  │
- *   │    → 16-byte AES key                                            │
+ *   │ 2. Derive the AES key                                            │
+ *   │    - macOS v10: Keychain password, PBKDF2(..., iter=1003)       │
+ *   │    - Linux v10: "peanuts", PBKDF2(..., iter=1)                  │
+ *   │    - Linux v11: libsecret/secret-tool password, iter=1          │
  *   │                                                                  │
- *   │ 3. For each cookie with encrypted_value starting with "v10":    │
+ *   │ 3. For each cookie with encrypted_value starting with "v10"/     │
+ *   │    "v11":                                                        │
  *   │    - Ciphertext = encrypted_value[3:]                           │
  *   │    - IV = 16 bytes of 0x20 (space character)                    │
  *   │    - Plaintext = AES-128-CBC-decrypt(key, iv, ciphertext)       │
  *   │    - Remove PKCS7 padding                                       │
- *   │    - Skip first 32 bytes (HMAC-SHA256 authentication tag)       │
+ *   │    - Skip first 32 bytes of Chromium cookie metadata            │
  *   │    - Remaining bytes = cookie value (UTF-8)                     │
  *   │                                                                  │
  *   │ 4. If encrypted_value is empty but `value` field is set,        │
@@ -42,9 +45,16 @@ import * as os from 'os';
 
 export interface BrowserInfo {
   name: string;
-  dataDir: string;        // relative to ~/Library/Application Support/
+  dataDir: string; // primary storage dir (retained for compatibility with existing callers/tests)
   keychainService: string;
   aliases: string[];
+  linuxDataDir?: string;
+  linuxApplication?: string;
+}
+
+export interface ProfileEntry {
+  name: string;         // e.g. "Default", "Profile 1", "Profile 3"
+  displayName: string;  // human-friendly name from Preferences, or falls back to dir name
 }
 
 export interface DomainEntry {
@@ -81,15 +91,24 @@ export class CookieImportError extends Error {
   }
 }
 
+type BrowserPlatform = 'darwin' | 'linux';
+
+interface BrowserMatch {
+  browser: BrowserInfo;
+  platform: BrowserPlatform;
+  dbPath: string;
+}
+
 // ─── Browser Registry ───────────────────────────────────────────
 // Hardcoded — NEVER interpolate user input into shell commands.
 
 const BROWSER_REGISTRY: BrowserInfo[] = [
-  { name: 'Comet',  dataDir: 'Comet/',                       keychainService: 'Comet Safe Storage',          aliases: ['comet', 'perplexity'] },
-  { name: 'Chrome', dataDir: 'Google/Chrome/',                keychainService: 'Chrome Safe Storage',         aliases: ['chrome', 'google-chrome'] },
-  { name: 'Arc',    dataDir: 'Arc/User Data/',                keychainService: 'Arc Safe Storage',            aliases: ['arc'] },
-  { name: 'Brave',  dataDir: 'BraveSoftware/Brave-Browser/',  keychainService: 'Brave Safe Storage',          aliases: ['brave'] },
-  { name: 'Edge',   dataDir: 'Microsoft Edge/',               keychainService: 'Microsoft Edge Safe Storage', aliases: ['edge'] },
+  { name: 'Comet',    dataDir: 'Comet/',                      keychainService: 'Comet Safe Storage',          aliases: ['comet', 'perplexity'] },
+  { name: 'Chrome',   dataDir: 'Google/Chrome/',             keychainService: 'Chrome Safe Storage',         aliases: ['chrome', 'google-chrome', 'google-chrome-stable'], linuxDataDir: 'google-chrome/', linuxApplication: 'chrome' },
+  { name: 'Chromium', dataDir: 'chromium/',                  keychainService: 'Chromium Safe Storage',       aliases: ['chromium'], linuxDataDir: 'chromium/', linuxApplication: 'chromium' },
+  { name: 'Arc',      dataDir: 'Arc/User Data/',             keychainService: 'Arc Safe Storage',            aliases: ['arc'] },
+  { name: 'Brave',    dataDir: 'BraveSoftware/Brave-Browser/', keychainService: 'Brave Safe Storage',        aliases: ['brave'], linuxDataDir: 'BraveSoftware/Brave-Browser/', linuxApplication: 'brave' },
+  { name: 'Edge',     dataDir: 'Microsoft Edge/',            keychainService: 'Microsoft Edge Safe Storage', aliases: ['edge'], linuxDataDir: 'microsoft-edge/', linuxApplication: 'microsoft-edge' },
 ];
 
 // ─── Key Cache ──────────────────────────────────────────────────
@@ -101,14 +120,96 @@ const keyCache = new Map<string, Buffer>();
 // ─── Public API ─────────────────────────────────────────────────
 
 /**
- * Find which browsers are installed (have a cookie DB on disk).
+ * Find which browsers are installed (have a cookie DB on disk in any profile).
  */
 export function findInstalledBrowsers(): BrowserInfo[] {
-  const appSupport = path.join(os.homedir(), 'Library', 'Application Support');
-  return BROWSER_REGISTRY.filter(b => {
-    const dbPath = path.join(appSupport, b.dataDir, 'Default', 'Cookies');
-    try { return fs.existsSync(dbPath); } catch { return false; }
+  return BROWSER_REGISTRY.filter(browser => {
+    // Check Default profile on any platform
+    if (findBrowserMatch(browser, 'Default') !== null) return true;
+    // Check numbered profiles (Profile 1, Profile 2, etc.)
+    for (const platform of getSearchPlatforms()) {
+      const dataDir = getDataDirForPlatform(browser, platform);
+      if (!dataDir) continue;
+      const browserDir = path.join(getBaseDir(platform), dataDir);
+      try {
+        const entries = fs.readdirSync(browserDir, { withFileTypes: true });
+        if (entries.some(e =>
+          e.isDirectory() && e.name.startsWith('Profile ') &&
+          fs.existsSync(path.join(browserDir, e.name, 'Cookies'))
+        )) return true;
+      } catch {}
+    }
+    return false;
   });
+}
+
+export function listSupportedBrowserNames(): string[] {
+  const hostPlatform = getHostPlatform();
+  return BROWSER_REGISTRY
+    .filter(browser => hostPlatform ? getDataDirForPlatform(browser, hostPlatform) !== null : true)
+    .map(browser => browser.name);
+}
+
+/**
+ * List available profiles for a browser.
+ */
+export function listProfiles(browserName: string): ProfileEntry[] {
+  const browser = resolveBrowser(browserName);
+  const profiles: ProfileEntry[] = [];
+
+  // Scan each supported platform for profile directories
+  for (const platform of getSearchPlatforms()) {
+    const dataDir = getDataDirForPlatform(browser, platform);
+    if (!dataDir) continue;
+    const browserDir = path.join(getBaseDir(platform), dataDir);
+    if (!fs.existsSync(browserDir)) continue;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(browserDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name !== 'Default' && !entry.name.startsWith('Profile ')) continue;
+      const cookiePath = path.join(browserDir, entry.name, 'Cookies');
+      if (!fs.existsSync(cookiePath)) continue;
+
+      // Avoid duplicates if the same profile appears on multiple platforms
+      if (profiles.some(p => p.name === entry.name)) continue;
+
+      // Try to read display name from Preferences.
+      // Prefer account email — signed-in Chrome profiles often have generic
+      // names like "Person 2" while the email is far more readable.
+      let displayName = entry.name;
+      try {
+        const prefsPath = path.join(browserDir, entry.name, 'Preferences');
+        if (fs.existsSync(prefsPath)) {
+          const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf-8'));
+          const email = prefs?.account_info?.[0]?.email;
+          if (email && typeof email === 'string') {
+            displayName = email;
+          } else {
+            const profileName = prefs?.profile?.name;
+            if (profileName && typeof profileName === 'string') {
+              displayName = profileName;
+            }
+          }
+        }
+      } catch {
+        // Ignore — fall back to directory name
+      }
+
+      profiles.push({ name: entry.name, displayName });
+    }
+
+    // Found profiles on this platform — no need to check others
+    if (profiles.length > 0) break;
+  }
+
+  return profiles;
 }
 
 /**
@@ -116,8 +217,8 @@ export function findInstalledBrowsers(): BrowserInfo[] {
  */
 export function listDomains(browserName: string, profile = 'Default'): { domains: DomainEntry[]; browser: string } {
   const browser = resolveBrowser(browserName);
-  const dbPath = getCookieDbPath(browser, profile);
-  const db = openDb(dbPath, browser.name);
+  const match = getBrowserMatch(browser, profile);
+  const db = openDb(match.dbPath, browser.name);
   try {
     const now = chromiumNow();
     const rows = db.query(
@@ -144,9 +245,9 @@ export async function importCookies(
   if (domains.length === 0) return { cookies: [], count: 0, failed: 0, domainCounts: {} };
 
   const browser = resolveBrowser(browserName);
-  const derivedKey = await getDerivedKey(browser);
-  const dbPath = getCookieDbPath(browser, profile);
-  const db = openDb(dbPath, browser.name);
+  const match = getBrowserMatch(browser, profile);
+  const derivedKeys = await getDerivedKeys(match);
+  const db = openDb(match.dbPath, browser.name);
 
   try {
     const now = chromiumNow();
@@ -167,7 +268,7 @@ export async function importCookies(
 
     for (const row of rows) {
       try {
-        const value = decryptCookieValue(row, derivedKey);
+        const value = decryptCookieValue(row, derivedKeys);
         const cookie = toPlaywrightCookie(row, value);
         cookies.push(cookie);
         domainCounts[row.host_key] = (domainCounts[row.host_key] || 0) + 1;
@@ -208,17 +309,61 @@ function validateProfile(profile: string): void {
   }
 }
 
-function getCookieDbPath(browser: BrowserInfo, profile: string): string {
-  validateProfile(profile);
-  const appSupport = path.join(os.homedir(), 'Library', 'Application Support');
-  const dbPath = path.join(appSupport, browser.dataDir, profile, 'Cookies');
-  if (!fs.existsSync(dbPath)) {
-    throw new CookieImportError(
-      `${browser.name} is not installed (no cookie database at ${dbPath})`,
-      'not_installed',
-    );
+function getHostPlatform(): BrowserPlatform | null {
+  if (process.platform === 'darwin' || process.platform === 'linux') return process.platform;
+  return null;
+}
+
+function getSearchPlatforms(): BrowserPlatform[] {
+  const current = getHostPlatform();
+  const order: BrowserPlatform[] = [];
+  if (current) order.push(current);
+  for (const platform of ['darwin', 'linux'] as BrowserPlatform[]) {
+    if (!order.includes(platform)) order.push(platform);
   }
-  return dbPath;
+  return order;
+}
+
+function getDataDirForPlatform(browser: BrowserInfo, platform: BrowserPlatform): string | null {
+  return platform === 'darwin' ? browser.dataDir : browser.linuxDataDir || null;
+}
+
+function getBaseDir(platform: BrowserPlatform): string {
+  return platform === 'darwin'
+    ? path.join(os.homedir(), 'Library', 'Application Support')
+    : path.join(os.homedir(), '.config');
+}
+
+function findBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch | null {
+  validateProfile(profile);
+  for (const platform of getSearchPlatforms()) {
+    const dataDir = getDataDirForPlatform(browser, platform);
+    if (!dataDir) continue;
+    const dbPath = path.join(getBaseDir(platform), dataDir, profile, 'Cookies');
+    try {
+      if (fs.existsSync(dbPath)) {
+        return { browser, platform, dbPath };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function getBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch {
+  const match = findBrowserMatch(browser, profile);
+  if (match) return match;
+
+  const attempted = getSearchPlatforms()
+    .map(platform => {
+      const dataDir = getDataDirForPlatform(browser, platform);
+      return dataDir ? path.join(getBaseDir(platform), dataDir, profile, 'Cookies') : null;
+    })
+    .filter((entry): entry is string => entry !== null);
+
+  throw new CookieImportError(
+    `${browser.name} is not installed (no cookie database at ${attempted.join(' or ')})`,
+    'not_installed',
+  );
 }
 
 // ─── Internal: SQLite Access ────────────────────────────────────
@@ -273,17 +418,40 @@ function openDbFromCopy(dbPath: string, browserName: string): Database {
 
 // ─── Internal: Keychain Access (async, 10s timeout) ─────────────
 
-async function getDerivedKey(browser: BrowserInfo): Promise<Buffer> {
-  const cached = keyCache.get(browser.keychainService);
-  if (cached) return cached;
+function deriveKey(password: string, iterations: number): Buffer {
+  return crypto.pbkdf2Sync(password, 'saltysalt', iterations, 16, 'sha1');
+}
 
-  const password = await getKeychainPassword(browser.keychainService);
-  const derived = crypto.pbkdf2Sync(password, 'saltysalt', 1003, 16, 'sha1');
-  keyCache.set(browser.keychainService, derived);
+function getCachedDerivedKey(cacheKey: string, password: string, iterations: number): Buffer {
+  const cached = keyCache.get(cacheKey);
+  if (cached) return cached;
+  const derived = deriveKey(password, iterations);
+  keyCache.set(cacheKey, derived);
   return derived;
 }
 
-async function getKeychainPassword(service: string): Promise<string> {
+async function getDerivedKeys(match: BrowserMatch): Promise<Map<string, Buffer>> {
+  if (match.platform === 'darwin') {
+    const password = await getMacKeychainPassword(match.browser.keychainService);
+    return new Map([
+      ['v10', getCachedDerivedKey(`darwin:${match.browser.keychainService}:v10`, password, 1003)],
+    ]);
+  }
+
+  const keys = new Map<string, Buffer>();
+  keys.set('v10', getCachedDerivedKey('linux:v10', 'peanuts', 1));
+
+  const linuxPassword = await getLinuxSecretPassword(match.browser);
+  if (linuxPassword) {
+    keys.set(
+      'v11',
+      getCachedDerivedKey(`linux:${match.browser.keychainService}:v11`, linuxPassword, 1),
+    );
+  }
+  return keys;
+}
+
+async function getMacKeychainPassword(service: string): Promise<string> {
   // Use async Bun.spawn with timeout to avoid blocking the event loop.
   // macOS may show an Allow/Deny dialog that blocks until the user responds.
   const proc = Bun.spawn(
@@ -341,6 +509,47 @@ async function getKeychainPassword(service: string): Promise<string> {
   }
 }
 
+async function getLinuxSecretPassword(browser: BrowserInfo): Promise<string | null> {
+  const attempts: string[][] = [
+    ['secret-tool', 'lookup', 'Title', browser.keychainService],
+  ];
+
+  if (browser.linuxApplication) {
+    attempts.push(
+      ['secret-tool', 'lookup', 'xdg:schema', 'chrome_libsecret_os_crypt_password_v2', 'application', browser.linuxApplication],
+      ['secret-tool', 'lookup', 'xdg:schema', 'chrome_libsecret_os_crypt_password', 'application', browser.linuxApplication],
+    );
+  }
+
+  for (const cmd of attempts) {
+    const password = await runPasswordLookup(cmd, 3_000);
+    if (password) return password;
+  }
+
+  return null;
+}
+
+async function runPasswordLookup(cmd: string[], timeoutMs: number): Promise<string | null> {
+  try {
+    const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => {
+        proc.kill();
+        reject(new Error('timeout'));
+      }, timeoutMs),
+    );
+
+    const exitCode = await Promise.race([proc.exited, timeout]);
+    const stdout = await new Response(proc.stdout).text();
+    if (exitCode !== 0) return null;
+
+    const password = stdout.trim();
+    return password.length > 0 ? password : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Internal: Cookie Decryption ────────────────────────────────
 
 interface RawCookie {
@@ -356,7 +565,7 @@ interface RawCookie {
   samesite: number;
 }
 
-function decryptCookieValue(row: RawCookie, key: Buffer): string {
+function decryptCookieValue(row: RawCookie, keys: Map<string, Buffer>): string {
   // Prefer unencrypted value if present
   if (row.value && row.value.length > 0) return row.value;
 
@@ -364,16 +573,15 @@ function decryptCookieValue(row: RawCookie, key: Buffer): string {
   if (ev.length === 0) return '';
 
   const prefix = ev.slice(0, 3).toString('utf-8');
-  if (prefix !== 'v10') {
-    throw new Error(`Unknown encryption prefix: ${prefix}`);
-  }
+  const key = keys.get(prefix);
+  if (!key) throw new Error(`No decryption key available for ${prefix} cookies`);
 
   const ciphertext = ev.slice(3);
   const iv = Buffer.alloc(16, 0x20); // 16 space characters
   const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
-  // First 32 bytes are HMAC-SHA256 authentication tag; actual value follows
+  // Chromium prefixes encrypted cookie payloads with 32 bytes of metadata.
   if (plaintext.length <= 32) return '';
   return plaintext.slice(32).toString('utf-8');
 }

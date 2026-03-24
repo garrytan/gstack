@@ -29,13 +29,22 @@ RUN curl -fsSL https://bun.sh/install | bash
 # Claude CLI
 RUN npm i -g @anthropic-ai/claude-code
 
+# Playwright system deps (Chromium) — needed for browse E2E tests
+RUN npx playwright install-deps chromium
+
 # Pre-install dependencies (cached layer — only rebuilds when package.json changes)
 COPY package.json /workspace/
 WORKDIR /workspace
 RUN bun install && rm -rf /tmp/*
 
+# Install Playwright Chromium to a shared location accessible by all users
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN npx playwright install chromium \
+    && chmod -R a+rX /opt/playwright-browsers
+
 # Verify everything works
-RUN bun --version && node --version && claude --version && jq --version && gh --version
+RUN bun --version && node --version && claude --version && jq --version && gh --version \
+    && npx playwright --version
 
 # At runtime: checkout overwrites /workspace, but node_modules persists
 # if we move it out of the way and symlink back
@@ -47,4 +56,8 @@ RUN mv /workspace/node_modules /opt/node_modules_cache \
 # Create a non-root user for eval runs (GH Actions overrides USER, so
 # the workflow must set options.user or use gosu/su-exec at runtime).
 RUN useradd -m -s /bin/bash runner \
-    && chmod -R a+rX /opt/node_modules_cache
+    && chmod -R a+rX /opt/node_modules_cache \
+    && mkdir -p /home/runner/.gstack && chown -R runner:runner /home/runner/.gstack \
+    && chmod 1777 /tmp \
+    && mkdir -p /home/runner/.bun && chown -R runner:runner /home/runner/.bun \
+    && chmod -R 1777 /tmp

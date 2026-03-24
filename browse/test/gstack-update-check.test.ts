@@ -447,6 +447,24 @@ describe('gstack-update-check', () => {
     expect(cache).toContain('UP_TO_DATE');
   });
 
+  test('--force clears snooze so user can upgrade after snoozing', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeSnooze('0.4.0', 1, nowEpoch() - 60); // snoozed 1 min ago (within 24h)
+
+    // Without --force: snoozed, silent
+    const snoozed = run();
+    expect(snoozed.exitCode).toBe(0);
+    expect(snoozed.stdout).toBe('');
+
+    // With --force: snooze cleared, outputs upgrade
+    const forced = run({}, ['--force']);
+    expect(forced.exitCode).toBe(0);
+    expect(forced.stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    // Snooze file should be deleted
+    expect(existsSync(join(stateDir, 'update-snoozed'))).toBe(false);
+  });
+
   // ─── Split TTL tests ─────────────────────────────────────────
 
   test('UP_TO_DATE cache expires after 60 min (not 720)', () => {

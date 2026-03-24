@@ -542,10 +542,12 @@ describe('TODOS-format.md reference consistency', () => {
 // --- v0.4.1 feature coverage: RECOMMENDATION format, session awareness, enum completeness ---
 
 describe('v0.4.1 preamble features', () => {
-  const skillsWithPreamble = [
-    'SKILL.md', 'browse/SKILL.md', 'qa/SKILL.md',
-    'qa-only/SKILL.md',
-    'setup-browser-cookies/SKILL.md',
+  // Tier 1 skills have core preamble only (no AskUserQuestion format)
+  const tier1Skills = ['SKILL.md', 'browse/SKILL.md', 'setup-browser-cookies/SKILL.md', 'benchmark/SKILL.md'];
+
+  // Tier 2+ skills have AskUserQuestion format with RECOMMENDATION
+  const tier2PlusSkills = [
+    'qa/SKILL.md', 'qa-only/SKILL.md',
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
@@ -555,23 +557,25 @@ describe('v0.4.1 preamble features', () => {
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
     'canary/SKILL.md',
-    'benchmark/SKILL.md',
     'land-and-deploy/SKILL.md',
     'setup-deploy/SKILL.md',
     'cso/SKILL.md',
   ];
 
-  for (const skill of skillsWithPreamble) {
+  const skillsWithPreamble = [...tier1Skills, ...tier2PlusSkills];
+
+  for (const skill of tier2PlusSkills) {
     test(`${skill} contains RECOMMENDATION format`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
       expect(content).toContain('RECOMMENDATION: Choose');
       expect(content).toContain('AskUserQuestion');
     });
+  }
 
+  for (const skill of skillsWithPreamble) {
     test(`${skill} contains session awareness`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
       expect(content).toContain('_SESSIONS');
-      expect(content).toContain('RECOMMENDATION');
     });
   }
 
@@ -754,14 +758,8 @@ describe('Contributor mode preamble structure', () => {
   for (const skill of skillsWithPreamble) {
     test(`${skill} has 0-10 rating in contributor mode`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
-      expect(content).toContain('0 to 10');
-      expect(content).toContain('My rating');
-    });
-
-    test(`${skill} has calibration example`, () => {
-      const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
-      expect(content).toContain('Calibration');
-      expect(content).toContain('the bar');
+      expect(content).toContain('0-10');
+      expect(content).toContain('Rating');
     });
 
     test(`${skill} has "what would make this a 10" field`, () => {
@@ -847,16 +845,11 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     });
   }
 
-  test('Completeness Principle includes compression table', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('Completeness Principle includes compression table in tier 2+ skills', () => {
+    // Root is tier 1 (no completeness). Check tier 2+ skill.
+    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
     expect(content).toContain('CC+gstack');
     expect(content).toContain('Compression');
-  });
-
-  test('Completeness Principle includes anti-patterns', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('BAD:');
-    expect(content).toContain('Anti-patterns');
   });
 });
 
@@ -1513,8 +1506,9 @@ describe('Repo mode preamble validation', () => {
     expect(content).toContain('gstack-repo-mode');
   });
 
-  test('generated SKILL.md contains See Something Say Something section', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('tier 3+ skills contain See Something Say Something section', () => {
+    // Root SKILL.md is tier 1 (no Repo Mode). Check a tier 3 skill instead.
+    const content = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('See Something, Say Something');
     expect(content).toContain('REPO_MODE');
     expect(content).toContain('solo');

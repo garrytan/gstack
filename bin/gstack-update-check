@@ -20,9 +20,10 @@ SNOOZE_FILE="$STATE_DIR/update-snoozed"
 VERSION_FILE="$GSTACK_DIR/VERSION"
 REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/jeffdhooton/gstack/main/VERSION}"
 
-# ─── Force flag (busts cache for standalone /gstack-upgrade) ──
+# ─── Force flag (busts cache + snooze for standalone /gstack-upgrade) ──
 if [ "${1:-}" = "--force" ]; then
   rm -f "$CACHE_FILE"
+  rm -f "$SNOOZE_FILE"
 fi
 
 # ─── Step 0: Check if updates are disabled ────────────────────

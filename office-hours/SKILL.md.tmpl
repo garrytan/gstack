@@ -1,5 +1,6 @@
 ---
 name: office-hours
+preamble-tier: 3
 version: 2.0.0
 description: |
   YC Office Hours — two modes. Startup mode: six forcing questions that expose
@@ -334,7 +335,8 @@ Before proposing solutions, challenge the premises:
 1. **Is this the right problem?** Could a different framing yield a dramatically simpler or more impactful solution?
 2. **What happens if we do nothing?** Real pain point or hypothetical one?
 3. **What existing code already partially solves this?** Map existing patterns, utilities, and flows that could be reused.
-4. **Startup mode only:** Synthesize the diagnostic evidence from Phase 2A. Does it support this direction? Where are the gaps?
+4. **If the deliverable is a new artifact** (CLI binary, library, package, container image, mobile app): **how will users get it?** Code without distribution is code nobody can use. The design must include a distribution channel (GitHub Releases, package manager, container registry, app store) and CI/CD pipeline — or explicitly defer it.
+5. **Startup mode only:** Synthesize the diagnostic evidence from Phase 2A. Does it support this direction? Where are the gaps?
 
 Output premises as clear statements the user must agree with before proceeding:
 ```
@@ -474,6 +476,11 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 ## Success Criteria
 {measurable criteria from Phase 2A}
 
+## Distribution Plan
+{how users get the deliverable — binary download, package manager, container image, web service, etc.}
+{CI/CD pipeline for building and publishing — GitHub Actions, manual release, auto-deploy on merge?}
+{omit this section if the deliverable is a web service with existing deployment pipeline}
+
 ## Dependencies
 {blockers, prerequisites, related work}
 
@@ -525,6 +532,10 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ## Success Criteria
 {what "done" looks like}
+
+## Distribution Plan
+{how users get the deliverable — binary download, package manager, container image, web service, etc.}
+{CI/CD pipeline for building and publishing — or "existing deployment pipeline covers this"}
 
 ## Next Steps
 {concrete build tasks — what to implement first, second, third}

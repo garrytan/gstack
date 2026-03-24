@@ -154,14 +154,17 @@
 **Effort:** M
 **Priority:** P4
 
-### Linux/Windows cookie decryption
+### Linux cookie decryption — PARTIALLY SHIPPED
 
-**What:** GNOME Keyring / kwallet / DPAPI support for non-macOS cookie import.
+~~**What:** GNOME Keyring / kwallet / DPAPI support for non-macOS cookie import.~~
 
-**Why:** Cross-platform cookie import. Currently macOS-only (Keychain).
+Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, Brave, Edge on Linux with GNOME Keyring (libsecret) and "peanuts" fallback. Windows DPAPI support remains deferred.
 
-**Effort:** L
+**Remaining:** Windows cookie decryption (DPAPI). Needs complete rewrite — PR #64 was 1346 lines and stale.
+
+**Effort:** L (Windows only)
 **Priority:** P4
+**Completed (Linux):** v0.11.11.0 (2026-03-23)
 
 ## Ship
 
@@ -338,6 +341,18 @@
 **Depends on:** Video recording
 
 
+
+### Extend worktree isolation to Claude E2E tests
+
+**What:** Add `useWorktree?: boolean` option to `runSkillTest()` so any Claude E2E test can opt into worktree mode for full repo context instead of tmpdir fixtures.
+
+**Why:** Some Claude E2E tests (CSO audit, review-sql-injection) create minimal fake repos but would produce more realistic results with full repo context. The infrastructure exists (`describeWithWorktree()` in e2e-helpers.ts) — this extends it to the session-runner level.
+
+**Context:** WorktreeManager shipped in v0.11.12.0. Currently only Gemini/Codex tests use worktrees. Claude tests use planted-bug fixture repos which are correct for their purpose, but new tests that want real repo context can use `describeWithWorktree()` today. This TODO is about making it even easier via a flag on `runSkillTest()`.
+
+**Effort:** M (human: ~2 days / CC: ~20 min)
+**Priority:** P3
+**Depends on:** Worktree isolation (shipped v0.11.12.0)
 
 ### E2E model pinning — SHIPPED
 

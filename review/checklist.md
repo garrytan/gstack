@@ -125,6 +125,18 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 - Small utility additions (<5KB gzipped)
 - Server-side-only dependencies
 
+#### Distribution & CI/CD Pipeline
+- CI/CD workflow changes (`.github/workflows/`): verify build tool versions match project requirements, artifact names/paths are correct, secrets use `${{ secrets.X }}` not hardcoded values
+- New artifact types (CLI binary, library, package): verify a publish/release workflow exists and targets correct platforms
+- Cross-platform builds: verify CI matrix covers all target OS/arch combinations, or documents which are untested
+- Version tag format consistency: `v1.2.3` vs `1.2.3` — must match across VERSION file, git tags, and publish scripts
+- Publish step idempotency: re-running the publish workflow should not fail (e.g., `gh release delete` before `gh release create`)
+
+**DO NOT flag:**
+- Web services with existing auto-deploy pipelines (Docker build + K8s deploy)
+- Internal tools not distributed outside the team
+- Test-only CI changes (adding test steps, not publish steps)
+
 ---
 
 ## Severity Classification
@@ -141,7 +153,8 @@ CRITICAL (highest severity):      INFORMATIONAL (lower severity):
                                    ├─ Time Window Safety
                                    ├─ Type Coercion at Boundaries
                                    ├─ View/Frontend
-                                   └─ Performance & Bundle Impact
+                                   ├─ Performance & Bundle Impact
+                                   └─ Distribution & CI/CD Pipeline
 
 All findings are actioned via Fix-First Review. Severity determines
 presentation order and classification of AUTO-FIX vs ASK — critical

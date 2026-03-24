@@ -9,9 +9,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getProjectEvalDir } from './eval-store';
 
 const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
-const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json');
+const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json'); // heartbeat stays global
+const PROJECT_DIR = path.dirname(getProjectEvalDir()); // ~/.gstack/projects/$SLUG/
 
 /** Sanitize test name for use as filename: strip leading slashes, replace / with - */
 export function sanitizeTestName(name: string): string {
@@ -144,7 +146,7 @@ export async function runSkillTest(options: {
   const safeName = testName ? sanitizeTestName(testName) : null;
   if (runId) {
     try {
-      runDir = path.join(GSTACK_DEV_DIR, 'e2e-runs', runId);
+      runDir = path.join(PROJECT_DIR, 'e2e-runs', runId);
       fs.mkdirSync(runDir, { recursive: true });
     } catch { /* non-fatal */ }
   }

@@ -6,6 +6,7 @@ bin/gstack-global-discover
 .claude/skills/
 .agents/
 .context/
+.gstack-worktrees/
 /tmp/
 *.log
 bun.lock
