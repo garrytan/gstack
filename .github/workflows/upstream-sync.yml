@@ -1,0 +1,142 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # UTC 09:00 (KST 18:00) daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/garrytan/gstack.git || true
+          git fetch upstream main
+
+      - name: Check for new commits
+        id: check
+        run: |
+          BEHIND=$(git rev-list HEAD..upstream/main --count)
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          echo "Upstream is $BEHIND commits ahead"
+
+      - name: Merge upstream
+        if: steps.check.outputs.behind != '0'
+        id: merge
+        run: |
+          BRANCH="sync/upstream-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git merge upstream/main --no-edit || true
+
+          # List conflicted files
+          CONFLICTS=$(git diff --name-only --diff-filter=U || true)
+          HAS_CONFLICTS="false"
+          REMAINING=""
+          if [ -n "$CONFLICTS" ]; then
+            HAS_CONFLICTS="true"
+            echo "conflicted_files<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$CONFLICTS" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            # Accept upstream for SKILL.md conflicts (will re-translate)
+            echo "$CONFLICTS" | grep 'SKILL\.md$' | xargs -I{} git checkout --theirs {} 2>/dev/null || true
+            echo "$CONFLICTS" | grep 'SKILL\.md$' | xargs -I{} git add {} 2>/dev/null || true
+            # Check remaining conflicts
+            REMAINING=$(git diff --name-only --diff-filter=U || true)
+            if [ -z "$REMAINING" ]; then
+              git commit --no-edit || true
+            fi
+          fi
+          echo "conflicts=$HAS_CONFLICTS" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$REMAINING" ]; then
+            echo "remaining_conflicts<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$REMAINING" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Detect changed SKILL.md files
+          SKILL_CHANGES=$(git diff HEAD~1..HEAD --name-only | grep 'SKILL\.md$' || true)
+          echo "skill_changes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$SKILL_CHANGES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          # Detect new skill directories
+          NEW_SKILLS=$(git diff HEAD~1..HEAD --name-only --diff-filter=A | grep '/SKILL\.md$' || true)
+          echo "new_skills<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NEW_SKILLS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          git push origin "$BRANCH"
+
+      - name: Create PR body
+        if: steps.check.outputs.behind != '0'
+        id: body
+        env:
+          SKILL_CHANGES: ${{ steps.merge.outputs.skill_changes }}
+          NEW_SKILLS: ${{ steps.merge.outputs.new_skills }}
+          HAS_CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+          CONFLICTED_FILES: ${{ steps.merge.outputs.conflicted_files }}
+          REMAINING_CONFLICTS: ${{ steps.merge.outputs.remaining_conflicts }}
+        run: |
+          {
+            echo "## Upstream Sync"
+            echo ""
+            echo "garrytan/gstack의 최신 변경사항을 동기화합니다."
+            echo ""
+
+            if [ -n "$SKILL_CHANGES" ]; then
+              echo "### 번역 필요한 SKILL.md 변경"
+              while IFS= read -r f; do
+                [ -n "$f" ] && echo "- [ ] \`$f\` 재번역 필요"
+              done <<< "$SKILL_CHANGES"
+              echo ""
+            fi
+
+            if [ -n "$NEW_SKILLS" ]; then
+              echo "### 새 스킬 번역 필요"
+              while IFS= read -r f; do
+                [ -n "$f" ] && echo "- [ ] \`$f\` 새 번역 필요"
+              done <<< "$NEW_SKILLS"
+              echo ""
+            fi
+
+            if [ "$HAS_CONFLICTS" = "true" ]; then
+              echo "### 충돌 발생"
+              echo "SKILL.md 충돌은 upstream 버전으로 자동 해결됨 (재번역 필요)."
+              if [ -n "$REMAINING_CONFLICTS" ]; then
+                echo ""
+                echo "⚠️ 수동 해결 필요:"
+                while IFS= read -r f; do
+                  [ -n "$f" ] && echo "- \`$f\`"
+                done <<< "$REMAINING_CONFLICTS"
+              fi
+            fi
+          } > /tmp/pr-body.md
+
+      - name: Create PR
+        if: steps.check.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SYNC_BRANCH: ${{ steps.merge.outputs.branch }}
+        run: |
+          gh pr create \
+            --title "sync: merge upstream $(date +%Y-%m-%d)" \
+            --body-file /tmp/pr-body.md \
+            --base main \
+            --head "$SYNC_BRANCH"
