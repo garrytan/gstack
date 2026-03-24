@@ -1,7 +1,7 @@
 .env
 node_modules/
 browse/dist/
-bin/gstack-global-discover
+bin/
 .gstack/
 .claude/skills/
 .agents/
