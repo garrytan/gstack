@@ -76,6 +76,13 @@ export function resolveNodeServerScript(
 
 const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
 
+// On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
+if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
+  throw new Error(
+    'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
+  );
+}
+
 interface ServerState {
   pid: number;
   port: number;
@@ -96,6 +103,19 @@ function readState(): ServerState | null {
 }
 
 function isProcessAlive(pid: number): boolean {
+  if (IS_WINDOWS) {
+    // Bun's compiled binary can't signal Windows PIDs (always throws ESRCH).
+    // Use tasklist as a fallback. Only for one-shot calls — too slow for polling loops.
+    try {
+      const result = Bun.spawnSync(
+        ['tasklist', '/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'],
+        { stdout: 'pipe', stderr: 'pipe', timeout: 3000 }
+      );
+      return result.stdout.toString().includes(`"${pid}"`);
+    } catch {
+      return false;
+    }
+  }
   try {
     process.kill(pid, 0);
     return true;
@@ -104,9 +124,41 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/**
+ * HTTP health check — definitive proof the server is alive and responsive.
+ * Used in all polling loops instead of isProcessAlive() (which is slow on Windows).
+ */
+export async function isServerHealthy(port: number): Promise<boolean> {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!resp.ok) return false;
+    const health = await resp.json() as any;
+    return health.status === 'healthy';
+  } catch {
+    return false;
+  }
+}
+
 // ─── Process Management ─────────────────────────────────────────
 async function killServer(pid: number): Promise<void> {
   if (!isProcessAlive(pid)) return;
+
+  if (IS_WINDOWS) {
+    // taskkill /T /F kills the process tree (Node + Chromium)
+    try {
+      Bun.spawnSync(
+        ['taskkill', '/PID', String(pid), '/T', '/F'],
+        { stdout: 'pipe', stderr: 'pipe', timeout: 5000 }
+      );
+    } catch {}
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline && isProcessAlive(pid)) {
+      await Bun.sleep(100);
+    }
+    return;
+  }
 
   try { process.kill(pid, 'SIGTERM'); } catch { return; }
 
@@ -127,6 +179,10 @@ async function killServer(pid: number): Promise<void> {
  * Verifies PID ownership before sending signals.
  */
 function cleanupLegacyState(): void {
+  // No legacy state on Windows — /tmp and `ps` don't exist, and gstack
+  // never ran on Windows before the Node.js fallback was added.
+  if (IS_WINDOWS) return;
+
   try {
     const files = fs.readdirSync('/tmp').filter(f => f.startsWith('browse-server') && f.endsWith('.json'));
     for (const file of files) {
@@ -164,43 +220,64 @@ function cleanupLegacyState(): void {
 async function startServer(): Promise<ServerState> {
   ensureStateDir(config);
 
-  // Clean up stale state file
+  // Clean up stale state file and error log
   try { fs.unlinkSync(config.stateFile); } catch {}
+  try { fs.unlinkSync(path.join(config.stateDir, 'browse-startup-error.log')); } catch {}
 
-  // Start server as detached background process.
-  // On Windows, Bun can't launch/connect to Playwright's Chromium (oven-sh/bun#4253, #9911).
-  // Fall back to running the server under Node.js with Bun API polyfills.
-  const useNode = IS_WINDOWS && NODE_SERVER_SCRIPT;
-  const serverCmd = useNode
-    ? ['node', NODE_SERVER_SCRIPT]
-    : ['bun', 'run', SERVER_SCRIPT];
-  const proc = Bun.spawn(serverCmd, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, BROWSE_STATE_FILE: config.stateFile },
-  });
+  let proc: any = null;
 
-  // Don't hold the CLI open
-  proc.unref();
+  if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
+    // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
+    // when the CLI exits, the server dies with it. Use Node's child_process.spawn
+    // with { detached: true } instead, which is the gold standard for Windows
+    // process independence. Credit: PR #191 by @fqueiro.
+    const launcherCode =
+      `const{spawn}=require('child_process');` +
+      `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
+      `{detached:true,stdio:'ignore',env:Object.assign({},process.env,` +
+      `{BROWSE_STATE_FILE:${JSON.stringify(config.stateFile)}})}).unref()`;
+    Bun.spawnSync(['node', '-e', launcherCode], { stdio: 'ignore' });
+  } else {
+    // macOS/Linux: Bun.spawn + unref works correctly
+    proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, BROWSE_STATE_FILE: config.stateFile },
+    });
+    proc.unref();
+  }
 
-  // Wait for state file to appear
+  // Wait for server to become healthy.
+  // Use HTTP health check (not isProcessAlive) — it's fast (~instant ECONNREFUSED)
+  // and works reliably on all platforms including Windows.
   const start = Date.now();
   while (Date.now() - start < MAX_START_WAIT) {
     const state = readState();
-    if (state && isProcessAlive(state.pid)) {
+    if (state && await isServerHealthy(state.port)) {
       return state;
     }
     await Bun.sleep(100);
   }
 
-  // If we get here, server didn't start in time
-  // Try to read stderr for error message
-  const stderr = proc.stderr;
-  if (stderr) {
-    const reader = stderr.getReader();
+  // Server didn't start in time — try to get error details
+  if (proc?.stderr) {
+    // macOS/Linux: read stderr from the spawned process
+    const reader = proc.stderr.getReader();
     const { value } = await reader.read();
     if (value) {
       const errText = new TextDecoder().decode(value);
       throw new Error(`Server failed to start:\n${errText}`);
+    }
+  } else {
+    // Windows: check startup error log (server writes errors to disk since
+    // stderr is unavailable due to stdio: 'ignore' for detachment)
+    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+    try {
+      const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
+      if (errorLog) {
+        throw new Error(`Server failed to start:\n${errorLog}`);
+      }
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') throw e;
     }
   }
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
@@ -237,7 +314,10 @@ function acquireServerLock(): (() => void) | null {
 async function ensureServer(): Promise<ServerState> {
   const state = readState();
 
-  if (state && isProcessAlive(state.pid)) {
+  // Health-check-first: HTTP is definitive proof the server is alive and responsive.
+  // This replaces the PID-gated approach which breaks on Windows (Bun's process.kill
+  // always throws ESRCH for Windows PIDs in compiled binaries).
+  if (state && await isServerHealthy(state.port)) {
     // Check for binary version mismatch (auto-restart on update)
     const currentVersion = readVersionHash();
     if (currentVersion && state.binaryVersion && currentVersion !== state.binaryVersion) {
@@ -245,21 +325,7 @@ async function ensureServer(): Promise<ServerState> {
       await killServer(state.pid);
       return startServer();
     }
-
-    // Server appears alive — do a health check
-    try {
-      const resp = await fetch(`http://127.0.0.1:${state.port}/health`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (resp.ok) {
-        const health = await resp.json() as any;
-        if (health.status === 'healthy') {
-          return state;
-        }
-      }
-    } catch {
-      // Health check failed — server is dead or unhealthy
-    }
+    return state;
   }
 
   // Ensure state directory exists before lock acquisition (lock file lives there)
@@ -273,7 +339,7 @@ async function ensureServer(): Promise<ServerState> {
     const start = Date.now();
     while (Date.now() - start < MAX_START_WAIT) {
       const freshState = readState();
-      if (freshState && isProcessAlive(freshState.pid)) return freshState;
+      if (freshState && await isServerHealthy(freshState.port)) return freshState;
       await Bun.sleep(200);
     }
     throw new Error('Timed out waiting for another instance to start the server');
@@ -282,7 +348,7 @@ async function ensureServer(): Promise<ServerState> {
   try {
     // Re-read state under lock in case another process just started the server
     const freshState = readState();
-    if (freshState && isProcessAlive(freshState.pid)) {
+    if (freshState && await isServerHealthy(freshState.port)) {
       return freshState;
     }
 

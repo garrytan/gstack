@@ -286,6 +286,13 @@ async function shutdown() {
 // Handle signals
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+// Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
+// Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
+if (process.platform === 'win32') {
+  process.on('exit', () => {
+    try { fs.unlinkSync(config.stateFile); } catch {}
+  });
+}
 
 // ─── Start ─────────────────────────────────────────────────────
 async function start() {
@@ -365,5 +372,14 @@ async function start() {
 
 start().catch((err) => {
   console.error(`[browse] Failed to start: ${err.message}`);
+  // Write error to disk for the CLI to read — on Windows, the CLI can't capture
+  // stderr because the server is launched with detached: true, stdio: 'ignore'.
+  try {
+    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+    fs.mkdirSync(config.stateDir, { recursive: true });
+    fs.writeFileSync(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`);
+  } catch {
+    // stateDir may not exist — nothing more we can do
+  }
   process.exit(1);
 });
