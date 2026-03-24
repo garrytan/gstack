@@ -144,12 +144,8 @@ export class BrowserManager {
   }
 
   async launch() {
-    // ─── Extension Support ────────────────────────────────────
-    // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
-    // Extensions only work in headed mode, so we use an off-screen window.
     const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
     const launchArgs: string[] = [];
-    let useHeadless = true;
 
     // Docker/CI: Chromium sandbox requires unprivileged user namespaces which
     // are typically disabled in containers. Detect container environment and
@@ -158,25 +154,58 @@ export class BrowserManager {
       launchArgs.push('--no-sandbox');
     }
 
+    const contextOptions: BrowserContextOptions = {
+      viewport: { width: 1280, height: 720 },
+    };
+    if (this.customUserAgent) {
+      contextOptions.userAgent = this.customUserAgent;
+    }
+
     if (extensionsDir) {
+      // ─── Extension Mode: Persistent Context ──────────────────
+      // Extensions ONLY work in the default browser context.
+      // browser.newContext() creates an isolated context where extensions are invisible.
+      // launchPersistentContext() uses the default context → extensions run properly.
       launchArgs.push(
         `--disable-extensions-except=${extensionsDir}`,
         `--load-extension=${extensionsDir}`,
-        '--window-position=-9999,-9999',
-        '--window-size=1,1',
+        '--headless=new',
+        '--disable-blink-features=AutomationControlled',
       );
-      useHeadless = false; // extensions require headed mode; off-screen window simulates headless
-      console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
-    }
+      const ignoreArgs = [
+        '--disable-extensions',
+        '--enable-automation',
+        '--disable-component-extensions-with-background-pages',
+      ];
 
-    this.browser = await chromium.launch({
-      headless: useHeadless,
-      // On Windows, Chromium's sandbox fails when the server is spawned through
-      // the Bun→Node process chain (GitHub #276). Disable it — local daemon
-      // browsing user-specified URLs has marginal sandbox benefit.
-      chromiumSandbox: process.platform !== 'win32',
-      ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
-    });
+      const userDataDir = await import('fs').then(fs =>
+        fs.promises.mkdtemp(require('path').join(require('os').tmpdir(), 'browse-ext-'))
+      );
+
+      // launchPersistentContext returns a BrowserContext directly (not a Browser).
+      // headless:false tells Playwright to use the full Chromium binary (not headless shell).
+      // --headless=new tells Chromium itself to run headless (no visible window).
+      this.context = await chromium.launchPersistentContext(userDataDir, {
+        headless: false,
+        // On Windows, Chromium's sandbox fails when the server is spawned through
+        // the Bun→Node process chain (GitHub #276). Disable it — local daemon
+        // browsing user-specified URLs has marginal sandbox benefit.
+        chromiumSandbox: process.platform !== 'win32',
+        args: launchArgs,
+        ignoreDefaultArgs: ignoreArgs,
+        ...contextOptions,
+      });
+      this.browser = this.context.browser()!;
+      console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
+    } else {
+      // ─── Standard Mode: Isolated Context ─────────────────────
+      this.browser = await chromium.launch({
+        headless: true,
+        chromiumSandbox: process.platform !== 'win32',
+        ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
+      });
+      this.context = await this.browser.newContext(contextOptions);
+    }
 
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {
@@ -184,14 +213,6 @@ export class BrowserManager {
       console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
       process.exit(1);
     });
-
-    const contextOptions: BrowserContextOptions = {
-      viewport: { width: 1280, height: 720 },
-    };
-    if (this.customUserAgent) {
-      contextOptions.userAgent = this.customUserAgent;
-    }
-    this.context = await this.browser.newContext(contextOptions);
 
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
@@ -596,6 +617,17 @@ export class BrowserManager {
     }
 
     return { cookies, pages };
+  }
+
+  /**
+   * Restore only cookies into the current context (no page recreation).
+   * Used on startup to restore auth state from a previous session.
+   */
+  async restoreCookies(cookies: Cookie[]): Promise<void> {
+    if (!this.context) throw new Error('Browser not launched');
+    if (cookies.length > 0) {
+      await this.context.addCookies(cookies);
+    }
   }
 
   /**

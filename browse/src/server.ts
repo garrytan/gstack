@@ -514,6 +514,23 @@ async function flushBuffers() {
 // Flush every 1 second
 const flushInterval = setInterval(flushBuffers, 1000);
 
+// ─── Cookie/Storage Persistence ──────────────────────────────
+// Persist browser cookies + localStorage to disk so they survive daemon restarts.
+// Called periodically (every 5 min) and on shutdown.
+async function persistStorage() {
+  try {
+    const state = await browserManager.saveState();
+    if (state.cookies.length === 0) return;
+    const tmpFile = config.storageFile + '.tmp';
+    fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
+    fs.renameSync(tmpFile, config.storageFile);
+  } catch {
+    // Non-fatal — best-effort persistence
+  }
+}
+
+const storageFlushInterval = setInterval(persistStorage, 5 * 60_000);
+
 // ─── Idle Timer ────────────────────────────────────────────────
 let lastActivity = Date.now();
 
@@ -718,7 +735,11 @@ async function shutdown() {
   if (agentHealthInterval) clearInterval(agentHealthInterval);
   clearInterval(flushInterval);
   clearInterval(idleCheckInterval);
+  clearInterval(storageFlushInterval);
   await flushBuffers(); // Final flush (async now)
+
+  // Persist cookies + storage before closing browser
+  await persistStorage();
 
   await browserManager.close();
 
@@ -728,7 +749,7 @@ async function shutdown() {
     try { fs.unlinkSync(path.join(profileDir, lockFile)); } catch {}
   }
 
-  // Clean up state file
+  // Clean up state file (but keep storage file for next restart)
   try { fs.unlinkSync(config.stateFile); } catch {}
 
   process.exit(0);
@@ -787,6 +808,18 @@ async function start() {
     console.log(`[browse] Launched headed Chromium with extension`);
   } else {
     await browserManager.launch();
+  }
+
+  // Restore cookies from previous session (pages are not restored — start fresh)
+  try {
+    const raw = fs.readFileSync(config.storageFile, 'utf-8');
+    const saved = JSON.parse(raw);
+    if (saved.cookies?.length > 0) {
+      await browserManager.restoreCookies(saved.cookies);
+      console.log(`[browse] Restored ${saved.cookies.length} cookies from previous session`);
+    }
+  } catch {
+    // No storage file or parse error — start fresh
   }
 
   const startTime = Date.now();

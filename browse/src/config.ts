@@ -17,6 +17,7 @@ export interface BrowseConfig {
   projectDir: string;
   stateDir: string;
   stateFile: string;
+  storageFile: string;
   consoleLog: string;
   networkLog: string;
   dialogLog: string;
@@ -67,6 +68,7 @@ export function resolveConfig(
     projectDir,
     stateDir,
     stateFile,
+    storageFile: path.join(process.env.HOME || '/tmp', '.gstack', 'browse-cookies.json'),
     consoleLog: path.join(stateDir, 'browse-console.log'),
     networkLog: path.join(stateDir, 'browse-network.log'),
     dialogLog: path.join(stateDir, 'browse-dialog.log'),
