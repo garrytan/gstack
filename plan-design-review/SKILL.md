@@ -383,21 +383,115 @@ AskUserQuestion: "I've rated this plan {N}/10 on design completeness. The bigges
 ## Design Outside Voices (parallel)
 
 Use AskUserQuestion:
-> "Want outside design voices before the detailed review? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent completeness review."
+> "Want outside design voices before the detailed review? Gemini analyzes mockups/wireframes visually (best-in-class vision); Codex evaluates against design hard rules + litmus checks; Claude subagent does an independent completeness review."
 >
 > A) Yes — run outside design voices
 > B) No — proceed without
 
 If user chooses B, skip this step and continue.
 
-**Check Codex availability:**
+**Check tool availability:**
 ```bash
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+which gemini 2>/dev/null && echo "GEMINI_AVAILABLE" || echo "GEMINI_NOT_AVAILABLE"
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+Launch all available voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Gemini visual voice** (PRIORITY — via Bash, if GEMINI_AVAILABLE):
+
+Gemini 3.1 Pro has the strongest multimodal vision of any model. At plan stage, it provides **vision-guided design critique** by:
+- Analyzing any mockups, wireframes, or screenshots referenced in or alongside the plan
+- Applying visual design expertise to plan descriptions that text-only models miss
+- Detecting AI slop patterns from plan descriptions (e.g., "3-column feature grid" → instant flag)
+
+**Scan for visual assets referenced in the plan:**
+```bash
+PLAN_DIR=$(dirname "[plan-file-path]")
+MOCKUPS=$(find "$PLAN_DIR" -maxdepth 2 \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.svg" \) -type f 2>/dev/null | head -5)
+if [ -z "$MOCKUPS" ]; then
+  echo "NO_MOCKUPS"
+else
+  echo "MOCKUPS_FOUND: $(echo "$MOCKUPS" | wc -l | tr -d ' ')"
+fi
+```
+
+**If mockups/wireframes exist**, feed them to Gemini for visual analysis:
+```bash
+TMPERR_GM=$(mktemp /tmp/gemini-plan-visual-XXXXXXXX)
+TMPOUT_GM=$(mktemp /tmp/gemini-plan-visual-out-XXXXXXXX)
+
+IMG_ARGS=""
+for img in $MOCKUPS; do
+  IMG_ARGS="$IMG_ARGS --image $img"
+done
+
+cat "[plan-file-path]" | gemini --model gemini-3.1-pro-preview $IMG_ARGS \
+  "You are a world-class product designer reviewing a DESIGN PLAN. You have the plan text via stdin and any mockups/wireframes as images.
+
+VISUAL DESIGN ASSESSMENT (from mockups, if provided):
+- Does the visual hierarchy match the plan's stated priorities?
+- Are the mockups specific (real fonts, colors, spacing) or generic wireframes?
+- Do the mockups avoid AI slop patterns (3-column grids, purple gradients, icon circles)?
+- Is there compositional intention or just layout?
+- Would a user feel this was designed by a human with taste?
+
+PLAN DESIGN COMPLETENESS (from text):
+- Does the plan specify CONCRETE visual decisions (font names, color hex, spacing scale)?
+- Or does it use vague terms ('clean', 'modern', 'intuitive')?
+- Are interaction states specified (loading, empty, error, success)?
+- Is there a visual hierarchy defined for each screen?
+- Does the plan distinguish between marketing/landing vs app UI patterns?
+
+AI SLOP RISK (visual pattern detection):
+1. '3-column feature grid' → THE most recognizable AI layout
+2. Purple/violet gradients → AI color default
+3. 'Hero section' without brand specificity → cookie-cutter
+4. 'Card-based layout' without justification → lazy default
+5. 'Clean modern UI' → meaningless descriptor
+
+LITMUS CHECKS — answer YES/NO:
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+For each finding: what's wrong, severity, and the specific fix to add to the plan." \
+  > "$TMPOUT_GM" 2>"$TMPERR_GM"
+```
+Use a 5-minute timeout (`timeout: 300000`). After the command completes:
+```bash
+cat "$TMPOUT_GM"
+cat "$TMPERR_GM" && rm -f "$TMPERR_GM" "$TMPOUT_GM"
+```
+
+**If no mockups exist**, still run Gemini for text-based plan critique (it still provides valuable design insight):
+```bash
+TMPERR_GM=$(mktemp /tmp/gemini-plan-XXXXXXXX)
+TMPOUT_GM=$(mktemp /tmp/gemini-plan-out-XXXXXXXX)
+
+cat "[plan-file-path]" | gemini --model gemini-3.1-pro-preview \
+  "You are a world-class product designer reviewing a design plan (text only, no mockups). Focus on: 1) specificity vs vagueness of visual decisions, 2) AI slop risk in described patterns, 3) missing interaction states, 4) whether the plan will produce something that looks DESIGNED vs GENERATED. Answer the 7 litmus checks YES/NO. For each finding: what's wrong, severity, and the fix." \
+  > "$TMPOUT_GM" 2>"$TMPERR_GM"
+```
+Use a 5-minute timeout (`timeout: 300000`). After the command completes:
+```bash
+cat "$TMPOUT_GM"
+cat "$TMPERR_GM" && rm -f "$TMPERR_GM" "$TMPOUT_GM"
+```
+
+Present output under a `GEMINI SAYS (visual design critique):` header.
+
+**Error handling (non-blocking):**
+- Auth failure: "Gemini auth failed. Check your API key configuration."
+- Timeout: "Gemini timed out after 5 minutes."
+- Empty response: "Gemini returned no response."
+- On any Gemini error: proceed with Codex and/or Claude subagent output only.
+
+2. **Codex design voice** (via Bash, if CODEX_AVAILABLE):
 ```bash
 TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
 codex exec "Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
@@ -432,7 +526,7 @@ Use a 5-minute timeout (`timeout: 300000`). After the command completes, read st
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
 ```
 
-2. **Claude design subagent** (via Agent tool):
+3. **Claude design subagent** (via Agent tool):
 Dispatch a subagent with this prompt:
 "Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
 
@@ -448,9 +542,11 @@ For each finding: what's wrong, severity (critical/high/medium), and the fix."
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
 - **Timeout:** "Codex timed out after 5 minutes."
 - **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
-- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+- On any Codex error: proceed with Gemini and/or Claude subagent output only.
+- On any Gemini error: proceed with Codex and/or Claude subagent output only.
+- If all outside voices fail: "Outside voices unavailable — continuing with primary review."
 
+Present Gemini output under a `GEMINI SAYS (visual design critique):` header.
 Present Codex output under a `CODEX SAYS (design critique):` header.
 Present subagent output under a `CLAUDE SUBAGENT (design completeness):` header.
 
@@ -458,26 +554,26 @@ Present subagent output under a `CLAUDE SUBAGENT (design completeness):` header.
 
 ```
 DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
-═══════════════════════════════════════════════════════════════
-  Check                                    Claude  Codex  Consensus
-  ─────────────────────────────────────── ─────── ─────── ─────────
-  1. Brand unmistakable in first screen?   —       —      —
-  2. One strong visual anchor?             —       —      —
-  3. Scannable by headlines only?          —       —      —
-  4. Each section has one job?             —       —      —
-  5. Cards actually necessary?             —       —      —
-  6. Motion improves hierarchy?            —       —      —
-  7. Premium without decorative shadows?   —       —      —
-  ─────────────────────────────────────── ─────── ─────── ─────────
-  Hard rejections triggered:               —       —      —
-═══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════════════════
+  Check                                    Gemini  Claude  Codex  Consensus
+  ─────────────────────────────────────── ─────── ─────── ─────── ─────────
+  1. Brand unmistakable in first screen?   —       —       —      —
+  2. One strong visual anchor?             —       —       —      —
+  3. Scannable by headlines only?          —       —       —      —
+  4. Each section has one job?             —       —       —      —
+  5. Cards actually necessary?             —       —       —      —
+  6. Motion improves hierarchy?            —       —       —      —
+  7. Premium without decorative shadows?   —       —       —      —
+  ─────────────────────────────────────── ─────── ─────── ─────── ─────────
+  Hard rejections triggered:               —       —       —      —
+═══════════════════════════════════════════════════════════════════════════
 ```
 
-Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
+Fill in each cell from all outputs. Gemini's visual litmus checks take PRIORITY when mockups are present because it evaluates the actual visual output. CONFIRMED = majority agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
 
 **Pass integration (respects existing 7-pass contract):**
 - Hard rejections → raised as the FIRST items in Pass 1, tagged `[HARD REJECTION]`
-- Litmus DISAGREE items → raised in the relevant pass with both perspectives
+- Litmus DISAGREE items → raised in the relevant pass with all perspectives
 - Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
 - Passes can skip discovery and go straight to fixing for pre-identified issues
 
@@ -485,7 +581,7 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+Replace STATUS with "clean" or "issues_found", SOURCE with "gemini+codex+subagent", "gemini+subagent", "gemini+codex", "codex+subagent", "gemini-only", "codex-only", "subagent-only", or "unavailable".
 
 ## The 0-10 Rating Method
 
@@ -746,7 +842,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
 - **Adversarial Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, Codex structured, Claude adversarial subagent, Codex adversarial. No configuration needed.
-- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Fallback chain: Codex → Gemini (gemini-3.1-pro-preview) → Claude subagent. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
