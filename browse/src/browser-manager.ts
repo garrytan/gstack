@@ -376,6 +376,7 @@ export class BrowserManager {
       this.wirePageEvents(page);
 
       if (saved.url) {
+        try { await validateNavigationUrl(saved.url); } catch { continue; }
         await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
       }
 

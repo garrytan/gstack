@@ -47,6 +47,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Sanitize SESSION_ID to prevent path traversal
+SESSION_ID="$(printf '%s' "$SESSION_ID" | tr -cd 'a-zA-Z0-9._-')"
+
 # ─── Read telemetry tier ─────────────────────────────────────
 TIER="$("$CONFIG_CMD" get telemetry 2>/dev/null || true)"
 TIER="${TIER:-off}"
@@ -105,28 +108,33 @@ if [ -d "$STATE_DIR/sessions" ]; then
   [ -n "$_SC" ] && [ "$_SC" -gt 0 ] 2>/dev/null && SESSIONS="$_SC"
 fi
 
-# Generate installation_id for community tier
+# Generate installation_id for community tier (salted to prevent rainbow table attacks)
 INSTALL_ID=""
 if [ "$TIER" = "community" ]; then
+  SALT_FILE="$STATE_DIR/install-salt"
+  if [ ! -f "$SALT_FILE" ]; then
+    mkdir -p "$STATE_DIR"
+    if command -v openssl >/dev/null 2>&1; then
+      openssl rand -hex 16 > "$SALT_FILE" 2>/dev/null || true
+    else
+      printf '%s-%s' "$$" "$(date +%s%N 2>/dev/null || date +%s)" | tr -cd 'a-f0-9' | head -c 32 > "$SALT_FILE" 2>/dev/null || true
+    fi
+    chmod 600 "$SALT_FILE" 2>/dev/null || true
+  fi
+  SALT="$(cat "$SALT_FILE" 2>/dev/null || true)"
   HOST="$(hostname 2>/dev/null || echo "unknown")"
   USER="$(whoami 2>/dev/null || echo "unknown")"
+  HASH_INPUT="$(printf '%s-%s-%s' "$SALT" "$HOST" "$USER")"
   if command -v shasum >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | shasum -a 256 | awk '{print $1}')"
+    INSTALL_ID="$(printf '%s' "$HASH_INPUT" | shasum -a 256 | awk '{print $1}')"
   elif command -v sha256sum >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | sha256sum | awk '{print $1}')"
+    INSTALL_ID="$(printf '%s' "$HASH_INPUT" | sha256sum | awk '{print $1}')"
   elif command -v openssl >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | openssl dgst -sha256 | awk '{print $NF}')"
+    INSTALL_ID="$(printf '%s' "$HASH_INPUT" | openssl dgst -sha256 | awk '{print $NF}')"
   fi
-  # If no SHA-256 command available, install_id stays empty
 fi
 
-# Local-only fields (never sent remotely)
-REPO_SLUG=""
-BRANCH=""
-if command -v git >/dev/null 2>&1; then
-  REPO_SLUG="$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-' 2>/dev/null || true)"
-  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-fi
+# PII fields removed — repo slug and branch are no longer logged locally
 
 # ─── Construct and append JSON ───────────────────────────────
 mkdir -p "$ANALYTICS_DIR"
@@ -144,10 +152,10 @@ INSTALL_FIELD="null"
 BROWSE_BOOL="false"
 [ "$USED_BROWSE" = "true" ] && BROWSE_BOOL="true"
 
-printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"_repo_slug":"%s","_branch":"%s"}\n' \
+printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"used_browse":%s,"sessions":%s,"installation_id":%s}\n' \
   "$TS" "$EVENT_TYPE" "$SKILL" "$SESSION_ID" "$GSTACK_VERSION" "$OS" "$ARCH" \
   "$DUR_FIELD" "$OUTCOME" "$ERR_FIELD" "$BROWSE_BOOL" "${SESSIONS:-1}" \
-  "$INSTALL_FIELD" "$REPO_SLUG" "$BRANCH" >> "$JSONL_FILE" 2>/dev/null || true
+  "$INSTALL_FIELD" >> "$JSONL_FILE" 2>/dev/null || true
 
 # ─── Trigger sync if tier is not off ─────────────────────────
 SYNC_CMD="$GSTACK_DIR/bin/gstack-telemetry-sync"

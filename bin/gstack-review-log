@@ -2,8 +2,10 @@
 # gstack-review-log — atomically log a review result
 # Usage: gstack-review-log '{"skill":"...","timestamp":"...","status":"..."}'
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+RAW_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
+SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
+BRANCH=$(printf '%s' "$RAW_BRANCH" | tr -cd 'a-zA-Z0-9._-')
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
 echo "$1" >> "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"

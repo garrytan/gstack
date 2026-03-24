@@ -39,6 +39,21 @@ function wrapForEvaluate(code: string): string {
 // Security: Path validation to prevent path traversal attacks
 const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
 
+const SENSITIVE_COOKIE_NAME = /(^|[_.-])(session|token|auth|csrf|jwt|sid|ssid|credential|password|secret|key)($|[_.-])|connect\.sid|_csrf/i;
+const SENSITIVE_VALUE = /^(eyJ|sk-|sk_live_|sk_test_|pk_live_|pk_test_|rk_live_|sk-ant-|ghp_|gho_|github_pat_|xox[bpsa]-|AKIA[A-Z0-9]{16}|AIza|SG\.|Bearer\s|sbp_)/;
+
+function logBrowseAudit(command: string, detail: string): void {
+  try {
+    const logDir = path.join(process.env.HOME || '/tmp', '.gstack');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const logFile = path.join(logDir, 'browse-audit.jsonl');
+    const entry = JSON.stringify({ ts: new Date().toISOString(), command, detail: detail.slice(0, 500) });
+    fs.appendFileSync(logFile, entry + '\n', { mode: 0o600 });
+  } catch {
+    // audit logging is best-effort
+  }
+}
+
 export function validateReadPath(filePath: string): void {
   if (path.isAbsolute(filePath)) {
     const resolved = path.resolve(filePath);
@@ -141,19 +156,27 @@ export async function handleReadCommand(
     }
 
     case 'js': {
+      if (process.env.BROWSE_DISABLE_JS === '1') {
+        throw new Error('browse js is disabled (BROWSE_DISABLE_JS=1). Unset the env var to enable.');
+      }
       const expr = args[0];
       if (!expr) throw new Error('Usage: browse js <expression>');
+      logBrowseAudit('js', expr);
       const wrapped = wrapForEvaluate(expr);
       const result = await page.evaluate(wrapped);
       return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result ?? '');
     }
 
     case 'eval': {
+      if (process.env.BROWSE_DISABLE_JS === '1') {
+        throw new Error('browse eval is disabled (BROWSE_DISABLE_JS=1). Unset the env var to enable.');
+      }
       const filePath = args[0];
       if (!filePath) throw new Error('Usage: browse eval <js-file>');
       validateReadPath(filePath);
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const code = fs.readFileSync(filePath, 'utf-8');
+      logBrowseAudit('eval', `file:${filePath}`);
       const wrapped = wrapForEvaluate(code);
       const result = await page.evaluate(wrapped);
       return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result ?? '');
@@ -276,7 +299,19 @@ export async function handleReadCommand(
 
     case 'cookies': {
       const cookies = await page.context().cookies();
-      return JSON.stringify(cookies, null, 2);
+      if (args[0] === '--raw') {
+        return JSON.stringify(cookies, null, 2);
+      }
+      const redactedCookies = cookies.map(c => {
+        if (SENSITIVE_COOKIE_NAME.test(c.name)) {
+          return { ...c, value: `[REDACTED — ${c.value.length} chars]` };
+        }
+        if (SENSITIVE_VALUE.test(c.value)) {
+          return { ...c, value: `[REDACTED — ${c.value.length} chars]` };
+        }
+        return c;
+      });
+      return JSON.stringify(redactedCookies, null, 2);
     }
 
     case 'storage': {

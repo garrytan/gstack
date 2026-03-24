@@ -4,8 +4,8 @@ jobs:
   check-freshness:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+      - uses: oven-sh/setup-bun@735343b667d82eddb97555ab0e9a5b3b39e53eab # v2
       - run: bun install
       - name: Check Claude host freshness
         run: bun run gen:skill-docs

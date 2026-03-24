@@ -315,23 +315,28 @@ async function start() {
 
       const url = new URL(req.url);
 
-      // Cookie picker routes — no auth required (localhost-only)
-      if (url.pathname.startsWith('/cookie-picker')) {
-        return handleCookiePickerRoute(url, req, browserManager);
-      }
-
-      // Health check — no auth required (now async)
+      // Health check — minimal info only, no auth required
       if (url.pathname === '/health') {
         const healthy = await browserManager.isHealthy();
         return new Response(JSON.stringify({
           status: healthy ? 'healthy' : 'unhealthy',
           uptime: Math.floor((Date.now() - startTime) / 1000),
           tabs: browserManager.getTabCount(),
-          currentUrl: browserManager.getCurrentUrl(),
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
+      }
+
+      // Cookie picker routes — require auth (protects real browser cookies)
+      if (url.pathname.startsWith('/cookie-picker')) {
+        if (!validateAuth(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return handleCookiePickerRoute(url, req, browserManager);
       }
 
       // All other endpoints require auth

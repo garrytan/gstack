@@ -162,9 +162,11 @@ mkdir -p "$STATE_DIR"
 # Fire Supabase install ping in background (parallel, non-blocking)
 # This logs an update check event for community health metrics.
 # If the endpoint isn't configured or Supabase is down, this is a no-op.
-# Source Supabase config for install ping
+# Read Supabase config values safely (no source — prevents code injection)
 if [ -z "${GSTACK_TELEMETRY_ENDPOINT:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
-  . "$GSTACK_DIR/supabase/config.sh"
+  GSTACK_SUPABASE_URL="$(grep '^GSTACK_SUPABASE_URL=' "$GSTACK_DIR/supabase/config.sh" | head -1 | cut -d'"' -f2)"
+  GSTACK_SUPABASE_ANON_KEY="$(grep '^GSTACK_SUPABASE_ANON_KEY=' "$GSTACK_DIR/supabase/config.sh" | head -1 | cut -d'"' -f2)"
+  GSTACK_TELEMETRY_ENDPOINT="${GSTACK_SUPABASE_URL}/rest/v1"
 fi
 _SUPA_ENDPOINT="${GSTACK_TELEMETRY_ENDPOINT:-}"
 _SUPA_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"

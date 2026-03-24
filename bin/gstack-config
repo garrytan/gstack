@@ -13,17 +13,26 @@ set -euo pipefail
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 CONFIG_FILE="$STATE_DIR/config.yaml"
 
+validate_key() {
+  if ! printf '%s' "$1" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+    echo "Error: key must match [a-zA-Z0-9_-]+" >&2
+    exit 1
+  fi
+}
+
 case "${1:-}" in
   get)
     KEY="${2:?Usage: gstack-config get <key>}"
-    grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true
+    validate_key "$KEY"
+    awk -v k="$KEY" '$1 == k":" {print $2}' "$CONFIG_FILE" 2>/dev/null | tail -1 | tr -d '[:space:]' || true
     ;;
   set)
     KEY="${2:?Usage: gstack-config set <key> <value>}"
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
+    validate_key "$KEY"
     mkdir -p "$STATE_DIR"
-    if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
-      sed -i '' "s/^${KEY}:.*/${KEY}: ${VALUE}/" "$CONFIG_FILE"
+    if [ -f "$CONFIG_FILE" ] && awk -v k="$KEY" '$1 == k":" {found=1} END{exit !found}' "$CONFIG_FILE" 2>/dev/null; then
+      awk -v k="$KEY" -v v="$VALUE" '$1 == k":" {$0 = k ": " v} {print}' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
     else
       echo "${KEY}: ${VALUE}" >> "$CONFIG_FILE"
     fi

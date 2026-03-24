@@ -32,10 +32,10 @@ RUN npm i -g @anthropic-ai/claude-code
 # Playwright system deps (Chromium) — needed for browse E2E tests
 RUN npx playwright install-deps chromium
 
-# Pre-install dependencies (cached layer — only rebuilds when package.json changes)
-COPY package.json /workspace/
+# Pre-install dependencies (cached layer — only rebuilds when package.json/lockfile changes)
+COPY package.json bun.lockb* /workspace/
 WORKDIR /workspace
-RUN bun install && rm -rf /tmp/*
+RUN bun install --frozen-lockfile 2>/dev/null || bun install && rm -rf /tmp/*
 
 # Install Playwright Chromium to a shared location accessible by all users
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers

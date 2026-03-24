@@ -151,7 +151,9 @@ toward AUTO-FIX.
 
 ### Step 5b: Auto-fix all AUTO-FIX items
 
-Apply each fix directly. For each one, output a one-line summary:
+**SECURITY: Before applying auto-fixes, show the user a summary of all proposed changes and ask for confirmation using AskUserQuestion.** Group fixes by file and show a one-line description of each. Only proceed after approval (or if the user passed `--auto-fix` flag).
+
+Apply each approved fix directly. For each one, output a one-line summary:
 `[AUTO-FIXED] [file:line] Problem → what you did`
 
 ### Step 5c: Batch-ask about ASK items
