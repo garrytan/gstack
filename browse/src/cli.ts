@@ -170,17 +170,31 @@ async function startServer(): Promise<ServerState> {
   // Start server as detached background process.
   // On Windows, Bun can't launch/connect to Playwright's Chromium (oven-sh/bun#4253, #9911).
   // Fall back to running the server under Node.js with Bun API polyfills.
+  // Additionally, Bun.spawn + unref() on Windows doesn't truly detach — the child dies
+  // when the CLI parent exits. Use Node's child_process.spawn with detached:true instead.
   const useNode = IS_WINDOWS && NODE_SERVER_SCRIPT;
   const serverCmd = useNode
     ? ['node', NODE_SERVER_SCRIPT]
     : ['bun', 'run', SERVER_SCRIPT];
-  const proc = Bun.spawn(serverCmd, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, BROWSE_STATE_FILE: config.stateFile },
-  });
 
-  // Don't hold the CLI open
-  proc.unref();
+  if (IS_WINDOWS) {
+    // On Windows, Bun.spawn's unref() doesn't create a truly detached process.
+    // The server dies when the CLI exits. Use Node's child_process.spawn instead.
+    const { spawn: nodeSpawn } = require('child_process');
+    const child = nodeSpawn(serverCmd[0], serverCmd.slice(1), {
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, BROWSE_STATE_FILE: config.stateFile },
+    });
+    child.unref();
+  } else {
+    const proc = Bun.spawn(serverCmd, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, BROWSE_STATE_FILE: config.stateFile },
+    });
+    // Don't hold the CLI open
+    proc.unref();
+  }
 
   // Wait for state file to appear
   const start = Date.now();
