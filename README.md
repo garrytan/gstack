@@ -54,7 +54,7 @@ Open Claude Code and paste this. Claude does the rest.
 
 Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
 
-### Codex, Gemini CLI, or Cursor
+### Codex, Gemini CLI, Antigravity, or Cursor
 
 gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Skills live in `.agents/skills/` and are discovered automatically.
 
@@ -84,6 +84,15 @@ Or let setup auto-detect which agents you have installed:
 git clone https://github.com/garrytan/gstack.git ~/gstack
 cd ~/gstack && ./setup --host auto
 ```
+
+For Antigravity / Gemini CLI specifically:
+
+```bash
+git clone https://github.com/garrytan/gstack.git ~/gstack
+cd ~/gstack && ./setup --host antigravity
+```
+
+`setup --host antigravity` (or `--host gemini`) creates the runtime root at `~/.gemini/skills/gstack` and installs all skills with rewritten paths. Both `--host antigravity` and `--host gemini` are accepted and do the same thing.
 
 For Codex-compatible hosts, setup now supports both repo-local installs from `.agents/skills/gstack` and user-global installs from `~/.codex/skills/gstack`. All 28 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
 

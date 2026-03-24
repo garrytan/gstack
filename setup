@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register skills with Claude Code / Codex
+# gstack setup — build browser binary + register skills with Claude Code / Codex / Antigravity
 set -e
 
 if ! command -v bun >/dev/null 2>&1; then
@@ -24,27 +24,32 @@ esac
 HOST="claude"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, antigravity, gemini, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     *) shift ;;
   esac
 done
 
 case "$HOST" in
-  claude|codex|kiro|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, or auto)" >&2; exit 1 ;;
+  claude|codex|kiro|antigravity|gemini|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, antigravity, gemini, or auto)" >&2; exit 1 ;;
 esac
+
+# Normalize gemini → antigravity (same host)
+[ "$HOST" = "gemini" ] && HOST="antigravity"
 
 # For auto: detect which agents are installed
 INSTALL_CLAUDE=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
+INSTALL_ANTIGRAVITY=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
+  command -v gemini >/dev/null 2>&1 && INSTALL_ANTIGRAVITY=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_ANTIGRAVITY" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -53,6 +58,8 @@ elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
   INSTALL_KIRO=1
+elif [ "$HOST" = "antigravity" ]; then
+  INSTALL_ANTIGRAVITY=1
 fi
 
 migrate_direct_codex_install() {
@@ -418,6 +425,62 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
     echo "gstack ready (kiro)."
     echo "  browse: $BROWSE_BIN"
     echo "  kiro skills: $KIRO_SKILLS"
+  fi
+fi
+
+# 6b. Install for Antigravity / Gemini CLI (copy from .agents/skills, rewrite paths)
+if [ "$INSTALL_ANTIGRAVITY" -eq 1 ]; then
+  GEMINI_SKILLS="$HOME/.gemini/skills"
+  AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
+  mkdir -p "$GEMINI_SKILLS"
+
+  # Create gstack dir with symlinks for runtime assets, copy+sed for SKILL.md
+  GEMINI_GSTACK="$GEMINI_SKILLS/gstack"
+  # Remove old whole-dir symlink from previous installs
+  [ -L "$GEMINI_GSTACK" ] && rm -f "$GEMINI_GSTACK"
+  mkdir -p "$GEMINI_GSTACK" "$GEMINI_GSTACK/browse" "$GEMINI_GSTACK/gstack-upgrade" "$GEMINI_GSTACK/review"
+  ln -snf "$SOURCE_GSTACK_DIR/bin" "$GEMINI_GSTACK/bin"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$GEMINI_GSTACK/browse/dist"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$GEMINI_GSTACK/browse/bin"
+  # ETHOS.md — referenced by "Search Before Building" in all skill preambles
+  if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
+    ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$GEMINI_GSTACK/ETHOS.md"
+  fi
+  # gstack-upgrade skill
+  if [ -f "$AGENTS_DIR/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$AGENTS_DIR/gstack-upgrade/SKILL.md" "$GEMINI_GSTACK/gstack-upgrade/SKILL.md"
+  fi
+  # Review runtime assets (individual files, not whole dir)
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$SOURCE_GSTACK_DIR/review/$f" ]; then
+      ln -snf "$SOURCE_GSTACK_DIR/review/$f" "$GEMINI_GSTACK/review/$f"
+    fi
+  done
+
+  # Rewrite root SKILL.md paths for Gemini CLI
+  sed -e "s|~/.claude/skills/gstack|~/.gemini/skills/gstack|g" \
+      -e "s|\.claude/skills/gstack|.gemini/skills/gstack|g" \
+      -e "s|\.claude/skills|.gemini/skills|g" \
+      "$SOURCE_GSTACK_DIR/SKILL.md" > "$GEMINI_GSTACK/SKILL.md"
+
+  if [ ! -d "$AGENTS_DIR" ]; then
+    echo "  warning: no .agents/skills/ directory found — run 'bun run build' first" >&2
+  else
+    for skill_dir in "$AGENTS_DIR"/gstack*/; do
+      [ -f "$skill_dir/SKILL.md" ] || continue
+      skill_name="$(basename "$skill_dir")"
+      target_dir="$GEMINI_SKILLS/$skill_name"
+      mkdir -p "$target_dir"
+      # Generated Codex skills use $HOME/.codex (not ~/), plus $GSTACK_ROOT variables.
+      # Rewrite the default GSTACK_ROOT value and any remaining literal paths.
+      sed -e 's|\$HOME/.codex/skills/gstack|$HOME/.gemini/skills/gstack|g' \
+          -e "s|~/.codex/skills/gstack|~/.gemini/skills/gstack|g" \
+          -e "s|~/.claude/skills/gstack|~/.gemini/skills/gstack|g" \
+          "$skill_dir/SKILL.md" > "$target_dir/SKILL.md"
+    done
+    echo "gstack ready (antigravity/gemini)."
+    echo "  browse: $BROWSE_BIN"
+    echo "  gemini skills: $GEMINI_SKILLS"
   fi
 fi
 
