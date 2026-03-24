@@ -1378,6 +1378,33 @@ describe('setup script validation', () => {
   });
 });
 
+describe('build script validation', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
+  const buildScript = fs.readFileSync(path.join(ROOT, 'scripts', 'build-artifacts.sh'), 'utf-8');
+
+  test('package.json build delegates to the build-artifacts helper', () => {
+    expect(pkg.scripts.build).toBe('bash scripts/build-artifacts.sh');
+  });
+
+  test('build helper falls back to bun run wrappers when bun compile fails', () => {
+    expect(buildScript).toContain('build_or_wrap()');
+    expect(buildScript).toContain('bun build --compile');
+    expect(buildScript).toContain('falling back to bun run wrapper');
+    expect(buildScript).toContain('exec bun run');
+  });
+
+  test('build helper covers all compiled entrypoints that setup depends on', () => {
+    expect(buildScript).toContain('build_or_wrap "browse/src/cli.ts" "browse/dist/browse" "../src/cli.ts"');
+    expect(buildScript).toContain('build_or_wrap "browse/src/find-browse.ts" "browse/dist/find-browse" "../src/find-browse.ts"');
+    expect(buildScript).toContain('build_or_wrap "bin/gstack-global-discover.ts" "bin/gstack-global-discover" "gstack-global-discover.ts"');
+  });
+
+  test('build path no longer hides compile failures behind a blanket || true', () => {
+    expect(pkg.scripts.build).not.toContain('|| true');
+    expect(buildScript).not.toContain('|| true');
+  });
+});
+
 describe('telemetry', () => {
   test('generated SKILL.md contains telemetry start block', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
