@@ -2797,9 +2797,42 @@ function generateSlugSetup(ctx: TemplateContext): string {
   return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG`;
 }
 
+function generateMarketplaceSkillDiscovery(ctx: TemplateContext): string {
+  return `## External Skill Marketplace Check
+
+If \`PROACTIVE\` is \`"false"\`, skip this step entirely.
+
+Use this step when the user's request or current plan/design context clearly names a
+platform, vendor, framework, or tool that may already have a strong external skill in
+the Agent Skills / skills.sh marketplace.
+
+1. Extract 2-6 concrete technology keywords from the user's request or current plan/design context.
+2. Write the original request (or a short summary of the current plan/design) to a temp file:
+
+\`\`\`bash
+TMP_QUERY=$(mktemp /tmp/gstack-marketplace-query-XXXX.txt)
+cat > "$TMP_QUERY" <<'EOF'
+[original user request or current plan/design summary]
+EOF
+${ctx.paths.binDir}/gstack-marketplace-search --query-file "$TMP_QUERY" --keyword "keyword-1" --keyword "keyword-2" --limit 3 --json
+rm -f "$TMP_QUERY"
+\`\`\`
+
+3. If the helper returns \`"status": "ok"\` with non-empty \`results\`, surface an
+   **External Skills Worth Considering** section with up to 3 results:
+   - scoped name
+   - one-line why it matches
+   - install command
+4. Never auto-install or auto-run marketplace skills. This step is recommendation-only.
+5. If the helper returns \`unavailable\` or no results, continue silently.
+6. If a gstack built-in skill already covers the need well, prefer the gstack skill and
+   present the external result only as optional context.`;
+}
+
 const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   SLUG_EVAL: generateSlugEval,
   SLUG_SETUP: generateSlugSetup,
+  MARKETPLACE_SKILL_DISCOVERY: generateMarketplaceSkillDiscovery,
   COMMAND_REFERENCE: generateCommandReference,
   SNAPSHOT_FLAGS: generateSnapshotFlags,
   PREAMBLE: generatePreamble,

@@ -1,0 +1,62 @@
+---
+name: find-skills
+version: 1.0.0
+description: |
+  Find external agent skills from the Agent Skills / skills.sh marketplace for a given
+  technology or workflow query. Use when asked to "find a skill for X", "search skills
+  for supabase/vercel/azure/github cli", or "what external skill should I install".
+  Proactively suggest when the user asks for vendor-specific help that gstack does not
+  directly provide as a built-in workflow skill.
+allowed-tools:
+  - Bash
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /find-skills
+
+Find the best external marketplace skills for the user's current need.
+
+**HARD GATE:** Recommendation-only. Do NOT auto-install or auto-run third-party skills.
+
+## Workflow
+
+1. If the user already gave a clear query, use it.
+2. If the query is vague, ask one AskUserQuestion to sharpen the technology/workflow target.
+3. Extract 2-6 concrete technology keywords from the request.
+4. Write the request to a temp file and run:
+
+```bash
+TMP_QUERY=$(mktemp /tmp/gstack-marketplace-query-XXXX.txt)
+cat > "$TMP_QUERY" <<'EOF'
+[user query]
+EOF
+~/.claude/skills/gstack/bin/gstack-marketplace-search --query-file "$TMP_QUERY" --keyword "keyword-1" --keyword "keyword-2" --limit 5 --json
+rm -f "$TMP_QUERY"
+```
+
+5. Present the top matches as:
+   - scoped name
+   - one-line why it matches
+   - install command
+   - source repo URL
+
+6. If no results exist, say so plainly and suggest refining the query.
+7. If the marketplace CLI is unavailable, say so plainly and continue without error.
+
+## Output format
+
+Use this structure:
+
+```markdown
+## External Skills Worth Considering
+
+1. `@scope/name`
+   Why: {1 sentence}
+   Install: `npx skills add @scope/name`
+   Source: {github url}
+```
+
+If gstack already has a strong built-in skill for the same need, say that first, then
+present external skills as optional complements.

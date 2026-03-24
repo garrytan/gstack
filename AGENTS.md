@@ -15,6 +15,7 @@ Skills live in `.agents/skills/`. Invoke them by name (e.g., `/office-hours`).
 | `/plan-eng-review` | Lock architecture, data flow, edge cases, and tests. |
 | `/plan-design-review` | Rate each design dimension 0-10, explain what a 10 looks like. |
 | `/design-consultation` | Build a complete design system from scratch. |
+| `/find-skills` | Query the external Agent Skills / skills.sh marketplace for vendor/framework-specific skills. |
 | `/review` | Pre-landing PR review. Finds bugs that pass CI but break in prod. |
 | `/debug` | Systematic root-cause debugging. No fixes without investigation. |
 | `/design-review` | Design audit + fix loop with atomic commits. |

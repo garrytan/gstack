@@ -9,6 +9,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
+| [`/find-skills`](#find-skills) | **Marketplace Search** | Query Agent Skills / skills.sh for the best external vendor/framework-specific skills and copyable install commands. |
 | [`/review`](#review) | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
 | [`/investigate`](#investigate) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
@@ -87,6 +88,30 @@ Recommends A because you learn from real usage. CRM data comes naturally in week
 Both modes end with a design doc written to `~/.gstack/projects/` — and that doc feeds directly into `/plan-ceo-review` and `/plan-eng-review`. The full lifecycle is now: `office-hours → plan → implement → review → QA → ship → retro`.
 
 After the design doc is approved, `/office-hours` reflects on what it noticed about how you think — not generic praise, but specific callbacks to things you said during the session. The observations appear in the design doc too, so you re-encounter them when you re-read later.
+
+---
+
+## `/find-skills`
+
+This is the manual parity path for the external marketplace.
+
+Sometimes the right next step is not another built-in gstack workflow skill, but a
+specialized external skill published by the vendor or ecosystem you are working in.
+That is what `/find-skills` is for.
+
+Give it a query like:
+
+- `supabase auth nextjs`
+- `vercel deployment`
+- `azure cli`
+- `github cli workflow automation`
+
+It runs the marketplace search, dedupes the results, ranks the best matches, and gives
+you copy-paste install commands. It never auto-installs anything — recommendation only.
+
+This is also the manual fallback for the new planning/design marketplace recommendation
+layer. If an automatic planning flow mentions an external skill and you want to dig
+deeper, `/find-skills` is the direct command to use.
 
 ---
 

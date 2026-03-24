@@ -546,6 +546,7 @@ describe('v0.4.1 preamble features', () => {
     'SKILL.md', 'browse/SKILL.md', 'qa/SKILL.md',
     'qa-only/SKILL.md',
     'setup-browser-cookies/SKILL.md',
+    'find-skills/SKILL.md',
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
@@ -728,6 +729,43 @@ describe('investigate skill structure', () => {
   for (const section of ['Iron Law', 'Root Cause', 'Pattern Analysis', 'Hypothesis',
                           'DEBUG REPORT', '3-strike', 'BLOCKED']) {
     test(`contains ${section}`, () => expect(content).toContain(section));
+  }
+});
+
+describe('find-skills skill structure', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'find-skills', 'SKILL.md'), 'utf-8');
+
+  test('contains hard gate against auto-install', () => {
+    expect(content).toContain('HARD GATE');
+    expect(content).toContain('Do NOT auto-install');
+  });
+
+  test('uses marketplace search helper', () => {
+    expect(content).toContain('gstack-marketplace-search');
+  });
+
+  test('contains external skills output section', () => {
+    expect(content).toContain('External Skills Worth Considering');
+    expect(content).toContain('npx skills add');
+  });
+});
+
+describe('marketplace skill discovery integration', () => {
+  const marketplaceSkills = [
+    'office-hours/SKILL.md',
+    'plan-ceo-review/SKILL.md',
+    'plan-eng-review/SKILL.md',
+    'plan-design-review/SKILL.md',
+    'design-consultation/SKILL.md',
+    'autoplan/SKILL.md',
+  ];
+
+  for (const skill of marketplaceSkills) {
+    test(`${skill} contains marketplace discovery block`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
+      expect(content).toContain('External Skill Marketplace Check');
+      expect(content).toContain('gstack-marketplace-search');
+    });
   }
 });
 
@@ -1398,6 +1436,7 @@ describe('Skill trigger phrases', () => {
     'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
     'design-review', 'design-consultation', 'retro', 'document-release',
+    'find-skills',
     'codex', 'browse', 'setup-browser-cookies',
   ];
 
@@ -1418,6 +1457,7 @@ describe('Skill trigger phrases', () => {
     'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
     'design-review', 'design-consultation', 'retro', 'document-release',
+    'find-skills',
   ];
 
   for (const skill of SKILLS_REQUIRING_PROACTIVE) {

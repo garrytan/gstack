@@ -362,6 +362,36 @@ If browse is not available, that's fine — visual research is optional. The ski
 
 ---
 
+## External Skill Marketplace Check
+
+If `PROACTIVE` is `"false"`, skip this step entirely.
+
+Use this step when the user's request or current plan/design context clearly names a
+platform, vendor, framework, or tool that may already have a strong external skill in
+the Agent Skills / skills.sh marketplace.
+
+1. Extract 2-6 concrete technology keywords from the user's request or current plan/design context.
+2. Write the original request (or a short summary of the current plan/design) to a temp file:
+
+```bash
+TMP_QUERY=$(mktemp /tmp/gstack-marketplace-query-XXXX.txt)
+cat > "$TMP_QUERY" <<'EOF'
+[original user request or current plan/design summary]
+EOF
+~/.claude/skills/gstack/bin/gstack-marketplace-search --query-file "$TMP_QUERY" --keyword "keyword-1" --keyword "keyword-2" --limit 3 --json
+rm -f "$TMP_QUERY"
+```
+
+3. If the helper returns `"status": "ok"` with non-empty `results`, surface an
+   **External Skills Worth Considering** section with up to 3 results:
+   - scoped name
+   - one-line why it matches
+   - install command
+4. Never auto-install or auto-run marketplace skills. This step is recommendation-only.
+5. If the helper returns `unavailable` or no results, continue silently.
+6. If a gstack built-in skill already covers the need well, prefer the gstack skill and
+   present the external result only as optional context.
+
 ## Phase 1: Product Context
 
 Ask the user a single question that covers everything you need to know. Pre-fill what you can infer from the codebase.
