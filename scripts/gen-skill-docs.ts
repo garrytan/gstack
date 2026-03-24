@@ -714,14 +714,23 @@ This is the **primary mode** for developers verifying their work. When the user 
    \`\`\`
    "Bash(~/.claude/skills/gstack/browse-mobile/dist/browse-mobile:*)"
    "Bash($BM:*)"
+   "Bash(BM=:*)"
    "Bash(appium:*)"
-   "Bash(xcrun simctl:*)"
-   "Bash(curl -s http://127.0.0.1:4723:*)"
-   "Bash(curl http://127.0.0.1:4723:*)"
-   "Bash(lsof -i :4723:*)"
-   "Bash(lsof -i :8081:*)"
+   "Bash(xcrun:*)"
+   "Bash(curl -s http://127.0.0.1:*)"
+   "Bash(curl -X POST http://127.0.0.1:*)"
+   "Bash(curl http://127.0.0.1:*)"
+   "Bash(lsof:*)"
    "Bash(sleep:*)"
    "Bash(open -a Simulator:*)"
+   "Bash(SID=:*)"
+   "Bash(JAVA_HOME=:*)"
+   "Bash(cat app.json:*)"
+   "Bash(cat app.config:*)"
+   "Bash(ls app.json:*)"
+   "Bash(mkdir -p .gstack:*)"
+   "Bash(cat .gstack:*)"
+   "Bash(kill:*)"
    \`\`\`
    After writing, tell the user: "Permissions added. These apply globally — you won't be prompted for mobile QA commands in any project."
 
@@ -771,18 +780,28 @@ This is the **primary mode** for developers verifying their work. When the user 
    Set the environment: \`BROWSE_MOBILE_BUNDLE_ID=<bundleId>\`
 
    **In mobile mode, the QA flow adapts:**
+
+   **SPEED IS CRITICAL — batch commands to minimize round trips:**
+   - Combine multiple commands in a single bash call using \`&&\`: e.g., \`$BM click ~"Sign In" && sleep 2 && $BM snapshot -i && $BM screenshot /tmp/screen.png\`
+   - Do NOT run each command as a separate Bash call — that adds permission prompts and overhead
+   - Use \`sleep 1\` or \`sleep 2\` between commands (not separate tool calls)
+   - Take screenshots only at key milestones (after navigation, after finding a bug), not after every single tap
+
+   **Launch and navigate:**
    - Launch the app: \`$BM goto app://<bundleId>\`
-   - If the first snapshot shows "DEVELOPMENT SERVERS" or "localhost:8081" — this is the Expo dev launcher. Automatically click the localhost URL (e.g., \`$BM click ~"http://localhost:8081"\`) to launch the actual app. Wait 5-10s for the JS bundle to load, then re-snapshot.
+   - If the first snapshot shows "DEVELOPMENT SERVERS" or "localhost:8081" — this is the Expo dev launcher. Automatically click the localhost URL: \`$BM click ~"http://localhost:8081" && sleep 8 && $BM snapshot -i\`
    - Use \`$BM snapshot -i\` to get the accessibility tree with @e refs
-   - If an element is visible in \`$BM text\` output but not detected as interactive (common with React Native \`Pressable\` components missing \`accessibilityRole\`), use \`$BM click ~"Label Text"\` (accessibility label selector) — this is the primary fallback for RN components
-   - After each \`$BM click\`, wait 1-2s — mobile transitions are slower than web
-   - Skip web-only commands: \`console --errors\`, \`html\`, \`css\`, \`js\`, \`cookies\` — these return "not_supported" in mobile mode
-   - Test portrait and landscape: \`$BM viewport landscape\` / \`$BM viewport portrait\`
-   - Flag missing \`accessibilityRole\` / \`accessibilityLabel\` props as accessibility findings — these affect screen readers and are real bugs
-   - For form filling: \`$BM fill @e3 "text"\` works — if the element resolves to coordinates, it taps to focus then types via keyboard
-   - Take screenshots after every significant interaction: \`$BM screenshot <path>\` — then use the Read tool to show the screenshot to the user
-   - Use \`$BM scroll down\` to explore content below the fold (FlatList, ScrollView)
-   - Use \`$BM back\` for navigation (device back button)
+
+   **Interacting with elements:**
+   - If an element is visible in \`$BM text\` but not detected as interactive (common with RN \`Pressable\` missing \`accessibilityRole\`), use \`$BM click ~"Label Text"\` — this is the primary fallback
+   - Skip web-only commands: \`console --errors\`, \`html\`, \`css\`, \`js\`, \`cookies\` — not available in mobile mode
+   - For form filling: \`$BM fill @e3 "text"\` works — coordinate tap + keyboard if needed
+   - Use \`$BM scroll down\` for content below the fold, \`$BM back\` for navigation
+
+   **Findings:**
+   - Flag missing \`accessibilityRole\` / \`accessibilityLabel\` as accessibility findings
+   - Test portrait and landscape: \`$BM viewport landscape && sleep 1 && $BM screenshot /tmp/landscape.png\`
+   - Take screenshots at milestones and use the Read tool to show them to the user
 
 4. **Test each affected page/route:**
    - Navigate to the page
