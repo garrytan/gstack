@@ -88,12 +88,18 @@ elif [ -d ".claude/skills/gstack/.git" ]; then
 elif [ -d ".agents/skills/gstack/.git" ]; then
   INSTALL_TYPE="local-git"
   INSTALL_DIR=".agents/skills/gstack"
+elif [ -d ".pi/skills/gstack/.git" ]; then
+  INSTALL_TYPE="local-git"
+  INSTALL_DIR=".pi/skills/gstack"
 elif [ -d ".claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored"
   INSTALL_DIR=".claude/skills/gstack"
 elif [ -d "$HOME/.claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored-global"
   INSTALL_DIR="$HOME/.claude/skills/gstack"
+elif [ -d "$HOME/.pi/agent/skills/gstack" ]; then
+  INSTALL_TYPE="vendored-global"
+  INSTALL_DIR="$HOME/.pi/agent/skills/gstack"
 else
   echo "ERROR: gstack not found"
   exit 1

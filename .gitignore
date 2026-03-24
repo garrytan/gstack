@@ -5,6 +5,7 @@ bin/gstack-global-discover
 .gstack/
 .claude/skills/
 .agents/
+.pi/
 .context/
 /tmp/
 *.log

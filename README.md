@@ -87,6 +87,19 @@ cd ~/gstack && ./setup --host auto
 
 For Codex-compatible hosts, setup now supports both repo-local installs from `.agents/skills/gstack` and user-global installs from `~/.codex/skills/gstack`. All 28 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
 
+### Pi
+
+[Pi](https://github.com/mariozechner/pi-coding-agent) implements the [Agent Skills standard](https://agentskills.io/specification). Skills live in `~/.pi/agent/skills/` and are discovered automatically.
+
+Install once for your user account:
+
+```bash
+git clone https://github.com/garrytan/gstack.git ~/gstack
+cd ~/gstack && ./setup --host pi
+```
+
+`setup --host pi` copies skills (with rewritten paths) to `~/.pi/agent/skills/` and symlinks runtime assets back to the checkout. Run `./setup --host pi` again after `git pull` to refresh, or use `/skill:gstack-upgrade`.
+
 ## See it work
 
 ```

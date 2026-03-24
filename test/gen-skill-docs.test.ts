@@ -1233,6 +1233,208 @@ describe('Codex generation (--host codex)', () => {
   });
 });
 
+// ─── Pi generation tests ─────────────────────────────────────
+
+describe('Pi generation (--host pi)', () => {
+  const PI_DIR = path.join(ROOT, '.pi', 'skills');
+
+  // .pi/ is gitignored — generate on demand for tests
+  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'pi'], {
+    cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+  });
+
+  // Dynamic discovery of expected Pi skills: all templates except /codex
+  const PI_SKILLS = (() => {
+    const skills: Array<{ dir: string; piName: string }> = [];
+    if (fs.existsSync(path.join(ROOT, 'SKILL.md.tmpl'))) {
+      skills.push({ dir: '.', piName: 'gstack' });
+    }
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (entry.name === 'codex') continue; // /codex is excluded from Pi output
+      if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
+      const piName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
+      skills.push({ dir: entry.name, piName });
+    }
+    return skills;
+  })();
+
+  test('--host pi generates correct output paths', () => {
+    for (const skill of PI_SKILLS) {
+      const skillMd = path.join(PI_DIR, skill.piName, 'SKILL.md');
+      expect(fs.existsSync(skillMd)).toBe(true);
+    }
+  });
+
+  test('piSkillName mapping: root is gstack, others are gstack-{dir}', () => {
+    // Root → gstack
+    expect(fs.existsSync(path.join(PI_DIR, 'gstack', 'SKILL.md'))).toBe(true);
+    // Subdirectories → gstack-{dir}
+    expect(fs.existsSync(path.join(PI_DIR, 'gstack-review', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(PI_DIR, 'gstack-ship', 'SKILL.md'))).toBe(true);
+    // gstack-upgrade doesn't double-prefix
+    expect(fs.existsSync(path.join(PI_DIR, 'gstack-upgrade', 'SKILL.md'))).toBe(true);
+    // No double-prefix: gstack-gstack-upgrade must NOT exist
+    expect(fs.existsSync(path.join(PI_DIR, 'gstack-gstack-upgrade', 'SKILL.md'))).toBe(false);
+  });
+
+  test('Pi frontmatter has name + description only (like Codex, no allowed-tools/version/hooks)', () => {
+    for (const skill of PI_SKILLS) {
+      const content = fs.readFileSync(path.join(PI_DIR, skill.piName, 'SKILL.md'), 'utf-8');
+      expect(content.startsWith('---\n')).toBe(true);
+      const fmEnd = content.indexOf('\n---', 4);
+      expect(fmEnd).toBeGreaterThan(0);
+      const frontmatter = content.slice(4, fmEnd);
+      // Must have name and description
+      expect(frontmatter).toContain('name:');
+      expect(frontmatter).toContain('description:');
+      // Must NOT have allowed-tools, version, or hooks
+      expect(frontmatter).not.toContain('allowed-tools:');
+      expect(frontmatter).not.toContain('version:');
+      expect(frontmatter).not.toContain('hooks:');
+    }
+  });
+
+  test('Pi frontmatter name: matches directory name (gstack- prefix)', () => {
+    for (const skill of PI_SKILLS) {
+      const content = fs.readFileSync(path.join(PI_DIR, skill.piName, 'SKILL.md'), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = content.slice(4, fmEnd);
+      // Pi validates that name: matches the parent directory name
+      expect(frontmatter).toContain(`name: ${skill.piName}`);
+    }
+  });
+
+  test('Pi skills do NOT generate openai.yaml metadata', () => {
+    for (const skill of PI_SKILLS) {
+      const agentsDir = path.join(PI_DIR, skill.piName, 'agents');
+      expect(fs.existsSync(agentsDir)).toBe(false);
+    }
+  });
+
+  test('no .claude/skills/ paths in Pi output', () => {
+    for (const skill of PI_SKILLS) {
+      const content = fs.readFileSync(path.join(PI_DIR, skill.piName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('.claude/skills');
+    }
+  });
+
+  test('no ~/.claude/ paths in Pi output', () => {
+    for (const skill of PI_SKILLS) {
+      const content = fs.readFileSync(path.join(PI_DIR, skill.piName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('~/.claude/');
+    }
+  });
+
+  test('no .agents/skills/ paths in Pi output', () => {
+    for (const skill of PI_SKILLS) {
+      const content = fs.readFileSync(path.join(PI_DIR, skill.piName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('.agents/skills');
+    }
+  });
+
+  test('/codex skill excluded from Pi output', () => {
+    expect(fs.existsSync(path.join(PI_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(PI_DIR, 'gstack-codex'))).toBe(false);
+  });
+
+  test('Pi preamble resolves runtime assets from repo-local or global gstack roots', () => {
+    const content = fs.readFileSync(path.join(PI_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('GSTACK_ROOT=');
+    expect(content).toContain('$HOME/.pi/agent/skills/gstack');
+    expect(content).toContain('$_ROOT/.pi/skills/gstack');
+    expect(content).toContain('$GSTACK_BIN/');
+  });
+
+  test('sidecar paths point to .pi/skills/gstack/review/ (not gstack-review/)', () => {
+    const content = fs.readFileSync(path.join(PI_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
+    // Correct: references to sidecar files use gstack/review/ path
+    expect(content).toContain('.pi/skills/gstack/review/checklist.md');
+    expect(content).toContain('.pi/skills/gstack/review/design-checklist.md');
+    // Wrong: must NOT reference gstack-review/checklist.md (file doesn't exist there)
+    expect(content).not.toContain('.pi/skills/gstack-review/checklist.md');
+    expect(content).not.toContain('.pi/skills/gstack-review/design-checklist.md');
+  });
+
+  test('sidecar paths in ship skill point to gstack/review/ for pre-landing review', () => {
+    const content = fs.readFileSync(path.join(PI_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    if (content.includes('checklist.md')) {
+      expect(content).toContain('.pi/skills/gstack/review/');
+      expect(content).not.toContain('.pi/skills/gstack-review/checklist');
+    }
+  });
+
+  test('all Pi SKILL.md files have auto-generated header', () => {
+    for (const skill of PI_SKILLS) {
+      const content = fs.readFileSync(path.join(PI_DIR, skill.piName, 'SKILL.md'), 'utf-8');
+      expect(content).toContain('AUTO-GENERATED from SKILL.md.tmpl');
+      expect(content).toContain('Regenerate: bun run gen:skill-docs');
+    }
+  });
+
+  test('--host pi --dry-run freshness', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'pi', '--dry-run'], {
+      cwd: ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    // Every Pi skill should be FRESH
+    for (const skill of PI_SKILLS) {
+      expect(output).toContain(`FRESH: .pi/skills/${skill.piName}/SKILL.md`);
+    }
+    expect(output).not.toContain('STALE');
+  });
+
+  test('path rewrite rules apply to all Pi skills with sidecar references', () => {
+    for (const skill of PI_SKILLS) {
+      const content = fs.readFileSync(path.join(PI_DIR, skill.piName, 'SKILL.md'), 'utf-8');
+      // No skill should reference Claude or Codex paths
+      expect(content).not.toContain('~/.claude/skills');
+      expect(content).not.toContain('.claude/skills');
+      expect(content).not.toContain('.agents/skills');
+      if (content.includes('gstack-config') || content.includes('gstack-update-check') || content.includes('gstack-telemetry-log')) {
+        expect(content).toContain('$GSTACK_ROOT');
+      }
+    }
+  });
+
+  test('Claude output unchanged: all Claude skills have zero Pi paths', () => {
+    // Pi changes must NOT affect Claude output
+    for (const skill of PI_SKILLS) {
+      if (skill.dir === '.') continue;
+      const claudePath = path.join(ROOT, skill.dir, 'SKILL.md');
+      if (!fs.existsSync(claudePath)) continue;
+      const content = fs.readFileSync(claudePath, 'utf-8');
+      expect(content).not.toContain('.pi/skills');
+      expect(content).not.toContain('~/.pi/');
+    }
+  });
+
+  test('hook skills have safety prose and no hooks: in frontmatter', () => {
+    const HOOK_SKILLS = ['gstack-careful', 'gstack-freeze', 'gstack-guard'];
+    for (const skillName of HOOK_SKILLS) {
+      const skillPath = path.join(PI_DIR, skillName, 'SKILL.md');
+      if (!fs.existsSync(skillPath)) continue;
+      const content = fs.readFileSync(skillPath, 'utf-8');
+      expect(content).toContain('Safety Advisory');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = content.slice(4, fmEnd);
+      expect(frontmatter).not.toContain('hooks:');
+    }
+  });
+
+  test('multiline descriptions preserved in Pi output', () => {
+    const content = fs.readFileSync(path.join(PI_DIR, 'gstack-office-hours', 'SKILL.md'), 'utf-8');
+    const fmEnd = content.indexOf('\n---', 4);
+    const frontmatter = content.slice(4, fmEnd);
+    const descLines = frontmatter.split('\n').filter(l => l.startsWith('  '));
+    expect(descLines.length).toBeGreaterThan(1);
+    expect(frontmatter).toContain('YC Office Hours');
+  });
+});
+
 // ─── Setup script validation ─────────────────────────────────
 // These tests verify the setup script's install layout matches
 // what the generator produces — catching the bug where setup
@@ -1308,15 +1510,16 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('ln -snf "gstack/$skill_name"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports --host auto|claude|codex|kiro|pi', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|auto');
+    expect(setupContent).toContain('claude|codex|kiro|pi|auto');
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
+  test('auto mode detects claude, codex, kiro, and pi binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
+    expect(setupContent).toContain('command -v pi');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
@@ -1375,6 +1578,55 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('migrate_direct_codex_install');
     expect(setupContent).toContain('$HOME/.gstack/repos/gstack');
     expect(setupContent).toContain('avoid duplicate skill discovery');
+  });
+
+  // ─── Pi setup validation ─────────────────────────────────────
+
+  test('setup has INSTALL_PI flag', () => {
+    expect(setupContent).toContain('INSTALL_PI=');
+    expect(setupContent).toContain('INSTALL_PI=1');
+  });
+
+  test('Pi install section creates runtime root with symlinked assets', () => {
+    const piSection = setupContent.slice(
+      setupContent.indexOf('# 7. Install for Pi'),
+      setupContent.indexOf('# 8. Create')
+    );
+    expect(piSection).toContain('PI_SKILLS="$HOME/.pi/agent/skills"');
+    expect(piSection).toContain('PI_GSTACK="$PI_SKILLS/gstack"');
+    // Runtime asset symlinks
+    expect(piSection).toContain('ln -snf "$SOURCE_GSTACK_DIR/bin"');
+    expect(piSection).toContain('ln -snf "$SOURCE_GSTACK_DIR/browse/dist"');
+    expect(piSection).toContain('ln -snf "$SOURCE_GSTACK_DIR/browse/bin"');
+    expect(piSection).toContain('ETHOS.md');
+    // Review sidecar files
+    expect(piSection).toContain('checklist.md');
+    expect(piSection).toContain('design-checklist.md');
+    expect(piSection).toContain('greptile-triage.md');
+    expect(piSection).toContain('TODOS-format.md');
+  });
+
+  test('Pi install copies generated skills from .pi/skills/ into ~/.pi/agent/skills/', () => {
+    const piSection = setupContent.slice(
+      setupContent.indexOf('# 7. Install for Pi'),
+      setupContent.indexOf('# 8. Create')
+    );
+    expect(piSection).toContain('PI_GEN_DIR');
+    expect(piSection).toContain('cp "$skill_dir/SKILL.md" "$target_dir/SKILL.md"');
+  });
+
+  test('Pi install generates .pi/ skill docs before installing', () => {
+    // Setup must run gen:skill-docs --host pi before copying
+    expect(setupContent).toContain('bun run gen:skill-docs --host pi');
+  });
+
+  test('Pi install removes old whole-dir symlink from previous installs', () => {
+    const piSection = setupContent.slice(
+      setupContent.indexOf('# 7. Install for Pi'),
+      setupContent.indexOf('# 8. Create')
+    );
+    // Must handle upgrade from old symlink layout to new mkdir layout
+    expect(piSection).toContain('[ -L "$PI_GSTACK" ] && rm -f "$PI_GSTACK"');
   });
 });
 

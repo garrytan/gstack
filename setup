@@ -24,27 +24,29 @@ esac
 HOST="claude"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, pi, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     *) shift ;;
   esac
 done
 
 case "$HOST" in
-  claude|codex|kiro|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, or auto)" >&2; exit 1 ;;
+  claude|codex|kiro|pi|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, pi, or auto)" >&2; exit 1 ;;
 esac
 
 # For auto: detect which agents are installed
 INSTALL_CLAUDE=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
+INSTALL_PI=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
+  command -v pi >/dev/null 2>&1 && INSTALL_PI=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_PI" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -53,6 +55,8 @@ elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
   INSTALL_KIRO=1
+elif [ "$HOST" = "pi" ]; then
+  INSTALL_PI=1
 fi
 
 migrate_direct_codex_install() {
@@ -134,6 +138,7 @@ fi
 # Always regenerate: generation is fast (<2s) and mtime-based staleness checks are fragile
 # (miss stale files when timestamps match after clone/checkout/upgrade).
 AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
+PI_GEN_DIR="$SOURCE_GSTACK_DIR/.pi/skills"
 NEEDS_AGENTS_GEN=1
 
 if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
@@ -142,6 +147,17 @@ if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host codex
+  )
+fi
+
+# 1c. Generate .pi/ skill docs when installing for Pi.
+# bun run build doesn't include --host pi, so always generate when INSTALL_PI=1.
+if [ "$INSTALL_PI" -eq 1 ]; then
+  echo "Generating .pi/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host pi
   )
 fi
 
@@ -421,14 +437,62 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   fi
 fi
 
-# 7. Create .agents/ sidecar symlinks for the real Codex skill target.
+# 7. Install for Pi (copy generated .pi/skills/ into ~/.pi/agent/skills/)
+# See ARCHITECTURE.md § "Multi-host generation" for full Pi vs Codex comparison
+# (path conventions, cp vs ln -snf rationale, what's intentionally absent).
+if [ "$INSTALL_PI" -eq 1 ]; then
+  PI_SKILLS="$HOME/.pi/agent/skills"
+  mkdir -p "$PI_SKILLS"
+
+  # Create gstack runtime root with symlinks for runtime assets
+  PI_GSTACK="$PI_SKILLS/gstack"
+  # Remove old whole-dir symlink from previous installs
+  [ -L "$PI_GSTACK" ] && rm -f "$PI_GSTACK"
+  mkdir -p "$PI_GSTACK" "$PI_GSTACK/browse" "$PI_GSTACK/gstack-upgrade" "$PI_GSTACK/review"
+  ln -snf "$SOURCE_GSTACK_DIR/bin" "$PI_GSTACK/bin"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$PI_GSTACK/browse/dist"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$PI_GSTACK/browse/bin"
+  # ETHOS.md — referenced by "Search Before Building" in all skill preambles
+  if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
+    ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$PI_GSTACK/ETHOS.md"
+  fi
+  # Review runtime assets (individual files, not whole dir)
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$SOURCE_GSTACK_DIR/review/$f" ]; then
+      ln -snf "$SOURCE_GSTACK_DIR/review/$f" "$PI_GSTACK/review/$f"
+    fi
+  done
+
+  # Link generated Pi-native skills from .pi/skills/ into ~/.pi/agent/skills/
+  if [ ! -d "$PI_GEN_DIR" ]; then
+    echo "  warning: no .pi/skills/ directory found — run 'bun run gen:skill-docs --host pi' first" >&2
+  else
+    for skill_dir in "$PI_GEN_DIR"/gstack*/; do
+      [ -f "$skill_dir/SKILL.md" ] || continue
+      skill_name="$(basename "$skill_dir")"
+      target_dir="$PI_SKILLS/$skill_name"
+      mkdir -p "$target_dir"
+      # Copy the generated Pi-native SKILL.md (already has correct $GSTACK_ROOT paths)
+      cp "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
+    done
+    # The root gstack SKILL.md is also generated natively
+    if [ -f "$PI_GEN_DIR/gstack/SKILL.md" ]; then
+      cp "$PI_GEN_DIR/gstack/SKILL.md" "$PI_GSTACK/SKILL.md"
+    fi
+    echo "gstack ready (pi)."
+    echo "  browse: $BROWSE_BIN"
+    echo "  pi skills: $PI_SKILLS"
+  fi
+fi
+
+# 8. Create .agents/ sidecar symlinks for the real Codex skill target.
 # The root Codex skill ends up pointing at $SOURCE_GSTACK_DIR/.agents/skills/gstack,
 # so the runtime assets must live there for both global and repo-local installs.
 if [ "$INSTALL_CODEX" -eq 1 ]; then
   create_agents_sidecar "$SOURCE_GSTACK_DIR"
 fi
 
-# 8. First-time welcome + legacy cleanup
+# 9. First-time welcome + legacy cleanup
 if [ ! -d "$HOME/.gstack" ]; then
   mkdir -p "$HOME/.gstack"
   echo "  Welcome! Run /gstack-upgrade anytime to stay current."

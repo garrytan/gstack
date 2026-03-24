@@ -237,6 +237,52 @@ Three reasons:
 
 Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea is: catch 95% of issues for free, use LLMs only for judgment calls.
 
+### Multi-host generation (Claude, Codex, Pi)
+
+Claude-native `.tmpl` templates are transformed per host at generation time:
+
+```
+bun run gen:skill-docs               # Claude (default) → {skill}/SKILL.md
+bun run gen:skill-docs --host codex   # Codex → .agents/skills/gstack-{name}/SKILL.md
+bun run gen:skill-docs --host pi      # Pi → .pi/skills/gstack-{name}/SKILL.md
+```
+
+**Shared transforms (Pi + Codex vs Claude):** Frontmatter stripped to `name:` + `description:` only (Claude's `allowed-tools`/`hooks`/`version` removed; hook-based skills get inline safety prose instead). Preamble uses `$GSTACK_ROOT`/`$GSTACK_BIN`/`$GSTACK_BROWSE` with repo-local-first resolution. `/codex` skill excluded (self-referential). All `~/.claude/` and `.claude/` paths rewritten to host equivalents. Skill naming via `codexSkillName()`: root → `gstack`, subdirs → `gstack-{dir}`, existing `gstack-` prefix preserved.
+
+#### Pi vs Codex differences
+
+| Aspect | Pi | Codex |
+|--------|-----|-------|
+| **Output / global / local dirs** | `.pi/skills/`, `~/.pi/agent/skills/`, `.pi/skills/` | `.agents/skills/`, `~/.codex/skills/`, `.agents/skills/` |
+| **name: field** | Must match dir name (`gstack-review`) — Pi validates at runtime | Passes through unchanged |
+| **openai.yaml** | Not generated | Generated per skill |
+| **Codex CLI sections** | Kept (Pi users may have `codex`) | Stripped (self-referential) |
+| **Setup install** | `cp` (avoids dangling symlinks) | `ln -snf` (supports dual-path discovery) |
+| **Migration** | None (new host) | `migrate_direct_codex_install()` |
+| **Repo-local detection** | Not yet implemented | `CODEX_REPO_LOCAL` flag |
+
+#### Path rewrite rules
+
+Order matters — specific before general to avoid prefix collisions:
+
+```
+~/.claude/skills/gstack  →  $GSTACK_ROOT              # both hosts
+.claude/skills/gstack    →  .{pi,agents}/skills/gstack
+.claude/skills/review    →  .{pi,agents}/skills/gstack/review   ← sidecar!
+.claude/skills           →  .{pi,agents}/skills
+```
+
+The `review → gstack/review` rewrite is critical: review sidecars (checklist.md, design-checklist.md, etc.) live under the `gstack/` runtime root, not under `gstack-review/`.
+
+#### Pi setup flow (`setup` sections 1c + 7)
+
+1. **Generate** (`INSTALL_PI=1`): Runs `gen:skill-docs --host pi` explicitly (not included in `bun run build`).
+2. **Runtime root**: Creates `~/.pi/agent/skills/gstack/` with symlinked assets (`bin/`, `browse/dist`, `browse/bin`, `ETHOS.md`, review sidecars).
+3. **Install**: Copies each `SKILL.md` from generated `.pi/skills/gstack-*/` into `~/.pi/agent/skills/gstack-*/`.
+4. **Cleanup**: Removes stale whole-directory symlinks from previous layouts.
+
+Intentionally omitted vs Codex: no dedicated `create_pi_runtime_root()` (inline suffices), no `create_agents_sidecar`, no migration logic, no repo-local detection (future work).
+
 ## Command dispatch
 
 Commands are categorized by side effects:
