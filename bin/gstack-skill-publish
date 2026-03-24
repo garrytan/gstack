@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# gstack-skill-publish — publish a skill to the community via GitHub
+#
+# Creates a GitHub repo for your skill, tags it with "gstack-skill",
+# and makes it discoverable via gstack-skill-search.
+#
+# Usage:
+#   gstack-skill-publish <skill-dir>                # publish existing skill
+#   gstack-skill-publish <skill-dir> --private      # private repo (not discoverable)
+#
+# What it does:
+#   1. Validates the skill (gstack-skill-validate)
+#   2. Creates a GitHub repo: <username>/gstack-<skill-name>
+#   3. Pushes .tmpl + supporting files
+#   4. Adds "gstack-skill" topic for discoverability
+#   5. Creates a README from the skill description
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GSTACK_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+SKILL_DIR="${1:?Usage: gstack-skill-publish <skill-dir>}"
+VISIBILITY="public"
+[ "${2:-}" = "--private" ] && VISIBILITY="private"
+
+# Resolve skill directory
+if [ -d "$GSTACK_DIR/$SKILL_DIR" ]; then
+  FULL_DIR="$GSTACK_DIR/$SKILL_DIR"
+elif [ -d "$SKILL_DIR" ]; then
+  FULL_DIR="$(cd "$SKILL_DIR" && pwd)"
+else
+  echo "ERROR: Skill directory not found: $SKILL_DIR"
+  exit 1
+fi
+
+SKILL_NAME=$(basename "$FULL_DIR")
+TMPL="$FULL_DIR/SKILL.md.tmpl"
+[ -f "$TMPL" ] || { echo "ERROR: No SKILL.md.tmpl in $FULL_DIR"; exit 1; }
+
+# 1. Validate
+echo "Validating /$SKILL_NAME..."
+if [ -x "$SCRIPT_DIR/gstack-skill-validate" ]; then
+  "$SCRIPT_DIR/gstack-skill-validate" "$TMPL" || { echo "Fix validation issues before publishing."; exit 1; }
+fi
+echo ""
+
+# Extract metadata
+VERSION=$(grep "^version:" "$TMPL" 2>/dev/null | head -1 | awk '{print $2}' || echo "1.0.0")
+DESC=$(grep -A3 "^description:" "$TMPL" 2>/dev/null | tail -2 | sed 's/^ *//' | tr '\n' ' ' | head -c 200 || echo "A gstack skill")
+
+REPO_NAME="gstack-$SKILL_NAME"
+USERNAME=$(gh api user -q '.login' 2>/dev/null || echo "unknown")
+
+echo "Publishing /$SKILL_NAME as $USERNAME/$REPO_NAME ($VISIBILITY)"
+echo ""
+
+# 2. Create repo
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+mkdir -p "$TMPDIR/$REPO_NAME"
+cp "$TMPL" "$TMPDIR/$REPO_NAME/"
+
+# Copy supporting files
+for f in "$FULL_DIR"/*.md "$FULL_DIR"/templates/* "$FULL_DIR"/references/*; do
+  [ -f "$f" ] && [ "$(basename "$f")" != "SKILL.md" ] && cp "$f" "$TMPDIR/$REPO_NAME/" 2>/dev/null || true
+done
+
+# Generate README
+cat > "$TMPDIR/$REPO_NAME/README.md" << REOF
+# /$SKILL_NAME — gstack skill
+
+$DESC
+
+## Install
+
+\`\`\`bash
+gstack-skill-install $USERNAME/$REPO_NAME
+\`\`\`
+
+Or manually:
+\`\`\`bash
+# Copy to your gstack skills directory
+cp $SKILL_NAME/SKILL.md.tmpl ~/.claude/skills/gstack/$SKILL_NAME/
+cd ~/.claude/skills/gstack && bun run gen:skill-docs
+\`\`\`
+
+## Usage
+
+\`\`\`
+/$SKILL_NAME
+\`\`\`
+
+## Version
+
+$VERSION
+
+---
+
+Published with [gstack](https://github.com/garrytan/gstack) · [\`gstack-skill-publish\`](https://github.com/garrytan/gstack)
+REOF
+
+# 3. Init git and push
+cd "$TMPDIR/$REPO_NAME"
+git init -q
+git add -A
+git commit -q -m "feat: /$SKILL_NAME gstack skill v$VERSION"
+
+# Create GitHub repo
+gh repo create "$REPO_NAME" --"$VISIBILITY" --source=. --push --description "$DESC" 2>/dev/null
+if [ $? -ne 0 ]; then
+  echo "ERROR: Could not create repo. It may already exist."
+  echo "  Try: gh repo edit $USERNAME/$REPO_NAME --add-topic gstack-skill"
+  exit 1
+fi
+
+# 4. Add topic for discoverability
+gh repo edit "$USERNAME/$REPO_NAME" --add-topic gstack-skill 2>/dev/null
+
+echo ""
+echo "Published: https://github.com/$USERNAME/$REPO_NAME"
+echo ""
+echo "Others can install with:"
+echo "  gstack-skill-install $USERNAME/$REPO_NAME"
+echo ""
+echo "Discoverable via:"
+echo "  gstack-skill-search"
