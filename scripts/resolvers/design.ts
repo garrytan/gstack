@@ -23,7 +23,7 @@ codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
-\`\`\`
+rm -f "$TMPERR_DRL" 2>/dev/null || true\`\`\`
 
 **Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
 
@@ -470,7 +470,7 @@ TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
 codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
-
+rm -f "$TMPERR_SKETCH" 2>/dev/null || true
 2. **Claude subagent** (via Agent tool):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
@@ -641,7 +641,7 @@ codex exec "${escapedCodexPrompt}" -s read-only -c 'model_reasoning_effort="${re
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
-\`\`\`
+rm -f "$TMPERR_DESIGN" 2>/dev/null || true\`\`\`
 
 2. **Claude design subagent** (via Agent tool):
 Dispatch a subagent with this prompt:

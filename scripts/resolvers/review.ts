@@ -287,12 +287,12 @@ Write the full prompt (context block + instructions) to this file. Use the mode-
 \`\`\`bash
 TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
 codex exec "$(cat "$CODEX_PROMPT_FILE")" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_OH"
-\`\`\`
+rm -f "$CODEX_PROMPT_FILE" 2>/dev/null || true\`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_OH"
-rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
+rm -f "$TMPERR_OH" 2>/dev/null || truerm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
 \`\`\`
 
 **Error handling:** All errors are non-blocking — Codex second opinion is a quality enhancement, not a prerequisite.
@@ -376,7 +376,7 @@ codex exec "Review the changes on this branch against the base branch. Run git d
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_ADV"
-\`\`\`
+rm -f "$TMPERR_ADV" 2>/dev/null || true\`\`\`
 
 Present the full output verbatim. This is informational — it never blocks shipping.
 
@@ -531,7 +531,7 @@ codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_PV"
-\`\`\`
+rm -f "$TMPERR_PV" 2>/dev/null || true\`\`\`
 
 Present the full output verbatim:
 
