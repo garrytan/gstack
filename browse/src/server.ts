@@ -161,12 +161,24 @@ export { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS };
 const browserManager = new BrowserManager();
 let isShuttingDown = false;
 
+type ServerWithOptionalReady = {
+  stop: () => void;
+  ready?: Promise<void>;
+};
+
+async function awaitServerReady(server: ServerWithOptionalReady): Promise<void> {
+  if (server.ready && typeof server.ready.then === 'function') {
+    await server.ready;
+  }
+}
+
 // Find port: explicit BROWSE_PORT, or random in 10000-60000
 async function findPort(): Promise<number> {
   // Explicit port override (for debugging)
   if (BROWSE_PORT) {
     try {
-      const testServer = Bun.serve({ port: BROWSE_PORT, fetch: () => new Response('ok') });
+      const testServer = Bun.serve({ port: BROWSE_PORT, fetch: () => new Response('ok') }) as unknown as ServerWithOptionalReady;
+      await awaitServerReady(testServer);
       testServer.stop();
       return BROWSE_PORT;
     } catch {
@@ -181,7 +193,8 @@ async function findPort(): Promise<number> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const port = MIN_PORT + Math.floor(Math.random() * (MAX_PORT - MIN_PORT));
     try {
-      const testServer = Bun.serve({ port, fetch: () => new Response('ok') });
+      const testServer = Bun.serve({ port, fetch: () => new Response('ok') }) as unknown as ServerWithOptionalReady;
+      await awaitServerReady(testServer);
       testServer.stop();
       return port;
     } catch {
@@ -294,6 +307,95 @@ if (process.platform === 'win32') {
   });
 }
 
+function createFetchHandler(startTime: number) {
+  return async (req: Request) => {
+    resetIdleTimer();
+
+    const url = new URL(req.url);
+
+    // Cookie picker routes — no auth required (localhost-only)
+    if (url.pathname.startsWith('/cookie-picker')) {
+      return handleCookiePickerRoute(url, req, browserManager);
+    }
+
+    // Health check — no auth required (now async)
+    if (url.pathname === '/health') {
+      const healthy = await browserManager.isHealthy();
+      return new Response(JSON.stringify({
+        status: healthy ? 'healthy' : 'unhealthy',
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+        tabs: browserManager.getTabCount(),
+        currentUrl: browserManager.getCurrentUrl(),
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // All other endpoints require auth
+    if (!validateAuth(req)) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/command' && req.method === 'POST') {
+      const body = await req.json();
+      return handleCommand(body);
+    }
+
+    return new Response('Not found', { status: 404 });
+  };
+}
+
+function isAddressInUseError(err: any): boolean {
+  if (!err) return false;
+  if (err.code === 'EADDRINUSE') return true;
+  const message = String(err.message || err);
+  return (
+    message.includes('EADDRINUSE') ||
+    message.toLowerCase().includes('address already in use') ||
+    message.includes('(from BROWSE_PORT env) is in use')
+  );
+}
+
+async function startServerWithRetry(startTime: number, maxRetries = 5): Promise<{ server: ServerWithOptionalReady; port: number }> {
+  const basePort = BROWSE_PORT ? parseInt(String(BROWSE_PORT), 10) : await findPort();
+  let lastErr: any = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const port = basePort + (attempt - 1);
+    let server: ServerWithOptionalReady | null = null;
+
+    try {
+      server = Bun.serve({
+        port,
+        hostname: '127.0.0.1',
+        fetch: createFetchHandler(startTime),
+      }) as unknown as ServerWithOptionalReady;
+      await awaitServerReady(server);
+      return { server, port };
+    } catch (err: any) {
+      if (server) {
+        try { server.stop(); } catch {}
+      }
+
+      if (isAddressInUseError(err) && attempt < maxRetries) {
+        console.warn(`[browse] Port ${port} in use, retrying... (${attempt}/${maxRetries})`);
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (lastErr) {
+    throw new Error(`[browse] Failed to bind after ${maxRetries} attempts: ${lastErr.message || lastErr}`);
+  }
+  throw new Error(`[browse] Failed to bind after ${maxRetries} attempts`);
+}
+
 // ─── Start ─────────────────────────────────────────────────────
 async function start() {
   // Clear old log files
@@ -301,55 +403,11 @@ async function start() {
   try { fs.unlinkSync(NETWORK_LOG_PATH); } catch {}
   try { fs.unlinkSync(DIALOG_LOG_PATH); } catch {}
 
-  const port = await findPort();
-
   // Launch browser
   await browserManager.launch();
 
   const startTime = Date.now();
-  const server = Bun.serve({
-    port,
-    hostname: '127.0.0.1',
-    fetch: async (req) => {
-      resetIdleTimer();
-
-      const url = new URL(req.url);
-
-      // Cookie picker routes — no auth required (localhost-only)
-      if (url.pathname.startsWith('/cookie-picker')) {
-        return handleCookiePickerRoute(url, req, browserManager);
-      }
-
-      // Health check — no auth required (now async)
-      if (url.pathname === '/health') {
-        const healthy = await browserManager.isHealthy();
-        return new Response(JSON.stringify({
-          status: healthy ? 'healthy' : 'unhealthy',
-          uptime: Math.floor((Date.now() - startTime) / 1000),
-          tabs: browserManager.getTabCount(),
-          currentUrl: browserManager.getCurrentUrl(),
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      // All other endpoints require auth
-      if (!validateAuth(req)) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      if (url.pathname === '/command' && req.method === 'POST') {
-        const body = await req.json();
-        return handleCommand(body);
-      }
-
-      return new Response('Not found', { status: 404 });
-    },
-  });
+  const { port } = await startServerWithRetry(startTime, 5);
 
   // Write state file (atomic: write .tmp then rename)
   const state = {

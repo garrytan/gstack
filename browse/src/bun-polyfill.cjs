@@ -16,10 +16,11 @@ const { spawnSync, spawn } = require('child_process');
 globalThis.Bun = {
   serve(options) {
     const { port, hostname = '127.0.0.1', fetch } = options;
+    let currentPort = port;
 
     const server = http.createServer(async (nodeReq, nodeRes) => {
       try {
-        const url = `http://${hostname}:${port}${nodeReq.url}`;
+        const url = `http://${hostname}:${currentPort}${nodeReq.url}`;
         const headers = new Headers();
         for (const [key, val] of Object.entries(nodeReq.headers)) {
           if (val) headers.set(key, Array.isArray(val) ? val[0] : val);
@@ -55,13 +56,66 @@ globalThis.Bun = {
       }
     });
 
-    server.listen(port, hostname);
-
-    return {
-      stop() { server.close(); },
-      port,
-      hostname,
+    const runtimeErrorHandler = (err) => {
+      const msg = err && err.message ? err.message : String(err);
+      console.error(`[browse] Node HTTP server runtime error: ${msg}`);
     };
+    server.on('error', runtimeErrorHandler);
+
+    let onListening;
+    let onError;
+    const cleanupStartupListeners = () => {
+      if (onListening) server.off('listening', onListening);
+      if (onError) server.off('error', onError);
+    };
+
+    const serverHandle = {
+      stop() {
+        server.off('error', runtimeErrorHandler);
+        server.close();
+      },
+      port: currentPort,
+      hostname,
+      ready: null,
+    };
+
+    const ready = new Promise((resolve, reject) => {
+      onListening = () => {
+        try {
+          const addr = server.address();
+          if (addr && typeof addr === 'object' && typeof addr.port === 'number') {
+            currentPort = addr.port;
+            serverHandle.port = addr.port;
+          }
+          cleanupStartupListeners();
+          resolve();
+        } catch (err) {
+          cleanupStartupListeners();
+          reject(err);
+        }
+      };
+
+      onError = (err) => {
+        cleanupStartupListeners();
+        reject(err);
+      };
+
+      server.once('listening', onListening);
+      server.once('error', onError);
+
+      try {
+        server.listen(port, hostname);
+      } catch (err) {
+        cleanupStartupListeners();
+        reject(err);
+      }
+    });
+
+    // Avoid unhandled rejection if a caller forgets to await ready.
+    ready.catch(() => {});
+    serverHandle.ready = ready;
+
+    return serverHandle;
   },
 
   spawnSync(cmd, options = {}) {
