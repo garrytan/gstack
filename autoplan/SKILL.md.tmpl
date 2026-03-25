@@ -195,19 +195,14 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   Duplicates → reject (P4). Borderline (3-5 files) → mark TASTE DECISION.
 - All 10 review sections: run fully, auto-decide each issue, log every decision.
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
-  Run them simultaneously (Agent tool for subagent, Bash for Codex).
+  Run them sequentially — Claude subagent first (foreground), then Codex:
+  1. Dispatch the Claude subagent via Agent tool in **foreground** (blocks until complete)
+  2. Run Codex via Bash (blocks until complete)
+  3. Both outputs now available — present in the consensus table
+  Do NOT use `run_in_background` for the subagent — background tasks are
+  permission-isolated and cannot read files or run commands.
 
-  **Codex CEO voice** (via Bash):
-  Command: `codex exec "You are a CEO/founder advisor reviewing a development plan.
-  Challenge the strategic foundations: Are the premises valid or assumed? Is this the
-  right problem to solve, or is there a reframing that would be 10x more impactful?
-  What alternatives were dismissed too quickly? What competitive or market risks are
-  unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
-  No compliments. Just the strategic blind spots.
-  File: <plan_path>" -s read-only --enable web_search_cached`
-  Timeout: 10 minutes
-
-  **Claude CEO subagent** (via Agent tool):
+  **Claude CEO subagent** (via Agent tool — run FIRST, foreground):
   "Read the plan file at <plan_path>. You are an independent CEO/strategist
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Is this the right problem to solve? Could a reframing yield 10x impact?
@@ -217,9 +212,20 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   5. What's the competitive risk — could someone else solve this first/better?
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
-  **Error handling:** All non-blocking. Codex auth/timeout/empty → proceed with
-  Claude subagent only, tagged `[single-model]`. If Claude subagent also fails →
-  "Outside voices unavailable — continuing with primary review."
+  **Codex CEO voice** (via Bash — run SECOND, after subagent returns):
+  Command: `codex exec "You are a CEO/founder advisor reviewing a development plan.
+  Challenge the strategic foundations: Are the premises valid or assumed? Is this the
+  right problem to solve, or is there a reframing that would be 10x more impactful?
+  What alternatives were dismissed too quickly? What competitive or market risks are
+  unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
+  No compliments. Just the strategic blind spots.
+  File: <plan_path>" -s read-only --enable web_search_cached`
+  Timeout: 10 minutes
+
+  **Error handling:** Agent tool blocks in foreground; Codex blocks via Bash.
+  Codex auth/timeout/empty → proceed with Claude subagent only, tagged
+  `[single-model]`. If Claude subagent also fails → "Outside voices
+  unavailable — continuing with primary review."
 
   **Degradation matrix:** Both fail → "single-reviewer mode". Codex only →
   tag `[codex-only]`. Subagent only → tag `[subagent-only]`.
@@ -238,10 +244,10 @@ Step 0 (0A-0F) — run each sub-step and produce:
 - 0E: Temporal interrogation (HOUR 1 → HOUR 6+)
 - 0F: Mode selection confirmation
 
-Step 0.5 (Dual Voices): Run Claude subagent AND Codex simultaneously. Present
-Codex output under CODEX SAYS (CEO — strategy challenge) header. Present subagent
-output under CLAUDE SUBAGENT (CEO — strategic independence) header. Produce CEO
-consensus table:
+Step 0.5 (Dual Voices): Run Claude subagent (foreground, blocking) first, then
+Codex (Bash, blocking). Present Codex output under CODEX SAYS (CEO — strategy
+challenge) header. Present subagent output under CLAUDE SUBAGENT (CEO — strategic
+independence) header. Produce CEO consensus table:
 
 ```
 CEO DUAL VOICES — CONSENSUS TABLE:
@@ -301,8 +307,21 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Aesthetic/taste issues: mark TASTE DECISION
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+  Run them sequentially — Claude subagent first (foreground), then Codex.
+  Do NOT use `run_in_background` for the subagent.
 
-  **Codex design voice** (via Bash):
+  **Claude design subagent** (via Agent tool — run FIRST, foreground):
+  "Read the plan file at <plan_path>. You are an independent senior product designer
+  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  1. Information hierarchy: what does the user see first, second, third? Is it right?
+  2. Missing states: loading, empty, error, success, partial — which are unspecified?
+  3. User journey: what's the emotional arc? Where does it break?
+  4. Specificity: does the plan describe SPECIFIC UI or generic patterns?
+  5. What design decisions will haunt the implementer if left ambiguous?
+  For each finding: what's wrong, severity (critical/high/medium), and the fix."
+  NO prior-phase context — subagent must be truly independent.
+
+  **Codex design voice** (via Bash — run SECOND, after subagent returns):
   Command: `codex exec "Read the plan file at <plan_path>. Evaluate this plan's
   UI/UX design decisions.
 
@@ -318,18 +337,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   Be opinionated. No hedging." -s read-only --enable web_search_cached`
   Timeout: 10 minutes
 
-  **Claude design subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent senior product designer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Information hierarchy: what does the user see first, second, third? Is it right?
-  2. Missing states: loading, empty, error, success, partial — which are unspecified?
-  3. User journey: what's the emotional arc? Where does it break?
-  4. Specificity: does the plan describe SPECIFIC UI or generic patterns?
-  5. What design decisions will haunt the implementer if left ambiguous?
-  For each finding: what's wrong, severity (critical/high/medium), and the fix."
-  NO prior-phase context — subagent must be truly independent.
-
-  Error handling: same as Phase 1 (non-blocking, degradation matrix applies).
+  Error handling: same as Phase 1 (sequential, degradation matrix applies).
 
 - Design choices: if codex disagrees with a design decision with valid UX reasoning
   → TASTE DECISION.
@@ -338,11 +346,11 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 1. Step 0 (Design Scope): Rate completeness 0-10. Check DESIGN.md. Map existing patterns.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent AND Codex simultaneously. Present under
-   CODEX SAYS (design — UX challenge) and CLAUDE SUBAGENT (design — independent review)
-   headers. Produce design litmus scorecard (consensus table). Use the litmus scorecard
-   format from plan-design-review. Include CEO phase findings in Codex prompt ONLY
-   (not Claude subagent — stays independent).
+2. Step 0.5 (Dual Voices): Run Claude subagent (foreground, blocking) first, then
+   Codex (Bash, blocking). Present under CODEX SAYS (design — UX challenge) and
+   CLAUDE SUBAGENT (design — independent review) headers. Produce design litmus
+   scorecard (consensus table). Use the litmus scorecard format from plan-design-review.
+   Include CEO phase findings in Codex prompt ONLY (not Claude subagent — stays independent).
 
 3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
    DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
@@ -371,19 +379,10 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 **Override rules:**
 - Scope challenge: never reduce (P2)
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+  Run them sequentially — Claude subagent first (foreground), then Codex.
+  Do NOT use `run_in_background` for the subagent.
 
-  **Codex eng voice** (via Bash):
-  Command: `codex exec "Review this plan for architectural issues, missing edge cases,
-  and hidden complexity. Be adversarial.
-
-  Also consider these findings from prior review phases:
-  CEO: <insert CEO consensus table summary — key concerns, DISAGREEs>
-  Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
-
-  File: <plan_path>" -s read-only --enable web_search_cached`
-  Timeout: 10 minutes
-
-  **Claude eng subagent** (via Agent tool):
+  **Claude eng subagent** (via Agent tool — run FIRST, foreground):
   "Read the plan file at <plan_path>. You are an independent senior engineer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Architecture: Is the component structure sound? Coupling concerns?
@@ -394,7 +393,18 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   For each finding: what's wrong, severity, and the fix."
   NO prior-phase context — subagent must be truly independent.
 
-  Error handling: same as Phase 1 (non-blocking, degradation matrix applies).
+  **Codex eng voice** (via Bash — run SECOND, after subagent returns):
+  Command: `codex exec "Review this plan for architectural issues, missing edge cases,
+  and hidden complexity. Be adversarial.
+
+  Also consider these findings from prior review phases:
+  CEO: <insert CEO consensus table summary — key concerns, DISAGREEs>
+  Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
+
+  File: <plan_path>" -s read-only --enable web_search_cached`
+  Timeout: 10 minutes
+
+  Error handling: same as Phase 1 (sequential, degradation matrix applies).
 
 - Architecture choices: explicit over clever (P5). If codex disagrees with valid reason → TASTE DECISION.
 - Evals: always include all relevant suites (P1)
@@ -406,10 +416,10 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 1. Step 0 (Scope Challenge): Read actual code referenced by the plan. Map each
    sub-problem to existing code. Run the complexity check. Produce concrete findings.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent AND Codex simultaneously. Present
-   Codex output under CODEX SAYS (eng — architecture challenge) header. Present subagent
-   output under CLAUDE SUBAGENT (eng — independent review) header. Produce eng consensus
-   table:
+2. Step 0.5 (Dual Voices): Run Claude subagent (foreground, blocking) first, then
+   Codex (Bash, blocking). Present Codex output under CODEX SAYS (eng — architecture
+   challenge) header. Present subagent output under CLAUDE SUBAGENT (eng — independent
+   review) header. Produce eng consensus table:
 
 ```
 ENG DUAL VOICES — CONSENSUS TABLE:
