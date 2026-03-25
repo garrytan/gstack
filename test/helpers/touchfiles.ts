@@ -79,9 +79,10 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Ship
   'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode'],
   'ship-local-workflow': ['ship/**', 'scripts/gen-skill-docs.ts'],
+  'ship-log':          ['ship/**', 'bin/gstack-ship-log'],
 
   // Retro
-  'retro':             ['retro/**'],
+  'retro':             ['retro/**', 'bin/gstack-ship-log'],
   'retro-base-branch': ['retro/**'],
 
   // Global discover
@@ -208,6 +209,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'ship-local-workflow': 'gate',
   'ship-coverage-audit': 'gate',
   'ship-triage': 'gate',
+  'ship-log': 'periodic',
 
   // Retro — gate for cheap branch detection, periodic for full Opus retro
   'retro': 'periodic',
