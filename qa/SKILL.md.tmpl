@@ -33,17 +33,23 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 ## Session Memory
 
 Before starting QA, initialize synthetic memory:
-1. Run `bash ~/.claude/skills/gstack/scripts/init-memory.sh` if `.gstack/` doesn't exist
-2. Read `.gstack/session.json` — if a previous skill left unresolved findings, note them
-3. Read `.gstack/handoff.md` if it exists — incorporate prior context (e.g., from /review)
-4. Set `session.json`: skill="qa", phase="setup", turn_count=0
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+bash ~/.claude/skills/gstack/scripts/init-memory.sh
+```
+
+1. Read `~/.gstack/projects/$SLUG/state.md` — if a previous skill left state, note it
+2. Read `~/.gstack/projects/$SLUG/handoff.md` if it exists — incorporate prior context
+3. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` for any existing findings
+4. Update `state.md`: skill=qa, phase=setup, turn=0
 
 Follow the Synthetic Memory Protocol from `lib/memory.md` throughout this QA session.
 Specifically:
-- Write EVERY finding to `.gstack/findings.md` IMMEDIATELY upon discovery
+- Write EVERY finding to `~/.gstack/projects/$SLUG/findings-$BRANCH.md` IMMEDIATELY upon discovery
 - Run a CHECKPOINT every 5 tool calls
 - Log EVERY user decision to `.gstack/decisions.log`
-- On completion, write `.gstack/handoff.md` for the next skill
+- On completion, write `~/.gstack/projects/$SLUG/handoff.md` for the next skill
 
 ### Screenshot Memory
 
@@ -51,8 +57,7 @@ Browser screenshots consume enormous context and are aggressively compacted.
 After EVERY screenshot that reveals a bug or important state:
 
 1. Extract the key observation into text IMMEDIATELY
-2. Write it to `.gstack/findings.md` if it's a bug
-3. Note the URL, viewport state, and observation in `.gstack/session.json`
+2. Write it to `~/.gstack/projects/$SLUG/findings-$BRANCH.md` if it's a bug
 
 NEVER rely on "I saw in the screenshot earlier that..." — if you didn't write
 it down, you don't know it. The screenshot may have been compacted away.
@@ -216,11 +221,11 @@ $B snapshot -D
 - **best-effort**: fix applied but couldn't fully verify (e.g., needs auth state, external service)
 - **reverted**: regression detected → `git revert HEAD` → mark issue as "deferred"
 
-When a fix is classified, update the finding in `.gstack/findings.md` with:
+When a fix is classified, update the finding in `~/.gstack/projects/$SLUG/findings-$BRANCH.md` with:
 - Status: RESOLVED (or DEFERRED if reverted)
 - Resolution: description of fix
 - Commit SHA (if fixed)
-Update `.gstack/session.json` accordingly.
+Update `~/.gstack/projects/$SLUG/state.md` accordingly.
 
 ### 8e.5. Regression Test
 
@@ -270,7 +275,7 @@ Use auto-incrementing names to avoid collisions: check existing `{name}.regressi
 
 **4. Evaluate:**
 - Passes → commit: `git commit -m "test(qa): regression test for ISSUE-NNN — {desc}"`
-  Update the finding in `.gstack/findings.md` with: `Regression test: {test file and test name}`
+  Update the finding in `~/.gstack/projects/$SLUG/findings-$BRANCH.md` with: `Regression test: {test file and test name}`
 - Fails → fix test once. Still failing → delete test, defer.
 - Taking >2 min exploration → skip and defer.
 
@@ -347,12 +352,11 @@ If the repo has a `TODOS.md`:
 ## QA Completion
 
 Before presenting the final QA report:
-1. Read `.gstack/findings.md` to get the complete findings list
-2. Read `.gstack/session.json` to verify all phases completed
-3. Write `.gstack/handoff.md` with the full QA summary, unresolved findings, and recommendations
+1. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` to get the complete findings list
+2. Write `~/.gstack/projects/$SLUG/handoff.md` with the full QA summary, unresolved findings, and recommendations
 4. Present the report based on the FILES, not your memory
 
-The final report MUST match what's in `.gstack/findings.md`. If your memory
+The final report MUST match what's in `~/.gstack/projects/$SLUG/findings-$BRANCH.md`. If your memory
 of the findings differs from the file, the file is correct.
 
 ---

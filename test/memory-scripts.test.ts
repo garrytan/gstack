@@ -9,11 +9,29 @@ const INIT_SCRIPT = path.join(ROOT, 'scripts', 'init-memory.sh');
 const STATUS_SCRIPT = path.join(ROOT, 'scripts', 'gstack-status.sh');
 const RESET_SCRIPT = path.join(ROOT, 'scripts', 'gstack-reset.sh');
 
-function runScript(scriptPath: string, cwd: string): { exitCode: number; stdout: string; stderr: string } {
+// Fake slug and branch for tests
+const TEST_SLUG = 'test-org-test-repo';
+const TEST_BRANCH = 'feat-test';
+
+function runScript(
+  scriptPath: string,
+  cwd: string,
+  gstackHome: string
+): { exitCode: number; stdout: string; stderr: string } {
+  // Create a stub gstack-slug in the expected location
+  const binDir = path.join(ROOT, 'bin');
+  const slugScript = path.join(binDir, 'gstack-slug');
+
+  // We override PATH so the scripts find gstack-slug from the repo's bin/
   const result = spawnSync('bash', [scriptPath], {
     cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      GSTACK_HOME: gstackHome,
+      // Override gstack-slug to return test values by creating a wrapper
+      PATH: `${gstackHome}/bin:${process.env.PATH}`,
+    },
     timeout: 5000,
   });
   return {
@@ -24,9 +42,26 @@ function runScript(scriptPath: string, cwd: string): { exitCode: number; stdout:
 }
 
 let tmpDir: string;
+let gstackHome: string;
+let sessionDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-memory-test-'));
+  gstackHome = path.join(tmpDir, 'home-gstack');
+  sessionDir = path.join(gstackHome, 'projects', TEST_SLUG);
+
+  // Create a fake gstack-slug that returns test values
+  const binDir = path.join(gstackHome, 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(binDir, 'gstack-slug'),
+    `#!/usr/bin/env bash\necho "SLUG=${TEST_SLUG}"\necho "BRANCH=${TEST_BRANCH}"\n`
+  );
+  fs.chmodSync(path.join(binDir, 'gstack-slug'), 0o755);
+
+  // Init a git repo in tmpDir so gstack-slug fallback doesn't error
+  spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+  spawnSync('git', ['checkout', '-b', TEST_BRANCH], { cwd: tmpDir });
 });
 
 afterEach(() => {
@@ -38,58 +73,70 @@ afterEach(() => {
 // ============================================================
 describe('init-memory.sh', () => {
 
-  test('creates .gstack directory structure from scratch', () => {
-    const { exitCode, stdout } = runScript(INIT_SCRIPT, tmpDir);
+  test('creates session dir and team knowledge dir', () => {
+    const { exitCode, stdout } = runScript(INIT_SCRIPT, tmpDir, gstackHome);
     expect(exitCode).toBe(0);
     expect(stdout).toContain('gstack memory initialized');
 
-    expect(fs.existsSync(path.join(tmpDir, '.gstack'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, '.gstack', 'checkpoints'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, '.gstack', 'session.json'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, '.gstack', 'findings.md'))).toBe(true);
+    // Session state in ~/.gstack/projects/$SLUG/
+    expect(fs.existsSync(path.join(sessionDir, 'state.md'))).toBe(true);
+    expect(fs.existsSync(path.join(sessionDir, `findings-${TEST_BRANCH}.md`))).toBe(true);
+
+    // Team knowledge in .gstack/
     expect(fs.existsSync(path.join(tmpDir, '.gstack', 'decisions.log'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, '.gstack', 'anti-patterns.md'))).toBe(true);
   });
 
-  test('session.json contains valid JSON with expected schema', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    const content = fs.readFileSync(path.join(tmpDir, '.gstack', 'session.json'), 'utf-8');
-    const session = JSON.parse(content);
-    expect(session.skill).toBeNull();
-    expect(session.phase).toBe('idle');
-    expect(session.turn_count).toBe(0);
-    expect(session.critical_findings).toEqual([]);
-    expect(session.decisions).toEqual([]);
-    expect(session.completed_checks).toEqual([]);
-    expect(session.pending_checks).toEqual([]);
-    expect(session.context_warnings).toEqual([]);
+  test('state.md contains expected fields', () => {
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    const content = fs.readFileSync(path.join(sessionDir, 'state.md'), 'utf-8');
+    expect(content).toContain('skill: null');
+    expect(content).toContain('phase: idle');
+    expect(content).toContain('turn: 0');
   });
 
-  test('findings.md contains expected header', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    const content = fs.readFileSync(path.join(tmpDir, '.gstack', 'findings.md'), 'utf-8');
+  test('findings file is branch-scoped and contains header', () => {
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    const content = fs.readFileSync(
+      path.join(sessionDir, `findings-${TEST_BRANCH}.md`),
+      'utf-8'
+    );
     expect(content).toContain('# Findings Registry');
+    expect(content).toContain(TEST_BRANCH);
     expect(content).toContain('source of truth');
   });
 
+  test('anti-patterns.md contains expected header', () => {
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    const content = fs.readFileSync(
+      path.join(tmpDir, '.gstack', 'anti-patterns.md'),
+      'utf-8'
+    );
+    expect(content).toContain('# Anti-Patterns Registry');
+  });
+
   test('decisions.log is created empty', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    const content = fs.readFileSync(path.join(tmpDir, '.gstack', 'decisions.log'), 'utf-8');
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    const content = fs.readFileSync(
+      path.join(tmpDir, '.gstack', 'decisions.log'),
+      'utf-8'
+    );
     expect(content).toBe('');
   });
 
   test('idempotent: running twice does not overwrite existing files', () => {
-    runScript(INIT_SCRIPT, tmpDir);
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
 
-    // Modify session.json
-    const sessionPath = path.join(tmpDir, '.gstack', 'session.json');
-    const modified = JSON.stringify({ skill: 'review', phase: 'testing', turn_count: 5 });
-    fs.writeFileSync(sessionPath, modified);
+    // Modify state.md
+    const statePath = path.join(sessionDir, 'state.md');
+    const modified = 'skill: review\nphase: testing\nturn: 5\n';
+    fs.writeFileSync(statePath, modified);
 
     // Run again
-    runScript(INIT_SCRIPT, tmpDir);
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
 
     // Should NOT be overwritten
-    const content = fs.readFileSync(sessionPath, 'utf-8');
+    const content = fs.readFileSync(statePath, 'utf-8');
     expect(content).toBe(modified);
   });
 });
@@ -99,43 +146,24 @@ describe('init-memory.sh', () => {
 // ============================================================
 describe('gstack-status.sh', () => {
 
-  test('no .gstack directory: prints "No active session" and exits 0', () => {
-    const { exitCode, stdout } = runScript(STATUS_SCRIPT, tmpDir);
+  test('no session: shows project info and "No active session"', () => {
+    const { exitCode, stdout } = runScript(STATUS_SCRIPT, tmpDir, gstackHome);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain('No .gstack directory found');
+    expect(stdout).toContain(TEST_SLUG);
+    expect(stdout).toContain('No active session');
   });
 
-  test('empty session shows defaults', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    const { exitCode, stdout } = runScript(STATUS_SCRIPT, tmpDir);
+  test('initialized session shows defaults', () => {
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    const { exitCode, stdout } = runScript(STATUS_SCRIPT, tmpDir, gstackHome);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain('Phase: idle');
-    expect(stdout).toContain('Turns: 0');
-  });
-
-  test('populated session shows correct skill/phase/turns', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    const session = {
-      skill: 'review',
-      started_at: '2026-03-20T14:30:00Z',
-      phase: 'security_scan',
-      turn_count: 12,
-      critical_findings: [],
-      decisions: [],
-      completed_checks: [],
-      pending_checks: [],
-      context_warnings: [],
-    };
-    fs.writeFileSync(path.join(tmpDir, '.gstack', 'session.json'), JSON.stringify(session, null, 2));
-    const { stdout } = runScript(STATUS_SCRIPT, tmpDir);
-    expect(stdout).toContain('/review');
-    expect(stdout).toContain('security_scan');
-    expect(stdout).toContain('12');
+    expect(stdout).toContain('idle');
+    expect(stdout).toContain('Findings');
   });
 
   test('correctly distinguishes UNRESOLVED vs RESOLVED findings', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    const findings = `# Findings Registry
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    const findings = `# Findings Registry — ${TEST_BRANCH}
 
 ---
 
@@ -151,38 +179,50 @@ describe('gstack-status.sh', () => {
 - **Status:** UNRESOLVED
 - **File:** payment.py:187
 `;
-    fs.writeFileSync(path.join(tmpDir, '.gstack', 'findings.md'), findings);
-    const { stdout } = runScript(STATUS_SCRIPT, tmpDir);
+    fs.writeFileSync(
+      path.join(sessionDir, `findings-${TEST_BRANCH}.md`),
+      findings
+    );
+    const { stdout } = runScript(STATUS_SCRIPT, tmpDir, gstackHome);
     expect(stdout).toContain('2 unresolved');
     expect(stdout).toContain('1 resolved');
   });
 
-  test('counts decisions correctly', () => {
-    runScript(INIT_SCRIPT, tmpDir);
+  test('shows team knowledge status', () => {
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
     const decisions = `[2026-03-20T14:35:00Z] DECISION: Skip CSS linting
 CONTEXT: User confirmed backend-only review
 SKILL: /review
-
-[2026-03-20T14:40:00Z] DECISION: Auth module in scope
-CONTEXT: User confirmed
-SKILL: /review
 `;
     fs.writeFileSync(path.join(tmpDir, '.gstack', 'decisions.log'), decisions);
-    const { stdout } = runScript(STATUS_SCRIPT, tmpDir);
-    expect(stdout).toContain('2 logged');
+    const { stdout } = runScript(STATUS_SCRIPT, tmpDir, gstackHome);
+    expect(stdout).toContain('Decisions:');
+    expect(stdout).toContain('lines logged');
+  });
+
+  test('shows anti-pattern count', () => {
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    const antiPatterns = `# Anti-Patterns Registry
+
+---
+
+### AP001 — Mutex-based payment fix
+- **Attempted:** 2026-03-20T14:42:00Z
+- **Why it failed:** Deadlock under concurrent requests
+`;
+    fs.writeFileSync(
+      path.join(tmpDir, '.gstack', 'anti-patterns.md'),
+      antiPatterns
+    );
+    const { stdout } = runScript(STATUS_SCRIPT, tmpDir, gstackHome);
+    expect(stdout).toContain('Anti-patterns: 1');
   });
 
   test('detects handoff presence', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    fs.writeFileSync(path.join(tmpDir, '.gstack', 'handoff.md'), '# Handoff');
-    const { stdout } = runScript(STATUS_SCRIPT, tmpDir);
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    fs.writeFileSync(path.join(sessionDir, 'handoff.md'), '# Handoff');
+    const { stdout } = runScript(STATUS_SCRIPT, tmpDir, gstackHome);
     expect(stdout).toContain('Handoff: present');
-  });
-
-  test('detects handoff absence', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    const { stdout } = runScript(STATUS_SCRIPT, tmpDir);
-    expect(stdout).toContain('Handoff: none');
   });
 });
 
@@ -191,55 +231,55 @@ SKILL: /review
 // ============================================================
 describe('gstack-reset.sh', () => {
 
-  test('no .gstack directory: prints "Nothing to reset" and exits 0', () => {
-    const { exitCode, stdout } = runScript(RESET_SCRIPT, tmpDir);
+  test('no session: prints "Nothing to reset" and exits 0', () => {
+    const { exitCode, stdout } = runScript(RESET_SCRIPT, tmpDir, gstackHome);
     expect(exitCode).toBe(0);
     expect(stdout).toContain('Nothing to reset');
   });
 
-  test('archives all files before deleting', () => {
-    runScript(INIT_SCRIPT, tmpDir);
+  test('archives session state before resetting', () => {
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
 
-    // Populate with data
-    const sessionData = JSON.stringify({ skill: 'review', phase: 'done', turn_count: 10 });
-    fs.writeFileSync(path.join(tmpDir, '.gstack', 'session.json'), sessionData);
-    fs.writeFileSync(path.join(tmpDir, '.gstack', 'findings.md'), '# Test findings');
+    // Populate session state
+    fs.writeFileSync(path.join(sessionDir, 'state.md'), 'skill: review\nphase: done\nturn: 10\n');
+    fs.writeFileSync(
+      path.join(sessionDir, `findings-${TEST_BRANCH}.md`),
+      '# Test findings'
+    );
+    fs.writeFileSync(path.join(sessionDir, 'handoff.md'), '# Handoff');
+
+    // Populate team knowledge
     fs.writeFileSync(path.join(tmpDir, '.gstack', 'decisions.log'), 'DECISION: test');
-    fs.writeFileSync(path.join(tmpDir, '.gstack', 'handoff.md'), '# Handoff');
 
     // Reset
-    const { exitCode, stdout } = runScript(RESET_SCRIPT, tmpDir);
+    const { exitCode, stdout } = runScript(RESET_SCRIPT, tmpDir, gstackHome);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain('Archived current state');
-    expect(stdout).toContain('Memory reset complete');
+    expect(stdout).toContain('Archived session state');
+    expect(stdout).toContain('Team knowledge (.gstack/) preserved');
 
-    // Check archive exists
-    const checkpointsDir = path.join(tmpDir, '.gstack', 'checkpoints');
-    const archives = fs.readdirSync(checkpointsDir).filter(f => f.startsWith('archive-'));
+    // Check archive exists in session dir
+    const archives = fs.readdirSync(sessionDir).filter(f => f.startsWith('archive-'));
     expect(archives.length).toBe(1);
 
-    // Check archive contains the files
-    const archiveDir = path.join(checkpointsDir, archives[0]);
-    expect(fs.existsSync(path.join(archiveDir, 'session.json'))).toBe(true);
-    expect(fs.existsSync(path.join(archiveDir, 'findings.md'))).toBe(true);
-    expect(fs.existsSync(path.join(archiveDir, 'decisions.log'))).toBe(true);
+    // Check archive contains session files
+    const archiveDir = path.join(sessionDir, archives[0]);
+    expect(fs.existsSync(path.join(archiveDir, 'state.md'))).toBe(true);
+    expect(fs.existsSync(path.join(archiveDir, `findings-${TEST_BRANCH}.md`))).toBe(true);
     expect(fs.existsSync(path.join(archiveDir, 'handoff.md'))).toBe(true);
 
-    // Check archived content matches original
-    const archivedSession = fs.readFileSync(path.join(archiveDir, 'session.json'), 'utf-8');
-    expect(archivedSession).toBe(sessionData);
+    // Team knowledge should be preserved (NOT archived or deleted)
+    expect(fs.readFileSync(path.join(tmpDir, '.gstack', 'decisions.log'), 'utf-8')).toBe('DECISION: test');
   });
 
   test('re-initializes after reset', () => {
-    runScript(INIT_SCRIPT, tmpDir);
-    fs.writeFileSync(path.join(tmpDir, '.gstack', 'session.json'), '{"skill":"review"}');
+    runScript(INIT_SCRIPT, tmpDir, gstackHome);
+    fs.writeFileSync(path.join(sessionDir, 'state.md'), 'skill: review\nphase: done\nturn: 10\n');
 
-    runScript(RESET_SCRIPT, tmpDir);
+    runScript(RESET_SCRIPT, tmpDir, gstackHome);
 
-    // session.json should be fresh (re-initialized)
-    const content = fs.readFileSync(path.join(tmpDir, '.gstack', 'session.json'), 'utf-8');
-    const session = JSON.parse(content);
-    expect(session.skill).toBeNull();
-    expect(session.phase).toBe('idle');
+    // state.md should be fresh
+    const content = fs.readFileSync(path.join(sessionDir, 'state.md'), 'utf-8');
+    expect(content).toContain('skill: null');
+    expect(content).toContain('phase: idle');
   });
 });

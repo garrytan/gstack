@@ -313,20 +313,23 @@ Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/brow
 
 ## gstack Synthetic Memory
 
-gstack skills use `.gstack/` for file-backed session memory. This prevents
-information loss during long sessions when context window compaction silently
-summarizes away critical details like specific findings, user decisions, and
-pending work items.
+gstack uses two storage layers for file-backed memory that survives context
+window compaction during long sessions:
+
+**Session state** (`~/.gstack/projects/$SLUG/`, private, per-user):
+- `state.md` — current skill, phase, turn count (plain markdown)
+- `findings-$BRANCH.md` — branch-scoped finding registry (source of truth)
+- `handoff.md` — skill-to-skill context transfer (deleted after consumption)
+
+**Team knowledge** (`.gstack/` in project root, optionally committed):
+- `decisions.log` — append-only user decision audit trail
+- `anti-patterns.md` — failed fix attempts that should never be re-tried
 
 Key rules:
+- `findings-$BRANCH.md` is the source of truth for all findings — not conversation
+- Skills run checkpoints every 5 tool calls to re-inject state into context
+- `/ship` reads findings and blocks on unresolved P0 issues
+- `/investigate` searches anti-patterns before attempting any fix
 
-- `.gstack/findings.md` is the source of truth for all findings — not conversation
-- `.gstack/session.json` tracks current skill state, phase, and progress
-- `.gstack/decisions.log` records all user decisions with timestamps
-- `.gstack/handoff.md` carries context between skill invocations
-- Skills run checkpoints every 5 tool calls to re-sync state
-- `/ship` reads findings.md and blocks on unresolved P0 issues
-
-If `.gstack/` doesn't exist, skills auto-create it via `scripts/init-memory.sh`.
-The directory is gitignored — it's session-local state, not project config.
-The full protocol is documented in `lib/memory.md`.
+Skills auto-initialize via `scripts/init-memory.sh`. Session state uses the same
+`$SLUG/$BRANCH` scoping as upstream's review JSONL. The full protocol is in `lib/memory.md`.

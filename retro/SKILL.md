@@ -345,18 +345,23 @@ Usage: /retro [window | compare | global]
 
 ### Step 0: Memory-Informed Context
 
-If `.gstack/findings.md` exists, read it for the complete findings history across skills.
-If `.gstack/decisions.log` exists, read it for decision patterns.
-If `.gstack/checkpoints/` has files, note the session durations and phase patterns.
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+```
+
+Read these files if they exist:
+- `~/.gstack/projects/$SLUG/findings-*.md` — findings history across branches
+- `.gstack/decisions.log` — team decision patterns
+- `.gstack/anti-patterns.md` — failed fix attempts
 
 Include these in your analysis:
-- Total findings by severity and type (patterns across sessions)
+- Total findings by severity and type (patterns across branches)
 - Average findings per review session
 - Most common finding types (indicates systemic issues)
 - Decision patterns (what keeps getting deferred?)
-- Session durations by skill (which skills run longest?)
+- Anti-pattern frequency (what approaches keep failing?)
 
-If `.gstack/` doesn't exist, skip this step silently — the retro works without it.
+If none of these files exist, skip this step silently — the retro works without it.
 
 ### Step 1: Gather Raw Data
 
@@ -746,11 +751,11 @@ Narrative covering:
 - Greptile signal ratio and trend (if history exists): "Greptile: X% signal (Y valid catches, Z false positives)"
 
 ### Synthetic Memory Insights
-(from Step 0, if `.gstack/` exists — skip this section if not)
-- Findings summary: N total (X P0, Y P1, Z P2) across skill sessions
+(from Step 0 — skip this section if no memory files exist)
+- Findings summary: N total (X P0, Y P1, Z P2) across branches
 - Most common finding types (e.g., "4 SQL injection findings — systemic pattern")
 - Decision log patterns (e.g., "CSS lint skipped 3 times — consider permanent suppression")
-- Skill session durations from checkpoint files
+- Anti-pattern frequency (e.g., "3 failed mutex-based fixes — consider lock-free approach")
 
 ### Test Health
 - Total test files: N (from command 10)

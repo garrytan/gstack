@@ -1,32 +1,40 @@
 #!/usr/bin/env bash
-# Initialize .gstack synthetic memory directory
-# Called by skills before first use
+# Initialize gstack synthetic memory directories
+# Session state → ~/.gstack/projects/$SLUG/ (private, per-user)
+# Team knowledge → .gstack/ (repo-level, optionally committed)
 
-GSTACK_DIR=".gstack"
+set -euo pipefail
 
-mkdir -p "$GSTACK_DIR/checkpoints"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Initialize session.json if it doesn't exist
-if [ ! -f "$GSTACK_DIR/session.json" ]; then
-  cat > "$GSTACK_DIR/session.json" << 'EOF'
-{
-  "skill": null,
-  "started_at": null,
-  "phase": "idle",
-  "turn_count": 0,
-  "critical_findings": [],
-  "decisions": [],
-  "completed_checks": [],
-  "pending_checks": [],
-  "context_warnings": []
-}
+# Get project slug and branch (check PATH first, then relative to script)
+if command -v gstack-slug &>/dev/null; then
+  eval "$(gstack-slug 2>/dev/null)" || { SLUG="unknown"; BRANCH="unknown"; }
+elif [ -x "$SCRIPT_DIR/../bin/gstack-slug" ]; then
+  eval "$("$SCRIPT_DIR/../bin/gstack-slug" 2>/dev/null)" || { SLUG="unknown"; BRANCH="unknown"; }
+else
+  SLUG="unknown"
+  BRANCH="unknown"
+fi
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+SESSION_DIR="$GSTACK_HOME/projects/$SLUG"
+
+# --- Session state (private, per-user) ---
+mkdir -p "$SESSION_DIR"
+
+if [ ! -f "$SESSION_DIR/state.md" ]; then
+  cat > "$SESSION_DIR/state.md" << 'EOF'
+skill: null
+phase: idle
+turn: 0
+started: null
 EOF
 fi
 
-# Initialize findings.md if it doesn't exist
-if [ ! -f "$GSTACK_DIR/findings.md" ]; then
-  cat > "$GSTACK_DIR/findings.md" << 'EOF'
-# Findings Registry
+if [ ! -f "$SESSION_DIR/findings-$BRANCH.md" ]; then
+  cat > "$SESSION_DIR/findings-$BRANCH.md" << EOF
+# Findings Registry — $BRANCH
 
 > Auto-maintained by gstack skills. Each finding is written here immediately
 > upon discovery. This file is the source of truth — not conversation history.
@@ -36,9 +44,23 @@ if [ ! -f "$GSTACK_DIR/findings.md" ]; then
 EOF
 fi
 
-# Initialize decisions.log if it doesn't exist
-if [ ! -f "$GSTACK_DIR/decisions.log" ]; then
-  touch "$GSTACK_DIR/decisions.log"
+# --- Team knowledge (repo-level, optionally committed) ---
+mkdir -p .gstack
+
+if [ ! -f .gstack/decisions.log ]; then
+  touch .gstack/decisions.log
 fi
 
-echo "gstack memory initialized at $GSTACK_DIR"
+if [ ! -f .gstack/anti-patterns.md ]; then
+  cat > .gstack/anti-patterns.md << 'EOF'
+# Anti-Patterns Registry
+
+> Failed fix attempts that should never be re-tried. Search this file before
+> attempting any fix in /investigate.
+
+---
+
+EOF
+fi
+
+echo "gstack memory initialized (session: $SESSION_DIR, team: .gstack/)"

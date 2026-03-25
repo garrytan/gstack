@@ -1,28 +1,41 @@
 #!/usr/bin/env bash
-# Reset gstack synthetic memory (archive current state first)
+# Reset gstack synthetic memory (archive session state, preserve team knowledge)
 
-GSTACK_DIR=".gstack"
+set -euo pipefail
 
-if [ ! -d "$GSTACK_DIR" ]; then
-  echo "No .gstack directory found. Nothing to reset."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Get project slug and branch (check PATH first, then relative to script)
+if command -v gstack-slug &>/dev/null; then
+  eval "$(gstack-slug 2>/dev/null)" || { SLUG="unknown"; BRANCH="unknown"; }
+elif [ -x "$SCRIPT_DIR/../bin/gstack-slug" ]; then
+  eval "$("$SCRIPT_DIR/../bin/gstack-slug" 2>/dev/null)" || { SLUG="unknown"; BRANCH="unknown"; }
+else
+  SLUG="unknown"
+  BRANCH="unknown"
+fi
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+SESSION_DIR="$GSTACK_HOME/projects/$SLUG"
+
+if [ ! -d "$SESSION_DIR" ]; then
+  echo "No session state found for $SLUG. Nothing to reset."
   exit 0
 fi
 
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
-ARCHIVE="$GSTACK_DIR/checkpoints/archive-$TIMESTAMP"
+ARCHIVE="$SESSION_DIR/archive-$TIMESTAMP"
 mkdir -p "$ARCHIVE"
 
-# Archive current state
-[ -f "$GSTACK_DIR/session.json" ] && cp "$GSTACK_DIR/session.json" "$ARCHIVE/"
-[ -f "$GSTACK_DIR/findings.md" ] && cp "$GSTACK_DIR/findings.md" "$ARCHIVE/"
-[ -f "$GSTACK_DIR/decisions.log" ] && cp "$GSTACK_DIR/decisions.log" "$ARCHIVE/"
-[ -f "$GSTACK_DIR/handoff.md" ] && cp "$GSTACK_DIR/handoff.md" "$ARCHIVE/"
+# Archive session state (private)
+[ -f "$SESSION_DIR/state.md" ] && cp "$SESSION_DIR/state.md" "$ARCHIVE/"
+[ -f "$SESSION_DIR/findings-$BRANCH.md" ] && cp "$SESSION_DIR/findings-$BRANCH.md" "$ARCHIVE/"
+[ -f "$SESSION_DIR/handoff.md" ] && cp "$SESSION_DIR/handoff.md" "$ARCHIVE/"
 
-echo "Archived current state to $ARCHIVE"
+echo "Archived session state to $ARCHIVE"
 
-# Reset
-rm -f "$GSTACK_DIR/session.json" "$GSTACK_DIR/findings.md" "$GSTACK_DIR/decisions.log" "$GSTACK_DIR/handoff.md"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Reset session state only — team knowledge (.gstack/decisions.log, anti-patterns.md) is preserved
+rm -f "$SESSION_DIR/state.md" "$SESSION_DIR/findings-$BRANCH.md" "$SESSION_DIR/handoff.md"
 bash "$SCRIPT_DIR/init-memory.sh"
 
-echo "Memory reset complete. Previous state archived."
+echo "Session reset complete. Team knowledge (.gstack/) preserved."
