@@ -32,25 +32,25 @@ export function matchGlob(file: string, pattern: string): boolean {
  * Each test lists the file patterns that, if changed, require the test to run.
  */
 export const E2E_TOUCHFILES: Record<string, string[]> = {
-  // Browse core
-  'browse-basic':    ['browse/src/**'],
-  'browse-snapshot': ['browse/src/**'],
+  // Browse core (+ test-server dependency)
+  'browse-basic':    ['browse/src/**', 'browse/test/test-server.ts'],
+  'browse-snapshot': ['browse/src/**', 'browse/test/test-server.ts'],
 
-  // SKILL.md setup + preamble (depend on ROOT SKILL.md only)
-  'skillmd-setup-discovery':  ['SKILL.md', 'SKILL.md.tmpl'],
-  'skillmd-no-local-binary':  ['SKILL.md', 'SKILL.md.tmpl'],
-  'skillmd-outside-git':      ['SKILL.md', 'SKILL.md.tmpl'],
+  // SKILL.md setup + preamble (depend on ROOT SKILL.md + gen-skill-docs)
+  'skillmd-setup-discovery':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+  'skillmd-no-local-binary':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+  'skillmd-outside-git':      ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
 
   'contributor-mode':           ['SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
-  'session-awareness':        ['SKILL.md', 'SKILL.md.tmpl'],
+  'session-awareness':        ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
 
-  // QA
-  'qa-quick':       ['qa/**', 'browse/src/**'],
-  'qa-b6-static':   ['qa/**', 'browse/src/**', 'browse/test/fixtures/qa-eval.html', 'test/fixtures/qa-eval-ground-truth.json'],
-  'qa-b7-spa':      ['qa/**', 'browse/src/**', 'browse/test/fixtures/qa-eval-spa.html', 'test/fixtures/qa-eval-spa-ground-truth.json'],
-  'qa-b8-checkout': ['qa/**', 'browse/src/**', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json'],
+  // QA (+ test-server dependency)
+  'qa-quick':       ['qa/**', 'browse/src/**', 'browse/test/test-server.ts'],
+  'qa-b6-static':   ['qa/**', 'browse/src/**', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval.html', 'test/fixtures/qa-eval-ground-truth.json'],
+  'qa-b7-spa':      ['qa/**', 'browse/src/**', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-spa.html', 'test/fixtures/qa-eval-spa-ground-truth.json'],
+  'qa-b8-checkout': ['qa/**', 'browse/src/**', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json'],
   'qa-only-no-fix': ['qa-only/**', 'qa/templates/**'],
-  'qa-fix-loop':    ['qa/**', 'browse/src/**'],
+  'qa-fix-loop':    ['qa/**', 'browse/src/**', 'browse/test/test-server.ts'],
   'qa-bootstrap':   ['qa/**', 'ship/**'],
 
   // Review
@@ -80,9 +80,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode'],
   'ship-local-workflow': ['ship/**', 'scripts/gen-skill-docs.ts'],
 
-  // Setup browser cookies
-  'setup-cookies-detect': ['setup-browser-cookies/**'],
-
   // Retro
   'retro':             ['retro/**'],
   'retro-base-branch': ['retro/**'],
@@ -101,13 +98,13 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Codex (Claude E2E — tests /codex skill via Claude)
   'codex-review': ['codex/**'],
 
-  // Codex E2E (tests skills via Codex CLI)
-  'codex-discover-skill':  ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
-  'codex-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts'],
+  // Codex E2E (tests skills via Codex CLI + worktree)
+  'codex-discover-skill':  ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts', 'lib/worktree.ts'],
+  'codex-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts', 'lib/worktree.ts'],
 
-  // Gemini E2E (tests skills via Gemini CLI)
-  'gemini-discover-skill':  ['.agents/skills/**', 'test/helpers/gemini-session-runner.ts'],
-  'gemini-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'test/helpers/gemini-session-runner.ts'],
+  // Gemini E2E (tests skills via Gemini CLI + worktree)
+  'gemini-discover-skill':  ['.agents/skills/**', 'test/helpers/gemini-session-runner.ts', 'lib/worktree.ts'],
+  'gemini-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'test/helpers/gemini-session-runner.ts', 'lib/worktree.ts'],
 
 
   // Coverage audit (shared fixture) + triage
@@ -117,7 +114,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'ship-triage': ['ship/**', 'bin/gstack-repo-mode'],
 
   // Design
-  'design-consultation-core':       ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
+  'design-consultation-core':       ['design-consultation/**', 'scripts/gen-skill-docs.ts', 'test/helpers/llm-judge.ts'],
   'design-consultation-existing':   ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
   'design-consultation-research':   ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
   'design-consultation-preview':    ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
@@ -149,6 +146,121 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'journey-retro':          ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-design-system':  ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-visual-qa':      ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+};
+
+/**
+ * E2E test tiers — 'gate' blocks PRs, 'periodic' runs weekly/on-demand.
+ * Must have exactly the same keys as E2E_TOUCHFILES.
+ */
+export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
+  // Browse core — gate (if browse breaks, everything breaks)
+  'browse-basic': 'gate',
+  'browse-snapshot': 'gate',
+
+  // SKILL.md setup — gate (if setup breaks, no skill works)
+  'skillmd-setup-discovery': 'gate',
+  'skillmd-no-local-binary': 'gate',
+  'skillmd-outside-git': 'gate',
+  'contributor-mode': 'gate',
+  'session-awareness': 'gate',
+
+  // QA — gate for functional, periodic for quality/benchmarks
+  'qa-quick': 'gate',
+  'qa-b6-static': 'periodic',
+  'qa-b7-spa': 'periodic',
+  'qa-b8-checkout': 'periodic',
+  'qa-only-no-fix': 'gate',     // CRITICAL guardrail: Edit tool forbidden
+  'qa-fix-loop': 'periodic',
+  'qa-bootstrap': 'gate',
+
+  // Review — gate for functional/guardrails, periodic for quality
+  'review-sql-injection': 'gate',     // Security guardrail
+  'review-enum-completeness': 'gate',
+  'review-base-branch': 'gate',
+  'review-design-lite': 'periodic',   // 4/7 threshold is subjective
+  'review-coverage-audit': 'gate',
+
+  // Office Hours
+  'office-hours-spec-review': 'gate',
+
+  // Plan reviews — gate for cheap functional, periodic for Opus quality
+  'plan-ceo-review': 'periodic',
+  'plan-ceo-review-selective': 'periodic',
+  'plan-ceo-review-benefits': 'gate',
+  'plan-eng-review': 'periodic',
+  'plan-eng-review-artifact': 'periodic',
+  'plan-eng-coverage-audit': 'gate',
+  'plan-review-report': 'gate',
+
+  // Codex offering verification
+  'codex-offered-office-hours': 'gate',
+  'codex-offered-ceo-review': 'gate',
+  'codex-offered-design-review': 'gate',
+  'codex-offered-eng-review': 'gate',
+
+  // Ship — gate (end-to-end ship path)
+  'ship-base-branch': 'gate',
+  'ship-local-workflow': 'gate',
+  'ship-coverage-audit': 'gate',
+  'ship-triage': 'gate',
+
+  // Retro — gate for cheap branch detection, periodic for full Opus retro
+  'retro': 'periodic',
+  'retro-base-branch': 'gate',
+
+  // Global discover
+  'global-discover': 'gate',
+
+  // CSO — gate for security guardrails, periodic for quality
+  'cso-full-audit': 'gate',      // Hardcoded secrets detection
+  'cso-diff-mode': 'gate',
+  'cso-infra-scope': 'periodic',
+
+  // Document-release — gate (CHANGELOG guardrail)
+  'document-release': 'gate',
+
+  // Codex — periodic (Opus, requires codex CLI)
+  'codex-review': 'periodic',
+
+  // Multi-AI — periodic (require external CLIs)
+  'codex-discover-skill': 'periodic',
+  'codex-review-findings': 'periodic',
+  'gemini-discover-skill': 'periodic',
+  'gemini-review-findings': 'periodic',
+
+  // Design — gate for cheap functional, periodic for Opus/quality
+  'design-consultation-core': 'periodic',
+  'design-consultation-existing': 'periodic',
+  'design-consultation-research': 'gate',
+  'design-consultation-preview': 'gate',
+  'plan-design-review-plan-mode': 'periodic',
+  'plan-design-review-no-ui-scope': 'gate',
+  'design-review-fix': 'periodic',
+
+  // gstack-upgrade
+  'gstack-upgrade-happy-path': 'gate',
+
+  // Deploy skills
+  'land-and-deploy-workflow': 'gate',
+  'canary-workflow': 'gate',
+  'benchmark-workflow': 'gate',
+  'setup-deploy-workflow': 'gate',
+
+  // Autoplan — periodic (not yet implemented)
+  'autoplan-core': 'periodic',
+
+  // Skill routing — periodic (LLM routing is non-deterministic)
+  'journey-ideation': 'periodic',
+  'journey-plan-eng': 'periodic',
+  'journey-think-bigger': 'periodic',
+  'journey-debug': 'periodic',
+  'journey-qa': 'periodic',
+  'journey-code-review': 'periodic',
+  'journey-ship': 'periodic',
+  'journey-docs': 'periodic',
+  'journey-retro': 'periodic',
+  'journey-design-system': 'periodic',
+  'journey-visual-qa': 'periodic',
 };
 
 /**
@@ -197,17 +309,15 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
 
 /**
  * Changes to any of these files trigger ALL tests (both E2E and LLM-judge).
+ *
+ * Keep this list minimal — only files that genuinely affect every test.
+ * Scoped dependencies (gen-skill-docs, llm-judge, test-server, worktree,
+ * codex/gemini session runners) belong in individual test entries instead.
  */
 export const GLOBAL_TOUCHFILES = [
-  'test/helpers/session-runner.ts',
-  'test/helpers/codex-session-runner.ts',
-  'test/helpers/gemini-session-runner.ts',
-  'test/helpers/eval-store.ts',
-  'test/helpers/llm-judge.ts',
-  'scripts/gen-skill-docs.ts',
-  'test/helpers/touchfiles.ts',
-  'browse/test/test-server.ts',
-  'lib/worktree.ts',
+  'test/helpers/session-runner.ts',  // All E2E tests use this runner
+  'test/helpers/eval-store.ts',      // All E2E tests store results here
+  'test/helpers/touchfiles.ts',      // Self-referential — reclassifying wrong is dangerous
 ];
 
 // --- Base branch detection ---

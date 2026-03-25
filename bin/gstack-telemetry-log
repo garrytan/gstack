@@ -106,18 +106,29 @@ if [ -d "$STATE_DIR/sessions" ]; then
 fi
 
 # Generate installation_id for community tier
+# Uses a random UUID stored locally — not derived from hostname/user so it
+# can't be guessed or correlated by someone who knows your machine identity.
 INSTALL_ID=""
 if [ "$TIER" = "community" ]; then
-  HOST="$(hostname 2>/dev/null || echo "unknown")"
-  USER="$(whoami 2>/dev/null || echo "unknown")"
-  if command -v shasum >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | shasum -a 256 | awk '{print $1}')"
-  elif command -v sha256sum >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | sha256sum | awk '{print $1}')"
-  elif command -v openssl >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | openssl dgst -sha256 | awk '{print $NF}')"
+  ID_FILE="$HOME/.gstack/installation-id"
+  if [ -f "$ID_FILE" ]; then
+    INSTALL_ID="$(cat "$ID_FILE" 2>/dev/null)"
   fi
-  # If no SHA-256 command available, install_id stays empty
+  if [ -z "$INSTALL_ID" ]; then
+    # Generate a random UUID v4
+    if command -v uuidgen >/dev/null 2>&1; then
+      INSTALL_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    elif [ -r /proc/sys/kernel/random/uuid ]; then
+      INSTALL_ID="$(cat /proc/sys/kernel/random/uuid)"
+    else
+      # Fallback: random hex from /dev/urandom
+      INSTALL_ID="$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    fi
+    if [ -n "$INSTALL_ID" ]; then
+      mkdir -p "$(dirname "$ID_FILE")" 2>/dev/null
+      printf '%s' "$INSTALL_ID" > "$ID_FILE" 2>/dev/null
+    fi
+  fi
 fi
 
 # Local-only fields (never sent remotely)

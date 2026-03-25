@@ -175,76 +175,30 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
 
     logCost('/ship local workflow', result);
 
-    // Check push succeeded
-    const remoteLog = spawnSync('git', ['log', '--oneline'], { cwd: shipRemoteDir, stdio: 'pipe' });
-    const remoteCommits = remoteLog.stdout.toString().trim().split('\n').length;
+    // Check push succeeded — verify the feature branch exists on the bare remote
+    const branchCheck = spawnSync('git', ['branch', '--list', 'feature/ship-test'], { cwd: shipRemoteDir, stdio: 'pipe' });
+    const branchExists = branchCheck.stdout.toString().trim().length > 0;
 
-    // Check VERSION was bumped
+    // Check VERSION was bumped locally (even if push failed, this shows the LLM did the work)
     const versionContent = fs.existsSync(path.join(shipWorkDir, 'VERSION'))
       ? fs.readFileSync(path.join(shipWorkDir, 'VERSION'), 'utf-8').trim() : '';
     const versionBumped = versionContent !== '0.1.0.0';
 
     recordE2E(evalCollector, '/ship local workflow', 'Ship workflow E2E', result, {
-      passed: remoteCommits > 1 && ['success', 'error_max_turns'].includes(result.exitReason),
+      passed: branchExists && versionBumped && ['success', 'error_max_turns'].includes(result.exitReason),
     });
 
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
-    expect(remoteCommits).toBeGreaterThan(1);
-    console.log(`Remote commits: ${remoteCommits}, VERSION: ${versionContent}, bumped: ${versionBumped}`);
+    expect(branchExists).toBe(true);
+    expect(versionBumped).toBe(true);
+    console.log(`Branch pushed: ${branchExists}, VERSION: ${versionContent}, bumped: ${versionBumped}`);
   }, 150_000);
 });
 
-// --- Browser cookie detection smoke test ---
-
-describeIfSelected('Setup Browser Cookies E2E', ['setup-cookies-detect'], () => {
-  let cookieDir: string;
-
-  beforeAll(() => {
-    cookieDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-cookies-'));
-    // Copy skill files
-    fs.mkdirSync(path.join(cookieDir, 'setup-browser-cookies'), { recursive: true });
-    fs.copyFileSync(
-      path.join(ROOT, 'setup-browser-cookies', 'SKILL.md'),
-      path.join(cookieDir, 'setup-browser-cookies', 'SKILL.md'),
-    );
-  });
-
-  afterAll(() => {
-    try { fs.rmSync(cookieDir, { recursive: true, force: true }); } catch {}
-  });
-
-  testConcurrentIfSelected('setup-cookies-detect', async () => {
-    const result = await runSkillTest({
-      prompt: `Read setup-browser-cookies/SKILL.md for the cookie import workflow.
-
-This is a test environment. List which browsers you can detect on this system by checking for their cookie database files.
-Write the detected browsers to ${cookieDir}/detected-browsers.md.
-Do NOT launch the cookie picker UI — just detect and report.`,
-      workingDirectory: cookieDir,
-      maxTurns: 5,
-      timeout: 45_000,
-      testName: 'setup-cookies-detect',
-      runId,
-    });
-
-    logCost('/setup-browser-cookies detect', result);
-
-    const detectPath = path.join(cookieDir, 'detected-browsers.md');
-    const detectExists = fs.existsSync(detectPath);
-    const detectContent = detectExists ? fs.readFileSync(detectPath, 'utf-8') : '';
-    const hasBrowserName = /chrome|arc|brave|edge|comet|safari|firefox/i.test(detectContent);
-
-    recordE2E(evalCollector, '/setup-browser-cookies detect', 'Setup Browser Cookies E2E', result, {
-      passed: detectExists && hasBrowserName && ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-    expect(detectExists).toBe(true);
-    if (detectExists) {
-      expect(hasBrowserName).toBe(true);
-    }
-  }, 60_000);
-});
+// setup-cookies-detect REMOVED: The cookie-import-browser module has 30+ thorough
+// unit tests in browse/test/cookie-import-browser.test.ts (decryption, profile
+// detection, error handling, path traversal). The E2E just tested LLM instruction-
+// following ("write a file saying no browsers") on a CI box with no browsers.
 
 // --- gstack-upgrade E2E ---
 

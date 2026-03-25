@@ -13,6 +13,7 @@ import {
   selectTests,
   detectBaseBranch,
   E2E_TOUCHFILES,
+  E2E_TIERS,
   LLM_JUDGE_TOUCHFILES,
   GLOBAL_TOUCHFILES,
 } from './helpers/touchfiles';
@@ -92,10 +93,19 @@ describe('selectTests', () => {
     expect(result.reason).toContain('global');
   });
 
-  test('gen-skill-docs.ts is a global touchfile', () => {
+  test('gen-skill-docs.ts is a scoped touchfile, not global', () => {
     const result = selectTests(['scripts/gen-skill-docs.ts'], E2E_TOUCHFILES);
-    expect(result.selected.length).toBe(Object.keys(E2E_TOUCHFILES).length);
-    expect(result.reason).toContain('global');
+    // Should select tests that list gen-skill-docs.ts in their touchfiles, not ALL tests
+    expect(result.selected.length).toBeGreaterThan(0);
+    expect(result.selected.length).toBeLessThan(Object.keys(E2E_TOUCHFILES).length);
+    expect(result.reason).toBe('diff');
+    // Should include tests that depend on gen-skill-docs.ts
+    expect(result.selected).toContain('skillmd-setup-discovery');
+    expect(result.selected).toContain('contributor-mode');
+    expect(result.selected).toContain('journey-ideation');
+    // Should NOT include tests that don't depend on it
+    expect(result.selected).not.toContain('retro');
+    expect(result.selected).not.toContain('cso-full-audit');
   });
 
   test('unrelated file selects nothing', () => {
@@ -144,7 +154,7 @@ describe('selectTests', () => {
   });
 
   test('global touchfiles work for LLM-judge tests too', () => {
-    const result = selectTests(['scripts/gen-skill-docs.ts'], LLM_JUDGE_TOUCHFILES);
+    const result = selectTests(['test/helpers/session-runner.ts'], LLM_JUDGE_TOUCHFILES);
     expect(result.selected.length).toBe(Object.keys(LLM_JUDGE_TOUCHFILES).length);
   });
 });
@@ -231,6 +241,36 @@ describe('TOUCHFILES completeness', () => {
         `E2E tests missing TOUCHFILES entries: ${missing.join(', ')}\n` +
         `Add these to E2E_TOUCHFILES in test/helpers/touchfiles.ts`,
       );
+    }
+  });
+
+  test('E2E_TIERS covers exactly the same tests as E2E_TOUCHFILES', () => {
+    const touchfileKeys = new Set(Object.keys(E2E_TOUCHFILES));
+    const tierKeys = new Set(Object.keys(E2E_TIERS));
+
+    const missingFromTiers = [...touchfileKeys].filter(k => !tierKeys.has(k));
+    const extraInTiers = [...tierKeys].filter(k => !touchfileKeys.has(k));
+
+    if (missingFromTiers.length > 0) {
+      throw new Error(
+        `E2E tests missing TIER entries: ${missingFromTiers.join(', ')}\n` +
+        `Add these to E2E_TIERS in test/helpers/touchfiles.ts`,
+      );
+    }
+    if (extraInTiers.length > 0) {
+      throw new Error(
+        `E2E_TIERS has extra entries not in E2E_TOUCHFILES: ${extraInTiers.join(', ')}\n` +
+        `Remove these from E2E_TIERS or add to E2E_TOUCHFILES`,
+      );
+    }
+  });
+
+  test('E2E_TIERS only contains valid tier values', () => {
+    const validTiers = ['gate', 'periodic'];
+    for (const [name, tier] of Object.entries(E2E_TIERS)) {
+      if (!validTiers.includes(tier)) {
+        throw new Error(`E2E_TIERS['${name}'] has invalid tier '${tier}'. Valid: ${validTiers.join(', ')}`);
+      }
     }
   });
 

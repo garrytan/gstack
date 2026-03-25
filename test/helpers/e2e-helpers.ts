@@ -9,7 +9,7 @@ import { describe, test, beforeAll, afterAll } from 'bun:test';
 import type { SkillTestResult } from './session-runner';
 import { EvalCollector, judgePassed } from './eval-store';
 import type { EvalTestEntry } from './eval-store';
-import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from './touchfiles';
+import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES } from './touchfiles';
 import { WorktreeManager } from '../../lib/worktree';
 import type { HarvestResult } from '../../lib/worktree';
 import { spawnSync } from 'child_process';
@@ -32,13 +32,6 @@ export const evalsEnabled = !!process.env.EVALS;
 // Set EVALS_ALL=1 to force all tests. Set EVALS_BASE to override base branch.
 export let selectedTests: string[] | null = null; // null = run all
 
-// EVALS_FAST: skip the 8 slowest tests (all Opus quality tests) for quick feedback
-const FAST_EXCLUDED_TESTS = [
-  'plan-ceo-review-selective', 'plan-ceo-review', 'retro', 'retro-base-branch',
-  'design-consultation-core', 'design-consultation-existing',
-  'qa-fix-loop', 'design-review-fix',
-];
-
 if (evalsEnabled && !process.env.EVALS_ALL) {
   const baseBranch = process.env.EVALS_BASE
     || detectBaseBranch(ROOT)
@@ -57,15 +50,22 @@ if (evalsEnabled && !process.env.EVALS_ALL) {
   // If changedFiles is empty (e.g., on main branch), selectedTests stays null → run all
 }
 
-// Apply EVALS_FAST filter after diff-based selection
-if (evalsEnabled && process.env.EVALS_FAST) {
+// EVALS_TIER: filter tests by tier after diff-based selection.
+// 'gate' = gate tests only (CI default — blocks merge)
+// 'periodic' = periodic tests only (weekly cron / manual)
+// not set = run all selected tests (local dev default, backward compat)
+if (evalsEnabled && process.env.EVALS_TIER) {
+  const tier = process.env.EVALS_TIER as 'gate' | 'periodic';
+  const tierTests = Object.entries(E2E_TIERS)
+    .filter(([, t]) => t === tier)
+    .map(([name]) => name);
+
   if (selectedTests === null) {
-    // Run all minus excluded
-    selectedTests = Object.keys(E2E_TOUCHFILES).filter(t => !FAST_EXCLUDED_TESTS.includes(t));
+    selectedTests = tierTests;
   } else {
-    selectedTests = selectedTests.filter(t => !FAST_EXCLUDED_TESTS.includes(t));
+    selectedTests = selectedTests.filter(t => tierTests.includes(t));
   }
-  process.stderr.write(`EVALS_FAST: excluded ${FAST_EXCLUDED_TESTS.length} slow tests, running ${selectedTests.length}\n\n`);
+  process.stderr.write(`EVALS_TIER=${tier}: ${selectedTests.length} tests\n\n`);
 }
 
 export const describeE2E = evalsEnabled ? describe : describe.skip;
