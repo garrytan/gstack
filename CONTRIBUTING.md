@@ -232,6 +232,11 @@ To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot f
 
 gstack generates SKILL.md files for two hosts: **Claude** (`.claude/skills/`) and **Codex** (`.agents/skills/`). Every template change needs to be generated for both.
 
+**Copilot CLI support intentionally reuses the Claude-compatible `.claude/skills/` output.**
+There is no separate `--host copilot` generator mode to maintain. If you change
+install paths or setup behavior, make sure the Claude-format skill tree still works
+for Copilot's documented `.claude/skills` support.
+
 ### Generating for both hosts
 
 ```bash
