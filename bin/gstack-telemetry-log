@@ -151,6 +151,14 @@ fi
 # ─── Construct and append JSON ───────────────────────────────
 mkdir -p "$ANALYTICS_DIR"
 
+# Sanitize string fields for JSON safety (strip quotes, backslashes, control chars)
+json_safe() { printf '%s' "$1" | tr -d '"\\\n\r\t' | head -c 200; }
+SKILL="$(json_safe "$SKILL")"
+OUTCOME="$(json_safe "$OUTCOME")"
+SESSION_ID="$(json_safe "$SESSION_ID")"
+SOURCE="$(json_safe "$SOURCE")"
+EVENT_TYPE="$(json_safe "$EVENT_TYPE")"
+
 # Escape null fields
 ERR_FIELD="null"
 [ -n "$ERROR_CLASS" ] && ERR_FIELD="\"$ERROR_CLASS\""
