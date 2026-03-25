@@ -9,6 +9,17 @@ jobs:
       - run: bun install
       - name: Check Claude host freshness
         run: bun run gen:skill-docs
-      - run: git diff --exit-code || (echo "Generated SKILL.md files are stale. Run: bun run gen:skill-docs" && exit 1)
-      - name: Check Codex host generation succeeds
+      - name: Verify Claude skill docs are fresh
+        run: |
+          git diff --exit-code || {
+            echo "Generated SKILL.md files are stale. Run: bun run gen:skill-docs"
+            exit 1
+          }
+      - name: Check Codex host freshness
         run: bun run gen:skill-docs --host codex
+      - name: Verify Codex skill docs are fresh
+        run: |
+          git diff --exit-code -- .agents/ || {
+            echo "Generated Codex SKILL.md files are stale. Run: bun run gen:skill-docs --host codex"
+            exit 1
+          }
