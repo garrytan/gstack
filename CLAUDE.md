@@ -153,9 +153,10 @@ Rules:
 ## Browser interaction
 
 When you need to interact with a browser (QA, dogfooding, cookie setup), use the
-`/browse` skill or run the browse binary directly via `$B <command>`. NEVER use
-`mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
-project uses.
+`/browse` skill or run the browse binary directly via `$B <command>`. For competitive
+analysis, design analysis, or UX experience evaluation, use Claude for Chrome
+(`mcp__claude-in-chrome__*`) instead — headless browsers cannot capture animations,
+visual hierarchy, and interaction quality that these tasks require.
 
 ## Vendored symlink awareness
 

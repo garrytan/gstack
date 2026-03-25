@@ -27,10 +27,16 @@ Auto-shuts down after 30 min idle. State persists between calls (cookies, tabs, 
 
 {{BROWSE_SETUP}}
 
-## IMPORTANT
+## Browser Selection Rule
 
-- Use the compiled binary via Bash: `$B <command>`
-- NEVER use `mcp__claude-in-chrome__*` tools. They are slow and unreliable.
+**Choose the right browser for the task:**
+
+| Scenario | Browser | Why |
+|----------|---------|-----|
+| **Competitive analysis, design analysis, UX evaluation** | Claude for Chrome (`mcp__claude-in-chrome__*`) | Requires real visual experience — animations, interactions, design quality, and visual hierarchy that headless browsers cannot fully capture |
+| **QA testing, deploy verification, functional regression, form testing, performance checks** | Headless Chromium (`$B <command>`) | Fast, scriptable, suited for automated assertions and batch operations |
+
+**Headless Chromium rules (when using `$B`):**
 - Browser persists between calls — cookies, login sessions, and tabs carry over.
 - Dialogs (alert/confirm/prompt) are auto-accepted by default — no browser lockup.
 - **Show screenshots:** After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the Read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
