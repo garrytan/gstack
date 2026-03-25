@@ -31,3 +31,11 @@ This compatibility subtree keeps the spirit of selected gstack skills while adap
 
 - gstack's `codex` idea maps best to delegating with the `coding-agent` skill in OpenClaw.
 - Use a read-only independent pass by default unless the user explicitly asks for fixes.
+
+
+## Gaps and follow-ups
+
+- The safety-mode ports are advisory rather than hook-enforced.
+- Browser-heavy skills depend on OpenClaw browser availability and sometimes user presence for auth.
+- The compatibility subtree does not yet integrate with gstack's template generator, so OpenClaw variants are maintained separately for now.
+- The quality of these ports comes from concise workflow transfer, not 1:1 feature parity.

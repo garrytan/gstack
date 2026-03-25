@@ -1,6 +1,6 @@
 # OpenClaw compatibility
 
-This subtree contains OpenClaw-native adaptations of selected gstack workflows.
+This subtree contains OpenClaw-native adaptations of selected gstack workflows. It is meant to be understandable and usable by OpenClaw agents without requiring Claude-specific hooks or generated preambles.
 
 Goals:
 - preserve the role/workflow value of gstack
@@ -22,3 +22,6 @@ Suggested mapping:
 Ported skill set currently includes review, investigation, office-hours/product planning, QA, design review/consultation, ship + deploy flows, post-ship docs, canary checks, safety modes, security review, retrospective, authenticated browser setup, and delegated coding-agent consultation.
 
 See `openclaw/references/gstack-port-notes.md` for the main runtime translation choices and limitations.
+
+
+See `openclaw/references/skill-index.md` for a quick index of the ported skills.
