@@ -40,7 +40,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Install — 30 seconds
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
+**Requirements:** One supported host ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli), or another SKILL.md-compatible agent), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
 
 ### Step 1: Install on your machine
 
@@ -58,6 +58,23 @@ Real files get committed to your repo (not a submodule), so `git clone` just wor
 > ```bash
 > git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
 > ```
+
+### GitHub Copilot CLI
+
+GitHub Copilot CLI officially supports skills from `.claude/skills` and
+`~/.claude/skills`, so the lowest-friction gstack install reuses the same
+Claude-compatible layout instead of introducing a separate Copilot-only tree.
+
+Install once for your user account:
+
+```bash
+git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+cd ~/.claude/skills/gstack && ./setup --host copilot
+```
+
+For repo-local installs, vendoring gstack into `.claude/skills/gstack` works with
+Copilot CLI too. Put your guidance in `AGENTS.md` or `.github/copilot-instructions.md`,
+then use `/skills reload` if Copilot is already running.
 
 ### Codex, Gemini CLI, or Cursor
 
@@ -287,6 +304,8 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/gstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`
 
 **Windows users:** gstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH.
+
+**Copilot CLI doesn't see the skills?** Run `/skills list` or `/skills reload`. If you're using the Claude-compatible install path, rerun: `cd ~/.claude/skills/gstack && ./setup --host copilot`
 
 **Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a gstack section. Add this:
 
