@@ -3,7 +3,7 @@
   "description": "브라우저 QA, 코드 리뷰, 배포, 보안 감사 등 26개 워크플로우 스킬 (gstack 포크)",
   "version": "1.0.0",
   "author": {
-    "name": "eZar (forked from gstack by Garry Tan)"
+    "name": "Jungbam"
   },
   "homepage": "https://lucydata.ai",
   "repository": "https://github.com/Jungbam/my_claude",

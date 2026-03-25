@@ -3,7 +3,7 @@
   "description": "Crew + gstack 통합 파이프라인 (feature, hotfix, deep-review, security, performance, weekly)",
   "version": "1.0.0",
   "author": {
-    "name": "eZar"
+    "name": "Jungbam"
   },
   "homepage": "https://lucydata.ai",
   "repository": "https://github.com/Jungbam/my_claude",

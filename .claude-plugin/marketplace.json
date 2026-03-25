@@ -24,16 +24,6 @@
       "name": "pipeline-plugin",
       "source": "./plugins/pipeline-plugin",
       "description": "Crew + gstack 통합 파이프라인 (feature, hotfix, deep-review, security, performance, weekly)"
-    },
-    {
-      "name": "web-plugin",
-      "source": "./plugins/web-plugin",
-      "description": "웹 프론트엔드 개발용 플러그인 (Next.js 테스트 생성 등)"
-    },
-    {
-      "name": "internal-plugin",
-      "source": "./plugins/internal-plugin",
-      "description": "사내 전용 스킬 (GCS + MySQL Datamart)"
     }
   ]
 }
