@@ -752,6 +752,272 @@ tr:hover td {
 @media (max-width: 1200px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
 }
+/* ─── Stage Mode ────────────────────────────── */
+body.stage-mode .sidebar { display: none; }
+body.stage-mode .main-header { display: none; }
+body.stage-mode .main-content { padding: 32px 48px; }
+body.stage-mode .view { display: none !important; }
+body.stage-mode #view-stage { display: block !important; }
+
+/* Stage branding */
+.stage-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+}
+.stage-brand-left {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.stage-brand h1 {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+.stage-brand h1 span { color: var(--accent-blue); }
+.stage-brand-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.stage-brand-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.stage-branch {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  background: var(--bg-tertiary);
+  padding: 6px 14px;
+  border-radius: 20px;
+}
+.stage-clock {
+  font-size: 36px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* Stage pipeline — large */
+.stage-pipeline {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  margin-bottom: 32px;
+}
+.stage-pipeline-stage {
+  flex: 1;
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  padding: 24px 16px;
+  text-align: center;
+  transition: all 400ms ease;
+  position: relative;
+  overflow: hidden;
+}
+.stage-pipeline-stage.active {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 24px rgba(88, 166, 255, 0.2);
+}
+.stage-pipeline-stage.active::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(135deg, rgba(88,166,255,0.06) 0%, transparent 60%);
+  pointer-events: none;
+}
+.stage-pipeline-stage.completed {
+  border-color: var(--accent-green);
+}
+.stage-pipeline-stage.completed::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(135deg, rgba(63,185,80,0.06) 0%, transparent 60%);
+  pointer-events: none;
+}
+.stage-pipeline-icon { font-size: 36px; margin-bottom: 8px; }
+.stage-pipeline-name {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.stage-pipeline-skills {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.stage-pipeline-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin: 10px auto 0;
+}
+.stage-pipeline-dot.idle { background: var(--text-muted); opacity: 0.4; }
+.stage-pipeline-dot.active {
+  background: var(--accent-blue);
+  box-shadow: 0 0 10px rgba(88,166,255,0.6);
+  animation: stage-pulse 1.5s ease-in-out infinite;
+}
+.stage-pipeline-dot.completed { background: var(--accent-green); }
+.stage-pipeline-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--border);
+  font-size: 22px;
+  padding: 0 2px;
+}
+
+@keyframes stage-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(88,166,255,0.6); transform: scale(1); }
+  50% { box-shadow: 0 0 20px rgba(88,166,255,0.9); transform: scale(1.3); }
+}
+
+/* Stage metrics — big counters */
+.stage-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 32px;
+}
+.stage-metric {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+}
+.stage-metric-value {
+  font-size: 56px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  line-height: 1;
+  transition: color 300ms ease;
+}
+.stage-metric-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Stage activity feed */
+.stage-feed {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+.stage-feed-list {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.stage-feed-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+.feed-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-light);
+  animation: feed-slide-in 400ms ease;
+}
+.feed-item:last-child { border-bottom: none; }
+@keyframes feed-slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.feed-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.feed-skill {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  width: 140px;
+  flex-shrink: 0;
+}
+.feed-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+.feed-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* Stage top skills sidebar */
+.stage-skills-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+}
+.stage-skill-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.stage-skill-row:last-child { border-bottom: none; }
+.stage-skill-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-secondary);
+  width: 110px;
+  flex-shrink: 0;
+}
+.stage-skill-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.stage-skill-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 800ms ease;
+}
+.stage-skill-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 40px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Light mode adjustments for stage */
+[data-theme="light"] .stage-pipeline-stage.active {
+  box-shadow: 0 0 24px rgba(9,105,218,0.15);
+}
+[data-theme="light"] .stage-pipeline-dot.active {
+  background: var(--accent-blue);
+  box-shadow: 0 0 10px rgba(9,105,218,0.5);
+}
+
 @media (max-width: 900px) {
   .sidebar { width: 56px; min-width: 56px; }
   .sidebar-header, .nav-section-title, .nav-item span, .nav-badge, .sidebar-subtitle, .daemon-label { display: none; }
@@ -838,6 +1104,7 @@ tr:hover td {
     <h1 class="main-title" id="view-title">Overview</h1>
     <div class="main-meta">
       <span id="git-info"></span>
+      <button class="refresh-btn" onclick="window.location.search='?mode=stage'" title="Presentation mode">Stage</button>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
         <span class="icon-sun">&#9728;</span>
         <span class="icon-moon">&#9790;</span>
@@ -915,6 +1182,35 @@ tr:hover td {
     <!-- ═══ EUREKA VIEW ═══ -->
     <div class="view" id="view-eureka">
       <div id="eureka-content"></div>
+    </div>
+
+    <!-- ═══ STAGE MODE VIEW ═══ -->
+    <div class="view" id="view-stage">
+      <div class="stage-brand">
+        <div class="stage-brand-left">
+          <h1>g<span>stack</span></h1>
+          <span class="stage-brand-sub" id="stage-repo"></span>
+        </div>
+        <div class="stage-brand-right">
+          <span class="stage-branch" id="stage-branch"></span>
+          <span class="stage-clock" id="stage-clock">00:00</span>
+        </div>
+      </div>
+
+      <div class="stage-pipeline" id="stage-pipeline"></div>
+
+      <div class="stage-metrics" id="stage-metrics"></div>
+
+      <div class="stage-feed">
+        <div class="stage-feed-list">
+          <div class="stage-feed-title">Live Activity</div>
+          <div id="stage-feed-items"></div>
+        </div>
+        <div class="stage-skills-card">
+          <div class="stage-feed-title">Top Skills</div>
+          <div id="stage-top-skills"></div>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -1707,14 +2003,168 @@ async function loadEureka() {
   document.getElementById('eureka-content').innerHTML = html;
 }
 
-// ─── Init ───────────────────────────────────────────────────────
-loadOverview();
+// ─── STAGE MODE ─────────────────────────────────────────────────
+let stageMode = false;
+let stageStartTime = null;
+let stageClockInterval = null;
+let prevFeedEntries = [];
 
-// Auto-refresh every 30 seconds
-setInterval(() => {
-  cache = {};
-  loadView(currentView);
-}, 30000);
+function initStageMode() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('mode') !== 'stage') return;
+
+  stageMode = true;
+  document.body.classList.add('stage-mode');
+  stageStartTime = Date.now();
+
+  // Start elapsed clock
+  stageClockInterval = setInterval(updateStageClock, 1000);
+  updateStageClock();
+
+  // Load stage view
+  loadStage();
+
+  // Fast polling — every 5 seconds in stage mode
+  setInterval(() => { cache = {}; loadStage(); }, 5000);
+}
+
+function updateStageClock() {
+  const elapsed = Math.floor((Date.now() - stageStartTime) / 1000);
+  const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const s = String(elapsed % 60).padStart(2, '0');
+  const el = document.getElementById('stage-clock');
+  if (el) el.textContent = m + ':' + s;
+}
+
+async function loadStage() {
+  const [overview, pipeline, skills, usage] = await Promise.all([
+    api('/overview'),
+    api('/pipeline'),
+    api('/analytics/skills?days=30'),
+    api('/analytics/usage?days=7'),
+  ]);
+
+  // Brand
+  const git = overview?.git || {};
+  const repoEl = document.getElementById('stage-repo');
+  const branchEl = document.getElementById('stage-branch');
+  if (repoEl) repoEl.textContent = git.remoteSlug || '';
+  if (branchEl) branchEl.textContent = git.branch || '';
+
+  // Pipeline
+  renderStagePipeline(pipeline?.stages || []);
+
+  // Metrics
+  renderStageMetrics(overview?.metrics || {});
+
+  // Activity feed
+  renderStageFeed(usage?.entries || []);
+
+  // Top skills
+  renderStageTopSkills(skills?.stats || []);
+}
+
+function renderStagePipeline(stages) {
+  const el = document.getElementById('stage-pipeline');
+  if (!el || !stages.length) return;
+
+  el.innerHTML = stages.map((s, i) => {
+    const arrow = i < stages.length - 1 ? '<div class="stage-pipeline-arrow">&#8594;</div>' : '';
+    return '<div class="stage-pipeline-stage ' + s.status + '">' +
+      '<div class="stage-pipeline-icon">' + s.icon + '</div>' +
+      '<div class="stage-pipeline-name">' + s.name + '</div>' +
+      '<div class="stage-pipeline-skills">' + s.skills.slice(0, 2).map(sk => '/' + sk).join(', ') + '</div>' +
+      '<div class="stage-pipeline-dot ' + s.status + '"></div>' +
+      '</div>' + arrow;
+  }).join('');
+}
+
+function renderStageMetrics(m) {
+  const el = document.getElementById('stage-metrics');
+  if (!el) return;
+
+  const metrics = [
+    { value: m.totalRuns || 0, label: 'Skill Runs', color: 'var(--accent-blue)' },
+    { value: (m.successRate || 0) + '%', label: 'Success Rate', color: m.successRate >= 80 ? 'var(--accent-green)' : 'var(--accent-yellow)' },
+    { value: m.reportsTotal || 0, label: 'Reports', color: 'var(--accent-purple)' },
+    { value: m.eurekaCount || 0, label: 'Eureka Moments', color: 'var(--accent-yellow)' },
+  ];
+
+  el.innerHTML = metrics.map(mt =>
+    '<div class="stage-metric">' +
+    '<div class="stage-metric-value" style="color:' + mt.color + '">' + mt.value + '</div>' +
+    '<div class="stage-metric-label">' + mt.label + '</div>' +
+    '</div>'
+  ).join('');
+}
+
+function renderStageFeed(entries) {
+  const el = document.getElementById('stage-feed-items');
+  if (!el) return;
+
+  // Sort by timestamp, newest first, take last 15
+  const sorted = entries
+    .filter(e => e.ts && e.skill)
+    .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
+    .slice(0, 15);
+
+  if (!sorted.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;font-size:13px">Waiting for skill activity...</div>';
+    return;
+  }
+
+  const outcomeColors = {
+    success: 'var(--accent-green)',
+    error: 'var(--accent-red)',
+    unknown: 'var(--text-muted)',
+  };
+
+  el.innerHTML = sorted.map(e => {
+    const dotColor = outcomeColors[e.outcome] || outcomeColors.unknown;
+    const duration = e.duration_s ? formatDuration(e.duration_s) : '';
+    const desc = e.outcome === 'success' ? 'completed' : e.outcome === 'error' ? 'failed' : 'ran';
+    return '<div class="feed-item">' +
+      '<div class="feed-dot" style="background:' + dotColor + '"></div>' +
+      '<div class="feed-skill">/' + escHtml(e.skill) + '</div>' +
+      '<div class="feed-text">' + desc + (duration ? ' in ' + duration : '') + (e.used_browse ? ' (browser)' : '') + '</div>' +
+      '<div class="feed-time">' + timeAgo(e.ts) + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function renderStageTopSkills(stats) {
+  const el = document.getElementById('stage-top-skills');
+  if (!el) return;
+
+  const top = stats.slice(0, 8);
+  if (!top.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;font-size:13px">No skill data yet</div>';
+    return;
+  }
+
+  const maxRuns = Math.max(...top.map(s => s.runs), 1);
+  const colors = ['var(--accent-blue)', 'var(--accent-green)', 'var(--accent-purple)', 'var(--accent-cyan)', 'var(--accent-yellow)', 'var(--accent-orange)', 'var(--accent-pink)', 'var(--accent-red)'];
+
+  el.innerHTML = top.map((s, i) =>
+    '<div class="stage-skill-row">' +
+    '<div class="stage-skill-name">/' + escHtml(s.name) + '</div>' +
+    '<div class="stage-skill-bar"><div class="stage-skill-fill" style="width:' + ((s.runs / maxRuns) * 100) + '%;background:' + colors[i % colors.length] + '"></div></div>' +
+    '<div class="stage-skill-count">' + s.runs + '</div>' +
+    '</div>'
+  ).join('');
+}
+
+// ─── Init ───────────────────────────────────────────────────────
+initStageMode();
+
+if (!stageMode) {
+  loadOverview();
+  // Auto-refresh every 30 seconds in normal mode
+  setInterval(() => {
+    cache = {};
+    loadView(currentView);
+  }, 30000);
+}
 </script>
 </body>
 </html>`;
