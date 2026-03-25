@@ -9,9 +9,5 @@
   "repository": "https://bitbucket.org/ezardev-admin/marketplace-for-claude",
   "license": "MIT",
   "keywords": ["pipeline", "workflow", "crew", "gstack"],
-  "commands": "./commands/",
-  "dependencies": {
-    "common-plugin": ">=1.0.0",
-    "gstack-plugin": ">=1.0.0"
-  }
+  "commands": "./commands/"
 }
