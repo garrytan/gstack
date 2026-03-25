@@ -9,6 +9,5 @@
   "repository": "https://bitbucket.org/ezardev-admin/marketplace-for-claude",
   "license": "MIT",
   "keywords": ["browser", "qa", "deploy", "review", "security", "gstack"],
-  "skills": "./skills/",
-  "setup": "./setup.sh"
+  "skills": "./skills/"
 }
