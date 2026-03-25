@@ -344,6 +344,32 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 
 ---
 
+## Pre-Ship Memory Validation
+
+Before running tests or pushing, check synthetic memory for quality gates:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+bash ~/.claude/skills/gstack/scripts/init-memory.sh
+```
+
+1. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` if it exists
+2. Check for ANY finding with status UNRESOLVED and severity P0 or P1
+3. If unresolved P0 findings exist: **BLOCK SHIP** — inform user and list blockers:
+   ```
+   SHIP BLOCKED — N unresolved P0 finding(s):
+     F001 [P0] SQL injection in auth.py:42 (from /review)
+
+   Resolve these findings before shipping, or override with "ship anyway".
+   ```
+4. If unresolved P1 findings exist: **WARN** — ask user for explicit override
+5. Read `.gstack/decisions.log` for any ship-blocking decisions
+6. Read `~/.gstack/projects/$SLUG/handoff.md` for recommendations from prior skills
+
+If `findings-$BRANCH.md` doesn't exist or has no unresolved findings, continue silently.
+
+---
+
 ## Step 1: Pre-flight
 
 1. Check the current branch. If on the base branch or the repo's default branch, **abort**: "You're on the base branch. Ship from a feature branch."
@@ -1742,6 +1768,16 @@ Substitute from earlier steps:
 - **BRANCH**: current branch name
 
 This step is automatic — never skip it, never ask for confirmation.
+
+---
+
+## Post-Ship Cleanup
+
+After successful ship (PR created and docs synced):
+1. Reset `~/.gstack/projects/$SLUG/state.md` to idle (skill=null, phase=idle, turn=0)
+2. Delete `~/.gstack/projects/$SLUG/handoff.md` (it's been consumed)
+3. Keep `findings-$BRANCH.md` intact (audit trail, read by `/retro`)
+4. Keep `.gstack/decisions.log` and `.gstack/anti-patterns.md` intact (team knowledge)
 
 ---
 

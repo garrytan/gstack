@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.19.0] - 2026-03-25 — Synthetic Memory
+
+### Added
+
+- **Skills now remember what they found — even when the context window forgets.** During long `/review`, `/qa`, and `/investigate` sessions, Claude's context window silently compresses away details like specific findings, user decisions, and what's been checked. Now, every finding is written to `.gstack/findings.md` immediately, every decision goes to `.gstack/decisions.log`, and a checkpoint re-syncs state every 5 tool calls. The files are the source of truth, not memory.
+- **`/ship` blocks on unresolved P0 findings.** If `/review` or `/qa` found a critical bug and it wasn't fixed, `/ship` will catch it and block — even if the finding was discovered in a previous session.
+- **Skills hand off context to each other.** When `/review` finishes, it writes a summary to `.gstack/handoff.md` that `/qa` picks up automatically. No more "I already told you about those bugs in the review."
+- **`/investigate` tracks hypotheses and fix attempts on disk.** After context compaction, the agent won't re-test a hypothesis it already disproved or forget how many fixes it's tried. The Iron Law's "3 failed fixes" rule now actually works across compaction boundaries.
+- **`/retro` incorporates findings patterns.** Weekly retrospectives now include systemic issue detection from accumulated findings (e.g., "4 SQL injection findings across sessions — consider a linter rule").
+- **New utility scripts:** `gstack-status` shows current session state at a glance, `gstack-reset` archives and clears memory for a fresh start.
+
 ## [0.11.18.2] - 2026-03-24
 
 ### Fixed

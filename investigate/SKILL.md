@@ -313,6 +313,63 @@ plan's living status.
 
 # Systematic Debugging
 
+## Session Memory
+
+Before starting the investigation, initialize synthetic memory:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+bash ~/.claude/skills/gstack/scripts/init-memory.sh
+```
+
+1. Read `~/.gstack/projects/$SLUG/state.md` — if a previous skill left state, note it
+2. Read `~/.gstack/projects/$SLUG/handoff.md` if it exists — incorporate prior context
+3. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` for any existing findings
+4. **Search `.gstack/anti-patterns.md`** for patterns matching the reported bug — if a
+   match is found, skip that approach and note: "Skipping — tried before (AP{NNN})"
+5. Update `state.md`: skill=investigate, phase=collecting_symptoms, turn=0
+
+Follow the Synthetic Memory Protocol from `lib/memory.md` throughout this investigation.
+Specifically:
+- Write EVERY finding to `~/.gstack/projects/$SLUG/findings-$BRANCH.md` IMMEDIATELY upon discovery
+- Run a CHECKPOINT every 5 tool calls
+- Log EVERY user decision to `.gstack/decisions.log`
+- On completion, write `~/.gstack/projects/$SLUG/handoff.md` for the next skill
+
+### Hypothesis Tracking
+
+Maintain a hypothesis log in `~/.gstack/projects/$SLUG/findings-$BRANCH.md` using this format:
+
+```markdown
+### H{N} — {description}
+- **Status:** testing | confirmed | disproven
+- **Evidence:** {what was tried and what happened}
+- **Tested:** {timestamp}
+```
+
+Before proposing a fix, read `findings-$BRANCH.md` hypotheses — do NOT
+re-test a hypothesis that was already disproven. This is critical because
+after compaction you may forget you already tried something.
+
+### Fix Attempt Log
+
+The Iron Law says stop after 3 failed fixes. Track them in `findings-$BRANCH.md`:
+
+```markdown
+### Fix Attempt {N} — {hypothesis}
+- **Action:** {what was changed}
+- **Result:** FAILED | SUCCESS
+- **Timestamp:** {timestamp}
+```
+
+Before each fix attempt, read `findings-$BRANCH.md` to count previous attempts.
+After compaction, you WILL forget how many fixes you've tried. The file knows.
+
+When a fix attempt fails, also append to `.gstack/anti-patterns.md` so future
+sessions never re-attempt the same approach.
+
+---
+
 ## Iron Law
 
 **NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST.**
@@ -462,9 +519,21 @@ Status:          DONE | DONE_WITH_CONCERNS | BLOCKED
 
 ---
 
+## Investigation Completion
+
+Before presenting the debug report:
+1. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` to get the complete findings, hypotheses, and fix attempts
+2. Write `~/.gstack/projects/$SLUG/handoff.md` with the investigation summary, root cause, and fix details
+3. Present the report based on the FILES, not your memory
+
+The debug report MUST match what's in `findings-$BRANCH.md`. If your memory
+of hypotheses tested or fix attempts differs from the file, the file is correct.
+
+---
+
 ## Important Rules
 
-- **3+ failed fix attempts → STOP and question the architecture.** Wrong architecture, not failed hypothesis.
+- **3+ failed fix attempts → STOP and question the architecture.** Wrong architecture, not failed hypothesis. Read `findings-$BRANCH.md` fix attempts to verify the count — do NOT rely on memory.
 - **Never apply a fix you cannot verify.** If you can't reproduce and confirm, don't ship it.
 - **Never say "this should fix it."** Verify and prove it. Run the tests.
 - **If fix touches >5 files → AskUserQuestion** about blast radius before proceeding.

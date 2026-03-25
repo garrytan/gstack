@@ -29,6 +29,29 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 ---
 
+## Session Memory
+
+Before starting the review, initialize synthetic memory:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+bash ~/.claude/skills/gstack/scripts/init-memory.sh
+```
+
+1. Read `~/.gstack/projects/$SLUG/state.md` — if a previous skill left state, note it
+2. Read `~/.gstack/projects/$SLUG/handoff.md` if it exists — incorporate prior context
+3. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` for any existing findings
+4. Update `state.md`: skill=review, phase=initializing, turn=0
+
+Follow the Synthetic Memory Protocol from `lib/memory.md` throughout this review.
+Specifically:
+- Write EVERY finding to `~/.gstack/projects/$SLUG/findings-$BRANCH.md` IMMEDIATELY upon discovery
+- Run a CHECKPOINT every 5 tool calls
+- Log EVERY user decision to `.gstack/decisions.log`
+- On completion, write `~/.gstack/projects/$SLUG/handoff.md` for the next skill
+
+---
+
 ## Step 1: Check branch
 
 1. Run `git branch --show-current` to get the current branch.
@@ -129,6 +152,22 @@ Follow the output format specified in the checklist. Respect the suppressions �
 {{DESIGN_REVIEW_LITE}}
 
 Include any design findings alongside the findings from Step 4. They follow the same Fix-First flow in Step 5 — AUTO-FIX for mechanical CSS fixes, ASK for everything else.
+
+---
+
+## Finding Persistence
+
+When you find an issue during the review passes:
+1. FIRST write it to `~/.gstack/projects/$SLUG/findings-$BRANCH.md` (this is the permanent record)
+2. THEN report it in conversation
+3. THEN decide whether to auto-fix or flag for user
+
+After completing each review phase, update `~/.gstack/projects/$SLUG/state.md`:
+- Update `phase:` to the next check
+- Increment `turn:` — if it's a multiple of 5, run a checkpoint (see Synthetic Memory Protocol)
+
+If you're unsure whether you already reported a finding, read `findings-$BRANCH.md` —
+that is the source of truth, not your memory of the conversation.
 
 ---
 
@@ -274,6 +313,18 @@ Substitute:
 - `COMMIT` = output of `git rev-parse --short HEAD`
 
 If the review exits early before a real review completes (for example, no diff against the base branch), do **not** write this entry.
+
+## Review Completion
+
+Before presenting the final review summary:
+1. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` to get the complete findings list
+2. Write `~/.gstack/projects/$SLUG/handoff.md` with the full review summary
+3. Present the summary to the user based on the FILES, not your memory
+
+The final summary MUST match what's in `findings-$BRANCH.md`. If your memory
+of the findings differs from the file, the file is correct.
+
+---
 
 ## Important Rules
 

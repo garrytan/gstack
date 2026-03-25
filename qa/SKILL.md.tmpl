@@ -30,6 +30,40 @@ allowed-tools:
 
 You are a QA engineer AND a bug-fix engineer. Test web applications like a real user — click everything, fill every form, check every state. When you find bugs, fix them in source code with atomic commits, then re-verify. Produce a structured report with before/after evidence.
 
+## Session Memory
+
+Before starting QA, initialize synthetic memory:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+bash ~/.claude/skills/gstack/scripts/init-memory.sh
+```
+
+1. Read `~/.gstack/projects/$SLUG/state.md` — if a previous skill left state, note it
+2. Read `~/.gstack/projects/$SLUG/handoff.md` if it exists — incorporate prior context
+3. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` for any existing findings
+4. Update `state.md`: skill=qa, phase=setup, turn=0
+
+Follow the Synthetic Memory Protocol from `lib/memory.md` throughout this QA session.
+Specifically:
+- Write EVERY finding to `~/.gstack/projects/$SLUG/findings-$BRANCH.md` IMMEDIATELY upon discovery
+- Run a CHECKPOINT every 5 tool calls
+- Log EVERY user decision to `.gstack/decisions.log`
+- On completion, write `~/.gstack/projects/$SLUG/handoff.md` for the next skill
+
+### Screenshot Memory
+
+Browser screenshots consume enormous context and are aggressively compacted.
+After EVERY screenshot that reveals a bug or important state:
+
+1. Extract the key observation into text IMMEDIATELY
+2. Write it to `~/.gstack/projects/$SLUG/findings-$BRANCH.md` if it's a bug
+
+NEVER rely on "I saw in the screenshot earlier that..." — if you didn't write
+it down, you don't know it. The screenshot may have been compacted away.
+
+---
+
 ## Setup
 
 **Parse the user's request for these parameters:**
@@ -187,6 +221,12 @@ $B snapshot -D
 - **best-effort**: fix applied but couldn't fully verify (e.g., needs auth state, external service)
 - **reverted**: regression detected → `git revert HEAD` → mark issue as "deferred"
 
+When a fix is classified, update the finding in `~/.gstack/projects/$SLUG/findings-$BRANCH.md` with:
+- Status: RESOLVED (or DEFERRED if reverted)
+- Resolution: description of fix
+- Commit SHA (if fixed)
+Update `~/.gstack/projects/$SLUG/state.md` accordingly.
+
 ### 8e.5. Regression Test
 
 Skip if: classification is not "verified", OR the fix is purely visual/CSS with no JS behavior, OR no test framework was detected AND user declined bootstrap.
@@ -235,6 +275,7 @@ Use auto-incrementing names to avoid collisions: check existing `{name}.regressi
 
 **4. Evaluate:**
 - Passes → commit: `git commit -m "test(qa): regression test for ISSUE-NNN — {desc}"`
+  Update the finding in `~/.gstack/projects/$SLUG/findings-$BRANCH.md` with: `Regression test: {test file and test name}`
 - Fails → fix test once. Still failing → delete test, defer.
 - Taking >2 min exploration → skip and defer.
 
@@ -305,6 +346,18 @@ If the repo has a `TODOS.md`:
 
 1. **New deferred bugs** → add as TODOs with severity, category, and repro steps
 2. **Fixed bugs that were in TODOS.md** → annotate with "Fixed by /qa on {branch}, {date}"
+
+---
+
+## QA Completion
+
+Before presenting the final QA report:
+1. Read `~/.gstack/projects/$SLUG/findings-$BRANCH.md` to get the complete findings list
+2. Write `~/.gstack/projects/$SLUG/handoff.md` with the full QA summary, unresolved findings, and recommendations
+4. Present the report based on the FILES, not your memory
+
+The final report MUST match what's in `~/.gstack/projects/$SLUG/findings-$BRANCH.md`. If your memory
+of the findings differs from the file, the file is correct.
 
 ---
 

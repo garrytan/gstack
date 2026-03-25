@@ -759,7 +759,7 @@ describe('Contributor mode preamble structure', () => {
     test(`${skill} has 0-10 rating in contributor mode`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
       expect(content).toContain('0-10');
-      expect(content).toContain('Rating');
+      expect(content).toContain('rating');
     });
 
     test(`${skill} has "what would make this a 10" field`, () => {

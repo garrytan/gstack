@@ -351,6 +351,33 @@ The `EvalCollector` accumulates test results and writes them in two ways:
 
 Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.
 
+## Synthetic memory
+
+Long-running skills (`/review`, `/qa`, `/investigate`) accumulate findings, decisions, and session state that exceed the context window. When Claude compacts earlier messages, critical details are silently lost — specific findings get summarized away, user decisions are forgotten, and the agent re-tests hypotheses it already disproved.
+
+The synthetic memory layer uses two storage locations — session state is private, team knowledge is shareable:
+
+```
+~/.gstack/projects/$SLUG/           ← private, per-user session state
+├── state.md                         ← skill, phase, turn (plain markdown)
+├── findings-$BRANCH.md              ← branch-scoped finding registry
+├── handoff.md                       ← inter-skill context transfer
+└── $BRANCH-reviews.jsonl            ← upstream review/ship logs (unchanged)
+
+.gstack/                             ← repo-level, optionally committed
+├── decisions.log                    ← append-only user decision log
+└── anti-patterns.md                 ← failed fixes (never re-attempt)
+```
+
+**Key design decisions:**
+- **Two layers.** Session state (ephemeral, single-user) lives in `~/.gstack/` alongside upstream's existing JSONL. Team knowledge (decisions, anti-patterns) lives in `.gstack/` where teams can optionally commit it.
+- **Markdown everywhere.** Claude writes markdown reliably; JSON with arrays unreliably. A corrupted markdown line doesn't break the file. A corrupted JSON bracket does.
+- **Branch-scoped findings.** `findings-feat-auth.md` and `findings-feat-payments.md` don't interfere. Uses the same `$SLUG/$BRANCH` scoping as upstream's review logs.
+- **Checkpoint = print, not copy.** Every 5 tool calls, re-read files and print status to re-inject state. No file snapshots — the value is in the context injection.
+- **Anti-patterns from PR #403.** Failed fix attempts are recorded so future `/investigate` sessions never re-attempt the same broken approach.
+
+The protocol is defined in `lib/memory.md` and included by reference in each skill's SKILL.md.tmpl. Scripts in `scripts/` handle initialization, status display, and reset.
+
 ## What's intentionally not here
 
 - **No WebSocket streaming.** HTTP request/response is simpler, debuggable with curl, and fast enough. Streaming would add complexity for marginal benefit.

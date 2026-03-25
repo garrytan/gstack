@@ -311,6 +311,18 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ## Infrastructure
 
+### Add touchfiles for synthetic memory E2E tests
+
+**What:** Update `test/helpers/touchfiles.ts` so changes to `lib/memory.md`, `scripts/init-memory.sh`, or `scripts/gstack-*.sh` trigger relevant E2E tests (qa-*, review-*, investigate-*).
+
+**Why:** Currently, changes to memory protocol files don't trigger any E2E tests via diff-based selection. A regression in memory.md wording could silently break skill behavior.
+
+**Context:** Added as part of the synthetic memory layer (v0.9.5.0). Deferred because memory-specific E2E tests don't exist yet — adding touchfiles without corresponding tests would just trigger unrelated E2E runs.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** Memory-specific E2E test cases
+
 ### /setup-gstack-upload skill (S3 bucket)
 
 **What:** Configure S3 bucket for image hosting. One-time setup for visual PR annotations.
