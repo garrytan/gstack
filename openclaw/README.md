@@ -18,3 +18,7 @@ Suggested mapping:
 - file operations -> OpenClaw `read`, `write`, `edit`
 - shell commands -> OpenClaw `exec`
 - user follow-ups -> normal chat replies or `message`
+
+Ported skill set currently includes review, investigation, office-hours/product planning, QA, design review/consultation, ship + deploy flows, post-ship docs, canary checks, safety modes, security review, retrospective, authenticated browser setup, and delegated coding-agent consultation.
+
+See `openclaw/references/gstack-port-notes.md` for the main runtime translation choices and limitations.
