@@ -7,7 +7,7 @@ description: |
   (autonomous competitive intelligence via WebSearch + browse) and session
   (interactive Rumelt's kernel diagnosis with framework selection from Porter,
   Wardley, Martin, Maples, Berger, Wasserman). Produces versioned strategy
-  documents with inline citations, 90-day action plans, and change tracking.
+  documents with inline citations, milestone-gated execution plans, and change tracking.
   Integrates with the gstack skill network.
   Use when: "competitive analysis", "strategy", "competitors", "Porter",
   "Wardley map", "how to compete", "strategic plan", "market analysis".
@@ -67,7 +67,7 @@ echo "SLUG: $SLUG"
 3. Check for existing strategy documents:
 
 ```bash
-SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ls -t ~/.gstack/projects/$SLUG/*-strategy-brief-*.md 2>/dev/null | head -3
 ls -t ~/.gstack/projects/$SLUG/*-strategy-*.md 2>/dev/null | grep -v brief | head -3
 ```
@@ -78,6 +78,7 @@ If prior strategy documents exist, list them: "Prior strategy docs for this proj
 4. Check for design docs (from `/office-hours`):
 
 ```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -3
 ```
 
@@ -254,6 +255,7 @@ If first brief: "First brief — no prior comparison available."]
 **After writing, verify the file exists:**
 
 ```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ls -la ~/.gstack/projects/$SLUG/*-strategy-brief-*.md | tail -1
 ```
 
@@ -288,13 +290,14 @@ Rumelt's kernel as the meta-framework.
 1. Read the latest brief:
 
 ```bash
-SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 BRIEF=$(ls -t ~/.gstack/projects/$SLUG/*-strategy-brief-*.md 2>/dev/null | head -1)
 [ -n "$BRIEF" ] && echo "BRIEF: $BRIEF" || echo "NO_BRIEF"
 ```
 
 If `NO_BRIEF`: Run Mode 1 first (auto-chain). After Mode 1 completes, re-read the
-brief and continue.
+brief and continue. If Mode 1 fails to produce a brief (verification step reports
+file not found), report the error to the user and STOP. Do not retry Mode 1.
 
 2. Read skill network artifacts for additional context:
    - Most recent design doc (`*-design-*.md`) — for product vision and constraints
@@ -596,6 +599,7 @@ If first strategy: "First strategic analysis — no prior comparison."]
 **After writing, verify the file exists:**
 
 ```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ls -la ~/.gstack/projects/$SLUG/*-strategy-*.md | grep -v brief | tail -1
 ```
 
