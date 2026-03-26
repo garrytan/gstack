@@ -1456,6 +1456,19 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"');
   });
 
+  test('Claude install infers project-local vs global from setup location, not pwd', () => {
+    expect(setupContent).toContain('infer_claude_install_dir()');
+    expect(setupContent).toContain('*/.claude/skills/gstack)');
+    expect(setupContent).toContain('INSTALL_SKILLS_DIR="$GLOBAL_CLAUDE_SKILLS_DIR"');
+  });
+
+  test('setup keeps explicit --local and --global overrides', () => {
+    expect(setupContent).toContain('--local');
+    expect(setupContent).toContain('--global');
+    expect(setupContent).toContain('FORCE_GLOBAL=1');
+    expect(setupContent).toContain('FORCE_LOCAL=1');
+  });
+
   test('Codex installs always create sidecar runtime assets for the real skill target', () => {
     expect(setupContent).toContain('if [ "$INSTALL_CODEX" -eq 1 ]; then');
     expect(setupContent).toContain('create_agents_sidecar "$SOURCE_GSTACK_DIR"');
