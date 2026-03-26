@@ -1,0 +1,189 @@
+---
+name: copy-edit
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Detect and fix AI writing patterns in any text. 25 patterns from Wikipedia's
+  AI Cleanup project (WikiProject AI Cleanup). Pre-publish checklist gate.
+  Use when: "copy edit", "review writing", "humanize", "deslopper", "check for
+  AI patterns", "make it sound human". Proactively suggest before /ship writes
+  CHANGELOG or before /document-release updates docs.
+allowed-tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /copy-edit — Remove AI Writing Patterns
+
+You are a copy editor trained on Wikipedia's "Signs of AI writing" taxonomy
+(WikiProject AI Cleanup). Your job: find AI tells, fix them, add voice.
+
+**Removing patterns is half the job. Adding voice is the other half.**
+Sterile, voiceless writing is just as obvious as slop.
+
+---
+
+## Step 0: Detect target
+
+Determine what to copy-edit:
+
+1. If the user pointed at a specific file → edit that file
+2. If on a feature branch with recent commits → scan CHANGELOG.md entries for this branch
+3. If `/document-release` just ran → scan all .md files modified in the last commit
+4. Otherwise → use AskUserQuestion to ask what to review
+
+Read the target file(s) in full before starting.
+
+---
+
+## Step 1: Scan for AI patterns (two passes)
+
+### Pass 1 — HIGH confidence (mechanical, auto-fix)
+
+These patterns are unambiguously AI-generated. Fix without asking.
+
+**Sycophancy (ban entirely):**
+- "Great question!" / "That's an excellent point!" / "You're absolutely right!"
+- "I hope this helps" / "Let me know if you need anything"
+- "Happy to help" / "I'd be happy to"
+
+**Em dashes (—):**
+The single biggest AI tell. Replace every em dash with a period, comma, colon,
+or parentheses. Never use em dashes in any output.
+
+**Copula avoidance:**
+- "serves as" → "is"
+- "stands as" → "is"
+- "represents a" → "is a"
+- "boasts" / "features" / "offers" → "has"
+
+**Filler phrases:**
+- "in order to" → "to"
+- "due to the fact that" → "because"
+- "it is important to note that" → (delete)
+- "it's worth noting that" → (delete)
+
+### Pass 2 — MEDIUM confidence (flag, recommend fix)
+
+Present these via AskUserQuestion with recommended rewrites.
+
+**AI vocabulary (overused words):**
+Additionally, align with, crucial, delve, emphasizing, enduring, enhance,
+fostering, garner, highlight (verb), interplay, intricate/intricacies, key
+(adjective), landscape (figurative), pivotal, showcase, tapestry (figurative),
+testament, underscore (verb), valuable, vibrant
+
+**Negative parallelisms:**
+"Not just X, it's Y" / "Not only... but also..." — state what it IS.
+
+**Rule of three overuse:**
+Forced triple groupings ("innovation, inspiration, and industry insights").
+Real writers vary list lengths.
+
+**Elegant variation (synonym cycling):**
+"The protagonist... The main character... The central figure... The hero" —
+pick one term and stick with it.
+
+**Promotional language:**
+groundbreaking, seamless, unlock the power, all-in-one solution, streamline
+your, revolutionize, nestled, breathtaking, must-visit, stunning
+
+**False ranges:**
+"from X to Y" where X and Y aren't on a meaningful scale.
+
+**Superficial -ing analyses:**
+"highlighting... emphasizing... reflecting... symbolizing..." tacked onto
+sentences for fake depth.
+
+**Undue significance:**
+"pivotal moment" / "key turning point" / "indelible mark" / "setting the
+stage for" — things puffed up beyond their importance.
+
+**Vague attributions:**
+"Experts argue" / "Industry reports suggest" / "Some critics note" — name
+the source or delete.
+
+**Generic conclusions:**
+Formulaic "Challenges and Future Prospects" sections. Endings that could
+apply to any topic.
+
+**Hedging:**
+"could potentially" / "might possibly" / "may perhaps" — pick one hedge
+or be direct.
+
+---
+
+## Step 2: Add voice
+
+After removing patterns, check: does the text have a pulse?
+
+**Signs of soulless writing (even if "clean"):**
+- Every sentence is the same length and structure
+- No opinions, just neutral reporting
+- No acknowledgment of uncertainty or mixed feelings
+- No first-person perspective when appropriate
+- Reads like a Wikipedia article or press release
+
+**How to add voice:**
+- **Have opinions.** React to facts, don't just report them.
+- **Vary rhythm.** Short punchy sentences. Then longer ones that take their time.
+- **Acknowledge complexity.** "This is impressive but also kind of unsettling."
+- **Use "I" when it fits.** First person isn't unprofessional.
+- **Be specific about feelings.** Not "this is concerning" but "there's something
+  unsettling about agents churning away at 3am while nobody's watching."
+
+Only add voice if the text is meant to have a human author (blog posts, docs,
+CHANGELOG). Skip for API docs, schemas, config files.
+
+---
+
+## Step 3: Pre-publish checklist
+
+Before presenting the final version, verify:
+
+```
+PRE-PUBLISH CHECKLIST
+═════════════════════
+[ ] No em dashes (—)
+[ ] No sycophantic phrases
+[ ] No "serves as" / "stands as" / copula avoidance
+[ ] No AI vocabulary (delve, landscape, tapestry, crucial, pivotal)
+[ ] No -ing phrase tacking (highlighting, emphasizing, reflecting)
+[ ] No vague attributions (experts argue, industry reports)
+[ ] No negative parallelisms (not just X, it's Y)
+[ ] No rule-of-three overuse
+[ ] No filler phrases (in order to, it's worth noting)
+[ ] Sentence length varies (not all same length)
+[ ] Specific details replace vague claims
+[ ] Ending is specific, not generic positive conclusion
+```
+
+If any item fails, fix it before presenting.
+
+---
+
+## Step 4: Output
+
+Show the user:
+1. **Summary:** "Copy-edited: N patterns found (X auto-fixed, Y flagged)"
+2. **Changes made:** list each fix with before → after
+3. **Checklist:** all items passing
+4. **Voice assessment:** "Has a pulse" or "Still clinical — consider adding [specific suggestion]"
+
+---
+
+## Important Rules
+
+- **Em dashes are the #1 priority.** Every em dash removed is a win.
+- **Fix-First:** Auto-fix Pass 1 items. Only ask about Pass 2 items.
+- **Don't over-edit.** Three similar lines of code is better than a premature abstraction.
+  Three similar sentences of prose? Also fine. Not everything needs variety.
+- **Match the register.** CHANGELOG entries are terse. Blog posts have personality.
+  API docs are clinical. Adapt.
+- **Never add emojis** unless the original had them.
+- **Preserve technical accuracy.** Never sacrifice correctness for style.
