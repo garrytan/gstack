@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# gstack-find-artifact — locate the best project artifact for the current repo/branch
+# Usage: gstack-find-artifact design-doc|ceo-plan
+set -euo pipefail
+
+ARTIFACT="${1:-}"
+if [ -z "$ARTIFACT" ]; then
+  echo "Usage: gstack-find-artifact design-doc|ceo-plan" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+SLUG="${SLUG:-}"
+BRANCH="${BRANCH:-}"
+
+if [ -z "$SLUG" ]; then
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  SLUG="$(basename "$ROOT" | tr -cd 'a-zA-Z0-9._-')"
+fi
+
+if [ -z "$BRANCH" ]; then
+  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' | tr -cd 'a-zA-Z0-9._-' || echo 'no-branch')"
+fi
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+PROJECT_DIR="$GSTACK_HOME/projects/$SLUG"
+
+shopt -s nullglob
+
+latest_file() {
+  [ "$#" -gt 0 ] || return 1
+  ls -t "$@" 2>/dev/null | head -1
+}
+
+case "$ARTIFACT" in
+  design-doc)
+    branch_docs=("$PROJECT_DIR"/*-"$BRANCH"-design-*.md)
+    if [ ${#branch_docs[@]} -gt 0 ]; then
+      latest_file "${branch_docs[@]}"
+      exit 0
+    fi
+
+    all_docs=("$PROJECT_DIR"/*-design-*.md)
+    if [ ${#all_docs[@]} -gt 0 ]; then
+      latest_file "${all_docs[@]}"
+      exit 0
+    fi
+    ;;
+
+  ceo-plan)
+    plan_dir="$PROJECT_DIR/ceo-plans"
+    all_plans=("$plan_dir"/*.md)
+    if [ ${#all_plans[@]} -gt 0 ]; then
+      same_branch_active=()
+      active_plans=()
+      for plan in "${all_plans[@]}"; do
+        if grep -q '^status: ACTIVE$' "$plan" 2>/dev/null; then
+          active_plans+=("$plan")
+          if grep -q "^Branch: $BRANCH\$" "$plan" 2>/dev/null; then
+            same_branch_active+=("$plan")
+          fi
+        fi
+      done
+
+      if [ ${#same_branch_active[@]} -gt 0 ]; then
+        latest_file "${same_branch_active[@]}"
+        exit 0
+      fi
+
+      if [ ${#active_plans[@]} -gt 0 ]; then
+        latest_file "${active_plans[@]}"
+        exit 0
+      fi
+
+      latest_file "${all_plans[@]}"
+      exit 0
+    fi
+    ;;
+
+  *)
+    echo "Unknown artifact type: $ARTIFACT" >&2
+    exit 1
+    ;;
+esac
+
+exit 1

@@ -3,7 +3,17 @@
 # Usage: gstack-review-log '{"skill":"...","timestamp":"...","status":"..."}'
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+SLUG="${SLUG:-}"
+BRANCH="${BRANCH:-}"
+if [ -z "$SLUG" ]; then
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  SLUG="$(basename "$ROOT" | tr -cd 'a-zA-Z0-9._-')"
+fi
+if [ -z "$BRANCH" ]; then
+  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' | tr -cd 'a-zA-Z0-9._-' || echo 'no-branch')"
+fi
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
+echo "$1" >> "$GSTACK_HOME/projects/$SLUG/reviews.jsonl"
 echo "$1" >> "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"
