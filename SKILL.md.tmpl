@@ -254,34 +254,35 @@ $B css ".button" "background-color"
 
 If Revyl is authenticated (`revyl auth status`), `/qa` and `/qa-only` automatically use the `revyl device` CLI for mobile QA when an `app.json` or `app.config.js` is present. Cloud-hosted iOS and Android devices with AI-grounded element targeting — no local simulators, Appium, or Java required.
 
+### Two modes: Dev Loop (Expo) and Static
+
+**Dev loop mode** is the default for Expo projects. `revyl dev start` handles everything — starts Metro, creates a Cloudflare tunnel to the cloud device, and enables hot reload. Code changes appear on the device in seconds without rebuilding.
+
+**Static mode** is for non-Expo projects or pre-built apps. `revyl device start` provisions a bare device, then you install and launch a build manually. Use `--static` to force this mode on Expo projects.
+
 ### Revyl CLI commands for mobile
 
 ```bash
-# Start a cloud device session
-revyl device start --platform ios --json    # or --platform android
+# Dev loop mode (Expo default — hot reload)
+revyl init -y                                # one-time: auto-detect framework, create config
+revyl dev start --platform ios --open        # start dev server + tunnel + cloud device
+# Code changes hot reload automatically — no rebuild needed for JS/TS
 
-# Take a screenshot
+# Static mode (non-Expo, or --static override)
+revyl device start --platform ios --json     # provision a bare cloud device
+revyl device install --app-url "https://example.com/app.ipa"
+revyl device launch --bundle-id "com.example.myapp"
+
+# Interaction (same in both modes)
 revyl device screenshot --out /tmp/mobile-screen.png
-
-# Tap an element (natural language targeting)
 revyl device tap --target "Sign In button"
-
-# Type text into a field
 revyl device type --target "Email field" --text "test@example.com"
-
-# Swipe/scroll
 revyl device swipe --target "screen center" --direction up
-
-# Navigate and control
 revyl device back
 revyl device home
 revyl device navigate --url "myapp://deeplink"
 
-# App management
-revyl device install --app-url "https://example.com/app.ipa"
-revyl device launch --bundle-id "com.example.myapp"
-
-# End session
+# End session (also tears down tunnel/dev server in dev loop mode)
 revyl device stop
 ```
 
