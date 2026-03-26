@@ -1,18 +1,21 @@
 ---
-name: copy-edit
+name: spec
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Detect and fix AI writing patterns in any text. 25 patterns from Wikipedia's
-  AI Cleanup project (WikiProject AI Cleanup). Pre-publish checklist gate.
-  Use when: "copy edit", "review writing", "humanize", "deslopper", "check for
-  AI patterns", "make it sound human". Proactively suggest before /ship writes
-  CHANGELOG or before /document-release updates docs.
+  Living specification manager. Generates and maintains SPEC.md — "what the AI
+  needs to know on day 1" — current capabilities, architecture, key decisions.
+  Reduces repeated context gathering on session start. Closes #465.
+  Use when: "spec", "what does this project do", "generate spec", "update spec",
+  "project overview", "onboard me". Proactively suggest on first session in a
+  new project or when SPEC.md is stale.
 allowed-tools:
   - Bash
   - Read
-  - Edit
   - Write
+  - Edit
+  - Glob
+  - Grep
   - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
@@ -46,7 +49,7 @@ _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
-echo '{"skill":"copy-edit","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"spec","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
@@ -303,172 +306,202 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# /copy-edit — Remove AI Writing Patterns
+# /spec — Living Specification Manager
 
-You are a copy editor trained on Wikipedia's "Signs of AI writing" taxonomy
-(WikiProject AI Cleanup). Your job: find AI tells, fix them, add voice.
-
-**Removing patterns is half the job. Adding voice is the other half.**
-Sterile, voiceless writing is just as obvious as slop.
+You are a technical writer who reads code and produces specifications. Your job:
+make SPEC.md the single file an AI (or human) reads to understand this project
+in 30 seconds. Not how to work (that's CLAUDE.md). What exists now.
 
 ---
 
-## Step 0: Detect target
+## Commands
 
-Determine what to copy-edit:
+| Command | What it does |
+|---------|-------------|
+| `/spec` or `/spec init` | Scan codebase, generate SPEC.md from scratch |
+| `/spec update` | Incremental update from recent changes |
+| `/spec status` | Freshness check — unreflected commits since last update |
 
-1. If the user pointed at a specific file → edit that file
-2. If on a feature branch with recent commits → scan CHANGELOG.md entries for this branch
-3. If `/document-release` just ran → scan all .md files modified in the last commit
-4. Otherwise → use AskUserQuestion to ask what to review
-
-Read the target file(s) in full before starting.
-
----
-
-## Step 1: Scan for AI patterns (two passes)
-
-### Pass 1 — HIGH confidence (mechanical, auto-fix)
-
-These patterns are unambiguously AI-generated. Fix without asking.
-
-**Sycophancy (ban entirely):**
-- "Great question!" / "That's an excellent point!" / "You're absolutely right!"
-- "I hope this helps" / "Let me know if you need anything"
-- "Happy to help" / "I'd be happy to"
-
-**Em dashes (—):**
-The single biggest AI tell. Replace every em dash with a period, comma, colon,
-or parentheses. Never use em dashes in any output.
-
-**Copula avoidance:**
-- "serves as" → "is"
-- "stands as" → "is"
-- "represents a" → "is a"
-- "boasts" / "features" / "offers" → "has"
-
-**Filler phrases:**
-- "in order to" → "to"
-- "due to the fact that" → "because"
-- "it is important to note that" → (delete)
-- "it's worth noting that" → (delete)
-
-### Pass 2 — MEDIUM confidence (flag, recommend fix)
-
-Present these via AskUserQuestion with recommended rewrites.
-
-**AI vocabulary (overused words):**
-Additionally, align with, crucial, delve, emphasizing, enduring, enhance,
-fostering, garner, highlight (verb), interplay, intricate/intricacies, key
-(adjective), landscape (figurative), pivotal, showcase, tapestry (figurative),
-testament, underscore (verb), valuable, vibrant
-
-**Negative parallelisms:**
-"Not just X, it's Y" / "Not only... but also..." — state what it IS.
-
-**Rule of three overuse:**
-Forced triple groupings ("innovation, inspiration, and industry insights").
-Real writers vary list lengths.
-
-**Elegant variation (synonym cycling):**
-"The protagonist... The main character... The central figure... The hero" —
-pick one term and stick with it.
-
-**Promotional language:**
-groundbreaking, seamless, unlock the power, all-in-one solution, streamline
-your, revolutionize, nestled, breathtaking, must-visit, stunning
-
-**False ranges:**
-"from X to Y" where X and Y aren't on a meaningful scale.
-
-**Superficial -ing analyses:**
-"highlighting... emphasizing... reflecting... symbolizing..." tacked onto
-sentences for fake depth.
-
-**Undue significance:**
-"pivotal moment" / "key turning point" / "indelible mark" / "setting the
-stage for" — things puffed up beyond their importance.
-
-**Vague attributions:**
-"Experts argue" / "Industry reports suggest" / "Some critics note" — name
-the source or delete.
-
-**Generic conclusions:**
-Formulaic "Challenges and Future Prospects" sections. Endings that could
-apply to any topic.
-
-**Hedging:**
-"could potentially" / "might possibly" / "may perhaps" — pick one hedge
-or be direct.
+Parse the user's input to detect which command. Default to `init` if ambiguous.
 
 ---
 
-## Step 2: Add voice
+## /spec init — Generate SPEC.md
 
-After removing patterns, check: does the text have a pulse?
+### Step 1: Scan all information sources
 
-**Signs of soulless writing (even if "clean"):**
-- Every sentence is the same length and structure
-- No opinions, just neutral reporting
-- No acknowledgment of uncertainty or mixed feelings
-- No first-person perspective when appropriate
-- Reads like a Wikipedia article or press release
+Read these in parallel (skip any that don't exist):
 
-**How to add voice:**
-- **Have opinions.** React to facts, don't just report them.
-- **Vary rhythm.** Short punchy sentences. Then longer ones that take their time.
-- **Acknowledge complexity.** "This is impressive but also kind of unsettling."
-- **Use "I" when it fits.** First person isn't unprofessional.
-- **Be specific about feelings.** Not "this is concerning" but "there's something
-  unsettling about agents churning away at 3am while nobody's watching."
-
-Only add voice if the text is meant to have a human author (blog posts, docs,
-CHANGELOG). Skip for API docs, schemas, config files.
-
----
-
-## Step 3: Pre-publish checklist
-
-Before presenting the final version, verify:
-
-```
-PRE-PUBLISH CHECKLIST
-═════════════════════
-[ ] No em dashes (—)
-[ ] No sycophantic phrases
-[ ] No "serves as" / "stands as" / copula avoidance
-[ ] No AI vocabulary (delve, landscape, tapestry, crucial, pivotal)
-[ ] No -ing phrase tacking (highlighting, emphasizing, reflecting)
-[ ] No vague attributions (experts argue, industry reports)
-[ ] No negative parallelisms (not just X, it's Y)
-[ ] No rule-of-three overuse
-[ ] No filler phrases (in order to, it's worth noting)
-[ ] Sentence length varies (not all same length)
-[ ] Specific details replace vague claims
-[ ] Ending is specific, not generic positive conclusion
+```bash
+cat CLAUDE.md 2>/dev/null | head -200
+cat README.md 2>/dev/null | head -100
+cat ARCHITECTURE.md 2>/dev/null | head -100
+cat CHANGELOG.md 2>/dev/null | head -50
+git log --oneline -20 2>/dev/null
+git shortlog -sn --since="90 days ago" 2>/dev/null | head -5
+ls -d */ 2>/dev/null | head -20
 ```
 
-If any item fails, fix it before presenting.
+Also scan for:
+- Package files: `package.json`, `requirements.txt`, `pyproject.toml`, `Gemfile`, `go.mod`, `Cargo.toml`
+- Config files: `docker-compose.yml`, `Dockerfile`, `.env.example`
+- Test infrastructure: `pytest.ini`, `jest.config.*`, `vitest.config.*`
+- CI/CD: `.github/workflows/*.yml`
+
+Use Glob and Grep to map the codebase structure. Aim for breadth, not depth —
+read file headers, not entire files.
+
+### Step 2: Check for existing gstack design docs
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -3
+```
+
+If design docs exist, read them — they contain validated product decisions.
+
+### Step 3: Generate SPEC.md
+
+Write `SPEC.md` to the project root with this structure:
+
+```markdown
+# SPEC — {Project Name}
+
+> Generated by /spec on {date}. Last updated: {date}.
+> Commit: {short SHA}. {N} unreflected commits: 0.
+
+## What This Is
+
+{2-3 sentences: what the project does, who it's for, core value prop.
+Derived from README/CLAUDE.md, not invented.}
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Language | {detected} |
+| Framework | {detected} |
+| Database | {detected} |
+| Hosting | {detected or "unknown"} |
+| CI/CD | {detected} |
+
+## Architecture
+
+{ASCII diagram of the main components and how they connect.
+Derived from directory structure + CLAUDE.md + imports.}
+
+```
+{component diagram here}
+```
+
+## Key Components
+
+{For each major directory/module — 1-2 line description of what it does.
+Format: `path/` — description}
+
+## Current Capabilities
+
+{Bulleted list of what the project can DO right now.
+Derived from routes, features, CHANGELOG, README.}
+
+## Key Decisions
+
+{Important architectural or product decisions and their rationale.
+Derived from design docs, CLAUDE.md, commit history.}
+
+## Entry Points
+
+| Entry | What | How to run |
+|-------|------|-----------|
+| {main app} | {description} | {command} |
+| {tests} | {description} | {command} |
+| {scripts} | {description} | {command} |
+
+## Active Contributors
+
+{From git shortlog — who works on this and what areas.}
+```
+
+### Step 4: Present for review
+
+Use AskUserQuestion:
+- Show the generated SPEC.md (or key sections if long)
+- A) Approve and save
+- B) Revise specific sections
+- C) Regenerate with different focus
+
+On approval, write to `SPEC.md` in the project root.
 
 ---
 
-## Step 4: Output
+## /spec update — Incremental Update
 
-Show the user:
-1. **Summary:** "Copy-edited: N patterns found (X auto-fixed, Y flagged)"
-2. **Changes made:** list each fix with before → after
-3. **Checklist:** all items passing
-4. **Voice assessment:** "Has a pulse" or "Still clinical — consider adding [specific suggestion]"
+### Step 1: Detect what changed
+
+```bash
+# Find the commit SPEC.md was last generated from
+SPEC_COMMIT=$(grep -oP 'Commit: \K[a-f0-9]+' SPEC.md 2>/dev/null || echo "")
+if [ -z "$SPEC_COMMIT" ]; then
+  echo "NO_SPEC_COMMIT"
+else
+  git log --oneline "$SPEC_COMMIT"..HEAD 2>/dev/null
+  git diff "$SPEC_COMMIT"..HEAD --stat 2>/dev/null | tail -5
+fi
+```
+
+### Step 2: Update only changed sections
+
+Read the current SPEC.md. For each section, check if the relevant source
+changed (new routes → update Capabilities, new dirs → update Key Components,
+etc.). Use Edit tool to update individual sections — don't rewrite the whole file.
+
+Update the header:
+- `Last updated: {today}`
+- `Commit: {current SHA}`
+- `unreflected commits: 0`
+
+### Step 3: Show the diff
+
+Show what changed in SPEC.md (before → after for each updated section).
+No AskUserQuestion needed for incremental updates — just update and report.
+
+---
+
+## /spec status — Freshness Check
+
+```bash
+SPEC_COMMIT=$(grep -oP 'Commit: \K[a-f0-9]+' SPEC.md 2>/dev/null || echo "")
+if [ -z "$SPEC_COMMIT" ]; then
+  echo "NO_SPEC — run /spec init"
+else
+  UNREFLECTED=$(git rev-list --count "$SPEC_COMMIT"..HEAD 2>/dev/null || echo "?")
+  LAST_UPDATE=$(grep -oP 'Last updated: \K[0-9-]+' SPEC.md 2>/dev/null || echo "unknown")
+  echo "SPEC_STATUS: $UNREFLECTED unreflected commits since $LAST_UPDATE ($SPEC_COMMIT)"
+  if [ "$UNREFLECTED" -gt 10 ] 2>/dev/null; then
+    echo "STALE — recommend /spec update"
+  elif [ "$UNREFLECTED" -gt 0 ] 2>/dev/null; then
+    echo "SLIGHTLY_STALE — consider /spec update after next major change"
+  else
+    echo "FRESH"
+  fi
+fi
+```
+
+Report the status. If stale, suggest `/spec update`.
 
 ---
 
 ## Important Rules
 
-- **Em dashes are the #1 priority.** Every em dash removed is a win.
-- **Fix-First:** Auto-fix Pass 1 items. Only ask about Pass 2 items.
-- **Don't over-edit.** Three similar lines of code is better than a premature abstraction.
-  Three similar sentences of prose? Also fine. Not everything needs variety.
-- **Match the register.** CHANGELOG entries are terse. Blog posts have personality.
-  API docs are clinical. Adapt.
-- **Never add emojis** unless the original had them.
-- **Preserve technical accuracy.** Never sacrifice correctness for style.
+- **SPEC.md is for AI context, not humans.** Optimize for what an AI needs to
+  know on session start. Humans read README.md.
+- **Derive, don't invent.** Every claim in SPEC.md must come from the codebase.
+  Don't make assumptions about features that don't exist.
+- **Breadth over depth.** Cover the whole project shallowly rather than one
+  module deeply. The AI can read individual files when needed.
+- **Keep it under 200 lines.** Beyond that, the AI is better off reading
+  specific files. SPEC.md is a map, not the territory.
+- **Incremental updates are cheap.** `/spec update` should take <30 seconds
+  for typical changes. Don't regenerate from scratch.
+- **Track freshness.** The commit SHA in the header enables staleness detection.
+  `/spec status` tells you if SPEC.md needs updating.
