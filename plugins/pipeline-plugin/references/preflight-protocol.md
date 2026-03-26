@@ -29,18 +29,15 @@
 
 ## gstack 설치 확인
 
-**반드시 아래 Bash 명령을 실행하여 판단합니다. 추측하거나 가정하지 마세요.**
+**Glob 도구**로 아래 경로를 검색합니다. 하나라도 매칭되면 `GSTACK_OK`입니다.
 
-```bash
-_GSTACK_SKILL=$(find ~/.claude/plugins/cache -path "*/gstack-plugin/*/skills/browse/SKILL.md" 2>/dev/null | head -1)
-[ -z "$_GSTACK_SKILL" ] && _GSTACK_SKILL=$(find ~/.claude/plugins -path "*/gstack-plugin/*/skills/browse/SKILL.md" 2>/dev/null | head -1)
-[ -z "$_GSTACK_SKILL" ] && _GSTACK_SKILL=$(ls ~/.claude/skills/gstack/SKILL.md 2>/dev/null)
-[ -n "$_GSTACK_SKILL" ] && echo "GSTACK_OK" || echo "GSTACK_NOT_INSTALLED"
+```
+Glob: ~/.claude/plugins/**/gstack-plugin/**/skills/browse/SKILL.md
 ```
 
-- 출력이 `GSTACK_OK`이면 gstack이 설치된 것입니다. gstack 관련 Step을 **정상 실행**합니다.
-- 출력이 `GSTACK_NOT_INSTALLED`이면 gstack 미설치입니다.
-- **이 스크립트를 실행하지 않고 gstack 설치 여부를 판단하지 마세요.**
+- **매칭 결과가 1개 이상** → gstack 설치됨 (`GSTACK_OK`). gstack 관련 Step을 **정상 실행**합니다.
+- **매칭 결과 0개** → gstack 미설치 (`GSTACK_NOT_INSTALLED`).
+- **gstack-plugin은 my-claude 마켓플레이스에 포함되어 있습니다.** 별도 설치가 아닌 마켓플레이스 캐시 내에 존재합니다. "gstack이 시스템에 설치되지 않았다"고 가정하지 마세요 — 반드시 위 Glob 결과로 판단하세요.
 
 결과를 기억합니다. **gstack 미설치 시 스킵 대상 Step은 Phase 시작 시 일괄 처리**합니다:
 - 각 Step에서 개별 체크하지 않음
