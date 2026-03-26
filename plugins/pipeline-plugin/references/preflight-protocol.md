@@ -29,11 +29,18 @@
 
 ## gstack 설치 확인
 
+**반드시 아래 Bash 명령을 실행하여 판단합니다. 추측하거나 가정하지 마세요.**
+
 ```bash
 _GSTACK_SKILL=$(find ~/.claude/plugins/cache -path "*/gstack-plugin/*/skills/browse/SKILL.md" 2>/dev/null | head -1)
+[ -z "$_GSTACK_SKILL" ] && _GSTACK_SKILL=$(find ~/.claude/plugins -path "*/gstack-plugin/*/skills/browse/SKILL.md" 2>/dev/null | head -1)
 [ -z "$_GSTACK_SKILL" ] && _GSTACK_SKILL=$(ls ~/.claude/skills/gstack/SKILL.md 2>/dev/null)
 [ -n "$_GSTACK_SKILL" ] && echo "GSTACK_OK" || echo "GSTACK_NOT_INSTALLED"
 ```
+
+- 출력이 `GSTACK_OK`이면 gstack이 설치된 것입니다. gstack 관련 Step을 **정상 실행**합니다.
+- 출력이 `GSTACK_NOT_INSTALLED`이면 gstack 미설치입니다.
+- **이 스크립트를 실행하지 않고 gstack 설치 여부를 판단하지 마세요.**
 
 결과를 기억합니다. **gstack 미설치 시 스킵 대상 Step은 Phase 시작 시 일괄 처리**합니다:
 - 각 Step에서 개별 체크하지 않음
