@@ -31,7 +31,8 @@
     "eval:summary": "bun run scripts/eval-summary.ts",
     "eval:watch": "bun run scripts/eval-watch.ts",
     "eval:select": "bun run scripts/eval-select.ts",
-    "analytics": "bun run scripts/analytics.ts"
+    "analytics": "bun run scripts/analytics.ts",
+    "dashboard": "bun run dashboard/server.ts"
   },
   "dependencies": {
     "diff": "^7.0.0",
