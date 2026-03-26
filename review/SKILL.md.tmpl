@@ -275,6 +275,78 @@ Substitute:
 
 If the review exits early before a real review completes (for example, no diff against the base branch), do **not** write this entry.
 
+---
+
+## Step 5.9: Post inline PR annotations
+
+If a PR exists for this branch, post review findings as inline comments at specific
+file:line locations so reviewers see issues in context — not buried in a wall of text.
+
+**1. Check for existing PR:**
+
+```bash
+PR_NUMBER=$(gh pr view --json number --jq .number 2>/dev/null)
+REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)
+```
+
+If no PR exists (e.g., `/review` ran before `/ship`), skip this step silently.
+The findings are still in the review output — annotations are additive.
+
+**2. Get the diff commit range:**
+
+```bash
+COMMIT_SHA=$(git rev-parse HEAD)
+```
+
+**3. For each finding that has a file:line reference**, post an inline review comment:
+
+```bash
+gh api repos/$REPO/pulls/$PR_NUMBER/comments \
+  -f body="**[SEVERITY]** DESCRIPTION
+
+RECOMMENDED_FIX" \
+  -f commit_id="$COMMIT_SHA" \
+  -f path="FILE_PATH" \
+  -F line=LINE_NUMBER \
+  -f side="RIGHT"
+```
+
+Substitute:
+- `SEVERITY`: `CRITICAL` or `INFORMATIONAL`
+- `DESCRIPTION`: one-line problem description from the finding
+- `RECOMMENDED_FIX`: the fix recommendation (omit if already auto-fixed)
+- `FILE_PATH`: relative path from repo root (e.g., `src/models/user.rb`)
+- `LINE_NUMBER`: line number in the new file (right side of diff)
+
+**4. Rules for annotations:**
+
+- **Only annotate unresolved findings.** Skip AUTO-FIXED items (they're already fixed).
+- **Only annotate findings with a clear file:line reference.** Skip top-level or architectural findings.
+- **Max 15 annotations per review.** If more than 15 findings, annotate the top 15 by severity (critical first), and note the rest in a top-level comment.
+- **Include fix status in the comment.** If auto-fixed: `~~[AUTO-FIXED]~~ Fixed in this review.` If ASK and user approved: `[FIXED] Applied per reviewer approval.` If skipped: show the finding + recommendation.
+- **Never duplicate Greptile comments.** If a finding originated from Greptile (Step 2.5), do not post a duplicate annotation — the Greptile comment already exists at that location.
+
+**5. Post a review summary comment** (top-level, not inline):
+
+```bash
+gh pr comment $PR_NUMBER --body "## Pre-Landing Review
+
+**$TOTAL issues** ($CRITICAL critical, $INFORMATIONAL informational)
+- Auto-fixed: $AUTO_FIXED
+- Requires attention: $ASK_COUNT
+
+$FINDING_SUMMARY"
+```
+
+Where `FINDING_SUMMARY` is a compact list of all findings with their resolution status.
+
+If `gh api` calls fail (permissions, rate limiting), log the error and continue — the
+review output in the conversation still has all findings. Annotations are best-effort.
+
+This step is automatic — never skip it when a PR exists, never ask for confirmation.
+
+---
+
 ## Important Rules
 
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
