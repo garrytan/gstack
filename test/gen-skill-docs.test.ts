@@ -307,6 +307,31 @@ describe('gen-skill-docs', () => {
     expect(qaOnlyContent).toContain('Phase 6');
   });
 
+  test('QA_METHODOLOGY contains Revyl mobile content (dev loop + static + build awareness)', () => {
+    const qaContent = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
+    const qaOnlyContent = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
+
+    // Dev loop mode content
+    expect(qaContent).toContain('DEV LOOP MODE');
+    expect(qaContent).toContain('revyl dev start');
+    expect(qaOnlyContent).toContain('DEV LOOP MODE');
+    expect(qaOnlyContent).toContain('revyl dev start');
+
+    // Static mode build-type awareness
+    expect(qaContent).toContain('Ensure a Revyl-compatible build');
+    expect(qaContent).toContain('eas.json');
+    expect(qaOnlyContent).toContain('Ensure a Revyl-compatible build');
+    expect(qaOnlyContent).toContain('eas.json');
+
+    // Dev launcher detection (Expo safety net)
+    expect(qaContent).toContain('dev launcher');
+    expect(qaOnlyContent).toContain('dev launcher');
+
+    // Local build path
+    expect(qaContent).toContain('npx expo run:ios');
+    expect(qaOnlyContent).toContain('npx expo run:ios');
+  });
+
   test('qa-only has no-fix guardrails', () => {
     const qaOnlyContent = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
     expect(qaOnlyContent).toContain('Never fix bugs');

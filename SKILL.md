@@ -489,7 +489,7 @@ If Revyl is authenticated (`revyl auth status`), `/qa` and `/qa-only` automatica
 
 **Dev loop mode** is the default for Expo projects. `revyl dev start` handles everything — starts Metro, creates a Cloudflare tunnel to the cloud device, and enables hot reload. Code changes appear on the device in seconds without rebuilding.
 
-**Static mode** is for non-Expo projects or pre-built apps. `revyl device start` provisions a bare device, then you install and launch a build manually. Use `--static` to force this mode on Expo projects.
+**Static mode** is for non-Expo projects or pre-built apps. `revyl device start` provisions a bare device, then you install and launch a build manually. Use `--static` to force this mode on Expo projects. Static mode is build-type aware: it checks `eas.json` profiles, prefers local builds (`npx expo run:ios`) over EAS (avoids 40+ min queue times), and auto-detects if a dev build was installed (switches to dev loop automatically).
 
 ### Revyl CLI commands for mobile
 

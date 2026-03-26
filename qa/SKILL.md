@@ -676,11 +676,65 @@ This is the **primary mode** for developers verifying their work. When the user 
    - If it fails with a port conflict (Metro already running), either kill the existing process or pass `--port 8082`.
    - **Native module changes** (new pods, new native modules) do NOT hot reload. If you see "NativeModule not found" or similar, tell the user: "This change requires a native rebuild. Run `revyl build upload --platform ios-dev` to create a new dev client, then `revyl dev start` again."
 
+   **Dev loop → static fallback:** If `revyl dev start` fails after retry (e.g., tunnel error, device quota):
+   1. Tell the user: "Dev loop failed. Falling back to static mode with a standalone build."
+   2. Stop any partial session: `revyl device stop`
+   3. Follow the "Ensure Revyl-compatible build" step below, then continue with static mode.
+
    Skip to "Step 4: Activate mobile mode" below.
 
    ---
 
    **STATIC MODE (non-Expo, or `--static` override)**
+
+   **Step 1b: Ensure a Revyl-compatible build exists**
+
+   Revyl cloud devices are **simulators**, NOT real devices:
+   - `.app` files work (simulator builds)
+   - `.ipa` files do NOT work (real-device builds)
+
+   **Read eas.json to understand available profiles:**
+   ```bash
+   cat eas.json 2>/dev/null
+   ```
+   Key fields per profile:
+   - `developmentClient: true` → dev build (needs Metro) — DO NOT use for static mode
+   - `simulator: true` → produces .app (works with Revyl)
+   - `simulator: false` or absent → produces .ipa (does NOT work with Revyl)
+
+   Choose the first profile that has `developmentClient: false` (or absent) AND `simulator: true`.
+   If no such profile exists, tell the user: "No Revyl-compatible EAS profile found. Add `\"simulator\": true` to your preview profile in eas.json, or use dev loop mode (default for Expo)."
+
+   **Check for existing builds:**
+   ```bash
+   eas build:list --platform ios --status finished --limit 5 --json 2>/dev/null
+   ```
+   If `eas build:list` fails (auth error, EAS not configured), skip to the local build path below.
+
+   Look for a build where `buildProfile` is `preview` or `production` (NOT `development`) and the profile has `simulator: true`. If a suitable build exists, use its URL for `revyl device install --app-url`.
+
+   **If NO suitable build exists, build one. Prefer local build (fast) over EAS (queued):**
+
+   **Local build (preferred, ~3-5 min):**
+   ```bash
+   npx expo run:ios --configuration Release --no-install 2>&1
+   ```
+   Then find the .app:
+   ```bash
+   find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*Release*" -newer package.json | head -1
+   ```
+   Upload to Revyl: `revyl build upload --app-path <path>`
+
+   **EAS build (fallback if no Xcode or local build fails):**
+   ```bash
+   eas build --platform ios --profile preview --non-interactive 2>&1
+   ```
+   If it queues for >10 minutes, tell the user: "EAS build is queued. Options:
+   A) Wait for EAS (may take 40+ min on free tier)
+   B) Build locally with Xcode: `npx expo run:ios --configuration Release`
+   C) Switch to dev loop mode (no build needed): `/qa --mobile` (default for Expo)"
+
+   ---
 
    **Step 2: Extract bundle ID**
    ```bash
@@ -707,6 +761,18 @@ This is the **primary mode** for developers verifying their work. When the user 
      revyl device launch --bundle-id "<bundleId>"
      ```
    - If `launch` fails with "app not found", tell the user: "The app is not installed on the cloud device. Provide a build URL (.ipa for iOS, .apk for Android) or upload via `revyl build upload`."
+
+   **Step 3c: Dev launcher detection (Expo safety net)**
+   After launching, take a screenshot immediately:
+   ```bash
+   revyl device screenshot --out /tmp/mobile-screen.png
+   ```
+   Read the screenshot. If you see the Expo dev launcher screen (showing "DEVELOPMENT SERVERS", "Enter URL manually", or the Expo development menu):
+
+   **This is a development build — it cannot run standalone.** Do NOT attempt to tunnel Metro or enter a URL manually (tunneling does not work with Revyl cloud devices). Instead:
+   1. Tell the user: "The installed build is a development build (needs Metro server). Switching to dev loop mode which handles this automatically."
+   2. Stop the current device: `revyl device stop`
+   3. Switch to DEV LOOP MODE: run the dev loop steps above (`revyl init -y` if needed, then `revyl dev start --platform ios --open`).
 
    ---
 
