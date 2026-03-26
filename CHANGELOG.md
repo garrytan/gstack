@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.11.21.0] - 2026-03-26 — Mobile QA via Revyl Cloud Devices
+## [0.11.22.0] - 2026-03-26 — Mobile QA via Revyl Cloud Devices
 
 ### Added
 
@@ -17,6 +17,17 @@
 
 - **`browse-mobile/` deleted entirely** (~6,000 lines). The Appium-backed local mobile QA binary, its HTTP server, ref system, platform drivers, and all tests have been removed. Replaced by Revyl CLI integration with zero local dependencies.
 - **Unused `fast-xml-parser` dependency removed.** Was added for Appium XML parsing, never imported.
+
+## [0.11.21.0] - 2026-03-26
+
+### Fixed
+
+- **`/autoplan` reviews now count toward the ship readiness gate.** When `/autoplan` ran full CEO + Design + Eng reviews, `/ship` still showed "0 runs" for Eng Review because autoplan-logged entries weren't being read correctly. Now the dashboard shows source attribution (e.g., "CLEAR (PLAN via /autoplan)") so you can see exactly which tool satisfied each review.
+- **`/ship` no longer tells you to "run /review first."** Ship runs its own pre-landing review in Step 3.5 — asking you to run the same review separately was redundant. The gate is removed; ship just does it.
+- **`/land-and-deploy` now checks all 8 review types.** Previously missed `review`, `adversarial-review`, and `codex-plan-review` — if you only ran `/review` (not `/plan-eng-review`), land-and-deploy wouldn't see it.
+- **Dashboard Outside Voice row now works.** Was showing "0 runs" even after outside voices ran in `/plan-ceo-review` or `/plan-eng-review`. Now correctly maps to `codex-plan-review` entries.
+- **`/codex review` now tracks staleness.** Added the `commit` field to codex review log entries so the dashboard can detect when a codex review is outdated.
+- **`/autoplan` no longer hardcodes "clean" status.** Review log entries from autoplan used to always record `status:"clean"` even when issues were found. Now uses proper placeholder tokens that Claude substitutes with real values.
 
 ## [0.11.20.0] - 2026-03-26
 

@@ -447,7 +447,8 @@ Collect evidence for each check below. Track warnings (yellow) and blockers (red
 ```
 
 Parse the output. For each review skill (plan-eng-review, plan-ceo-review,
-plan-design-review, design-review-lite, codex-review):
+plan-design-review, design-review-lite, codex-review, review, adversarial-review,
+codex-plan-review):
 
 1. Find the most recent entry within the last 7 days.
 2. Extract its `commit` field.
@@ -594,7 +595,7 @@ Use AskUserQuestion:
 - C) Merge anyway — I understand the risks (Completeness: 3/10)
 
 If the user chooses B: **STOP.** List exactly what needs to be done:
-- If reviews are stale: "Re-run /plan-eng-review (or /review) to review current code."
+- If reviews are stale: "Re-run `/plan-eng-review`, `/review`, or `/autoplan` to review current code."
 - If E2E not run: "Run `bun run test:e2e` to verify."
 - If docs not updated: "Run /document-release to update documentation."
 - If PR body stale: "Update the PR body to reflect current changes."
