@@ -595,14 +595,37 @@ SOURCE = "codex" if Codex ran, "claude" if subagent ran.
 
 // ─── Plan File Discovery (shared helper) ──────────────────────────────
 
-function generatePlanFileDiscovery(): string {
-  return `### Plan File Discovery
+function generatePlanFileDiscovery(ctx: TemplateContext): string {
+  const conversationPrimary = ctx.host === 'codex'
+    ? '1. **Conversation context (primary):** Check if there is an active plan file or plan artifact in this conversation. Codex-compatible hosts may expose plan paths or plan context directly in system/developer messages. If a concrete plan path is present, use it directly — this is the most reliable signal.'
+    : '1. **Conversation context (primary):** Check if there is an active plan file in this conversation — Claude Code system messages include plan file paths when in plan mode. Look for references like `~/.claude/plans/*.md` in system messages. If found, use it directly — this is the most reliable signal.';
 
-1. **Conversation context (primary):** Check if there is an active plan file in this conversation — Claude Code system messages include plan file paths when in plan mode. Look for references like \`~/.claude/plans/*.md\` in system messages. If found, use it directly — this is the most reliable signal.
-
-2. **Content-based search (fallback):** If no plan file is referenced in conversation context, search by content:
-
-\`\`\`bash
+  const fallbackSearch = ctx.host === 'codex'
+    ? `\`\`\`bash
+BRANCH=$(git branch --show-current 2>/dev/null | tr '/' '-')
+REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
+PLAN=""
+# Try branch name match first (most specific)
+while IFS= read -r -d '' candidate; do
+  if grep -q "$BRANCH" "$candidate" 2>/dev/null; then
+    PLAN="$candidate"
+    break
+  fi
+done < <(find . -maxdepth 4 -type f -name '*plan*.md' -print0 2>/dev/null)
+# Fall back to repo name match
+if [ -z "$PLAN" ]; then
+  while IFS= read -r -d '' candidate; do
+    if grep -q "$REPO" "$candidate" 2>/dev/null; then
+      PLAN="$candidate"
+      break
+    fi
+  done < <(find . -maxdepth 4 -type f -name '*plan*.md' -print0 2>/dev/null)
+fi
+# Last resort: most recent workspace plan doc
+[ -z "$PLAN" ] && PLAN=$(find . -maxdepth 4 -type f -name '*plan*.md' 2>/dev/null | head -1)
+[ -n "$PLAN" ] && echo "PLAN_FILE: $PLAN" || echo "NO_PLAN_FILE"
+\`\`\``
+    : `\`\`\`bash
 BRANCH=$(git branch --show-current 2>/dev/null | tr '/' '-')
 REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
 # Try branch name match first (most specific)
@@ -612,7 +635,15 @@ PLAN=$(ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/n
 # Last resort: most recent plan modified in the last 24 hours
 [ -z "$PLAN" ] && PLAN=$(find ~/.claude/plans -name '*.md' -mmin -1440 -maxdepth 1 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
 [ -n "$PLAN" ] && echo "PLAN_FILE: $PLAN" || echo "NO_PLAN_FILE"
-\`\`\`
+\`\`\``;
+
+  return `### Plan File Discovery
+
+${conversationPrimary}
+
+2. **Content-based search (fallback):** If no plan file is referenced in conversation context, search by content:
+
+${fallbackSearch}
 
 3. **Validation:** If a plan file was found via content-based search (not conversation context), read the first 20 lines and verify it is relevant to the current branch's work. If it appears to be from a different project or feature, treat as "no plan file found."
 
@@ -625,11 +656,11 @@ PLAN=$(ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/n
 
 type PlanCompletionMode = 'ship' | 'review';
 
-function generatePlanCompletionAuditInner(mode: PlanCompletionMode): string {
+function generatePlanCompletionAuditInner(mode: PlanCompletionMode, ctx: TemplateContext): string {
   const sections: string[] = [];
 
   // ── Plan file discovery (shared) ──
-  sections.push(generatePlanFileDiscovery());
+  sections.push(generatePlanFileDiscovery(ctx));
 
   // ── Item extraction ──
   sections.push(`
@@ -756,12 +787,12 @@ Plan items: N DONE, M PARTIAL, K NOT DONE
   return sections.join('\n');
 }
 
-export function generatePlanCompletionAuditShip(_ctx: TemplateContext): string {
-  return generatePlanCompletionAuditInner('ship');
+export function generatePlanCompletionAuditShip(ctx: TemplateContext): string {
+  return generatePlanCompletionAuditInner('ship', ctx);
 }
 
-export function generatePlanCompletionAuditReview(_ctx: TemplateContext): string {
-  return generatePlanCompletionAuditInner('review');
+export function generatePlanCompletionAuditReview(ctx: TemplateContext): string {
+  return generatePlanCompletionAuditInner('review', ctx);
 }
 
 // ─── Plan Verification Execution ──────────────────────────────────────
