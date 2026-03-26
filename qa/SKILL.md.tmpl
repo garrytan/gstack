@@ -276,6 +276,72 @@ After all fixes are applied:
 
 ---
 
+## Phase 9.5: Trend Analysis
+
+Compare this run against previous QA reports to detect trends and recurring issues.
+
+**1. Load previous runs:**
+
+```bash
+ls -t .gstack/qa-reports/*-qa.json 2>/dev/null | head -10
+```
+
+Read each JSON file. Extract: `timestamp`, `health_before.score`, `health_after.score`, `fixes`, `verdict`.
+
+**2. Compute trend metrics** (from the last 5-10 runs):
+
+| Metric | How to compute |
+|--------|----------------|
+| **Health score trajectory** | List scores chronologically: `[62, 75, 71, 88, 91]` |
+| **Trend direction** | Compare average of last 3 runs vs previous 3. UP / DOWN / FLAT |
+| **Recurring issues** | Issues with same `id` or matching `found` description across 2+ runs |
+| **Fix permanence** | Issues fixed in a prior run that reappear = REGRESSION. Count these. |
+| **Fix velocity** | Average fixes per run across history |
+
+**3. Flag anomalies:**
+
+- Health score dropped **>15 points** vs previous run → `REGRESSION ALERT`
+- An issue appears in **3+ runs** → `SYSTEMIC` — flag for architectural fix, not another patch
+- Fix velocity **declining** over 3+ runs → suggest the codebase needs refactoring, not more QA
+
+**4. Write trend summary** to the report (include in Phase 10 output):
+
+```markdown
+## Trend Analysis ({N} previous runs)
+
+| Run Date | Before | After | Delta | Fixes | Verdict |
+|----------|--------|-------|-------|-------|---------|
+| 2026-03-25 | 62 | 91 | +29 | 2 | SHIP_READY |
+| 2026-03-23 | 58 | 75 | +17 | 4 | SHIP_READY |
+| ... | ... | ... | ... | ... | ... |
+
+**Trend:** UP — health score improving over last 3 runs
+**Recurring issues:** 2 (nav-consistency: 3 runs, form-validation: 2 runs)
+**Fix permanence:** 85% — 1 of 7 past fixes reappeared
+```
+
+**5. Persist trend data:**
+
+Write updated trend summary to `.gstack/qa-reports/qa-trends.json`:
+
+```json
+{
+  "lastUpdated": "ISO_TIMESTAMP",
+  "runCount": N,
+  "healthScoreHistory": [62, 75, 71, 88, 91],
+  "trend": "UP",
+  "recurringIssues": [
+    {"id": "issue-id", "occurrences": 3, "lastSeen": "2026-03-25", "firstSeen": "2026-03-20"}
+  ],
+  "fixPermanenceRate": 0.85,
+  "avgFixVelocity": 2.4
+}
+```
+
+If no previous runs exist, skip this phase silently and note "First QA run — no trend data" in the report.
+
+---
+
 ## Phase 10: Report
 
 Write the report to both local and project-scoped locations:
