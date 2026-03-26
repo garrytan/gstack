@@ -34,7 +34,12 @@ if [ -n "$OVERRIDE" ] && [ "$OVERRIDE" != "null" ]; then
 fi
 
 # Check cache (7-day TTL)
-CACHE_DIR="$HOME/.gstack/projects/$SLUG"
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -n "$GIT_ROOT" ]; then
+  CACHE_DIR="$GIT_ROOT/.gstack/local"
+else
+  CACHE_DIR="$HOME/.gstack/projects/$SLUG"
+fi
 CACHE_FILE="$CACHE_DIR/repo-mode.json"
 if [ -f "$CACHE_FILE" ]; then
   CACHE_AGE=$(( $(date +%s) - $(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0) ))
