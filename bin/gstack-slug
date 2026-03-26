@@ -14,5 +14,12 @@ BRANCH=$(printf '%s' "${RAW_BRANCH:-}" | tr -cd 'a-zA-Z0-9._-')
 # Fallback when git context is absent
 SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
 BRANCH="${BRANCH:-unknown}"
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -n "$GIT_ROOT" ]; then
+  PROJECT_DATA_DIR="$GIT_ROOT/.gstack"
+else
+  PROJECT_DATA_DIR="$HOME/.gstack/projects/$SLUG"
+fi
 echo "SLUG=$SLUG"
 echo "BRANCH=$BRANCH"
+echo "PROJECT_DATA_DIR=$PROJECT_DATA_DIR"
