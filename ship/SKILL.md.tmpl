@@ -274,13 +274,6 @@ Review the diff for structural issues that tests don't catch.
 
    If no issues found: `Pre-Landing Review: No issues found.`
 
-9. Persist the review result to the review log:
-```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
-```
-Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
-and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
-
 Save the review output — it goes into the PR body in Step 8.
 
 ---
@@ -520,12 +513,7 @@ The PR/MR body should contain these sections:
 
 ```
 ## Summary
-<Summarize ALL changes being shipped. Run `git log <base>..HEAD --oneline` to enumerate
-every commit. Exclude the VERSION/CHANGELOG metadata commit (that's this PR's bookkeeping,
-not a substantive change). Group the remaining commits into logical sections (e.g.,
-"**Performance**", "**Dead Code Removal**", "**Infrastructure**"). Every substantive commit
-must appear in at least one section. If a commit's work isn't reflected in the summary,
-you missed it.>
+<bullet points from CHANGELOG>
 
 ## Test Coverage
 <coverage diagram from Step 3.4, or "All new code paths have test coverage.">
@@ -624,13 +612,13 @@ doc updates — the user runs `/ship` and documentation stays current without a 
 Log coverage and plan completion data so `/retro` can track trends:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p "$PROJECT_DATA_DIR"
 ```
 
-Append to `~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl`:
+Append to `$PROJECT_DATA_DIR/$BRANCH-reviews.jsonl`:
 
 ```bash
-echo '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"BRANCH"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+echo '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"BRANCH"}' >> "$PROJECT_DATA_DIR/$BRANCH-reviews.jsonl"
 ```
 
 Substitute from earlier steps:

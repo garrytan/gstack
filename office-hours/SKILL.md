@@ -542,7 +542,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 4. **List existing design docs for this project:**
    ```bash
    setopt +o nomatch 2>/dev/null || true  # zsh compat
-   ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null
+   ls -t "$PROJECT_DATA_DIR"/*-design-*.md 2>/dev/null
    ```
    If design docs exist, list them: "Prior designs for this project: [titles + dates]"
 
@@ -811,14 +811,14 @@ After the user states the problem (first question in Phase 2A or 2B), search exi
 Extract 3-5 significant keywords from the user's problem statement and grep across design docs:
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-grep -li "<keyword1>\|<keyword2>\|<keyword3>" ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null
+grep -li "<keyword1>\|<keyword2>\|<keyword3>" "$PROJECT_DATA_DIR"/*-design-*.md 2>/dev/null
 ```
 
 If matches found, read the matching design docs and surface them:
 - "FYI: Related design found — '{title}' by {user} on {date} (branch: {branch}). Key overlap: {1-line summary of relevant section}."
 - Ask via AskUserQuestion: "Should we build on this prior design or start fresh?"
 
-This enables cross-team discovery — multiple users exploring the same project will see each other's design docs in `~/.gstack/projects/`.
+This enables cross-team discovery — multiple users exploring the same project will see each other's design docs in `.gstack/`.
 
 If no matches found, proceed silently.
 
@@ -1042,7 +1042,7 @@ Generating visual mockups of the proposed design... (say "skip" if you don't nee
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/mockup-$(date +%Y%m%d)
+_DESIGN_DIR="$PROJECT_DATA_DIR"/designs/mockup-$(date +%Y%m%d)
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```
@@ -1208,7 +1208,7 @@ Count the signals. You'll use this count in Phase 6 to determine which tier of c
 Write the design document to the project directory.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p "$PROJECT_DATA_DIR"
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 ```
@@ -1216,11 +1216,11 @@ DATETIME=$(date +%Y%m%d-%H%M%S)
 **Design lineage:** Before writing, check for existing design docs on this branch:
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-PRIOR=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
+PRIOR=$(ls -t "$PROJECT_DATA_DIR"/*-$BRANCH-design-*.md 2>/dev/null | head -1)
 ```
 If `$PRIOR` exists, the new doc gets a `Supersedes:` field referencing it. This creates a revision chain — you can trace how a design evolved across office hours sessions.
 
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-{datetime}.md`:
+Write to `.gstack/{user}-{branch}-design-{datetime}.md`:
 
 ### Startup mode design doc template:
 
@@ -1598,7 +1598,7 @@ After the plea, suggest the next step:
 - **`/plan-eng-review`** for well-scoped implementation planning — lock in architecture, tests, edge cases
 - **`/plan-design-review`** for visual/UX design review
 
-The design doc at `~/.gstack/projects/` is automatically discoverable by downstream skills — they will read it during their pre-review system audit.
+The design doc at `.gstack/` is automatically discoverable by downstream skills — they will read it during their pre-review system audit.
 
 ---
 

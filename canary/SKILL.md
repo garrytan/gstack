@@ -704,7 +704,7 @@ Log the result for the review dashboard:
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-mkdir -p ~/.gstack/projects/$SLUG
+mkdir -p "$PROJECT_DATA_DIR"
 ```
 
 Write a JSONL entry: `{"skill":"canary","timestamp":"<ISO>","status":"<HEALTHY/DEGRADED/BROKEN>","url":"<url>","duration_min":<N>,"alerts":<N>}`

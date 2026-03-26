@@ -96,10 +96,17 @@ export function ensureStateDir(config: BrowseConfig): void {
   try {
     let content = '';
     try { content = fs.readFileSync(innerGitignore, 'utf-8'); } catch { /* new file */ }
+    let updated = false;
     if (!content.match(/^local\/?$/m)) {
       const separator = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
-      fs.writeFileSync(innerGitignore, content + separator + 'local/\n');
+      content = content + separator + 'local/\n';
+      updated = true;
     }
+    if (!content.match(/^\.migrated$/m)) {
+      content = content + '.migrated\n';
+      updated = true;
+    }
+    if (updated) fs.writeFileSync(innerGitignore, content);
   } catch { /* non-fatal */ }
 
   // Migration: remove blanket .gstack/ from project .gitignore (if present)

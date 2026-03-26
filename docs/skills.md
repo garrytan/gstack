@@ -93,7 +93,7 @@ Recommends A because you learn from real usage. CRM data comes naturally in week
 
 ### The design doc
 
-Both modes end with a design doc written to `~/.gstack/projects/` — and that doc feeds directly into `/plan-ceo-review` and `/plan-eng-review`. The full lifecycle is now: `office-hours → plan → implement → review → QA → ship → retro`.
+Both modes end with a design doc written to `.gstack/` — and that doc feeds directly into `/plan-ceo-review` and `/plan-eng-review`. The full lifecycle is now: `office-hours → plan → implement → review → QA → ship → retro`.
 
 After the design doc is approved, `/office-hours` reflects on what it noticed about how you think — not generic praise, but specific callbacks to things you said during the session. The observations appear in the design doc too, so you re-encounter them when you re-read later.
 
@@ -147,7 +147,7 @@ It asks, **"what is the 10-star product hiding inside this request?"**
 - **HOLD SCOPE** — maximum rigor on the existing plan. No expansions surfaced.
 - **SCOPE REDUCTION** — find the minimum viable version. Cut everything else.
 
-Visions and decisions are persisted to `~/.gstack/projects/` so they survive beyond the conversation. Exceptional visions can be promoted to `docs/designs/` in your repo for the team.
+Visions and decisions are persisted to `.gstack/` so they survive beyond the conversation. Exceptional visions can be promoted to `docs/designs/` in your repo for the team.
 
 ---
 
@@ -228,7 +228,7 @@ Eng Review is the only required gate (disable with `gstack-config set skip_eng_r
 
 ### Plan-to-QA flow
 
-When `/plan-eng-review` finishes the test review section, it writes a test plan artifact to `~/.gstack/projects/`. When you later run `/qa`, it picks up that test plan automatically — your engineering review feeds directly into QA testing with no manual copy-paste.
+When `/plan-eng-review` finishes the test review section, it writes a test plan artifact to `.gstack/`. When you later run `/qa`, it picks up that test plan automatically — your engineering review feeds directly into QA testing with no manual copy-paste.
 
 ---
 

@@ -812,11 +812,11 @@ smarter on their codebase over time.
 
 Before falling back to git diff heuristics, check for richer test plan sources:
 
-1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
+1. **Project-scoped test plans:** Check `.gstack/plans/` for recent `*-test-plan-*.md` files for this repo
    ```bash
    setopt +o nomatch 2>/dev/null || true  # zsh compat
    eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-   ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
+   ls -t "$PROJECT_DATA_DIR/plans/"*-test-plan-*.md 2>/dev/null || ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
 2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
 3. **Use whichever source is richer.** Fall back to git diff analysis only if neither is available.
@@ -1279,9 +1279,9 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:** Write test outcome artifact for cross-session context:
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p "$PROJECT_DATA_DIR"
 ```
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
+Write to `.gstack/{user}-{branch}-test-outcome-{datetime}.md`
 
 **Per-issue additions** (beyond standard report template):
 - Fix Status: verified / best-effort / reverted / deferred

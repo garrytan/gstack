@@ -762,7 +762,7 @@ Commands:
 - `$D iterate --session /path/session.json --feedback "..." --output /path.png` — iterate
 
 **CRITICAL PATH RULE:** All design artifacts (mockups, comparison boards, approved.json)
-MUST be saved to `~/.gstack/projects/$SLUG/designs/`, NEVER to `.context/`,
+MUST be saved to `"$PROJECT_DATA_DIR"/designs/`, NEVER to `.context/`,
 `docs/designs/`, `/tmp/`, or any project-local directory. Design artifacts are USER
 data, not project files. They persist across branches, conversations, and workspaces.
 
@@ -774,7 +774,7 @@ If `DESIGN_NOT_AVAILABLE`: skip mockup generation — the fix loop works without
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-REPORT_DIR=~/.gstack/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)
+REPORT_DIR="$PROJECT_DATA_DIR"/designs/design-audit-$(date +%Y%m%d)
 mkdir -p "$REPORT_DIR/screenshots"
 echo "REPORT_DIR: $REPORT_DIR"
 ```
@@ -1070,9 +1070,9 @@ Compare screenshots and observations across pages for:
 
 **Project-scoped:**
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p "$PROJECT_DATA_DIR"
 ```
-Write to: `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
+Write to: `.gstack/{user}-{branch}-design-audit-{datetime}.md`
 
 **Baseline:** Write `design-baseline.json` for regression mode:
 ```json
@@ -1228,7 +1228,7 @@ Record baseline design score and AI slop score at end of Phase 6.
 ## Output Structure
 
 ```
-~/.gstack/projects/$SLUG/designs/design-audit-{YYYYMMDD}/
+"$PROJECT_DATA_DIR"/designs/design-audit-{YYYYMMDD}/
 ├── design-audit-{domain}.md                  # Structured report
 ├── screenshots/
 │   ├── first-impression.png                  # Phase 1
@@ -1454,9 +1454,9 @@ Write the report to `$REPORT_DIR` (already set up in the setup phase):
 
 **Also write a summary to the project index:**
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p "$PROJECT_DATA_DIR"
 ```
-Write a one-line summary to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md` with a pointer to the full report in `$REPORT_DIR`.
+Write a one-line summary to `.gstack/{user}-{branch}-design-audit-{datetime}.md` with a pointer to the full report in `$REPORT_DIR`.
 
 **Per-finding additions** (beyond standard design audit report):
 - Fix Status: verified / best-effort / reverted / deferred

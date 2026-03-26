@@ -1246,12 +1246,12 @@ Using the coverage percentage from the diagram in substep 4 (the `COVERAGE: X/Y 
 After producing the coverage diagram, write a test plan artifact so `/qa` and `/qa-only` can consume it:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p "$PROJECT_DATA_DIR/plans"
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 ```
 
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-ship-test-plan-{datetime}.md`:
+Write to `.gstack/plans/{user}-{branch}-ship-test-plan-{datetime}.md`:
 
 ```markdown
 # Test Plan
@@ -1643,13 +1643,6 @@ Present Codex output under a `CODEX (design):` header, merged with the checklist
 
    If no issues found: `Pre-Landing Review: No issues found.`
 
-9. Persist the review result to the review log:
-```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
-```
-Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
-and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
-
 Save the review output — it goes into the PR body in Step 8.
 
 ---
@@ -1878,26 +1871,10 @@ If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (pri
 
 1. Read `CHANGELOG.md` header to know the format.
 
-2. **First, enumerate every commit on the branch:**
-   ```bash
-   git log <base>..HEAD --oneline
-   ```
-   Copy the full list. Count the commits. You will use this as a checklist.
-
-3. **Read the full diff** to understand what each commit actually changed:
-   ```bash
-   git diff <base>...HEAD
-   ```
-
-4. **Group commits by theme** before writing anything. Common themes:
-   - New features / capabilities
-   - Performance improvements
-   - Bug fixes
-   - Dead code removal / cleanup
-   - Infrastructure / tooling / tests
-   - Refactoring
-
-5. **Write the CHANGELOG entry** covering ALL groups:
+2. Auto-generate the entry from **ALL commits on the branch** (not just recent ones):
+   - Use `git log <base>..HEAD --oneline` to see every commit being shipped
+   - Use `git diff <base>...HEAD` to see the full diff against the base branch
+   - The CHANGELOG entry must be comprehensive of ALL changes going into the PR
    - If existing CHANGELOG entries on the branch already cover some commits, replace them with one unified entry for the new version
    - Categorize changes into applicable sections:
      - `### Added` — new features
@@ -1908,11 +1885,6 @@ If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (pri
    - Insert after the file header (line 5), dated today
    - Format: `## [X.Y.Z.W] - YYYY-MM-DD`
    - **Voice:** Lead with what the user can now **do** that they couldn't before. Use plain language, not implementation details. Never mention TODOS.md, internal tracking, or contributor-facing details.
-
-6. **Cross-check:** Compare your CHANGELOG entry against the commit list from step 2.
-   Every commit must map to at least one bullet point. If any commit is unrepresented,
-   add it now. If the branch has N commits spanning K themes, the CHANGELOG must
-   reflect all K themes.
 
 **Do NOT ask the user to describe changes.** Infer from the diff and commit history.
 
@@ -2075,12 +2047,7 @@ The PR/MR body should contain these sections:
 
 ```
 ## Summary
-<Summarize ALL changes being shipped. Run `git log <base>..HEAD --oneline` to enumerate
-every commit. Exclude the VERSION/CHANGELOG metadata commit (that's this PR's bookkeeping,
-not a substantive change). Group the remaining commits into logical sections (e.g.,
-"**Performance**", "**Dead Code Removal**", "**Infrastructure**"). Every substantive commit
-must appear in at least one section. If a commit's work isn't reflected in the summary,
-you missed it.>
+<bullet points from CHANGELOG>
 
 ## Test Coverage
 <coverage diagram from Step 3.4, or "All new code paths have test coverage.">
@@ -2179,13 +2146,13 @@ doc updates — the user runs `/ship` and documentation stays current without a 
 Log coverage and plan completion data so `/retro` can track trends:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p "$PROJECT_DATA_DIR"
 ```
 
-Append to `~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl`:
+Append to `$PROJECT_DATA_DIR/$BRANCH-reviews.jsonl`:
 
 ```bash
-echo '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"BRANCH"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+echo '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"BRANCH"}' >> "$PROJECT_DATA_DIR/$BRANCH-reviews.jsonl"
 ```
 
 Substitute from earlier steps:
