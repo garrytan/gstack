@@ -408,12 +408,12 @@ Web QA works as usual with `$B` regardless of Revyl status.
 
 **In mobile mode, use `revyl device` CLI instead of `$B`:**
 - `$B goto <url>` → `revyl device launch --bundle-id "<bundleId>"` or `revyl device navigate --url "<deeplink>"`
-- `$B snapshot -i` → `revyl device screenshot --out /tmp/screen.png` (then Read the image to view it)
+- `$B snapshot -i` → `revyl device screenshot --out /tmp/mobile-screen.png` (then Read the image to view it)
 - `$B click @e3` → `revyl device tap --target "element description"` (describe in natural language)
 - `$B fill @e3 "text"` → `revyl device type --target "field description" --text "text"`
-- `$B screenshot` → `revyl device screenshot --out /tmp/screen.png`
+- `$B screenshot` → `revyl device screenshot --out /tmp/mobile-screen.png`
 - `$B console --errors` → SKIP (not available in mobile mode)
-- `$B links` → `revyl device screenshot --out /tmp/screen.png` (visual inspection for tap targets)
+- `$B links` → `revyl device screenshot --out /tmp/mobile-screen.png` (visual inspection for tap targets)
 - `$B scroll` → `revyl device swipe --target "screen center" --direction up`
 
 **Check test framework (bootstrap if needed):**
@@ -636,7 +636,7 @@ This is the **primary mode** for developers verifying their work. When the user 
    ```bash
    cat app.json 2>/dev/null | grep -o '"bundleIdentifier"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"'
    ```
-   If no bundleIdentifier found, check `app.config.js` or `app.config.ts` for it.
+   If no bundleIdentifier found, check `app.config.js` or `app.config.ts` for it. If still not found, ask the user for the bundle ID before proceeding — do not continue with an empty value.
 
    **Step 2: Start a Revyl cloud device session**
    ```bash
@@ -698,7 +698,7 @@ This is the **primary mode** for developers verifying their work. When the user 
 
    **Session management:**
    - Sessions auto-terminate after 5 minutes of idle (300s default). Any `revyl device` command resets the timer.
-   - Before writing lengthy findings or analyzing code, run `revyl device info` to reset the idle timer.
+   - Before writing lengthy findings or analyzing code, run `revyl device info` to reset the idle timer. If the output says "No active device session", restart with `revyl device start --platform ios` before continuing.
    - When QA is complete: `revyl device stop`
    - If something breaks: `revyl device doctor` to diagnose, then `revyl device start --platform ios` for a fresh session.
 

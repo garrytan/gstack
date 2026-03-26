@@ -492,7 +492,7 @@ If Revyl is authenticated (`revyl auth status`), `/qa` and `/qa-only` automatica
 revyl device start --platform ios --json    # or --platform android
 
 # Take a screenshot
-revyl device screenshot --out /tmp/screen.png
+revyl device screenshot --out /tmp/mobile-screen.png
 
 # Tap an element (natural language targeting)
 revyl device tap --target "Sign In button"

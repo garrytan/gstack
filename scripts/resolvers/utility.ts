@@ -143,7 +143,7 @@ This is the **primary mode** for developers verifying their work. When the user 
    \`\`\`bash
    cat app.json 2>/dev/null | grep -o '"bundleIdentifier"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"'
    \`\`\`
-   If no bundleIdentifier found, check \`app.config.js\` or \`app.config.ts\` for it.
+   If no bundleIdentifier found, check \`app.config.js\` or \`app.config.ts\` for it. If still not found, ask the user for the bundle ID before proceeding — do not continue with an empty value.
 
    **Step 2: Start a Revyl cloud device session**
    \`\`\`bash
@@ -205,7 +205,7 @@ This is the **primary mode** for developers verifying their work. When the user 
 
    **Session management:**
    - Sessions auto-terminate after 5 minutes of idle (300s default). Any \`revyl device\` command resets the timer.
-   - Before writing lengthy findings or analyzing code, run \`revyl device info\` to reset the idle timer.
+   - Before writing lengthy findings or analyzing code, run \`revyl device info\` to reset the idle timer. If the output says "No active device session", restart with \`revyl device start --platform ios\` before continuing.
    - When QA is complete: \`revyl device stop\`
    - If something breaks: \`revyl device doctor\` to diagnose, then \`revyl device start --platform ios\` for a fresh session.
 

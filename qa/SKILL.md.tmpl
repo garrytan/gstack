@@ -83,12 +83,12 @@ After the user chooses, execute their choice (commit or stash), then continue wi
 
 **In mobile mode, use `revyl device` CLI instead of `$B`:**
 - `$B goto <url>` → `revyl device launch --bundle-id "<bundleId>"` or `revyl device navigate --url "<deeplink>"`
-- `$B snapshot -i` → `revyl device screenshot --out /tmp/screen.png` (then Read the image to view it)
+- `$B snapshot -i` → `revyl device screenshot --out /tmp/mobile-screen.png` (then Read the image to view it)
 - `$B click @e3` → `revyl device tap --target "element description"` (describe in natural language)
 - `$B fill @e3 "text"` → `revyl device type --target "field description" --text "text"`
-- `$B screenshot` → `revyl device screenshot --out /tmp/screen.png`
+- `$B screenshot` → `revyl device screenshot --out /tmp/mobile-screen.png`
 - `$B console --errors` → SKIP (not available in mobile mode)
-- `$B links` → `revyl device screenshot --out /tmp/screen.png` (visual inspection for tap targets)
+- `$B links` → `revyl device screenshot --out /tmp/mobile-screen.png` (visual inspection for tap targets)
 - `$B scroll` → `revyl device swipe --target "screen center" --direction up`
 
 **Check test framework (bootstrap if needed):**
