@@ -22,7 +22,19 @@ const LEGACY_EVAL_DIR = path.join(os.homedir(), '.gstack-dev', 'evals');
  */
 export function getProjectEvalDir(): string {
   try {
-    // Try repo-local gstack-slug first, then global install
+    // Prefer project-local .gstack/evals/ via git root
+    const gitRoot = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+      stdio: 'pipe', timeout: 3000,
+    });
+    const root = gitRoot.stdout?.toString().trim();
+    if (root) {
+      const dir = path.join(root, '.gstack', 'evals');
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+  } catch { /* fall through */ }
+  try {
+    // Fallback: legacy slug-based path (backward-compatible read)
     const localSlug = spawnSync('bash', ['-c', '.claude/skills/gstack/bin/gstack-slug 2>/dev/null || ~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null'], {
       stdio: 'pipe', timeout: 3000,
     });
@@ -30,9 +42,8 @@ export function getProjectEvalDir(): string {
     if (output) {
       const slugMatch = output.match(/^SLUG=(.+)$/m);
       if (slugMatch && slugMatch[1]) {
-        const dir = path.join(os.homedir(), '.gstack', 'projects', slugMatch[1], 'evals');
-        fs.mkdirSync(dir, { recursive: true });
-        return dir;
+        const legacyDir = path.join(os.homedir(), '.gstack', 'projects', slugMatch[1], 'evals');
+        if (fs.existsSync(legacyDir)) return legacyDir;
       }
     }
   } catch { /* fall through */ }
