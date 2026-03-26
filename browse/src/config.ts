@@ -59,7 +59,7 @@ export function resolveConfig(
     projectDir = path.dirname(stateDir); // parent of .gstack/
   } else {
     projectDir = getGitRoot() || process.cwd();
-    stateDir = path.join(projectDir, '.gstack');
+    stateDir = path.join(projectDir, '.gstack', 'local');
     stateFile = path.join(stateDir, 'browse.json');
   }
 
@@ -90,26 +90,27 @@ export function ensureStateDir(config: BrowseConfig): void {
     throw err;
   }
 
-  // Ensure .gstack/ is in the project's .gitignore
-  const gitignorePath = path.join(config.projectDir, '.gitignore');
+  // Ensure .gstack/.gitignore exists with "local/" (machine-local state)
+  const gstackDir = path.resolve(config.stateDir, '..');
+  const innerGitignore = path.join(gstackDir, '.gitignore');
   try {
-    const content = fs.readFileSync(gitignorePath, 'utf-8');
-    if (!content.match(/^\.gstack\/?$/m)) {
-      const separator = content.endsWith('\n') ? '' : '\n';
-      fs.appendFileSync(gitignorePath, `${separator}.gstack/\n`);
+    let content = '';
+    try { content = fs.readFileSync(innerGitignore, 'utf-8'); } catch { /* new file */ }
+    if (!content.match(/^local\/?$/m)) {
+      const separator = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+      fs.writeFileSync(innerGitignore, content + separator + 'local/\n');
     }
-  } catch (err: any) {
-    if (err.code !== 'ENOENT') {
-      // Write warning to server log (visible even in daemon mode)
-      const logPath = path.join(config.stateDir, 'browse-server.log');
-      try {
-        fs.appendFileSync(logPath, `[${new Date().toISOString()}] Warning: could not update .gitignore at ${gitignorePath}: ${err.message}\n`);
-      } catch {
-        // stateDir write failed too — nothing more we can do
-      }
+  } catch { /* non-fatal */ }
+
+  // Migration: remove blanket .gstack/ from project .gitignore (if present)
+  const projectGitignore = path.join(config.projectDir, '.gitignore');
+  try {
+    const content = fs.readFileSync(projectGitignore, 'utf-8');
+    if (content.match(/^\.gstack\/?$/m)) {
+      const newContent = content.replace(/^\.gstack\/?$/m, '').replace(/\n{3,}/g, '\n\n');
+      fs.writeFileSync(projectGitignore, newContent);
     }
-    // ENOENT (no .gitignore) — skip silently
-  }
+  } catch { /* non-fatal — file may not exist or may be unwritable */ }
 }
 
 /**
