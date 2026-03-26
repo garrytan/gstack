@@ -606,6 +606,52 @@ This step is automatic — never skip it, never ask for confirmation.
 
 ---
 
+## Step 8.8: Ship log
+
+Append a structured JSON record of this entire /ship run to `.gstack/ship-log.json`.
+This gives `/retro` structured data about shipping velocity, review quality, and test health.
+
+```bash
+mkdir -p .gstack
+```
+
+Build a JSON object with these fields (substitute from earlier steps):
+
+| Field | Source | Example |
+|-------|--------|---------|
+| `timestamp` | Current UTC time | `"2026-03-25T14:30:00Z"` |
+| `version` | VERSION file after bump | `"0.12.1.0"` |
+| `branch` | Current branch name | `"feat/sidebar-agent"` |
+| `pr_url` | PR URL from Step 8 | `"https://github.com/org/repo/pull/42"` |
+| `pr_number` | PR number from Step 8 | `42` |
+| `base_branch` | Base branch detected in Step 0 | `"main"` |
+| `commits` | Number of commits on branch | `3` |
+| `files_changed` | From `git diff --stat` count | `12` |
+| `lines_added` | From `git diff --shortstat` | `450` |
+| `lines_removed` | From `git diff --shortstat` | `120` |
+| `test_result` | "pass", "fail", or "skipped" | `"pass"` |
+| `coverage_pct` | From Step 3.4 (-1 if undetermined) | `87` |
+| `review_issues` | Total issues found in Step 3.5 | `3` |
+| `review_critical` | Critical issues from Step 3.5 | `0` |
+| `review_auto_fixed` | AUTO-FIX count from Step 3.5 | `2` |
+| `todos_completed` | TODOS marked done in Step 5.5 | `1` |
+| `plan_completion_pct` | PLAN_DONE/PLAN_TOTAL * 100 | `100` |
+| `verification_result` | From Step 3.47 | `"pass"` |
+| `doc_updated` | Whether Step 8.5 changed docs | `true` |
+
+Append as a single JSONL line:
+
+```bash
+echo 'THE_JSON_OBJECT' >> .gstack/ship-log.json
+```
+
+Use actual values from the steps above — do not use placeholder strings. If a value
+is unavailable (e.g., no plan file), use `null` for that field.
+
+This step is automatic — never skip it, never ask for confirmation.
+
+---
+
 ## Important Rules
 
 - **Never skip tests.** If tests fail, stop.
