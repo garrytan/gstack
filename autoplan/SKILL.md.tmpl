@@ -162,7 +162,7 @@ Before doing anything, save the plan file's current state to an external file:
 {{SLUG_SETUP}}
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
 DATETIME=$(date +%Y%m%d-%H%M%S)
-echo "RESTORE_PATH=$HOME/.gstack/projects/$SLUG/${BRANCH}-autoplan-restore-${DATETIME}.md"
+echo "RESTORE_PATH=$PROJECT_DATA_DIR/plans/${BRANCH}-autoplan-restore-${DATETIME}.md"
 ```
 
 Write the plan file's full contents to the restore path with this header:
@@ -184,7 +184,7 @@ Then prepend a one-line HTML comment to the plan file:
 ### Step 2: Read context
 
 - Read CLAUDE.md, TODOS.md, git log -30, git diff against the base branch --stat
-- Discover design docs: `ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1`
+- Discover design docs: `ls -t "$PROJECT_DATA_DIR"/designs/*-design-*.md 2>/dev/null || ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1`
 - Detect UI scope: grep the plan for view/rendering terms (component, screen, form,
   button, modal, layout, dashboard, sidebar, nav, dialog). Require 2+ matches. Exclude
   false positives ("page" alone, "UI" in acronyms).
@@ -456,7 +456,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 - Architecture choices: explicit over clever (P5). If codex disagrees with valid reason → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
 - Evals: always include all relevant suites (P1)
-- Test plan: generate artifact at `~/.gstack/projects/$SLUG/{user}-{branch}-test-plan-{datetime}.md`
+- Test plan: generate artifact at `.gstack/plans/{user}-{branch}-test-plan-{datetime}.md`
 - TODOS.md: collect all deferred scope expansions from Phase 1, auto-write
 
 **Required execution checklist (Eng):**
@@ -560,7 +560,7 @@ produced. Check the plan file and conversation for each item.
 - [ ] Scope challenge with actual code analysis (not just "scope is fine")
 - [ ] Architecture ASCII diagram produced
 - [ ] Test diagram mapping codepaths to test coverage
-- [ ] Test plan artifact written to disk at ~/.gstack/projects/$SLUG/
+- [ ] Test plan artifact written to disk at .gstack/
 - [ ] "NOT in scope" section written
 - [ ] "What already exists" section written
 - [ ] Failure modes registry with critical gap assessment
