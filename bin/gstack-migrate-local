@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# gstack-migrate-local — migrate + reorganize project data into .gstack/ subdirectories
+#
+# Handles two migration scenarios:
+#   1. Legacy global: ~/.gstack/projects/$SLUG/* → .gstack/{designs,plans,...}/
+#   2. Local flat:    .gstack/*-design-*.md      → .gstack/designs/ (reorganize in place)
+#
+# Idempotent — safe to run multiple times. Non-destructive (skips existing files).
+#
+# Usage: gstack-migrate-local [--dry-run]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+
+OLD="$HOME/.gstack/projects/$SLUG"
+NEW="$PROJECT_DATA_DIR"
+DRY_RUN=false
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=true
+
+MOVED=0
+
+migrate() {
+  local src="$1" dst_dir="$2"
+  [ -e "$src" ] || return 0
+  local name
+  name=$(basename "$src")
+  # Skip if source and destination are the same path
+  local abs_src abs_dst
+  abs_src=$(cd "$(dirname "$src")" && pwd)/$(basename "$src")
+  abs_dst="$dst_dir/$name"
+  [ "$abs_src" = "$abs_dst" ] && return 0
+  if [ -e "$dst_dir/$name" ]; then
+    # Target exists — remove source duplicate if it's a file (dedup)
+    if [ -f "$src" ] && [ -f "$dst_dir/$name" ]; then
+      $DRY_RUN || rm -f "$src"
+    fi
+    return 0
+  fi
+  if $DRY_RUN; then
+    echo "  WOULD MOVE: $name → $dst_dir/"
+  else
+    mkdir -p "$dst_dir"
+    mv "$src" "$dst_dir/"
+  fi
+  MOVED=$((MOVED + 1))
+}
+
+migrate_dir() {
+  local src="$1" dst="$2"
+  [ -d "$src" ] || return 0
+  if [ -d "$dst" ]; then
+    # Merge contents
+    for f in "$src"/*; do
+      [ -e "$f" ] && migrate "$f" "$dst"
+    done
+    $DRY_RUN || rmdir "$src" 2>/dev/null || true
+  else
+    if $DRY_RUN; then
+      echo "  WOULD MOVE: $(basename "$src")/ → $(dirname "$dst")/"
+    else
+      mkdir -p "$(dirname "$dst")"
+      mv "$src" "$dst"
+    fi
+    MOVED=$((MOVED + 1))
+  fi
+}
+
+# ═══════════════════════════════════════════════════════════
+# Phase 1: Migrate from legacy global ~/.gstack/projects/$SLUG/
+# ═══════════════════════════════════════════════════════════
+
+if [ -d "$OLD" ]; then
+  # Design docs
+  for f in "$OLD"/*-design-*.md "$OLD"/*-design-audit-*.md; do
+    [ -e "$f" ] && migrate "$f" "$NEW/designs"
+  done
+
+  # Test plans, autoplan, eng review
+  for f in "$OLD"/*-test-plan-*.md "$OLD"/*-eng-review-*.md "$OLD"/*-autoplan-restore-*.md "$OLD"/*-ship-test-plan-*.md; do
+    [ -e "$f" ] && migrate "$f" "$NEW/plans"
+  done
+
+  # CEO plans directory
+  [ -d "$OLD/ceo-plans" ] && migrate_dir "$OLD/ceo-plans" "$NEW/plans/ceo-plans"
+
+  # Review logs
+  for f in "$OLD"/*-reviews.jsonl; do
+    [ -e "$f" ] && migrate "$f" "$NEW"
+  done
+
+  # Test outcomes
+  for f in "$OLD"/*-test-outcome-*.md; do
+    [ -e "$f" ] && migrate "$f" "$NEW"
+  done
+
+  # Evals directory
+  [ -d "$OLD/evals" ] && migrate_dir "$OLD/evals" "$NEW/evals"
+
+  # Greptile history
+  [ -e "$OLD/greptile-history.md" ] && migrate "$OLD/greptile-history.md" "$NEW"
+
+  # CEO handoff files
+  for f in "$OLD"/*-ceo-handoff-*.md; do
+    [ -e "$f" ] && migrate "$f" "$NEW"
+  done
+
+  # repo-mode.json → .gstack/local/ (machine-local cache)
+  [ -e "$OLD/repo-mode.json" ] && migrate "$OLD/repo-mode.json" "$NEW/local"
+
+  # Clean up empty legacy directory
+  $DRY_RUN || rmdir "$OLD" 2>/dev/null || true
+fi
+
+# ═══════════════════════════════════════════════════════════
+# Phase 2: Reorganize flat files in .gstack/ root → subdirectories
+# ═══════════════════════════════════════════════════════════
+
+if [ -d "$NEW" ]; then
+  # Design docs at root → designs/
+  for f in "$NEW"/*-design-*.md "$NEW"/*-design-audit-*.md "$NEW"/*-architecture*.md; do
+    [ -e "$f" ] && migrate "$f" "$NEW/designs"
+  done
+
+  # Test plans at root → plans/
+  for f in "$NEW"/*-test-plan-*.md "$NEW"/*-eng-review-*.md "$NEW"/*-autoplan-restore-*.md "$NEW"/*-ship-test-plan-*.md; do
+    [ -e "$f" ] && migrate "$f" "$NEW/plans"
+  done
+
+  # Implementation plans / roadmaps at root → plans/
+  for f in "$NEW"/*-implementation-plan*.md "$NEW"/*-delivery-roadmap*.md; do
+    [ -e "$f" ] && migrate "$f" "$NEW/plans"
+  done
+
+  # CEO plans at root → plans/ceo-plans/
+  [ -d "$NEW/ceo-plans" ] && [ "$NEW/ceo-plans" != "$NEW/plans/ceo-plans" ] && \
+    migrate_dir "$NEW/ceo-plans" "$NEW/plans/ceo-plans"
+
+  # repo-mode.json at root → local/
+  [ -e "$NEW/repo-mode.json" ] && migrate "$NEW/repo-mode.json" "$NEW/local"
+
+  # browse.json at root → local/ (old browse daemon location)
+  [ -e "$NEW/browse.json" ] && migrate "$NEW/browse.json" "$NEW/local"
+  for f in "$NEW"/browse-console.log "$NEW"/browse-network.log "$NEW"/browse-dialog.log "$NEW"/browse-server.log; do
+    [ -e "$f" ] && migrate "$f" "$NEW/local"
+  done
+fi
+
+# ═══════════════════════════════════════════════════════════
+# Phase 3: Ensure .gitignore and project .gitignore are correct
+# ═══════════════════════════════════════════════════════════
+
+if ! $DRY_RUN; then
+  mkdir -p "$NEW"
+
+  # Ensure .gstack/.gitignore has local/ and .migrated
+  GITIGNORE="$NEW/.gitignore"
+  CONTENT=""
+  [ -f "$GITIGNORE" ] && CONTENT=$(cat "$GITIGNORE")
+  UPDATED=false
+  if ! echo "$CONTENT" | grep -q '^local/$' 2>/dev/null; then
+    CONTENT="${CONTENT:+$CONTENT
+}local/"
+    UPDATED=true
+  fi
+  if ! echo "$CONTENT" | grep -q '^\.migrated$' 2>/dev/null; then
+    CONTENT="${CONTENT:+$CONTENT
+}.migrated"
+    UPDATED=true
+  fi
+  $UPDATED && echo "$CONTENT" > "$GITIGNORE"
+
+  # Remove blanket .gstack/ from project .gitignore
+  GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  if [ -n "$GIT_ROOT" ] && [ -f "$GIT_ROOT/.gitignore" ]; then
+    if grep -q '^\.gstack/\?$' "$GIT_ROOT/.gitignore" 2>/dev/null; then
+      sed -i.bak '/^\.gstack\/\?$/d' "$GIT_ROOT/.gitignore"
+      rm -f "$GIT_ROOT/.gitignore.bak"
+    fi
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════
+# Summary
+# ═══════════════════════════════════════════════════════════
+
+if [ "$MOVED" -eq 0 ]; then
+  exit 0
+fi
+
+if $DRY_RUN; then
+  echo "Dry run: $MOVED items would be migrated. Run without --dry-run to execute."
+else
+  echo "gstack: migrated $MOVED items to $NEW"
+fi
