@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.22.0] - 2026-03-26
+
+### Added
+
+- **New `/strategist` skill — competitive strategy analysis with framework orchestration.** Two modes: `/strategist brief` runs autonomous competitive intelligence research (WebSearch + browse scraping, inline citations, confidence tiers), and `/strategist` runs an interactive strategy session using Rumelt's kernel (diagnosis → guiding policy → coherent actions with mutual support mapping → milestone-gated execution plan). Produces versioned strategy documents that downstream skills (`/plan-ceo-review`, `/plan-eng-review`) automatically discover and reference.
+- **Strategy doc discovery in plan reviews.** `/plan-ceo-review` and `/plan-eng-review` now discover `*-strategy-*.md` files alongside design docs, giving plan reviews competitive context and strategic priorities.
+
 ## [0.11.21.0] - 2026-03-26
 
 ### Fixed
