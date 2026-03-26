@@ -152,6 +152,24 @@ describe('gen-skill-docs', () => {
     }
   });
 
+  test('every Codex SKILL.md description stays under 900-char warning threshold', () => {
+    const WARN_THRESHOLD = 900;
+    const agentsDir = path.join(ROOT, '.agents', 'skills');
+    if (!fs.existsSync(agentsDir)) return;
+    const violations: string[] = [];
+    for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const skillMd = path.join(agentsDir, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      const description = extractDescription(content);
+      if (description.length > WARN_THRESHOLD) {
+        violations.push(`${entry.name}: ${description.length} chars (limit ${MAX_SKILL_DESCRIPTION_LENGTH}, ${MAX_SKILL_DESCRIPTION_LENGTH - description.length} remaining)`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
   test('package.json version matches VERSION file', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
     const version = fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf-8').trim();
@@ -332,6 +350,39 @@ describe('BASE_BRANCH_DETECT resolver', () => {
 
   test('resolver output uses "the base branch" phrasing', () => {
     expect(shipContent).toContain('the base branch');
+  });
+
+  test('resolver output contains GitLab CLI commands', () => {
+    expect(shipContent).toContain('glab');
+  });
+
+  test('resolver output contains git-native fallback', () => {
+    expect(shipContent).toContain('git symbolic-ref');
+  });
+
+  test('resolver output mentions GitLab platform', () => {
+    expect(shipContent).toMatch(/gitlab/i);
+  });
+});
+
+describe('GitLab support in generated skills', () => {
+  const retroContent = fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md'), 'utf-8');
+  const shipSkillContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('retro contains GitLab MR number extraction', () => {
+    expect(retroContent).toContain('[#!]');
+  });
+
+  test('retro uses BASE_BRANCH_DETECT (contains glab)', () => {
+    expect(retroContent).toContain('glab');
+  });
+
+  test('ship contains glab mr create', () => {
+    expect(shipSkillContent).toContain('glab mr create');
+  });
+
+  test('ship checks .gitlab-ci.yml', () => {
+    expect(shipSkillContent).toContain('.gitlab-ci.yml');
   });
 });
 

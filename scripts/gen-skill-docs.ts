@@ -34,35 +34,7 @@ const HOST: Host = (() => {
   throw new Error(`Unknown host: ${val}. Use claude, codex, or agents.`);
 })();
 
-interface HostPaths {
-  skillRoot: string;
-  localSkillRoot: string;
-  binDir: string;
-  browseDir: string;
-}
-
-const HOST_PATHS: Record<Host, HostPaths> = {
-  claude: {
-    skillRoot: '~/.claude/skills/gstack',
-    localSkillRoot: '.claude/skills/gstack',
-    binDir: '~/.claude/skills/gstack/bin',
-    browseDir: '~/.claude/skills/gstack/browse/dist',
-  },
-  codex: {
-    skillRoot: '$GSTACK_ROOT',
-    localSkillRoot: '.agents/skills/gstack',
-    binDir: '$GSTACK_BIN',
-    browseDir: '$GSTACK_BROWSE',
-  },
-};
-
-interface TemplateContext {
-  skillName: string;
-  tmplPath: string;
-  benefitsFrom?: string[];
-  host: Host;
-  paths: HostPaths;
-}
+// HostPaths, HOST_PATHS, and TemplateContext imported from ./resolvers/types (line 7-8)
 
 // ─── Shared Design Constants ────────────────────────────────
 
@@ -636,22 +608,42 @@ Web QA works as usual with \`$B\` regardless of Revyl status.`;
 }
 
 function generateBaseBranchDetect(_ctx: TemplateContext): string {
-  return `## Step 0: Detect base branch
+  return `## Step 0: Detect platform and base branch
 
-Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
+First, detect the git hosting platform from the remote URL:
 
-1. Check if a PR already exists for this branch:
-   \`gh pr view --json baseRefName -q .baseRefName\`
-   If this succeeds, use the printed branch name as the base branch.
+\`\`\`bash
+git remote get-url origin 2>/dev/null
+\`\`\`
 
-2. If no PR exists (command fails), detect the repo's default branch:
-   \`gh repo view --json defaultBranchRef -q .defaultBranchRef.name\`
+- If the URL contains "github.com" → platform is **GitHub**
+- If the URL contains "gitlab" → platform is **GitLab**
+- Otherwise, check CLI availability:
+  - \`gh auth status 2>/dev/null\` succeeds → platform is **GitHub** (covers GitHub Enterprise)
+  - \`glab auth status 2>/dev/null\` succeeds → platform is **GitLab** (covers self-hosted)
+  - Neither → **unknown** (use git-native commands only)
 
-3. If both commands fail, fall back to \`main\`.
+Determine which branch this PR/MR targets, or the repo's default branch if no
+PR/MR exists. Use the result as "the base branch" in all subsequent steps.
+
+**If GitHub:**
+1. \`gh pr view --json baseRefName -q .baseRefName\` — if succeeds, use it
+2. \`gh repo view --json defaultBranchRef -q .defaultBranchRef.name\` — if succeeds, use it
+
+**If GitLab:**
+1. \`glab mr view -F json 2>/dev/null\` and extract the \`target_branch\` field — if succeeds, use it
+2. \`glab repo view -F json 2>/dev/null\` and extract the \`default_branch\` field — if succeeds, use it
+
+**Git-native fallback (if unknown platform, or CLI commands fail):**
+1. \`git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'\`
+2. If that fails: \`git rev-parse --verify origin/main 2>/dev/null\` → use \`main\`
+3. If that fails: \`git rev-parse --verify origin/master 2>/dev/null\` → use \`master\`
+
+If all fail, fall back to \`main\`.
 
 Print the detected base branch name. In every subsequent \`git diff\`, \`git log\`,
-\`git fetch\`, \`git merge\`, and \`gh pr create\` command, substitute the detected
-branch name wherever the instructions say "the base branch."
+\`git fetch\`, \`git merge\`, and PR/MR creation command, substitute the detected
+branch name wherever the instructions say "the base branch" or \`<default>\`.
 
 ---`;
 }
@@ -2894,47 +2886,7 @@ ${slopItems}
 Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.`;
 }
 
-function generateSlugEval(ctx: TemplateContext): string {
-  return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"`;
-}
-
-function generateSlugSetup(ctx: TemplateContext): string {
-  return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG`;
-}
-
-const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
-  SLUG_EVAL: generateSlugEval,
-  SLUG_SETUP: generateSlugSetup,
-  COMMAND_REFERENCE: generateCommandReference,
-  SNAPSHOT_FLAGS: generateSnapshotFlags,
-  PREAMBLE: generatePreamble,
-  BROWSE_SETUP: generateBrowseSetup,
-  REVYL_SETUP: generateRevylSetup,
-  BASE_BRANCH_DETECT: generateBaseBranchDetect,
-  QA_METHODOLOGY: generateQAMethodology,
-  DESIGN_METHODOLOGY: generateDesignMethodology,
-  DESIGN_HARD_RULES: generateDesignHardRules,
-  DESIGN_OUTSIDE_VOICES: generateDesignOutsideVoices,
-  DESIGN_REVIEW_LITE: generateDesignReviewLite,
-  REVIEW_DASHBOARD: generateReviewDashboard,
-  PLAN_FILE_REVIEW_REPORT: generatePlanFileReviewReport,
-  TEST_BOOTSTRAP: generateTestBootstrap,
-  TEST_COVERAGE_AUDIT_PLAN: generateTestCoverageAuditPlan,
-  TEST_COVERAGE_AUDIT_SHIP: generateTestCoverageAuditShip,
-  TEST_COVERAGE_AUDIT_REVIEW: generateTestCoverageAuditReview,
-  TEST_FAILURE_TRIAGE: generateTestFailureTriage,
-  SPEC_REVIEW_LOOP: generateSpecReviewLoop,
-  DESIGN_SKETCH: generateDesignSketch,
-  BENEFITS_FROM: generateBenefitsFrom,
-  CODEX_SECOND_OPINION: generateCodexSecondOpinion,
-  CODEX_REVIEW_STEP: generateAdversarialStep,
-  ADVERSARIAL_STEP: generateAdversarialStep,
-  DEPLOY_BOOTSTRAP: generateDeployBootstrap,
-  CODEX_PLAN_REVIEW: generateCodexPlanReview,
-  PLAN_COMPLETION_AUDIT_SHIP: generatePlanCompletionAuditShip,
-  PLAN_COMPLETION_AUDIT_REVIEW: generatePlanCompletionAuditReview,
-  PLAN_VERIFICATION_EXEC: generatePlanVerificationExec,
-};
+// RESOLVERS imported from ./resolvers/index (line 19) — do not redeclare here
 
 // ─── Codex Helpers ───────────────────────────────────────────
 

@@ -20,6 +20,28 @@ If `PROACTIVE` is `false`: do NOT proactively suggest other gstack skills during
 Only run skills the user explicitly invokes. This preference persists across sessions via
 `gstack-config`.
 
+If `PROACTIVE` is `true` (default): suggest adjacent gstack skills when relevant to the
+user's workflow stage:
+- Brainstorming → /office-hours
+- Strategy → /plan-ceo-review
+- Architecture → /plan-eng-review
+- Design → /plan-design-review or /design-consultation
+- Auto-review → /autoplan
+- Debugging → /investigate
+- QA → /qa
+- Code review → /review
+- Visual audit → /design-review
+- Shipping → /ship
+- Docs → /document-release
+- Retro → /retro
+- Second opinion → /codex
+- Prod safety → /careful or /guard
+- Scoped edits → /freeze or /unfreeze
+- Upgrades → /gstack-upgrade
+
+If the user opts out of suggestions, run `gstack-config set proactive false`.
+If they opt back in, run `gstack-config set proactive true`.
+
 # gstack browse: QA Testing & Dogfooding
 
 Persistent headless Chromium. First call auto-starts (~3s), then ~100-200ms per command.

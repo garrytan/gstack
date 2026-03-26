@@ -100,12 +100,13 @@ service with existing deployment — verify that a distribution pipeline exists.
 2. If new artifact detected, check for a release workflow:
    ```bash
    ls .github/workflows/ 2>/dev/null | grep -iE 'release|publish|dist'
+   grep -qE 'release|publish|deploy' .gitlab-ci.yml 2>/dev/null && echo "GITLAB_CI_RELEASE"
    ```
 
 3. **If no release pipeline exists and a new artifact was added:** Use AskUserQuestion:
    - "This PR adds a new binary/tool but there's no CI/CD pipeline to build and publish it.
      Users won't be able to download the artifact after merge."
-   - A) Add a release workflow now (GitHub Actions cross-platform build + GitHub Releases)
+   - A) Add a release workflow now (CI/CD release pipeline — GitHub Actions or GitLab CI depending on platform)
    - B) Defer — add to TODOS.md
    - C) Not needed — this is internal/web-only, existing deployment covers it
 
@@ -485,12 +486,13 @@ git push -u origin <branch-name>
 
 ---
 
-## Step 8: Create PR
+## Step 8: Create PR/MR
 
-Create a pull request using `gh`:
+Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
-```bash
-gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
+The PR/MR body should contain these sections:
+
+```
 ## Summary
 <bullet points from CHANGELOG>
 
@@ -534,11 +536,30 @@ gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 - [x] All Vitest tests pass (N tests)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+**If GitHub:**
+
+```bash
+gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
+<PR body from above>
 EOF
 )"
 ```
 
-**Output the PR URL** — then proceed to Step 8.5.
+**If GitLab:**
+
+```bash
+glab mr create -b <base> -t "<type>: <summary>" -d "$(cat <<'EOF'
+<MR body from above>
+EOF
+)"
+```
+
+**If neither CLI is available:**
+Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
+
+**Output the PR/MR URL** — then proceed to Step 8.5.
 
 ---
 

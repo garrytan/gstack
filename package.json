@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "0.11.19.0",
+  "version": "0.11.20.0",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",

@@ -9,22 +9,42 @@ export function generateSlugSetup(ctx: TemplateContext): string {
 }
 
 export function generateBaseBranchDetect(_ctx: TemplateContext): string {
-  return `## Step 0: Detect base branch
+  return `## Step 0: Detect platform and base branch
 
-Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
+First, detect the git hosting platform from the remote URL:
 
-1. Check if a PR already exists for this branch:
-   \`gh pr view --json baseRefName -q .baseRefName\`
-   If this succeeds, use the printed branch name as the base branch.
+\`\`\`bash
+git remote get-url origin 2>/dev/null
+\`\`\`
 
-2. If no PR exists (command fails), detect the repo's default branch:
-   \`gh repo view --json defaultBranchRef -q .defaultBranchRef.name\`
+- If the URL contains "github.com" → platform is **GitHub**
+- If the URL contains "gitlab" → platform is **GitLab**
+- Otherwise, check CLI availability:
+  - \`gh auth status 2>/dev/null\` succeeds → platform is **GitHub** (covers GitHub Enterprise)
+  - \`glab auth status 2>/dev/null\` succeeds → platform is **GitLab** (covers self-hosted)
+  - Neither → **unknown** (use git-native commands only)
 
-3. If both commands fail, fall back to \`main\`.
+Determine which branch this PR/MR targets, or the repo's default branch if no
+PR/MR exists. Use the result as "the base branch" in all subsequent steps.
+
+**If GitHub:**
+1. \`gh pr view --json baseRefName -q .baseRefName\` — if succeeds, use it
+2. \`gh repo view --json defaultBranchRef -q .defaultBranchRef.name\` — if succeeds, use it
+
+**If GitLab:**
+1. \`glab mr view -F json 2>/dev/null\` and extract the \`target_branch\` field — if succeeds, use it
+2. \`glab repo view -F json 2>/dev/null\` and extract the \`default_branch\` field — if succeeds, use it
+
+**Git-native fallback (if unknown platform, or CLI commands fail):**
+1. \`git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'\`
+2. If that fails: \`git rev-parse --verify origin/main 2>/dev/null\` → use \`main\`
+3. If that fails: \`git rev-parse --verify origin/master 2>/dev/null\` → use \`master\`
+
+If all fail, fall back to \`main\`.
 
 Print the detected base branch name. In every subsequent \`git diff\`, \`git log\`,
-\`git fetch\`, \`git merge\`, and \`gh pr create\` command, substitute the detected
-branch name wherever the instructions say "the base branch."
+\`git fetch\`, \`git merge\`, and PR/MR creation command, substitute the detected
+branch name wherever the instructions say "the base branch" or \`<default>\`.
 
 ---`;
 }
@@ -65,6 +85,22 @@ in the decision tree below.
 If you want to persist deploy settings for future runs, suggest the user run \`/setup-deploy\`.`;
 }
 
+export function generateRevylSetup(_ctx: TemplateContext): string {
+  return `## MOBILE SETUP (optional — check for Revyl cloud devices)
+
+\`\`\`bash
+revyl auth status 2>&1 && echo "REVYL_READY" || echo "REVYL_NOT_AVAILABLE"
+\`\`\`
+
+If \`REVYL_READY\`: Mobile QA uses the \`revyl device\` CLI for cloud-hosted iOS/Android devices with AI-grounded element targeting. No local simulators, Appium, or Java required. All device interaction is via bash commands.
+
+If \`REVYL_NOT_AVAILABLE\`: Mobile testing not available. To enable:
+1. Install: \`brew install RevylAI/tap/revyl\` (or \`pipx install revyl\`)
+2. Authenticate: \`revyl auth login\`
+
+Web QA works as usual with \`$B\` regardless of Revyl status.`;
+}
+
 export function generateQAMethodology(_ctx: TemplateContext): string {
   return `## Modes
 
@@ -95,6 +131,83 @@ This is the **primary mode** for developers verifying their work. When the user 
    $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
    \`\`\`
    If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
+
+3b. **Mobile project detection** — if Revyl is available (REVYL_READY from setup):
+   \`\`\`bash
+   ls app.json app.config.js app.config.ts 2>/dev/null
+   \`\`\`
+   If \`app.json\` or \`app.config.*\` exists, this is a mobile (Expo/React Native) project.
+   **Automatically set up Revyl cloud device — do not ask the user.**
+
+   **Step 1: Extract bundle ID**
+   \`\`\`bash
+   cat app.json 2>/dev/null | grep -o '"bundleIdentifier"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"'
+   \`\`\`
+   If no bundleIdentifier found, check \`app.config.js\` or \`app.config.ts\` for it.
+
+   **Step 2: Start a Revyl cloud device session**
+   \`\`\`bash
+   revyl device start --platform ios --json
+   \`\`\`
+   - Default to iOS. If the user specifies \`--mobile android\`, use \`--platform android\`.
+   - This provisions a cloud-hosted device — no local simulator, Appium, or Java required.
+   - The JSON output includes a \`viewer_url\` — share it with the user so they can watch the session live.
+   - Add \`--open\` to auto-open the viewer in the browser.
+
+   **Step 3: Install and launch the app**
+   - If the user provides an app URL (.ipa or .apk):
+     \`\`\`bash
+     revyl device install --app-url "<url>"
+     \`\`\`
+   - Then launch:
+     \`\`\`bash
+     revyl device launch --bundle-id "<bundleId>"
+     \`\`\`
+   - If \`launch\` fails with "app not found", tell the user: "The app is not installed on the cloud device. Provide a build URL (.ipa for iOS, .apk for Android) or upload via \`revyl build upload\`."
+
+   **Step 4: Activate mobile mode**
+   **MOBILE MODE ACTIVE** — use \`revyl device\` CLI commands instead of \`$B\` for all interaction.
+
+   **Interaction loop:**
+   1. \`revyl device screenshot --out /tmp/mobile-screen.png\` — capture current screen, then read the image file to see it
+   2. Observe what's on screen — one line description
+   3. Take one best action using the appropriate \`revyl device\` command
+   4. \`revyl device screenshot --out /tmp/mobile-screen.png\` — verify the result
+   5. Repeat
+
+   **Revyl CLI command mapping (replaces \`$B\` commands):**
+   | Action | Command |
+   |--------|---------|
+   | Launch app | \`revyl device launch --bundle-id "<bundleId>"\` |
+   | Tap element | \`revyl device tap --target "Sign In button"\` |
+   | Type text | \`revyl device type --target "Email field" --text "user@test.com"\` |
+   | Swipe/scroll | \`revyl device swipe --target "screen center" --direction up\` |
+   | Go back | \`revyl device back\` |
+   | Screenshot | \`revyl device screenshot --out /tmp/mobile-screen.png\` |
+   | Clear text | \`revyl device clear-text --target "Email field"\` |
+   | Long press | \`revyl device long-press --target "item to select"\` |
+   | Go home | \`revyl device home\` |
+   | Deep link | \`revyl device navigate --url "myapp://screen"\` |
+   | Diagnostics | \`revyl device doctor\` |
+
+   **AI-grounded targeting:** The \`--target\` flag accepts natural language — Revyl's vision model resolves coordinates automatically. Use visible text and visual characteristics:
+   - Good: \`--target "the blue Sign In button"\`, \`--target "input field with placeholder Email"\`
+   - Bad: \`--target "button"\`, \`--target "the element"\` (too vague)
+
+   **Swipe directions:** \`--direction up\` moves finger UP (scrolls content DOWN to reveal below). \`--direction down\` moves finger DOWN (scrolls content UP).
+
+   **Viewing screenshots:** After \`revyl device screenshot --out /tmp/mobile-screen.png\`, use the Read tool to view the image file. This lets you see the actual device screen.
+
+   **Findings:**
+   - Flag missing accessibility labels as accessibility findings
+   - Take screenshots at milestones and share with the user
+   - Skip web-only commands: \`console --errors\`, \`html\`, \`css\`, \`js\`, \`cookies\` — not available in mobile mode
+
+   **Session management:**
+   - Sessions auto-terminate after 5 minutes of idle (300s default). Any \`revyl device\` command resets the timer.
+   - Before writing lengthy findings or analyzing code, run \`revyl device info\` to reset the idle timer.
+   - When QA is complete: \`revyl device stop\`
+   - If something breaks: \`revyl device doctor\` to diagnose, then \`revyl device start --platform ios\` for a fresh session.
 
 4. **Test each affected page/route:**
    - Navigate to the page

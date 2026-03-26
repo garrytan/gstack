@@ -79,6 +79,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Ship
   'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode'],
   'ship-local-workflow': ['ship/**', 'scripts/gen-skill-docs.ts'],
+  'ship-plan-completion': ['ship/**', 'scripts/gen-skill-docs.ts'],
+  'ship-plan-verification': ['ship/**', 'scripts/gen-skill-docs.ts'],
 
   // Retro
   'retro':             ['retro/**'],
@@ -184,6 +186,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'review-base-branch': 'gate',
   'review-design-lite': 'periodic',   // 4/7 threshold is subjective
   'review-coverage-audit': 'gate',
+  'review-plan-completion': 'gate',
 
   // Office Hours
   'office-hours-spec-review': 'gate',
@@ -208,6 +211,8 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'ship-local-workflow': 'gate',
   'ship-coverage-audit': 'gate',
   'ship-triage': 'gate',
+  'ship-plan-completion': 'gate',
+  'ship-plan-verification': 'gate',
 
   // Retro — gate for cheap branch detection, periodic for full Opus retro
   'retro': 'periodic',

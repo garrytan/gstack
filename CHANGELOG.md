@@ -1,16 +1,38 @@
 # Changelog
 
-## [0.11.19.0] - 2026-03-25 — Mobile QA via Revyl Cloud Devices
+## [0.11.20.0] - 2026-03-26
+
+### Added
+
+- **GitLab support for `/retro` and `/ship`.** You can now run `/ship` on GitLab repos — it creates merge requests via `glab mr create` instead of `gh pr create`. `/retro` detects default branches on both platforms. All 11 skills using `BASE_BRANCH_DETECT` automatically get GitHub, GitLab, and git-native fallback detection.
+- **GitHub Enterprise and self-hosted GitLab detection.** If the remote URL doesn't match `github.com` or `gitlab`, gstack checks `gh auth status` / `glab auth status` to detect authenticated platforms — no manual config needed.
+- **`/document-release` works on GitLab.** After `/ship` creates a merge request, the auto-invoked `/document-release` reads and updates the MR body via `glab` instead of failing silently.
+- **GitLab safety gate for `/land-and-deploy`.** Instead of silently failing on GitLab repos, `/land-and-deploy` now stops early with a clear message that GitLab merge support is not yet implemented.
+- **Mobile QA now uses Revyl cloud devices instead of local Appium.** No more Java 17, Appium server, XCUITest driver, or Xcode CLI tools required. `/qa` and `/qa-only` automatically detect mobile projects and provision cloud-hosted iOS or Android devices via the Revyl CLI. AI-grounded element targeting replaces the old ref system — describe elements in natural language instead of using `@e3` refs.
+
+### Fixed
+
+- **Deduplicated gen-skill-docs resolvers.** The template generator had duplicate inline resolver functions that shadowed the modular versions, causing generated SKILL.md files to miss recent resolver updates.
 
 ### Changed
 
-- **Mobile QA now uses Revyl cloud devices instead of local Appium.** No more Java 17, Appium server, XCUITest driver, or Xcode CLI tools required. `/qa` and `/qa-only` automatically detect mobile projects and provision cloud-hosted iOS or Android devices via the Revyl CLI. AI-grounded element targeting replaces the old ref system — describe elements in natural language instead of using `@e3` refs.
 - **Revyl auth check now shows diagnostic info on failure.** If `revyl auth status` fails, the agent sees the actual error message instead of just "not available."
 - **Session keepalive hint added.** The QA template now instructs agents to reset the 5-minute idle timer before long analysis phases, preventing silent session loss.
 
 ### Removed
 
 - **`browse-mobile/` deleted entirely** (~6,000 lines). The Appium-backed local mobile QA binary, its HTTP server, ref system, platform drivers, and all tests have been removed. Replaced by Revyl CLI integration with zero local dependencies.
+
+## [0.11.19.0] - 2026-03-24
+
+### Fixed
+
+- **Auto-upgrade no longer breaks.** The root gstack skill description was 7 characters from the Codex 1024-char limit. Every new skill addition pushed it closer. Moved the skill routing table from the description (bounded) to the body (unlimited), dropping from 1017 to 409 chars with 615 chars of headroom.
+- **Codex reviews now run in the correct repo.** In multi-workspace setups (like Conductor), Codex could pick up the wrong project directory. All `codex exec` calls now explicitly set `-C` to the git root.
+
+### Added
+
+- **900-char early warning test.** A new test fails if any Codex skill description exceeds 900 chars, catching description bloat before it breaks builds.
 
 ## [0.11.18.2] - 2026-03-24
 
