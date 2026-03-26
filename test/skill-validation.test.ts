@@ -1369,11 +1369,6 @@ describe('Codex skill', () => {
     expect(content).toContain('Persist Eng Review result');
   });
 
-  test('/ship gate suggests /review or /plan-eng-review when Eng Review is missing', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Abort — run /review or /plan-eng-review first');
-  });
-
   test('Review Readiness Dashboard includes Adversarial Review row', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Adversarial');

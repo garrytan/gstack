@@ -9,22 +9,42 @@ export function generateSlugSetup(ctx: TemplateContext): string {
 }
 
 export function generateBaseBranchDetect(_ctx: TemplateContext): string {
-  return `## Step 0: Detect base branch
+  return `## Step 0: Detect platform and base branch
 
-Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
+First, detect the git hosting platform from the remote URL:
 
-1. Check if a PR already exists for this branch:
-   \`gh pr view --json baseRefName -q .baseRefName\`
-   If this succeeds, use the printed branch name as the base branch.
+\`\`\`bash
+git remote get-url origin 2>/dev/null
+\`\`\`
 
-2. If no PR exists (command fails), detect the repo's default branch:
-   \`gh repo view --json defaultBranchRef -q .defaultBranchRef.name\`
+- If the URL contains "github.com" → platform is **GitHub**
+- If the URL contains "gitlab" → platform is **GitLab**
+- Otherwise, check CLI availability:
+  - \`gh auth status 2>/dev/null\` succeeds → platform is **GitHub** (covers GitHub Enterprise)
+  - \`glab auth status 2>/dev/null\` succeeds → platform is **GitLab** (covers self-hosted)
+  - Neither → **unknown** (use git-native commands only)
 
-3. If both commands fail, fall back to \`main\`.
+Determine which branch this PR/MR targets, or the repo's default branch if no
+PR/MR exists. Use the result as "the base branch" in all subsequent steps.
+
+**If GitHub:**
+1. \`gh pr view --json baseRefName -q .baseRefName\` — if succeeds, use it
+2. \`gh repo view --json defaultBranchRef -q .defaultBranchRef.name\` — if succeeds, use it
+
+**If GitLab:**
+1. \`glab mr view -F json 2>/dev/null\` and extract the \`target_branch\` field — if succeeds, use it
+2. \`glab repo view -F json 2>/dev/null\` and extract the \`default_branch\` field — if succeeds, use it
+
+**Git-native fallback (if unknown platform, or CLI commands fail):**
+1. \`git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'\`
+2. If that fails: \`git rev-parse --verify origin/main 2>/dev/null\` → use \`main\`
+3. If that fails: \`git rev-parse --verify origin/master 2>/dev/null\` → use \`master\`
+
+If all fail, fall back to \`main\`.
 
 Print the detected base branch name. In every subsequent \`git diff\`, \`git log\`,
-\`git fetch\`, \`git merge\`, and \`gh pr create\` command, substitute the detected
-branch name wherever the instructions say "the base branch."
+\`git fetch\`, \`git merge\`, and PR/MR creation command, substitute the detected
+branch name wherever the instructions say "the base branch" or \`<default>\`.
 
 ---`;
 }

@@ -529,6 +529,119 @@ Analyze the git history and produce the narrative report as described in the SKI
   }, 420_000);
 });
 
+// --- Review Dashboard Via Attribution E2E ---
+
+describeIfSelected('Review Dashboard Via Attribution', ['review-dashboard-via'], () => {
+  let dashDir: string;
+
+  beforeAll(() => {
+    dashDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-dashboard-via-'));
+    const run = (cmd: string, args: string[], cwd = dashDir) =>
+      spawnSync(cmd, args, { cwd, stdio: 'pipe', timeout: 5000 });
+
+    // Create git repo with feature branch
+    run('git', ['init', '-b', 'main']);
+    run('git', ['config', 'user.email', 'test@test.com']);
+    run('git', ['config', 'user.name', 'Test']);
+
+    fs.writeFileSync(path.join(dashDir, 'app.ts'), 'console.log("v1");\n');
+    run('git', ['add', 'app.ts']);
+    run('git', ['commit', '-m', 'initial']);
+
+    run('git', ['checkout', '-b', 'feature/dashboard-test']);
+    fs.writeFileSync(path.join(dashDir, 'app.ts'), 'console.log("v2");\n');
+    run('git', ['add', 'app.ts']);
+    run('git', ['commit', '-m', 'feat: update']);
+
+    // Get HEAD commit for review entries
+    const headResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dashDir, stdio: 'pipe' });
+    const commit = headResult.stdout.toString().trim();
+
+    // Pre-populate review log with autoplan-sourced entries
+    // gstack-review-read reads from ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+    // For the test, we'll write a mock gstack-review-read script that returns our test data
+    const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const reviewData = [
+      `{"skill":"plan-eng-review","timestamp":"${timestamp}","status":"clean","unresolved":0,"critical_gaps":0,"issues_found":0,"mode":"FULL_REVIEW","via":"autoplan","commit":"${commit}"}`,
+      `{"skill":"plan-ceo-review","timestamp":"${timestamp}","status":"clean","unresolved":0,"critical_gaps":0,"mode":"SELECTIVE_EXPANSION","via":"autoplan","commit":"${commit}"}`,
+      `{"skill":"codex-plan-review","timestamp":"${timestamp}","status":"clean","source":"codex","commit":"${commit}"}`,
+    ].join('\n');
+
+    // Write a mock gstack-review-read that returns our test data
+    const mockBinDir = path.join(dashDir, '.mock-bin');
+    fs.mkdirSync(mockBinDir, { recursive: true });
+    fs.writeFileSync(path.join(mockBinDir, 'gstack-review-read'), [
+      '#!/usr/bin/env bash',
+      `echo '${reviewData.split('\n').join("'\necho '")}'`,
+      'echo "---CONFIG---"',
+      'echo "false"',
+      'echo "---HEAD---"',
+      `echo "${commit}"`,
+    ].join('\n'));
+    fs.chmodSync(path.join(mockBinDir, 'gstack-review-read'), 0o755);
+
+    // Copy ship skill
+    fs.copyFileSync(path.join(ROOT, 'ship', 'SKILL.md'), path.join(dashDir, 'ship-SKILL.md'));
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(dashDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testConcurrentIfSelected('review-dashboard-via', async () => {
+    const mockBinDir = path.join(dashDir, '.mock-bin');
+
+    const result = await runSkillTest({
+      prompt: `Read ship-SKILL.md. You only need to run the Review Readiness Dashboard section.
+
+Instead of running ~/.claude/skills/gstack/bin/gstack-review-read, run this mock: ${mockBinDir}/gstack-review-read
+
+Parse the output and display the dashboard table. Pay attention to:
+1. The "via" field in entries — show source attribution (e.g., "via /autoplan")
+2. The codex-plan-review entry — it should populate the Outside Voice row
+3. Since Eng Review IS clear, there should be NO gate blocking — just display the dashboard
+
+Skip the preamble, lake intro, telemetry, and all other ship steps.
+Write the dashboard output to ${dashDir}/dashboard-output.md`,
+      workingDirectory: dashDir,
+      maxTurns: 12,
+      timeout: 90_000,
+      testName: 'review-dashboard-via',
+      runId,
+    });
+
+    logCost('/ship dashboard-via', result);
+    recordE2E(evalCollector, '/ship review dashboard via attribution', 'Dashboard via field', result);
+    expect(result.exitReason).toBe('success');
+
+    // Check dashboard output for via attribution
+    const dashPath = path.join(dashDir, 'dashboard-output.md');
+    const allOutput = [
+      result.output || '',
+      ...result.toolCalls.map(tc => tc.output || ''),
+    ].join('\n').toLowerCase();
+
+    // Verify via attribution appears somewhere (conversation or file)
+    let dashContent = '';
+    if (fs.existsSync(dashPath)) {
+      dashContent = fs.readFileSync(dashPath, 'utf-8').toLowerCase();
+    }
+    const combined = allOutput + dashContent;
+
+    // Should mention autoplan attribution
+    expect(combined).toMatch(/autoplan/);
+    // Should show eng review as CLEAR (it has a clean entry)
+    expect(combined).toMatch(/clear/i);
+    // Should NOT contain AskUserQuestion gate (no blocking)
+    const gateQuestions = result.toolCalls.filter(tc =>
+      tc.tool === 'mcp__conductor__AskUserQuestion' ||
+      (tc.tool === 'AskUserQuestion')
+    );
+    // Ship dashboard should not gate when eng review is clear
+    expect(gateQuestions).toHaveLength(0);
+  }, 120_000);
+});
+
 // Module-level afterAll — finalize eval collector after all tests complete
 afterAll(async () => {
   await finalizeEvalCollector(evalCollector);

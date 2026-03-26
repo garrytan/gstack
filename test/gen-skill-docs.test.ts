@@ -351,6 +351,39 @@ describe('BASE_BRANCH_DETECT resolver', () => {
   test('resolver output uses "the base branch" phrasing', () => {
     expect(shipContent).toContain('the base branch');
   });
+
+  test('resolver output contains GitLab CLI commands', () => {
+    expect(shipContent).toContain('glab');
+  });
+
+  test('resolver output contains git-native fallback', () => {
+    expect(shipContent).toContain('git symbolic-ref');
+  });
+
+  test('resolver output mentions GitLab platform', () => {
+    expect(shipContent).toMatch(/gitlab/i);
+  });
+});
+
+describe('GitLab support in generated skills', () => {
+  const retroContent = fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md'), 'utf-8');
+  const shipSkillContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('retro contains GitLab MR number extraction', () => {
+    expect(retroContent).toContain('[#!]');
+  });
+
+  test('retro uses BASE_BRANCH_DETECT (contains glab)', () => {
+    expect(retroContent).toContain('glab');
+  });
+
+  test('ship contains glab mr create', () => {
+    expect(shipSkillContent).toContain('glab mr create');
+  });
+
+  test('ship checks .gitlab-ci.yml', () => {
+    expect(shipSkillContent).toContain('.gitlab-ci.yml');
+  });
 });
 
 /**

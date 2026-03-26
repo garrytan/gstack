@@ -20,6 +20,30 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 - **Agent timeout raised to 5 minutes.** Multi-page tasks (navigating directories, filling forms across pages) need more than the previous 2-minute limit.
 
+## [0.11.21.0] - 2026-03-26
+
+### Fixed
+
+- **`/autoplan` reviews now count toward the ship readiness gate.** When `/autoplan` ran full CEO + Design + Eng reviews, `/ship` still showed "0 runs" for Eng Review because autoplan-logged entries weren't being read correctly. Now the dashboard shows source attribution (e.g., "CLEAR (PLAN via /autoplan)") so you can see exactly which tool satisfied each review.
+- **`/ship` no longer tells you to "run /review first."** Ship runs its own pre-landing review in Step 3.5 — asking you to run the same review separately was redundant. The gate is removed; ship just does it.
+- **`/land-and-deploy` now checks all 8 review types.** Previously missed `review`, `adversarial-review`, and `codex-plan-review` — if you only ran `/review` (not `/plan-eng-review`), land-and-deploy wouldn't see it.
+- **Dashboard Outside Voice row now works.** Was showing "0 runs" even after outside voices ran in `/plan-ceo-review` or `/plan-eng-review`. Now correctly maps to `codex-plan-review` entries.
+- **`/codex review` now tracks staleness.** Added the `commit` field to codex review log entries so the dashboard can detect when a codex review is outdated.
+- **`/autoplan` no longer hardcodes "clean" status.** Review log entries from autoplan used to always record `status:"clean"` even when issues were found. Now uses proper placeholder tokens that Claude substitutes with real values.
+
+## [0.11.20.0] - 2026-03-26
+
+### Added
+
+- **GitLab support for `/retro` and `/ship`.** You can now run `/ship` on GitLab repos — it creates merge requests via `glab mr create` instead of `gh pr create`. `/retro` detects default branches on both platforms. All 11 skills using `BASE_BRANCH_DETECT` automatically get GitHub, GitLab, and git-native fallback detection.
+- **GitHub Enterprise and self-hosted GitLab detection.** If the remote URL doesn't match `github.com` or `gitlab`, gstack checks `gh auth status` / `glab auth status` to detect authenticated platforms — no manual config needed.
+- **`/document-release` works on GitLab.** After `/ship` creates a merge request, the auto-invoked `/document-release` reads and updates the MR body via `glab` instead of failing silently.
+- **GitLab safety gate for `/land-and-deploy`.** Instead of silently failing on GitLab repos, `/land-and-deploy` now stops early with a clear message that GitLab merge support is not yet implemented.
+
+### Fixed
+
+- **Deduplicated gen-skill-docs resolvers.** The template generator had duplicate inline resolver functions that shadowed the modular versions, causing generated SKILL.md files to miss recent resolver updates.
+
 ## [0.11.19.0] - 2026-03-24
 
 ### Fixed
