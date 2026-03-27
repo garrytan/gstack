@@ -699,13 +699,22 @@ Use AskUserQuestion to confirm. If the user disagrees with a premise, revise und
 
 ## Phase 3.5: Cross-Model Second Opinion (optional)
 
-**Binary check first:**
+**Detect available second-opinion provider:**
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 ```
 
-Use AskUserQuestion (regardless of codex availability):
+Use AskUserQuestion (regardless of provider availability):
 
 > Want a second opinion from an independent AI perspective? It will review your problem statement, key answers, premises, and any landscape findings from this session without having seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
 > A) Yes, get a second opinion
@@ -713,7 +722,7 @@ Use AskUserQuestion (regardless of codex availability):
 
 If B: skip Phase 3.5 entirely. Remember that the second opinion did NOT run (affects design doc, founder signals, and Phase 4 below).
 
-**If A: Run the Codex cold read.**
+**If A: Run the cross-model cold read.**
 
 1. Assemble a structured context block from Phases 1-3:
    - Mode (Startup or Builder)
@@ -726,7 +735,7 @@ If B: skip Phase 3.5 entirely. Remember that the second opinion did NOT run (aff
 2. **Write the assembled prompt to a temp file** (prevents shell injection from user-derived content):
 
 ```bash
-CODEX_PROMPT_FILE=$(mktemp /tmp/gstack-codex-oh-XXXXXXXX.txt)
+SECOND_OPINION_PROMPT_FILE=$(mktemp /tmp/gstack-secondop-XXXXXXXX.txt)
 ```
 
 Write the full prompt to this file. **Always start with the filesystem boundary:**
@@ -737,28 +746,37 @@ Then add the context block and mode-appropriate instructions:
 
 **Builder mode instructions:** "You are an independent technical advisor reading a transcript of a builder brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the COOLEST version of this they haven't considered? 2) What's the ONE thing from their answers that reveals what excites them most? Quote it. 3) What existing open source project or tool gets them 50% of the way there — and what's the 50% they'd need to build? 4) If you had a weekend to build this, what would you build first? Be specific. Be direct. No preamble."
 
-3. Run Codex:
+3. **Run the second-opinion provider:**
+
+**If Codex is the provider:**
 
 ```bash
 TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+codex exec "$(cat "$SECOND_OPINION_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+```
+
+**If Gemini is the provider:**
+
+```bash
+TMPERR_OH=$(mktemp /tmp/gemini-oh-err-XXXXXXXX)
+gemini --prompt "$(cat "$SECOND_OPINION_PROMPT_FILE")" 2>"$TMPERR_OH"
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
 cat "$TMPERR_OH"
-rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
+rm -f "$TMPERR_OH" "$SECOND_OPINION_PROMPT_FILE"
 ```
 
 **Error handling:** All errors are non-blocking — second opinion is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to Claude subagent.
-- **Timeout:** "Codex timed out after 5 minutes." Fall back to Claude subagent.
-- **Empty response:** "Codex returned no response." Fall back to Claude subagent.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "[Provider] authentication failed. Run \`codex login\` or \`gemini\` to authenticate." Fall back to Claude subagent.
+- **Timeout:** "[Provider] timed out after 5 minutes." Fall back to Claude subagent.
+- **Empty response:** "[Provider] returned no response." Fall back to Claude subagent.
 
-On any Codex error, fall back to the Claude subagent below.
+On any provider error, fall back to the Claude subagent below.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If no provider available (or provider errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
@@ -770,19 +788,11 @@ If the subagent fails or times out: "Second opinion unavailable. Continuing to P
 
 4. **Presentation:**
 
-If Codex ran:
+Use the provider name in the header:
 ```
-SECOND OPINION (Codex):
+SECOND OPINION ({Provider name — Codex, Gemini, or Claude subagent}):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
-════════════════════════════════════════════════════════════
-```
-
-If Claude subagent ran:
-```
-SECOND OPINION (Claude subagent):
-════════════════════════════════════════════════════════════
-<full subagent output, verbatim — do not truncate or summarize>
+<full output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 ```
 
@@ -791,10 +801,10 @@ SECOND OPINION (Claude subagent):
    - Where Claude disagrees and why
    - Whether the challenged premise changes Claude's recommendation
 
-6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
+6. **Premise revision check:** If the second opinion challenged an agreed premise, use AskUserQuestion:
 
-> Codex challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
-> A) Revise this premise based on Codex's input
+> [Provider] challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
+> A) Revise this premise based on the outside input
 > B) Keep the original premise — proceed to alternatives
 
 If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).
@@ -898,29 +908,47 @@ The screenshot file at `/tmp/gstack-sketch.png` can be referenced by downstream 
 After the wireframe is approved, offer outside design perspectives:
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 ```
 
-If Codex is available, use AskUserQuestion:
-> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
+If a provider is available, use AskUserQuestion:
+> "Want outside design perspectives on the chosen approach? A cross-model voice proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
 >
 > A) Yes — get outside design voices
 > B) No — proceed without
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, `model_reasoning_effort="medium"`):
+1. **Cross-model voice** (via Bash):
+
+**If Codex:**
 ```bash
 TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
 ```
+
+**If Gemini:**
+```bash
+TMPERR_SKETCH=$(mktemp /tmp/gemini-sketch-XXXXXXXX)
+gemini --prompt "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." 2>"$TMPERR_SKETCH"
+```
+
 Use a 5-minute timeout (`timeout: 300000`). After completion: `cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"`
 
 2. **Claude subagent** (via Agent tool):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
-Present Codex output under `CODEX SAYS (design sketch):` and subagent output under `CLAUDE SUBAGENT (design direction):`.
+Present cross-model output under `{PROVIDER} SAYS (design sketch):` (substituting Codex or Gemini) and subagent output under `CLAUDE SUBAGENT (design direction):`.
 Error handling: all non-blocking. On failure, skip and continue.
 
 ---

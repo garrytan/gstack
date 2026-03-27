@@ -7,18 +7,35 @@ export function generateDesignReviewLite(ctx: TemplateContext): string {
   // Codex block only for Claude host
   const codexBlock = ctx.host === 'codex' ? '' : `
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Cross-model design voice** (optional, automatic if available):
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "\${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 \`\`\`
 
-If Codex is available, run a lightweight design check on the diff:
+If a provider is available, run a lightweight design check on the diff:
 
+**If Codex:**
 \`\`\`bash
 TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+\`\`\`
+
+**If Gemini:**
+\`\`\`bash
+TMPERR_DRL=$(mktemp /tmp/gemini-drl-XXXXXXXX)
+DIFF_CONTENT=$(git diff origin/<base>)
+gemini --prompt "Review this git diff for design issues. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line. THE DIFF: $DIFF_CONTENT" 2>"$TMPERR_DRL"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -28,7 +45,7 @@ cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
 
 **Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
 
-Present Codex output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
+Present output under a \`{PROVIDER} (design):\` header (substituting Codex or Gemini), merged with the checklist findings above.`;
 
   return `## Design Review (conditional, diff-scoped)
 
@@ -454,29 +471,47 @@ The screenshot file at \`/tmp/gstack-sketch.png\` can be referenced by downstrea
 After the wireframe is approved, offer outside design perspectives:
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "\${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 \`\`\`
 
-If Codex is available, use AskUserQuestion:
-> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
+If a provider is available, use AskUserQuestion:
+> "Want outside design perspectives on the chosen approach? A cross-model voice proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
 >
 > A) Yes — get outside design voices
 > B) No — proceed without
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
+1. **Cross-model voice** (via Bash):
+
+**If Codex:**
 \`\`\`bash
 TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
 \`\`\`
+
+**If Gemini:**
+\`\`\`bash
+TMPERR_SKETCH=$(mktemp /tmp/gemini-sketch-XXXXXXXX)
+gemini --prompt "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." 2>"$TMPERR_SKETCH"
+\`\`\`
+
 Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
 
 2. **Claude subagent** (via Agent tool):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
-Present Codex output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
+Present cross-model output under \`{PROVIDER} SAYS (design sketch):\` (substituting Codex or Gemini) and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
 Error handling: all non-blocking. On failure, skip and continue.`;
 }
 
@@ -628,19 +663,37 @@ Merge findings into the triage with \`[codex]\` / \`[subagent]\` / \`[cross-mode
   return `## Design Outside Voices (parallel)
 ${optInSection}
 
-**Check Codex availability:**
+**Detect available second-opinion provider:**
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "\${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 \`\`\`
 
-**If Codex is available**, launch both voices simultaneously:
+**If a provider is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Cross-model design voice** (via Bash):
+
+**If Codex:**
 \`\`\`bash
 TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "${escapedCodexPrompt}" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
 \`\`\`
+
+**If Gemini:**
+\`\`\`bash
+TMPERR_DESIGN=$(mktemp /tmp/gemini-design-XXXXXXXX)
+gemini --prompt "${escapedCodexPrompt}" 2>"$TMPERR_DESIGN"
+\`\`\`
+
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
@@ -651,13 +704,13 @@ Dispatch a subagent with this prompt:
 "${subagentPrompt}"
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged \`[single-model]\`.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "[Provider] authentication failed. Run \\\`codex login\\\` or \\\`gemini\\\` to authenticate."
+- **Timeout:** "[Provider] timed out after 5 minutes."
+- **Empty response:** "[Provider] returned no response."
+- On any provider error: proceed with Claude subagent output only, tagged \`[single-model]\`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a \`CODEX SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
+Present cross-model output under a \`{PROVIDER} SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header (substituting Codex or Gemini).
 Present subagent output under a \`CLAUDE SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\` header.
 ${synthesisSection}
 
@@ -665,7 +718,7 @@ ${synthesisSection}
 \`\`\`bash
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".`;
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "gemini+subagent", "codex-only", "gemini-only", "subagent-only", or "unavailable".`;
 }
 
 // ─── Design Hard Rules (OpenAI framework + gstack slop blacklist) ───

@@ -1013,14 +1013,25 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 **Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.
 
-**Check Codex availability:**
+**Detect available second-opinion provider:**
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+**If a provider is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Cross-model design voice** (via Bash):
+
+**If Codex:**
 ```bash
 TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
@@ -1055,6 +1066,42 @@ HARD REJECTION — flag if ANY apply:
 
 Be specific. Reference file:line for every finding." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
 ```
+
+**If Gemini:**
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/gemini-design-XXXXXXXX)
+gemini --prompt "Review the frontend source code in this repo. Evaluate against these design hard rules:
+- Spacing: systematic (design tokens / CSS variables) or magic numbers?
+- Typography: expressive purposeful fonts or default stacks?
+- Color: CSS variables with defined system, or hardcoded hex scattered?
+- Responsive: breakpoints defined? calc(100svh - header) for heroes? Mobile tested?
+- A11y: ARIA landmarks, alt text, contrast ratios, 44px touch targets?
+- Motion: 2-3 intentional animations, or zero / ornamental only?
+- Cards: used only when card IS the interaction? No decorative card grids?
+
+First classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then apply matching rules.
+
+LITMUS CHECKS — answer YES/NO:
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+HARD REJECTION — flag if ANY apply:
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+Be specific. Reference file:line for every finding." 2>"$TMPERR_DESIGN"
+```
+
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
@@ -1071,13 +1118,13 @@ Dispatch a subagent with this prompt:
 For each finding: what's wrong, severity (critical/high/medium), and the file:line."
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "[Provider] authentication failed. Run \`codex login\` or \`gemini\` to authenticate."
+- **Timeout:** "[Provider] timed out after 5 minutes."
+- **Empty response:** "[Provider] returned no response."
+- On any provider error: proceed with Claude subagent output only, tagged `[single-model]`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a `CODEX SAYS (design source audit):` header.
+Present cross-model output under a `{PROVIDER} SAYS (design source audit):` header (substituting Codex or Gemini).
 Present subagent output under a `CLAUDE SUBAGENT (design consistency):` header.
 
 **Synthesis — Litmus scorecard:**
@@ -1089,7 +1136,7 @@ Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` t
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "gemini+subagent", "codex-only", "gemini-only", "subagent-only", or "unavailable".
 
 ## Phase 7: Triage
 
