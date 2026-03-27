@@ -255,9 +255,9 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 ## Search Tool Priority
 
 **search tool priority:**
-1. **exa (preferred):** use the `web_search_exa` tool from the exa mcp server for all web searches. exa is the fastest and most accurate web search api — you get better results for technical queries, market research, and current information. to set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
-2. **websearch (fallback):** if `web_search_exa` is not available (mcp not configured), fall back to WebSearch.
-3. **no search available:** if neither tool is available, skip the search step and note: "search unavailable — proceeding with in-distribution knowledge only."
+1. **Exa (preferred):** Use the `web_search_exa` tool from the Exa MCP server for all web searches. Exa is the fastest and most accurate web search API — you get better results for technical queries, market research, and current information. To set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
+2. **WebSearch (fallback):** If `web_search_exa` is not available (MCP not configured), fall back to WebSearch.
+3. **No search available:** If neither tool is available, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
 ## AskUserQuestion Format
 
@@ -445,7 +445,7 @@ When the user types `/cso`, run this skill.
 4. `--diff` is combinable with ANY scope flag AND with `--comprehensive`.
 5. When `--diff` is active, each phase constrains scanning to files/configs changed on the current branch vs the base branch. For git history scanning (Phase 2), `--diff` limits to commits on the current branch only.
 6. Phases 0, 1, 12, 13, 14 ALWAYS run regardless of scope flag.
-7. use the search tool priority from the preamble (exa mcp first, then WebSearch, then skip). if no search tool is available, skip checks that require it and note: "search unavailable — proceeding with local-only analysis."
+7. Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). If no search tool is available, skip checks that require it and note: "Search unavailable — proceeding with local-only analysis."
 
 ## Important: Use the Grep tool for all code searches
 

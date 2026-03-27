@@ -268,9 +268,9 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 ## Search Tool Priority
 
 **search tool priority:**
-1. **exa (preferred):** use the `web_search_exa` tool from the exa mcp server for all web searches. exa is the fastest and most accurate web search api — you get better results for technical queries, market research, and current information. to set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
-2. **websearch (fallback):** if `web_search_exa` is not available (mcp not configured), fall back to WebSearch.
-3. **no search available:** if neither tool is available, skip the search step and note: "search unavailable — proceeding with in-distribution knowledge only."
+1. **Exa (preferred):** Use the `web_search_exa` tool from the Exa MCP server for all web searches. Exa is the fastest and most accurate web search API — you get better results for technical queries, market research, and current information. To set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
+2. **WebSearch (fallback):** If `web_search_exa` is not available (MCP not configured), fall back to WebSearch.
+3. **No search available:** If neither tool is available, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
 ## AskUserQuestion Format
 
@@ -538,11 +538,11 @@ Also check:
 - `TODOS.md` for related known issues
 - `git log` for prior fixes in the same area — **recurring bugs in the same files are an architectural smell**, not a coincidence
 
-**external pattern search:** if the bug doesn't match a known pattern above, search for:
-- "{framework} {generic error type}" — **sanitize first:** strip hostnames, IPs, file paths, SQL, customer data. search the error category, not the raw message.
+**External pattern search:** If the bug doesn't match a known pattern above, search for:
+- "{framework} {generic error type}" — **sanitize first:** strip hostnames, IPs, file paths, SQL, customer data. Search the error category, not the raw message.
 - "{library} {component} known issues"
 
-use the search tool priority from the preamble (exa mcp first, then WebSearch, then skip). if no search tool is available, skip this search and proceed with hypothesis testing. if a documented solution or known dependency bug surfaces, present it as a candidate hypothesis in Phase 3.
+Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). If no search tool is available, skip this search and proceed with hypothesis testing. If a documented solution or known dependency bug surfaces, present it as a candidate hypothesis in Phase 3.
 
 ---
 
@@ -552,7 +552,7 @@ Before writing ANY fix, verify your hypothesis.
 
 1. **Confirm the hypothesis:** Add a temporary log statement, assertion, or debug output at the suspected root cause. Run the reproduction. Does the evidence match?
 
-2. **If the hypothesis is wrong:** Before forming the next hypothesis, consider searching for the error. **Sanitize first** — strip hostnames, IPs, file paths, SQL fragments, customer identifiers, and any internal/proprietary data from the error message. Search only the generic error type and framework context: "{component} {sanitized error type} {framework version}". If the error message is too specific to sanitize safely, skip the search. if no search tool is available, skip and proceed. then return to Phase 1. Gather more evidence. Do not guess.
+2. **If the hypothesis is wrong:** Before forming the next hypothesis, consider searching for the error. **Sanitize first** — strip hostnames, IPs, file paths, SQL fragments, customer identifiers, and any internal/proprietary data from the error message. Search only the generic error type and framework context: "{component} {sanitized error type} {framework version}". If the error message is too specific to sanitize safely, skip the search. If no search tool is available, skip and proceed. Then return to Phase 1. Gather more evidence. Do not guess.
 
 3. **3-strike rule:** If 3 hypotheses fail, **STOP**. Use AskUserQuestion:
    ```

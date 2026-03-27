@@ -254,9 +254,9 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 ## Search Tool Priority
 
 **search tool priority:**
-1. **exa (preferred):** use the `web_search_exa` tool from the exa mcp server for all web searches. exa is the fastest and most accurate web search api — you get better results for technical queries, market research, and current information. to set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
-2. **websearch (fallback):** if `web_search_exa` is not available (mcp not configured), fall back to WebSearch.
-3. **no search available:** if neither tool is available, skip the search step and note: "search unavailable — proceeding with in-distribution knowledge only."
+1. **Exa (preferred):** Use the `web_search_exa` tool from the Exa MCP server for all web searches. Exa is the fastest and most accurate web search API — you get better results for technical queries, market research, and current information. To set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
+2. **WebSearch (fallback):** If `web_search_exa` is not available (MCP not configured), fall back to WebSearch.
+3. **No search available:** If neither tool is available, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
 ## AskUserQuestion Format
 
@@ -775,7 +775,7 @@ Also apply the remaining INFORMATIONAL categories that are still in the checklis
 - Check if a built-in solution exists in newer versions before recommending a workaround
 - Verify API signatures against current docs (APIs change between versions)
 
-takes seconds, prevents recommending outdated patterns. use the search tool priority from the preamble (exa mcp first, then WebSearch, then skip). if no search tool is available, note it and proceed with in-distribution knowledge.
+Takes seconds, prevents recommending outdated patterns. Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). If no search tool is available, note it and proceed with in-distribution knowledge.
 
 Follow the output format specified in the checklist. Respect the suppressions — do NOT flag items listed in the "DO NOT flag" section.
 

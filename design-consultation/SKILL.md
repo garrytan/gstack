@@ -256,9 +256,9 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 ## Search Tool Priority
 
 **search tool priority:**
-1. **exa (preferred):** use the `web_search_exa` tool from the exa mcp server for all web searches. exa is the fastest and most accurate web search api — you get better results for technical queries, market research, and current information. to set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
-2. **websearch (fallback):** if `web_search_exa` is not available (mcp not configured), fall back to WebSearch.
-3. **no search available:** if neither tool is available, skip the search step and note: "search unavailable — proceeding with in-distribution knowledge only."
+1. **Exa (preferred):** Use the `web_search_exa` tool from the Exa MCP server for all web searches. Exa is the fastest and most accurate web search API — you get better results for technical queries, market research, and current information. To set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
+2. **WebSearch (fallback):** If `web_search_exa` is not available (MCP not configured), fall back to WebSearch.
+3. **No search available:** If neither tool is available, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
 ## AskUserQuestion Format
 
@@ -583,9 +583,9 @@ If the README or office-hours output gives you enough context, pre-fill and conf
 
 If the user wants competitive research:
 
-**Step 1: identify what's out there**
+**Step 1: Identify what's out there**
 
-use the search tool priority from the preamble (exa mcp first, then WebSearch, then skip). search for 5-10 products in their space:
+Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). Search for 5-10 products in their space:
 - "[product category] website design"
 - "[product category] best websites 2025"
 - "best [industry] web apps"
@@ -619,9 +619,9 @@ Summarize conversationally:
 > "I looked at what's out there. Here's the landscape: they converge on [patterns]. Most of them feel [observation — e.g., interchangeable, polished but generic, etc.]. The opportunity to stand out is [gap]. Here's where I'd play it safe and where I'd take a risk..."
 
 **Graceful degradation:**
-- browse available → screenshots + snapshots + web search (richest research)
-- browse unavailable → web search only (still good)
-- no search available → built-in design knowledge (always works)
+- Browse available → screenshots + snapshots + search (richest research)
+- Browse unavailable → search only (still good)
+- No search available → built-in design knowledge (always works)
 
 If the user said no research, skip entirely and proceed to Phase 3 using your built-in design knowledge.
 
