@@ -579,9 +579,12 @@ This is the **primary mode** for developers verifying their work. When the user 
    **Revyl Step 0: Check permissions for Revyl commands**
    Revyl mobile QA runs many `revyl` CLI commands. Check if the user's Claude Code settings already allow these:
    ```bash
-   cat ~/.claude/settings.json 2>/dev/null | grep -c "revyl"
+   SETTINGS_FILE=~/.claude/settings.json
+   REVYL_COUNT=$(cat "$SETTINGS_FILE" 2>/dev/null | grep -c "Bash(revyl:")
+   TOTAL_EXPECTED=15
+   echo "REVYL_PERMISSIONS=$REVYL_COUNT/$TOTAL_EXPECTED"
    ```
-   If the output is 0 (no Revyl permissions found), the user will be prompted for every single command — bad experience. Use AskUserQuestion:
+   If `REVYL_PERMISSIONS` shows less than 10/15 (missing most patterns), the user will be prompted for many commands — bad experience. Use AskUserQuestion:
 
    "Revyl mobile QA needs to run many commands automatically (revyl device tap, swipe, type, screenshot, etc.). I can add permissions to your Claude Code settings so these run without prompting. This is a one-time setup."
 
@@ -658,24 +661,61 @@ This is the **primary mode** for developers verifying their work. When the user 
    fi
    ```
 
-   Then start the dev loop:
+   Then start the dev loop. **Run in background and poll for readiness** — `revyl dev start` is a long-running process:
    ```bash
-   revyl dev start --platform ios --open ${REVYL_APP_ID:+--app-id "$REVYL_APP_ID"}
+   revyl dev start --platform ios --open ${REVYL_APP_ID:+--app-id "$REVYL_APP_ID"} > /tmp/revyl-dev-output.log 2>&1 &
+   REVYL_DEV_PID=$!
+   echo "REVYL_DEV_PID=$REVYL_DEV_PID"
    ```
 
-   After `revyl dev start` reports ready, **verify the tunnel is actually resolving** before proceeding:
-   1. Extract the tunnel URL from the output.
-   2. Poll the tunnel for up to 30 seconds:
+   Poll every 5 seconds for up to 120 seconds, checking for "Dev loop ready" or failure:
+   ```bash
+   for i in $(seq 1 24); do
+     if grep -q "Dev loop ready" /tmp/revyl-dev-output.log 2>/dev/null; then
+       echo "DEV_LOOP_STARTED"
+       break
+     fi
+     if grep -qiE "error|failed|exit" /tmp/revyl-dev-output.log 2>/dev/null; then
+       echo "DEV_LOOP_FAILED"
+       break
+     fi
+     sleep 5
+   done
+   cat /tmp/revyl-dev-output.log
+   ```
+
+   **CRITICAL: Do not trust "Dev loop ready" alone.** After `revyl dev start` reports ready, **parse the HMR diagnostic output** to verify the tunnel is actually working:
+   ```bash
+   grep -iE "\[hmr\]|tunnel|metro" /tmp/revyl-dev-output.log 2>/dev/null
+   ```
+
+   Check the HMR diagnostics:
+   - If ALL HMR checks show `FAILED` (e.g., "Tunnel HTTP: FAILED", "Metro health: FAILED"): the dev loop is **broken despite reporting ready**. The app may have loaded from a **cached build** — code changes will NOT be reflected. **Fall back to static mode immediately.**
+   - If HMR checks show a mix of OK and FAILED: tunnel DNS may still be propagating. Poll the tunnel URL for up to 30 seconds:
       ```bash
-      for i in $(seq 1 30); do
-        curl -s -o /dev/null -w "%{http_code}" "$TUNNEL_URL/status" 2>/dev/null | grep -q "200" && echo "TUNNEL_OK" && break
-        sleep 1
-      done
+      TUNNEL_URL=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/revyl-dev-output.log 2>/dev/null | head -1)
+      if [ -n "$TUNNEL_URL" ]; then
+        for i in $(seq 1 30); do
+          curl -s -o /dev/null -w "%{http_code}" "$TUNNEL_URL/status" 2>/dev/null | grep -q "200" && echo "TUNNEL_OK" && break
+          sleep 1
+        done
+      fi
       ```
-   3. If tunnel resolves: take a screenshot to check if the app loaded.
+   - If all HMR checks pass and tunnel resolves: take a screenshot to check if the app loaded.
       - **iOS deep link dialogs:** iOS may show a system dialog "Open in [AppName]?" with Cancel and Open buttons. After any deep link navigation, take a screenshot. If this dialog appears, tap the "Open" button before proceeding.
       - If the app is on the home screen (crashed): re-open the deep link via `revyl device navigate --url "$DEEP_LINK"`.
-   4. If tunnel never resolves after 30s: **fall back to static mode immediately** (do not retry the dev loop).
+
+   **Cached build warning:** If the app loads but HMR diagnostics all failed, warn: "App loaded from a cached build — hot reload is NOT active. Code changes will not appear until you rebuild and upload. Falling back to static mode for a fresh build."
+
+   If tunnel never resolves after 30s OR all HMR checks failed: **fall back to static mode immediately** (do not retry the dev loop).
+
+   **Stopping the dev loop:** `revyl dev stop` does not exist. To stop the dev loop, kill the background process:
+   ```bash
+   kill $REVYL_DEV_PID 2>/dev/null || true
+   # Also kill any Metro process that was started by the dev loop
+   METRO_PID=$(lsof -ti :8081 2>/dev/null)
+   [ -n "$METRO_PID" ] && kill "$METRO_PID" 2>/dev/null || true
+   ```
 
    **Revyl Step 3b: Static mode fallback (Release build)**
 
@@ -748,6 +788,8 @@ This is the **primary mode** for developers verifying their work. When the user 
    **Swipe direction semantics:** `direction='up'` moves the finger UP (scrolls content DOWN to reveal content below). `direction='down'` moves the finger DOWN (scrolls content UP).
 
    **Session idle timeout:** Revyl sessions auto-terminate after 5 minutes of inactivity. The timer resets on every tool call. Use `revyl device info` to check remaining time if needed.
+
+   **Keepalive during fix phases:** When you switch to reading/editing source code (fix phase), the Revyl session will timeout silently if no device calls are made for 5 minutes. To prevent this, run `revyl device screenshot --out /tmp/keepalive.png` every 3-4 minutes during extended fix phases. If the session has already expired when you return to verify, re-provision with `revyl device start --platform ios --json` and re-install the app.
 
    **iOS deep link dialogs:** When a deep link is opened, iOS may show a system dialog "Open in [AppName]?" with Cancel and Open buttons. After any deep link navigation, take a screenshot. If this dialog appears, tap the "Open" button before proceeding.
 
