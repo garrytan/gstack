@@ -30,8 +30,10 @@ const HOST: Host = (() => {
   if (!HOST_ARG) return 'claude';
   const val = HOST_ARG.includes('=') ? HOST_ARG.split('=')[1] : process.argv[process.argv.indexOf(HOST_ARG) + 1];
   if (val === 'codex' || val === 'agents') return 'codex';
+  if (val === 'gemini') return 'gemini';
+
   if (val === 'claude') return 'claude';
-  throw new Error(`Unknown host: ${val}. Use claude, codex, or agents.`);
+  throw new Error(`Unknown host: ${val}. Use claude, codex, gemini, or agents.`);
 })();
 
 // HostPaths, HOST_PATHS, and TemplateContext imported from ./resolvers/types (line 7-8)
@@ -220,7 +222,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   let outputDir: string | null = null;
 
   // For codex host, route output to .agents/skills/{codexSkillName}/SKILL.md
-  if (host === 'codex') {
+  if (host === 'codex' || host === 'gemini') {
     const codexName = codexSkillName(skillDir === '.' ? '' : skillDir);
     outputDir = path.join(ROOT, '.agents', 'skills', codexName);
     fs.mkdirSync(outputDir, { recursive: true });
@@ -257,7 +259,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   }
 
   // For codex host: transform frontmatter and replace Claude-specific paths
-  if (host === 'codex') {
+  if (host === 'codex' || host === 'gemini') {
     // Extract hook safety prose BEFORE transforming frontmatter (which strips hooks)
     const safetyProse = extractHookSafetyProse(tmplContent);
 
@@ -275,6 +277,10 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     content = content.replace(/\.claude\/skills\/gstack/g, ctx.paths.localSkillRoot);
     content = content.replace(/\.claude\/skills\/review/g, '.agents/skills/gstack/review');
     content = content.replace(/\.claude\/skills/g, '.agents/skills');
+    if (ctx.paths.configFile !== 'CLAUDE.md') {
+      content = content.replace(/CLAUDE\.md/g, ctx.paths.configFile);
+    }
+
 
     if (outputDir) {
       const codexName = codexSkillName(skillDir === '.' ? '' : skillDir);
@@ -310,7 +316,7 @@ const tokenBudget: Array<{ skill: string; lines: number; tokens: number }> = [];
 
 for (const tmplPath of findTemplates()) {
   // Skip /codex skill for codex host (self-referential — it's a Claude wrapper around codex exec)
-  if (HOST === 'codex') {
+  if (HOST === 'codex' || HOST === 'gemini') {
     const dir = path.basename(path.dirname(tmplPath));
     if (dir === 'codex') continue;
   }
