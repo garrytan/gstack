@@ -4,7 +4,7 @@ set -e
 
 if ! command -v bun >/dev/null 2>&1; then
   echo "Error: bun is required but not installed." >&2
-  echo "Install it: curl -fsSL https://bun.sh/install | bash" >&2
+  echo "Install it: curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.10 bash" >&2
   exit 1
 fi
 
