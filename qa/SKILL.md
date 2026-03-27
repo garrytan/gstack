@@ -449,10 +449,10 @@ If the output contains `REVYL_READY` (the `revyl` CLI is installed), mark Revyl 
 **In Revyl mobile mode, these commands change:**
 - `$B goto <url>` → `revyl device launch --bundle-id <bundleId>`
 - `$B click @e3` → `revyl device tap --target "description of element"` (AI grounding — describe what's visible)
-- `$B fill @e3 "text"` → `revyl device tap --target "input field"` then `revyl device type --text "text"`
+- `$B fill @e3 "text"` → `revyl device type --target "description of field" --text "text"`
 - `$B screenshot` → `revyl device screenshot --out <path>` (always use Read tool to show user)
 - `$B console --errors` → SKIP (not available in mobile mode)
-- `$B scroll down` → `revyl device swipe --direction up` (up = finger moves up = content scrolls down)
+- `$B scroll down` → `revyl device swipe --direction up --x 220 --y 500` (up = finger moves up = content scrolls down)
 - `$B back` → `revyl device back`
 
 **Check test framework (bootstrap if needed):**
@@ -821,6 +821,22 @@ This is the **primary mode** for developers verifying their work. When the user 
 
    Attempt the dev loop (Metro + tunnel) first. If it fails, fall back to a static Release build.
 
+   **Before starting the dev loop, check if Metro is already running on port 8081.** Revyl starts its own Metro bundler, so an existing one causes a port conflict (Revyl gets :8082, can't serve the project, times out after ~65s).
+   ```bash
+   METRO_PID=$(lsof -ti :8081 2>/dev/null)
+   if [ -n "$METRO_PID" ]; then
+     METRO_CMD=$(ps -p "$METRO_PID" -o comm= 2>/dev/null)
+     if echo "$METRO_CMD" | grep -qiE "node|metro"; then
+       echo "Metro already running on :8081 (PID $METRO_PID, $METRO_CMD) — killing to avoid port conflict with Revyl dev loop"
+       kill "$METRO_PID" 2>/dev/null || true
+       sleep 2
+     else
+       echo "WARNING: Port 8081 in use by $METRO_CMD (PID $METRO_PID) — not Metro, skipping kill. Revyl dev loop may fail."
+     fi
+   fi
+   ```
+
+   Then start the dev loop:
    ```bash
    revyl dev start --platform ios --open ${REVYL_APP_ID:+--app-id "$REVYL_APP_ID"}
    ```
@@ -882,9 +898,9 @@ This is the **primary mode** for developers verifying their work. When the user 
    |---|---|---|
    | `$B goto <url>` | `$BM goto app://<id>` | `revyl device launch --bundle-id <id>` |
    | `$B click @e3` | `$BM click @e3` | `revyl device tap --target "description of element"` |
-   | `$B fill @e3 "text"` | `$BM fill @e3 "text"` | `revyl device type --text "text"` (tap field first) |
+   | `$B fill @e3 "text"` | `$BM fill @e3 "text"` | `revyl device type --target "description of field" --text "text"` |
    | `$B screenshot` | `$BM screenshot` | `revyl device screenshot --out <path>` (then Read the image) |
-   | `$B scroll down` | `$BM scroll down` | `revyl device swipe --direction up` (up moves finger UP, scrolls DOWN) |
+   | `$B scroll down` | `$BM scroll down` | `revyl device swipe --direction up --x 220 --y 500` (up moves finger UP, scrolls DOWN) |
    | `$B back` | `$BM back` | `revyl device back` |
 
    **Revyl interaction loop:**

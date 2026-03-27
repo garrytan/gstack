@@ -639,6 +639,18 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Priority:** P2
 **Depends on:** None
 
+### Revyl command table validation test
+
+**What:** Add a gen-skill-docs test that parses the Revyl command mapping table from generated SKILL.md files and validates command flags against a known-good reference list (e.g., `revyl device swipe` requires `--direction` + `--x/--y` or `--target`; `revyl device type` requires `--target` + `--text`).
+
+**Why:** The Revyl command table has been wrong 3 times now (--output→--out, swipe missing --x/--y, type missing --target). Each time it was caught by live testing, not automated checks. A validation test in `bun test` would catch drift immediately.
+
+**Context:** Pattern: existing `gen-skill-docs.test.ts` already validates generated SKILL.md content. This adds a focused check for Revyl CLI command syntax. The reference list is a simple map of command→required flags. Does NOT require `revyl` CLI installed — just validates the template output against known-correct syntax.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
 ### Revyl mobile QA E2E test
 
 **What:** E2E test that runs `/qa` against a test Expo app using Revyl cloud device, verifying the full flow: detect → init → build → upload → test → report.
@@ -663,17 +675,17 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Priority:** P2
 **Depends on:** This branch landing (Revyl detection infrastructure in gen-skill-docs.ts)
 
-### Revyl dev loop: reuse existing Metro instead of starting a new one
+### Revyl dev loop: reuse existing Metro instead of starting a new one — PARTIALLY FIXED
 
-**What:** When the QA skill tries the dev loop path and Metro is already running on port 8081, detect and reuse it instead of starting a second Metro process (which fails due to port conflict, or Revyl starts its own on 8082).
+**What:** ~~When the QA skill tries the dev loop path and Metro is already running on port 8081, detect and reuse it instead of starting a second Metro process.~~
 
-**Why:** During live testing, the dev loop failed because Metro was already running from a prior `npx expo start`. Revyl's dev loop started a new server on 8082, causing a port conflict. The static mode fallback worked perfectly, so impact is low — but fixing this would make dev loop mode reliable for iterative testing without restarting Metro.
+**Shipped (partial):** The QA template now detects existing Metro on :8081 via `lsof` and kills it before `revyl dev start`, avoiding the 65s timeout. This is the "kill and restart" approach.
 
-**Context:** Detection: `lsof -i :8081 | grep -q LISTEN`. If Metro is running, skip the `expo start` step in the dev loop. May also need to tell Revyl which port to connect to. Static mode fallback is robust, so this is a DX improvement, not a blocker.
+**Remaining:** A smarter approach would reuse the existing Metro instead of killing it — tell Revyl which port to connect to. This avoids the Metro restart overhead but requires understanding Revyl's port configuration options.
 
 **Effort:** S
 **Priority:** P3
-**Depends on:** This branch landing
+**Depends on:** Understanding Revyl's `--port` or tunnel config options
 
 ### Android Revyl support
 

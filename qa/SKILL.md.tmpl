@@ -94,10 +94,10 @@ After the user chooses, execute their choice (commit or stash), then continue wi
 **In Revyl mobile mode, these commands change:**
 - `$B goto <url>` → `revyl device launch --bundle-id <bundleId>`
 - `$B click @e3` → `revyl device tap --target "description of element"` (AI grounding — describe what's visible)
-- `$B fill @e3 "text"` → `revyl device tap --target "input field"` then `revyl device type --text "text"`
+- `$B fill @e3 "text"` → `revyl device type --target "description of field" --text "text"`
 - `$B screenshot` → `revyl device screenshot --out <path>` (always use Read tool to show user)
 - `$B console --errors` → SKIP (not available in mobile mode)
-- `$B scroll down` → `revyl device swipe --direction up` (up = finger moves up = content scrolls down)
+- `$B scroll down` → `revyl device swipe --direction up --x 220 --y 500` (up = finger moves up = content scrolls down)
 - `$B back` → `revyl device back`
 
 **Check test framework (bootstrap if needed):**

@@ -389,7 +389,7 @@ If the output contains `REVYL_READY` (the `revyl` CLI is installed), mark Revyl 
 
 **In Appium mobile mode:** `$BM` replaces `$B` for all commands. Skip web-only commands (`console --errors`, `html`, `css`, `js`, `cookies`). Use `$BM click label:Label` for elements not detected as interactive. Take screenshots after every interaction and show them to the user via the Read tool.
 
-**In Revyl mobile mode:** Use `revyl device tap --target "..."`, `revyl device type --text "..."`, `revyl device screenshot --out <path>`, etc. AI grounding resolves natural language targets — describe what's visible on screen. Skip web-only commands. Take screenshots after every interaction and show them via the Read tool.
+**In Revyl mobile mode:** Use `revyl device tap --target "..."`, `revyl device type --target "..." --text "..."`, `revyl device swipe --direction up --x 220 --y 500`, `revyl device screenshot --out <path>`, etc. AI grounding resolves natural language targets — describe what's visible on screen. Skip web-only commands. Take screenshots after every interaction and show them via the Read tool.
 
 **Create output directories:**
 
@@ -601,6 +601,22 @@ This is the **primary mode** for developers verifying their work. When the user 
 
    Attempt the dev loop (Metro + tunnel) first. If it fails, fall back to a static Release build.
 
+   **Before starting the dev loop, check if Metro is already running on port 8081.** Revyl starts its own Metro bundler, so an existing one causes a port conflict (Revyl gets :8082, can't serve the project, times out after ~65s).
+   ```bash
+   METRO_PID=$(lsof -ti :8081 2>/dev/null)
+   if [ -n "$METRO_PID" ]; then
+     METRO_CMD=$(ps -p "$METRO_PID" -o comm= 2>/dev/null)
+     if echo "$METRO_CMD" | grep -qiE "node|metro"; then
+       echo "Metro already running on :8081 (PID $METRO_PID, $METRO_CMD) — killing to avoid port conflict with Revyl dev loop"
+       kill "$METRO_PID" 2>/dev/null || true
+       sleep 2
+     else
+       echo "WARNING: Port 8081 in use by $METRO_CMD (PID $METRO_PID) — not Metro, skipping kill. Revyl dev loop may fail."
+     fi
+   fi
+   ```
+
+   Then start the dev loop:
    ```bash
    revyl dev start --platform ios --open ${REVYL_APP_ID:+--app-id "$REVYL_APP_ID"}
    ```
@@ -662,9 +678,9 @@ This is the **primary mode** for developers verifying their work. When the user 
    |---|---|---|
    | `$B goto <url>` | `$BM goto app://<id>` | `revyl device launch --bundle-id <id>` |
    | `$B click @e3` | `$BM click @e3` | `revyl device tap --target "description of element"` |
-   | `$B fill @e3 "text"` | `$BM fill @e3 "text"` | `revyl device type --text "text"` (tap field first) |
+   | `$B fill @e3 "text"` | `$BM fill @e3 "text"` | `revyl device type --target "description of field" --text "text"` |
    | `$B screenshot` | `$BM screenshot` | `revyl device screenshot --out <path>` (then Read the image) |
-   | `$B scroll down` | `$BM scroll down` | `revyl device swipe --direction up` (up moves finger UP, scrolls DOWN) |
+   | `$B scroll down` | `$BM scroll down` | `revyl device swipe --direction up --x 220 --y 500` (up moves finger UP, scrolls DOWN) |
    | `$B back` | `$BM back` | `revyl device back` |
 
    **Revyl interaction loop:**
