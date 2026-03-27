@@ -129,9 +129,9 @@ Write TESTING.md with:
 - Test layers: Unit tests (what, where, when), Integration tests, Smoke tests, E2E tests
 - Conventions: file naming, assertion style, setup/teardown patterns
 
-### B7. Update CLAUDE.md
+### B7. Update ${ctx.paths.configFile}
 
-First check: If CLAUDE.md already has a \`## Testing\` section → skip. Don't duplicate.
+First check: If ${ctx.paths.configFile} already has a \`## Testing\` section → skip. Don't duplicate.
 
 Append a \`## Testing\` section:
 - Run command and test directory
@@ -150,7 +150,7 @@ Append a \`## Testing\` section:
 git status --porcelain
 \`\`\`
 
-Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, ${ctx.paths.configFile}, .github/workflows/test.yml if created):
 \`git commit -m "chore: bootstrap test framework ({framework name})"\`
 
 ---`;
@@ -179,7 +179,7 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 type CoverageAuditMode = 'plan' | 'ship' | 'review';
 
-function generateTestCoverageAuditInner(mode: CoverageAuditMode): string {
+function generateTestCoverageAuditInner(mode: CoverageAuditMode, ctx: TemplateContext): string {
   const sections: string[] = [];
 
   // ── Intro (mode-specific) ──
@@ -197,8 +197,8 @@ function generateTestCoverageAuditInner(mode: CoverageAuditMode): string {
 
 Before analyzing coverage, detect the project's test framework:
 
-1. **Read CLAUDE.md** — look for a \`## Testing\` section with test command and framework name. If found, use that as the authoritative source.
-2. **If CLAUDE.md has no testing section, auto-detect:**
+1. **Read ${ctx.paths.configFile}** — look for a \`## Testing\` section with test command and framework name. If found, use that as the authoritative source.
+2. **If ${ctx.paths.configFile} has no testing section, auto-detect:**
 
 \`\`\`bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
@@ -460,7 +460,7 @@ Coverage line: \`Test Coverage Audit: N new code paths. M covered (X%). K tests 
 
 **7. Coverage gate:**
 
-Before proceeding, check CLAUDE.md for a \`## Test Coverage\` section with \`Minimum:\` and \`Target:\` fields. If found, use those percentages. Otherwise use defaults: Minimum = 60%, Target = 80%.
+Before proceeding, check ${ctx.paths.configFile} for a \`## Test Coverage\` section with \`Minimum:\` and \`Target:\` fields. If found, use those percentages. Otherwise use defaults: Minimum = 60%, Target = 80%.
 
 Using the coverage percentage from the diagram in substep 4 (the \`COVERAGE: X/Y (Z%)\` line):
 
@@ -543,7 +543,7 @@ If no test framework detected → include gaps as INFORMATIONAL findings only, n
 
 ### Coverage Warning
 
-After producing the coverage diagram, check the coverage percentage. Read CLAUDE.md for a \`## Test Coverage\` section with a \`Minimum:\` field. If not found, use default: 60%.
+After producing the coverage diagram, check the coverage percentage. Read ${ctx.paths.configFile} for a \`## Test Coverage\` section with a \`Minimum:\` field. If not found, use default: 60%.
 
 If coverage is below the minimum threshold, output a prominent warning **before** the regular review findings:
 
@@ -560,14 +560,14 @@ If coverage percentage cannot be determined, skip the warning silently.`);
   return sections.join('\n');
 }
 
-export function generateTestCoverageAuditPlan(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('plan');
+export function generateTestCoverageAuditPlan(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('plan', ctx);
 }
 
-export function generateTestCoverageAuditShip(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('ship');
+export function generateTestCoverageAuditShip(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('ship', ctx);
 }
 
-export function generateTestCoverageAuditReview(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('review');
+export function generateTestCoverageAuditReview(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('review', ctx);
 }

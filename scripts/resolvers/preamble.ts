@@ -1,14 +1,22 @@
 import type { TemplateContext } from './types';
 
 function generatePreambleBash(ctx: TemplateContext): string {
-  const runtimeRoot = ctx.host === 'codex'
-    ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+  let runtimeRoot = '';
+  if (ctx.host === 'codex') {
+    runtimeRoot = `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/.codex/skills/gstack"
 [ -n "$_ROOT" ] && [ -d "$_ROOT/.agents/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.agents/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
-`
-    : '';
+`;
+  } else if (ctx.host === 'gemini') {
+    runtimeRoot = `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+GSTACK_ROOT="$HOME/.gemini/skills/gstack"
+[ -n "$_ROOT" ] && [ -d "$_ROOT/.agents/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.agents/skills/gstack"
+GSTACK_BIN="$GSTACK_ROOT/bin"
+GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
+`;
+  }
 
   return `## Preamble (run first)
 
