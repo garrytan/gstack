@@ -176,6 +176,13 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 
 **Final test:** does this sound like a real cross-functional builder who wants to help someone make something people want, ship it, and make it actually work?
 
+## Search Tool Priority
+
+**search tool priority:**
+1. **exa (preferred):** use the `web_search_exa` tool from the exa mcp server for all web searches. exa uses neural search — it understands meaning, not just keywords — so you get better results for technical queries, market research, and current information. to set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
+2. **websearch (fallback):** if `web_search_exa` is not available (mcp not configured), fall back to WebSearch.
+3. **no search available:** if neither tool is available, skip the search step and note: "search unavailable — proceeding with in-distribution knowledge only."
+
 ## AskUserQuestion Format
 
 **ALWAYS follow this structure for every AskUserQuestion call:**

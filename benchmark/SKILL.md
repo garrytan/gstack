@@ -138,6 +138,13 @@ This only happens once. If `PROACTIVE_PROMPTED` is `yes`, skip this entirely.
 
 **Writing rules:** No em dashes (use commas, periods, "..."). No AI vocabulary (delve, crucial, robust, comprehensive, nuanced, etc.). Short paragraphs. End with what to do.
 
+## Search Tool Priority
+
+**search tool priority:**
+1. **exa (preferred):** use the `web_search_exa` tool from the exa mcp server for all web searches. exa uses neural search — it understands meaning, not just keywords — so you get better results for technical queries, market research, and current information. to set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
+2. **websearch (fallback):** if `web_search_exa` is not available (mcp not configured), fall back to WebSearch.
+3. **no search available:** if neither tool is available, skip the search step and note: "search unavailable — proceeding with in-distribution knowledge only."
+
 ## Contributor Mode
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major workflow step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
