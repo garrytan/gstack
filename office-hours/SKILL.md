@@ -1061,15 +1061,17 @@ The subagent should return:
 **Step 2: Fix and re-dispatch**
 
 If the reviewer returns issues:
-1. Fix each issue in the document on disk (use Edit tool)
-2. Keep a running log of all issues found so far and their resolution status
-3. Re-dispatch the reviewer subagent with the updated document AND the prior issues.
+1. YOU (the parent agent) fix each issue in the document on disk (use Edit tool)
+2. YOU keep a running log of all issues found so far and their resolution status
+3. Re-dispatch a NEW reviewer subagent with the updated document AND the prior issues.
    The re-dispatch prompt must include:
    - The file path of the updated document
    - The same 5-dimension review instructions from Step 1
    - A "Prior issues" section listing every issue from previous rounds with its
      status: FIXED (include a one-line summary of the fix) or WONT_FIX (with reason).
-     Example: "Prior issues (round 1): 1. [Completeness] Missing error message copy — FIXED: added sample error string in Success Criteria. 2. [Scope] Personal notes section — FIXED: removed."
+     Example: "Prior issues (round 1): 1. [Completeness] Missing error message copy,
+     FIXED: added sample error string in Success Criteria. 2. [Scope] Personal notes
+     section, FIXED: removed."
    - This instruction: "Verify each FIXED issue is actually resolved in the document.
      If a fix is incomplete or introduced a new problem, re-raise it. Then look for
      NEW issues only. Do not re-raise issues that are properly resolved. Your score
