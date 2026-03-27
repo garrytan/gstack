@@ -736,6 +736,47 @@ describe('CLI lifecycle', () => {
     expect(result.stdout).toContain('Status: healthy');
     expect(result.stderr).toContain('Starting server');
   }, 20000);
+
+  test('sequential CLI invocations reuse the same daemon and page state', async () => {
+    const stateFile = `/tmp/browse-test-persist-${Date.now()}.json`;
+    const cliPath = path.resolve(__dirname, '../src/cli.ts');
+    const cliEnv: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined) cliEnv[k] = v;
+    }
+    cliEnv.BROWSE_STATE_FILE = stateFile;
+
+    const runCli = (args: string[]) =>
+      new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+        const proc = spawn('bun', ['run', cliPath, ...args], {
+          timeout: 15000,
+          env: cliEnv,
+        });
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', (d) => stdout += d.toString());
+        proc.stderr.on('data', (d) => stderr += d.toString());
+        proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+      });
+
+    const gotoResult = await runCli(['goto', `${baseUrl}/basic.html`]);
+    expect(gotoResult.code).toBe(0);
+    expect(gotoResult.stdout).toContain('Navigated to');
+
+    const pid1 = JSON.parse(fs.readFileSync(stateFile, 'utf-8')).pid;
+
+    const textResult = await runCli(['text']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stdout).toContain('Hello World');
+
+    const pid2 = JSON.parse(fs.readFileSync(stateFile, 'utf-8')).pid;
+
+    try { fs.unlinkSync(stateFile); } catch {}
+    try { process.kill(pid2, 'SIGTERM'); } catch {}
+
+    expect(pid1).toBe(pid2);
+    expect(textResult.stderr).not.toContain('Starting server');
+  }, 20000);
 });
 
 // ─── Buffer bounds ──────────────────────────────────────────────
