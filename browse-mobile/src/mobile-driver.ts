@@ -76,6 +76,7 @@ async function appiumDelete(
 }
 
 // Find element helper — returns element ID or null
+// Returns null only for "element not found" (W3C NoSuchElement); rethrows other errors
 async function findElement(
   sessionId: string,
   using: string,
@@ -85,9 +86,46 @@ async function findElement(
     const result = (await appiumPost(sessionId, "/element", { using, value })) as Record<string, string>;
     // W3C returns { "element-xxx": "id" } or { ELEMENT: "id" }
     return result["element-6066-11e4-a52e-4f735466cecf"] || result["ELEMENT"] || Object.values(result)[0] || null;
-  } catch {
-    return null;
+  } catch (err) {
+    // W3C "no such element" is expected — return null
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("no such element") || msg.includes("NoSuchElement") || msg.includes("unable to find")) {
+      return null;
+    }
+    // Rethrow unexpected errors (network, timeout, invalid session)
+    throw err;
   }
+}
+
+// ─── Pointer Action Helpers ───
+
+function tapAction(x: number, y: number) {
+  return {
+    actions: [{
+      type: "pointer", id: "finger1",
+      parameters: { pointerType: "touch" },
+      actions: [
+        { type: "pointerMove", duration: 0, x: Math.round(x), y: Math.round(y) },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerUp", button: 0 },
+      ],
+    }],
+  };
+}
+
+function swipeAction(startX: number, startY: number, endX: number, endY: number, durationMs = 300) {
+  return {
+    actions: [{
+      type: "pointer", id: "finger1",
+      parameters: { pointerType: "touch" },
+      actions: [
+        { type: "pointerMove", duration: 0, x: startX, y: startY },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerMove", duration: durationMs, x: endX, y: endY },
+        { type: "pointerUp", button: 0 },
+      ],
+    }],
+  };
 }
 
 // ─── MobileDriver ───
@@ -271,18 +309,7 @@ export class MobileDriver {
   ): Promise<string> {
     if (result.usedCoordinates) {
       const coords = result.element as { x: number; y: number };
-      await appiumPost(sid, "/actions", {
-        actions: [{
-          type: "pointer",
-          id: "finger1",
-          parameters: { pointerType: "touch" },
-          actions: [
-            { type: "pointerMove", duration: 0, x: Math.round(coords.x), y: Math.round(coords.y) },
-            { type: "pointerDown", button: 0 },
-            { type: "pointerUp", button: 0 },
-          ],
-        }],
-      });
+      await appiumPost(sid, "/actions", tapAction(coords.x, coords.y));
       return `Tapped at (${Math.round(coords.x)}, ${Math.round(coords.y)}) — coordinate fallback. Consider adding accessibilityLabel.`;
     }
 
@@ -296,17 +323,7 @@ export class MobileDriver {
 
   async tapCoordinates(x: number, y: number): Promise<string> {
     const sid = this.ensureSession();
-    await appiumPost(sid, "/actions", {
-      actions: [{
-        type: "pointer", id: "finger1",
-        parameters: { pointerType: "touch" },
-        actions: [
-          { type: "pointerMove", duration: 0, x, y },
-          { type: "pointerDown", button: 0 },
-          { type: "pointerUp", button: 0 },
-        ],
-      }],
-    });
+    await appiumPost(sid, "/actions", tapAction(x, y));
     return `Tapped at (${x}, ${y})`;
   }
 
@@ -327,17 +344,7 @@ export class MobileDriver {
       if (result.usedCoordinates) {
         // Tap to focus, then type via keyboard actions
         const coords = result.element as { x: number; y: number };
-        await appiumPost(sid, "/actions", {
-          actions: [{
-            type: "pointer", id: "finger1",
-            parameters: { pointerType: "touch" },
-            actions: [
-              { type: "pointerMove", duration: 0, x: Math.round(coords.x), y: Math.round(coords.y) },
-              { type: "pointerDown", button: 0 },
-              { type: "pointerUp", button: 0 },
-            ],
-          }],
-        });
+        await appiumPost(sid, "/actions", tapAction(coords.x, coords.y));
         await new Promise((r) => setTimeout(r, 500));
         // Type via key actions
         const keyActions: Array<{ type: string; value?: string }> = [];
@@ -439,18 +446,7 @@ export class MobileDriver {
       default: startY = 500; endY = 200;
     }
 
-    await appiumPost(sid, "/actions", {
-      actions: [{
-        type: "pointer", id: "finger1",
-        parameters: { pointerType: "touch" },
-        actions: [
-          { type: "pointerMove", duration: 0, x: startX, y: startY },
-          { type: "pointerDown", button: 0 },
-          { type: "pointerMove", duration: 300, x: endX, y: endY },
-          { type: "pointerUp", button: 0 },
-        ],
-      }],
-    });
+    await appiumPost(sid, "/actions", swipeAction(startX, startY, endX, endY));
     return `Scrolled ${direction || "down"}`;
   }
 
