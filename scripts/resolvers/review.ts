@@ -256,12 +256,10 @@ export function generateCodexSecondOpinion(ctx: TemplateContext): string {
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
-If \`CODEX_NOT_AVAILABLE\`: skip Phase 3.5 entirely — no message, no AskUserQuestion. Proceed directly to Phase 4.
+Use AskUserQuestion regardless of Codex availability:
 
-If \`CODEX_AVAILABLE\`: use AskUserQuestion:
-
-> Want a second opinion from a different AI model? Codex will independently review your problem statement, key answers, premises, and any landscape findings from this session. It hasn't seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
-> A) Yes, get a second opinion
+> Want a second opinion from a different AI? An independent reviewer will challenge your problem statement, key answers, premises, and any landscape findings from this session. It hasn't seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
+> A) Yes, get a second opinion (recommended)
 > B) No, proceed to alternatives
 
 If B: skip Phase 3.5 entirely. Remember that Codex did NOT run (affects design doc, founder signals, and Phase 4 below).
@@ -306,7 +304,17 @@ rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
 - **Timeout:** "Codex timed out after 5 minutes. Skipping second opinion."
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>. Skipping second opinion."
 
-On any error, proceed to Phase 4 — do NOT fall back to a Claude subagent (this is brainstorming, not adversarial review).
+On any Codex error, fall back to the Claude subagent below.
+
+**If CODEX_NOT_AVAILABLE (or Codex errored):**
+
+Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
+
+Subagent prompt: use the same mode-appropriate instructions as above, with the assembled context block.
+
+Present findings under a \\\`SECOND OPINION (Claude subagent):\\\` header instead of \\\`SECOND OPINION (Codex):\\\`.
+
+If the subagent fails or times out: "Second opinion unavailable. Continuing to Phase 4."
 
 4. **Presentation:**
 
