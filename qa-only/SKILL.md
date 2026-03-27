@@ -707,23 +707,29 @@ This is the **primary mode** for developers verifying their work. When the user 
    echo "REVYL_DEV_PID=$REVYL_DEV_PID"
    ```
 
-   Poll every 5 seconds for up to 60 seconds (just enough for Metro to start):
+   Poll every 5 seconds for up to 60 seconds. **Only treat fatal process errors as failures — NOT HMR diagnostic warnings.** The HMR diagnostics (lines like "[hmr] Metro health: FAILED" or "[hmr] Tunnel HTTP: FAILED") are warnings, not crashes. The dev loop continues provisioning the device even when HMR checks fail.
    ```bash
    for i in $(seq 1 12); do
      if grep -q "Dev loop ready" /tmp/revyl-dev-output.log 2>/dev/null; then
        echo "DEV_LOOP_STARTED"
        break
      fi
-     if grep -qiE "error|failed|exit" /tmp/revyl-dev-output.log 2>/dev/null; then
+     if grep -qiE "fatal|panic|exited with|process died|ENOSPC|ENOMEM" /tmp/revyl-dev-output.log 2>/dev/null; then
        echo "DEV_LOOP_FAILED"
        break
      fi
      sleep 5
    done
+   # Check for HMR warnings (not failures — dev loop is still running)
+   if grep -q "Hot reload may not work" /tmp/revyl-dev-output.log 2>/dev/null; then
+     echo "DEV_LOOP_HMR_WARNING"
+   fi
    cat /tmp/revyl-dev-output.log
    ```
 
-   **Verify the tunnel — do NOT trust "Dev loop ready" alone.** Check DNS resolution directly (15s max):
+   **If `DEV_LOOP_HMR_WARNING`:** The dev loop is running but hot reload is degraded — the app will load from a cached build. Code changes won't appear live. Note this and continue — the device is still provisioning and will be usable for QA testing of the existing build. You can still do a static rebuild later if code changes need verification.
+
+   **Verify the tunnel (only if `DEV_LOOP_STARTED` without HMR warning).** If HMR already warned, skip tunnel verification — the tunnel is known-broken but the device is still usable. Check DNS resolution directly (15s max):
    ```bash
    TUNNEL_URL=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/revyl-dev-output.log 2>/dev/null | head -1)
    TUNNEL_HOST=$(echo "$TUNNEL_URL" | sed 's|https://||')
@@ -751,7 +757,9 @@ This is the **primary mode** for developers verifying their work. When the user 
       - **iOS deep link dialogs:** iOS may show "Open in [AppName]?" — tap "Open" if it appears.
       - If the app is on the home screen: re-open via `revyl device navigate --url "$DEEP_LINK"`.
 
-   2. If `DNS_FAILED`, `NO_TUNNEL_URL`, or HTTP never returned 200: **tunnel is dead. Fall back to static mode immediately — do not retry.** Before falling back, run stale build detection (below).
+   2. If `DEV_LOOP_HMR_WARNING` (tunnel broken but device provisioning): **let the device finish provisioning.** Wait for the device to be ready (poll `revyl device list --json` for an active session, up to 60s). Once the device is up, take a screenshot — the app loaded from a cached build. Tell the user: "Dev loop is running but hot reload is broken — testing against the cached build. If you need to verify code changes, I'll do a static rebuild after the QA pass." **Do NOT kill the dev loop or fall back to static mode** — the device is usable.
+
+   3. If `DNS_FAILED`, `NO_TUNNEL_URL`, or HTTP never returned 200 (and no HMR warning — process actually failed): **tunnel is dead. Fall back to static mode immediately — do not retry.** Before falling back, run stale build detection (below).
 
    **Stale build detection (run before falling back to static mode):** If the tunnel failed but the app still launched on-device, it's running from a previously uploaded build — not your current code:
    ```bash
