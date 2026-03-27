@@ -240,44 +240,30 @@ fi
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 
-# ─── Helper: link Claude skill subdirectories into a skills parent directory ──
-# When SKILL_PREFIX=1 (default), symlinks are prefixed with "gstack-" to avoid
-# namespace pollution (e.g., gstack-review instead of review).
-# Use --no-prefix to restore the old flat names.
-link_claude_skill_dirs() {
+# ─── Helper: generate Claude skill SKILL.md files into the skills directory ───
+# Uses gen-skill-docs.ts with --output-root so the installed SKILL.md reflects
+# the chosen prefix in its name: frontmatter field. This ensures Claude Code
+# registers the skill as /gstack-ship (prefixed) rather than /ship (unprefixed).
+generate_claude_skill_docs() {
   local gstack_dir="$1"
   local skills_dir="$2"
-  local linked=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      # Skip node_modules
-      [ "$skill_name" = "node_modules" ] && continue
-      # Apply gstack- prefix unless --no-prefix or already prefixed
-      if [ "$SKILL_PREFIX" -eq 1 ]; then
-        case "$skill_name" in
-          gstack-*) link_name="$skill_name" ;;
-          *)        link_name="gstack-$skill_name" ;;
-        esac
-      else
-        link_name="$skill_name"
-      fi
-      target="$skills_dir/$link_name"
-      # Create or update symlink; skip if a real file/directory exists
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "gstack/$skill_name" "$target"
-        linked+=("$link_name")
-      fi
-    fi
-  done
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
+  local prefix_flag=""
+  [ "$SKILL_PREFIX" -eq 1 ] && prefix_flag="--prefix gstack-"
+  # shellcheck disable=SC2086
+  bun --bun "$gstack_dir/scripts/gen-skill-docs.ts" \
+    --output-root "$skills_dir" \
+    $prefix_flag \
+    2>&1 | grep -E '^(GENERATED|INSTALLED|Error)' | sed 's/^/  /'
+  local bun_exit="${PIPESTATUS[0]}"
+  if [ "$bun_exit" -ne 0 ]; then
+    echo "  ERROR: skill generation failed (bun exit $bun_exit) — is bun in PATH?" >&2
+    return 1
   fi
 }
 
-# ─── Helper: remove old unprefixed Claude skill symlinks ──────────────────────
+# ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
 # Migration: when switching from flat names to gstack- prefixed names,
-# clean up stale symlinks that point into the gstack directory.
+# clean up stale entries that point into the gstack directory.
 cleanup_old_claude_symlinks() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -286,10 +272,10 @@ cleanup_old_claude_symlinks() {
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "node_modules" ] && continue
-      # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
+      # Skip already-prefixed dirs (gstack-upgrade) — no old entry to clean
       case "$skill_name" in gstack-*) continue ;; esac
       old_target="$skills_dir/$skill_name"
-      # Only remove if it's a symlink pointing into gstack/
+      # Remove symlink pointing into gstack/
       if [ -L "$old_target" ]; then
         link_dest="$(readlink "$old_target" 2>/dev/null || true)"
         case "$link_dest" in
@@ -298,17 +284,23 @@ cleanup_old_claude_symlinks() {
             removed+=("$skill_name")
             ;;
         esac
+      # Remove generated directory (has AUTO-GENERATED header in SKILL.md)
+      elif [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ]; then
+        if grep -q 'AUTO-GENERATED from SKILL.md.tmpl' "$old_target/SKILL.md" 2>/dev/null; then
+          rm -rf "$old_target"
+          removed+=("$skill_name")
+        fi
       fi
     fi
   done
   if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up old symlinks: ${removed[*]}"
+    echo "  cleaned up old entries: ${removed[*]}"
   fi
 }
 
-# ─── Helper: remove old prefixed Claude skill symlinks ────────────────────────
+# ─── Helper: remove old prefixed Claude skill entries ─────────────────────────
 # Reverse migration: when switching from gstack- prefixed names to flat names,
-# clean up stale gstack-* symlinks that point into the gstack directory.
+# clean up stale gstack-* entries that point into the gstack directory.
 cleanup_prefixed_claude_symlinks() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -317,11 +309,11 @@ cleanup_prefixed_claude_symlinks() {
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "node_modules" ] && continue
-      # Only clean up prefixed symlinks for dirs that AREN'T already prefixed
+      # Only clean up prefixed entries for dirs that AREN'T already prefixed
       # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
       case "$skill_name" in gstack-*) continue ;; esac
       prefixed_target="$skills_dir/gstack-$skill_name"
-      # Only remove if it's a symlink pointing into gstack/
+      # Remove symlink pointing into gstack/
       if [ -L "$prefixed_target" ]; then
         link_dest="$(readlink "$prefixed_target" 2>/dev/null || true)"
         case "$link_dest" in
@@ -330,11 +322,17 @@ cleanup_prefixed_claude_symlinks() {
             removed+=("gstack-$skill_name")
             ;;
         esac
+      # Remove generated directory (has AUTO-GENERATED header in SKILL.md)
+      elif [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ]; then
+        if grep -q 'AUTO-GENERATED from SKILL.md.tmpl' "$prefixed_target/SKILL.md" 2>/dev/null; then
+          rm -rf "$prefixed_target"
+          removed+=("gstack-$skill_name")
+        fi
       fi
     fi
   done
   if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up prefixed symlinks: ${removed[*]}"
+    echo "  cleaned up prefixed entries: ${removed[*]}"
   fi
 }
 
@@ -471,7 +469,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     else
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
-    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    generate_claude_skill_docs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       echo "gstack ready (project-local)."
       echo "  skills: $INSTALL_SKILLS_DIR"
@@ -482,7 +480,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   else
     echo "gstack ready (claude)."
     echo "  browse: $BROWSE_BIN"
-    echo "  (skipped skill symlinks — not inside .claude/skills/)"
+    echo "  (skipped skill generation — not inside .claude/skills/)"
   fi
 fi
 
