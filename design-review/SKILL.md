@@ -985,16 +985,119 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 ## Design Outside Voices (parallel)
 
-**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.
+**Automatic:** Outside voices run automatically when Codex or Gemini is available. No opt-in needed.
 
-**Check Codex availability:**
+**Check tool availability:**
 ```bash
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+which gemini 2>/dev/null && echo "GEMINI_AVAILABLE" || echo "GEMINI_NOT_AVAILABLE"
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+Launch all available voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Gemini visual voice** (PRIORITY — via Bash, if GEMINI_AVAILABLE):
+
+Gemini 3.1 Pro has the strongest multimodal vision of any model. Use it as the **primary visual reviewer** — feed actual screenshots from Phase 1 and Phase 3 directly to Gemini for pixel-level design analysis. This catches issues that source-code-only reviewers miss: visual hierarchy balance, whitespace rhythm, color harmony, compositional weight, and AI slop patterns.
+
+**Collect screenshots from previous phases:**
+```bash
+SCREENSHOTS=$(find "$REPORT_DIR/screenshots" -name "*.png" -type f 2>/dev/null | head -5)
+if [ -z "$SCREENSHOTS" ]; then
+  echo "NO_SCREENSHOTS"
+else
+  echo "SCREENSHOTS_FOUND: $(echo "$SCREENSHOTS" | wc -l | tr -d ' ')"
+fi
+```
+
+**If screenshots exist**, feed them to Gemini for visual analysis:
+```bash
+TMPERR_GM_VISUAL=$(mktemp /tmp/gemini-visual-XXXXXXXX)
+TMPOUT_GM_VISUAL=$(mktemp /tmp/gemini-visual-out-XXXXXXXX)
+
+# Build the image args for gemini CLI
+IMG_ARGS=""
+for img in $SCREENSHOTS; do
+  IMG_ARGS="$IMG_ARGS --image $img"
+done
+
+gemini --model gemini-3.1-pro-preview $IMG_ARGS \
+  "You are a world-class product designer doing a VISUAL audit of these screenshots. You are looking at the RENDERED output, not source code. Evaluate what you SEE:
+
+VISUAL HIERARCHY & COMPOSITION:
+- Where does the eye land first? Is that intentional?
+- Is there clear primary > secondary > tertiary hierarchy?
+- White space rhythm: intentional or accidental gaps?
+- Squint test: does the layout hold when blurred?
+- Compositional weight: balanced or lopsided?
+
+COLOR & HARMONY:
+- Is the palette cohesive across all screenshots?
+- Contrast ratios: any text barely readable?
+- Semantic color usage: red=error, green=success consistent?
+- Dark mode: surfaces use elevation, not just inverted?
+
+TYPOGRAPHY AS RENDERED:
+- Type scale feels systematic or random?
+- Line lengths readable (45-75 chars)?
+- Font pairing: complementary or competing?
+- Heading hierarchy visually clear?
+
+SPACING & RHYTHM:
+- Grid alignment: everything snaps or drifts?
+- Consistent padding/margin rhythm?
+- Border-radius hierarchy or uniform bubbly?
+- Inner radius = outer radius - gap on nested elements?
+
+AI SLOP DETECTION (the 10 anti-patterns — visual check):
+1. Purple/violet gradient backgrounds?
+2. The 3-column feature grid with icon circles?
+3. Icons in colored circles as decoration?
+4. Centered everything?
+5. Uniform bubbly border-radius on all elements?
+6. Decorative blobs, floating circles, wavy dividers?
+7. Emoji as design elements?
+8. Colored left-border on cards?
+9. Generic hero copy ('Welcome to...', 'Unlock the power...')?
+10. Cookie-cutter section rhythm?
+
+RESPONSIVE (if mobile/tablet screenshots present):
+- Mobile layout intentional or just stacked desktop?
+- Touch targets >= 44px?
+- Navigation appropriate for viewport?
+
+For each finding: describe WHAT you see, WHY it's a problem, and HOW to fix it. Rate severity: critical/high/medium/polish.
+
+LITMUS CHECKS — answer YES/NO based on what you SEE:
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion feel intentional (or absent)?
+7. Would design feel premium with all decorative shadows removed?" \
+  > "$TMPOUT_GM_VISUAL" 2>"$TMPERR_GM_VISUAL"
+```
+
+Use a 5-minute timeout (`timeout: 300000`). After the command completes:
+```bash
+cat "$TMPOUT_GM_VISUAL"
+cat "$TMPERR_GM_VISUAL" && rm -f "$TMPERR_GM_VISUAL" "$TMPOUT_GM_VISUAL"
+```
+
+**If no screenshots exist** (Phase 1/3 not yet run), fall back to source-code visual heuristics:
+```bash
+echo "No screenshots available yet — Gemini visual voice deferred to post-Phase 3."
+```
+
+Present output under a `GEMINI SAYS (visual audit — pixel-level):` header.
+
+**Error handling (non-blocking):**
+- Auth failure: "Gemini auth failed. Check your API key configuration."
+- Timeout: "Gemini timed out after 5 minutes."
+- Empty response: "Gemini returned no response."
+- On any Gemini error: proceed with Codex and/or Claude subagent output only.
+
+2. **Codex design voice** (via Bash, if CODEX_AVAILABLE — source-code audit):
 ```bash
 TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
 codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
@@ -1033,7 +1136,7 @@ Use a 5-minute timeout (`timeout: 300000`). After the command completes, read st
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
 ```
 
-2. **Claude design subagent** (via Agent tool):
+3. **Claude design subagent** (via Agent tool — consistency patterns):
 Dispatch a subagent with this prompt:
 "Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
 - Are spacing values systematic across the codebase?
@@ -1047,22 +1150,25 @@ For each finding: what's wrong, severity (critical/high/medium), and the file:li
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
 - **Timeout:** "Codex timed out after 5 minutes."
 - **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
-- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+- On any Codex error: proceed with Gemini and/or Claude subagent output only.
+- On any Gemini error: proceed with Codex and/or Claude subagent output only.
+- If all outside voices fail: "Outside voices unavailable — continuing with primary review."
 
+Present Gemini output under a `GEMINI SAYS (visual audit — pixel-level):` header.
 Present Codex output under a `CODEX SAYS (design source audit):` header.
 Present subagent output under a `CLAUDE SUBAGENT (design consistency):` header.
 
 **Synthesis — Litmus scorecard:**
 
-Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
-Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` tags.
+Use the same scorecard format as /plan-design-review (shown above). Fill in from all outputs.
+Gemini's visual litmus checks take PRIORITY for visual dimensions (hierarchy, composition, color, spacing) because it evaluates the rendered output, not source code.
+Merge findings into the triage with `[gemini-visual]` / `[codex]` / `[subagent]` / `[cross-model]` tags.
 
 **Log the result:**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+Replace STATUS with "clean" or "issues_found", SOURCE with "gemini+codex+subagent", "gemini+subagent", "gemini+codex", "codex+subagent", "gemini-only", "codex-only", "subagent-only", or "unavailable".
 
 ## Phase 7: Triage
 
