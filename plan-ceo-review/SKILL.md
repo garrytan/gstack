@@ -1048,7 +1048,9 @@ thorough review.
 **Check tool availability:**
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+[ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 ```
 
 Use AskUserQuestion:
@@ -1087,12 +1089,11 @@ compliments. Just the problems.
 THE PLAN:
 <plan content>"
 
-**If CODEX_AVAILABLE:**
+**If SO_AVAILABLE:**
 
 ```bash
-TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+TMPERR_PV=$(mktemp /tmp/so-planreview-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "<prompt>" --effort high --web-search 2>"$TMPERR_PV"
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
@@ -1103,20 +1104,20 @@ cat "$TMPERR_PV"
 Present the full output verbatim:
 
 ```
-CODEX SAYS (plan review — outside voice):
+$_SO_NAME SAYS (plan review — outside voice):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 ```
 
 **Error handling:** All errors are non-blocking — the outside voice is informational.
-- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run \`codex login\` to authenticate."
-- Timeout: "Codex timed out after 5 minutes."
-- Empty response: "Codex returned no response."
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "$_SO_NAME auth failed."
+- Timeout: "$_SO_NAME timed out after 5 minutes."
+- Empty response: "$_SO_NAME returned no response."
 
-On any Codex error, fall back to the Claude adversarial subagent.
+On any error, fall back to the Claude adversarial subagent.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If SO_NOT_AVAILABLE (or second opinion errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 

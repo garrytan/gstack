@@ -462,18 +462,19 @@ Use AskUserQuestion:
 
 If user chooses B, skip this step and continue.
 
-**Check Codex availability:**
+**Check second opinion availability:**
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+[ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+**If a second opinion CLI is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Second opinion design voice** (via Bash):
 ```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Given this product context, propose a complete design direction:
+TMPERR_DESIGN=$(mktemp /tmp/so-design-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "Given this product context, propose a complete design direction:
 - Visual thesis: one sentence describing mood, material, and energy
 - Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
 - Color system: CSS variables for background, surface, primary text, muted text, accent
@@ -481,7 +482,7 @@ codex exec "Given this product context, propose a complete design direction:
 - Differentiation: 2 deliberate departures from category norms
 - Anti-slop: no purple gradients, no 3-column icon grids, no centered everything, no decorative blobs
 
-Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." --effort medium --web-search 2>"$TMPERR_DESIGN"
 ```
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
@@ -498,19 +499,19 @@ Dispatch a subagent with this prompt:
 Be bold. Be specific. No hedging."
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "$_SO_NAME authentication failed."
+- **Timeout:** "$_SO_NAME timed out after 5 minutes."
+- **Empty response:** "$_SO_NAME returned no response."
+- On any second opinion error: proceed with Claude subagent output only, tagged `[single-model]`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a `CODEX SAYS (design direction):` header.
+Present second opinion output under a `$_SO_NAME SAYS (design direction):` header.
 Present subagent output under a `CLAUDE SUBAGENT (design direction):` header.
 
 **Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
-- Areas of agreement between all three voices (Claude main + Codex + subagent)
+- Areas of agreement between all three voices (Claude main + second opinion + subagent)
 - Genuine divergences as creative alternatives for the user to choose from
-- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."
+- "The second opinion and I agree on X. It suggested Y where I'm proposing Z — here's why..."
 
 **Log the result:**
 ```bash

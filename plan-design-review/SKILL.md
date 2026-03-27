@@ -479,18 +479,19 @@ Use AskUserQuestion:
 
 If user chooses B, skip this step and continue.
 
-**Check Codex availability:**
+**Check second opinion availability:**
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+[ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+**If a second opinion CLI is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Second opinion design voice** (via Bash):
 ```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
+TMPERR_DESIGN=$(mktemp /tmp/so-design-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
 
 HARD REJECTION — flag if ANY apply:
 1. Generic SaaS card grid as first impression
@@ -515,7 +516,7 @@ HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, the
 - APP UI: Calm surface hierarchy, dense but readable, utility language, minimal chrome
 - UNIVERSAL: CSS variables for colors, no default font stacks, one job per section, cards earn existence
 
-For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging." --effort high --web-search 2>"$TMPERR_DESIGN"
 ```
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
@@ -535,13 +536,13 @@ Dispatch a subagent with this prompt:
 For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "$_SO_NAME authentication failed."
+- **Timeout:** "$_SO_NAME timed out after 5 minutes."
+- **Empty response:** "$_SO_NAME returned no response."
+- On any second opinion error: proceed with Claude subagent output only, tagged `[single-model]`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a `CODEX SAYS (design critique):` header.
+Present second opinion output under a `$_SO_NAME SAYS (design critique):` header.
 Present subagent output under a `CLAUDE SUBAGENT (design completeness):` header.
 
 **Synthesis — Litmus scorecard:**

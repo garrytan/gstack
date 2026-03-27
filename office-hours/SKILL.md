@@ -675,20 +675,22 @@ Use AskUserQuestion to confirm. If the user disagrees with a premise, revise und
 **Binary check first — no question if unavailable:**
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+echo "SECOND_OPINION: $_SO_BACKEND ($_SO_NAME)"
 ```
 
-If `CODEX_NOT_AVAILABLE`: skip Phase 3.5 entirely — no message, no AskUserQuestion. Proceed directly to Phase 4.
+If `_SO_BACKEND` is `none`: skip Phase 3.5 entirely — no message, no AskUserQuestion. Proceed directly to Phase 4.
 
-If `CODEX_AVAILABLE`: use AskUserQuestion:
+If a backend is available: use AskUserQuestion:
 
-> Want a second opinion from a different AI model? Codex will independently review your problem statement, key answers, premises, and any landscape findings from this session. It hasn't seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
+> Want a second opinion from a different AI model? $_SO_NAME will independently review your problem statement, key answers, premises, and any landscape findings from this session. It hasn't seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
 > A) Yes, get a second opinion
 > B) No, proceed to alternatives
 
-If B: skip Phase 3.5 entirely. Remember that Codex did NOT run (affects design doc, founder signals, and Phase 4 below).
+If B: skip Phase 3.5 entirely. Remember that the second opinion did NOT run (affects design doc, founder signals, and Phase 4 below).
 
-**If A: Run the Codex cold read.**
+**If A: Run the cold read.**
 
 1. Assemble a structured context block from Phases 1-3:
    - Mode (Startup or Builder)
@@ -710,12 +712,11 @@ Write the full prompt (context block + instructions) to this file. Use the mode-
 
 **Builder mode instructions:** "You are an independent technical advisor reading a transcript of a builder brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the COOLEST version of this they haven't considered? 2) What's the ONE thing from their answers that reveals what excites them most? Quote it. 3) What existing open source project or tool gets them 50% of the way there — and what's the 50% they'd need to build? 4) If you had a weekend to build this, what would you build first? Be specific. Be direct. No preamble."
 
-3. Run Codex:
+3. Run the second opinion CLI:
 
 ```bash
-TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+TMPERR_OH=$(mktemp /tmp/so-oh-err-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "$(cat "$CODEX_PROMPT_FILE")" --effort high --web-search 2>"$TMPERR_OH"
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
@@ -724,19 +725,19 @@ cat "$TMPERR_OH"
 rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
 ```
 
-**Error handling:** All errors are non-blocking — Codex second opinion is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate. Skipping second opinion."
-- **Timeout:** "Codex timed out after 5 minutes. Skipping second opinion."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>. Skipping second opinion."
+**Error handling:** All errors are non-blocking — the second opinion is a quality enhancement, not a prerequisite.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "$_SO_NAME authentication failed. Skipping second opinion."
+- **Timeout:** "$_SO_NAME timed out after 5 minutes. Skipping second opinion."
+- **Empty response:** "$_SO_NAME returned no response. Stderr: <paste relevant error>. Skipping second opinion."
 
 On any error, proceed to Phase 4 — do NOT fall back to a Claude subagent (this is brainstorming, not adversarial review).
 
 4. **Presentation:**
 
 ```
-SECOND OPINION (Codex):
+SECOND OPINION ($_SO_NAME):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 ```
 
@@ -852,29 +853,30 @@ The screenshot file at `/tmp/gstack-sketch.png` can be referenced by downstream 
 After the wireframe is approved, offer outside design perspectives:
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+[ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 ```
 
-If Codex is available, use AskUserQuestion:
-> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
+If a second opinion CLI is available, use AskUserQuestion:
+> "Want outside design perspectives on the chosen approach? $_SO_NAME proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
 >
 > A) Yes — get outside design voices
 > B) No — proceed without
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, `model_reasoning_effort="medium"`):
+1. **Second opinion** (via Bash):
 ```bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
+TMPERR_SKETCH=$(mktemp /tmp/so-sketch-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." --effort medium --web-search 2>"$TMPERR_SKETCH"
 ```
 Use a 5-minute timeout (`timeout: 300000`). After completion: `cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"`
 
 2. **Claude subagent** (via Agent tool):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
-Present Codex output under `CODEX SAYS (design sketch):` and subagent output under `CLAUDE SUBAGENT (design direction):`.
+Present second opinion output under `$_SO_NAME SAYS (design sketch):` and subagent output under `CLAUDE SUBAGENT (design direction):`.
 Error handling: all non-blocking. On failure, skip and continue.
 
 ---

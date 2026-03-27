@@ -4,21 +4,22 @@ import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS } from 
 export function generateDesignReviewLite(ctx: TemplateContext): string {
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
   const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join(' ');
-  // Codex block only for Claude host
+  // Second opinion block only for Claude host
   const codexBlock = ctx.host === 'codex' ? '' : `
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Second opinion design voice** (optional, automatic if available):
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+[ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 \`\`\`
 
-If Codex is available, run a lightweight design check on the diff:
+If a second opinion CLI is available, run a lightweight design check on the diff:
 
 \`\`\`bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+TMPERR_DRL=$(mktemp /tmp/so-drl-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." --effort high --web-search 2>"$TMPERR_DRL"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -28,7 +29,7 @@ cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
 
 **Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
 
-Present Codex output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
+Present output under a \`$_SO_NAME (design):\` header, merged with the checklist findings above.`;
 
   return `## Design Review (conditional, diff-scoped)
 
@@ -454,29 +455,30 @@ The screenshot file at \`/tmp/gstack-sketch.png\` can be referenced by downstrea
 After the wireframe is approved, offer outside design perspectives:
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+[ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 \`\`\`
 
-If Codex is available, use AskUserQuestion:
-> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
+If a second opinion CLI is available, use AskUserQuestion:
+> "Want outside design perspectives on the chosen approach? $_SO_NAME proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
 >
 > A) Yes — get outside design voices
 > B) No — proceed without
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
+1. **Second opinion** (via Bash):
 \`\`\`bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
+TMPERR_SKETCH=$(mktemp /tmp/so-sketch-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." --effort medium --web-search 2>"$TMPERR_SKETCH"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
 
 2. **Claude subagent** (via Agent tool):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
-Present Codex output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
+Present second opinion output under \`$_SO_NAME SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
 Error handling: all non-blocking. On failure, skip and continue.`;
 }
 
@@ -615,31 +617,32 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 - Passes can skip discovery and go straight to fixing for pre-identified issues` :
     isDesignConsultation ? `
 **Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
-- Areas of agreement between all three voices (Claude main + Codex + subagent)
+- Areas of agreement between all three voices (Claude main + second opinion + subagent)
 - Genuine divergences as creative alternatives for the user to choose from
-- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."` : `
+- "The second opinion and I agree on X. It suggested Y where I'm proposing Z — here's why..."` : `
 **Synthesis — Litmus scorecard:**
 
 Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
-Merge findings into the triage with \`[codex]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
+Merge findings into the triage with \`[second-opinion]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
 
   const escapedCodexPrompt = codexPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$');
 
   return `## Design Outside Voices (parallel)
 ${optInSection}
 
-**Check Codex availability:**
+**Check second opinion availability:**
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+[ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 \`\`\`
 
-**If Codex is available**, launch both voices simultaneously:
+**If a second opinion CLI is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Second opinion design voice** (via Bash):
 \`\`\`bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "${escapedCodexPrompt}" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+TMPERR_DESIGN=$(mktemp /tmp/so-design-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "${escapedCodexPrompt}" --effort ${reasoningEffort} --web-search 2>"$TMPERR_DESIGN"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
@@ -651,13 +654,13 @@ Dispatch a subagent with this prompt:
 "${subagentPrompt}"
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged \`[single-model]\`.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "$_SO_NAME authentication failed."
+- **Timeout:** "$_SO_NAME timed out after 5 minutes."
+- **Empty response:** "$_SO_NAME returned no response."
+- On any second opinion error: proceed with Claude subagent output only, tagged \`[single-model]\`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a \`CODEX SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
+Present second opinion output under a \`$_SO_NAME SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
 Present subagent output under a \`CLAUDE SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\` header.
 ${synthesisSection}
 

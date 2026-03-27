@@ -37,14 +37,35 @@ export const OPENAI_LITMUS_CHECKS = [
 ];
 
 /**
- * Shared Codex error handling block for resolver output.
+ * Shared second opinion error handling block for resolver output.
  * Used by ADVERSARIAL_STEP, CODEX_PLAN_REVIEW, CODEX_SECOND_OPINION,
  * DESIGN_OUTSIDE_VOICES, DESIGN_REVIEW_LITE, DESIGN_SKETCH.
  */
-export function codexErrorHandling(feature: string): string {
+export function secondOpinionErrorHandling(feature: string): string {
   return `**Error handling:** All errors are non-blocking — the ${feature} is informational.
 - Auth failure (stderr contains "auth", "login", "unauthorized"): note and skip
 - Timeout: note timeout duration and skip
 - Empty response: note and skip
 On any error: continue — ${feature} is informational, not a gate.`;
+}
+
+/** @deprecated Use secondOpinionErrorHandling instead */
+export function codexErrorHandling(feature: string): string {
+  return secondOpinionErrorHandling(feature);
+}
+
+/**
+ * Shared second opinion detection snippet for resolver output.
+ * Detects whether codex or gemini CLI is available, using gstack-second-opinion dispatcher.
+ */
+export function secondOpinionDetection(binDir: string): string {
+  return `\`\`\`bash
+_SO_BACKEND=$(${binDir}/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(${binDir}/gstack-second-opinion name 2>/dev/null)
+echo "SECOND_OPINION_BACKEND: $_SO_BACKEND"
+echo "SECOND_OPINION_NAME: $_SO_NAME"
+\`\`\`
+
+If \`SECOND_OPINION_BACKEND\` is \`none\`: skip — no second opinion CLI is available.
+Install one of: \\\`npm install -g @openai/codex\\\` or \\\`npm install -g @google/gemini-cli\\\``;
 }

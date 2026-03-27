@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# gstack-second-opinion — backend-agnostic dispatcher for /codex second opinion
+# Supports: OpenAI Codex CLI, Google Gemini CLI
+# Usage: gstack-second-opinion <subcommand> [args]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_CMD="$SCRIPT_DIR/gstack-config"
+
+# ─── Backend Detection ───────────────────────────────────────────────
+
+detect_backend() {
+  local pref
+  pref=$("$CONFIG_CMD" get second_opinion_backend 2>/dev/null || echo "auto")
+  [ -z "$pref" ] && pref="auto"
+
+  case "$pref" in
+    codex)
+      if command -v codex &>/dev/null; then
+        echo "codex"
+      else
+        echo "ERROR: second_opinion_backend is set to 'codex' but codex is not installed." >&2
+        echo "Install: npm install -g @openai/codex" >&2
+        echo "none"
+      fi
+      ;;
+    gemini)
+      if command -v gemini &>/dev/null; then
+        echo "gemini"
+      else
+        echo "ERROR: second_opinion_backend is set to 'gemini' but gemini is not installed." >&2
+        echo "Install: npm install -g @google/gemini-cli" >&2
+        echo "none"
+      fi
+      ;;
+    auto|*)
+      if command -v codex &>/dev/null; then
+        echo "codex"
+      elif command -v gemini &>/dev/null; then
+        echo "gemini"
+      else
+        echo "none"
+      fi
+      ;;
+  esac
+}
+
+backend_name() {
+  local backend
+  backend=$(detect_backend)
+  case "$backend" in
+    codex)  echo "CODEX" ;;
+    gemini) echo "GEMINI" ;;
+    *)      echo "NONE" ;;
+  esac
+}
+
+# ─── Exec Subcommand ─────────────────────────────────────────────────
+
+do_exec() {
+  local prompt=""
+  local effort="high"
+  local web_search=false
+  local model=""
+  local json_output=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --effort)   effort="$2"; shift 2 ;;
+      --web-search) web_search=true; shift ;;
+      -m)         model="$2"; shift 2 ;;
+      --json)     json_output=true; shift ;;
+      *)          prompt="$1"; shift ;;
+    esac
+  done
+
+  local backend
+  backend=$(detect_backend)
+  local repo_root
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+  case "$backend" in
+    codex)
+      local cmd=(codex exec "$prompt" -C "$repo_root" -s read-only)
+      cmd+=(-c "model_reasoning_effort=\"$effort\"")
+      [ "$web_search" = true ] && cmd+=(--enable web_search_cached)
+      [ "$json_output" = true ] && cmd+=(--json)
+      [ -n "$model" ] && cmd+=(-m "$model")
+      "${cmd[@]}"
+      ;;
+    gemini)
+      local cmd=(gemini -p "$prompt" --approval-mode plan)
+      if [ "$json_output" = true ]; then
+        cmd+=(-o stream-json)
+      else
+        cmd+=(-o text)
+      fi
+      [ -n "$model" ] && cmd+=(-m "$model")
+      "${cmd[@]}"
+      ;;
+    none)
+      echo "ERROR: No second opinion CLI found." >&2
+      echo "Install one of:" >&2
+      echo "  npm install -g @openai/codex" >&2
+      echo "  npm install -g @google/gemini-cli" >&2
+      return 1
+      ;;
+  esac
+}
+
+# ─── Review Subcommand ───────────────────────────────────────────────
+
+do_review() {
+  local base=""
+  local effort="high"
+  local web_search=false
+  local model=""
+  local instructions=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --base)       base="$2"; shift 2 ;;
+      --effort)     effort="$2"; shift 2 ;;
+      --web-search) web_search=true; shift ;;
+      -m)           model="$2"; shift 2 ;;
+      *)            instructions="$1"; shift ;;
+    esac
+  done
+
+  local backend
+  backend=$(detect_backend)
+  local repo_root
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+  case "$backend" in
+    codex)
+      local cmd=(codex review --base "$base")
+      cmd+=(-c "model_reasoning_effort=\"$effort\"")
+      [ "$web_search" = true ] && cmd+=(--enable web_search_cached)
+      [ -n "$model" ] && cmd+=(-m "$model")
+      [ -n "$instructions" ] && cmd=("${cmd[@]:0:2}" "$instructions" "${cmd[@]:2}")
+      cd "$repo_root" && "${cmd[@]}"
+      ;;
+    gemini)
+      # Gemini has no built-in review command. Construct the prompt with the diff.
+      local diff_content
+      diff_content=$(git diff "origin/$base" 2>/dev/null || git diff "$base" 2>/dev/null || echo "(no diff available)")
+
+      # Truncate large diffs
+      local diff_lines
+      diff_lines=$(echo "$diff_content" | wc -l | tr -d ' ')
+      if [ "$diff_lines" -gt 500 ]; then
+        diff_content=$(echo "$diff_content" | head -500)
+        diff_content="$diff_content
+
+[TRUNCATED: showing first 500 of $diff_lines lines]"
+      fi
+
+      local review_prompt="You are a senior code reviewer. Review this git diff. For each issue found, classify it:
+- [P1] Critical: bugs, security holes, data loss risks, race conditions
+- [P2] Important: performance issues, missing error handling, code smells, maintainability
+
+Be direct. Be terse. No compliments. Just the problems.
+If the code is clean, say so in one line."
+
+      [ -n "$instructions" ] && review_prompt="$review_prompt
+
+Additional focus: $instructions"
+
+      review_prompt="$review_prompt
+
+GIT DIFF:
+$diff_content"
+
+      local cmd=(gemini -p "$review_prompt" --approval-mode plan -o text)
+      [ -n "$model" ] && cmd+=(-m "$model")
+      "${cmd[@]}"
+      ;;
+    none)
+      echo "ERROR: No second opinion CLI found." >&2
+      echo "Install one of:" >&2
+      echo "  npm install -g @openai/codex" >&2
+      echo "  npm install -g @google/gemini-cli" >&2
+      return 1
+      ;;
+  esac
+}
+
+# ─── Resume Subcommand ───────────────────────────────────────────────
+
+do_resume() {
+  local prompt=""
+  local effort="medium"
+  local model=""
+  local session_id=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --session)  session_id="$2"; shift 2 ;;
+      --effort)   effort="$2"; shift 2 ;;
+      -m)         model="$2"; shift 2 ;;
+      *)          prompt="$1"; shift ;;
+    esac
+  done
+
+  local backend
+  backend=$(detect_backend)
+  local repo_root
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+  case "$backend" in
+    codex)
+      local cmd=(codex exec resume "$session_id" "$prompt" -C "$repo_root" -s read-only)
+      cmd+=(-c "model_reasoning_effort=\"$effort\"")
+      cmd+=(--enable web_search_cached --json)
+      [ -n "$model" ] && cmd+=(-m "$model")
+      "${cmd[@]}"
+      ;;
+    gemini)
+      local cmd=(gemini --resume latest -p "$prompt" --approval-mode plan -o text)
+      [ -n "$model" ] && cmd+=(-m "$model")
+      "${cmd[@]}"
+      ;;
+    none)
+      echo "ERROR: No second opinion CLI found." >&2
+      return 1
+      ;;
+  esac
+}
+
+# ─── Main Dispatch ────────────────────────────────────────────────────
+
+case "${1:-}" in
+  detect)  echo "BACKEND: $(detect_backend)" ;;
+  name)    backend_name ;;
+  exec)    shift; do_exec "$@" ;;
+  review)  shift; do_review "$@" ;;
+  resume)  shift; do_resume "$@" ;;
+  *)
+    echo "Usage: gstack-second-opinion <detect|name|exec|review|resume> [args]" >&2
+    exit 1
+    ;;
+esac
