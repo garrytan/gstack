@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.12.6.0] - 2026-03-27 — Codex Actually Works Now (Model Fallback)
+
+If your ChatGPT subscription doesn't include the model Codex defaults to, every `/codex` invocation silently failed and fell back to Claude reviewing itself. The whole point of Codex is an independent second opinion from a different AI. That was broken.
+
+Now gstack probes for a working model automatically. First try: your configured default. If that fails, it walks a fallback chain (`gpt-5.3-codex`, `gpt-5.2-codex`) until something works. Result cached for 24 hours, so the probe only costs ~6 seconds once a day.
+
+### Added
+
+- **`bin/gstack-codex-model`** — probe-and-cache script that finds a working OpenAI model. Supports `--probe` to force re-check, configurable fallback list via `gstack-config set codex_fallback_models "model1,model2"`.
+- **Model fallback across all skills.** Every codex invocation site (11 total across `/codex`, `/ship`, `/review`, `/autoplan`, and 6 other skills) now probes before running. Uses `-c model="..."` which works for both `codex exec` and `codex review`.
+- **Fallback notification.** When your default model isn't available, gstack tells you which fallback it's using instead of failing silently.
+
+### Fixed
+
+- **"Not supported" errors now handled.** Previously, model access errors fell through to generic "check stderr" messaging. Now they trigger the fallback chain automatically, with specific "not supported" error detection.
+
 ## [0.12.5.0] - 2026-03-26 — Fix Codex Hangs: 30-Minute Waits Are Gone
 
 Three bugs in `/codex` caused 30+ minute hangs with zero output during plan reviews and adversarial checks. All three are fixed.
