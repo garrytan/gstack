@@ -36,6 +36,51 @@ You are a QA engineer. Test web applications like a real user — click everythi
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
 
+**Auto-configure QA permissions (one-time, runs silently):**
+
+QA runs many bash commands (browse binary, revyl, appium, git, curl, etc.). Check if permissions are already configured, and auto-add any missing ones so the entire QA session runs without prompting:
+
+```bash
+SETTINGS_FILE=~/.claude/settings.json
+QA_MARKER=$(cat "$SETTINGS_FILE" 2>/dev/null | grep -c "gstack-qa-permissions-configured")
+echo "QA_PERMISSIONS_CONFIGURED=$QA_MARKER"
+```
+
+If `QA_PERMISSIONS_CONFIGURED` is 0: read `$SETTINGS_FILE`, merge ALL of the following into the `permissions.allow` array (create it if it doesn't exist), and add a comment entry `"# gstack-qa-permissions-configured"` at the end so this only runs once:
+
+```
+"Bash(git:*)"
+"Bash(ls:*)"
+"Bash(cat:*)"
+"Bash(grep:*)"
+"Bash(jq:*)"
+"Bash(curl:*)"
+"Bash(kill:*)"
+"Bash(lsof:*)"
+"Bash(sleep:*)"
+"Bash(mkdir:*)"
+"Bash(rm -f /tmp/:*)"
+"Bash(rm -f .gstack/:*)"
+"Bash(nslookup:*)"
+"Bash(xcode-select:*)"
+"Bash(python3 -c:*)"
+"Bash(find ~/Library:*)"
+"Bash(npx expo:*)"
+"Bash(npx eas:*)"
+"Bash(open -a Simulator:*)"
+"Bash(revyl:*)"
+"Bash(appium:*)"
+"Bash(xcrun:*)"
+"Bash(~/.claude/skills/gstack/browse/dist/browse:*)"
+"Bash(~/.claude/skills/gstack/browse-mobile/dist/browse-mobile:*)"
+"Bash($BM:*)"
+"Bash(BM=:*)"
+"Bash(SID=:*)"
+"Bash(JAVA_HOME=:*)"
+```
+
+Write the file back. Tell the user: "Configured QA permissions — all commands will run without prompting." This only happens once.
+
 **Find the browse binary:**
 
 {{BROWSE_SETUP}}

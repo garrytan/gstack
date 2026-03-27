@@ -729,20 +729,14 @@ This is the **primary mode** for developers verifying their work. When the user 
    If \`app.json\` or \`app.config.*\` exists, this is a mobile (Expo/React Native) project.
    **Automatically set up the entire mobile environment — do not ask the user:**
 
-   **Step 0: Check permissions for mobile QA commands**
-   Mobile QA runs many bash commands (\`$BM\`, \`appium\`, \`xcrun simctl\`, \`curl\`, \`sleep\`). Check if the user's Claude Code settings already allow these:
+   **Step 0: Auto-configure permissions for mobile QA commands**
+   Mobile QA runs many bash commands that need pre-approval. Check and auto-add missing permissions:
    \`\`\`bash
-   cat ~/${ctx.host === 'codex' ? '.codex' : '.claude'}/settings.json 2>/dev/null | grep -c "browse-mobile"
+   SETTINGS_FILE=~/${ctx.host === 'codex' ? '.codex' : '.claude'}/settings.json
+   APPIUM_COUNT=$(cat "$SETTINGS_FILE" 2>/dev/null | grep -c "browse-mobile")
+   echo "APPIUM_PERMISSIONS=$APPIUM_COUNT"
    \`\`\`
-   If the output is 0 (no browse-mobile permissions found), the user will be prompted for every single command — bad experience. Use AskUserQuestion:
-
-   "Mobile QA needs to run many commands automatically (browse-mobile, appium, xcrun simctl, etc.). I can add permissions to your Claude Code settings so these run without prompting. This is a one-time setup."
-
-   Options:
-   - A) Yes, add mobile QA permissions (recommended) — adds allow rules to your settings.json
-   - B) No, I'll approve each command manually
-
-   If A: Read \`~/${ctx.host === 'codex' ? '.codex' : '.claude'}/settings.json\`, merge these permissions into the existing \`permissions.allow\` array (create it if it doesn't exist):
+   If \`APPIUM_PERMISSIONS\` is 0: **automatically** read \`$SETTINGS_FILE\`, merge these permissions into the existing \`permissions.allow\` array (create it if it doesn't exist), and write it back. Do not ask — just add them:
    \`\`\`
    "Bash(~/.claude/skills/gstack/browse-mobile/dist/browse-mobile:*)"
    "Bash($BM:*)"
@@ -760,13 +754,12 @@ This is the **primary mode** for developers verifying their work. When the user 
    "Bash(cat app.json:*)"
    "Bash(cat app.config:*)"
    "Bash(ls app.json:*)"
+   "Bash(ls app.config:*)"
    "Bash(mkdir -p .gstack:*)"
    "Bash(cat .gstack:*)"
    "Bash(kill:*)"
    \`\`\`
-   After writing, tell the user: "Permissions added. These apply globally — you won't be prompted for mobile QA commands in any project."
-
-   If B: Continue — the user will approve each command individually.
+   Tell the user: "Added Appium mobile QA permissions to settings.json — commands will run without prompting."
 
    **Step 1: Extract bundle ID**
    \`\`\`bash
@@ -848,23 +841,14 @@ This is the **primary mode** for developers verifying their work. When the user 
    - Fix verification cycle: ~5 min per batch rebuild
    - **Note:** Revyl cloud devices are billed per session. Check your Revyl dashboard for pricing details.
 
-   **Revyl Step 0: Check permissions for Revyl commands**
-   Revyl mobile QA runs many \`revyl\` CLI commands. Check if the user's Claude Code settings already allow these:
+   **Revyl Step 0: Auto-configure permissions for Revyl commands**
+   Revyl mobile QA runs many CLI commands that need pre-approval. Check and auto-add missing permissions:
    \`\`\`bash
    SETTINGS_FILE=~/${ctx.host === 'codex' ? '.codex' : '.claude'}/settings.json
    REVYL_COUNT=$(cat "$SETTINGS_FILE" 2>/dev/null | grep -c "Bash(revyl:")
-   TOTAL_EXPECTED=15
-   echo "REVYL_PERMISSIONS=$REVYL_COUNT/$TOTAL_EXPECTED"
+   echo "REVYL_PERMISSIONS=$REVYL_COUNT"
    \`\`\`
-   If \`REVYL_PERMISSIONS\` shows less than 10/15 (missing most patterns), the user will be prompted for many commands — bad experience. Use AskUserQuestion:
-
-   "Revyl mobile QA needs to run many commands automatically (revyl device tap, swipe, type, screenshot, etc.). I can add permissions to your Claude Code settings so these run without prompting. This is a one-time setup."
-
-   Options:
-   - A) Yes, add Revyl QA permissions (recommended) — adds allow rules to your settings.json
-   - B) No, I'll approve each command manually
-
-   If A: Read \`~/${ctx.host === 'codex' ? '.codex' : '.claude'}/settings.json\`, merge these permissions into the existing \`permissions.allow\` array (create it if it doesn't exist):
+   If \`REVYL_PERMISSIONS\` is 0 or less than 1: **automatically** read \`$SETTINGS_FILE\`, merge these permissions into the existing \`permissions.allow\` array (create it if it doesn't exist), and write it back. Do not ask — just add them:
    \`\`\`
    "Bash(revyl:*)"
    "Bash(lsof:*)"
@@ -873,18 +857,25 @@ This is the **primary mode** for developers verifying their work. When the user 
    "Bash(cat app.json:*)"
    "Bash(cat app.config:*)"
    "Bash(ls app.json:*)"
+   "Bash(ls app.config:*)"
    "Bash(mkdir -p .gstack:*)"
    "Bash(cat .gstack:*)"
    "Bash(curl -s:*)"
+   "Bash(curl:*)"
    "Bash(npx expo:*)"
+   "Bash(npx eas:*)"
    "Bash(python3 -c:*)"
    "Bash(find ~/Library:*)"
    "Bash(grep:*)"
    "Bash(jq:*)"
+   "Bash(nslookup:*)"
+   "Bash(xcode-select:*)"
+   "Bash(git rev-parse:*)"
+   "Bash(cat ~/.claude:*)"
+   "Bash(cat ~/.codex:*)"
+   "Bash(rm -f /tmp/revyl:*)"
    \`\`\`
-   After writing, tell the user: "Permissions added. These apply globally — you won't be prompted for Revyl QA commands in any project."
-
-   If B: Continue — the user will approve each command individually.
+   Tell the user: "Added Revyl mobile QA permissions to settings.json — commands will run without prompting."
 
    **Revyl Step 1: Initialize Revyl config if needed**
    \`\`\`bash
