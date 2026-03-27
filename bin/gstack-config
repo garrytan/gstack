@@ -16,18 +16,60 @@ CONFIG_FILE="$STATE_DIR/config.yaml"
 case "${1:-}" in
   get)
     KEY="${2:?Usage: gstack-config get <key>}"
-    grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true
+    _raw=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+    # Backward compat: skill_prefix stored as boolean → return canonical string
+    if [ "$KEY" = "skill_prefix" ]; then
+      case "$_raw" in
+        "true")  echo "gstack" ;;
+        "false") echo "false" ;;
+        *)       echo "$_raw" ;;
+      esac
+    else
+      echo "$_raw"
+    fi
     ;;
   set)
     KEY="${2:?Usage: gstack-config set <key> <value>}"
-    VALUE="${3:?Usage: gstack-config set <key> <value>}"
+    VALUE="${3:-}"  # allow empty string (clears the value)
+    # Validate skill_prefix: must be lowercase alphanumeric, 1-10 chars (or empty to clear)
+    if [ "$KEY" = "skill_prefix" ] && [ -n "$VALUE" ]; then
+      if ! printf '%s' "$VALUE" | grep -qE '^[a-z0-9]{1,10}$'; then
+        echo "Error: skill_prefix must be lowercase letters/numbers only, 1-10 chars (got: '$VALUE')" >&2
+        echo "  Valid examples: g, gs, gstack, my, x" >&2
+        exit 1
+      fi
+    fi
     mkdir -p "$STATE_DIR"
     if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
-      # Portable in-place edit (BSD sed uses -i '', GNU sed uses -i without arg)
+      # Use | as sed delimiter to avoid conflicts with / in values
       _tmpfile="$(mktemp "${CONFIG_FILE}.XXXXXX")"
-      sed "s/^${KEY}:.*/${KEY}: ${VALUE}/" "$CONFIG_FILE" > "$_tmpfile" && mv "$_tmpfile" "$CONFIG_FILE"
+      sed "s|^${KEY}:.*|${KEY}: ${VALUE}|" "$CONFIG_FILE" > "$_tmpfile" && mv "$_tmpfile" "$CONFIG_FILE"
     else
       echo "${KEY}: ${VALUE}" >> "$CONFIG_FILE"
+    fi
+    # After setting skill_prefix, regenerate Claude skills with new prefix.
+    # Set GSTACK_SKIP_REGEN=1 to suppress this (e.g., when called from setup,
+    # which runs its own cleanup + regen cycle after saving the preference).
+    if [ "$KEY" = "skill_prefix" ] && [ -z "${GSTACK_SKIP_REGEN:-}" ]; then
+      # Resolve gstack dir from this binary's real path (handles PATH invocation)
+      _SELF="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" 2>/dev/null && pwd -P || dirname "$0")"
+      _GSTACK_DIR="$(cd "$_SELF/.." 2>/dev/null && pwd -P || true)"
+      _SKILLS_DIR="$(cd "$_GSTACK_DIR/.." 2>/dev/null && pwd -P || true)"
+      if [ -f "$_GSTACK_DIR/scripts/gen-skill-docs.ts" ] && [ -d "$_SKILLS_DIR" ]; then
+        _PREFIX_FLAG=""
+        [ -n "$VALUE" ] && _PREFIX_FLAG="--prefix ${VALUE}-"
+        # shellcheck disable=SC2086
+        if bun --bun "$_GSTACK_DIR/scripts/gen-skill-docs.ts" \
+             --output-root "$_SKILLS_DIR" \
+             $_PREFIX_FLAG \
+             2>&1 | grep -E '^(GENERATED|INSTALLED|Error)' | sed 's/^/  /'; then
+          echo "  Skills regenerated with prefix: ${VALUE:-(none)}"
+        else
+          echo "  Warning: skill regeneration failed — run ./setup to reapply prefix." >&2
+        fi
+      else
+        echo "  Warning: could not determine skills directory. Re-run ./setup to apply prefix." >&2
+      fi
     fi
     ;;
   list)

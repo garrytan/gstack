@@ -1706,12 +1706,15 @@ describe('setup script validation', () => {
 
   // --- Symlink prefix tests (PR #503) ---
 
-  test('generate_claude_skill_docs passes --prefix gstack- when SKILL_PREFIX is set', () => {
+  test('generate_claude_skill_docs builds --prefix from SKILL_PREFIX word when set', () => {
     const fnStart = setupContent.indexOf('generate_claude_skill_docs()');
     const fnEnd = setupContent.indexOf('\n}', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('SKILL_PREFIX');
-    expect(fnBody).toContain('--prefix gstack-');
+    // Uses the prefix word with a trailing dash: "--prefix ${SKILL_PREFIX}-"
+    expect(fnBody).toContain('--prefix ${SKILL_PREFIX}-');
+    // Guard: only sets prefix_flag when SKILL_PREFIX is non-empty (no "--prefix -")
+    expect(fnBody).toContain('-n "$SKILL_PREFIX"');
   });
 
   test('gen-skill-docs preserves already-prefixed dirs (gstack-upgrade stays gstack-upgrade)', () => {
@@ -1724,28 +1727,32 @@ describe('setup script validation', () => {
 
   test('setup supports --no-prefix flag', () => {
     expect(setupContent).toContain('--no-prefix');
-    expect(setupContent).toContain('SKILL_PREFIX=0');
+    // --no-prefix sets SKILL_PREFIX to empty string (no prefix word)
+    expect(setupContent).toContain('SKILL_PREFIX=""');
+    expect(setupContent).toContain('SKILL_PREFIX_FLAG=1');
   });
 
-  test('cleanup_old_claude_symlinks removes only gstack-pointing symlinks', () => {
-    expect(setupContent).toContain('cleanup_old_claude_symlinks');
-    const fnStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
+  test('cleanup_generated_skill_dirs removes gstack-generated dirs by AUTO-GENERATED header', () => {
+    expect(setupContent).toContain('cleanup_generated_skill_dirs');
+    const fnStart = setupContent.indexOf('cleanup_generated_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    // Should check readlink before removing
+    // Should check readlink for symlinks pointing into gstack/
     expect(fnBody).toContain('readlink');
     expect(fnBody).toContain('gstack/*');
-    // Should skip already-prefixed dirs
-    expect(fnBody).toContain('gstack-*) continue');
+    // Should check AUTO-GENERATED header to identify generated dirs
+    expect(fnBody).toContain('AUTO-GENERATED from SKILL.md.tmpl');
+    // Should never remove the main gstack dir
+    expect(fnBody).toContain('"gstack"');
   });
 
-  test('cleanup runs before generate when prefix is enabled', () => {
+  test('cleanup runs before generate when installing Claude skills', () => {
     // In the Claude install section, cleanup should happen before generating
     const claudeInstallSection = setupContent.slice(
       setupContent.indexOf('INSTALL_CLAUDE'),
       setupContent.lastIndexOf('generate_claude_skill_docs')
     );
-    expect(claudeInstallSection).toContain('cleanup_old_claude_symlinks');
+    expect(claudeInstallSection).toContain('cleanup_generated_skill_dirs');
   });
 
   // --- Persistent config + interactive prompt tests ---
@@ -1757,7 +1764,10 @@ describe('setup script validation', () => {
 
   test('setup supports --prefix flag', () => {
     expect(setupContent).toContain('--prefix)');
-    expect(setupContent).toContain('SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1');
+    // --prefix now takes a word argument (not a toggle), sets SKILL_PREFIX_FLAG=1
+    expect(setupContent).toContain('SKILL_PREFIX_FLAG=1');
+    // Validates the prefix word: lowercase alphanumeric, 1-10 chars
+    expect(setupContent).toContain('[a-z0-9]{1,10}');
   });
 
   test('--prefix and --no-prefix persist to config', () => {
@@ -1767,7 +1777,9 @@ describe('setup script validation', () => {
   test('interactive prompt shows when no config', () => {
     expect(setupContent).toContain('Short names');
     expect(setupContent).toContain('Namespaced');
-    expect(setupContent).toContain('Choice [1/2]');
+    // Now has 3 options including custom prefix
+    expect(setupContent).toContain('Choice [1/2/3]');
+    expect(setupContent).toContain('Custom prefix');
   });
 
   test('non-TTY defaults to flat names', () => {
@@ -1775,21 +1787,29 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('-t 0');
   });
 
-  test('cleanup_prefixed_claude_symlinks exists and uses readlink', () => {
-    expect(setupContent).toContain('cleanup_prefixed_claude_symlinks');
-    const fnStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
+  test('universal cleanup handles both symlinks and generated directories', () => {
+    // cleanup_generated_skill_dirs replaces both the old prefix-specific cleanup functions
+    const fnStart = setupContent.indexOf('cleanup_generated_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
+    // Handles old symlinks pointing into gstack/
     expect(fnBody).toContain('readlink');
-    expect(fnBody).toContain('gstack-$skill_name');
+    // Handles generated dirs by checking the AUTO-GENERATED header
+    expect(fnBody).toContain('AUTO-GENERATED from SKILL.md.tmpl');
+    // Never removes the main gstack installation dir
+    expect(fnBody).toContain('"gstack"');
   });
 
-  test('reverse cleanup runs before generate when prefix is disabled', () => {
+  test('unified cleanup runs before generate for all prefix modes', () => {
+    // Both prefix and no-prefix modes use the same cleanup function
     const claudeInstallSection = setupContent.slice(
       setupContent.indexOf('INSTALL_CLAUDE'),
       setupContent.lastIndexOf('generate_claude_skill_docs')
     );
-    expect(claudeInstallSection).toContain('cleanup_prefixed_claude_symlinks');
+    expect(claudeInstallSection).toContain('cleanup_generated_skill_dirs');
+    // Old prefix-specific functions should no longer be in the Claude install section
+    expect(claudeInstallSection).not.toContain('cleanup_old_claude_symlinks');
+    expect(claudeInstallSection).not.toContain('cleanup_prefixed_claude_symlinks');
   });
 
   test('welcome message references SKILL_PREFIX', () => {

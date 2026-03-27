@@ -23,15 +23,24 @@ esac
 # ─── Parse flags ──────────────────────────────────────────────
 HOST="claude"
 LOCAL_INSTALL=0
-SKILL_PREFIX=1
+SKILL_PREFIX=""          # empty = no prefix; any word = that prefix (e.g. "gstack", "g")
 SKILL_PREFIX_FLAG=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
-    --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
-    --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
+    --prefix)
+      if [ -z "${2:-}" ] || [ "${2#-}" != "${2}" ]; then
+        echo "Error: --prefix requires a word argument (e.g. --prefix g)" >&2
+        exit 1
+      fi
+      if ! printf '%s' "$2" | grep -qE '^[a-z0-9]{1,10}$'; then
+        echo "Error: prefix must be lowercase letters/numbers only, 1-10 chars (got: '$2')" >&2
+        exit 1
+      fi
+      SKILL_PREFIX="$2"; SKILL_PREFIX_FLAG=1; shift 2 ;;
+    --no-prefix) SKILL_PREFIX=""; SKILL_PREFIX_FLAG=1; shift ;;
     *) shift ;;
   esac
 done
@@ -43,40 +52,70 @@ esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
 # Priority: CLI flag > saved config > interactive prompt (or flat default for non-TTY)
+# SKILL_PREFIX is a string: "" (no prefix), "gstack" (gstack-), or any custom word (e.g. "g")
 GSTACK_CONFIG="$SOURCE_GSTACK_DIR/bin/gstack-config"
+
+# validate_prefix: ensure word is lowercase alphanumeric, 1-10 chars
+validate_prefix() {
+  local word="$1"
+  if ! printf '%s' "$word" | grep -qE '^[a-z0-9]{1,10}$'; then
+    echo "Error: prefix must be lowercase letters/numbers only, 1-10 chars (got: '$word')" >&2
+    echo "  Valid examples: g, gs, gstack, my, x" >&2
+    return 1
+  fi
+}
+
 if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
   _saved_prefix="$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || true)"
-  if [ "$_saved_prefix" = "true" ]; then
-    SKILL_PREFIX=1
-  elif [ "$_saved_prefix" = "false" ]; then
-    SKILL_PREFIX=0
-  else
-    # No saved preference — prompt interactively (or default flat for non-TTY)
-    if [ -t 0 ]; then
-      echo ""
-      echo "Skill naming: how should gstack skills appear?"
-      echo ""
-      echo "  1) Short names: /qa, /ship, /review"
-      echo "     Recommended. Clean and fast to type."
-      echo ""
-      echo "  2) Namespaced: /gstack-qa, /gstack-ship, /gstack-review"
-      echo "     Use this if you run other skill packs alongside gstack to avoid conflicts."
-      echo ""
-      printf "Choice [1/2] (default: 1): "
-      read -r _prefix_choice </dev/tty 2>/dev/null || _prefix_choice=""
-      case "$_prefix_choice" in
-        2) SKILL_PREFIX=1 ;;
-        *) SKILL_PREFIX=0 ;;
-      esac
+  if [ -n "$_saved_prefix" ] && [ "$_saved_prefix" != "false" ]; then
+    # Saved preference is a prefix word (e.g. "gstack", "g") — use it directly.
+    # gstack-config get already migrates stored "true" → "gstack".
+    SKILL_PREFIX="$_saved_prefix"
+  elif [ "$_saved_prefix" = "false" ] || [ -z "$_saved_prefix" ]; then
+    if [ "$_saved_prefix" = "false" ]; then
+      # Explicit "no prefix" saved — use it
+      SKILL_PREFIX=""
     else
-      SKILL_PREFIX=0
+      # No saved preference — prompt interactively (or default flat for non-TTY)
+      if [ -t 0 ]; then
+        echo ""
+        echo "Skill naming: how should gstack skills appear?"
+        echo ""
+        echo "  1) Short names: /qa, /ship, /review"
+        echo "     Clean and fast to type."
+        echo ""
+        echo "  2) Namespaced: /gstack-qa, /gstack-ship, /gstack-review"
+        echo "     Avoids conflicts with other skill packs."
+        echo ""
+        echo "  3) Custom prefix: type your own (e.g. 'g' for /g-ship)"
+        echo ""
+        printf "Choice [1/2/3] (default: 1): "
+        read -r _prefix_choice </dev/tty 2>/dev/null || _prefix_choice=""
+        case "$_prefix_choice" in
+          2) SKILL_PREFIX="gstack" ;;
+          3)
+            while true; do
+              printf "Prefix word (lowercase letters/numbers, 1-10 chars, no hyphens): "
+              read -r _custom_prefix </dev/tty 2>/dev/null || _custom_prefix=""
+              if validate_prefix "$_custom_prefix" 2>/dev/null; then
+                SKILL_PREFIX="$_custom_prefix"
+                break
+              fi
+              echo "  Invalid prefix. Try again (e.g. g, gs, my, x)." >&2
+            done
+            ;;
+          *) SKILL_PREFIX="" ;;
+        esac
+      else
+        SKILL_PREFIX=""
+      fi
+      # Save the choice for future runs (GSTACK_SKIP_REGEN=1 prevents double regen — setup handles it below)
+      GSTACK_SKIP_REGEN=1 GSTACK_STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}" "$GSTACK_CONFIG" set skill_prefix "${SKILL_PREFIX:-false}" 2>/dev/null || true
     fi
-    # Save the choice for future runs
-    "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
   fi
 else
-  # Flag was passed explicitly — persist the choice
-  "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
+  # Flag was passed explicitly — persist the choice (without triggering regen)
+  GSTACK_STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}" "$GSTACK_CONFIG" set skill_prefix "${SKILL_PREFIX:-false}" 2>/dev/null || true
 fi
 
 # --local: install to .claude/skills/ in the current working directory
@@ -248,7 +287,9 @@ generate_claude_skill_docs() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local prefix_flag=""
-  [ "$SKILL_PREFIX" -eq 1 ] && prefix_flag="--prefix gstack-"
+  # SKILL_PREFIX is a word (e.g. "gstack", "g") or empty for no prefix.
+  # Only set --prefix when non-empty; an empty prefix must not produce "--prefix -".
+  [ -n "$SKILL_PREFIX" ] && prefix_flag="--prefix ${SKILL_PREFIX}-"
   # shellcheck disable=SC2086
   bun --bun "$gstack_dir/scripts/gen-skill-docs.ts" \
     --output-root "$skills_dir" \
@@ -257,82 +298,44 @@ generate_claude_skill_docs() {
   local bun_exit="${PIPESTATUS[0]}"
   if [ "$bun_exit" -ne 0 ]; then
     echo "  ERROR: skill generation failed (bun exit $bun_exit) — is bun in PATH?" >&2
+    echo "  Run ./setup again to retry, or check that bun is in PATH." >&2
     return 1
   fi
 }
 
-# ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
-# Migration: when switching from flat names to gstack- prefixed names,
-# clean up stale entries that point into the gstack directory.
-cleanup_old_claude_symlinks() {
-  local gstack_dir="$1"
-  local skills_dir="$2"
+# ─── Helper: remove all gstack-generated Claude skill directories ─────────────
+# Scans all dirs under the skills directory and removes any that contain a
+# SKILL.md with the AUTO-GENERATED header. This handles prefix switches of any
+# kind (flat → prefixed, gstack- → custom, custom → different custom).
+# The main gstack/ dir is never removed.
+cleanup_generated_skill_dirs() {
+  local skills_dir="$1"
   local removed=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Skip already-prefixed dirs (gstack-upgrade) — no old entry to clean
-      case "$skill_name" in gstack-*) continue ;; esac
-      old_target="$skills_dir/$skill_name"
-      # Remove symlink pointing into gstack/
-      if [ -L "$old_target" ]; then
-        link_dest="$(readlink "$old_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Remove generated directory (has AUTO-GENERATED header in SKILL.md)
-      elif [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ]; then
-        if grep -q 'AUTO-GENERATED from SKILL.md.tmpl' "$old_target/SKILL.md" 2>/dev/null; then
-          rm -rf "$old_target"
+  for target_dir in "$skills_dir"/*/; do
+    [ -d "$target_dir" ] || continue
+    local skill_name
+    skill_name="$(basename "$target_dir")"
+    # Never remove the main gstack installation dir
+    [ "$skill_name" = "gstack" ] && continue
+    local skill_md="$target_dir/SKILL.md"
+    # Remove symlink pointing into gstack/ (legacy from pre-generation approach)
+    if [ -L "$target_dir" ]; then
+      local link_dest
+      link_dest="$(readlink "$target_dir" 2>/dev/null || true)"
+      case "$link_dest" in
+        gstack/*|*/gstack/*)
+          rm -f "$target_dir"
           removed+=("$skill_name")
-        fi
-      fi
+          ;;
+      esac
+    # Remove generated directory (identified by AUTO-GENERATED header in SKILL.md)
+    elif [ -f "$skill_md" ] && grep -q 'AUTO-GENERATED from SKILL.md.tmpl' "$skill_md" 2>/dev/null; then
+      rm -rf "$target_dir"
+      removed+=("$skill_name")
     fi
   done
   if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up old entries: ${removed[*]}"
-  fi
-}
-
-# ─── Helper: remove old prefixed Claude skill entries ─────────────────────────
-# Reverse migration: when switching from gstack- prefixed names to flat names,
-# clean up stale gstack-* entries that point into the gstack directory.
-cleanup_prefixed_claude_symlinks() {
-  local gstack_dir="$1"
-  local skills_dir="$2"
-  local removed=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Only clean up prefixed entries for dirs that AREN'T already prefixed
-      # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
-      case "$skill_name" in gstack-*) continue ;; esac
-      prefixed_target="$skills_dir/gstack-$skill_name"
-      # Remove symlink pointing into gstack/
-      if [ -L "$prefixed_target" ]; then
-        link_dest="$(readlink "$prefixed_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      # Remove generated directory (has AUTO-GENERATED header in SKILL.md)
-      elif [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ]; then
-        if grep -q 'AUTO-GENERATED from SKILL.md.tmpl' "$prefixed_target/SKILL.md" 2>/dev/null; then
-          rm -rf "$prefixed_target"
-          removed+=("gstack-$skill_name")
-        fi
-      fi
-    fi
-  done
-  if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up prefixed entries: ${removed[*]}"
+    echo "  cleaned up generated skill dirs: ${removed[*]}"
   fi
 }
 
@@ -463,12 +466,9 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
-    # Clean up stale symlinks from the opposite prefix mode
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    else
-      cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    fi
+    # Clean up all previously generated skill dirs before regenerating with the new prefix.
+    # This handles any prefix switch: flat→prefixed, gstack→custom, custom→different, etc.
+    cleanup_generated_skill_dirs "$INSTALL_SKILLS_DIR"
     generate_claude_skill_docs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       echo "gstack ready (project-local)."
