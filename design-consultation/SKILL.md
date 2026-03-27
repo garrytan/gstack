@@ -423,9 +423,9 @@ If the README or office-hours output gives you enough context, pre-fill and conf
 
 If the user wants competitive research:
 
-**Step 1: Identify what's out there**
+**Step 1: Identify what's out there via WebSearch**
 
-Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). Search for 5-10 products in their space:
+Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). WebSearch for 5-10 products in their space:
 - "[product category] website design"
 - "[product category] best websites 2025"
 - "best [industry] web apps"
@@ -459,9 +459,9 @@ Summarize conversationally:
 > "I looked at what's out there. Here's the landscape: they converge on [patterns]. Most of them feel [observation — e.g., interchangeable, polished but generic, etc.]. The opportunity to stand out is [gap]. Here's where I'd play it safe and where I'd take a risk..."
 
 **Graceful degradation:**
-- Browse available → screenshots + snapshots + search (richest research)
-- Browse unavailable → search only (still good)
-- No search available → built-in design knowledge (always works)
+- Browse available → screenshots + snapshots + WebSearch (richest research)
+- Browse unavailable → WebSearch only (still good)
+- WebSearch also unavailable → agent's built-in design knowledge (always works)
 
 If the user said no research, skip entirely and proceed to Phase 3 using your built-in design knowledge.
 

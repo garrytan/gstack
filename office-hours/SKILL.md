@@ -641,12 +641,12 @@ When searching, use **generalized category terms** — never the user's specific
 
 Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). If no search tool is available, skip this phase and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
-**Startup mode:** Search for:
+**Startup mode:** WebSearch for:
 - "[problem space] startup approach {current year}"
 - "[problem space] common mistakes"
 - "why [incumbent solution] fails" OR "why [incumbent solution] works"
 
-**Builder mode:** Search for:
+**Builder mode:** WebSearch for:
 - "[thing being built] existing solutions"
 - "[thing being built] open source alternatives"
 - "best [thing category] {current year}"
