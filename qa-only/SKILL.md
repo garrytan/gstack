@@ -416,9 +416,33 @@ If the output contains `REVYL_READY`, the CLI is installed. Then check auth:
 - If `REVYL_AUTH_OK`: proceed — Revyl is fully ready.
 - If `REVYL_AUTH_NEEDED`: **automatically run `revyl auth login`** to authenticate. This opens a browser for OAuth. After the user completes login, re-run `revyl auth status` to verify. If auth still fails (e.g., headless environment with no browser), use AskUserQuestion: "Revyl auth failed — this usually means no browser is available. You can authenticate manually by running `revyl auth login` in a terminal with browser access, or provide a Revyl API token via `revyl auth token <TOKEN>`." Options: A) I'll authenticate now — wait for me. B) Skip Revyl — use local Appium instead.
 
-**Mobile backend priority — Revyl is ALWAYS preferred:**
-1. If `REVYL_READY` (revyl CLI found): **always use Revyl** for mobile QA. Revyl is significantly faster than Appium — cloud devices with AI-grounded element targeting, no local Xcode/Java/Simulator setup needed.
-2. If `REVYL_NOT_AVAILABLE` AND this is a mobile project (`app.json` exists): **tell the user to install Revyl.** Use AskUserQuestion:
+**Mobile backend priority — fastest available path wins:**
+1. **Check local simulator first.** If the app is already running on a booted iOS simulator, use `$BM` (browse-mobile/Appium) immediately — zero setup overhead:
+   ```bash
+   xcrun simctl list devices booted 2>/dev/null | grep -q "Booted" && echo "SIM_BOOTED" || echo "SIM_NOT_BOOTED"
+   ```
+   If `SIM_BOOTED`, check if the app is installed:
+   ```bash
+   xcrun simctl listapps booted 2>/dev/null | grep -qi "$(jq -r '.expo.name // .name' app.json 2>/dev/null)" && echo "APP_ON_SIM" || echo "APP_NOT_ON_SIM"
+   ```
+   If `APP_ON_SIM` AND `MOBILE_READY` (browse-mobile binary available): **use `$BM` immediately.** Skip Revyl entirely — you're already set up.
+
+2. **Check for a recent Debug build in DerivedData.** If no sim is running but a recent .app exists locally, install it on a simulator (~30 seconds):
+   ```bash
+   RECENT_APP=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*Debug-iphonesimulator*" \
+     -not -path "*/Intermediates/*" -newer package.json -maxdepth 6 2>/dev/null | \
+     xargs ls -dt 2>/dev/null | head -1)
+   [ -n "$RECENT_APP" ] && echo "DEBUG_BUILD_FOUND: $RECENT_APP" || echo "NO_DEBUG_BUILD"
+   ```
+   If `DEBUG_BUILD_FOUND` AND `MOBILE_READY`: boot a simulator, install the .app, and use `$BM`:
+   ```bash
+   xcrun simctl boot "$(xcrun simctl list devices available -j | jq -r '.devices | to_entries[] | select(.key | contains("iOS")) | .value[] | select(.isAvailable) | .udid' | head -1)" 2>/dev/null || true
+   xcrun simctl install booted "$RECENT_APP"
+   ```
+
+3. **If neither local path is available AND `REVYL_READY`:** use Revyl cloud devices. Revyl provides cloud-hosted devices with AI-grounded element targeting — no local Xcode/Java/Simulator setup needed. This is the best path for users without local tooling.
+
+4. If `REVYL_NOT_AVAILABLE` AND no local sim/build AND this is a mobile project (`app.json` exists): **tell the user to install Revyl.** Use AskUserQuestion:
 
    "This is a mobile project but the Revyl CLI isn't installed. Revyl provides cloud-hosted devices for mobile QA — much faster than local Appium/Simulator setup. Install it with: `npm install -g @anthropic-ai/revyl` (or check https://docs.revyl.dev for setup instructions)."
 
@@ -609,9 +633,11 @@ This is the **primary mode** for developers verifying their work. When the user 
    If `app.json` or `app.config.*` exists AND `REVYL_READY`, use Revyl cloud devices instead of local Appium.
 
    **Mobile QA timing expectations:**
-   - First run (no build cached): ~15-20 min (build + upload + test)
-   - Subsequent runs (build cached): ~8-12 min (provision + test)
-   - Fix verification cycle: ~5 min per batch rebuild
+   - Local sim (app already running): ~0 min setup — start testing immediately
+   - Local sim (Debug .app in DerivedData): ~30s (boot sim + install)
+   - Revyl first run (no build cached): ~5-10 min (Debug build + upload + test)
+   - Revyl subsequent runs (build cached): ~3-5 min (provision + test)
+   - Fix verification cycle: ~2 min per batch (Debug build + re-upload)
    - **Note:** Revyl cloud devices are billed per session. Check your Revyl dashboard for pricing details.
 
    **Revyl Step 0: Auto-configure permissions for Revyl commands**
@@ -678,9 +704,9 @@ This is the **primary mode** for developers verifying their work. When the user 
    - If no apps exist: use AskUserQuestion to ask whether to create one (`revyl app create --name "$PROJECT_NAME"`).
    Store the selected app ID as `REVYL_APP_ID`.
 
-   **Revyl Step 3: Try dev loop first, fall back to static mode**
+   **Revyl Step 3: Try dev loop first, fall back to static Debug build**
 
-   Attempt the dev loop (Metro + tunnel) first. If it fails, fall back to a static Release build.
+   Attempt the dev loop (Metro + tunnel) first. If it fails, fall back to a static Debug build (faster than Release, fine for QA).
 
    **Before starting the dev loop, check if Metro is already running on port 8081.** Revyl starts its own Metro bundler, so an existing one causes a port conflict (Revyl gets :8082, can't serve the project, times out after ~65s).
    ```bash
@@ -697,11 +723,7 @@ This is the **primary mode** for developers verifying their work. When the user 
    fi
    ```
 
-   **Dev loop startup with retry.** Cloudflare tunnel DNS is inherently racy — the first attempt often fails because DNS hasn't propagated yet. The skill retries once (kill → wait → restart) before falling back to static mode. This makes the tunnel work reliably in most cases.
-
-   Run the following dev loop startup procedure. **You will attempt this up to 2 times** (attempt 1 + 1 retry). Track which attempt you are on.
-
-   **Dev loop attempt (run this for attempt 1, and again for attempt 2 if needed):**
+   **Dev loop startup — fail fast (15s DNS check, no retry).** Cloudflare tunnel DNS is flaky. Rather than burning 4+ minutes on retries, check DNS once and fall back immediately if it fails.
 
    Start in background and poll for readiness:
    ```bash
@@ -710,9 +732,9 @@ This is the **primary mode** for developers verifying their work. When the user 
    echo "REVYL_DEV_PID=$REVYL_DEV_PID"
    ```
 
-   Poll every 5 seconds for up to 120 seconds:
+   Poll every 5 seconds for up to 60 seconds (just enough for Metro to start):
    ```bash
-   for i in $(seq 1 24); do
+   for i in $(seq 1 12); do
      if grep -q "Dev loop ready" /tmp/revyl-dev-output.log 2>/dev/null; then
        echo "DEV_LOOP_STARTED"
        break
@@ -726,17 +748,15 @@ This is the **primary mode** for developers verifying their work. When the user 
    cat /tmp/revyl-dev-output.log
    ```
 
-   **Verify the tunnel — do NOT trust "Dev loop ready" alone.** Parse HMR diagnostics:
-   ```bash
-   grep -iE "\[hmr\]|tunnel|metro" /tmp/revyl-dev-output.log 2>/dev/null
-   ```
-
-   Then check DNS resolution directly (faster than HTTP polling — catches the root cause):
+   **Verify the tunnel — do NOT trust "Dev loop ready" alone.** Check DNS resolution directly (15s max):
    ```bash
    TUNNEL_URL=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/revyl-dev-output.log 2>/dev/null | head -1)
    TUNNEL_HOST=$(echo "$TUNNEL_URL" | sed 's|https://||')
    if [ -n "$TUNNEL_HOST" ]; then
-     nslookup "$TUNNEL_HOST" 2>/dev/null | grep -q "Address" && echo "DNS_RESOLVED" || echo "DNS_FAILED"
+     for i in $(seq 1 3); do
+       nslookup "$TUNNEL_HOST" 2>/dev/null | grep -q "Address" && echo "DNS_RESOLVED" && break
+       sleep 5
+     done
    else
      echo "NO_TUNNEL_URL"
    fi
@@ -744,31 +764,19 @@ This is the **primary mode** for developers verifying their work. When the user 
 
    **Evaluate the result:**
 
-   1. If `DNS_RESOLVED` AND HMR checks show OK: verify with an HTTP health check:
+   1. If `DNS_RESOLVED`: verify with a quick HTTP health check (15s max):
       ```bash
-      for i in $(seq 1 15); do
+      for i in $(seq 1 5); do
         STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$TUNNEL_URL/status" 2>/dev/null)
         [ "$STATUS" = "200" ] && echo "TUNNEL_OK" && break
-        sleep 2
+        sleep 3
       done
       ```
       If `TUNNEL_OK`: **dev loop is healthy.** Take a screenshot to confirm the app loaded.
       - **iOS deep link dialogs:** iOS may show "Open in [AppName]?" — tap "Open" if it appears.
       - If the app is on the home screen: re-open via `revyl device navigate --url "$DEEP_LINK"`.
 
-   2. If `DNS_FAILED` or ALL HMR checks show `FAILED`:
-      - **If this is attempt 1:** The tunnel didn't come up — likely a DNS propagation race. **Kill everything and retry:**
-        ```bash
-        kill $REVYL_DEV_PID 2>/dev/null || true
-        METRO_PID=$(lsof -ti :8081 2>/dev/null)
-        [ -n "$METRO_PID" ] && kill "$METRO_PID" 2>/dev/null || true
-        sleep 5
-        echo "Tunnel failed on attempt 1 — retrying (DNS propagation race is common)..."
-        ```
-        Then go back and run the dev loop attempt again (attempt 2).
-      - **If this is attempt 2:** Tunnel failed twice. **Fall back to static mode.** Before falling back, run stale build detection (below).
-
-   3. If HMR shows a mix of OK and FAILED: tunnel DNS is propagating. Poll HTTP for up to 30 seconds (the `TUNNEL_OK` check above). If it resolves within 30s, proceed. If not, treat as a failure and follow the retry/fallback logic above.
+   2. If `DNS_FAILED`, `NO_TUNNEL_URL`, or HTTP never returned 200: **tunnel is dead. Fall back to static mode immediately — do not retry.** Before falling back, run stale build detection (below).
 
    **Stale build detection (run before falling back to static mode):** If the tunnel failed but the app still launched on-device, it's running from a previously uploaded build — not your current code:
    ```bash
@@ -787,7 +795,7 @@ This is the **primary mode** for developers verifying their work. When the user 
    [ -n "$METRO_PID" ] && kill "$METRO_PID" 2>/dev/null || true
    ```
 
-   **Revyl Step 3b: Static mode fallback (Release build)**
+   **Revyl Step 3b: Static mode fallback (Debug build)**
 
    If the dev loop failed, or if you fell through to this step:
 
@@ -797,20 +805,29 @@ This is the **primary mode** for developers verifying their work. When the user 
    ```
    If the latest build was uploaded recently AND the git SHA matches (check `git rev-parse --short HEAD` against the build metadata), reuse it — skip to Step 4.
 
-   If no recent build exists, check what build tools are available:
+   Next, check if a recent Debug build already exists in DerivedData (from normal dev work — avoids building entirely):
+   ```bash
+   EXISTING_APP=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*Debug-iphonesimulator*" \
+     -not -path "*/Intermediates/*" -newer package.json -maxdepth 6 2>/dev/null | \
+     xargs ls -dt 2>/dev/null | head -1)
+   [ -n "$EXISTING_APP" ] && echo "EXISTING_DEBUG_BUILD: $EXISTING_APP" || echo "NO_EXISTING_BUILD"
+   ```
+   If `EXISTING_DEBUG_BUILD`: use it as APP_PATH — skip to Upload step below.
+
+   If no existing build, check what build tools are available:
    ```bash
    xcode-select -p 2>/dev/null && echo "XCODE_AVAILABLE" || echo "XCODE_NOT_AVAILABLE"
    [ -f eas.json ] && echo "EAS_CONFIG_EXISTS" || echo "EAS_NO_CONFIG"
    ```
 
    **Build strategy (try in order):**
-   1. **If `XCODE_AVAILABLE`:** Local build is fastest:
+   1. **If `XCODE_AVAILABLE`:** Local Debug build is fastest (much faster than Release, fine for QA):
       ```bash
-      npx expo run:ios --configuration Release --no-install
+      npx expo run:ios --configuration Debug --no-install
       ```
       Then find the built .app:
       ```bash
-      find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*Release-iphonesimulator*" \
+      find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*Debug-iphonesimulator*" \
         -not -path "*/Intermediates/*" -newer package.json -maxdepth 6 2>/dev/null | \
         xargs ls -dt 2>/dev/null | head -1
       ```
