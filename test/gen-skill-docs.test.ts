@@ -281,6 +281,36 @@ describe('gen-skill-docs', () => {
     expect(qaOnlyContent).toContain('Phase 6');
   });
 
+  test('QA_METHODOLOGY contains mobile pre-flight check in both qa and qa-only', () => {
+    const qaContent = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
+    const qaOnlyContent = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
+
+    // Both should contain the pre-flight check section
+    expect(qaContent).toContain('MOBILE PRE-FLIGHT CHECK');
+    expect(qaOnlyContent).toContain('MOBILE PRE-FLIGHT CHECK');
+
+    // Pre-flight should check developmentClient field (not just build existence)
+    expect(qaContent).toContain('developmentClient');
+    expect(qaOnlyContent).toContain('developmentClient');
+  });
+
+  test('QA_METHODOLOGY contains Revyl cloud mode and backend selection', () => {
+    const qaContent = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
+    const qaOnlyContent = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
+
+    // Both should contain Revyl/cloud mode command mapping
+    expect(qaContent).toContain('Cloud (Revyl MCP)');
+    expect(qaOnlyContent).toContain('Cloud (Revyl MCP)');
+
+    // Both should contain backend selection with local-first priority
+    expect(qaContent).toContain('MOBILE BACKEND SELECTION');
+    expect(qaOnlyContent).toContain('MOBILE BACKEND SELECTION');
+
+    // Session management for cloud mode
+    expect(qaContent).toContain('MOBILE SESSION MANAGEMENT');
+    expect(qaOnlyContent).toContain('MOBILE SESSION MANAGEMENT');
+  });
+
   test('qa-only has no-fix guardrails', () => {
     const qaOnlyContent = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
     expect(qaOnlyContent).toContain('Never fix bugs');
