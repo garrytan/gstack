@@ -62,8 +62,14 @@ if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
       echo "  2) Namespaced: /gstack-qa, /gstack-ship, /gstack-review"
       echo "     Use this if you run other skill packs alongside gstack to avoid conflicts."
       echo ""
-      printf "Choice [1/2] (default: 1): "
-      read -r _prefix_choice </dev/tty 2>/dev/null || _prefix_choice=""
+      printf "Choice [1/2] (default: 1, auto-selects in 10s): "
+      if read -t 10 -r _prefix_choice </dev/tty 2>/dev/null; then
+        : # User made a choice or pressed Enter
+      else
+        _prefix_choice=""
+        echo ""
+        echo "  (timed out — using short names)"
+      fi
       case "$_prefix_choice" in
         2) SKILL_PREFIX=1 ;;
         *) SKILL_PREFIX=0 ;;
