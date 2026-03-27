@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.12.12.0] - 2026-03-27 — Build Your Social Strategy
+
+New `/social-strategy` skill helps founders build authentic public presence. Not a content mill. Not a social media manager. The strategic scaffolding that makes your own content effective.
+
+### Added
+
+- **`/social-strategy audit`** researches your competitive social landscape. Maps competitor social activity, identifies 10-15 thought leaders with actionable engagement URLs, recommends which platforms to focus on (and which to ignore), and generates voice prompt writing exercises calibrated to your audit findings.
+- **`/social-strategy` session** walks you through a 6-step interactive strategy. Defines your voice fingerprint (qualitative, not scored), builds content pillars grounded in your competitive gaps, maps relationship priorities, locks in a realistic platform plan and cadence, and aligns content themes to product milestones.
+- **`/social-strategy refresh`** is a lightweight competitive re-scan. Checks what changed since your last audit without re-running the full research. Writes a new timestamped doc (never mutates the original).
+- **Voice prompts with intentional temporal gap.** The audit generates writing exercises the founder fills between sessions, not inline. Better signal, better fingerprints.
+- **Social strategy context in CEO reviews.** `/plan-ceo-review` now discovers social strategy docs and surfaces content pillars and platform recommendations during scope decisions.
+- **3 Architecture Decision Records** (docs/adrs/0003-0005) documenting the voice fingerprinting approach, framework panel design, and the faithful representation requirement.
+
+### For contributors
+
+- New routing test for `/social-strategy` in `test/skill-routing-e2e.test.ts`
+- Touchfile entry for diff-based test selection
+
 ## [0.12.11.0] - 2026-03-27 — Skill Prefix is Now Your Choice
 
 You can now choose how gstack skills appear: short names (`/qa`, `/ship`, `/review`) or namespaced (`/gstack-qa`, `/gstack-ship`). Setup asks on first run, remembers your preference, and switching is one command.
