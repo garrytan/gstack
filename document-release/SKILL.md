@@ -61,10 +61,12 @@ types (e.g., /qa, /ship). If you would have auto-invoked a skill, instead briefl
 "I think /skillname might help here — want me to run it?" and wait for confirmation.
 The user opted out of proactive behavior.
 
-If `SKILL_PREFIX` is `"true"`, the user has namespaced skill names. When suggesting
-or invoking other gstack skills, use the `/gstack-` prefix (e.g., `/gstack-qa` instead
-of `/qa`, `/gstack-ship` instead of `/ship`). Disk paths are unaffected — always use
-`~/.claude/skills/gstack/[skill-name]/SKILL.md` for reading skill files.
+If `SKILL_PREFIX` is not `"false"` and not empty, the user has namespaced skill names.
+The value printed above is the user's chosen prefix word. When suggesting or invoking
+other gstack skills, prepend that word plus a dash (e.g., if SKILL_PREFIX is `"g"`,
+suggest `/g-qa` instead of `/qa`, `/g-ship` instead of `/ship`; if SKILL_PREFIX is
+`"gstack"`, use `/gstack-qa`, `/gstack-ship`, etc.). Disk paths are unaffected — always
+use `~/.claude/skills/gstack/[skill-name]/SKILL.md` for reading skill files.
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
