@@ -12,7 +12,7 @@ import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup } 
 import { generateDesignMethodology, generateDesignHardRules, generateDesignOutsideVoices, generateDesignReviewLite, generateDesignSketch } from './design';
 import { generateTestBootstrap, generateTestCoverageAuditPlan, generateTestCoverageAuditShip, generateTestCoverageAuditReview } from './testing';
 import { generateReviewDashboard, generatePlanFileReviewReport, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './review';
-import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology } from './utility';
+import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer } from './utility';
 
 export const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   SLUG_EVAL: generateSlugEval,
@@ -44,4 +44,5 @@ export const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   PLAN_COMPLETION_AUDIT_SHIP: generatePlanCompletionAuditShip,
   PLAN_COMPLETION_AUDIT_REVIEW: generatePlanCompletionAuditReview,
   PLAN_VERIFICATION_EXEC: generatePlanVerificationExec,
+  CO_AUTHOR_TRAILER: generateCoAuthorTrailer,
 };

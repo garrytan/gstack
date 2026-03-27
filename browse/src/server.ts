@@ -18,6 +18,7 @@ import { handleReadCommand } from './read-commands';
 import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
 import { handleCookiePickerRoute } from './cookie-picker-routes';
+import { sanitizeExtensionUrl } from './sidebar-utils';
 import { COMMAND_DESCRIPTIONS } from './commands';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
@@ -123,7 +124,7 @@ let sidebarSession: SidebarSession | null = null;
 let agentProcess: ChildProcess | null = null;
 let agentStatus: 'idle' | 'processing' | 'hung' = 'idle';
 let agentStartTime: number | null = null;
-let messageQueue: Array<{message: string, ts: string}> = [];
+let messageQueue: Array<{message: string, ts: string, extensionUrl?: string | null}> = [];
 let currentMessage: string | null = null;
 let chatBuffer: ChatEntry[] = [];
 let chatNextId = 0;
@@ -371,17 +372,26 @@ function processAgentEvent(event: any): void {
   }
 }
 
-function spawnClaude(userMessage: string): void {
+function spawnClaude(userMessage: string, extensionUrl?: string | null): void {
   agentStatus = 'processing';
   agentStartTime = Date.now();
   currentMessage = userMessage;
 
-  const pageUrl = browserManager.getCurrentUrl() || 'about:blank';
+  // Prefer the URL from the Chrome extension (what the user actually sees)
+  // over Playwright's page.url() which can be stale in headed mode.
+  const sanitizedExtUrl = sanitizeExtensionUrl(extensionUrl);
+  const playwrightUrl = browserManager.getCurrentUrl() || 'about:blank';
+  const pageUrl = sanitizedExtUrl || playwrightUrl;
   const B = BROWSE_BIN;
   const systemPrompt = [
     'You are a browser assistant running in a Chrome sidebar.',
-    `Current page: ${pageUrl}`,
+    `The user is currently viewing: ${pageUrl}`,
     `Browse binary: ${B}`,
+    '',
+    'IMPORTANT: You are controlling a SHARED browser. The user may have navigated',
+    'manually. Always run `' + B + ' url` first to check the actual current URL.',
+    'If it differs from above, the user navigated — work with the ACTUAL page.',
+    'Do NOT navigate away from the user\'s current page unless they ask you to.',
     '',
     'Commands (run via bash):',
     `  ${B} goto <url>    ${B} click <@ref>    ${B} fill <@ref> <text>`,
@@ -404,8 +414,8 @@ function spawnClaude(userMessage: string): void {
   // fails with ENOENT on everything, including /bin/bash). Instead,
   // write the command to a queue file that the sidebar-agent process
   // (running as non-compiled bun) picks up and spawns claude.
-  const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
-  const agentQueue = path.join(gstackDir, 'sidebar-agent-queue.jsonl');
+  const agentQueue = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
+  const gstackDir = path.dirname(agentQueue);
   const entry = JSON.stringify({
     ts: new Date().toISOString(),
     message: userMessage,
@@ -414,6 +424,7 @@ function spawnClaude(userMessage: string): void {
     stateFile: config.stateFile,
     cwd: (sidebarSession as any)?.worktreePath || process.cwd(),
     sessionId: sidebarSession?.claudeSessionId || null,
+    pageUrl: pageUrl,
   });
   try {
     fs.mkdirSync(gstackDir, { recursive: true });
@@ -781,12 +792,16 @@ async function start() {
   const port = await findPort();
 
   // Launch browser (headless or headed with extension)
-  const headed = process.env.BROWSE_HEADED === '1';
-  if (headed) {
-    await browserManager.launchHeaded();
-    console.log(`[browse] Launched headed Chromium with extension`);
-  } else {
-    await browserManager.launch();
+  // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
+  const skipBrowser = process.env.BROWSE_HEADLESS_SKIP === '1';
+  if (!skipBrowser) {
+    const headed = process.env.BROWSE_HEADED === '1';
+    if (headed) {
+      await browserManager.launchHeaded();
+      console.log(`[browse] Launched headed Chromium with extension`);
+    } else {
+      await browserManager.launch();
+    }
   }
 
   const startTime = Date.now();
@@ -935,17 +950,21 @@ async function start() {
         if (!msg) {
           return new Response(JSON.stringify({ error: 'Empty message' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
         }
+        // The Chrome extension sends the active tab's URL — prefer it over
+        // Playwright's page.url() which can be stale in headed mode when
+        // the user navigates manually.
+        const extensionUrl = body.activeTabUrl || null;
         const ts = new Date().toISOString();
         addChatEntry({ ts, role: 'user', message: msg });
         if (sidebarSession) { sidebarSession.lastActiveAt = ts; saveSession(); }
 
         if (agentStatus === 'idle') {
-          spawnClaude(msg);
+          spawnClaude(msg, extensionUrl);
           return new Response(JSON.stringify({ ok: true, processing: true }), {
             status: 200, headers: { 'Content-Type': 'application/json' },
           });
         } else if (messageQueue.length < MAX_QUEUE) {
-          messageQueue.push({ message: msg, ts });
+          messageQueue.push({ message: msg, ts, extensionUrl });
           return new Response(JSON.stringify({ ok: true, queued: true, position: messageQueue.length }), {
             status: 200, headers: { 'Content-Type': 'application/json' },
           });
@@ -979,7 +998,7 @@ async function start() {
         // Process next in queue
         if (messageQueue.length > 0) {
           const next = messageQueue.shift()!;
-          spawnClaude(next.message);
+          spawnClaude(next.message, next.extensionUrl);
         }
         return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -1065,7 +1084,7 @@ async function start() {
           // Process next queued message
           if (messageQueue.length > 0) {
             const next = messageQueue.shift()!;
-            spawnClaude(next.message);
+            spawnClaude(next.message, next.extensionUrl);
           } else {
             agentStatus = 'idle';
           }

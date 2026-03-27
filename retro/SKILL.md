@@ -629,6 +629,7 @@ Count backward from today — how many consecutive days have at least one commit
 Before saving the new snapshot, check for prior retro history:
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 ls -t .context/retros/*.json 2>/dev/null
 ```
 
@@ -655,6 +656,7 @@ mkdir -p .context/retros
 
 Determine the next sequence number for today (substitute the actual date for `$(date +%Y-%m-%d)`):
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 # Count existing retros for today to get next sequence number
 today=$(date +%Y-%m-%d)
 existing=$(ls .context/retros/${today}-*.json 2>/dev/null | wc -l | tr -d ' ')
@@ -778,6 +780,7 @@ Narrative covering:
 Check review JSONL logs for plan completion data from /ship runs this period:
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 cat ~/.gstack/projects/$SLUG/*-reviews.jsonl 2>/dev/null | grep '"skill":"ship"' | grep '"plan_items_total"' || echo "NO_PLAN_DATA"
 ```
@@ -1079,6 +1082,7 @@ Considering the full cross-project picture.
 ### Global Step 8: Load history & compare
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 ls -t ~/.gstack/retros/global-*.json 2>/dev/null | head -5
 ```
 
@@ -1096,6 +1100,7 @@ mkdir -p ~/.gstack/retros
 
 Determine the next sequence number for today:
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 today=$(date +%Y-%m-%d)
 existing=$(ls ~/.gstack/retros/global-${today}-*.json 2>/dev/null | wc -l | tr -d ' ')
 next=$((existing + 1))

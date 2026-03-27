@@ -445,6 +445,7 @@ Then read CLAUDE.md, TODOS.md, and any existing architecture docs.
 
 **Design doc check:**
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
@@ -455,6 +456,7 @@ If a design doc exists (from `/office-hours`), read it. Use it as the source of 
 
 **Handoff note check** (reuses $SLUG and $BRANCH from the design doc check above):
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 HANDOFF=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null | head -1)
 [ -n "$HANDOFF" ] && echo "HANDOFF_FOUND: $HANDOFF" || echo "NO_HANDOFF"
 ```
@@ -509,6 +511,7 @@ If the Read fails (file not found), say:
 
 After /office-hours completes, re-run the design doc check:
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
@@ -1091,7 +1094,8 @@ THE PLAN:
 
 ```bash
 TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
-codex exec "<prompt>" -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
@@ -1269,6 +1273,7 @@ After producing the Completion Summary, clean up any handoff notes for this bran
 the review is complete and the context is no longer needed.
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 rm -f ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null || true
 ```

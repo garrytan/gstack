@@ -45,7 +45,7 @@ describeIfSelected('Skill E2E tests', [
 4. $B screenshot /tmp/skill-e2e-test.png
 Report the results of each command.`,
       workingDirectory: tmpDir,
-      maxTurns: 5,
+      maxTurns: 7,
       timeout: 60_000,
       testName: 'browse-basic',
       runId,

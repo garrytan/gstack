@@ -72,7 +72,7 @@ fi
 ([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
 
 # Detect deploy workflows
-for f in .github/workflows/*.yml .github/workflows/*.yaml; do
+for f in $(find .github/workflows -maxdepth 1 \\( -name '*.yml' -o -name '*.yaml' \\) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
 done
@@ -364,4 +364,11 @@ Minimum 0 per category.
 10. **Use \`snapshot -C\` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
 11. **Show screenshots to the user.** After every \`$B screenshot\`, \`$B snapshot -a -o\`, or \`$B responsive\` command, use the Read tool on the output file(s) so the user can see them inline. For \`responsive\` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
 12. **Never refuse to use the browser.** When the user invokes /qa or /qa-only, they are requesting browser-based testing. Never suggest evals, unit tests, or other alternatives as a substitute. Even if the diff appears to have no UI changes, backend changes affect app behavior — always open the browser and test.`;
+}
+
+export function generateCoAuthorTrailer(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') {
+    return 'Co-Authored-By: OpenAI Codex <noreply@openai.com>';
+  }
+  return 'Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>';
 }

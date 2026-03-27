@@ -470,7 +470,7 @@ else
   SAVED_HASH=$(cat ~/.gstack/projects/$SLUG/land-deploy-confirmed 2>/dev/null)
   CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
   # Also hash workflow files that affect deploy behavior
-  WORKFLOW_HASH=$(cat .github/workflows/*deploy* .github/workflows/*cd* 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+  WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
   COMBINED_HASH="${CURRENT_HASH}-${WORKFLOW_HASH}"
   if [ "$SAVED_HASH" != "$COMBINED_HASH" ] && [ -n "$SAVED_HASH" ]; then
     echo "CONFIG_CHANGED"
@@ -527,7 +527,7 @@ fi
 ([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
 
 # Detect deploy workflows
-for f in .github/workflows/*.yml .github/workflows/*.yaml; do
+for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
 done
@@ -613,7 +613,7 @@ grep -i "staging" CLAUDE.md 2>/dev/null | head -3
 
 2. **GitHub Actions staging workflow:** Check for workflow files with "staging" in the name or content:
 ```bash
-for f in .github/workflows/*.yml .github/workflows/*.yaml; do
+for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
 done
 ```
@@ -663,7 +663,7 @@ Save the deploy config fingerprint so we can detect future changes:
 ```bash
 mkdir -p ~/.gstack/projects/$SLUG
 CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-WORKFLOW_HASH=$(cat .github/workflows/*deploy* .github/workflows/*cd* 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
 echo "${CURRENT_HASH}-${WORKFLOW_HASH}" > ~/.gstack/projects/$SLUG/land-deploy-confirmed
 ```
 Continue to Step 2.
@@ -805,6 +805,7 @@ If tests fail: **BLOCKER.** Cannot merge with failing tests.
 **E2E tests — check recent results:**
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 ls -t ~/.gstack-dev/evals/*-e2e-*-$(date +%Y-%m-%d)*.json 2>/dev/null | head -20
 ```
 
@@ -820,6 +821,7 @@ If E2E results exist but have failures: **WARNING — N tests failed.** List the
 **LLM judge evals — check recent results:**
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 ls -t ~/.gstack-dev/evals/*-llm-judge-*-$(date +%Y-%m-%d)*.json 2>/dev/null | head -5
 ```
 
@@ -1025,7 +1027,7 @@ fi
 ([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
 
 # Detect deploy workflows
-for f in .github/workflows/*.yml .github/workflows/*.yaml; do
+for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
 done

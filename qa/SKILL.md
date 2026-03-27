@@ -442,6 +442,7 @@ If `NEEDS_SETUP`:
 **Detect existing test framework and project runtime:**
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 # Detect project runtime
 [ -f Gemfile ] && echo "RUNTIME:ruby"
 [ -f package.json ] && echo "RUNTIME:node"
@@ -604,6 +605,7 @@ Before falling back to git diff heuristics, check for richer test plan sources:
 
 1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
    ```bash
+   setopt +o nomatch 2>/dev/null || true  # zsh compat
    eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
    ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```

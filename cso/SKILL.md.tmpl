@@ -73,7 +73,7 @@ ls go.mod 2>/dev/null && echo "STACK: Go"
 ls Cargo.toml 2>/dev/null && echo "STACK: Rust"
 ls pom.xml build.gradle 2>/dev/null && echo "STACK: JVM"
 ls composer.json 2>/dev/null && echo "STACK: PHP"
-ls *.csproj *.sln 2>/dev/null && echo "STACK: .NET"
+find . -maxdepth 1 \( -name '*.csproj' -o -name '*.sln' \) 2>/dev/null | grep -q . && echo "STACK: .NET"
 ```
 
 **Framework detection:**
@@ -110,7 +110,8 @@ Map what an attacker sees — both code surface and infrastructure surface.
 
 **Infrastructure surface:**
 ```bash
-ls .github/workflows/*.yml .github/workflows/*.yaml .gitlab-ci.yml 2>/dev/null | wc -l
+setopt +o nomatch 2>/dev/null || true  # zsh compat
+{ find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null; [ -f .gitlab-ci.yml ] && echo .gitlab-ci.yml; } | wc -l
 find . -maxdepth 4 -name "Dockerfile*" -o -name "docker-compose*.yml" 2>/dev/null
 find . -maxdepth 4 -name "*.tf" -o -name "*.tfvars" -o -name "kustomization.yaml" 2>/dev/null
 ls .env .env.* 2>/dev/null
@@ -160,7 +161,7 @@ grep -q "^\.env$\|^\.env\.\*" .gitignore 2>/dev/null && echo ".env IS gitignored
 
 **CI configs with inline secrets (not using secret stores):**
 ```bash
-for f in .github/workflows/*.yml .github/workflows/*.yaml .gitlab-ci.yml .circleci/config.yml; do
+for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null) .gitlab-ci.yml .circleci/config.yml; do
   [ -f "$f" ] && grep -n "password:\|token:\|secret:\|api_key:" "$f" | grep -v '\${{' | grep -v 'secrets\.'
 done 2>/dev/null
 ```

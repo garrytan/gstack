@@ -349,13 +349,13 @@ Run the platform detection from the deploy bootstrap:
 [ -f railway.json ] || [ -f railway.toml ] && echo "PLATFORM:railway"
 
 # GitHub Actions deploy workflows
-for f in .github/workflows/*.yml .github/workflows/*.yaml; do
+for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|staging|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
 done
 
 # Project type
 [ -f package.json ] && grep -q '"bin"' package.json 2>/dev/null && echo "PROJECT_TYPE:cli"
-ls *.gemspec 2>/dev/null && echo "PROJECT_TYPE:library"
+find . -maxdepth 1 -name '*.gemspec' 2>/dev/null | grep -q . && echo "PROJECT_TYPE:library"
 ```
 
 ### Step 3: Platform-specific setup

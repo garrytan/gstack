@@ -151,15 +151,23 @@ fi
 # ─── Construct and append JSON ───────────────────────────────
 mkdir -p "$ANALYTICS_DIR"
 
-# Escape null fields
+# Sanitize string fields for JSON safety (strip quotes, backslashes, control chars)
+json_safe() { printf '%s' "$1" | tr -d '"\\\n\r\t' | head -c 200; }
+SKILL="$(json_safe "$SKILL")"
+OUTCOME="$(json_safe "$OUTCOME")"
+SESSION_ID="$(json_safe "$SESSION_ID")"
+SOURCE="$(json_safe "$SOURCE")"
+EVENT_TYPE="$(json_safe "$EVENT_TYPE")"
+
+# Escape null fields — sanitize ERROR_CLASS and FAILED_STEP via json_safe()
 ERR_FIELD="null"
-[ -n "$ERROR_CLASS" ] && ERR_FIELD="\"$ERROR_CLASS\""
+[ -n "$ERROR_CLASS" ] && ERR_FIELD="\"$(json_safe "$ERROR_CLASS")\""
 
 ERR_MSG_FIELD="null"
-[ -n "$ERROR_MESSAGE" ] && ERR_MSG_FIELD="\"$(echo "$ERROR_MESSAGE" | head -c 200 | sed 's/"/\\"/g')\""
+[ -n "$ERROR_MESSAGE" ] && ERR_MSG_FIELD="\"$(printf '%s' "$ERROR_MESSAGE" | head -c 200 | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/	/\\t/g' | tr '\n\r' '  ')\""
 
 STEP_FIELD="null"
-[ -n "$FAILED_STEP" ] && STEP_FIELD="\"$(echo "$FAILED_STEP" | head -c 30)\""
+[ -n "$FAILED_STEP" ] && STEP_FIELD="\"$(json_safe "$FAILED_STEP")\""
 
 # Cap unreasonable durations
 if [ -n "$DURATION" ] && [ "$DURATION" -gt 86400 ] 2>/dev/null; then

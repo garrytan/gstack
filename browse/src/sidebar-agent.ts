@@ -13,7 +13,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const QUEUE = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
+const QUEUE = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
 const SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '34567', 10);
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const POLL_MS = 500;  // Fast polling — server already did the user-facing response
@@ -205,14 +205,15 @@ async function askClaude(queueEntry: any): Promise<void> {
       });
     });
 
-    // Timeout after 300 seconds (5 min — multi-page tasks need time)
+    // Timeout (default 300s / 5 min — multi-page tasks need time)
+    const timeoutMs = parseInt(process.env.SIDEBAR_AGENT_TIMEOUT || '300000', 10);
     setTimeout(() => {
       try { proc.kill(); } catch {}
-      sendEvent({ type: 'agent_error', error: 'Timed out after 300s' }).then(() => {
+      sendEvent({ type: 'agent_error', error: `Timed out after ${timeoutMs / 1000}s` }).then(() => {
         isProcessing = false;
         resolve();
       });
-    }, 300000);
+    }, timeoutMs);
   });
 }
 

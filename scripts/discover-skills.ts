@@ -10,7 +10,7 @@ const SKIP = new Set(['node_modules', '.git', 'dist']);
 
 function subdirs(root: string): string[] {
   return fs.readdirSync(root, { withFileTypes: true })
-    .filter(d => d.isDirectory() && !SKIP.has(d.name))
+    .filter(d => d.isDirectory() && !d.name.startsWith('.') && !SKIP.has(d.name))
     .map(d => d.name);
 }
 

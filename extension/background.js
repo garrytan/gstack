@@ -194,17 +194,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ error: 'Not connected' });
       return true;
     }
-    fetch(`${base}/sidebar-command`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({ message: msg.message }),
-    })
-      .then(r => r.json())
-      .then(data => sendResponse(data))
-      .catch(err => sendResponse({ error: err.message }));
+    // Capture the active tab's URL so the sidebar agent knows what page
+    // the user is actually looking at (Playwright's page.url() can be stale
+    // if the user navigated manually in headed mode).
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTabUrl = tabs?.[0]?.url || null;
+      fetch(`${base}/sidebar-command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ message: msg.message, activeTabUrl }),
+      })
+        .then(r => r.json())
+        .then(data => sendResponse(data))
+        .catch(err => sendResponse({ error: err.message }));
+    });
     return true;
   }
 });

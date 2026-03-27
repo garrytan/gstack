@@ -198,13 +198,16 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   Run them simultaneously (Agent tool for subagent, Bash for Codex).
 
   **Codex CEO voice** (via Bash):
-  Command: `codex exec "You are a CEO/founder advisor reviewing a development plan.
+  ```bash
+  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+  codex exec "You are a CEO/founder advisor reviewing a development plan.
   Challenge the strategic foundations: Are the premises valid or assumed? Is this the
   right problem to solve, or is there a reframing that would be 10x more impactful?
   What alternatives were dismissed too quickly? What competitive or market risks are
   unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
   No compliments. Just the strategic blind spots.
-  File: <plan_path>" -C "$(git rev-parse --show-toplevel)" -s read-only --enable web_search_cached`
+  File: <plan_path>" -C "$_REPO_ROOT" -s read-only --enable web_search_cached
+  ```
   Timeout: 10 minutes
 
   **Claude CEO subagent** (via Agent tool):
@@ -303,7 +306,9 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
   **Codex design voice** (via Bash):
-  Command: `codex exec "Read the plan file at <plan_path>. Evaluate this plan's
+  ```bash
+  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+  codex exec "Read the plan file at <plan_path>. Evaluate this plan's
   UI/UX design decisions.
 
   Also consider these findings from the CEO review phase:
@@ -315,7 +320,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   accessibility requirements (keyboard nav, contrast, touch targets) specified or
   aspirational? Does the plan describe specific UI decisions or generic patterns?
   What design decisions will haunt the implementer if left ambiguous?
-  Be opinionated. No hedging." -C "$(git rev-parse --show-toplevel)" -s read-only --enable web_search_cached`
+  Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only --enable web_search_cached
+  ```
   Timeout: 10 minutes
 
   **Claude design subagent** (via Agent tool):
@@ -373,14 +379,17 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
   **Codex eng voice** (via Bash):
-  Command: `codex exec "Review this plan for architectural issues, missing edge cases,
+  ```bash
+  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+  codex exec "Review this plan for architectural issues, missing edge cases,
   and hidden complexity. Be adversarial.
 
   Also consider these findings from prior review phases:
   CEO: <insert CEO consensus table summary — key concerns, DISAGREEs>
   Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
 
-  File: <plan_path>" -C "$(git rev-parse --show-toplevel)" -s read-only --enable web_search_cached`
+  File: <plan_path>" -C "$_REPO_ROOT" -s read-only --enable web_search_cached
+  ```
   Timeout: 10 minutes
 
   **Claude eng subagent** (via Agent tool):

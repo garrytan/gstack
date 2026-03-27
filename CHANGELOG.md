@@ -1,5 +1,80 @@
 # Changelog
 
+## [0.12.8.1] - 2026-03-27 — zsh Glob Compatibility
+
+Skill scripts now work correctly in zsh. Previously, bash code blocks in skill templates used raw glob patterns like `.github/workflows/*.yaml` and `ls ~/.gstack/projects/$SLUG/*-design-*.md` that would throw "no matches found" errors in zsh when no files matched. Fixed 38 instances across 13 templates and 2 resolvers using two approaches: `find`-based alternatives for complex patterns, and `setopt +o nomatch` guards for simple `ls` commands.
+
+### Fixed
+
+- **`.github/workflows/` globs replaced with `find`.** `cat .github/workflows/*deploy*`, `for f in .github/workflows/*.yml`, and `ls .github/workflows/*.yaml` patterns in `/land-and-deploy`, `/setup-deploy`, `/cso`, and the deploy bootstrap resolver now use `find ... -name` instead of raw globs.
+- **`~/.gstack/` and `~/.claude/` globs guarded with `setopt`.** Design doc lookups, eval result listings, test plan discovery, and retro history checks across 10 skills now prepend `setopt +o nomatch 2>/dev/null || true` (no-op in bash, disables NOMATCH in zsh).
+- **Test framework detection globs guarded.** `ls jest.config.* vitest.config.*` in the testing resolver now has a setopt guard.
+
+## [0.12.8.0] - 2026-03-27 — Codex No Longer Reviews the Wrong Project
+
+When you run gstack in Conductor with multiple workspaces open, Codex could silently review the wrong project. The `codex exec -C` flag resolved the repo root inline via `$(git rev-parse --show-toplevel)`, which evaluates in whatever cwd the background shell inherits. In multi-workspace environments, that cwd might be a different project entirely.
+
+### Fixed
+
+- **Codex exec resolves repo root eagerly.** All 12 `codex exec` commands across `/codex`, `/autoplan`, and 4 resolver functions now resolve `_REPO_ROOT` at the top of each bash block and reference the stored value in `-C`. No more inline evaluation that races with other workspaces.
+- **`codex review` also gets cwd protection.** `codex review` doesn't support `-C`, so it now gets `cd "$_REPO_ROOT"` before invocation. Same class of bug, different command.
+- **Silent fallback replaced with hard fail.** The `|| pwd` fallback silently used whatever random cwd was available. Now it errors out with a clear message if not in a git repo.
+
+### Removed
+
+- **Dead resolver copies in gen-skill-docs.ts.** Six functions that were moved to `scripts/resolvers/` months ago but never deleted. They had already diverged from the live versions and contained the old vulnerable pattern.
+
+### Added
+
+- **Regression test** that scans all `.tmpl`, resolver `.ts`, and generated `SKILL.md` files for codex commands using inline `$(git rev-parse --show-toplevel)`. Prevents reintroduction.
+
+## [0.12.7.0] - 2026-03-27 — Community PRs + Security Hardening
+
+Seven community contributions merged, reviewed, and tested. Plus security hardening for telemetry and review logging, and E2E test stability fixes.
+
+### Added
+
+- **Dotfile filtering in skill discovery.** Hidden directories (`.git`, `.vscode`, etc.) are no longer picked up as skill templates.
+- **JSON validation gate in review-log.** Malformed input is rejected instead of appended to the JSONL file.
+- **Telemetry input sanitization.** All string fields are stripped of quotes, backslashes, and control characters before being written to JSONL.
+- **Host-specific co-author trailers.** `/ship` and `/document-release` now use the correct co-author line for Codex vs Claude.
+- **10 new security tests** covering telemetry injection, review-log validation, and dotfile filtering.
+
+### Fixed
+
+- **File paths starting with `./` no longer treated as CSS selectors.** `$B screenshot ./path/to/file.png` now works instead of trying to find a CSS element.
+- **Build chain resilience.** `gen:skill-docs` failure no longer blocks binary compilation.
+- **Update checker fall-through.** After upgrading, the checker now also checks for newer remote versions instead of stopping.
+- **Flaky E2E tests stabilized.** `browse-basic`, `ship-base-branch`, and `review-dashboard-via` tests now pass reliably by extracting only relevant SKILL.md sections instead of copying full 1900-line files into test fixtures.
+- **Removed unreliable `journey-think-bigger` routing test.** Never passed reliably because the routing signal was too ambiguous. 10 other journey tests cover routing with clear signals.
+
+### For contributors
+
+- New CLAUDE.md rule: never copy full SKILL.md files into E2E test fixtures. Extract the relevant section only.
+
+## [0.12.6.0] - 2026-03-27 — Sidebar Knows What Page You're On
+
+The Chrome sidebar agent used to navigate to the wrong page when you asked it to do something. If you'd manually browsed to a site, the sidebar would ignore that and go to whatever Playwright last saw (often Hacker News from the demo). Now it works.
+
+### Fixed
+
+- **Sidebar uses the real tab URL.** The Chrome extension now captures the actual page URL via `chrome.tabs.query()` and sends it to the server. Previously the sidebar agent used Playwright's stale `page.url()`, which didn't update when you navigated manually in headed mode.
+- **URL sanitization.** The extension-provided URL is validated (http/https only, control characters stripped, 2048 char limit) before being used in the Claude system prompt. Prevents prompt injection via crafted URLs.
+- **Stale sidebar agents killed on reconnect.** Each `/connect-chrome` now kills leftover sidebar-agent processes before starting a new one. Old agents had stale auth tokens and would silently fail, causing the sidebar to freeze.
+
+### Added
+
+- **Pre-flight cleanup for `/connect-chrome`.** Kills stale browse servers and cleans Chromium profile locks before connecting. Prevents "already connected" false positives after crashes.
+- **Sidebar agent test suite (36 tests).** Four layers: unit tests for URL sanitization, integration tests for server HTTP endpoints, mock-Claude round-trip tests, and E2E tests with real Claude. All free except layer 4.
+
+## [0.12.5.1] - 2026-03-27 — Eng Review Now Tells You What to Parallelize
+
+`/plan-eng-review` automatically analyzes your plan for parallel execution opportunities. When your plan has independent workstreams, the review outputs a dependency table, parallel lanes, and execution order so you know exactly which tasks to split into separate git worktrees.
+
+### Added
+
+- **Worktree parallelization strategy** in `/plan-eng-review` required outputs. Extracts a structured table of plan steps with module-level dependencies, computes parallel lanes, and flags merge conflict risks. Skips automatically for single-module or single-track plans.
+
 ## [0.12.5.0] - 2026-03-26 — Fix Codex Hangs: 30-Minute Waits Are Gone
 
 Three bugs in `/codex` caused 30+ minute hangs with zero output during plan reviews and adversarial checks. All three are fixed.

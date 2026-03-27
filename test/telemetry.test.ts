@@ -125,6 +125,82 @@ describe('gstack-telemetry-log', () => {
     expect(events[0]).toHaveProperty('_branch');
   });
 
+  // ─── json_safe() injection prevention tests ────────────────
+  test('sanitizes skill name with quote injection attempt', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill 'review","injected":"true' --duration 10 --outcome success --session-id inj-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    // Must be valid JSON (no injection — quotes stripped, so no field injection possible)
+    const event = JSON.parse(lines[0]);
+    // The key check: no injected top-level property was created
+    expect(event).not.toHaveProperty('injected');
+    // Skill field should have quotes stripped but content preserved
+    expect(event.skill).not.toContain('"');
+  });
+
+  test('truncates skill name exceeding 200 chars', () => {
+    setConfig('telemetry', 'anonymous');
+    const longSkill = 'a'.repeat(250);
+    run(`${BIN}/gstack-telemetry-log --skill '${longSkill}' --duration 10 --outcome success --session-id trunc-1`);
+
+    const events = parseJsonl();
+    expect(events[0].skill.length).toBeLessThanOrEqual(200);
+  });
+
+  test('sanitizes outcome with newline injection attempt', () => {
+    setConfig('telemetry', 'anonymous');
+    // Use printf to pass actual newline in the argument
+    run(`bash -c 'OUTCOME=$(printf "success\\nfake\\":\\"true"); ${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome "$OUTCOME" --session-id inj-2'`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('fake');
+  });
+
+  test('sanitizes session_id with backslash-quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id 'id\\\\"","x":"y'`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('x');
+  });
+
+  test('sanitizes error_class with quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-class 'timeout","extra":"val' --session-id inj-3`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('extra');
+  });
+
+  test('sanitizes failed_step with quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --failed-step 'step1","hacked":"yes' --session-id inj-4`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('hacked');
+  });
+
+  test('escapes error_message quotes and preserves content', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'Error: file "test.txt" not found' --session-id inj-5`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event.error_message).toContain('file');
+    expect(event.error_message).toContain('not found');
+  });
+
   test('creates analytics directory if missing', () => {
     // Remove analytics dir
     const analyticsDir = path.join(tmpDir, 'analytics');

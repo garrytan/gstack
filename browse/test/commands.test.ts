@@ -543,6 +543,17 @@ describe('Visual', () => {
     }
   });
 
+  test('screenshot treats relative dot-slash path as file path, not CSS selector', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    // ./path/to/file.png must be treated as output path, not a CSS class selector (#495)
+    const relPath = './browse-test-dotpath.png';
+    const absPath = path.resolve(relPath);
+    const result = await handleMetaCommand('screenshot', [relPath], bm, async () => {});
+    expect(result).toContain('Screenshot saved');
+    expect(fs.existsSync(absPath)).toBe(true);
+    fs.unlinkSync(absPath);
+  });
+
   test('screenshot with nonexistent selector throws timeout', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     try {
