@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# gstack-update-check — periodic version check for all skills.
+# gstack-update-check - periodic version check for all skills.
 #
 # Output (one line, or nothing):
-#   JUST_UPGRADED <old> <new>       — marker found from recent upgrade
-#   UPGRADE_AVAILABLE <old> <new>   — remote VERSION differs from local
-#   (nothing)                       — up to date, snoozed, disabled, or check skipped
+#   JUST_UPGRADED <old> <new>       - marker found from recent upgrade
+#   UPGRADE_AVAILABLE <old> <new>   - remote VERSION differs from local
+#   (nothing)                       - up to date, snoozed, disabled, or check skipped
 #
 # Env overrides (for testing):
-#   GSTACK_DIR          — override auto-detected gstack root
-#   GSTACK_REMOTE_URL   — override remote VERSION URL
-#   GSTACK_STATE_DIR    — override ~/.gstack state directory
+#   GSTACK_DIR          - override auto-detected gstack root
+#   GSTACK_REMOTE_URL   - override remote VERSION URL
+#   GSTACK_STATE_DIR    - override ~/.gstack state directory
 set -euo pipefail
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -20,28 +20,26 @@ SNOOZE_FILE="$STATE_DIR/update-snoozed"
 VERSION_FILE="$GSTACK_DIR/VERSION"
 REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/garrytan/gstack/main/VERSION}"
 
-# ─── Force flag (busts cache + snooze for standalone /gstack-upgrade) ──
+# Force flag busts cache + snooze for standalone /gstack-upgrade.
 if [ "${1:-}" = "--force" ]; then
   rm -f "$CACHE_FILE"
   rm -f "$SNOOZE_FILE"
 fi
 
-# ─── Step 0: Check if updates are disabled ────────────────────
+# Step 0: honor the update_check config.
 _UC=$("$GSTACK_DIR/bin/gstack-config" get update_check 2>/dev/null || true)
 if [ "$_UC" = "false" ]; then
   exit 0
 fi
 
-# ─── Migration: fix stale Codex descriptions (one-time) ───────
-# Existing installs may have .agents/skills/gstack/SKILL.md with oversized
-# descriptions (>1024 chars) that Codex rejects. We can't regenerate from
-# the runtime root (no bun/scripts), so delete oversized files — the next
-# ./setup or /gstack-upgrade will regenerate them properly.
-# Marker file ensures this runs at most once per install.
+# One-time migration to delete oversized Codex skill descriptions.
 if [ ! -f "$STATE_DIR/.codex-desc-healed" ]; then
   for _AGENTS_SKILL in "$GSTACK_DIR"/.agents/skills/*/SKILL.md; do
     [ -f "$_AGENTS_SKILL" ] || continue
-    _DESC=$(awk '/^---$/{n++;next}n==1&&/^description:/{d=1;sub(/^description:\s*/,"");if(length>0)print;next}d&&/^  /{sub(/^  /,"");print;next}d{d=0}' "$_AGENTS_SKILL" | wc -c | tr -d ' ')
+    _DESC=$(
+      awk '/^---$/{n++;next}n==1&&/^description:/{d=1;sub(/^description:\s*/,"");if(length>0)print;next}d&&/^  /{sub(/^  /,"");print;next}d{d=0}' "$_AGENTS_SKILL" \
+        | wc -c | tr -d ' '
+    )
     if [ "${_DESC:-0}" -gt 1024 ]; then
       rm -f "$_AGENTS_SKILL"
     fi
@@ -50,89 +48,86 @@ if [ ! -f "$STATE_DIR/.codex-desc-healed" ]; then
   touch "$STATE_DIR/.codex-desc-healed"
 fi
 
-# ─── Snooze helper ──────────────────────────────────────────
 # check_snooze <remote_version>
-#   Returns 0 if snoozed (should stay quiet), 1 if not snoozed (should output).
+#   Returns 0 if snoozed (stay quiet), 1 if not snoozed.
 #
-#   Snooze file format: <version> <level> <epoch>
-#   Level durations: 1=24h, 2=48h, 3+=7d
-#   New version (version mismatch) resets snooze.
+# Snooze file format: <version> <level> <epoch>
+# Level durations: 1=24h, 2=48h, 3+=7d
 check_snooze() {
   local remote_ver="$1"
   if [ ! -f "$SNOOZE_FILE" ]; then
-    return 1  # no snooze file → not snoozed
+    return 1
   fi
+
   local snoozed_ver snoozed_level snoozed_epoch
   snoozed_ver="$(awk '{print $1}' "$SNOOZE_FILE" 2>/dev/null || true)"
   snoozed_level="$(awk '{print $2}' "$SNOOZE_FILE" 2>/dev/null || true)"
   snoozed_epoch="$(awk '{print $3}' "$SNOOZE_FILE" 2>/dev/null || true)"
 
-  # Validate: all three fields must be non-empty
   if [ -z "$snoozed_ver" ] || [ -z "$snoozed_level" ] || [ -z "$snoozed_epoch" ]; then
-    return 1  # corrupt file → not snoozed
+    return 1
   fi
 
-  # Validate: level and epoch must be integers
-  case "$snoozed_level" in *[!0-9]*) return 1 ;; esac
-  case "$snoozed_epoch" in *[!0-9]*) return 1 ;; esac
+  case "$snoozed_level" in
+    *[!0-9]*) return 1 ;;
+  esac
+  case "$snoozed_epoch" in
+    *[!0-9]*) return 1 ;;
+  esac
 
-  # New version dropped? Ignore snooze.
   if [ "$snoozed_ver" != "$remote_ver" ]; then
     return 1
   fi
 
-  # Compute snooze duration based on level
   local duration
   case "$snoozed_level" in
-    1) duration=86400 ;;   # 24 hours
-    2) duration=172800 ;;  # 48 hours
-    *) duration=604800 ;;  # 7 days (level 3+)
+    1) duration=86400 ;;
+    2) duration=172800 ;;
+    *) duration=604800 ;;
   esac
 
-  local now
+  local now expires
   now="$(date +%s)"
-  local expires=$(( snoozed_epoch + duration ))
+  expires=$(( snoozed_epoch + duration ))
   if [ "$now" -lt "$expires" ]; then
-    return 0  # still snoozed
+    return 0
   fi
 
-  return 1  # snooze expired
+  return 1
 }
 
-# ─── Step 1: Read local version ──────────────────────────────
+# Step 1: read the local version.
 LOCAL=""
 if [ -f "$VERSION_FILE" ]; then
   LOCAL="$(cat "$VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
 fi
 if [ -z "$LOCAL" ]; then
-  exit 0  # No VERSION file → skip check
-fi
-
-# ─── Step 2: Check "just upgraded" marker ─────────────────────
-if [ -f "$MARKER_FILE" ]; then
-  OLD="$(cat "$MARKER_FILE" 2>/dev/null | tr -d '[:space:]')"
-  rm -f "$MARKER_FILE"
-  rm -f "$SNOOZE_FILE"
-  mkdir -p "$STATE_DIR"
-  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
-  if [ -n "$OLD" ]; then
-    echo "JUST_UPGRADED $OLD $LOCAL"
-  fi
   exit 0
 fi
 
-# ─── Step 3: Check cache freshness ──────────────────────────
-# UP_TO_DATE: 60 min TTL (detect new releases quickly)
-# UPGRADE_AVAILABLE: 720 min TTL (keep nagging)
-if [ -f "$CACHE_FILE" ]; then
+JUST_UPGRADED_MARKER=0
+JUST_UPGRADED_FROM=""
+
+# Step 2: consume the marker, but still re-check remote state once.
+if [ -f "$MARKER_FILE" ]; then
+  JUST_UPGRADED_MARKER=1
+  JUST_UPGRADED_FROM="$(cat "$MARKER_FILE" 2>/dev/null | tr -d '[:space:]')"
+  rm -f "$MARKER_FILE"
+  rm -f "$SNOOZE_FILE"
+fi
+
+# Step 3: check cache freshness.
+# UP_TO_DATE gets a 60 minute TTL so new releases surface quickly.
+# UPGRADE_AVAILABLE gets a 720 minute TTL so repeated prompts are cheap.
+if [ "$JUST_UPGRADED_MARKER" -eq 0 ] && [ -f "$CACHE_FILE" ]; then
   CACHED="$(cat "$CACHE_FILE" 2>/dev/null || true)"
   case "$CACHED" in
-    UP_TO_DATE*)        CACHE_TTL=60 ;;
+    UP_TO_DATE*) CACHE_TTL=60 ;;
     UPGRADE_AVAILABLE*) CACHE_TTL=720 ;;
-    *)                  CACHE_TTL=0 ;;  # corrupt → force re-fetch
+    *) CACHE_TTL=0 ;;
   esac
 
-  STALE=$(find "$CACHE_FILE" -mmin +$CACHE_TTL 2>/dev/null || true)
+  STALE="$(find "$CACHE_FILE" -mmin +$CACHE_TTL 2>/dev/null || true)"
   if [ -z "$STALE" ] && [ "$CACHE_TTL" -gt 0 ]; then
     case "$CACHED" in
       UP_TO_DATE*)
@@ -146,7 +141,7 @@ if [ -f "$CACHE_FILE" ]; then
         if [ "$CACHED_OLD" = "$LOCAL" ]; then
           CACHED_NEW="$(echo "$CACHED" | awk '{print $3}')"
           if check_snooze "$CACHED_NEW"; then
-            exit 0  # snoozed — stay quiet
+            exit 0
           fi
           echo "$CACHED"
           exit 0
@@ -156,18 +151,15 @@ if [ -f "$CACHE_FILE" ]; then
   fi
 fi
 
-# ─── Step 4: Slow path — fetch remote version ────────────────
+# Step 4: slow path - fetch the remote version.
 mkdir -p "$STATE_DIR"
 
-# Fire Supabase install ping in background (parallel, non-blocking)
-# This logs an update check event for community health metrics via edge function.
-# If Supabase is not configured or telemetry is off, this is a no-op.
+# Fire a background Supabase ping for community health metrics.
 if [ -z "${GSTACK_SUPABASE_URL:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
   . "$GSTACK_DIR/supabase/config.sh"
 fi
 _SUPA_URL="${GSTACK_SUPABASE_URL:-}"
 _SUPA_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
-# Respect telemetry opt-out — don't ping Supabase if user set telemetry: off
 _TEL_TIER="$("$GSTACK_DIR/bin/gstack-config" get telemetry 2>/dev/null || true)"
 if [ -n "$_SUPA_URL" ] && [ -n "$_SUPA_KEY" ] && [ "${_TEL_TIER:-off}" != "off" ]; then
   _OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -179,30 +171,31 @@ if [ -n "$_SUPA_URL" ] && [ -n "$_SUPA_KEY" ] && [ "${_TEL_TIER:-off}" != "off" 
     >/dev/null 2>&1 &
 fi
 
-# GitHub raw fetch (primary, always reliable)
 REMOTE=""
 REMOTE="$(curl -sf --max-time 5 "$REMOTE_URL" 2>/dev/null || true)"
 REMOTE="$(echo "$REMOTE" | tr -d '[:space:]')"
 
-# Validate: must look like a version number (reject HTML error pages)
 if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9.]+$'; then
-  # Invalid or empty response — assume up to date
   echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  if [ "$JUST_UPGRADED_MARKER" -eq 1 ] && [ -n "$JUST_UPGRADED_FROM" ]; then
+    echo "JUST_UPGRADED $JUST_UPGRADED_FROM $LOCAL"
+  fi
   exit 0
 fi
 
 if [ "$LOCAL" = "$REMOTE" ]; then
   echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  if [ "$JUST_UPGRADED_MARKER" -eq 1 ] && [ -n "$JUST_UPGRADED_FROM" ]; then
+    echo "JUST_UPGRADED $JUST_UPGRADED_FROM $LOCAL"
+  fi
   exit 0
 fi
 
-# Versions differ — upgrade available
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
 if check_snooze "$REMOTE"; then
-  exit 0  # snoozed — stay quiet
+  exit 0
 fi
 
-# Log upgrade_prompted event (only on slow-path fetch, not cached replays)
 TEL_CMD="$GSTACK_DIR/bin/gstack-telemetry-log"
 if [ -x "$TEL_CMD" ]; then
   "$TEL_CMD" --event-type upgrade_prompted --skill "" --duration 0 \

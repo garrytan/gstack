@@ -81,6 +81,7 @@ describe('gstack-update-check', () => {
   test('outputs JUST_UPGRADED and deletes marker', () => {
     writeFileSync(join(gstackDir, 'VERSION'), '0.4.0\n');
     writeFileSync(join(stateDir, 'just-upgraded-from'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
 
     const { exitCode, stdout } = run();
     expect(exitCode).toBe(0);
@@ -90,6 +91,20 @@ describe('gstack-update-check', () => {
     // Cache should be written
     const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
     expect(cache).toContain('UP_TO_DATE');
+  });
+
+  test('just-upgraded marker bypasses cache and still reports newer remote versions', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.4.0\n');
+    writeFileSync(join(stateDir, 'just-upgraded-from'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UP_TO_DATE 0.4.0');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.5.0\n');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.4.0 0.5.0');
+    expect(existsSync(join(stateDir, 'just-upgraded-from'))).toBe(false);
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UPGRADE_AVAILABLE 0.4.0 0.5.0');
   });
 
   // ─── Path D1: Fresh cache, UP_TO_DATE ───────────────────────
@@ -382,6 +397,7 @@ describe('gstack-update-check', () => {
   test('just-upgraded clears snooze file', () => {
     writeFileSync(join(gstackDir, 'VERSION'), '0.4.0\n');
     writeFileSync(join(stateDir, 'just-upgraded-from'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
     writeSnooze('0.4.0', 2, nowEpoch() - 3600);
 
     const { exitCode, stdout } = run();
