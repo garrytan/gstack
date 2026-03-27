@@ -860,6 +860,33 @@ For each new codepath identified in the test review diagram, list one realistic 
 
 If any failure mode has no test AND no error handling AND would be silent, flag it as a **critical gap**.
 
+### Worktree parallelization strategy
+
+Analyze the plan's implementation steps for parallel execution opportunities. This helps the user split work across git worktrees (via Claude Code's Agent tool with `isolation: "worktree"` or parallel workspaces).
+
+**Skip if:** all steps touch the same primary module, or the plan has fewer than 2 independent workstreams. In that case, write: "Sequential implementation, no parallelization opportunity."
+
+**Otherwise, produce:**
+
+1. **Dependency table** — for each implementation step/workstream:
+
+| Step | Modules touched | Depends on |
+|------|----------------|------------|
+| (step name) | (directories/modules, NOT specific files) | (other steps, or —) |
+
+Work at the module/directory level, not file level. Plans describe intent ("add API endpoints"), not specific files. Module-level ("controllers/, models/") is reliable; file-level is guesswork.
+
+2. **Parallel lanes** — group steps into lanes:
+   - Steps with no shared modules and no dependency go in separate lanes (parallel)
+   - Steps sharing a module directory go in the same lane (sequential)
+   - Steps depending on other steps go in later lanes
+
+Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 (independent)`
+
+3. **Execution order** — which lanes launch in parallel, which wait. Example: "Launch A + B in parallel worktrees. Merge both. Then C."
+
+4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
+
 ### Completion summary
 At the end of the review, fill in and display this summary so the user can see all findings at a glance:
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
@@ -872,6 +899,7 @@ At the end of the review, fill in and display this summary so the user can see a
 - TODOS.md updates: ___ items proposed to user
 - Failure modes: ___ critical gaps flagged
 - Outside voice: ran (codex/claude) / skipped
+- Parallelization: ___ lanes, ___ parallel / ___ sequential
 - Lake Score: X/Y recommendations chose complete option
 
 ## Retrospective learning
