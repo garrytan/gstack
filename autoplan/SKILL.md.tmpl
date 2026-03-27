@@ -144,7 +144,9 @@ Then prepend a one-line HTML comment to the plan file:
 ### Step 2: Read context
 
 - Read CLAUDE.md, TODOS.md, git log -30, git diff against the base branch --stat
-- Discover design docs: `ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1`
+- Discover design docs: if plan mode exposes an active plan file and it looks like an
+  `/office-hours` design doc, use that first. Otherwise fall back to
+  `ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1`
 - Detect UI scope: grep the plan for view/rendering terms (component, screen, form,
   button, modal, layout, dashboard, sidebar, nav, dialog). Require 2+ matches. Exclude
   false positives ("page" alone, "UI" in acronyms).
