@@ -1684,14 +1684,8 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
 
   test('no generated SKILL.md has codex exec with inline $(git rev-parse --show-toplevel) in -C flag', () => {
     const violations: string[] = [];
-    const skillMdFiles = fs.readdirSync(ROOT, { recursive: true })
-      .filter((f): f is string =>
-        typeof f === 'string' &&
-        f.endsWith('SKILL.md') &&
-        !f.includes('node_modules') &&
-        !f.includes('.claude') &&
-        !f.includes('.agents') &&
-        !f.includes('.tmpl'));
+    const skillMdGlob = new Bun.Glob('**/SKILL.md');
+    const skillMdFiles = Array.from(skillMdGlob.scanSync({ cwd: ROOT, followSymlinks: false }));
     for (const rel of skillMdFiles) {
       const abs = path.join(ROOT, rel);
       if (!fs.existsSync(abs)) continue;
@@ -1701,6 +1695,40 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
         const line = lines[i];
         if (line.includes('codex exec') && line.includes('-C') && line.includes('$(git rev-parse --show-toplevel)')) {
           violations.push(`${rel}:${i + 1}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  test('codex review commands must be preceded by cd "$_REPO_ROOT" (no -C support)', () => {
+    // codex review does not support -C, so the pattern must be:
+    //   _REPO_ROOT=$(git rev-parse --show-toplevel) || { ... }
+    //   cd "$_REPO_ROOT"
+    //   codex review ...
+    // NOT: codex review ... with inline $(git rev-parse --show-toplevel)
+    const allFiles = [
+      ...Array.from(tmplGlob.scanSync({ cwd: ROOT, followSymlinks: false })),
+      ...Array.from(new Bun.Glob('**/SKILL.md').scanSync({ cwd: ROOT, followSymlinks: false })),
+      ...fs.readdirSync(path.join(ROOT, 'scripts/resolvers'))
+        .filter(f => f.endsWith('.ts'))
+        .map(f => `scripts/resolvers/${f}`),
+      'scripts/gen-skill-docs.ts',
+    ];
+    const violations: string[] = [];
+    for (const rel of allFiles) {
+      const abs = path.join(ROOT, rel);
+      if (!fs.existsSync(abs)) continue;
+      const content = fs.readFileSync(abs, 'utf-8');
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Skip non-executable lines (markdown table cells, prose references)
+        if (line.includes('|') && line.includes('`/codex review`')) continue;
+        if (line.includes('`codex review`')) continue;
+        // Check for codex review with inline $(git rev-parse)
+        if (line.includes('codex review') && line.includes('$(git rev-parse --show-toplevel)')) {
+          violations.push(`${rel}:${i + 1} — inline git rev-parse in codex review`);
         }
       }
     }
