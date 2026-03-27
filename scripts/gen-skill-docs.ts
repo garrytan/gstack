@@ -933,14 +933,20 @@ This is the **primary mode** for developers verifying their work. When the user 
    fi
    \`\`\`
 
-   Then start the dev loop. **Run in background and poll for readiness** — \`revyl dev start\` is a long-running process:
+   **Dev loop startup with retry.** Cloudflare tunnel DNS is inherently racy — the first attempt often fails because DNS hasn't propagated yet. The skill retries once (kill → wait → restart) before falling back to static mode. This makes the tunnel work reliably in most cases.
+
+   Run the following dev loop startup procedure. **You will attempt this up to 2 times** (attempt 1 + 1 retry). Track which attempt you are on.
+
+   **Dev loop attempt (run this for attempt 1, and again for attempt 2 if needed):**
+
+   Start in background and poll for readiness:
    \`\`\`bash
    revyl dev start --platform ios --open \${REVYL_APP_ID:+--app-id "$REVYL_APP_ID"} > /tmp/revyl-dev-output.log 2>&1 &
    REVYL_DEV_PID=$!
    echo "REVYL_DEV_PID=$REVYL_DEV_PID"
    \`\`\`
 
-   Poll every 5 seconds for up to 120 seconds, checking for "Dev loop ready" or failure:
+   Poll every 5 seconds for up to 120 seconds:
    \`\`\`bash
    for i in $(seq 1 24); do
      if grep -q "Dev loop ready" /tmp/revyl-dev-output.log 2>/dev/null; then
@@ -956,41 +962,63 @@ This is the **primary mode** for developers verifying their work. When the user 
    cat /tmp/revyl-dev-output.log
    \`\`\`
 
-   **CRITICAL: Do not trust "Dev loop ready" alone.** After \`revyl dev start\` reports ready, **parse the HMR diagnostic output** to verify the tunnel is actually working:
+   **Verify the tunnel — do NOT trust "Dev loop ready" alone.** Parse HMR diagnostics:
    \`\`\`bash
    grep -iE "\\[hmr\\]|tunnel|metro" /tmp/revyl-dev-output.log 2>/dev/null
    \`\`\`
 
-   Check the HMR diagnostics:
-   - If ALL HMR checks show \`FAILED\` (e.g., "Tunnel HTTP: FAILED", "Metro health: FAILED"): the dev loop is **broken despite reporting ready**. The app may have loaded from a **cached build** — code changes will NOT be reflected. **Fall back to static mode immediately.**
-   - If HMR checks show a mix of OK and FAILED: tunnel DNS may still be propagating. Poll the tunnel URL for up to 30 seconds:
-      \`\`\`bash
-      TUNNEL_URL=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" /tmp/revyl-dev-output.log 2>/dev/null | head -1)
-      if [ -n "$TUNNEL_URL" ]; then
-        for i in $(seq 1 30); do
-          curl -s -o /dev/null -w "%{http_code}" "$TUNNEL_URL/status" 2>/dev/null | grep -q "200" && echo "TUNNEL_OK" && break
-          sleep 1
-        done
-      fi
-      \`\`\`
-   - If all HMR checks pass and tunnel resolves: take a screenshot to check if the app loaded.
-      - **iOS deep link dialogs:** iOS may show a system dialog "Open in [AppName]?" with Cancel and Open buttons. After any deep link navigation, take a screenshot. If this dialog appears, tap the "Open" button before proceeding.
-      - If the app is on the home screen (crashed): re-open the deep link via \`revyl device navigate --url "$DEEP_LINK"\`.
+   Then check DNS resolution directly (faster than HTTP polling — catches the root cause):
+   \`\`\`bash
+   TUNNEL_URL=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" /tmp/revyl-dev-output.log 2>/dev/null | head -1)
+   TUNNEL_HOST=$(echo "$TUNNEL_URL" | sed 's|https://||')
+   if [ -n "$TUNNEL_HOST" ]; then
+     nslookup "$TUNNEL_HOST" 2>/dev/null | grep -q "Address" && echo "DNS_RESOLVED" || echo "DNS_FAILED"
+   else
+     echo "NO_TUNNEL_URL"
+   fi
+   \`\`\`
 
-   **Stale build detection:** If HMR diagnostics failed but the app still launched on-device, it's running from a **previously uploaded build** — not your current code. This is the most dangerous state: the app appears to work, but your recent code changes are invisible. To confirm:
+   **Evaluate the result:**
+
+   1. If \`DNS_RESOLVED\` AND HMR checks show OK: verify with an HTTP health check:
+      \`\`\`bash
+      for i in $(seq 1 15); do
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$TUNNEL_URL/status" 2>/dev/null)
+        [ "$STATUS" = "200" ] && echo "TUNNEL_OK" && break
+        sleep 2
+      done
+      \`\`\`
+      If \`TUNNEL_OK\`: **dev loop is healthy.** Take a screenshot to confirm the app loaded.
+      - **iOS deep link dialogs:** iOS may show "Open in [AppName]?" — tap "Open" if it appears.
+      - If the app is on the home screen: re-open via \`revyl device navigate --url "$DEEP_LINK"\`.
+
+   2. If \`DNS_FAILED\` or ALL HMR checks show \`FAILED\`:
+      - **If this is attempt 1:** The tunnel didn't come up — likely a DNS propagation race. **Kill everything and retry:**
+        \`\`\`bash
+        kill $REVYL_DEV_PID 2>/dev/null || true
+        METRO_PID=$(lsof -ti :8081 2>/dev/null)
+        [ -n "$METRO_PID" ] && kill "$METRO_PID" 2>/dev/null || true
+        sleep 5
+        echo "Tunnel failed on attempt 1 — retrying (DNS propagation race is common)..."
+        \`\`\`
+        Then go back and run the dev loop attempt again (attempt 2).
+      - **If this is attempt 2:** Tunnel failed twice. **Fall back to static mode.** Before falling back, run stale build detection (below).
+
+   3. If HMR shows a mix of OK and FAILED: tunnel DNS is propagating. Poll HTTP for up to 30 seconds (the \`TUNNEL_OK\` check above). If it resolves within 30s, proceed. If not, treat as a failure and follow the retry/fallback logic above.
+
+   **Stale build detection (run before falling back to static mode):** If the tunnel failed but the app still launched on-device, it's running from a previously uploaded build — not your current code:
    \`\`\`bash
    revyl build list --app "$REVYL_APP_ID" --json 2>/dev/null | jq -r '.versions[0] | "BUILD_SHA=\\(.git_sha // "unknown") BUILD_DATE=\\(.created_at // "unknown")"'
    echo "CURRENT_SHA=$(git rev-parse --short HEAD)"
    \`\`\`
-   - If \`BUILD_SHA\` does not match \`CURRENT_SHA\`: **you are testing stale code.** Warn: "The app on-device was built from commit \`BUILD_SHA\` but you're on \`CURRENT_SHA\`. Your code changes will NOT be visible. Falling back to static mode to build and upload a fresh version."
-   - If there is no previous build at all and the tunnel is dead, the app would have nothing to load — the dev loop fails visibly. This is actually the better failure mode (clear error vs silent staleness).
+   - If \`BUILD_SHA\` ≠ \`CURRENT_SHA\`: warn "App on-device is from commit \`BUILD_SHA\` but you're on \`CURRENT_SHA\`. Code changes are NOT visible. Building a fresh version."
+   - If no previous build exists: the dev loop would have failed visibly (nothing to load). This is the clearer failure mode.
 
-   If tunnel never resolves after 30s OR all HMR checks failed: **fall back to static mode immediately** (do not retry the dev loop). Kill the dev loop process before proceeding to the static build.
+   After falling back, kill the dev loop process before proceeding to static build.
 
-   **Stopping the dev loop:** \`revyl dev stop\` does not exist. To stop the dev loop, kill the background process:
+   **Stopping the dev loop:** \`revyl dev stop\` does not exist. Kill the background process:
    \`\`\`bash
    kill $REVYL_DEV_PID 2>/dev/null || true
-   # Also kill any Metro process that was started by the dev loop
    METRO_PID=$(lsof -ti :8081 2>/dev/null)
    [ -n "$METRO_PID" ] && kill "$METRO_PID" 2>/dev/null || true
    \`\`\`
