@@ -23,11 +23,13 @@ esac
 # ─── Parse flags ──────────────────────────────────────────────
 HOST="claude"
 LOCAL_INSTALL=0
+SKILL_PREFIX=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
+    --no-prefix) SKILL_PREFIX=0; shift ;;
     *) shift ;;
   esac
 done
@@ -199,6 +201,9 @@ fi
 mkdir -p "$HOME/.gstack/projects"
 
 # ─── Helper: link Claude skill subdirectories into a skills parent directory ──
+# When SKILL_PREFIX=1 (default), symlinks are prefixed with "gstack-" to avoid
+# namespace pollution (e.g., gstack-review instead of review).
+# Use --no-prefix to restore the old flat names.
 link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -208,16 +213,56 @@ link_claude_skill_dirs() {
       skill_name="$(basename "$skill_dir")"
       # Skip node_modules
       [ "$skill_name" = "node_modules" ] && continue
-      target="$skills_dir/$skill_name"
+      # Apply gstack- prefix unless --no-prefix or already prefixed
+      if [ "$SKILL_PREFIX" -eq 1 ]; then
+        case "$skill_name" in
+          gstack-*) link_name="$skill_name" ;;
+          *)        link_name="gstack-$skill_name" ;;
+        esac
+      else
+        link_name="$skill_name"
+      fi
+      target="$skills_dir/$link_name"
       # Create or update symlink; skip if a real file/directory exists
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "gstack/$skill_name" "$target"
-        linked+=("$skill_name")
+        linked+=("$link_name")
       fi
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+# ─── Helper: remove old unprefixed Claude skill symlinks ──────────────────────
+# Migration: when switching from flat names to gstack- prefixed names,
+# clean up stale symlinks that point into the gstack directory.
+cleanup_old_claude_symlinks() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local removed=()
+  for skill_dir in "$gstack_dir"/*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "node_modules" ] && continue
+      # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
+      case "$skill_name" in gstack-*) continue ;; esac
+      old_target="$skills_dir/$skill_name"
+      # Only remove if it's a symlink pointing into gstack/
+      if [ -L "$old_target" ]; then
+        link_dest="$(readlink "$old_target" 2>/dev/null || true)"
+        case "$link_dest" in
+          gstack/*|*/gstack/*)
+            rm -f "$old_target"
+            removed+=("$skill_name")
+            ;;
+        esac
+      fi
+    fi
+  done
+  if [ ${#removed[@]} -gt 0 ]; then
+    echo "  cleaned up old symlinks: ${removed[*]}"
   fi
 }
 
@@ -348,6 +393,10 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
+    # Clean up old unprefixed symlinks from previous installs
+    if [ "$SKILL_PREFIX" -eq 1 ]; then
+      cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    fi
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       echo "gstack ready (project-local)."
