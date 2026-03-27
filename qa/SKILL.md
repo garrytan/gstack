@@ -925,9 +925,15 @@ This is the **primary mode** for developers verifying their work. When the user 
       - **iOS deep link dialogs:** iOS may show a system dialog "Open in [AppName]?" with Cancel and Open buttons. After any deep link navigation, take a screenshot. If this dialog appears, tap the "Open" button before proceeding.
       - If the app is on the home screen (crashed): re-open the deep link via `revyl device navigate --url "$DEEP_LINK"`.
 
-   **Cached build warning:** If the app loads but HMR diagnostics all failed, warn: "App loaded from a cached build — hot reload is NOT active. Code changes will not appear until you rebuild and upload. Falling back to static mode for a fresh build."
+   **Stale build detection:** If HMR diagnostics failed but the app still launched on-device, it's running from a **previously uploaded build** — not your current code. This is the most dangerous state: the app appears to work, but your recent code changes are invisible. To confirm:
+   ```bash
+   revyl build list --app "$REVYL_APP_ID" --json 2>/dev/null | jq -r '.versions[0] | "BUILD_SHA=\(.git_sha // "unknown") BUILD_DATE=\(.created_at // "unknown")"'
+   echo "CURRENT_SHA=$(git rev-parse --short HEAD)"
+   ```
+   - If `BUILD_SHA` does not match `CURRENT_SHA`: **you are testing stale code.** Warn: "The app on-device was built from commit `BUILD_SHA` but you're on `CURRENT_SHA`. Your code changes will NOT be visible. Falling back to static mode to build and upload a fresh version."
+   - If there is no previous build at all and the tunnel is dead, the app would have nothing to load — the dev loop fails visibly. This is actually the better failure mode (clear error vs silent staleness).
 
-   If tunnel never resolves after 30s OR all HMR checks failed: **fall back to static mode immediately** (do not retry the dev loop).
+   If tunnel never resolves after 30s OR all HMR checks failed: **fall back to static mode immediately** (do not retry the dev loop). Kill the dev loop process before proceeding to the static build.
 
    **Stopping the dev loop:** `revyl dev stop` does not exist. To stop the dev loop, kill the background process:
    ```bash
