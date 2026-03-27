@@ -16,9 +16,18 @@ which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 If Codex is available, run a lightweight design check on the diff:
 
 \`\`\`bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\\"$CODEX_MODEL\\""
+  codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+fi
 \`\`\`
+
+If the output is \`CODEX_SKIP_NO_MODEL\`, skip Codex design voice and continue.
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
@@ -466,9 +475,17 @@ If user chooses A, launch both voices simultaneously:
 
 1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
 \`\`\`bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\\"$CODEX_MODEL\\""
+  codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
+fi
 \`\`\`
+If the output is \`CODEX_SKIP_NO_MODEL\`, skip Codex voice and continue with Claude subagent only.
 Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
 
 2. **Claude subagent** (via Agent tool):
@@ -635,9 +652,17 @@ which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 
 1. **Codex design voice** (via Bash):
 \`\`\`bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-codex exec "${escapedCodexPrompt}" -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\\"$CODEX_MODEL\\""
+  codex exec "${escapedCodexPrompt}" -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+fi
 \`\`\`
+If the output is \`CODEX_SKIP_NO_MODEL\`, skip Codex voice and proceed with Claude subagent only, tagged \`[single-model]\`.
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
