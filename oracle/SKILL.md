@@ -630,7 +630,11 @@ For each route:
 - **Depends on:** {hard dependencies}
 - **Route:** {the route path}
 - **Shipped:** {date — from git log}
+- **Inventory:** {inventory/F{NNN}-{feature-slug}.md}
 ```
+
+> After writing the Tier 2 doc (Step 3e), the `Inventory:` field MUST point to the doc path.
+> This is the only link between the Tier 1 entry and the detailed analysis — never omit it.
 
 **3e. Build the Tier 2 doc (inventory/{feature-slug}.md)**
 
@@ -698,8 +702,9 @@ Update `Connections` and `Depends on` fields for both new and existing entries.
 
 After each batch:
 
-1. Write updated feature entries to PRODUCT_MAP.md (Tier 1)
-2. Write Tier 2 docs to `inventory/` directory
+1. Write Tier 2 docs to `inventory/` directory
+2. Write updated feature entries to PRODUCT_MAP.md (Tier 1) — each entry MUST include
+   `Inventory: inventory/F{NNN}-{feature-slug}.md` pointing to the Tier 2 doc written in step 1
 3. Append completed routes to progress file:
    ```bash
    eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
@@ -750,13 +755,22 @@ Full re-analysis that reconciles the product map against the current codebase.
 
 1. Read the existing PRODUCT_MAP.md.
 2. Run the full bootstrap analysis (Phase 2 Steps 1-2 for git/code analysis + Phase 3 Step 1 and Step 1b for route and API endpoint discovery).
-3. **Reconcile:**
-   - New features found in code but not in map → add them
+3. **Wire inventory docs:**
+   ```bash
+   eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+   INV_DIR=~/.gstack/projects/$SLUG/inventory
+   [ -d "$INV_DIR" ] && ls "$INV_DIR"/F*.md 2>/dev/null | while read f; do echo "$(basename "$f")"; done
+   ```
+   For each inventory doc on disk, find the matching feature entry (by F-number prefix)
+   and set `Inventory: inventory/{filename}`. If a feature entry has no matching doc,
+   set `Inventory: none`.
+4. **Reconcile:**
+   - New features found in code but not in map → add them (with `Inventory:` pointer if doc exists)
    - Map entries whose components can't be found in code → flag as potentially stale
    - Pattern catalog → update usage counts and health
    - Anti-patterns → check if any were resolved
-4. Present the diff to the user: "Here's what changed since the last update."
-5. Write the updated map + breadcrumb.
+5. Present the diff to the user: "Here's what changed since the last update."
+6. Write the updated map + breadcrumb.
 
 ---
 
@@ -916,6 +930,7 @@ If any are missing, the file may be corrupted. Offer regeneration:
 - **Depends on:** {hard dependencies}
 - **Anti-patterns:** {what failed, with tags}
 - **Shipped:** {date}
+- **Inventory:** {inventory/F{NNN}-{feature-slug}.md | none}
 
 ## Reusable Patterns
 - **{Name}:** {desc}. Established in {feature}. Also used by {features}. Health: {status}.
