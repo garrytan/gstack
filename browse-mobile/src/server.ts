@@ -97,9 +97,13 @@ async function handleCommand(
       if (args.length === 0) throw new Error("click requires a ref (e.g., @e1) or label:Text");
       return mobileDriver.click(args[0]);
 
-    case "tap":
+    case "tap": {
       if (args.length < 2) throw new Error("tap requires x y coordinates (e.g., tap 195 750)");
-      return mobileDriver.tapCoordinates(parseInt(args[0], 10), parseInt(args[1], 10));
+      const tapX = parseInt(args[0], 10);
+      const tapY = parseInt(args[1], 10);
+      if (isNaN(tapX) || isNaN(tapY)) throw new Error(`Invalid coordinates: "${args[0]}" "${args[1]}" — must be numbers`);
+      return mobileDriver.tapCoordinates(tapX, tapY);
+    }
 
     case "fill":
       if (args.length < 2) throw new Error("fill requires a ref and text (e.g., @e1 \"hello\")");

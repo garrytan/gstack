@@ -62,7 +62,11 @@ function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (err) {
+    // EPERM means the process exists but we don't have permission — still alive
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EPERM') {
+      return true;
+    }
     return false;
   }
 }
