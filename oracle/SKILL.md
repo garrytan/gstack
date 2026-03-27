@@ -350,7 +350,6 @@ echo "LAST_WRITE: $_PM_TS"
 | `/oracle` (no args, no product map) | **Bootstrap** |
 | `/oracle` (no args, product map exists) | **Query** (product overview) |
 | `/oracle inventory` | **Inventory** (budgeted deep page-by-page scan) |
-| `/oracle inventory --visualize` | **Inventory** + open HTML import graph after scan |
 | `/oracle refresh` | **Refresh** (full re-analysis) |
 | `/oracle update` | **Update** (sync recent git history) |
 | `/oracle stats` | **Stats** (product health + codebase health) |
@@ -535,16 +534,6 @@ Are there `.ts`/`.tsx` files in `src/`?
 
 **Content hash check:** The manifest includes a `content_hash`. If a previous manifest
 exists and the hash matches, skip re-scanning routes that haven't structurally changed.
-
-**Visualize (if `--visualize` flag):** If the user ran `/oracle inventory --visualize`,
-open the HTML graph after the scan completes:
-
-```bash
-VIZ_BIN=~/.claude/skills/gstack/oracle/bin/visualize-graph.ts
-OUTPUT="/tmp/oracle-graph-$SLUG.html"
-bun run "$VIZ_BIN" --manifest "$MANIFEST_PATH" --output "$OUTPUT"
-open "$OUTPUT"
-```
 
 **Do NOT display scan results to the user.** The scan data (route count, classification
 distribution, circular deps, dead files) is used internally by Steps 1-7 below. The
