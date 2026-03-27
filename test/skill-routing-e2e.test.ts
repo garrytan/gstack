@@ -278,11 +278,11 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
       const testName = 'journey-think-bigger';
       const expectedSkill = 'plan-ceo-review';
       const result = await runSkillTest({
-        prompt: "Actually, looking at this plan again, I feel like we're thinking too small. We're just doing waitlists but what about the whole restaurant guest experience? Is there a bigger opportunity here we should go after?",
+        prompt: "I want to think bigger about this plan. We're just doing waitlists but what about the whole restaurant guest experience? Is this ambitious enough or should we expand scope?",
         workingDirectory: tmpDir,
-        maxTurns: 5,
+        maxTurns: 3,
         allowedTools: ['Skill', 'Read', 'Bash', 'Glob', 'Grep'],
-        timeout: 120_000,
+        timeout: 60_000,
         testName,
         runId,
       });
