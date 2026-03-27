@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.3.0] - 2026-03-26 — Auto-Review Pipeline
+
+One command, fully reviewed code out. `/autoreview` chains `/review`, `/qa`, and `/design-review` into a single automated pipeline. Same rigor as running each skill manually — the only difference is who answers the intermediate questions: 6 decision principles replace you for mechanical choices, and taste decisions (ambiguous fixes, borderline triage) are surfaced at a final approval gate.
+
+### Added
+
+- **`/autoreview` skill.** Sequential pipeline: code review (diff analysis) → QA testing (live app) → design review (visual audit). Each phase runs at full depth from the loaded skill files. Auto-decides mechanical choices, surfaces taste decisions at a final gate with compound scores and commit summary.
+- **Shared URL detection.** Detects the running app once in preflight and shares it across QA and design review phases. Falls back gracefully — if no app URL, code review still runs.
+- **Compound scoring.** Final gate shows code review findings, QA health score delta, and design score delta in one view, with a ship-readiness assessment.
+- **Git restore point.** Captures commit SHA before starting. Option E at the gate reverts all autoreview commits cleanly via `git reset --hard`.
+- **Review log integration.** Writes `via:"autoreview"` entries for each phase so `/ship`'s dashboard recognizes all reviews were run.
+
 ## [0.12.2.0] - 2026-03-26 — Deploy with Confidence: First-Run Dry Run
 
 The first time you run `/land-and-deploy` on a project, it does a dry run. It detects your deploy infrastructure, tests that every command works, and shows you exactly what will happen... before it touches anything. You confirm, and from then on it just works.

@@ -1,0 +1,496 @@
+---
+name: autoreview
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Auto-review pipeline for code — reads the full /review, /qa, and /design-review skills
+  from disk and runs them sequentially with auto-decisions using 6 decision principles.
+  Surfaces taste decisions (ambiguous fixes, borderline triage, cross-phase conflicts) at a
+  final approval gate. One command, fully reviewed code out.
+  Use when asked to "auto review code", "autoreview", "run all code reviews",
+  "review + qa + design", or "full review pipeline".
+  Proactively suggest when the user has code on a feature branch and wants the full
+  post-build review gauntlet without answering intermediate questions.
+benefits-from: [office-hours]
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Agent
+  - WebSearch
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+{{BENEFITS_FROM}}
+
+# /autoreview — Auto-Review Pipeline for Code
+
+One command. Code on a branch in, fully reviewed code out.
+
+/autoreview reads the full /review, /qa, and /design-review skill files from disk and
+follows them at full depth — same rigor, same sections, same methodology as running each
+skill manually. The only difference: intermediate AskUserQuestion calls are auto-decided
+using the 6 principles below. Taste decisions (where reasonable people could disagree) are
+surfaced at a final approval gate.
+
+---
+
+## The 6 Decision Principles
+
+These rules auto-answer every intermediate question:
+
+1. **Choose completeness** — Fix the whole thing. Pick the approach that covers more edge cases.
+2. **Boil lakes** — Fix everything in the blast radius (files modified by this branch + direct importers). Auto-approve fixes that are in blast radius AND < 30 min CC effort (< 5 files, no new infra).
+3. **Pragmatic** — If two fixes solve the same issue, pick the simpler one. 5 seconds choosing, not 5 minutes.
+4. **DRY** — Duplicates existing functionality? Reject the fix. Reuse what exists.
+5. **Explicit over clever** — 10-line obvious fix > 200-line abstraction. Pick what a new contributor reads in 30 seconds.
+6. **Bias toward action** — Fix > defer > deliberate. Flag concerns but don't block.
+
+**Conflict resolution (context-dependent tiebreakers):**
+- **Review phase:** P5 (explicit) + P3 (pragmatic) dominate. Code review is about safety and clarity.
+- **QA phase:** P1 (completeness) + P6 (action) dominate. Fix real bugs, don't over-deliberate severity.
+- **Design phase:** P5 (explicit) + P1 (completeness) dominate. Visual fixes should be complete and obvious.
+
+---
+
+## Decision Classification
+
+Every auto-decision is classified:
+
+**Mechanical** — one clearly right answer. Auto-decide silently.
+Examples: /review AUTO-FIX items (dead code, N+1 queries, stale comments), QA tier
+selection (always Standard), clean working tree (always commit), CSS-only design fixes
+(always apply), URL detection (try common ports automatically).
+
+**Taste** — reasonable people could disagree. Auto-decide with recommendation, but surface
+at the final gate. Three natural sources:
+1. **Ambiguous fixes** — /review ASK items where the fix approach is debatable (security
+   fixes, race condition remediation, large refactors > 20 lines).
+2. **Borderline triage** — /qa issues where severity is between two tiers, or /design-review
+   findings where impact is debatable.
+3. **Cross-phase conflicts** — an issue found in /review that /qa live testing shows works
+   fine, or a design fix that breaks functionality.
+
+---
+
+## Sequential Execution — MANDATORY
+
+Phases MUST execute in strict order: Review → QA → Design Review.
+Each phase MUST complete fully before the next begins.
+NEVER run phases in parallel — QA and Design build on review fixes.
+
+Review is analysis-then-commit. QA and Design both make atomic commits per fix.
+
+---
+
+## What "Auto-Decide" Means
+
+Auto-decide replaces the USER'S judgment with the 6 principles. It does NOT replace
+the ANALYSIS. Every section in the loaded skill files must still be executed at the
+same depth as the interactive version. The only thing that changes is who answers the
+AskUserQuestion: you do, using the 6 principles, instead of the user.
+
+**You MUST still:**
+- READ the actual code, diffs, and files each section references
+- PRODUCE every output the section requires (findings, scores, reports, screenshots)
+- IDENTIFY every issue the section is designed to catch
+- DECIDE each issue using the 6 principles (instead of asking the user)
+- LOG each decision in the audit trail
+- WRITE all required artifacts to disk
+
+**You MUST NOT:**
+- Skip a review pass because "it doesn't apply" without stating what you checked
+- Write "no issues found" without showing what you examined
+- Produce a summary instead of the required output
+- Skip the fix loop in QA or Design Review
+
+---
+
+## Phase 0: Intake + Preflight
+
+### Step 1: Capture restore point
+
+Before doing anything, save the current git state:
+
+```bash
+{{SLUG_SETUP}}
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
+DATETIME=$(date +%Y%m%d-%H%M%S)
+RESTORE_COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
+echo "RESTORE_COMMIT=$RESTORE_COMMIT"
+echo "AUDIT_PATH=$HOME/.gstack/projects/$SLUG/${BRANCH}-autoreview-audit-${DATETIME}.md"
+```
+
+Write restore instructions:
+```bash
+mkdir -p "$HOME/.gstack/projects/$SLUG"
+```
+
+Create the audit trail file with header:
+```markdown
+# /autoreview Audit Trail
+Branch: [branch] | Restore commit: [hash] | Started: [timestamp]
+
+## Decision Log
+
+| # | Phase | Decision | Principle | Rationale | Classification |
+|---|-------|----------|-----------|-----------|----------------|
+```
+
+### Step 2: Read context
+
+- Read CLAUDE.md, TODOS.md, git log -30, git diff against base branch --stat
+- Detect frontend scope: check if the diff includes frontend file extensions
+  (.tsx, .jsx, .vue, .svelte, .css, .scss, .html, component files)
+
+### Step 3: Detect target URL
+
+Done ONCE, shared by QA and Design Review phases.
+
+1. If the user specified a URL, use it.
+2. Otherwise, try common local dev ports:
+   ```bash
+   for PORT in 3000 4000 5173 8080 8000; do
+     if curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT" 2>/dev/null | grep -qE "^[23]"; then
+       echo "APP_URL=http://localhost:$PORT"
+       break
+     fi
+   done
+   ```
+3. If no app found: Phases 2-3 will be skipped. Phase 1 (code review) always runs.
+   Emit: "No running app detected — Phase 1 (code review) will run. Phases 2-3 (QA,
+   design review) require a running app and will be skipped."
+
+### Step 4: Ensure clean working tree
+
+Auto-decide using P6 (bias toward action):
+
+```bash
+if [ -n "$(git status --porcelain)" ]; then
+  git add -A && git commit -m "wip: save state before /autoreview"
+fi
+```
+
+Log as Mechanical decision in audit trail.
+
+### Step 5: Load skill files from disk
+
+Read each file using the Read tool:
+- `~/.claude/skills/gstack/review/SKILL.md`
+- `~/.claude/skills/gstack/qa/SKILL.md` (only if APP_URL detected)
+- `~/.claude/skills/gstack/design-review/SKILL.md` (only if APP_URL detected AND frontend scope)
+
+**Section skip list — when following a loaded skill file, SKIP these sections
+(already handled by /autoreview):**
+- Preamble / preamble bash blocks
+- AskUserQuestion Format
+- Completeness Principle — Boil the Lake
+- Search Before Building
+- Contributor Mode
+- Completion Status Protocol
+- Telemetry (run last)
+- Step 0: Detect base branch (already done)
+- Review Readiness Dashboard
+- Prerequisite Skill Offer (BENEFITS_FROM)
+- Setup sections that handle clean working tree (already handled)
+- Setup sections that detect URL or browse binary (already handled)
+
+Output: "Here's what I'm reviewing: [diff summary]. Frontend scope: [yes/no].
+App URL: [url or 'none']. Loaded review skills from disk. Starting full review
+pipeline with auto-decisions."
+
+---
+
+## Phase 1: Code Review (/review)
+
+Follow review/SKILL.md — all steps, full depth.
+Override: every AskUserQuestion → auto-decide using the 6 principles.
+
+**Override rules:**
+
+- **Fix-First classification:** follow the skill's checklist heuristic, then auto-decide ASK items:
+  - Security fixes (auth, XSS, injection): apply if < 20 lines and follows established
+    patterns (P5). If > 20 lines or requires architectural judgment → mark TASTE DECISION.
+  - Race conditions: apply if there's a clear atomic alternative (P3). If multiple valid
+    approaches → mark TASTE DECISION.
+  - Enum completeness: always fix (P1).
+  - Large fixes (> 20 lines): apply if purely mechanical (P5). If judgment needed →
+    mark TASTE DECISION.
+  - Design-lite check (if frontend scope): auto-apply mechanical CSS fixes (P5).
+    Aesthetic decisions → mark TASTE DECISION.
+
+- **Scope drift detection:** flag but do not block (P6). Include in gate summary.
+
+- **TODOS cross-reference:** auto-note but don't create new TODOs yet (Phases 2-3 may find more).
+
+**Required execution checklist (Review):**
+- [ ] Branch check passed (not on base branch, diff exists)
+- [ ] Scope drift detection completed
+- [ ] Checklist read from review/checklist.md
+- [ ] Two-pass review executed (Critical + Informational)
+- [ ] Design-lite review ran (if frontend scope)
+- [ ] Test coverage diagram produced (if applicable)
+- [ ] All AUTO-FIX items applied
+- [ ] All ASK items auto-decided and logged in audit trail
+- [ ] Review fixes committed (or "no fixes needed")
+
+**Committing review fixes:**
+After all fixes are applied, commit them as a batch:
+```bash
+git add <fixed-files>
+git commit -m "fix: /autoreview Phase 1 — code review fixes"
+```
+
+**PHASE 1 COMPLETE.** Emit phase-transition summary:
+> **Phase 1 complete.** Code review: N issues found (X auto-fixed, Y auto-decided,
+> Z taste decisions surfaced). Passing to Phase 2.
+
+Do NOT begin Phase 2 until all Phase 1 fixes are committed.
+
+---
+
+## Phase 2: QA Testing (/qa) — skip if no APP_URL
+
+Follow qa/SKILL.md — all phases, full depth.
+Override: every AskUserQuestion → auto-decide using the 6 principles.
+
+**Override rules:**
+
+- **Tier:** Standard (auto-decide, P3 — pragmatic default)
+- **Mode:** diff-aware if on feature branch (P3)
+- **URL:** use APP_URL from Phase 0
+- **Triage:** auto-fix all fixable issues at Standard tier threshold (P1 + P6).
+  If a fix touches > 3 files or WTF-likelihood > 15% → mark TASTE DECISION
+  (borderline: should we keep going or stop?).
+- **Each fix** gets its own atomic commit per /qa's rules.
+- **WTF-likelihood** hard stops still apply (> 20% → stop, auto-decide to stop).
+  Hard cap: 50 fixes.
+- **Regression tests:** generate per /qa's rules when fix is verified and test
+  framework exists.
+
+**Required execution checklist (QA):**
+- [ ] QA baseline completed (methodology phases 1-6)
+- [ ] Baseline health score recorded
+- [ ] Triage completed with severity assignments
+- [ ] Fix loop executed with atomic commits
+- [ ] WTF-likelihood checked
+- [ ] Final QA re-run completed
+- [ ] Final health score recorded
+- [ ] QA report written to `.gstack/qa-reports/`
+- [ ] TODOS.md updated with deferred bugs
+
+**PHASE 2 COMPLETE.** Emit phase-transition summary:
+> **Phase 2 complete.** QA: N issues found, M fixed (V verified, B best-effort,
+> R reverted). Health score: X → Y. WTF-likelihood: Z%.
+> Passing to Phase 3.
+
+Do NOT begin Phase 3 until all Phase 2 commits are made and working tree is clean.
+
+---
+
+## Phase 3: Design Review (/design-review) — conditional
+
+**Skip conditions (any one is sufficient):**
+- No frontend files changed
+- No APP_URL detected
+
+If skipping: "Phase 3 skipped — no frontend files changed (or no app URL)."
+
+Before starting, verify the app is still running:
+```bash
+curl -s -o /dev/null -w "%{http_code}" "$APP_URL" 2>/dev/null | grep -qE "^[23]" || echo "APP_DOWN"
+```
+If APP_DOWN: "Phase 3 skipped — app is no longer running at $APP_URL."
+
+Follow design-review/SKILL.md — all phases, full depth.
+Override: every AskUserQuestion → auto-decide using the 6 principles.
+
+**Override rules:**
+
+- **URL:** use APP_URL from Phase 0
+- **DESIGN.md:** read if exists, use as calibration for deviation severity
+- **Triage:** auto-fix all findings by impact level (P1).
+  Aesthetic/taste issues where DESIGN.md doesn't provide clear guidance →
+  mark TASTE DECISION.
+- **CSS-only fixes:** always apply (P5 — explicit, safe, reversible).
+- **JSX/component changes:** apply if < 10 lines (P3). Larger → mark TASTE DECISION.
+- **Design-fix risk** hard stops still apply (> 20% → stop). Hard cap: 30 fixes.
+
+**Required execution checklist (Design Review):**
+- [ ] Design audit baseline completed
+- [ ] Baseline design score and AI slop score recorded
+- [ ] Triage completed
+- [ ] Fix loop executed with atomic commits
+- [ ] Risk level checked
+- [ ] Final design audit re-run completed
+- [ ] Final scores recorded
+- [ ] Design report written to `.gstack/design-reports/`
+- [ ] TODOS.md updated with deferred findings
+
+**PHASE 3 COMPLETE.** Emit phase-transition summary:
+> **Phase 3 complete.** Design: N findings, M fixed. Design score: X → Y.
+> AI slop: A → B. All phases complete. Proceeding to Final Approval Gate.
+
+---
+
+## Decision Audit Trail
+
+After each auto-decision, append a row to the audit file using Edit:
+
+```markdown
+| # | Phase | Decision | Principle | Rationale | Classification |
+```
+
+Write one row per decision incrementally. This keeps the audit on disk,
+not accumulated in conversation context.
+
+---
+
+## Pre-Gate Verification
+
+Before presenting the Final Approval Gate, verify required outputs:
+
+**Phase 1 (Code Review) outputs:**
+- [ ] Scope drift detection completed with output
+- [ ] Two-pass review ran (Critical + Informational)
+- [ ] All findings classified and actioned
+- [ ] Review fixes committed (or "no fixes needed")
+
+**Phase 2 (QA) outputs — only if APP_URL detected:**
+- [ ] Baseline health score recorded
+- [ ] All fixable issues triaged and fix-looped
+- [ ] Final health score recorded
+- [ ] QA report written to disk
+- [ ] Health score delta computed
+
+**Phase 3 (Design Review) outputs — only if frontend scope + APP_URL:**
+- [ ] Baseline design + AI slop scores recorded
+- [ ] All fixable findings triaged and fix-looped
+- [ ] Final scores recorded
+- [ ] Design report written to disk
+
+**Cross-phase:**
+- [ ] Decision Audit Trail has at least one row per auto-decision
+
+If ANY checkbox is missing, go back and produce the missing output. Max 2 attempts —
+if still missing, proceed to gate with a warning.
+
+---
+
+## Phase 4: Final Approval Gate
+
+**STOP here and present the final state to the user.**
+
+Present as a message, then use AskUserQuestion:
+
+```
+## /autoreview Review Complete
+
+### Summary
+[1-3 sentence summary of what was reviewed and the overall state]
+
+### Phases Run
+- Phase 1 (Code Review): [summary — N issues, M fixed, K taste decisions]
+- Phase 2 (QA): [summary — N bugs, M fixed, health X → Y] or "Skipped (no app URL)"
+- Phase 3 (Design Review): [summary — N findings, M fixed, design X → Y] or "Skipped"
+
+### Decisions Made: [N] total ([M] auto-decided, [K] choices for you)
+
+### Your Choices (taste decisions)
+[For each taste decision:]
+**Choice [N]: [title]** (from Phase [X]: [skill])
+I recommend [fix approach] — [principle]. But [alternative] is also viable:
+  [1-sentence downstream impact if you pick the alternative]
+
+### Auto-Decided: [M] decisions [see audit trail at AUDIT_PATH]
+
+### Compound Scores
+- Code Review: [N] issues ([X] critical, [Y] informational) — [Z] remaining
+- QA Health: [baseline] → [final] ([delta]) — [N] bugs fixed, [M] deferred
+- Design Score: [baseline] → [final] ([delta]) — AI Slop: [baseline] → [final]
+- Ship-Readiness: [READY / NEEDS ATTENTION / NOT READY]
+
+### Commits Made
+- Phase 1: [N] commits (review fixes)
+- Phase 2: [N] commits (QA bug fixes) + [N] regression tests
+- Phase 3: [N] commits (design fixes)
+- Total: [N] new commits on this branch
+
+### Cross-Phase Findings
+[Issues that appeared in multiple phases:]
+**[topic]** — flagged in Phase [X] and Phase [Y]. [explanation]
+[If none:] "No cross-phase findings — each phase's concerns were distinct."
+
+### Deferred to TODOS.md
+[Items auto-deferred with reasons]
+```
+
+**Cognitive load management:**
+- 0 taste decisions: skip "Your Choices" section
+- 1-7 taste decisions: flat list
+- 8+: group by phase. Add warning: "This branch had unusually high ambiguity
+  ([N] taste decisions). Review carefully."
+
+AskUserQuestion options:
+- A) Approve as-is (accept all recommendations)
+- B) Approve with overrides (specify which taste decisions to change)
+- C) Interrogate (ask about any specific decision)
+- D) Revise (revert specific fixes and re-run affected phase)
+- E) Reject (revert all autoreview commits)
+
+**Option handling:**
+- A: mark APPROVED, write review logs, suggest /ship
+- B: ask which overrides, apply changes, re-present gate
+- C: answer freeform, re-present gate
+- D: revert specified commits, re-run affected phase. Max 3 cycles.
+- E: `git reset --hard RESTORE_COMMIT` — restore to pre-autoreview state
+
+---
+
+## Completion: Write Review Logs
+
+On approval, write review log entries so /ship's dashboard recognizes all reviews:
+
+```bash
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Phase 1: Code Review
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"'"$COMMIT"'","via":"autoreview"}'
+```
+
+If Phase 2 ran:
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"qa","timestamp":"'"$TIMESTAMP"'","status":"STATUS","issues_found":N,"fixed":N,"verified":N,"deferred":N,"health_before":N,"health_after":N,"commit":"'"$COMMIT"'","via":"autoreview"}'
+```
+
+If Phase 3 ran:
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","findings":N,"fixed":N,"design_score_before":N,"design_score_after":N,"slop_score_before":N,"slop_score_after":N,"commit":"'"$COMMIT"'","via":"autoreview"}'
+```
+
+Replace STATUS with "clean" if no unresolved issues, "issues_open" otherwise.
+Replace N values with actual counts from each phase.
+
+Suggest next step: `/ship` when ready to create the PR.
+
+---
+
+## Important Rules
+
+- **Never abort.** The user chose /autoreview. Respect that choice. Surface all taste decisions at the gate, never redirect to interactive review.
+- **URL is the one constraint.** If no app URL is found, Phases 2-3 are skipped but Phase 1 always runs. You cannot QA or design-review without a running app.
+- **Auto-commit dirty tree.** Unlike interactive skills which ask, /autoreview auto-commits dirty state per P6 (bias toward action).
+- **Log every decision.** No silent auto-decisions. Every choice gets a row in the audit trail.
+- **Full depth means full depth.** Do not compress or skip sections from the loaded skill files (except the skip list). Read the code each section asks you to read, produce the outputs each section requires, identify every issue, and decide each one.
+- **Artifacts are deliverables.** QA reports, design reports, test coverage diagrams, screenshots — these must exist on disk when the review completes.
+- **Sequential order.** Review → QA → Design. Each phase must complete fully before the next begins.
+- **Restore point is sacred.** Option E at the gate must fully restore to pre-autoreview state. Never lose the user's work.
+- **Self-regulation still applies.** WTF-likelihood (QA) and design-fix risk (Design Review) hard stops are not overridden by auto-decisions. If the heuristic says stop, stop.

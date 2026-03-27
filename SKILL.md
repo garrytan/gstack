@@ -240,7 +240,8 @@ user's workflow stage:
 - Strategy → /plan-ceo-review
 - Architecture → /plan-eng-review
 - Design → /plan-design-review or /design-consultation
-- Auto-review → /autoplan
+- Auto-review (plan) → /autoplan
+- Auto-review (code) → /autoreview
 - Debugging → /investigate
 - QA → /qa
 - Code review → /review
