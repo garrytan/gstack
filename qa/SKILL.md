@@ -629,12 +629,118 @@ This is the **primary mode** for developers verifying their work. When the user 
    ```
    If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
 
-3b. **Mobile project detection** — if `$BM` is available (MOBILE_READY from setup):
+3b. **Mobile project detection** (runs regardless of which mobile backend is available):
    ```bash
    ls app.json app.config.js app.config.ts 2>/dev/null
    ```
    If `app.json` or `app.config.*` exists, this is a mobile (Expo/React Native) project.
-   **Automatically set up the entire mobile environment — do not ask the user:**
+   **Run the mobile pre-flight check and backend selection below. Do not ask the user — proceed automatically.**
+
+   ---
+
+   #### MOBILE PRE-FLIGHT CHECK
+
+   The pre-flight check validates that a usable standalone build exists before spending time on device setup. This applies to BOTH local and cloud backends.
+
+   **PF-1: Extract bundle ID**
+   ```bash
+   cat app.json 2>/dev/null | grep -o '"bundleIdentifier"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"'
+   ```
+   If no bundleIdentifier found, check `app.config.js` or `app.config.ts` for it.
+
+   **PF-2: Check for standalone (non-dev-client) build profile**
+   ```bash
+   cat eas.json 2>/dev/null
+   ```
+   Parse the `eas.json` build profiles. Look for ANY profile where `developmentClient` is NOT `true` (either `false`, absent, or not set). Common standalone profiles: `preview`, `preview-sim`, `production`.
+
+   - If **only** `developmentClient: true` profiles exist (e.g., `development` profile only), or if no `eas.json` exists: **automatically create and build a standalone profile:**
+
+     1. **Add a preview profile to `eas.json`:**
+        If `eas.json` doesn't exist, create it. If it exists, add a `preview` profile:
+        ```json
+        {
+          "build": {
+            "preview": {
+              "distribution": "internal",
+              "ios": { "simulator": true }
+            }
+          }
+        }
+        ```
+        If existing profiles have `developmentClient: true`, make sure the new `preview` profile does NOT include that field (absence = standalone).
+
+     2. **Build the standalone app (local-first for speed):**
+        Try local build first — avoids the EAS cloud queue (minutes vs 10-15 min):
+        ```bash
+        npx eas-cli build --profile preview --platform ios --local --non-interactive --output /tmp/preview-build.tar.gz 2>&1
+        ```
+        If `--local` fails (missing Xcode, CocoaPods, or native deps), fall back to cloud build:
+        ```bash
+        npx eas-cli build --profile preview --platform ios --non-interactive 2>&1
+        ```
+        Cloud builds take 5-15 minutes (queue + compile). Stream the output so the user can see progress. If the build fails (e.g., missing EAS login, missing Apple credentials), show the error and use AskUserQuestion:
+        - A) I'll fix the issue and re-run /qa
+        - B) Continue with web QA instead — skip mobile testing
+
+     3. **Download the build artifact:**
+        For local builds, the artifact is already at `/tmp/preview-build.tar.gz`. For cloud builds, EAS prints a download URL — download it:
+        ```bash
+        curl -L -o /tmp/preview-build.tar.gz "<eas-build-url>"
+        ```
+        Then extract:
+        ```bash
+        tar -xzf /tmp/preview-build.tar.gz -C /tmp/
+        ls /tmp/*.app 2>/dev/null || ls /tmp/**/*.app 2>/dev/null
+        ```
+
+     4. **Upload to Revyl (if cloud mode):**
+        If Revyl MCP tools are available, upload the build:
+        ```
+        upload_build(file_path="/tmp/<app-name>.app", platform="ios")
+        ```
+        Or for local mode, install directly:
+        ```bash
+        xcrun simctl install booted /tmp/<app-name>.app
+        ```
+
+     Tell the user: "Created preview build profile, built standalone app, and uploaded it. Continuing with mobile QA."
+
+   - If a standalone profile exists: note the profile name and continue.
+
+   **PF-2b: Fast path for subsequent runs (EAS Update)**
+   If a standalone build already exists (from a previous QA run or manual build) but the code has changed since:
+   ```bash
+   npx eas-cli update --auto --non-interactive 2>&1
+   ```
+   EAS Update pushes JS bundle changes over-the-air to the existing native build — no rebuild needed, takes seconds instead of minutes. This works when only JS/TS code changed (no new native modules). If `eas update` fails or the project doesn't have EAS Update configured, skip this step silently — the existing build still works, it just won't have the latest JS changes.
+
+   **PF-3: Verify build artifact exists**
+
+   **For cloud mode (Revyl):** If Revyl MCP tools are available in this session (check if `start_device_session`, `screenshot`, `device_tap` tools exist), call `list_builds` to check if an actual build has been uploaded for this app.
+
+   - If no builds found on Revyl: **automatically build and upload.** Run the same EAS build + upload flow from PF-2 above (steps 2-4). Do not bail — fix it and continue.
+   - If builds found: note the build ID and continue.
+
+   **For local mode (`$BM`):** Check if the app is installed on the simulator:
+   ```bash
+   xcrun simctl listapps booted 2>/dev/null | grep -q "<bundleId>"
+   ```
+   If not installed, check for a pre-built `.app` in the build output directories (`ios/build/`, `~/.expo/`). If a pre-built `.app` exists, install it directly: `xcrun simctl install booted <path-to-.app>`. If no pre-built artifact exists, run the EAS build flow from PF-2 (steps 2-3) then install the result. Only fall back to `npx expo run:ios` (Metro build) as a last resort.
+
+   ---
+
+   #### MOBILE BACKEND SELECTION (local-first)
+
+   After pre-flight passes, select the mobile backend. **Local is preferred** — it's faster, free, and doesn't depend on network.
+
+   1. If `$BM` is available (MOBILE_READY from setup) AND user did NOT pass `--cloud`: **LOCAL MODE** (Appium + iOS Simulator)
+   2. If Revyl MCP tools are available AND (`$BM` is NOT available OR user passed `--cloud`): **CLOUD MODE** (Revyl)
+   3. If neither is available: fall back to **WEB MODE** and warn: "No mobile testing backend available. Install browse-mobile for local testing or configure Revyl MCP for cloud testing."
+
+   ---
+
+   #### LOCAL MODE SETUP (Appium + iOS Simulator)
 
    **Step 0: Check permissions for mobile QA commands**
    Mobile QA runs many bash commands (`$BM`, `appium`, `xcrun simctl`, `curl`, `sleep`). Check if the user's Claude Code settings already allow these:
@@ -675,13 +781,7 @@ This is the **primary mode** for developers verifying their work. When the user 
 
    If B: Continue — the user will approve each command individually.
 
-   **Step 1: Extract bundle ID**
-   ```bash
-   cat app.json 2>/dev/null | grep -o '"bundleIdentifier"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"'
-   ```
-   If no bundleIdentifier found, check `app.config.js` or `app.config.ts` for it.
-
-   **Step 2: Start Appium if not running**
+   **Step 1: Start Appium if not running**
    ```bash
    curl -s http://127.0.0.1:4723/status | grep -q '"ready":true' 2>/dev/null
    ```
@@ -693,7 +793,7 @@ This is the **primary mode** for developers verifying their work. When the user 
    ```
    If Appium fails to start, run `$BM setup-check` to diagnose missing dependencies and show the user what to install. Then continue with web QA as fallback.
 
-   **Step 3: Boot simulator if none running**
+   **Step 2: Boot simulator if none running**
    ```bash
    xcrun simctl list devices booted | grep -q "Booted"
    ```
@@ -704,42 +804,106 @@ This is the **primary mode** for developers verifying their work. When the user 
    sleep 3
    ```
 
-   **Step 4: Check if app is installed, build if not**
-   ```bash
-   xcrun simctl listapps booted 2>/dev/null | grep -q "<bundleId>"
-   ```
-   If the app is NOT installed on the simulator:
-   - Check if Metro bundler is running: `lsof -i :8081 | grep -q LISTEN`
-   - If Metro not running, start it: `cd <project_root> && npx expo start --ios &` and wait 10s
-   - Run: `npx expo run:ios` to build and install the app (this may take 2-5 minutes for first build — let it run)
-   - After build completes, verify: `xcrun simctl listapps booted | grep -q "<bundleId>"`
+   **Step 3: Install app if not already installed**
+   The pre-flight check (PF-3) already determined whether the app is installed. If not, it found a pre-built `.app` or determined Metro build is needed.
+   - If pre-built `.app` was found: `xcrun simctl install booted <path-to-.app>`
+   - If no pre-built `.app`: start Metro and build:
+     - Check if Metro bundler is running: `lsof -i :8081 | grep -q LISTEN`
+     - If Metro not running, start it: `cd <project_root> && npx expo start --ios &` and wait 10s
+     - Run: `npx expo run:ios` to build and install the app (this may take 2-5 minutes for first build — let it run)
+     - After build completes, verify: `xcrun simctl listapps booted | grep -q "<bundleId>"`
 
-   **Step 5: Activate mobile mode**
-   If all steps succeeded: **MOBILE MODE ACTIVE** — use `$BM` instead of `$B` for all subsequent commands.
+   **Step 4: Activate local mobile mode**
+   If all steps succeeded: **LOCAL MOBILE MODE ACTIVE** — use `$BM` instead of `$B` for all subsequent commands.
    Set the environment: `BROWSE_MOBILE_BUNDLE_ID=<bundleId>`
 
-   **In mobile mode, the QA flow adapts:**
+   ---
 
-   **SPEED IS CRITICAL — batch commands to minimize round trips:**
-   - Combine multiple commands in a single bash call using `&&`: e.g., `$BM click label:Sign In" && sleep 2 && $BM snapshot -i && $BM screenshot /tmp/screen.png`
-   - Do NOT run each command as a separate Bash call — that adds permission prompts and overhead
-   - Use `sleep 1` or `sleep 2` between commands (not separate tool calls)
+   #### CLOUD MODE SETUP (Revyl)
+
+   **Step 0: Start device session**
+   ```
+   start_device_session(platform="ios")
+   ```
+   Save the returned `viewer_url` and `session_index`. Tell the user: "Revyl device provisioned. Viewer: <viewer_url>"
+
+   **Step 1: Install and launch the app**
+   If PF-3 found an uploaded build: `install_app()` using the build from `list_builds`.
+   Then: `launch_app()` to start the app.
+
+   **Step 2: Verify app launched correctly**
+   ```
+   screenshot()
+   ```
+   Check the screenshot. If it shows "DEVELOPMENT SERVERS" or the Expo dev launcher, the build is a dev client — the pre-flight should have caught this. Stop and tell the user to create a standalone build.
+
+   **CLOUD MOBILE MODE ACTIVE** — use Revyl MCP tools for all subsequent commands.
+
+   ---
+
+   #### MOBILE COMMAND REFERENCE
+
+   | Action | Local (`$BM`) | Cloud (Revyl MCP) |
+   |--------|---------------|-------------------|
+   | Launch app | `$BM goto app://<bundleId>` | `launch_app()` or `device_navigate(url)` |
+   | Tap element | `$BM click @e3` or `$BM click label:Text` | `device_tap(target="the 'Text' button")` |
+   | Type text | `$BM fill @e3 "text"` | `device_tap(target="input field")` then `device_type(text="text")` |
+   | Screenshot | `$BM screenshot <path>` | `screenshot()` |
+   | Scroll down | `$BM scroll down` | `device_swipe(direction="up")` (finger UP = content DOWN) |
+   | Scroll up | `$BM scroll up` | `device_swipe(direction="down")` |
+   | Go back | `$BM back` | `device_back()` |
+   | Get element tree | `$BM snapshot -i` | `screenshot()` + describe what's visible |
+   | Check orientation | `$BM viewport landscape` | Not available — device is fixed orientation |
+   | Console errors | SKIP | SKIP |
+
+   **Revyl interaction tips:**
+   - `device_tap(target=...)` uses AI vision grounding — describe what's visible on screen: "the 'Sign In' button", "input box with placeholder 'Email'"
+   - Always call `screenshot()` after actions to verify the result
+   - Use `device_swipe` for scrolling: `direction="up"` scrolls content DOWN (reveals content below)
+   - For form filling: tap the field first, then type. Two separate calls.
+   - `device_clear_text()` before typing if the field has existing content
+
+   ---
+
+   #### MOBILE SESSION MANAGEMENT (Cloud mode only)
+
+   **Keep-alive during fix phases:** The Revyl device session has a 5-minute idle timeout. During fix phases (reading code, editing files, committing), the session may expire. **Before resuming any device interaction after a code edit:**
+
+   1. Call `get_session_info()` to check session status
+   2. If the session is expired or has less than 1 minute remaining:
+      - Call `stop_device_session()` (clean up the old session)
+      - Call `start_device_session(platform="ios")` (new session)
+      - Call `install_app()` and `launch_app()` (re-install and relaunch)
+      - Navigate back to the screen you were testing
+   3. If the session is healthy: continue normally
+
+   **Cleanup:** At the end of QA (or on any error that aborts the run), always call `stop_device_session()` to release the cloud device and stop billing.
+
+   ---
+
+   **In mobile mode (both local and cloud), the QA flow adapts:**
+
+   **SPEED IS CRITICAL — minimize round trips:**
+   - **Local mode:** Combine multiple commands in a single bash call using `&&`: e.g., `$BM click label:Sign In" && sleep 2 && $BM snapshot -i && $BM screenshot /tmp/screen.png`
+   - **Cloud mode:** Take a screenshot after every action to verify results (Revyl tools are individual MCP calls, not batchable). Keep actions concise — one tap, one screenshot, assess, next action.
    - Take screenshots only at key milestones (after navigation, after finding a bug), not after every single tap
 
    **Launch and navigate:**
-   - Launch the app: `$BM goto app://<bundleId>`
-   - If the first snapshot shows "DEVELOPMENT SERVERS" or "localhost:8081" — this is the Expo dev launcher. Automatically click the localhost URL: `$BM click label:http://localhost:8081" && sleep 8 && $BM snapshot -i`
-   - Use `$BM snapshot -i` to get the accessibility tree with @e refs
+   - **Local:** Launch the app: `$BM goto app://<bundleId>`
+   - **Cloud:** `launch_app()` then `screenshot()` to see initial state
+   - If the screen shows "DEVELOPMENT SERVERS" or "localhost:8081" — this is the Expo dev launcher. The pre-flight check should have prevented this. If it appears, stop and tell the user to create a standalone build.
 
    **Interacting with elements:**
-   - If an element is visible in `$BM text` but not detected as interactive (common with RN `Pressable` missing `accessibilityRole`), use `$BM click label:Label Text"` — this is the primary fallback
+   - **Local:** If an element is visible in `$BM text` but not detected as interactive (common with RN `Pressable` missing `accessibilityRole`), use `$BM click label:Label Text"` — this is the primary fallback
+   - **Cloud:** Use `device_tap(target="description of element")` — Revyl's AI grounding handles element detection automatically
    - Skip web-only commands: `console --errors`, `html`, `css`, `js`, `cookies` — not available in mobile mode
-   - For form filling: `$BM fill @e3 "text"` works — coordinate tap + keyboard if needed
-   - Use `$BM scroll down` for content below the fold, `$BM back` for navigation
+   - For form filling: **Local:** `$BM fill @e3 "text"`. **Cloud:** `device_tap(target="field")` then `device_type(text="text")`
+   - Scrolling: **Local:** `$BM scroll down`. **Cloud:** `device_swipe(direction="up")`
+   - Back navigation: **Local:** `$BM back`. **Cloud:** `device_back()`
 
    **Findings:**
    - Flag missing `accessibilityRole` / `accessibilityLabel` as accessibility findings
-   - Test portrait and landscape: `$BM viewport landscape && sleep 1 && $BM screenshot /tmp/landscape.png`
+   - Test portrait and landscape (local only): `$BM viewport landscape && sleep 1 && $BM screenshot /tmp/landscape.png`
    - Take screenshots at milestones and use the Read tool to show them to the user
 
 4. **Test each affected page/route:**
@@ -973,14 +1137,15 @@ Minimum 0 per category.
 - Test browser back/forward — does the app handle history correctly?
 - Check for memory leaks (monitor console after extended use)
 
-### Expo / React Native (mobile mode — `$BM`)
-- Many `Pressable` / `TouchableOpacity` components lack `accessibilityRole="button"` — they won't appear as interactive in `$BM snapshot -i`. Use `$BM text` to find visible labels, then `$BM click label:Label"` to tap by accessibility label.
-- After tapping navigation elements, wait 1-2s before taking a snapshot — RN transitions are animated.
-- Test both portrait and landscape orientation: `$BM viewport landscape` / `$BM viewport portrait`.
+### Expo / React Native (mobile mode — local `$BM` or cloud Revyl)
+- Many `Pressable` / `TouchableOpacity` components lack `accessibilityRole="button"` — they won't appear as interactive. **Local:** Use `$BM text` to find visible labels, then `$BM click label:Label"`. **Cloud:** Use `device_tap(target="visible label text")` — Revyl's AI grounding handles this automatically.
+- After tapping navigation elements, wait 1-2s before taking a snapshot — RN transitions are animated. **Cloud:** call `device_wait(milliseconds=2000)` or just call `screenshot()` after a brief pause.
+- Test both portrait and landscape orientation (local only): `$BM viewport landscape` / `$BM viewport portrait`. Cloud devices have fixed orientation.
 - Flag every component without proper accessibility props (`accessibilityRole`, `accessibilityLabel`) as an accessibility finding — these affect both screen readers and automation.
-- The Expo dev launcher (showing "DEVELOPMENT SERVERS") appears on first launch — click through to the actual app.
+- If the Expo dev launcher appears (showing "DEVELOPMENT SERVERS"), the pre-flight check missed a dev-client build. Stop and instruct the user to create a standalone build.
 - RevenueCat / in-app purchase errors in development are expected — note but don't flag as bugs.
-- `$BM scroll down` uses swipe gestures — for FlatList/ScrollView content below the fold.
+- Scrolling: **Local:** `$BM scroll down` uses swipe gestures. **Cloud:** `device_swipe(direction="up")` — remember direction is finger direction, not content direction.
+- **Cloud session management:** Before resuming device interaction after editing source code, call `get_session_info()` to verify the session is still active. Restart if expired (see Mobile Session Management section above).
 
 ---
 
