@@ -471,8 +471,14 @@ which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 
 1. **Codex design voice** (via Bash):
 ```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-codex exec "Given this product context, propose a complete design direction:
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\"$CODEX_MODEL\""
+  codex exec "Given this product context, propose a complete design direction:
 - Visual thesis: one sentence describing mood, material, and energy
 - Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
 - Color system: CSS variables for background, surface, primary text, muted text, accent
@@ -480,8 +486,10 @@ codex exec "Given this product context, propose a complete design direction:
 - Differentiation: 2 deliberate departures from category norms
 - Anti-slop: no purple gradients, no 3-column icon grids, no centered everything, no decorative blobs
 
-Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+fi
 ```
+If the output is `CODEX_SKIP_NO_MODEL`, skip Codex voice and proceed with Claude subagent only, tagged `[single-model]`.
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"

@@ -1090,9 +1090,18 @@ THE PLAN:
 **If CODEX_AVAILABLE:**
 
 ```bash
-TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
-codex exec "<prompt>" -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\"$CODEX_MODEL\""
+  codex exec "<prompt>" -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+fi
 ```
+
+If the output is `CODEX_SKIP_NO_MODEL`, treat as Codex unavailable and fall back to the Claude adversarial subagent.
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash

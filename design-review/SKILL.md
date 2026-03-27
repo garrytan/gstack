@@ -996,8 +996,14 @@ which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 
 1. **Codex design voice** (via Bash):
 ```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\"$CODEX_MODEL\""
+  codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
 - Spacing: systematic (design tokens / CSS variables) or magic numbers?
 - Typography: expressive purposeful fonts or default stacks?
 - Color: CSS variables with defined system, or hardcoded hex scattered?
@@ -1026,8 +1032,10 @@ HARD REJECTION — flag if ANY apply:
 6. Carousel with no narrative purpose
 7. App UI made of stacked cards instead of layout
 
-Be specific. Reference file:line for every finding." -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+Be specific. Reference file:line for every finding." -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+fi
 ```
+If the output is `CODEX_SKIP_NO_MODEL`, skip Codex voice and proceed with Claude subagent only, tagged `[single-model]`.
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
