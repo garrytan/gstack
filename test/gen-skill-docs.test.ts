@@ -259,7 +259,7 @@ describe('gen-skill-docs', () => {
       // Must NOT have a bare shell glob ".pending-*" outside of find's -name argument
       expect(content).not.toMatch(/for _PF in [^\n]*\/\.pending-\*/);
       // Must use find to avoid zsh NOMATCH error on glob expansion
-      expect(content).toContain("find ~/.gstack/analytics -maxdepth 1 -name '.pending-*'");
+      expect(content).toContain("find \"$HOME/.gstack/analytics\" -maxdepth 1 -name '.pending-*'");
     }
   });
 
