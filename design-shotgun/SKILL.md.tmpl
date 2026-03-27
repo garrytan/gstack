@@ -144,31 +144,67 @@ echo "DESIGN_DIR: $_DESIGN_DIR"
 
 Replace `<screen-name>` with a descriptive kebab-case name from the context gathering.
 
+**Timing estimate:** Before generating, tell the user:
+
+> "Generating {N} variants. Each takes ~60 seconds. Total ~{N} minutes. I'll show each one as it lands."
+
 **If evolving from a screenshot** (user said "I don't like THIS"):
+
+First, take ONE screenshot of the current page:
 
 ```bash
 $B screenshot "$_DESIGN_DIR/current.png"
-$D evolve --screenshot "$_DESIGN_DIR/current.png" --brief "<improvement brief>" --output "$_DESIGN_DIR/variant-A.png"
 ```
 
-Generate 2-3 evolved variants.
+Then for each evolved variant (A, B, C):
+1. Tell the user: "Generating Variant {letter}: {description}..."
+2. Run:
+```bash
+$D evolve --screenshot "$_DESIGN_DIR/current.png" --brief "<improvement brief for this variant>" --output /tmp/variant-{letter}.png
+cp /tmp/variant-{letter}.png "$_DESIGN_DIR/variant-{letter}.png"
+```
+3. Verify the file exists: `ls -la "$_DESIGN_DIR/variant-{letter}.png"`. If missing, retry once with `$D generate` as fallback.
+4. Read the PNG inline (Read tool) so the user sees it immediately.
+5. Tell the user: "Variant {letter} done. ({file size})"
 
 **Otherwise** (fresh exploration):
 
+For each variant (A, B, C, ...N):
+1. Tell the user: "Generating Variant {letter}: {one-line description of this variant's direction}..."
+2. Run:
 ```bash
-$D variants --brief "<assembled brief with taste memory>" --count <N> --output-dir "$_DESIGN_DIR/"
+$D generate --brief "<variant-specific brief>" --output /tmp/variant-{letter}.png
+cp /tmp/variant-{letter}.png "$_DESIGN_DIR/variant-{letter}.png"
+```
+3. Verify the file exists and has non-zero size:
+```bash
+if [ ! -f "$_DESIGN_DIR/variant-{letter}.png" ] || [ ! -s "$_DESIGN_DIR/variant-{letter}.png" ]; then
+  echo "MISSING: variant-{letter}.png — retrying..."
+  $D generate --brief "<same brief>" --output /tmp/variant-{letter}.png
+  cp /tmp/variant-{letter}.png "$_DESIGN_DIR/variant-{letter}.png"
+fi
+ls -lh "$_DESIGN_DIR/variant-{letter}.png"
+```
+4. Read the PNG inline (Read tool) so the user sees it immediately.
+5. Tell the user: "Variant {letter} done. ({file size})"
+
+Each variant gets its own `$D generate` call (NOT `$D variants` batch). This means:
+- The user sees each variant ~60s after it starts, not all at ~180s
+- Silent failures are caught immediately, not discovered later by `ls`
+- Each variant can have a distinct brief tuned to its design direction
+
+Run quality check after each variant:
+```bash
+$D check --image "$_DESIGN_DIR/variant-{letter}.png" --brief "<the brief>"
 ```
 
-Run quality check on each variant:
+**Why /tmp/ then cp?** In observed sessions, `$D generate --output ~/.gstack/...`
+failed with "The operation was aborted" while `--output /tmp/...` succeeded. This is
+likely a sandbox restriction on the `~/.gstack/` path. Always generate to `/tmp/` first,
+then `cp` to `$_DESIGN_DIR/`. This is the default pattern, not a fallback.
 
-```bash
-$D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the brief>"
-```
-
-**Show variants inline** (before opening the browser board):
-
-Read each variant PNG with the Read tool so the user sees them immediately in their
-terminal. This gives instant preview without waiting for the browser to open.
+**If a variant fails after retry:** Report explicitly: "Variant {letter} failed to
+generate after retry. Continuing with the remaining variants." Do NOT silently skip.
 
 ## Step 4: Comparison Board + Feedback Loop
 
