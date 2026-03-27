@@ -41,7 +41,14 @@ const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 1
 
 function validateAuth(req: Request): boolean {
   const header = req.headers.get('authorization');
-  return header === `Bearer ${AUTH_TOKEN}`;
+  if (header === `Bearer ${AUTH_TOKEN}`) return true;
+  // Fallback: accept token as query parameter (for EventSource which can't set headers)
+  try {
+    const url = new URL(req.url);
+    return url.searchParams.get('token') === AUTH_TOKEN;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Help text (auto-generated from COMMAND_DESCRIPTIONS) ────────
@@ -840,8 +847,11 @@ async function start() {
         });
       }
 
-      // Refs endpoint — no auth required (localhost-only), does NOT reset idle timer
+      // Refs endpoint — auth required, does NOT reset idle timer
       if (url.pathname === '/refs') {
+        if (!validateAuth(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
         const refs = browserManager.getRefMap();
         return new Response(JSON.stringify({
           refs,
@@ -851,13 +861,15 @@ async function start() {
           status: 200,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
           },
         });
       }
 
-      // Activity stream — SSE, no auth (localhost-only), does NOT reset idle timer
+      // Activity stream — SSE, auth required, does NOT reset idle timer
       if (url.pathname === '/activity/stream') {
+        if (!validateAuth(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
         const afterId = parseInt(url.searchParams.get('after') || '0', 10);
         const encoder = new TextEncoder();
 
@@ -905,20 +917,21 @@ async function start() {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*',
           },
         });
       }
 
-      // Activity history — REST, no auth (localhost-only), does NOT reset idle timer
+      // Activity history — REST, auth required, does NOT reset idle timer
       if (url.pathname === '/activity/history') {
+        if (!validateAuth(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
         const limit = parseInt(url.searchParams.get('limit') || '50', 10);
         const { entries, totalAdded } = getActivityHistory(limit);
         return new Response(JSON.stringify({ entries, totalAdded, subscribers: getSubscriberCount() }), {
           status: 200,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
           },
         });
       }
