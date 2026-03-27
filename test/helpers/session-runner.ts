@@ -163,14 +163,11 @@ export async function runSkillTest(options: {
     '--allowed-tools', ...allowedTools,
   ];
 
-  // Write prompt to a temp file OUTSIDE workingDirectory to avoid race conditions
-  // where afterAll cleanup deletes the dir before cat reads the file (especially
-  // with --concurrent --retry). Using os.tmpdir() + unique suffix keeps it stable.
-  const promptFile = path.join(os.tmpdir(), `.prompt-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  fs.writeFileSync(promptFile, prompt);
-
-  const proc = Bun.spawn(['sh', '-c', `cat "${promptFile}" | claude ${args.map(a => `"${a}"`).join(' ')}`], {
+  // Spawn claude directly with array-form args (no shell interpolation).
+  // Prompt is piped via stdin using a Blob to avoid temp files and shell escaping.
+  const proc = Bun.spawn(['claude', ...args], {
     cwd: workingDirectory,
+    stdin: new Blob([prompt]),
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -274,8 +271,6 @@ export async function runSkillTest(options: {
   stderr = await stderrPromise;
   const exitCode = await proc.exited;
   clearTimeout(timeoutId);
-
-  try { fs.unlinkSync(promptFile); } catch { /* non-fatal */ }
 
   if (timedOut) {
     exitReason = 'timeout';
