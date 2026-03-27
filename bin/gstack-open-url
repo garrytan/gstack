@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# gstack-open-url — cross-platform URL opener
+#
+# Usage:
+#   gstack-open-url <url>  — open URL in default browser
+#
+# Supports macOS (open), Linux (xdg-open), and Windows (start)
+#
+# Env overrides (for testing):
+#   GSTACK_OPEN_CMD  — override the open command
+set -euo pipefail
+
+URL="${1:-}"
+
+if [ -z "$URL" ]; then
+  echo "Usage: gstack-open-url <url>" >&2
+  exit 1
+fi
+
+# Allow explicit override via environment
+if [ -n "${GSTACK_OPEN_CMD:-}" ]; then
+  $GSTACK_OPEN_CMD "$URL"
+  exit 0
+fi
+
+# Detect platform and use appropriate command
+case "$(uname -s)" in
+  Darwin)
+    # macOS
+    open "$URL"
+    ;;
+  Linux)
+    # Linux - use xdg-open
+    if command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "$URL"
+    else
+      echo "Error: xdg-open not found. Install xdg-utils or set GSTACK_OPEN_CMD." >&2
+      exit 1
+    fi
+    ;;
+  CYGWIN*|MINGW*|MSYS*)
+    # Windows
+    start "" "$URL"
+    ;;
+  *)
+    echo "Error: Unknown platform $(uname -s). Set GSTACK_OPEN_CMD to override." >&2
+    exit 1
+    ;;
+esac
