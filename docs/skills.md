@@ -18,6 +18,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/cso`](#cso) | **Chief Security Officer** | OWASP Top 10 + STRIDE threat modeling security audit. Scans for injection, auth, crypto, and access control issues. |
 | [`/document-release`](#document-release) | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
+| [`/oracle`](#oracle) | **Product Conscience** | Persistent product memory. Bootstraps a feature map from your codebase, tracks patterns and anti-patterns, surfaces connections during planning, warns about repeated mistakes. Runs silently through other skills. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | | | |
@@ -606,6 +607,93 @@ Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs,
 ```
 
 It saves a JSON snapshot to `.context/retros/` so the next run can show trends.
+
+---
+
+## `/oracle`
+
+This is the **product conscience** — the voice that knows every decision, sees every connection, and steers you away from repeating mistakes.
+
+The best memory system is one you never interact with directly. Most of the time, `/oracle` runs silently through other gstack skills. When you run `/plan-eng-review`, it already knows what features depend on the code you're changing. When you run `/ship`, it automatically updates the product map with what you shipped. When you run `/qa`, it knows which features are connected to the page you're testing.
+
+### How it works
+
+`/oracle` maintains a **product map** — a structured registry of every feature in your codebase. Not documentation you write and forget. A living mirror of your code, verified against reality on every read and write.
+
+Each feature entry tracks: purpose, category, data layer, UI patterns, components, architecture decisions, connections to other features, hard dependencies, and anti-patterns (things that were tried and failed).
+
+### The 6 modes
+
+| Command | What it does |
+|---------|-------------|
+| `/oracle` | Bootstrap a product map from scratch (first run), or show product overview (subsequent runs) |
+| `/oracle inventory` | Budgeted deep scan — reads every page component, traces data flow, writes per-feature docs. Checkpoints after each batch so it resumes across sessions. |
+| `/oracle refresh` | Full re-analysis from git history and code |
+| `/oracle update` | Lightweight sync — reconciles commits since last write |
+| `/oracle stats` | Product health dashboard — features, codebase metrics, route complexity, architecture issues |
+| `/oracle {question}` | Answer questions with product context ("what depends on auth?", "which features use DataTable?") |
+
+### Bootstrap
+
+On first run, `/oracle` analyzes your git history — commit patterns, file clusters, directory structure, route definitions — and identifies features automatically. It assigns IDs, infers categories, maps connections, and detects anti-patterns from revert/fix commit sequences. Target accuracy: >80% of features correctly identified.
+
+### Inventory
+
+The deep scan. Processes routes chronologically (foundation first, newest last) within a per-session budget of ~3,000 source lines. For each route:
+
+1. Reads the page component and traces the component tree
+2. Identifies hooks, RPC calls, TanStack Query keys, mutations
+3. Maps UI patterns and architecture decisions
+4. Writes a concise Tier 1 entry to the product map (~12 lines)
+5. Writes a detailed Tier 2 doc to `inventory/F{NNN}-{feature}.md`
+
+If the session runs out of budget, it checkpoints. Run `/oracle inventory` again and it picks up where it left off.
+
+### Silent integration
+
+The real power is what you don't see. Two template resolvers — `PRODUCT_CONSCIENCE_READ` and `PRODUCT_CONSCIENCE_WRITE` — are embedded across 8 skills:
+
+- **READ** fires at skill start: generates an intelligence brief with connections, dependencies, reusable patterns, and anti-pattern warnings relevant to what you're working on
+- **WRITE** fires after completion: silently updates the product map with new features, status transitions, pattern changes
+
+### Example
+
+```
+You:   /oracle
+
+Claude: I identified 20 features from your codebase. Here's the product map:
+
+        iskool started as an ed-tech social learning platform...
+
+        F001: Authentication & Auth Gate [SHIPPED]
+        F003: Classroom & Courses [SHIPPED]
+        F004: Profile & Social Graph [SHIPPED]
+        ...
+
+        IDENTITY
+        ███████████████ 30% social
+        ████████ 15% admin
+        █████ 10% content-creation
+        █████ 10% learning
+
+        Review it — correct any features I missed or got wrong.
+```
+
+```
+You:   /oracle stats
+
+Claude: PRODUCT HEALTH — iskool
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        FEATURES (20)  Shipped: 20
+        CODEBASE       536 files, 73,120 lines, 26 routes
+        COMPLEXITY     EASY: 9  MEDIUM: 8  MEGA: 9
+        ARCHITECTURE   4 circular deps, 39 dead files
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Classification
+
+Routes are classified by complexity using **git co-change analysis** — not import graphs. For each page file, it finds which files actually co-change in commits. Files that co-change with many pages are shared infrastructure and excluded. This produces meaningful complexity scores that work for any language and framework.
 
 ---
 
