@@ -15,6 +15,7 @@ import { generateReviewDashboard, generatePlanFileReviewReport, generateSpecRevi
 import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer } from './utility';
 
 export const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
+  SKILL_NAME: (ctx) => ctx.skillName,
   SLUG_EVAL: generateSlugEval,
   SLUG_SETUP: generateSlugSetup,
   COMMAND_REFERENCE: generateCommandReference,

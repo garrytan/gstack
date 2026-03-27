@@ -23,6 +23,26 @@ import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, gen
 const ROOT = path.resolve(import.meta.dir, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
 
+// ─── Prefix / Output-Root Args ───────────────────────────────
+// --prefix <string>  e.g. --prefix gstack-   (default: no prefix)
+// --output-root <dir>  write generated SKILL.md files to <dir>/<skillName>/SKILL.md
+//   instead of the source directory. Used by `setup` to install prefixed skills
+//   into ~/.claude/skills/ without modifying the committed source files.
+
+function parseArg(flag: string): string | null {
+  const idx = process.argv.indexOf(flag);
+  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
+  const eq = process.argv.find(a => a.startsWith(`${flag}=`));
+  return eq ? eq.slice(flag.length + 1) : null;
+}
+
+const SKILL_PREFIX: string = parseArg('--prefix') ?? '';
+
+const _outputRootRaw = parseArg('--output-root');
+const OUTPUT_ROOT: string | null = _outputRootRaw
+  ? _outputRootRaw.replace(/^~/, process.env.HOME ?? '~')
+  : null;
+
 // ─── Host Detection ─────────────────────────────────────────
 
 const HOST_ARG = process.argv.find(a => a.startsWith('--host'));
@@ -2244,9 +2264,27 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     outputPath = path.join(outputDir, 'SKILL.md');
   }
 
-  // Extract skill name from frontmatter for TemplateContext
+  // Derive skill name from directory name + optional prefix.
+  // If the template uses name: {{SKILL_NAME}}, extractedName would be a placeholder
+  // string — we fall back to the directory name in that case.
   const { name: extractedName, description: extractedDescription } = extractNameAndDescription(tmplContent);
-  const skillName = extractedName || path.basename(path.dirname(tmplPath));
+  const dirBaseName = (skillDir === '.' || skillDir === '') ? 'gstack' : path.basename(path.dirname(tmplPath));
+  const baseSkillName = (extractedName && !extractedName.includes('{{'))
+    ? extractedName   // legacy: hardcoded name field in template
+    : dirBaseName;    // new: name: {{SKILL_NAME}} — derive from directory
+  // Apply prefix unless the name already starts with it (e.g., gstack-upgrade + gstack-).
+  const skillName = SKILL_PREFIX && !baseSkillName.startsWith(SKILL_PREFIX)
+    ? `${SKILL_PREFIX}${baseSkillName}`
+    : baseSkillName;
+
+  // When --output-root is set, write to <output-root>/<skillName>/SKILL.md instead of
+  // the source directory. Used by `setup` to install prefixed/flat SKILL.md files into
+  // ~/.claude/skills/ without modifying the committed source files.
+  if (OUTPUT_ROOT && host === 'claude' && skillDir !== '.') {
+    const outDir = path.join(OUTPUT_ROOT, skillName);
+    fs.mkdirSync(outDir, { recursive: true });
+    outputPath = path.join(outDir, 'SKILL.md');
+  }
 
   // Extract benefits-from list from frontmatter (inline YAML: benefits-from: [a, b])
   const benefitsMatch = tmplContent.match(/^benefits-from:\s*\[([^\]]*)\]/m);

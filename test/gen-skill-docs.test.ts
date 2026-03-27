@@ -1567,20 +1567,20 @@ describe('Codex generation (--host codex)', () => {
 describe('setup script validation', () => {
   const setupContent = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
 
-  test('setup has separate link functions for Claude and Codex', () => {
-    expect(setupContent).toContain('link_claude_skill_dirs');
+  test('setup has separate install functions for Claude and Codex', () => {
+    expect(setupContent).toContain('generate_claude_skill_docs');
     expect(setupContent).toContain('link_codex_skill_dirs');
     // Old unified function must not exist
     expect(setupContent).not.toMatch(/^link_skill_dirs\(\)/m);
   });
 
-  test('Claude install uses link_claude_skill_dirs', () => {
-    // The Claude install section (section 4) should use the Claude function
+  test('Claude install uses generate_claude_skill_docs', () => {
+    // The Claude install section (section 4) should use the generate function
     const claudeSection = setupContent.slice(
       setupContent.indexOf('# 4. Install for Claude'),
       setupContent.indexOf('# 5. Install for Codex')
     );
-    expect(claudeSection).toContain('link_claude_skill_dirs');
+    expect(claudeSection).toContain('generate_claude_skill_docs');
     expect(claudeSection).not.toContain('link_codex_skill_dirs');
   });
 
@@ -1592,7 +1592,7 @@ describe('setup script validation', () => {
     );
     expect(codexSection).toContain('create_codex_runtime_root');
     expect(codexSection).toContain('link_codex_skill_dirs');
-    expect(codexSection).not.toContain('link_claude_skill_dirs');
+    expect(codexSection).not.toContain('generate_claude_skill_docs');
     expect(codexSection).not.toContain('ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"');
   });
 
@@ -1626,12 +1626,13 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
-  test('link_claude_skill_dirs creates relative symlinks', () => {
-    // Claude links should be relative: ln -snf "gstack/skill_name"
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+  test('generate_claude_skill_docs uses gen-skill-docs.ts with output-root', () => {
+    // Claude skill generation should call gen-skill-docs.ts with --output-root
+    const fnStart = setupContent.indexOf('generate_claude_skill_docs()');
+    const fnEnd = setupContent.indexOf('\n}', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('ln -snf "gstack/$skill_name"');
+    expect(fnBody).toContain('gen-skill-docs.ts');
+    expect(fnBody).toContain('--output-root');
   });
 
   test('setup supports --host auto|claude|codex|kiro', () => {
@@ -1705,20 +1706,20 @@ describe('setup script validation', () => {
 
   // --- Symlink prefix tests (PR #503) ---
 
-  test('link_claude_skill_dirs applies gstack- prefix by default', () => {
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+  test('generate_claude_skill_docs passes --prefix gstack- when SKILL_PREFIX is set', () => {
+    const fnStart = setupContent.indexOf('generate_claude_skill_docs()');
+    const fnEnd = setupContent.indexOf('\n}', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('SKILL_PREFIX');
-    expect(fnBody).toContain('link_name="gstack-$skill_name"');
+    expect(fnBody).toContain('--prefix gstack-');
   });
 
-  test('link_claude_skill_dirs preserves already-prefixed dirs', () => {
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    // gstack-* dirs should keep their name (e.g., gstack-upgrade stays gstack-upgrade)
-    expect(fnBody).toContain('gstack-*) link_name="$skill_name"');
+  test('gen-skill-docs preserves already-prefixed dirs (gstack-upgrade stays gstack-upgrade)', () => {
+    // This is now handled inside gen-skill-docs.ts, not setup.
+    // Verify the logic exists in gen-skill-docs.ts.
+    const genDocsPath = path.join(ROOT, 'scripts', 'gen-skill-docs.ts');
+    const genDocsContent = fs.readFileSync(genDocsPath, 'utf-8');
+    expect(genDocsContent).toContain('startsWith(SKILL_PREFIX)');
   });
 
   test('setup supports --no-prefix flag', () => {
@@ -1738,11 +1739,11 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack-*) continue');
   });
 
-  test('cleanup runs before link when prefix is enabled', () => {
-    // In the Claude install section, cleanup should happen before linking
+  test('cleanup runs before generate when prefix is enabled', () => {
+    // In the Claude install section, cleanup should happen before generating
     const claudeInstallSection = setupContent.slice(
       setupContent.indexOf('INSTALL_CLAUDE'),
-      setupContent.lastIndexOf('link_claude_skill_dirs')
+      setupContent.lastIndexOf('generate_claude_skill_docs')
     );
     expect(claudeInstallSection).toContain('cleanup_old_claude_symlinks');
   });
@@ -1783,10 +1784,10 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack-$skill_name');
   });
 
-  test('reverse cleanup runs before link when prefix is disabled', () => {
+  test('reverse cleanup runs before generate when prefix is disabled', () => {
     const claudeInstallSection = setupContent.slice(
       setupContent.indexOf('INSTALL_CLAUDE'),
-      setupContent.lastIndexOf('link_claude_skill_dirs')
+      setupContent.lastIndexOf('generate_claude_skill_docs')
     );
     expect(claudeInstallSection).toContain('cleanup_prefixed_claude_symlinks');
   });
@@ -1955,5 +1956,79 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
       }
     }
     expect(violations).toEqual([]);
+  });
+});
+
+describe('--prefix and --output-root integration', () => {
+  // These tests actually invoke gen-skill-docs.ts and read the output files.
+  // They verify the end-to-end behavior that the unit tests above can't catch:
+  // that the generated SKILL.md files have the correct name: field.
+
+  test('--prefix gstack- writes name: gstack-<skill> into output-root', () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prefix-test-'));
+    try {
+      const result = Bun.spawnSync(
+        ['bun', 'run', 'scripts/gen-skill-docs.ts', '--prefix', 'gstack-', '--output-root', outDir],
+        { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+      );
+      expect(result.exitCode).toBe(0);
+
+      // A normal skill: ship → gstack-ship
+      const shipSkill = path.join(outDir, 'gstack-ship', 'SKILL.md');
+      expect(fs.existsSync(shipSkill)).toBe(true);
+      const shipContent = fs.readFileSync(shipSkill, 'utf-8');
+      expect(shipContent).toMatch(/^name: gstack-ship$/m);
+
+      // A normal skill: qa → gstack-qa
+      const qaSkill = path.join(outDir, 'gstack-qa', 'SKILL.md');
+      expect(fs.existsSync(qaSkill)).toBe(true);
+      const qaContent = fs.readFileSync(qaSkill, 'utf-8');
+      expect(qaContent).toMatch(/^name: gstack-qa$/m);
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  test('already-prefixed skill (gstack-upgrade) is not double-prefixed', () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-double-prefix-test-'));
+    try {
+      const result = Bun.spawnSync(
+        ['bun', 'run', 'scripts/gen-skill-docs.ts', '--prefix', 'gstack-', '--output-root', outDir],
+        { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+      );
+      expect(result.exitCode).toBe(0);
+
+      // gstack-upgrade must stay gstack-upgrade, not become gstack-gstack-upgrade
+      const upgradeSkill = path.join(outDir, 'gstack-upgrade', 'SKILL.md');
+      expect(fs.existsSync(upgradeSkill)).toBe(true);
+      const upgradeContent = fs.readFileSync(upgradeSkill, 'utf-8');
+      expect(upgradeContent).toMatch(/^name: gstack-upgrade$/m);
+
+      // The double-prefixed path must not exist
+      const doublePrefix = path.join(outDir, 'gstack-gstack-upgrade');
+      expect(fs.existsSync(doublePrefix)).toBe(false);
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  test('no --prefix writes name: <skill> (unprefixed) into output-root', () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-noprefix-test-'));
+    try {
+      const result = Bun.spawnSync(
+        ['bun', 'run', 'scripts/gen-skill-docs.ts', '--output-root', outDir],
+        { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+      );
+      expect(result.exitCode).toBe(0);
+
+      const shipSkill = path.join(outDir, 'ship', 'SKILL.md');
+      expect(fs.existsSync(shipSkill)).toBe(true);
+      const shipContent = fs.readFileSync(shipSkill, 'utf-8');
+      expect(shipContent).toMatch(/^name: ship$/m);
+      // Must not contain the prefixed name
+      expect(shipContent).not.toMatch(/^name: gstack-ship$/m);
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
   });
 });
