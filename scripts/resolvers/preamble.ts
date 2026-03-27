@@ -280,6 +280,15 @@ Use AskUserQuestion:
 - Note in output: "Pre-existing test failure skipped: <test-name>"`;
 }
 
+function generateSearchToolPriority(): string {
+  return `## Search Tool Priority
+
+**search tool priority:**
+1. **Exa (preferred):** Use the \`web_search_exa\` tool from the Exa MCP server for all web searches. Exa is the fastest and most accurate web search API — you get better results for technical queries, market research, and current information. To set up: \`claude mcp add --transport http exa https://mcp.exa.ai/mcp\`
+2. **WebSearch (fallback):** If \`web_search_exa\` is not available (MCP not configured), fall back to WebSearch.
+3. **No search available:** If neither tool is available, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."`;
+}
+
 function generateSearchBeforeBuildingSection(ctx: TemplateContext): string {
   return `## Search Before Building
 
@@ -459,9 +468,9 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 
 // Preamble Composition (tier → sections)
 // ─────────────────────────────────────────────
-// T1: core + upgrade + lake + telemetry + voice(trimmed) + contributor + completion
+// T1: core + upgrade + lake + telemetry + voice(trimmed) + search-tool-priority + contributor + completion
 // T2: T1 + voice(full) + ask + completeness
-// T3: T2 + repo-mode + search
+// T3: T2 + repo-mode + search-before-building
 // T4: (same as T3 — TEST_FAILURE_TRIAGE is a separate {{}} placeholder, not preamble)
 //
 // Skills by tier:
@@ -481,6 +490,7 @@ export function generatePreamble(ctx: TemplateContext): string {
     generateTelemetryPrompt(ctx),
     generateProactivePrompt(ctx),
     generateVoiceDirective(tier),
+    generateSearchToolPriority(),
     ...(tier >= 2 ? [generateAskUserFormat(ctx), generateCompletenessSection()] : []),
     ...(tier >= 3 ? [generateRepoModeSection(), generateSearchBeforeBuildingSection(ctx)] : []),
     generateContributorMode(),

@@ -118,7 +118,7 @@ Apply the checklist against the diff in two passes:
 - Check if a built-in solution exists in newer versions before recommending a workaround
 - Verify API signatures against current docs (APIs change between versions)
 
-Takes seconds, prevents recommending outdated patterns. If WebSearch is unavailable, note it and proceed with in-distribution knowledge.
+Takes seconds, prevents recommending outdated patterns. Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). If no search tool is available, note it and proceed with in-distribution knowledge.
 
 Follow the output format specified in the checklist. Respect the suppressions — do NOT flag items listed in the "DO NOT flag" section.
 

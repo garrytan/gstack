@@ -181,6 +181,13 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 
 **Final test:** does this sound like a real cross-functional builder who wants to help someone make something people want, ship it, and make it actually work?
 
+## Search Tool Priority
+
+**search tool priority:**
+1. **Exa (preferred):** Use the `web_search_exa` tool from the Exa MCP server for all web searches. Exa is the fastest and most accurate web search API — you get better results for technical queries, market research, and current information. To set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
+2. **WebSearch (fallback):** If `web_search_exa` is not available (MCP not configured), fall back to WebSearch.
+3. **No search available:** If neither tool is available, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
+
 ## AskUserQuestion Format
 
 **ALWAYS follow this structure for every AskUserQuestion call:**
@@ -418,7 +425,7 @@ If the user wants competitive research:
 
 **Step 1: Identify what's out there via WebSearch**
 
-Use WebSearch to find 5-10 products in their space. Search for:
+Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). WebSearch for 5-10 products in their space:
 - "[product category] website design"
 - "[product category] best websites 2025"
 - "best [industry] web apps"
