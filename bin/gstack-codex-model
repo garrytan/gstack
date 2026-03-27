@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# gstack-codex-model — probe and cache a working codex model
+#
+# Usage:
+#   gstack-codex-model          — print working model name, or "NONE" (exit 1)
+#   gstack-codex-model --probe  — force re-probe (ignore cache)
+#
+# Cache: ~/.gstack/codex-model-cache (24h TTL)
+# Fallback chain: user's default → configurable list → hardcoded defaults
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR  — override ~/.gstack state directory
+set -euo pipefail
+
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+CACHE_FILE="$STATE_DIR/codex-model-cache"
+TTL_SECONDS=86400  # 24 hours
+
+# --- Cache check (skip if --probe) ---
+if [[ "${1:-}" != "--probe" ]] && [[ -f "$CACHE_FILE" ]]; then
+  # Cross-platform stat: Linux uses -c %Y, macOS uses -f %m
+  CACHE_MTIME=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE" 2>/dev/null || echo 0)
+  CACHE_AGE=$(( $(date +%s) - CACHE_MTIME ))
+  if [[ "$CACHE_AGE" -lt "$TTL_SECONDS" ]]; then
+    CACHED=$(cat "$CACHE_FILE")
+    if [[ "$CACHED" == "NONE" ]]; then
+      echo "NONE"
+      exit 1
+    fi
+    echo "$CACHED"
+    exit 0
+  fi
+fi
+
+# --- Check codex binary exists ---
+if ! command -v codex &>/dev/null; then
+  echo "NONE"
+  exit 1
+fi
+
+# --- Build model fallback chain ---
+# 1. User-configured fallback models from gstack-config
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+USER_FALLBACKS=$("$SCRIPT_DIR/gstack-config" get codex_fallback_models 2>/dev/null || true)
+
+# 2. Hardcoded defaults
+DEFAULT_FALLBACKS="gpt-5.3-codex,gpt-5.2-codex"
+
+# --- Probe: first try user's default (no model override) ---
+probe_model() {
+  local model_flag="$1"
+  local stderr
+  stderr=$(mktemp /tmp/gstack-codex-probe-XXXXXX 2>/dev/null || mktemp)
+
+  # Run minimal probe with 15s timeout
+  local result
+  if [[ -z "$model_flag" ]]; then
+    result=$(timeout 15 codex exec "say yes" -s read-only 2>"$stderr" || true)
+  else
+    result=$(timeout 15 codex exec "say yes" -c "model=\"$model_flag\"" -s read-only 2>"$stderr" || true)
+  fi
+
+  local err_content
+  err_content=$(cat "$stderr" 2>/dev/null || true)
+  rm -f "$stderr"
+
+  # Check for model-specific errors (these are cacheable)
+  if echo "$err_content" | grep -qi "not supported\|not available\|invalid model\|does not exist"; then
+    return 1
+  fi
+
+  # Check if we got a successful response (any non-empty stdout without error)
+  if [[ -n "$result" ]]; then
+    return 0
+  fi
+
+  # Check for transient errors (do NOT cache these, just skip to next)
+  if echo "$err_content" | grep -qi "auth\|login\|unauthorized\|API key\|rate limit\|timeout\|network\|connection"; then
+    return 2  # transient — skip but don't cache
+  fi
+
+  # Unknown error — treat as model failure
+  return 1
+}
+
+cache_result() {
+  local value="$1"
+  mkdir -p "$STATE_DIR"
+  # Atomic write: temp file + mv
+  local tmpfile
+  tmpfile=$(mktemp "$STATE_DIR/codex-model-cache.XXXXXX" 2>/dev/null || mktemp)
+  echo "$value" > "$tmpfile"
+  mv -f "$tmpfile" "$CACHE_FILE"
+}
+
+# --- Probe sequence ---
+
+# Step 1: Try user's default config (no model override)
+if probe_model ""; then
+  # User's default works. Cache empty string to signal "use default".
+  # But we need to return the actual model name. Read it from codex output.
+  # Simpler: just cache "DEFAULT" as sentinel.
+  cache_result "DEFAULT"
+  echo "DEFAULT"
+  exit 0
+fi
+PROBE_EXIT=$?
+
+# If transient error on default, still try fallbacks
+# If model error, proceed to fallbacks
+
+# Step 2: Try fallback models
+IFS=',' read -ra FALLBACK_LIST <<< "${USER_FALLBACKS:-$DEFAULT_FALLBACKS}"
+
+for MODEL in "${FALLBACK_LIST[@]}"; do
+  MODEL=$(echo "$MODEL" | tr -d '[:space:]')
+  [[ -z "$MODEL" ]] && continue
+
+  if probe_model "$MODEL"; then
+    cache_result "$MODEL"
+    echo "FALLBACK:$MODEL" >&2
+    echo "$MODEL"
+    exit 0
+  fi
+  PROBE_EXIT=$?
+  # If transient (exit 2), try next model
+  # If model error (exit 1), try next model
+done
+
+# Step 3: All failed
+cache_result "NONE"
+echo "NONE"
+exit 1

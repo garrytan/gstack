@@ -291,9 +291,18 @@ Write the full prompt (context block + instructions) to this file. Use the mode-
 3. Run Codex:
 
 \`\`\`bash
-TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\\"$CODEX_MODEL\\""
+  codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+fi
 \`\`\`
+
+If the output is \`CODEX_SKIP_NO_MODEL\`, skip Codex and proceed to Phase 4.
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
@@ -302,6 +311,7 @@ rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
 \`\`\`
 
 **Error handling:** All errors are non-blocking — Codex second opinion is a quality enhancement, not a prerequisite.
+- **Model not available:** If stderr contains "not supported" or "not available": re-probe with \`~/.claude/skills/gstack/bin/gstack-codex-model --probe\` and retry once. If still fails, skip.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate. Skipping second opinion."
 - **Timeout:** "Codex timed out after 5 minutes. Skipping second opinion."
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>. Skipping second opinion."
@@ -375,9 +385,18 @@ Claude's structured review already ran. Now add a **cross-model adversarial chal
 **Codex adversarial:**
 
 \`\`\`bash
-TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
-codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_ADV"
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\\"$CODEX_MODEL\\""
+  codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_ADV"
+fi
 \`\`\`
+
+If the output is \`CODEX_SKIP_NO_MODEL\`, treat as Codex unavailable and fall back to the Claude adversarial subagent.
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
 \`\`\`bash
@@ -420,9 +439,18 @@ Claude's structured review already ran. Now run **all three remaining passes** f
 
 **1. Codex structured review (if available):**
 \`\`\`bash
-TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
-codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\\"$CODEX_MODEL\\""
+  codex review --base <base> $MODEL_FLAG -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+fi
 \`\`\`
+
+If the output is \`CODEX_SKIP_NO_MODEL\`, skip Codex structured review and continue to pass 2.
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`CODEX SAYS (code review):\` header.
 Check for \`[P1]\` markers: found → \`GATE: FAIL\`, not found → \`GATE: PASS\`.
@@ -530,9 +558,18 @@ THE PLAN:
 **If CODEX_AVAILABLE:**
 
 \`\`\`bash
-TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
-codex exec "<prompt>" -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+if [ "$CODEX_MODEL" = "NONE" ]; then
+  echo "CODEX_SKIP_NO_MODEL"
+else
+  TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
+  MODEL_FLAG=""
+  [ "$CODEX_MODEL" != "DEFAULT" ] && MODEL_FLAG="-c model=\\"$CODEX_MODEL\\""
+  codex exec "<prompt>" -C "$(git rev-parse --show-toplevel)" -s read-only $MODEL_FLAG -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+fi
 \`\`\`
+
+If the output is \`CODEX_SKIP_NO_MODEL\`, treat as Codex unavailable and fall back to the Claude adversarial subagent.
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash

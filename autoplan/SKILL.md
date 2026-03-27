@@ -566,6 +566,22 @@ Follow ONLY the review-specific methodology, sections, and required outputs.
 Output: "Here's what I'm working with: [plan summary]. UI scope: [yes/no].
 Loaded review skills from disk. Starting full review pipeline with auto-decisions."
 
+**Probe Codex model (run once, reuse across all phases):**
+
+```bash
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+echo "CODEX_MODEL=$CODEX_MODEL"
+```
+
+If `CODEX_MODEL=NONE`: Codex is unavailable for all phases. Tag all dual-voice steps
+as `[single-model]` and use Claude subagent only. Do not attempt any `codex exec` commands.
+
+If `CODEX_MODEL=DEFAULT`: the user's configured model works. Do NOT add `-c model=`
+to codex commands.
+
+Otherwise (a specific model name): include `-c model="$CODEX_MODEL"` in all `codex exec`
+commands below. Tell the user which fallback model is being used.
+
 ---
 
 ## Phase 1: CEO Review (Strategy & Scope)
@@ -594,6 +610,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
   No compliments. Just the strategic blind spots.
   File: <plan_path>" -C "$(git rev-parse --show-toplevel)" -s read-only --enable web_search_cached`
+  If CODEX_MODEL is not DEFAULT, add `-c model="$CODEX_MODEL"` to the command.
+  If CODEX_MODEL is NONE, skip this command entirely and tag as `[single-model]`.
   Timeout: 10 minutes
 
   **Claude CEO subagent** (via Agent tool):
@@ -705,6 +723,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   aspirational? Does the plan describe specific UI decisions or generic patterns?
   What design decisions will haunt the implementer if left ambiguous?
   Be opinionated. No hedging." -C "$(git rev-parse --show-toplevel)" -s read-only --enable web_search_cached`
+  If CODEX_MODEL is not DEFAULT, add `-c model="$CODEX_MODEL"` to the command.
+  If CODEX_MODEL is NONE, skip this command entirely and tag as `[single-model]`.
   Timeout: 10 minutes
 
   **Claude design subagent** (via Agent tool):
@@ -770,6 +790,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
 
   File: <plan_path>" -C "$(git rev-parse --show-toplevel)" -s read-only --enable web_search_cached`
+  If CODEX_MODEL is not DEFAULT, add `-c model="$CODEX_MODEL"` to the command.
+  If CODEX_MODEL is NONE, skip this command entirely and tag as `[single-model]`.
   Timeout: 10 minutes
 
   **Claude eng subagent** (via Agent tool):

@@ -43,6 +43,30 @@ If `NOT_FOUND`: stop and tell the user:
 
 ---
 
+## Step 0.5: Probe working model
+
+```bash
+CODEX_MODEL=$(~/.claude/skills/gstack/bin/gstack-codex-model 2>/dev/null || echo "NONE")
+echo "CODEX_MODEL=$CODEX_MODEL"
+```
+
+If `CODEX_MODEL=NONE`: stop and tell the user:
+"No working OpenAI model found for your Codex account. Your configured model may not
+be available on your subscription. Try: `codex exec 'say hello' -c 'model=\"gpt-5.3-codex\"'`
+to test models manually. To re-probe: `~/.claude/skills/gstack/bin/gstack-codex-model --probe`"
+
+If `CODEX_MODEL=DEFAULT`: the user's configured model works. Do NOT add `-c model=`
+to codex commands (the default config is correct).
+
+Otherwise (a specific model name like `gpt-5.3-codex`): tell the user "Using fallback
+model: $CODEX_MODEL (your configured default wasn't available)." Add
+`-c model="$CODEX_MODEL"` to ALL codex commands in Steps 2A, 2B, and 2C.
+
+If the user explicitly passed `-m <model>` in their input, that takes precedence over
+the probed model. Use `-c model="<user-specified>"` instead.
+
+---
+
 ## Step 1: Detect mode
 
 Parse the user's input to determine which mode to run:
@@ -86,7 +110,8 @@ Run Codex code review against the current branch diff.
 TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
 ```
 
-2. Run the review (5-minute timeout):
+2. Run the review (5-minute timeout). If Step 0.5 returned a specific model (not DEFAULT),
+include `-c model="$CODEX_MODEL"` before the other `-c` flags:
 ```bash
 codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
@@ -370,6 +395,12 @@ If token count is not available, display: `Tokens: unknown`
 ## Error Handling
 
 - **Binary not found:** Detected in Step 0. Stop with install instructions.
+- **Model not available:** Detected in Step 0.5. The probe script tries fallback models
+  automatically. If all fail, stop with instructions to test models manually.
+- **Model error at runtime:** If stderr contains "not supported" or "not available" despite
+  passing Step 0.5, the cached model may have become unavailable. Tell the user:
+  "Model became unavailable. Run `~/.claude/skills/gstack/bin/gstack-codex-model --probe`
+  to find a new working model." Then re-probe and retry once.
 - **Auth error:** Codex prints an auth error to stderr. Surface the error:
   "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
 - **Timeout:** If the Bash call times out (5 min), tell the user:
