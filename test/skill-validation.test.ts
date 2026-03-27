@@ -937,6 +937,13 @@ describe('CEO review mode validation', () => {
     expect(content).toContain('/office-hours');
   });
 
+  test('prefers active plan-mode design docs before stale .gstack snapshots', () => {
+    expect(content).toContain('~/.claude/plans/');
+    expect(content).toContain('PLAN_DESIGN');
+    expect(content).toContain('Persisted design doc found');
+    expect(content).toContain('last persisted snapshot');
+  });
+
   test('contains mid-session detection', () => {
     expect(content).toContain('Mid-session detection');
     expect(content).toMatch(/still figuring out|seems lost/i);
@@ -945,6 +952,23 @@ describe('CEO review mode validation', () => {
   // Spec review on CEO plans
   test('contains spec review loop for CEO plan documents', () => {
     expect(content).toContain('Spec Review Loop');
+  });
+});
+
+describe('Plan review design doc discovery', () => {
+  test('/plan-eng-review prefers active plan-mode design docs', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('~/.claude/plans/');
+    expect(content).toContain('PLAN_DESIGN');
+    expect(content).toContain('Persisted design doc found');
+    expect(content).toContain('last persisted snapshot');
+  });
+
+  test('/autoplan mentions active plan-mode office-hours docs during context load', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('active plan file');
+    expect(content).toContain('/office-hours');
+    expect(content).toContain('Persisted design doc found');
   });
 });
 
