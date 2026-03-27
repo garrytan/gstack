@@ -77,10 +77,11 @@ After the user chooses, execute their choice (commit or stash), then continue wi
 **Detect platform and auto-setup (mobile vs web):**
 
 1. Check if `app.json` or `app.config.js`/`app.config.ts` exists in the project root.
-2. If found AND `$BM` is available (MOBILE_READY): **automatically set up the mobile environment** — start Appium, boot simulator, build/install app if needed. Follow the "Mobile project detection" steps in the QA Methodology below. Do NOT ask the user — just do it.
-3. If no mobile config found, or `$BM` is not available: use `$B` as usual. This is WEB MODE (default — zero change to existing behavior).
+2. If found AND `REVYL_READY`: use Revyl cloud devices for mobile QA. Follow the "Revyl cloud device mobile QA" steps in the QA Methodology below. Do NOT ask the user — just do it.
+3. If found AND `$BM` is available (MOBILE_READY) but no Revyl: **automatically set up the local mobile environment** — start Appium, boot simulator, build/install app if needed. Follow the "Mobile project detection" steps in the QA Methodology below.
+4. If no mobile config found, or neither Revyl nor `$BM` is available: use `$B` as usual. This is WEB MODE (default — zero change to existing behavior).
 
-**In mobile mode, these commands change:**
+**In Appium mobile mode (`$BM`), these commands change:**
 - `$B goto <url>` → `$BM goto app://<bundleId>` (launch app) or `$BM click label:Label` (navigate)
 - `$B snapshot -i` → `$BM snapshot -i` (accessibility tree from iOS, not ARIA)
 - `$B click @e3` → `$BM click @e3` (tap element) or `$BM click label:LabelText` (accessibility label fallback for RN components)
@@ -89,6 +90,15 @@ After the user chooses, execute their choice (commit or stash), then continue wi
 - `$B console --errors` → SKIP (not available in mobile mode)
 - `$B links` → `$BM links` (tap targets from last snapshot)
 - `$B scroll` → `$BM scroll down/up` (swipe gestures for ScrollView/FlatList)
+
+**In Revyl mobile mode, these commands change:**
+- `$B goto <url>` → `revyl device launch --bundle-id <bundleId>`
+- `$B click @e3` → `revyl device tap --target "description of element"` (AI grounding — describe what's visible)
+- `$B fill @e3 "text"` → `revyl device tap --target "input field"` then `revyl device type --text "text"`
+- `$B screenshot` → `revyl screenshot` (always use Read tool to show user)
+- `$B console --errors` → SKIP (not available in mobile mode)
+- `$B scroll down` → `revyl device swipe --direction up` (up = finger moves up = content scrolls down)
+- `$B back` → `revyl device back`
 
 **Check test framework (bootstrap if needed):**
 
@@ -187,6 +197,7 @@ git commit -m "fix(qa): ISSUE-NNN — short description"
 
 ### 8d. Re-test
 
+**Web mode:**
 - Navigate back to the affected page
 - Take **before/after screenshot pair**
 - Check console for errors
@@ -198,6 +209,13 @@ $B screenshot "$REPORT_DIR/screenshots/issue-NNN-after.png"
 $B console --errors
 $B snapshot -D
 ```
+
+**Mobile mode (Appium or Revyl):**
+Mobile re-verification requires rebuilding the app, re-uploading (if Revyl), and re-launching — ~5 min per cycle. To avoid this overhead on every fix:
+1. After each fix, run **typecheck and lint** as primary verification: `npm run typecheck` or `npx tsc --noEmit`
+2. Mark the fix as **"best-effort"** (verified by typecheck, not visual confirmation)
+3. **After ALL fixes are done**, do one batch re-verification: rebuild the app, re-upload/re-install, and visually verify all fixes together
+4. If the user wants per-fix visual verification, ask via AskUserQuestion: "Want me to rebuild and verify on device after each fix? This adds ~5 minutes per fix."
 
 ### 8e. Classify
 

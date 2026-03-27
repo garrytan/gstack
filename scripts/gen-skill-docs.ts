@@ -616,7 +616,7 @@ If \`NEEDS_SETUP\`:
 }
 
 function generateBrowseMobileSetup(ctx: TemplateContext): string {
-  return `## MOBILE SETUP (optional — check for browse-mobile binary)
+  return `## MOBILE SETUP (optional — check for browse-mobile binary and Revyl)
 
 \`\`\`bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -635,8 +635,20 @@ else
 fi
 \`\`\`
 
-If \`MOBILE_READY\`: the \`$BM\` variable points to the browse-mobile binary for mobile app automation via Appium.
-If \`MOBILE_NOT_AVAILABLE\`: mobile testing is not available — web QA works as usual with \`$B\`.`;
+\`\`\`bash
+# Check for Revyl cloud device platform
+REVYL_READY=""
+if command -v revyl &>/dev/null; then
+  revyl auth status 2>/dev/null | grep -qi "authenticated\\|logged in\\|active" && REVYL_READY="true"
+fi
+[ -n "$REVYL_READY" ] && echo "REVYL_READY" || echo "REVYL_NOT_AVAILABLE"
+\`\`\`
+
+**Mobile backend priority:**
+1. If \`REVYL_READY\` AND \`MOBILE_READY\`: prefer Revyl (cloud devices, no local setup). Fall back to browse-mobile if Revyl fails.
+2. If only \`REVYL_READY\`: use Revyl for mobile QA.
+3. If only \`MOBILE_READY\`: use browse-mobile (Appium + local simulator).
+4. If neither: fall back to web QA with \`$B\`.`;
 }
 
 function generateBaseBranchDetect(_ctx: TemplateContext): string {
@@ -803,6 +815,138 @@ This is the **primary mode** for developers verifying their work. When the user 
    - Flag missing \`accessibilityRole\` / \`accessibilityLabel\` as accessibility findings
    - Test portrait and landscape: \`$BM viewport landscape && sleep 1 && $BM screenshot /tmp/landscape.png\`
    - Take screenshots at milestones and use the Read tool to show them to the user
+
+3c. **Revyl cloud device mobile QA** — if \`REVYL_READY\` from setup (preferred over browse-mobile when available):
+
+   \`\`\`bash
+   ls app.json app.config.js app.config.ts 2>/dev/null
+   \`\`\`
+   If \`app.json\` or \`app.config.*\` exists AND \`REVYL_READY\`, use Revyl cloud devices instead of local Appium.
+
+   **Mobile QA timing expectations:**
+   - First run (no build cached): ~15-20 min (build + upload + test)
+   - Subsequent runs (build cached): ~8-12 min (provision + test)
+   - Fix verification cycle: ~5 min per batch rebuild
+
+   **Revyl Step 1: Initialize Revyl config if needed**
+   \`\`\`bash
+   [ -f .revyl/config.yaml ] && echo "REVYL_CONFIG_EXISTS" || echo "REVYL_NEEDS_INIT"
+   \`\`\`
+   If \`REVYL_NEEDS_INIT\`:
+   \`\`\`bash
+   revyl init -y
+   \`\`\`
+   After \`revyl init -y\`, **validate the generated YAML** (known Revyl CLI bug produces broken indentation):
+   \`\`\`bash
+   python3 -c "import yaml; yaml.safe_load(open('.revyl/config.yaml'))" 2>&1 && echo "YAML_VALID" || echo "YAML_INVALID"
+   \`\`\`
+   If \`YAML_INVALID\`: Read \`.revyl/config.yaml\`, identify indentation issues in the \`hotreload.providers\` section (fields like \`port\`, \`app_scheme\`, \`platform_keys\` may be at the wrong indent level), fix them so nested fields are properly indented under their parent, and write the corrected file back.
+
+   **Revyl Step 2: Detect or select Revyl app**
+   \`\`\`bash
+   grep -q 'app_id' .revyl/config.yaml 2>/dev/null && echo "APP_LINKED" || echo "APP_NOT_LINKED"
+   \`\`\`
+   If \`APP_NOT_LINKED\`, auto-detect the app:
+   \`\`\`bash
+   PROJECT_NAME=$(jq -r '.expo.name // .name' app.json 2>/dev/null)
+   revyl app list --json 2>/dev/null | jq -r '.apps[] | "\\(.id) \\(.name)"'
+   \`\`\`
+   - If exactly one app matches the project name: use its ID automatically.
+   - If multiple apps exist: use AskUserQuestion to let the user pick which Revyl app to use. Show the app names and IDs.
+   - If no apps exist: use AskUserQuestion to ask whether to create one (\`revyl app create --name "$PROJECT_NAME"\`).
+   Store the selected app ID as \`REVYL_APP_ID\`.
+
+   **Revyl Step 3: Try dev loop first, fall back to static mode**
+
+   Attempt the dev loop (Metro + tunnel) first. If it fails, fall back to a static Release build.
+
+   \`\`\`bash
+   revyl dev start --platform ios --open \${REVYL_APP_ID:+--app-id "$REVYL_APP_ID"}
+   \`\`\`
+
+   After \`revyl dev start\` reports ready, **verify the tunnel is actually resolving** before proceeding:
+   1. Extract the tunnel URL from the output.
+   2. Poll the tunnel for up to 30 seconds:
+      \`\`\`bash
+      for i in $(seq 1 30); do
+        curl -s -o /dev/null -w "%{http_code}" "$TUNNEL_URL/status" 2>/dev/null | grep -q "200" && echo "TUNNEL_OK" && break
+        sleep 1
+      done
+      \`\`\`
+   3. If tunnel resolves: take a screenshot to check if the app loaded.
+      - **iOS deep link dialogs:** iOS may show a system dialog "Open in [AppName]?" with Cancel and Open buttons. After any deep link navigation, take a screenshot. If this dialog appears, tap the "Open" button before proceeding.
+      - If the app is on the home screen (crashed): re-open the deep link via \`revyl device navigate --url "$DEEP_LINK"\`.
+   4. If tunnel never resolves after 30s: **fall back to static mode immediately** (do not retry the dev loop).
+
+   **Revyl Step 3b: Static mode fallback (Release build)**
+
+   If the dev loop failed, or if you fell through to this step:
+
+   First, check for an existing recent build to avoid rebuilding:
+   \`\`\`bash
+   revyl build list --app "$REVYL_APP_ID" --json 2>/dev/null | jq -r '.versions[0]'
+   \`\`\`
+   If the latest build was uploaded recently AND the git SHA matches (check \`git rev-parse --short HEAD\` against the build metadata), reuse it — skip to Step 4.
+
+   If no recent build exists, try local build first (fastest, works offline):
+   \`\`\`bash
+   npx expo run:ios --configuration Release --no-install
+   \`\`\`
+   Then find the built .app:
+   \`\`\`bash
+   find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*Release-iphonesimulator*" \\
+     -not -path "*/Intermediates/*" -newer package.json -maxdepth 6 2>/dev/null | \\
+     xargs ls -dt 2>/dev/null | head -1
+   \`\`\`
+
+   If local build fails (no Xcode), check \`eas.json\` for a compatible EAS profile.
+
+   Upload to Revyl:
+   \`\`\`bash
+   revyl build upload --file "$APP_PATH" --app "$REVYL_APP_ID" --skip-build -y
+   \`\`\`
+
+   **Revyl Step 4: Provision device and launch app**
+   \`\`\`bash
+   revyl device start --platform ios --json
+   revyl device install --app-id "$REVYL_APP_ID"
+   revyl device launch --bundle-id "$BUNDLE_ID"
+   \`\`\`
+
+   **Revyl Step 5: Activate Revyl mobile mode**
+   If all steps succeeded: **REVYL MOBILE MODE ACTIVE**.
+
+   In Revyl mode, use these commands instead of \`$B\` or \`$BM\`:
+   | Web (\`$B\`)  | Appium (\`$BM\`) | Revyl |
+   |---|---|---|
+   | \`$B goto <url>\` | \`$BM goto app://<id>\` | \`revyl device launch --bundle-id <id>\` |
+   | \`$B click @e3\` | \`$BM click @e3\` | \`revyl device tap --target "description of element"\` |
+   | \`$B fill @e3 "text"\` | \`$BM fill @e3 "text"\` | \`revyl device type --text "text"\` (tap field first) |
+   | \`$B screenshot\` | \`$BM screenshot\` | \`revyl screenshot\` (then Read the image) |
+   | \`$B scroll down\` | \`$BM scroll down\` | \`revyl device swipe --direction up\` (up moves finger UP, scrolls DOWN) |
+   | \`$B back\` | \`$BM back\` | \`revyl device back\` |
+
+   **Revyl interaction loop:**
+   1. \`revyl screenshot\` — see the current screen
+   2. Briefly describe what is visible
+   3. Take one action (tap, type, swipe)
+   4. \`revyl screenshot\` — verify the result
+   5. Repeat
+
+   **Swipe direction semantics:** \`direction='up'\` moves the finger UP (scrolls content DOWN to reveal content below). \`direction='down'\` moves the finger DOWN (scrolls content UP).
+
+   **Session idle timeout:** Revyl sessions auto-terminate after 5 minutes of inactivity. The timer resets on every tool call. Use \`revyl device info\` to check remaining time if needed.
+
+   **iOS deep link dialogs:** When a deep link is opened, iOS may show a system dialog "Open in [AppName]?" with Cancel and Open buttons. After any deep link navigation, take a screenshot. If this dialog appears, tap the "Open" button before proceeding.
+
+   ## Mobile Authentication
+
+   If the app requires sign-in and no credentials are provided:
+   1. Check if sign-up is available — attempt to create a test account using a disposable email pattern: \`qa-test-{timestamp}@example.com\`
+      - If sign-up requires email verification → STOP, ask user for credentials via AskUserQuestion
+      - If sign-up works → proceed with the new account through onboarding
+   2. If no sign-up flow → ask user via AskUserQuestion: "This app requires authentication. Please provide test credentials or sign in on the device viewer."
+   3. For apps with Apple Sign-In only → cannot test authenticated flows on cloud simulator (no Apple ID). Note as scope limitation in the report.
 
 4. **Test each affected page/route:**
    - Navigate to the page
@@ -1035,14 +1179,24 @@ Minimum 0 per category.
 - Test browser back/forward — does the app handle history correctly?
 - Check for memory leaks (monitor console after extended use)
 
-### Expo / React Native (mobile mode — \`$BM\`)
-- Many \`Pressable\` / \`TouchableOpacity\` components lack \`accessibilityRole="button"\` — they won't appear as interactive in \`$BM snapshot -i\`. Use \`$BM text\` to find visible labels, then \`$BM click label:Label"\` to tap by accessibility label.
+### Expo / React Native (mobile mode — \`$BM\` or Revyl)
+- Many \`Pressable\` / \`TouchableOpacity\` components lack \`accessibilityRole="button"\` — they won't appear as interactive in \`$BM snapshot -i\`. Use \`$BM text\` to find visible labels, then \`$BM click label:Label"\` to tap by accessibility label. In Revyl mode, use \`revyl device tap --target "Label Text"\` — AI grounding resolves natural language targets.
 - After tapping navigation elements, wait 1-2s before taking a snapshot — RN transitions are animated.
 - Test both portrait and landscape orientation: \`$BM viewport landscape\` / \`$BM viewport portrait\`.
 - Flag every component without proper accessibility props (\`accessibilityRole\`, \`accessibilityLabel\`) as an accessibility finding — these affect both screen readers and automation.
 - The Expo dev launcher (showing "DEVELOPMENT SERVERS") appears on first launch — click through to the actual app.
 - RevenueCat / in-app purchase errors in development are expected — note but don't flag as bugs.
 - \`$BM scroll down\` uses swipe gestures — for FlatList/ScrollView content below the fold.
+
+**Mobile exploration checklist** (in addition to the per-page checklist above):
+1. **Screen transitions** — do animations play? Any flicker or blank frames between screens?
+2. **Scroll behavior** — does content scroll smoothly? Is there overscroll bounce? Does content clip?
+3. **Keyboard handling** — does the keyboard push content up? Can you dismiss it by tapping outside? Does the submit button remain visible when the keyboard is open?
+4. **Back navigation** — does swipe-back work? Does the back button return to the correct screen? Is navigation state preserved?
+5. **Empty states** — what shows when there's no data? Is there a helpful message or just blank space?
+6. **Loading states** — is there a spinner or skeleton while data loads? What happens on slow connections?
+7. **Orientation** — does the app handle rotation? (skip if orientation is locked)
+8. **Accessibility** — are interactive elements labeled? Can VoiceOver/TalkBack navigate the screen?
 
 ---
 
@@ -1052,7 +1206,7 @@ Minimum 0 per category.
 2. **Verify before documenting.** Retry the issue once to confirm it's reproducible, not a fluke.
 3. **Never include credentials.** Write \`[REDACTED]\` for passwords in repro steps.
 4. **Write incrementally.** Append each issue to the report as you find it. Don't batch.
-5. **Never read source code.** Test as a user, not a developer.
+5. **During testing (Phases 1-6), test as a user.** Don't read source code to find bugs — find them by using the app. During the fix loop (Phase 8), reading source code is required to locate and fix the root cause.
 6. **Check console after every interaction.** JS errors that don't surface visually are still bugs.
 7. **Test like a user.** Use realistic data. Walk through complete workflows end-to-end.
 8. **Depth over breadth.** 5-10 well-documented issues with evidence > 20 vague descriptions.

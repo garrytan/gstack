@@ -638,3 +638,39 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Effort:** S
 **Priority:** P2
 **Depends on:** None
+
+### Revyl mobile QA E2E test
+
+**What:** E2E test that runs `/qa` against a test Expo app using Revyl cloud device, verifying the full flow: detect → init → build → upload → test → report.
+
+**Why:** The Revyl QA path (added in the dual-backend update) has no automated testing. A gen-skill-docs quality check catches template regressions but can't verify the actual QA flow works end-to-end with Revyl's CLI and device provisioning.
+
+**Context:** All other skill paths have E2E tests via `claude -p`. The Revyl mobile path is the only untested flow. Requires a Revyl account, costs per device session, and an Expo test app fixture. Pattern: existing E2E tests in `test/skill-e2e-*.test.ts`.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** Revyl test account setup, CI Revyl auth
+
+### /browse skill Revyl integration (dev loop mode)
+
+**What:** Add Revyl dev loop mode to `/browse` skill for interactive mobile development with hot reload on cloud devices.
+
+**Why:** The `/qa` skill now supports Revyl in static mode (Release build). `/browse` needs the complementary dev loop mode for hot-reload interactive development. The initial mobile QA report proved that dev loop works once tunnel DNS stabilizes — it just needs proper tunnel verification and retry logic.
+
+**Context:** The /qa skill's Revyl detection infrastructure (auth check, app-id resolution, YAML validation) can be reused. Dev loop adds: Metro + Cloudflare tunnel startup, tunnel health polling, deep link handling, and the "Open in X?" iOS dialog workaround. Tunnel race condition (30s DNS propagation) is the main reliability risk.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** This branch landing (Revyl detection infrastructure in gen-skill-docs.ts)
+
+### Android Revyl support
+
+**What:** Extend Revyl mobile QA path to support Android devices (`--platform android`), including APK build pipeline, ADB-based app installation, and Android-specific system dialog handling.
+
+**Why:** The current Revyl mobile QA only supports iOS. Revyl itself supports Android. Many mobile apps target both platforms and need cross-platform QA.
+
+**Context:** Android differences: APK build instead of .app (`npx expo run:android` or EAS), different system dialogs (no "Open in X?" confirmation), different accessibility tree format. The Revyl command API is the same (`revyl device start --platform android`). browse-mobile (Appium) is also iOS-only — this TODO covers both backends.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** This branch landing (Revyl iOS support)
