@@ -536,34 +536,37 @@ export { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS };
 const browserManager = new BrowserManager();
 let isShuttingDown = false;
 
-// Find port: explicit BROWSE_PORT, or random in 10000-60000
+// Find port: explicit BROWSE_PORT, or OS-assigned random port.
+//
+// Previous approach: test-bind → stop → return port. This races on Windows
+// under the Node.js polyfill where Bun.serve() wraps http.createServer() —
+// the port doesn't release synchronously, so the real server fails to bind.
+// Fix: use port:0 to let the OS assign a port, read the actual port from
+// the server object, stop the probe, and return the port immediately.
+// The OS guarantees the port was free at assignment time, and the window
+// between stop() and the real Bun.serve() bind is < 1ms in practice.
 async function findPort(): Promise<number> {
   // Explicit port override (for debugging)
   if (BROWSE_PORT) {
     try {
       const testServer = Bun.serve({ port: BROWSE_PORT, fetch: () => new Response('ok') });
-      testServer.stop();
-      return BROWSE_PORT;
+      const assignedPort = testServer.port;
+      testServer.stop(true);
+      return assignedPort;
     } catch {
       throw new Error(`[browse] Port ${BROWSE_PORT} (from BROWSE_PORT env) is in use`);
     }
   }
 
-  // Random port with retry
-  const MIN_PORT = 10000;
-  const MAX_PORT = 60000;
-  const MAX_RETRIES = 5;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const port = MIN_PORT + Math.floor(Math.random() * (MAX_PORT - MIN_PORT));
-    try {
-      const testServer = Bun.serve({ port, fetch: () => new Response('ok') });
-      testServer.stop();
-      return port;
-    } catch {
-      continue;
-    }
+  // Let the OS assign a random available port
+  try {
+    const testServer = Bun.serve({ port: 0, fetch: () => new Response('ok') });
+    const port = testServer.port;
+    testServer.stop(true);
+    return port;
+  } catch (err) {
+    throw new Error(`[browse] Failed to find available port: ${err}`);
   }
-  throw new Error(`[browse] No available port after ${MAX_RETRIES} attempts in range ${MIN_PORT}-${MAX_PORT}`);
 }
 
 /**
