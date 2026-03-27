@@ -463,14 +463,25 @@ Use AskUserQuestion:
 
 If user chooses B, skip this step and continue.
 
-**Check Codex availability:**
+**Detect available second-opinion provider:**
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+**If a provider is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Cross-model design voice** (via Bash):
+
+**If Codex:**
 ```bash
 TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
@@ -484,6 +495,21 @@ codex exec "Given this product context, propose a complete design direction:
 
 Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_DESIGN"
 ```
+
+**If Gemini:**
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/gemini-design-XXXXXXXX)
+gemini --prompt "Given this product context, propose a complete design direction:
+- Visual thesis: one sentence describing mood, material, and energy
+- Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
+- Color system: CSS variables for background, surface, primary text, muted text, accent
+- Layout: composition-first, not component-first. First viewport as poster, not document
+- Differentiation: 2 deliberate departures from category norms
+- Anti-slop: no purple gradients, no 3-column icon grids, no centered everything, no decorative blobs
+
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." 2>"$TMPERR_DESIGN"
+```
+
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
 ```bash
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
@@ -499,13 +525,13 @@ Dispatch a subagent with this prompt:
 Be bold. Be specific. No hedging."
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "[Provider] authentication failed. Run \`codex login\` or \`gemini\` to authenticate."
+- **Timeout:** "[Provider] timed out after 5 minutes."
+- **Empty response:** "[Provider] returned no response."
+- On any provider error: proceed with Claude subagent output only, tagged `[single-model]`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a `CODEX SAYS (design direction):` header.
+Present cross-model output under a `{PROVIDER} SAYS (design direction):` header (substituting Codex or Gemini).
 Present subagent output under a `CLAUDE SUBAGENT (design direction):` header.
 
 **Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
@@ -517,7 +543,7 @@ Present subagent output under a `CLAUDE SUBAGENT (design direction):` header.
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "gemini+subagent", "codex-only", "gemini-only", "subagent-only", or "unavailable".
 
 ## Phase 3: The Complete Proposal
 

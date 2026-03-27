@@ -1048,10 +1048,19 @@ After all review sections are complete, offer an independent second opinion from
 different AI system. Two models agreeing on a plan is stronger signal than one model's
 thorough review.
 
-**Check tool availability:**
+**Detect available second-opinion provider:**
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 ```
 
 Use AskUserQuestion:
@@ -1090,12 +1099,19 @@ compliments. Just the problems.
 THE PLAN:
 <plan content>"
 
-**If CODEX_AVAILABLE:**
+**If Codex is the provider:**
 
 ```bash
 TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+```
+
+**If Gemini is the provider:**
+
+```bash
+TMPERR_PV=$(mktemp /tmp/gemini-planreview-XXXXXXXX)
+gemini --prompt "<prompt>" 2>"$TMPERR_PV"
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
@@ -1106,20 +1122,22 @@ cat "$TMPERR_PV"
 Present the full output verbatim:
 
 ```
-CODEX SAYS (plan review — outside voice):
+{PROVIDER} SAYS (plan review — outside voice):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 ```
 
+Substitute {PROVIDER} with "CODEX" or "GEMINI" based on which ran.
+
 **Error handling:** All errors are non-blocking — the outside voice is informational.
-- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run \`codex login\` to authenticate."
-- Timeout: "Codex timed out after 5 minutes."
-- Empty response: "Codex returned no response."
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "[Provider] auth failed. Run \`codex login\` or \`gemini\` to authenticate."
+- Timeout: "[Provider] timed out after 5 minutes."
+- Empty response: "[Provider] returned no response."
 
-On any Codex error, fall back to the Claude adversarial subagent.
+On any provider error, fall back to the Claude adversarial subagent.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If no provider available (or provider errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
@@ -1156,7 +1174,7 @@ If no tension points exist, note: "No cross-model tension — both reviewers agr
 ```
 
 Substitute: STATUS = "clean" if no findings, "issues_found" if findings exist.
-SOURCE = "codex" if Codex ran, "claude" if subagent ran.
+SOURCE = "codex" if Codex ran, "gemini" if Gemini ran, "claude" if subagent ran.
 
 **Cleanup:** Run `rm -f "$TMPERR_PV"` after processing (if Codex was used).
 

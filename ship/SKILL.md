@@ -1340,18 +1340,35 @@ source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of `git rev-parse --short HEAD`.
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Cross-model design voice** (optional, automatic if available):
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 ```
 
-If Codex is available, run a lightweight design check on the diff:
+If a provider is available, run a lightweight design check on the diff:
 
+**If Codex:**
 ```bash
 TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+```
+
+**If Gemini:**
+```bash
+TMPERR_DRL=$(mktemp /tmp/gemini-drl-XXXXXXXX)
+DIFF_CONTENT=$(git diff origin/<base>)
+gemini --prompt "Review this git diff for design issues. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line. THE DIFF: $DIFF_CONTENT" 2>"$TMPERR_DRL"
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
@@ -1361,7 +1378,7 @@ cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
 
 **Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
 
-Present Codex output under a `CODEX (design):` header, merged with the checklist findings above.
+Present output under a `{PROVIDER} (design):` header (substituting Codex or Gemini), merged with the checklist findings above.
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 
@@ -1445,7 +1462,16 @@ Adversarial review thoroughness scales automatically based on diff size. No conf
 DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 # Respect old opt-out
 OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
@@ -1467,14 +1493,22 @@ If `OLD_CFG` is `disabled`: skip this step silently. Continue to the next step.
 
 Claude's structured review already ran. Now add a **cross-model adversarial challenge**.
 
-**If Codex is available:** run the Codex adversarial challenge. **If Codex is NOT available:** fall back to the Claude adversarial subagent instead.
+**If a second-opinion provider is available (Codex or Gemini):** run the adversarial challenge with that provider. **If neither is available:** fall back to the Claude adversarial subagent instead.
 
-**Codex adversarial:**
+**Adversarial challenge (Codex):**
 
 ```bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_ADV"
+```
+
+**Adversarial challenge (Gemini):**
+
+```bash
+TMPERR_ADV=$(mktemp /tmp/gemini-adv-XXXXXXXX)
+DIFF_CONTENT=$(git diff origin/<base>)
+gemini --prompt "Review this git diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. THE DIFF: $DIFF_CONTENT" 2>"$TMPERR_ADV"
 ```
 
 Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -1485,11 +1519,11 @@ cat "$TMPERR_ADV"
 Present the full output verbatim. This is informational — it never blocks shipping.
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "[Provider] authentication failed. Run \`codex login\` or \`gemini\` to authenticate."
+- **Timeout:** "[Provider] timed out after 5 minutes."
+- **Empty response:** "[Provider] returned no response. Stderr: <paste relevant error>."
 
-On any Codex error, fall back to the Claude adversarial subagent automatically.
+On any provider error, fall back to the Claude adversarial subagent automatically.
 
 **Claude adversarial subagent** (fallback when Codex unavailable or errored):
 
@@ -1506,7 +1540,7 @@ If the subagent fails or times out: "Claude adversarial subagent unavailable. Co
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "claude" if subagent ran. If both failed, do NOT persist.
+Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "gemini" if Gemini ran, "claude" if subagent ran. If all failed, do NOT persist.
 
 **Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing (if Codex was used).
 
@@ -1516,12 +1550,21 @@ Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOU
 
 Claude's structured review already ran. Now run **all three remaining passes** for maximum coverage:
 
-**1. Codex structured review (if available):**
+**1. Cross-model structured review (if Codex or Gemini available):**
+
+**If Codex:**
 ```bash
 TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+```
+
+**If Gemini (no native `review` subcommand — construct equivalent):**
+```bash
+TMPERR=$(mktemp /tmp/gemini-review-XXXXXXXX)
+DIFF_CONTENT=$(git diff origin/<base>)
+gemini --prompt "Review this git diff for a pre-landing code review. For each issue found, classify as [P1] (must fix before merge — security, data loss, correctness) or [P2] (should fix — performance, maintainability, edge cases). Format: [P1] or [P2] tag, file:line, problem, suggested fix. THE DIFF: $DIFF_CONTENT" 2>"$TMPERR"
 ```
 
 Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. Present output under `CODEX SAYS (code review):` header.
@@ -1545,13 +1588,13 @@ After stderr: `rm -f "$TMPERR"`
 
 **3. Codex adversarial challenge (if available):** Run `codex exec` with the adversarial prompt (same as medium tier).
 
-If Codex is not available for steps 1 and 3, note to the user: "Codex CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex for full 4-pass coverage: `npm install -g @openai/codex`"
+If no second-opinion provider is available for steps 1 and 3, note to the user: "No cross-model CLI found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex (`npm install -g @openai/codex`) or Gemini CLI (`npm install -g @google/gemini-cli`) for full 4-pass coverage."
 
 **Persist the review result AFTER all passes complete** (not after each sub-step):
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if a cross-model provider (Codex or Gemini) ran, "claude" if only Claude subagent ran. GATE = the structured review gate result ("pass"/"fail"), or "informational" if no provider was available. If all passes failed, do NOT persist.
 
 ---
 
@@ -1565,8 +1608,8 @@ ADVERSARIAL REVIEW SYNTHESIS (auto: TIER, N lines):
   High confidence (found by multiple sources): [findings agreed on by >1 pass]
   Unique to Claude structured review: [from earlier step]
   Unique to Claude adversarial: [from subagent, if ran]
-  Unique to Codex: [from codex adversarial or code review, if ran]
-  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
+  Unique to cross-model provider: [from Codex/Gemini adversarial or code review, if ran]
+  Models used: Claude structured ✓  Claude adversarial ✓/✗  Cross-model (Codex/Gemini) ✓/✗
 ════════════════════════════════════════════════════════════
 ```
 

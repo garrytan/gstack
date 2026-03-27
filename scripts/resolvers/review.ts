@@ -251,13 +251,22 @@ export function generateCodexSecondOpinion(ctx: TemplateContext): string {
 
   return `## Phase 3.5: Cross-Model Second Opinion (optional)
 
-**Binary check first:**
+**Detect available second-opinion provider:**
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "\${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 \`\`\`
 
-Use AskUserQuestion (regardless of codex availability):
+Use AskUserQuestion (regardless of provider availability):
 
 > Want a second opinion from an independent AI perspective? It will review your problem statement, key answers, premises, and any landscape findings from this session without having seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
 > A) Yes, get a second opinion
@@ -265,7 +274,7 @@ Use AskUserQuestion (regardless of codex availability):
 
 If B: skip Phase 3.5 entirely. Remember that the second opinion did NOT run (affects design doc, founder signals, and Phase 4 below).
 
-**If A: Run the Codex cold read.**
+**If A: Run the cross-model cold read.**
 
 1. Assemble a structured context block from Phases 1-3:
    - Mode (Startup or Builder)
@@ -278,7 +287,7 @@ If B: skip Phase 3.5 entirely. Remember that the second opinion did NOT run (aff
 2. **Write the assembled prompt to a temp file** (prevents shell injection from user-derived content):
 
 \`\`\`bash
-CODEX_PROMPT_FILE=$(mktemp /tmp/gstack-codex-oh-XXXXXXXX.txt)
+SECOND_OPINION_PROMPT_FILE=$(mktemp /tmp/gstack-secondop-XXXXXXXX.txt)
 \`\`\`
 
 Write the full prompt (context block + instructions) to this file. Use the mode-appropriate variant:
@@ -287,28 +296,37 @@ Write the full prompt (context block + instructions) to this file. Use the mode-
 
 **Builder mode instructions:** "You are an independent technical advisor reading a transcript of a builder brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the COOLEST version of this they haven't considered? 2) What's the ONE thing from their answers that reveals what excites them most? Quote it. 3) What existing open source project or tool gets them 50% of the way there — and what's the 50% they'd need to build? 4) If you had a weekend to build this, what would you build first? Be specific. Be direct. No preamble."
 
-3. Run Codex:
+3. **Run the second-opinion provider:**
+
+**If Codex is the provider:**
 
 \`\`\`bash
 TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+codex exec "$(cat "$SECOND_OPINION_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+\`\`\`
+
+**If Gemini is the provider:**
+
+\`\`\`bash
+TMPERR_OH=$(mktemp /tmp/gemini-oh-err-XXXXXXXX)
+gemini --prompt "$(cat "$SECOND_OPINION_PROMPT_FILE")" 2>"$TMPERR_OH"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_OH"
-rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
+rm -f "$TMPERR_OH" "$SECOND_OPINION_PROMPT_FILE"
 \`\`\`
 
 **Error handling:** All errors are non-blocking — second opinion is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate." Fall back to Claude subagent.
-- **Timeout:** "Codex timed out after 5 minutes." Fall back to Claude subagent.
-- **Empty response:** "Codex returned no response." Fall back to Claude subagent.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "[Provider] authentication failed. Run \\\`codex login\\\` or \\\`gemini\\\` to authenticate." Fall back to Claude subagent.
+- **Timeout:** "[Provider] timed out after 5 minutes." Fall back to Claude subagent.
+- **Empty response:** "[Provider] returned no response." Fall back to Claude subagent.
 
-On any Codex error, fall back to the Claude subagent below.
+On any provider error, fall back to the Claude subagent below.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If no provider available (or provider errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
@@ -320,19 +338,11 @@ If the subagent fails or times out: "Second opinion unavailable. Continuing to P
 
 4. **Presentation:**
 
-If Codex ran:
+Use the provider name in the header:
 \`\`\`
-SECOND OPINION (Codex):
+SECOND OPINION ({Provider name — Codex, Gemini, or Claude subagent}):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
-════════════════════════════════════════════════════════════
-\`\`\`
-
-If Claude subagent ran:
-\`\`\`
-SECOND OPINION (Claude subagent):
-════════════════════════════════════════════════════════════
-<full subagent output, verbatim — do not truncate or summarize>
+<full output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 \`\`\`
 
@@ -341,10 +351,10 @@ SECOND OPINION (Claude subagent):
    - Where Claude disagrees and why
    - Whether the challenged premise changes Claude's recommendation
 
-6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
+6. **Premise revision check:** If the second opinion challenged an agreed premise, use AskUserQuestion:
 
-> Codex challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
-> A) Revise this premise based on Codex's input
+> [Provider] challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
+> A) Revise this premise based on the outside input
 > B) Keep the original premise — proceed to alternatives
 
 If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).`;
@@ -367,7 +377,16 @@ Adversarial review thoroughness scales automatically based on diff size. No conf
 DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "\${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 # Respect old opt-out
 OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
@@ -389,14 +408,22 @@ If \`OLD_CFG\` is \`disabled\`: skip this step silently. Continue to the next st
 
 Claude's structured review already ran. Now add a **cross-model adversarial challenge**.
 
-**If Codex is available:** run the Codex adversarial challenge. **If Codex is NOT available:** fall back to the Claude adversarial subagent instead.
+**If a second-opinion provider is available (Codex or Gemini):** run the adversarial challenge with that provider. **If neither is available:** fall back to the Claude adversarial subagent instead.
 
-**Codex adversarial:**
+**Adversarial challenge (Codex):**
 
 \`\`\`bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_ADV"
+\`\`\`
+
+**Adversarial challenge (Gemini):**
+
+\`\`\`bash
+TMPERR_ADV=$(mktemp /tmp/gemini-adv-XXXXXXXX)
+DIFF_CONTENT=$(git diff origin/<base>)
+gemini --prompt "Review this git diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. THE DIFF: $DIFF_CONTENT" 2>"$TMPERR_ADV"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -407,11 +434,11 @@ cat "$TMPERR_ADV"
 Present the full output verbatim. This is informational — it never blocks shipping.
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "[Provider] authentication failed. Run \\\`codex login\\\` or \\\`gemini\\\` to authenticate."
+- **Timeout:** "[Provider] timed out after 5 minutes."
+- **Empty response:** "[Provider] returned no response. Stderr: <paste relevant error>."
 
-On any Codex error, fall back to the Claude adversarial subagent automatically.
+On any provider error, fall back to the Claude adversarial subagent automatically.
 
 **Claude adversarial subagent** (fallback when Codex unavailable or errored):
 
@@ -428,7 +455,7 @@ If the subagent fails or times out: "Claude adversarial subagent unavailable. Co
 \`\`\`bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "claude" if subagent ran. If both failed, do NOT persist.
+Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "gemini" if Gemini ran, "claude" if subagent ran. If all failed, do NOT persist.
 
 **Cleanup:** Run \`rm -f "$TMPERR_ADV"\` after processing (if Codex was used).
 
@@ -438,12 +465,21 @@ Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOU
 
 Claude's structured review already ran. Now run **all three remaining passes** for maximum coverage:
 
-**1. Codex structured review (if available):**
+**1. Cross-model structured review (if Codex or Gemini available):**
+
+**If Codex:**
 \`\`\`bash
 TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+\`\`\`
+
+**If Gemini (no native \`review\` subcommand — construct equivalent):**
+\`\`\`bash
+TMPERR=$(mktemp /tmp/gemini-review-XXXXXXXX)
+DIFF_CONTENT=$(git diff origin/<base>)
+gemini --prompt "Review this git diff for a pre-landing code review. For each issue found, classify as [P1] (must fix before merge — security, data loss, correctness) or [P2] (should fix — performance, maintainability, edge cases). Format: [P1] or [P2] tag, file:line, problem, suggested fix. THE DIFF: $DIFF_CONTENT" 2>"$TMPERR"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`CODEX SAYS (code review):\` header.
@@ -467,13 +503,13 @@ After stderr: \`rm -f "$TMPERR"\`
 
 **3. Codex adversarial challenge (if available):** Run \`codex exec\` with the adversarial prompt (same as medium tier).
 
-If Codex is not available for steps 1 and 3, note to the user: "Codex CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex for full 4-pass coverage: \`npm install -g @openai/codex\`"
+If no second-opinion provider is available for steps 1 and 3, note to the user: "No cross-model CLI found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex (\`npm install -g @openai/codex\`) or Gemini CLI (\`npm install -g @google/gemini-cli\`) for full 4-pass coverage."
 
 **Persist the review result AFTER all passes complete** (not after each sub-step):
 \`\`\`bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if a cross-model provider (Codex or Gemini) ran, "claude" if only Claude subagent ran. GATE = the structured review gate result ("pass"/"fail"), or "informational" if no provider was available. If all passes failed, do NOT persist.
 
 ---
 
@@ -487,8 +523,8 @@ ADVERSARIAL REVIEW SYNTHESIS (auto: TIER, N lines):
   High confidence (found by multiple sources): [findings agreed on by >1 pass]
   Unique to Claude structured review: [from earlier step]
   Unique to Claude adversarial: [from subagent, if ran]
-  Unique to Codex: [from codex adversarial or code review, if ran]
-  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
+  Unique to cross-model provider: [from Codex/Gemini adversarial or code review, if ran]
+  Models used: Claude structured ✓  Claude adversarial ✓/✗  Cross-model (Codex/Gemini) ✓/✗
 ════════════════════════════════════════════════════════════
 \`\`\`
 
@@ -507,10 +543,19 @@ After all review sections are complete, offer an independent second opinion from
 different AI system. Two models agreeing on a plan is stronger signal than one model's
 thorough review.
 
-**Check tool availability:**
+**Detect available second-opinion provider:**
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+SECOND_OPINION_BIN=""
+SECOND_OPINION_PROVIDER=""
+if which codex 2>/dev/null; then
+  SECOND_OPINION_BIN="codex"
+  SECOND_OPINION_PROVIDER="Codex"
+elif which gemini 2>/dev/null; then
+  SECOND_OPINION_BIN="gemini"
+  SECOND_OPINION_PROVIDER="Gemini"
+fi
+echo "\${SECOND_OPINION_PROVIDER:-NONE}_AVAILABLE"
 \`\`\`
 
 Use AskUserQuestion:
@@ -549,12 +594,19 @@ compliments. Just the problems.
 THE PLAN:
 <plan content>"
 
-**If CODEX_AVAILABLE:**
+**If Codex is the provider:**
 
 \`\`\`bash
 TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+\`\`\`
+
+**If Gemini is the provider:**
+
+\`\`\`bash
+TMPERR_PV=$(mktemp /tmp/gemini-planreview-XXXXXXXX)
+gemini --prompt "<prompt>" 2>"$TMPERR_PV"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -565,20 +617,22 @@ cat "$TMPERR_PV"
 Present the full output verbatim:
 
 \`\`\`
-CODEX SAYS (plan review — outside voice):
+{PROVIDER} SAYS (plan review — outside voice):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 \`\`\`
 
+Substitute {PROVIDER} with "CODEX" or "GEMINI" based on which ran.
+
 **Error handling:** All errors are non-blocking — the outside voice is informational.
-- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run \\\`codex login\\\` to authenticate."
-- Timeout: "Codex timed out after 5 minutes."
-- Empty response: "Codex returned no response."
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "[Provider] auth failed. Run \\\`codex login\\\` or \\\`gemini\\\` to authenticate."
+- Timeout: "[Provider] timed out after 5 minutes."
+- Empty response: "[Provider] returned no response."
 
-On any Codex error, fall back to the Claude adversarial subagent.
+On any provider error, fall back to the Claude adversarial subagent.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If no provider available (or provider errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
@@ -615,7 +669,7 @@ If no tension points exist, note: "No cross-model tension — both reviewers agr
 \`\`\`
 
 Substitute: STATUS = "clean" if no findings, "issues_found" if findings exist.
-SOURCE = "codex" if Codex ran, "claude" if subagent ran.
+SOURCE = "codex" if Codex ran, "gemini" if Gemini ran, "claude" if subagent ran.
 
 **Cleanup:** Run \`rm -f "$TMPERR_PV"\` after processing (if Codex was used).
 
