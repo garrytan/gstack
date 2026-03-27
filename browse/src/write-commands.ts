@@ -6,7 +6,7 @@
  */
 
 import type { BrowserManager } from './browser-manager';
-import { findInstalledBrowsers, importCookies } from './cookie-import-browser';
+import { findInstalledBrowsers, importCookies, listSupportedBrowserNames } from './cookie-import-browser';
 import { validateNavigationUrl } from './url-validation';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -18,9 +18,13 @@ export async function handleWriteCommand(
   bm: BrowserManager
 ): Promise<string> {
   const page = bm.getPage();
+  // Frame-aware target for locator-based operations (click, fill, etc.)
+  const target = bm.getActiveFrameOrPage();
+  const inFrame = bm.getFrame() !== null;
 
   switch (command) {
     case 'goto': {
+      if (inFrame) throw new Error('Cannot use goto inside a frame. Run \'frame main\' first.');
       const url = args[0];
       if (!url) throw new Error('Usage: browse goto <url>');
       await validateNavigationUrl(url);
@@ -30,16 +34,19 @@ export async function handleWriteCommand(
     }
 
     case 'back': {
+      if (inFrame) throw new Error('Cannot use back inside a frame. Run \'frame main\' first.');
       await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 });
       return `Back → ${page.url()}`;
     }
 
     case 'forward': {
+      if (inFrame) throw new Error('Cannot use forward inside a frame. Run \'frame main\' first.');
       await page.goForward({ waitUntil: 'domcontentloaded', timeout: 15000 });
       return `Forward → ${page.url()}`;
     }
 
     case 'reload': {
+      if (inFrame) throw new Error('Cannot use reload inside a frame. Run \'frame main\' first.');
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
       return `Reloaded ${page.url()}`;
     }
@@ -73,15 +80,14 @@ export async function handleWriteCommand(
         if ('locator' in resolved) {
           await resolved.locator.click({ timeout: 5000 });
         } else {
-          await page.click(resolved.selector, { timeout: 5000 });
+          await target.locator(resolved.selector).click({ timeout: 5000 });
         }
       } catch (err: any) {
         // Enhanced error guidance: clicking <option> elements always fails (not visible / timeout)
         const isOption = 'locator' in resolved
           ? await resolved.locator.evaluate(el => el.tagName === 'OPTION').catch(() => false)
-          : await page.evaluate(
-              (sel: string) => document.querySelector(sel)?.tagName === 'OPTION',
-              (resolved as { selector: string }).selector
+          : await target.locator(resolved.selector).evaluate(
+              el => el.tagName === 'OPTION'
             ).catch(() => false);
         if (isOption) {
           throw new Error(
@@ -90,8 +96,8 @@ export async function handleWriteCommand(
         }
         throw err;
       }
-      // Wait briefly for any navigation/DOM update
-      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      // Wait for network to settle (catches XHR/fetch triggered by clicks)
+      await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
       return `Clicked ${selector} → now at ${page.url()}`;
     }
 
@@ -103,8 +109,10 @@ export async function handleWriteCommand(
       if ('locator' in resolved) {
         await resolved.locator.fill(value, { timeout: 5000 });
       } else {
-        await page.fill(resolved.selector, value, { timeout: 5000 });
+        await target.locator(resolved.selector).fill(value, { timeout: 5000 });
       }
+      // Wait for network to settle (form validation XHRs)
+      await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
       return `Filled ${selector}`;
     }
 
@@ -116,8 +124,10 @@ export async function handleWriteCommand(
       if ('locator' in resolved) {
         await resolved.locator.selectOption(value, { timeout: 5000 });
       } else {
-        await page.selectOption(resolved.selector, value, { timeout: 5000 });
+        await target.locator(resolved.selector).selectOption(value, { timeout: 5000 });
       }
+      // Wait for network to settle (dropdown-triggered requests)
+      await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
       return `Selected "${value}" in ${selector}`;
     }
 
@@ -128,7 +138,7 @@ export async function handleWriteCommand(
       if ('locator' in resolved) {
         await resolved.locator.hover({ timeout: 5000 });
       } else {
-        await page.hover(resolved.selector, { timeout: 5000 });
+        await target.locator(resolved.selector).hover({ timeout: 5000 });
       }
       return `Hovered ${selector}`;
     }
@@ -154,11 +164,11 @@ export async function handleWriteCommand(
         if ('locator' in resolved) {
           await resolved.locator.scrollIntoViewIfNeeded({ timeout: 5000 });
         } else {
-          await page.locator(resolved.selector).scrollIntoViewIfNeeded({ timeout: 5000 });
+          await target.locator(resolved.selector).scrollIntoViewIfNeeded({ timeout: 5000 });
         }
         return `Scrolled ${selector} into view`;
       }
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await target.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       return 'Scrolled to bottom';
     }
 
@@ -183,7 +193,7 @@ export async function handleWriteCommand(
       if ('locator' in resolved) {
         await resolved.locator.waitFor({ state: 'visible', timeout });
       } else {
-        await page.waitForSelector(resolved.selector, { timeout });
+        await target.locator(resolved.selector).waitFor({ state: 'visible', timeout });
       }
       return `Element ${selector} appeared`;
     }
@@ -248,7 +258,7 @@ export async function handleWriteCommand(
       if ('locator' in resolved) {
         await resolved.locator.setInputFiles(filePaths);
       } else {
-        await page.locator(resolved.selector).setInputFiles(filePaths);
+        await target.locator(resolved.selector).setInputFiles(filePaths);
       }
 
       const fileInfo = filePaths.map(fp => {
@@ -309,16 +319,18 @@ export async function handleWriteCommand(
 
     case 'cookie-import-browser': {
       // Two modes:
-      // 1. Direct CLI import: cookie-import-browser <browser> --domain <domain>
+      // 1. Direct CLI import: cookie-import-browser <browser> --domain <domain> [--profile <profile>]
       // 2. Open picker UI: cookie-import-browser [browser]
       const browserArg = args[0];
       const domainIdx = args.indexOf('--domain');
+      const profileIdx = args.indexOf('--profile');
+      const profile = (profileIdx !== -1 && profileIdx + 1 < args.length) ? args[profileIdx + 1] : 'Default';
 
       if (domainIdx !== -1 && domainIdx + 1 < args.length) {
         // Direct import mode — no UI
         const domain = args[domainIdx + 1];
         const browser = browserArg || 'comet';
-        const result = await importCookies(browser, [domain]);
+        const result = await importCookies(browser, [domain], profile);
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
         }
@@ -333,7 +345,7 @@ export async function handleWriteCommand(
 
       const browsers = findInstalledBrowsers();
       if (browsers.length === 0) {
-        throw new Error('No Chromium browsers found. Supported: Comet, Chrome, Arc, Brave, Edge');
+        throw new Error(`No Chromium browsers found. Supported: ${listSupportedBrowserNames().join(', ')}`);
       }
 
       const pickerUrl = `http://127.0.0.1:${port}/cookie-picker`;

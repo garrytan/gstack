@@ -78,8 +78,8 @@ describe('gstack-telemetry-log', () => {
 
     const events = parseJsonl();
     expect(events).toHaveLength(1);
-    // installation_id should be a SHA-256 hash (64 hex chars)
-    expect(events[0].installation_id).toMatch(/^[a-f0-9]{64}$/);
+    // installation_id should be a UUID v4 (or hex fallback)
+    expect(events[0].installation_id).toMatch(/^[a-f0-9-]{32,36}$/);
   });
 
   test('installation_id is null for anonymous tier', () => {
@@ -123,6 +123,82 @@ describe('gstack-telemetry-log', () => {
     // These should be present in local JSONL
     expect(events[0]).toHaveProperty('_repo_slug');
     expect(events[0]).toHaveProperty('_branch');
+  });
+
+  // ─── json_safe() injection prevention tests ────────────────
+  test('sanitizes skill name with quote injection attempt', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill 'review","injected":"true' --duration 10 --outcome success --session-id inj-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    // Must be valid JSON (no injection — quotes stripped, so no field injection possible)
+    const event = JSON.parse(lines[0]);
+    // The key check: no injected top-level property was created
+    expect(event).not.toHaveProperty('injected');
+    // Skill field should have quotes stripped but content preserved
+    expect(event.skill).not.toContain('"');
+  });
+
+  test('truncates skill name exceeding 200 chars', () => {
+    setConfig('telemetry', 'anonymous');
+    const longSkill = 'a'.repeat(250);
+    run(`${BIN}/gstack-telemetry-log --skill '${longSkill}' --duration 10 --outcome success --session-id trunc-1`);
+
+    const events = parseJsonl();
+    expect(events[0].skill.length).toBeLessThanOrEqual(200);
+  });
+
+  test('sanitizes outcome with newline injection attempt', () => {
+    setConfig('telemetry', 'anonymous');
+    // Use printf to pass actual newline in the argument
+    run(`bash -c 'OUTCOME=$(printf "success\\nfake\\":\\"true"); ${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome "$OUTCOME" --session-id inj-2'`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('fake');
+  });
+
+  test('sanitizes session_id with backslash-quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id 'id\\\\"","x":"y'`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('x');
+  });
+
+  test('sanitizes error_class with quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-class 'timeout","extra":"val' --session-id inj-3`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('extra');
+  });
+
+  test('sanitizes failed_step with quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --failed-step 'step1","hacked":"yes' --session-id inj-4`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('hacked');
+  });
+
+  test('escapes error_message quotes and preserves content', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'Error: file "test.txt" not found' --session-id inj-5`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event.error_message).toContain('file');
+    expect(event.error_message).toContain('not found');
   });
 
   test('creates analytics directory if missing', () => {
@@ -244,15 +320,31 @@ describe('gstack-analytics', () => {
 });
 
 describe('gstack-telemetry-sync', () => {
-  test('exits silently with no endpoint configured', () => {
-    // Default: GSTACK_TELEMETRY_ENDPOINT is not set → exit 0
+  test('exits silently with no Supabase URL configured', () => {
+    // Default: GSTACK_SUPABASE_URL is not set → exit 0
     const result = run(`${BIN}/gstack-telemetry-sync`);
     expect(result).toBe('');
   });
 
   test('exits silently with no JSONL file', () => {
-    const result = run(`${BIN}/gstack-telemetry-sync`, { GSTACK_TELEMETRY_ENDPOINT: 'http://localhost:9999' });
+    const result = run(`${BIN}/gstack-telemetry-sync`, { GSTACK_SUPABASE_URL: 'http://localhost:9999' });
     expect(result).toBe('');
+  });
+
+  test('does not rename JSONL field names (edge function expects raw names)', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 60 --outcome success --session-id raw-fields-1`);
+
+    const events = parseJsonl();
+    expect(events).toHaveLength(1);
+    // Edge function expects these raw field names, NOT Postgres column names
+    expect(events[0]).toHaveProperty('v');
+    expect(events[0]).toHaveProperty('ts');
+    expect(events[0]).toHaveProperty('sessions');
+    // Should NOT have Postgres column names
+    expect(events[0]).not.toHaveProperty('schema_version');
+    expect(events[0]).not.toHaveProperty('event_timestamp');
+    expect(events[0]).not.toHaveProperty('concurrent_sessions');
   });
 });
 

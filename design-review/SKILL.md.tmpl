@@ -1,5 +1,6 @@
 ---
 name: design-review
+preamble-tier: 4
 version: 2.0.0
 description: |
   Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems,
@@ -40,6 +41,12 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below).
 
 **If no URL is given and you're on main/master:** Ask the user for a URL.
+
+**CDP mode detection:** Check if browse is connected to the user's real browser:
+```bash
+$B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
+```
+If `CDP_MODE=true`: skip cookie import steps — the real browser already has cookies and auth sessions. Skip headless detection workarounds.
 
 **Check for DESIGN.md:**
 

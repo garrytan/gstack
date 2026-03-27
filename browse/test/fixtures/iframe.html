@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Page - Iframe</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    iframe { border: 1px solid #ccc; width: 400px; height: 200px; }
+  </style>
+</head>
+<body>
+  <h1 id="main-title">Main Page</h1>
+  <iframe id="test-frame" name="testframe" srcdoc='
+    <!DOCTYPE html>
+    <html>
+    <body>
+      <h1 id="frame-title">Inside Frame</h1>
+      <button id="frame-btn">Frame Button</button>
+      <input id="frame-input" type="text" placeholder="Type here">
+      <div id="frame-result"></div>
+      <script>
+        document.getElementById("frame-btn").addEventListener("click", () => {
+          document.getElementById("frame-result").textContent = "Frame button clicked";
+        });
+      </script>
+    </body>
+    </html>
+  '></iframe>
+</body>
+</html>

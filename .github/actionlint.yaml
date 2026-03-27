@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    - ubicloud-standard-2
+    - ubicloud-standard-8

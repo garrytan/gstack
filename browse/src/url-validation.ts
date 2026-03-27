@@ -82,8 +82,12 @@ export async function validateNavigationUrl(url: string): Promise<void> {
     );
   }
 
-  // DNS rebinding protection: resolve hostname and check if it points to metadata IPs
-  if (await resolvesToBlockedIp(hostname)) {
+  // DNS rebinding protection: resolve hostname and check if it points to metadata IPs.
+  // Skip for loopback/private IPs — they can't be DNS-rebinded and the async DNS
+  // resolution adds latency that breaks concurrent E2E tests under load.
+  const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  const isPrivateNet = /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/.test(hostname);
+  if (!isLoopback && !isPrivateNet && await resolvesToBlockedIp(hostname)) {
     throw new Error(
       `Blocked: ${parsed.hostname} resolves to a cloud metadata IP. Possible DNS rebinding attack.`
     );

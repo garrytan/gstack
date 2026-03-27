@@ -14,7 +14,7 @@
  */
 
 import type { BrowserManager } from './browser-manager';
-import { findInstalledBrowsers, listDomains, importCookies, CookieImportError, type PlaywrightCookie } from './cookie-import-browser';
+import { findInstalledBrowsers, listProfiles, listDomains, importCookies, CookieImportError, type PlaywrightCookie } from './cookie-import-browser';
 import { getCookiePickerHTML } from './cookie-picker-ui';
 
 // ─── State ──────────────────────────────────────────────────────
@@ -90,13 +90,24 @@ export async function handleCookiePickerRoute(
       }, { port });
     }
 
-    // GET /cookie-picker/domains?browser=<name> — list domains + counts
+    // GET /cookie-picker/profiles?browser=<name> — list profiles for a browser
+    if (pathname === '/cookie-picker/profiles' && req.method === 'GET') {
+      const browserName = url.searchParams.get('browser');
+      if (!browserName) {
+        return errorResponse("Missing 'browser' parameter", 'missing_param', { port });
+      }
+      const profiles = listProfiles(browserName);
+      return jsonResponse({ profiles }, { port });
+    }
+
+    // GET /cookie-picker/domains?browser=<name>&profile=<profile> — list domains + counts
     if (pathname === '/cookie-picker/domains' && req.method === 'GET') {
       const browserName = url.searchParams.get('browser');
       if (!browserName) {
         return errorResponse("Missing 'browser' parameter", 'missing_param', { port });
       }
-      const result = listDomains(browserName);
+      const profile = url.searchParams.get('profile') || 'Default';
+      const result = listDomains(browserName, profile);
       return jsonResponse({
         browser: result.browser,
         domains: result.domains,
@@ -112,14 +123,14 @@ export async function handleCookiePickerRoute(
         return errorResponse('Invalid JSON body', 'bad_request', { port });
       }
 
-      const { browser, domains } = body;
+      const { browser, domains, profile } = body;
       if (!browser) return errorResponse("Missing 'browser' field", 'missing_param', { port });
       if (!domains || !Array.isArray(domains) || domains.length === 0) {
         return errorResponse("Missing or empty 'domains' array", 'missing_param', { port });
       }
 
       // Decrypt cookies from the browser DB
-      const result = await importCookies(browser, domains);
+      const result = await importCookies(browser, domains, profile || 'Default');
 
       if (result.cookies.length === 0) {
         return jsonResponse({

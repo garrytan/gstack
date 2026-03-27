@@ -11,16 +11,19 @@
 
 import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
+import { discoverTemplates } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { Host, TemplateContext } from './resolvers/types';
+import { HOST_PATHS } from './resolvers/types';
+import { RESOLVERS } from './resolvers/index';
+import { codexSkillName, transformFrontmatter, extractHookSafetyProse, extractNameAndDescription, condenseOpenAIShortDescription, generateOpenAIYaml } from './resolvers/codex-helpers';
+import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
 
-// ─── Template Context ───────────────────────────────────────
-
-type Host = 'claude' | 'codex';
-const OPENAI_SHORT_DESCRIPTION_LIMIT = 120;
+// ─── Host Detection ─────────────────────────────────────────
 
 const HOST_ARG = process.argv.find(a => a.startsWith('--host'));
 const HOST: Host = (() => {
@@ -31,35 +34,7 @@ const HOST: Host = (() => {
   throw new Error(`Unknown host: ${val}. Use claude, codex, or agents.`);
 })();
 
-interface HostPaths {
-  skillRoot: string;
-  localSkillRoot: string;
-  binDir: string;
-  browseDir: string;
-}
-
-const HOST_PATHS: Record<Host, HostPaths> = {
-  claude: {
-    skillRoot: '~/.claude/skills/gstack',
-    localSkillRoot: '.claude/skills/gstack',
-    binDir: '~/.claude/skills/gstack/bin',
-    browseDir: '~/.claude/skills/gstack/browse/dist',
-  },
-  codex: {
-    skillRoot: '$GSTACK_ROOT',
-    localSkillRoot: '.agents/skills/gstack',
-    binDir: '$GSTACK_BIN',
-    browseDir: '$GSTACK_BROWSE',
-  },
-};
-
-interface TemplateContext {
-  skillName: string;
-  tmplPath: string;
-  benefitsFrom?: string[];
-  host: Host;
-  paths: HostPaths;
-}
+// HostPaths, HOST_PATHS, and TemplateContext imported from ./resolvers/types (line 7-8)
 
 // ─── Shared Design Constants ────────────────────────────────
 
@@ -282,6 +257,7 @@ function generateAskUserFormat(_ctx: TemplateContext): string {
 2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
 3. **Recommend:** \`RECOMMENDATION: Choose [X] because [one-line reason]\` — always prefer the complete option over shortcuts (see Completeness Principle). Include \`Completeness: X/10\` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
 4. **Options:** Lettered options: \`A) ... B) ... C) ...\` — when an option involves effort, show both scales: \`(human: ~X / CC: ~Y)\`
+5. **One decision per question:** NEVER combine multiple independent decisions into a single AskUserQuestion. Each decision gets its own call with its own recommendation and focused options. Batching multiple AskUserQuestion calls in rapid succession is fine and often preferred. Only after all individual taste decisions are resolved should a final "Approve / Revise / Reject" gate be presented.
 
 Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
 
@@ -469,7 +445,7 @@ Hey gstack team — ran into this while using /{skill-name}:
 
 **What I was trying to do:** {what the user/agent was attempting}
 **What happened instead:** {what actually happened}
-**My rating:** {0-10} — {one sentence on why it wasn't a 10}
+**My Rating:** {0-10} — {one sentence on why it wasn't a 10}
 
 ## Steps to reproduce
 1. {step}
@@ -580,15 +556,14 @@ plan's living status.`;
 }
 
 function generatePreamble(ctx: TemplateContext): string {
+  const tier = ctx.preambleTier ?? 4;
   return [
     generatePreambleBash(ctx),
     generateUpgradeCheck(ctx),
     generateLakeIntro(),
     generateTelemetryPrompt(ctx),
-    generateAskUserFormat(ctx),
-    generateCompletenessSection(),
-    generateRepoModeSection(),
-    generateSearchBeforeBuildingSection(ctx),
+    ...(tier >= 2 ? [generateAskUserFormat(ctx), generateCompletenessSection()] : []),
+    ...(tier >= 3 ? [generateRepoModeSection(), generateSearchBeforeBuildingSection(ctx)] : []),
     generateContributorMode(),
     generateCompletionStatus(),
   ].join('\n\n');
@@ -615,47 +590,46 @@ If \`NEEDS_SETUP\`:
 3. If \`bun\` is not installed: \`curl -fsSL https://bun.sh/install | bash\``;
 }
 
-function generateBrowseMobileSetup(ctx: TemplateContext): string {
-  return `## MOBILE SETUP (optional — check for browse-mobile binary)
-
-\`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-BM=""
-# Check 1: project-local build (dev mode in gstack repo itself)
-[ -n "$_ROOT" ] && [ -x "$_ROOT/browse-mobile/dist/browse-mobile" ] && BM="$_ROOT/browse-mobile/dist/browse-mobile"
-# Check 2: vendored skills in project (e.g., .claude/skills/gstack/browse-mobile)
-[ -z "$BM" ] && [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse-mobile/dist/browse-mobile" ] && BM="$_ROOT/${ctx.paths.localSkillRoot}/browse-mobile/dist/browse-mobile"
-# Check 3: global gstack install (works from ANY project directory)
-# browseDir is e.g. ~/.claude/skills/gstack/browse/dist — go up 2 levels to gstack root
-[ -z "$BM" ] && [ -x ${ctx.paths.browseDir}/../../browse-mobile/dist/browse-mobile ] && BM=${ctx.paths.browseDir}/../../browse-mobile/dist/browse-mobile
-if [ -n "$BM" ] && [ -x "$BM" ]; then
-  echo "MOBILE_READY: $BM"
-else
-  echo "MOBILE_NOT_AVAILABLE"
-fi
-\`\`\`
-
-If \`MOBILE_READY\`: the \`$BM\` variable points to the browse-mobile binary for mobile app automation via Appium.
-If \`MOBILE_NOT_AVAILABLE\`: mobile testing is not available — web QA works as usual with \`$B\`.`;
-}
+// generateBrowseMobileSetup, generateBaseBranchDetect, and generateQAMethodology moved to ./resolvers/utility.ts
+// Dead copies removed — resolvers/index.ts is the source of truth for the RESOLVERS map.
 
 function generateBaseBranchDetect(_ctx: TemplateContext): string {
-  return `## Step 0: Detect base branch
+  return `## Step 0: Detect platform and base branch
 
-Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
+First, detect the git hosting platform from the remote URL:
 
-1. Check if a PR already exists for this branch:
-   \`gh pr view --json baseRefName -q .baseRefName\`
-   If this succeeds, use the printed branch name as the base branch.
+\`\`\`bash
+git remote get-url origin 2>/dev/null
+\`\`\`
 
-2. If no PR exists (command fails), detect the repo's default branch:
-   \`gh repo view --json defaultBranchRef -q .defaultBranchRef.name\`
+- If the URL contains "github.com" → platform is **GitHub**
+- If the URL contains "gitlab" → platform is **GitLab**
+- Otherwise, check CLI availability:
+  - \`gh auth status 2>/dev/null\` succeeds → platform is **GitHub** (covers GitHub Enterprise)
+  - \`glab auth status 2>/dev/null\` succeeds → platform is **GitLab** (covers self-hosted)
+  - Neither → **unknown** (use git-native commands only)
 
-3. If both commands fail, fall back to \`main\`.
+Determine which branch this PR/MR targets, or the repo's default branch if no
+PR/MR exists. Use the result as "the base branch" in all subsequent steps.
+
+**If GitHub:**
+1. \`gh pr view --json baseRefName -q .baseRefName\` — if succeeds, use it
+2. \`gh repo view --json defaultBranchRef -q .defaultBranchRef.name\` — if succeeds, use it
+
+**If GitLab:**
+1. \`glab mr view -F json 2>/dev/null\` and extract the \`target_branch\` field — if succeeds, use it
+2. \`glab repo view -F json 2>/dev/null\` and extract the \`default_branch\` field — if succeeds, use it
+
+**Git-native fallback (if unknown platform, or CLI commands fail):**
+1. \`git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'\`
+2. If that fails: \`git rev-parse --verify origin/main 2>/dev/null\` → use \`main\`
+3. If that fails: \`git rev-parse --verify origin/master 2>/dev/null\` → use \`master\`
+
+If all fail, fall back to \`main\`.
 
 Print the detected base branch name. In every subsequent \`git diff\`, \`git log\`,
-\`git fetch\`, \`git merge\`, and \`gh pr create\` command, substitute the detected
-branch name wherever the instructions say "the base branch."
+\`git fetch\`, \`git merge\`, and PR/MR creation command, substitute the detected
+branch name wherever the instructions say "the base branch" or \`<default>\`.
 
 ---`;
 }
@@ -753,7 +727,7 @@ This is the **primary mode** for developers verifying their work. When the user 
         Then extract:
         \`\`\`bash
         tar -xzf /tmp/preview-build.tar.gz -C /tmp/
-        ls /tmp/*.app 2>/dev/null || ls /tmp/**/*.app 2>/dev/null
+        setopt +o nomatch 2>/dev/null || true; ls /tmp/*.app 2>/dev/null || ls /tmp/**/*.app 2>/dev/null
         \`\`\`
 
      4. **Upload to Revyl (if cloud mode):**
@@ -1225,68 +1199,6 @@ Minimum 0 per category.
 10. **Use \`snapshot -C\` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
 11. **Show screenshots to the user.** After every \`$B screenshot\`, \`$B snapshot -a -o\`, or \`$B responsive\` command, use the Read tool on the output file(s) so the user can see them inline. For \`responsive\` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
 12. **Never refuse to use the browser.** When the user invokes /qa or /qa-only, they are requesting browser-based testing. Never suggest evals, unit tests, or other alternatives as a substitute. Even if the diff appears to have no UI changes, backend changes affect app behavior — always open the browser and test.`;
-}
-
-function generateDesignReviewLite(ctx: TemplateContext): string {
-  const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
-  const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join(' ');
-  // Codex block only for Claude host
-  const codexBlock = ctx.host === 'codex' ? '' : `
-
-7. **Codex design voice** (optional, automatic if available):
-
-\`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
-
-If Codex is available, run a lightweight design check on the diff:
-
-\`\`\`bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
-\`\`\`
-
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
-\`\`\`
-
-**Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
-
-Present Codex output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
-
-  return `## Design Review (conditional, diff-scoped)
-
-Check if the diff touches frontend files using \`gstack-diff-scope\`:
-
-\`\`\`bash
-source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null)
-\`\`\`
-
-**If \`SCOPE_FRONTEND=false\`:** Skip design review silently. No output.
-
-**If \`SCOPE_FRONTEND=true\`:**
-
-1. **Check for DESIGN.md.** If \`DESIGN.md\` or \`design-system.md\` exists in the repo root, read it. All design findings are calibrated against it — patterns blessed in DESIGN.md are not flagged. If not found, use universal design principles.
-
-2. **Read \`.claude/skills/review/design-checklist.md\`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
-
-3. **Read each changed frontend file** (full file, not just diff hunks). Frontend files are identified by the patterns listed in the checklist.
-
-4. **Apply the design checklist** against the changed files. For each item:
-   - **[HIGH] mechanical CSS fix** (\`outline: none\`, \`!important\`, \`font-size < 16px\`): classify as AUTO-FIX
-   - **[HIGH/MEDIUM] design judgment needed**: classify as ASK
-   - **[LOW] intent-based detection**: present as "Possible — verify visually or run /design-review"
-
-5. **Include findings** in the review output under a "Design Review" header, following the output format in the checklist. Design findings merge with code review findings into the same Fix-First flow.
-
-6. **Log the result** for the Review Readiness Dashboard:
-
-\`\`\`bash
-${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
-\`\`\`
-
-Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of \`git rev-parse --short HEAD\`.${codexBlock}`;
 }
 
 // NOTE: design-checklist.md is a subset of this methodology for code-level detection.
@@ -2375,450 +2287,6 @@ If a design doc is now found, read it and continue the review.
 If none was produced (user may have cancelled), proceed with standard review.`;
 }
 
-function generateDesignSketch(_ctx: TemplateContext): string {
-  return `## Visual Sketch (UI ideas only)
-
-If the chosen approach involves user-facing UI (screens, pages, forms, dashboards,
-or interactive elements), generate a rough wireframe to help the user visualize it.
-If the idea is backend-only, infrastructure, or has no UI component — skip this
-section silently.
-
-**Step 1: Gather design context**
-
-1. Check if \`DESIGN.md\` exists in the repo root. If it does, read it for design
-   system constraints (colors, typography, spacing, component patterns). Use these
-   constraints in the wireframe.
-2. Apply core design principles:
-   - **Information hierarchy** — what does the user see first, second, third?
-   - **Interaction states** — loading, empty, error, success, partial
-   - **Edge case paranoia** — what if the name is 47 chars? Zero results? Network fails?
-   - **Subtraction default** — "as little design as possible" (Rams). Every element earns its pixels.
-   - **Design for trust** — every interface element builds or erodes user trust.
-
-**Step 2: Generate wireframe HTML**
-
-Generate a single-page HTML file with these constraints:
-- **Intentionally rough aesthetic** — use system fonts, thin gray borders, no color,
-  hand-drawn-style elements. This is a sketch, not a polished mockup.
-- Self-contained — no external dependencies, no CDN links, inline CSS only
-- Show the core interaction flow (1-3 screens/states max)
-- Include realistic placeholder content (not "Lorem ipsum" — use content that
-  matches the actual use case)
-- Add HTML comments explaining design decisions
-
-Write to a temp file:
-\`\`\`bash
-SKETCH_FILE="/tmp/gstack-sketch-$(date +%s).html"
-\`\`\`
-
-**Step 3: Render and capture**
-
-\`\`\`bash
-$B goto "file://$SKETCH_FILE"
-$B screenshot /tmp/gstack-sketch.png
-\`\`\`
-
-If \`$B\` is not available (browse binary not set up), skip the render step. Tell the
-user: "Visual sketch requires the browse binary. Run the setup script to enable it."
-
-**Step 4: Present and iterate**
-
-Show the screenshot to the user. Ask: "Does this feel right? Want to iterate on the layout?"
-
-If they want changes, regenerate the HTML with their feedback and re-render.
-If they approve or say "good enough," proceed.
-
-**Step 5: Include in design doc**
-
-Reference the wireframe screenshot in the design doc's "Recommended Approach" section.
-The screenshot file at \`/tmp/gstack-sketch.png\` can be referenced by downstream skills
-(\`/plan-design-review\`, \`/design-review\`) to see what was originally envisioned.
-
-**Step 6: Outside design voices** (optional)
-
-After the wireframe is approved, offer outside design perspectives:
-
-\`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
-
-If Codex is available, use AskUserQuestion:
-> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
->
-> A) Yes — get outside design voices
-> B) No — proceed without
-
-If user chooses A, launch both voices simultaneously:
-
-1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
-\`\`\`bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
-\`\`\`
-Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
-
-2. **Claude subagent** (via Agent tool):
-"For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
-
-Present Codex output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
-Error handling: all non-blocking. On failure, skip and continue.`;
-}
-
-function generateCodexSecondOpinion(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
-
-  return `## Phase 3.5: Cross-Model Second Opinion (optional)
-
-**Binary check first — no question if unavailable:**
-
-\`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
-
-If \`CODEX_NOT_AVAILABLE\`: skip Phase 3.5 entirely — no message, no AskUserQuestion. Proceed directly to Phase 4.
-
-If \`CODEX_AVAILABLE\`: use AskUserQuestion:
-
-> Want a second opinion from a different AI model? Codex will independently review your problem statement, key answers, premises, and any landscape findings from this session. It hasn't seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
-> A) Yes, get a second opinion
-> B) No, proceed to alternatives
-
-If B: skip Phase 3.5 entirely. Remember that Codex did NOT run (affects design doc, founder signals, and Phase 4 below).
-
-**If A: Run the Codex cold read.**
-
-1. Assemble a structured context block from Phases 1-3:
-   - Mode (Startup or Builder)
-   - Problem statement (from Phase 1)
-   - Key answers from Phase 2A/2B (summarize each Q&A in 1-2 sentences, include verbatim user quotes)
-   - Landscape findings (from Phase 2.75, if search was run)
-   - Agreed premises (from Phase 3)
-   - Codebase context (project name, languages, recent activity)
-
-2. **Write the assembled prompt to a temp file** (prevents shell injection from user-derived content):
-
-\`\`\`bash
-CODEX_PROMPT_FILE=$(mktemp /tmp/gstack-codex-oh-XXXXXXXX.txt)
-\`\`\`
-
-Write the full prompt (context block + instructions) to this file. Use the mode-appropriate variant:
-
-**Startup mode instructions:** "You are an independent technical advisor reading a transcript of a startup brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the STRONGEST version of what this person is trying to build? Steelman it in 2-3 sentences. 2) What is the ONE thing from their answers that reveals the most about what they should actually build? Quote it and explain why. 3) Name ONE agreed premise you think is wrong, and what evidence would prove you right. 4) If you had 48 hours and one engineer to build a prototype, what would you build? Be specific — tech stack, features, what you'd skip. Be direct. Be terse. No preamble."
-
-**Builder mode instructions:** "You are an independent technical advisor reading a transcript of a builder brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the COOLEST version of this they haven't considered? 2) What's the ONE thing from their answers that reveals what excites them most? Quote it. 3) What existing open source project or tool gets them 50% of the way there — and what's the 50% they'd need to build? 4) If you had a weekend to build this, what would you build first? Be specific. Be direct. No preamble."
-
-3. Run Codex:
-
-\`\`\`bash
-TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_OH"
-\`\`\`
-
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_OH"
-rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
-\`\`\`
-
-**Error handling:** All errors are non-blocking — Codex second opinion is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate. Skipping second opinion."
-- **Timeout:** "Codex timed out after 5 minutes. Skipping second opinion."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>. Skipping second opinion."
-
-On any error, proceed to Phase 4 — do NOT fall back to a Claude subagent (this is brainstorming, not adversarial review).
-
-4. **Presentation:**
-
-\`\`\`
-SECOND OPINION (Codex):
-════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
-════════════════════════════════════════════════════════════
-\`\`\`
-
-5. **Cross-model synthesis:** After presenting Codex output, provide 3-5 bullet synthesis:
-   - Where Claude agrees with Codex
-   - Where Claude disagrees and why
-   - Whether Codex's challenged premise changes Claude's recommendation
-
-6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
-
-> Codex challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
-> A) Revise this premise based on Codex's input
-> B) Keep the original premise — proceed to alternatives
-
-If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).`;
-}
-
-function generateAdversarialStep(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
-
-  const isShip = ctx.skillName === 'ship';
-  const stepNum = isShip ? '3.8' : '5.7';
-
-  return `## Step ${stepNum}: Adversarial review (auto-scaled)
-
-Adversarial review thoroughness scales automatically based on diff size. No configuration needed.
-
-**Detect diff size and tool availability:**
-
-\`\`\`bash
-DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
-DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-# Respect old opt-out
-OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
-echo "DIFF_SIZE: $DIFF_TOTAL"
-echo "OLD_CFG: \${OLD_CFG:-not_set}"
-\`\`\`
-
-If \`OLD_CFG\` is \`disabled\`: skip this step silently. Continue to the next step.
-
-**User override:** If the user explicitly requested a specific tier (e.g., "run all passes", "paranoid review", "full adversarial", "do all 4 passes", "thorough review"), honor that request regardless of diff size. Jump to the matching tier section.
-
-**Auto-select tier based on diff size:**
-- **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
-- **Medium (50–199 lines changed):** Run Codex adversarial challenge (or Claude adversarial subagent if Codex unavailable). Jump to the "Medium tier" section.
-- **Large (200+ lines changed):** Run all remaining passes — Codex structured review + Claude adversarial subagent + Codex adversarial. Jump to the "Large tier" section.
-
----
-
-### Medium tier (50–199 lines)
-
-Claude's structured review already ran. Now add a **cross-model adversarial challenge**.
-
-**If Codex is available:** run the Codex adversarial challenge. **If Codex is NOT available:** fall back to the Claude adversarial subagent instead.
-
-**Codex adversarial:**
-
-\`\`\`bash
-TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
-codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_ADV"
-\`\`\`
-
-Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_ADV"
-\`\`\`
-
-Present the full output verbatim. This is informational — it never blocks shipping.
-
-**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
-
-On any Codex error, fall back to the Claude adversarial subagent automatically.
-
-**Claude adversarial subagent** (fallback when Codex unavailable or errored):
-
-Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
-
-Subagent prompt:
-"Read the diff for this branch with \`git diff origin/<base>\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
-
-Present findings under an \`ADVERSARIAL REVIEW (Claude subagent):\` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
-
-If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing without adversarial review."
-
-**Persist the review result:**
-\`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
-\`\`\`
-Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "claude" if subagent ran. If both failed, do NOT persist.
-
-**Cleanup:** Run \`rm -f "$TMPERR_ADV"\` after processing (if Codex was used).
-
----
-
-### Large tier (200+ lines)
-
-Claude's structured review already ran. Now run **all three remaining passes** for maximum coverage:
-
-**1. Codex structured review (if available):**
-\`\`\`bash
-TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
-codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
-\`\`\`
-
-Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`CODEX SAYS (code review):\` header.
-Check for \`[P1]\` markers: found → \`GATE: FAIL\`, not found → \`GATE: PASS\`.
-
-If GATE is FAIL, use AskUserQuestion:
-\`\`\`
-Codex found N critical issues in the diff.
-
-A) Investigate and fix now (recommended)
-B) Continue — review will still complete
-\`\`\`
-
-If A: address the findings${isShip ? '. After fixing, re-run tests (Step 3) since code has changed' : ''}. Re-run \`codex review\` to verify.
-
-Read stderr for errors (same error handling as medium tier).
-
-After stderr: \`rm -f "$TMPERR"\`
-
-**2. Claude adversarial subagent:** Dispatch a subagent with the adversarial prompt (same prompt as medium tier). This always runs regardless of Codex availability.
-
-**3. Codex adversarial challenge (if available):** Run \`codex exec\` with the adversarial prompt (same as medium tier).
-
-If Codex is not available for steps 1 and 3, note to the user: "Codex CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex for full 4-pass coverage: \`npm install -g @openai/codex\`"
-
-**Persist the review result AFTER all passes complete** (not after each sub-step):
-\`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
-\`\`\`
-Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
-
----
-
-### Cross-model synthesis (medium and large tiers)
-
-After all passes complete, synthesize findings across all sources:
-
-\`\`\`
-ADVERSARIAL REVIEW SYNTHESIS (auto: TIER, N lines):
-════════════════════════════════════════════════════════════
-  High confidence (found by multiple sources): [findings agreed on by >1 pass]
-  Unique to Claude structured review: [from earlier step]
-  Unique to Claude adversarial: [from subagent, if ran]
-  Unique to Codex: [from codex adversarial or code review, if ran]
-  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
-════════════════════════════════════════════════════════════
-\`\`\`
-
-High-confidence findings (agreed on by multiple sources) should be prioritized for fixes.
-
----`;
-}
-
-function generateCodexPlanReview(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
-
-  return `## Outside Voice — Independent Plan Challenge (optional, recommended)
-
-After all review sections are complete, offer an independent second opinion from a
-different AI system. Two models agreeing on a plan is stronger signal than one model's
-thorough review.
-
-**Check tool availability:**
-
-\`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
-
-Use AskUserQuestion:
-
-> "All review sections are complete. Want an outside voice? A different AI system can
-> give a brutally honest, independent challenge of this plan — logical gaps, feasibility
-> risks, and blind spots that are hard to catch from inside the review. Takes about 2
-> minutes."
->
-> RECOMMENDATION: Choose A — an independent second opinion catches structural blind
-> spots. Two different AI models agreeing on a plan is stronger signal than one model's
-> thorough review. Completeness: A=9/10, B=7/10.
-
-Options:
-- A) Get the outside voice (recommended)
-- B) Skip — proceed to outputs
-
-**If B:** Print "Skipping outside voice." and continue to the next section.
-
-**If A:** Construct the plan review prompt. Read the plan file being reviewed (the file
-the user pointed this review at, or the branch diff scope). If a CEO plan document
-was written in Step 0D-POST, read that too — it contains the scope decisions and vision.
-
-Construct this prompt (substitute the actual plan content — if plan content exceeds 30KB,
-truncate to the first 30KB and note "Plan truncated for size"):
-
-"You are a brutally honest technical reviewer examining a development plan that has
-already been through a multi-section review. Your job is NOT to repeat that review.
-Instead, find what it missed. Look for: logical gaps and unstated assumptions that
-survived the review scrutiny, overcomplexity (is there a fundamentally simpler
-approach the review was too deep in the weeds to see?), feasibility risks the review
-took for granted, missing dependencies or sequencing issues, and strategic
-miscalibration (is this the right thing to build at all?). Be direct. Be terse. No
-compliments. Just the problems.
-
-THE PLAN:
-<plan content>"
-
-**If CODEX_AVAILABLE:**
-
-\`\`\`bash
-TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
-codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_PV"
-\`\`\`
-
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_PV"
-\`\`\`
-
-Present the full output verbatim:
-
-\`\`\`
-CODEX SAYS (plan review — outside voice):
-════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
-════════════════════════════════════════════════════════════
-\`\`\`
-
-**Error handling:** All errors are non-blocking — the outside voice is informational.
-- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run \\\`codex login\\\` to authenticate."
-- Timeout: "Codex timed out after 5 minutes."
-- Empty response: "Codex returned no response."
-
-On any Codex error, fall back to the Claude adversarial subagent.
-
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
-
-Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
-
-Subagent prompt: same plan review prompt as above.
-
-Present findings under an \`OUTSIDE VOICE (Claude subagent):\` header.
-
-If the subagent fails or times out: "Outside voice unavailable. Continuing to outputs."
-
-**Cross-model tension:**
-
-After presenting the outside voice findings, note any points where the outside voice
-disagrees with the review findings from earlier sections. Flag these as:
-
-\`\`\`
-CROSS-MODEL TENSION:
-  [Topic]: Review said X. Outside voice says Y. [Your assessment of who's right.]
-\`\`\`
-
-For each substantive tension point, auto-propose as a TODO via AskUserQuestion:
-
-> "Cross-model disagreement on [topic]. The review found [X] but the outside voice
-> argues [Y]. Worth investigating further?"
-
-Options:
-- A) Add to TODOS.md
-- B) Skip — not substantive
-
-If no tension points exist, note: "No cross-model tension — both reviewers agree."
-
-**Persist the result:**
-\`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-plan-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
-\`\`\`
-
-Substitute: STATUS = "clean" if no findings, "issues_found" if findings exist.
-SOURCE = "codex" if Codex ran, "claude" if subagent ran.
-
-**Cleanup:** Run \`rm -f "$TMPERR_PV"\` after processing (if Codex was used).
-
----`;
-}
-
 function generateDeployBootstrap(_ctx: TemplateContext): string {
   return `\`\`\`bash
 # Check for persisted deploy config in CLAUDE.md
@@ -2853,195 +2321,6 @@ to guide deploy verification. If nothing is detected, ask the user via AskUserQu
 in the decision tree below.
 
 If you want to persist deploy settings for future runs, suggest the user run \`/setup-deploy\`.`;
-}
-
-// ─── Design Outside Voices (parallel Codex + Claude subagent) ───────
-
-function generateDesignOutsideVoices(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
-
-  const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join('\n');
-  const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join('\n');
-
-  // Skill-specific configuration
-  const isPlanDesignReview = ctx.skillName === 'plan-design-review';
-  const isDesignReview = ctx.skillName === 'design-review';
-  const isDesignConsultation = ctx.skillName === 'design-consultation';
-
-  // Determine opt-in behavior and reasoning effort
-  const isAutomatic = isDesignReview; // design-review runs automatically
-  const reasoningEffort = isDesignConsultation ? 'medium' : 'high'; // creative vs analytical
-
-  // Build skill-specific Codex prompt
-  let codexPrompt: string;
-  let subagentPrompt: string;
-
-  if (isPlanDesignReview) {
-    codexPrompt = `Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
-
-HARD REJECTION — flag if ANY apply:
-${rejectionList}
-
-LITMUS CHECKS — answer YES or NO for each:
-${litmusList}
-
-HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then flag violations of the matching rule set:
-- MARKETING: First viewport as one composition, brand-first hierarchy, full-bleed hero, 2-3 intentional motions, composition-first layout
-- APP UI: Calm surface hierarchy, dense but readable, utility language, minimal chrome
-- UNIVERSAL: CSS variables for colors, no default font stacks, one job per section, cards earn existence
-
-For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging.`;
-
-    subagentPrompt = `Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
-
-1. Information hierarchy: what does the user see first, second, third? Is it right?
-2. Missing states: loading, empty, error, success, partial — which are unspecified?
-3. User journey: what's the emotional arc? Where does it break?
-4. Specificity: does the plan describe SPECIFIC UI ("48px Söhne Bold header, #1a1a1a on white") or generic patterns ("clean modern card-based layout")?
-5. What design decisions will haunt the implementer if left ambiguous?
-
-For each finding: what's wrong, severity (critical/high/medium), and the fix.`;
-  } else if (isDesignReview) {
-    codexPrompt = `Review the frontend source code in this repo. Evaluate against these design hard rules:
-- Spacing: systematic (design tokens / CSS variables) or magic numbers?
-- Typography: expressive purposeful fonts or default stacks?
-- Color: CSS variables with defined system, or hardcoded hex scattered?
-- Responsive: breakpoints defined? calc(100svh - header) for heroes? Mobile tested?
-- A11y: ARIA landmarks, alt text, contrast ratios, 44px touch targets?
-- Motion: 2-3 intentional animations, or zero / ornamental only?
-- Cards: used only when card IS the interaction? No decorative card grids?
-
-First classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then apply matching rules.
-
-LITMUS CHECKS — answer YES/NO:
-${litmusList}
-
-HARD REJECTION — flag if ANY apply:
-${rejectionList}
-
-Be specific. Reference file:line for every finding.`;
-
-    subagentPrompt = `Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
-- Are spacing values systematic across the codebase?
-- Is there ONE color system or scattered approaches?
-- Do responsive breakpoints follow a consistent set?
-- Is the accessibility approach consistent or spotty?
-
-For each finding: what's wrong, severity (critical/high/medium), and the file:line.`;
-  } else if (isDesignConsultation) {
-    codexPrompt = `Given this product context, propose a complete design direction:
-- Visual thesis: one sentence describing mood, material, and energy
-- Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
-- Color system: CSS variables for background, surface, primary text, muted text, accent
-- Layout: composition-first, not component-first. First viewport as poster, not document
-- Differentiation: 2 deliberate departures from category norms
-- Anti-slop: no purple gradients, no 3-column icon grids, no centered everything, no decorative blobs
-
-Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it.`;
-
-    subagentPrompt = `Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
-- Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
-- 2 deliberate departures from category norms
-- What emotional reaction should the user have in the first 3 seconds?
-
-Be bold. Be specific. No hedging.`;
-  } else {
-    // Unknown skill — return empty
-    return '';
-  }
-
-  // Build the opt-in section
-  const optInSection = isAutomatic ? `
-**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.` : `
-Use AskUserQuestion:
-> "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
->
-> A) Yes — run outside design voices
-> B) No — proceed without
-
-If user chooses B, skip this step and continue.`;
-
-  // Build the synthesis section
-  const synthesisSection = isPlanDesignReview ? `
-**Synthesis — Litmus scorecard:**
-
-\`\`\`
-DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
-═══════════════════════════════════════════════════════════════
-  Check                                    Claude  Codex  Consensus
-  ─────────────────────────────────────── ─────── ─────── ─────────
-  1. Brand unmistakable in first screen?   —       —      —
-  2. One strong visual anchor?             —       —      —
-  3. Scannable by headlines only?          —       —      —
-  4. Each section has one job?             —       —      —
-  5. Cards actually necessary?             —       —      —
-  6. Motion improves hierarchy?            —       —      —
-  7. Premium without decorative shadows?   —       —      —
-  ─────────────────────────────────────── ─────── ─────── ─────────
-  Hard rejections triggered:               —       —      —
-═══════════════════════════════════════════════════════════════
-\`\`\`
-
-Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
-
-**Pass integration (respects existing 7-pass contract):**
-- Hard rejections → raised as the FIRST items in Pass 1, tagged \`[HARD REJECTION]\`
-- Litmus DISAGREE items → raised in the relevant pass with both perspectives
-- Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
-- Passes can skip discovery and go straight to fixing for pre-identified issues` :
-  isDesignConsultation ? `
-**Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
-- Areas of agreement between all three voices (Claude main + Codex + subagent)
-- Genuine divergences as creative alternatives for the user to choose from
-- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."` : `
-**Synthesis — Litmus scorecard:**
-
-Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
-Merge findings into the triage with \`[codex]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
-
-  const escapedCodexPrompt = codexPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$');
-
-  return `## Design Outside Voices (parallel)
-${optInSection}
-
-**Check Codex availability:**
-\`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
-
-**If Codex is available**, launch both voices simultaneously:
-
-1. **Codex design voice** (via Bash):
-\`\`\`bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-codex exec "${escapedCodexPrompt}" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
-\`\`\`
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
-\`\`\`
-
-2. **Claude design subagent** (via Agent tool):
-Dispatch a subagent with this prompt:
-"${subagentPrompt}"
-
-**Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged \`[single-model]\`.
-- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
-
-Present Codex output under a \`CODEX SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
-Present subagent output under a \`CLAUDE SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\` header.
-${synthesisSection}
-
-**Log the result:**
-\`\`\`bash
-${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
-\`\`\`
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".`;
 }
 
 // ─── Design Hard Rules (OpenAI framework + gstack slop blacklist) ───
@@ -3100,44 +2379,7 @@ ${slopItems}
 Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.`;
 }
 
-function generateSlugEval(ctx: TemplateContext): string {
-  return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"`;
-}
-
-function generateSlugSetup(ctx: TemplateContext): string {
-  return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG`;
-}
-
-const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
-  SLUG_EVAL: generateSlugEval,
-  SLUG_SETUP: generateSlugSetup,
-  COMMAND_REFERENCE: generateCommandReference,
-  SNAPSHOT_FLAGS: generateSnapshotFlags,
-  PREAMBLE: generatePreamble,
-  BROWSE_SETUP: generateBrowseSetup,
-  BROWSE_MOBILE_SETUP: generateBrowseMobileSetup,
-  BASE_BRANCH_DETECT: generateBaseBranchDetect,
-  QA_METHODOLOGY: generateQAMethodology,
-  DESIGN_METHODOLOGY: generateDesignMethodology,
-  DESIGN_HARD_RULES: generateDesignHardRules,
-  DESIGN_OUTSIDE_VOICES: generateDesignOutsideVoices,
-  DESIGN_REVIEW_LITE: generateDesignReviewLite,
-  REVIEW_DASHBOARD: generateReviewDashboard,
-  PLAN_FILE_REVIEW_REPORT: generatePlanFileReviewReport,
-  TEST_BOOTSTRAP: generateTestBootstrap,
-  TEST_COVERAGE_AUDIT_PLAN: generateTestCoverageAuditPlan,
-  TEST_COVERAGE_AUDIT_SHIP: generateTestCoverageAuditShip,
-  TEST_COVERAGE_AUDIT_REVIEW: generateTestCoverageAuditReview,
-  TEST_FAILURE_TRIAGE: generateTestFailureTriage,
-  SPEC_REVIEW_LOOP: generateSpecReviewLoop,
-  DESIGN_SKETCH: generateDesignSketch,
-  BENEFITS_FROM: generateBenefitsFrom,
-  CODEX_SECOND_OPINION: generateCodexSecondOpinion,
-  CODEX_REVIEW_STEP: generateAdversarialStep,
-  ADVERSARIAL_STEP: generateAdversarialStep,
-  DEPLOY_BOOTSTRAP: generateDeployBootstrap,
-  CODEX_PLAN_REVIEW: generateCodexPlanReview,
-};
+// RESOLVERS imported from ./resolvers/index (line 19) — do not redeclare here
 
 // ─── Codex Helpers ───────────────────────────────────────────
 
@@ -3185,6 +2427,8 @@ function extractNameAndDescription(content: string): { name: string; description
 
   return { name, description };
 }
+
+const OPENAI_SHORT_DESCRIPTION_LIMIT = 120;
 
 function condenseOpenAIShortDescription(description: string): string {
   const firstParagraph = description.split(/\n\s*\n/)[0] || description;
@@ -3276,10 +2520,11 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
   const relTmplPath = path.relative(ROOT, tmplPath);
   let outputPath = tmplPath.replace(/\.tmpl$/, '');
-  let outputDir: string | null = null;
 
   // Determine skill directory relative to ROOT
   const skillDir = path.relative(ROOT, path.dirname(tmplPath));
+
+  let outputDir: string | null = null;
 
   // For codex host, route output to .agents/skills/{codexSkillName}/SKILL.md
   if (host === 'codex') {
@@ -3299,7 +2544,11 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     ? benefitsMatch[1].split(',').map(s => s.trim()).filter(Boolean)
     : undefined;
 
-  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host] };
+  // Extract preamble-tier from frontmatter (1-4, controls which preamble sections are included)
+  const tierMatch = tmplContent.match(/^preamble-tier:\s*(\d+)$/m);
+  const preambleTier = tierMatch ? parseInt(tierMatch[1], 10) : undefined;
+
+  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier };
 
   // Replace placeholders
   let content = tmplContent.replace(/\{\{(\w+)\}\}/g, (match, name) => {
@@ -3360,19 +2609,11 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
 // ─── Main ───────────────────────────────────────────────────
 
 function findTemplates(): string[] {
-  const templates: string[] = [];
-  const rootTmpl = path.join(ROOT, 'SKILL.md.tmpl');
-  if (fs.existsSync(rootTmpl)) templates.push(rootTmpl);
-
-  for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-    const tmpl = path.join(ROOT, entry.name, 'SKILL.md.tmpl');
-    if (fs.existsSync(tmpl)) templates.push(tmpl);
-  }
-  return templates;
+  return discoverTemplates(ROOT).map(t => path.join(ROOT, t.tmpl));
 }
 
 let hasChanges = false;
+const tokenBudget: Array<{ skill: string; lines: number; tokens: number }> = [];
 
 for (const tmplPath of findTemplates()) {
   // Skip /codex skill for codex host (self-referential — it's a Claude wrapper around codex exec)
@@ -3396,9 +2637,32 @@ for (const tmplPath of findTemplates()) {
     fs.writeFileSync(outputPath, content);
     console.log(`GENERATED: ${relOutput}`);
   }
+
+  // Track token budget
+  const lines = content.split('\n').length;
+  const tokens = Math.round(content.length / 4); // ~4 chars per token
+  tokenBudget.push({ skill: relOutput, lines, tokens });
 }
 
 if (DRY_RUN && hasChanges) {
   console.error('\nGenerated SKILL.md files are stale. Run: bun run gen:skill-docs');
   process.exit(1);
+}
+
+// Print token budget summary
+if (!DRY_RUN && tokenBudget.length > 0) {
+  tokenBudget.sort((a, b) => b.lines - a.lines);
+  const totalLines = tokenBudget.reduce((s, t) => s + t.lines, 0);
+  const totalTokens = tokenBudget.reduce((s, t) => s + t.tokens, 0);
+
+  console.log('');
+  console.log(`Token Budget (${HOST} host)`);
+  console.log('═'.repeat(60));
+  for (const t of tokenBudget) {
+    const name = t.skill.replace(/\/SKILL\.md$/, '').replace(/^\.agents\/skills\//, '');
+    console.log(`  ${name.padEnd(30)} ${String(t.lines).padStart(5)} lines  ~${String(t.tokens).padStart(6)} tokens`);
+  }
+  console.log('─'.repeat(60));
+  console.log(`  ${'TOTAL'.padEnd(30)} ${String(totalLines).padStart(5)} lines  ~${String(totalTokens).padStart(6)} tokens`);
+  console.log('');
 }

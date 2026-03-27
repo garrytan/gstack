@@ -1,5 +1,6 @@
 ---
 name: codex
+preamble-tier: 3
 version: 1.0.0
 description: |
   OpenAI Codex CLI wrapper — three modes. Code review: independent diff review via
@@ -66,6 +67,14 @@ Parse the user's input to determine which mode to run:
    - Otherwise, ask: "What would you like to ask Codex?"
 4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
 
+**Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
+note it and remove it from the prompt text before passing to Codex. When `--xhigh`
+is present, use `model_reasoning_effort="xhigh"` for all modes regardless of the
+per-mode default below. Otherwise, use the per-mode defaults:
+- Review (2A): `high` — bounded diff input, needs thoroughness
+- Challenge (2B): `high` — adversarial but bounded by diff
+- Consult (2C): `medium` — large context, interactive, needs speed
+
 ---
 
 ## Step 2A: Review Mode
@@ -79,13 +88,19 @@ TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
 
 2. Run the review (5-minute timeout):
 ```bash
-codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT"
+codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
+
+If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
 
 Use `timeout: 300000` on the Bash call. If the user provided custom instructions
 (e.g., `/codex review focus on security`), pass them as the prompt argument:
 ```bash
-codex review "focus on security" --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT"
+codex review "focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
 3. Capture the output. Then parse cost from stderr:
@@ -126,7 +141,7 @@ CROSS-MODEL ANALYSIS:
 
 7. Persist the review result:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 
 Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
@@ -157,8 +172,12 @@ With focus (e.g., "security"):
 "Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
 
 2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls (5-minute timeout):
+
+If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+
 ```bash
-codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached --json 2>/dev/null | python3 -c "
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json 2>/dev/null | PYTHONUNBUFFERED=1 python3 -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -171,17 +190,17 @@ for line in sys.stdin:
             itype = item.get('type','')
             text = item.get('text','')
             if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}')
-                print()
+                print(f'[codex thinking] {text}', flush=True)
+                print(flush=True)
             elif itype == 'agent_message' and text:
-                print(text)
+                print(text, flush=True)
             elif itype == 'command_execution':
                 cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}')
+                if cmd: print(f'[codex ran] {cmd}', flush=True)
         elif t == 'turn.completed':
             usage = obj.get('usage',{})
             tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}')
+            if tokens: print(f'\ntokens used: {tokens}', flush=True)
     except: pass
 "
 ```
@@ -226,24 +245,40 @@ TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
 3. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
 or if plan files exist and the user said `/codex` with no arguments:
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
 ```
 If no project-scoped match, fall back to `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
 but warn: "Note: this plan may be from a different project — verify before sending to Codex."
-Read the plan file and prepend the persona to the user's prompt:
+
+**IMPORTANT — embed content, don't reference path:** Codex runs sandboxed to the repo
+root (`-C`) and cannot access `~/.claude/plans/` or any files outside the repo. You MUST
+read the plan file yourself and embed its FULL CONTENT in the prompt below. Do NOT tell
+Codex the file path or ask it to read the plan file — it will waste 10+ tool calls
+searching and fail.
+
+Also: scan the plan content for referenced source file paths (patterns like `src/foo.ts`,
+`lib/bar.py`, paths containing `/` that exist in the repo). If found, list them in the
+prompt so Codex reads them directly instead of discovering them via rg/find.
+
+Prepend the persona to the user's prompt:
 "You are a brutally honest technical reviewer. Review this plan for: logical gaps and
 unstated assumptions, missing error handling or edge cases, overcomplexity (is there a
 simpler approach?), feasibility risks (what could go wrong?), and missing dependencies
 or sequencing issues. Be direct. Be terse. No compliments. Just the problems.
+Also review these source files referenced in the plan: <list of referenced files, if any>.
 
 THE PLAN:
-<plan content>"
+<full plan content, embedded verbatim>"
 
 4. Run codex exec with **JSONL output** to capture reasoning traces (5-minute timeout):
 
+If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
+
 For a **new session:**
 ```bash
-codex exec "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached --json 2>"$TMPERR" | python3 -c "
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -253,31 +288,32 @@ for line in sys.stdin:
         t = obj.get('type','')
         if t == 'thread.started':
             tid = obj.get('thread_id','')
-            if tid: print(f'SESSION_ID:{tid}')
+            if tid: print(f'SESSION_ID:{tid}', flush=True)
         elif t == 'item.completed' and 'item' in obj:
             item = obj['item']
             itype = item.get('type','')
             text = item.get('text','')
             if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}')
-                print()
+                print(f'[codex thinking] {text}', flush=True)
+                print(flush=True)
             elif itype == 'agent_message' and text:
-                print(text)
+                print(text, flush=True)
             elif itype == 'command_execution':
                 cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}')
+                if cmd: print(f'[codex ran] {cmd}', flush=True)
         elif t == 'turn.completed':
             usage = obj.get('usage',{})
             tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}')
+            if tokens: print(f'\ntokens used: {tokens}', flush=True)
     except: pass
 "
 ```
 
 For a **resumed session** (user chose "Continue"):
 ```bash
-codex exec resume <session-id> "<prompt>" -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached --json 2>"$TMPERR" | python3 -c "
-<same python streaming parser as above>
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
+<same python streaming parser as above, with flush=True on all print() calls>
 "
 ```
 
@@ -312,7 +348,14 @@ Session saved — run /codex again to continue this conversation.
 agentic coding model). This means as OpenAI ships newer models, /codex automatically
 uses them. If the user wants a specific model, pass `-m` through to codex.
 
-**Reasoning effort:** All modes use `xhigh` — maximum reasoning power. When reviewing code, breaking code, or consulting on architecture, you want the model thinking as hard as possible.
+**Reasoning effort (per-mode defaults):**
+- **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
+- **Challenge (2B):** `high` — adversarial but bounded by diff size
+- **Consult (2C):** `medium` — large context (plans, codebase), interactive, needs speed
+
+`xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
+tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
+(e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
 
 **Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
 docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.

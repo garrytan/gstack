@@ -1,0 +1,129 @@
+name: Periodic Evals
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 6 AM UTC
+  workflow_dispatch:
+
+concurrency:
+  group: evals-periodic
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/ci
+  EVALS_TIER: periodic
+  EVALS_ALL: 1  # Ignore diff — run all periodic tests
+
+jobs:
+  build-image:
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image exists
+        id: check
+        run: |
+          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.exists == 'false'
+        run: cp package.json .github/docker/
+
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/docker
+          file: .github/docker/Dockerfile.ci
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+
+  evals:
+    runs-on: ubicloud-standard-2
+    needs: build-image
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: e2e-plan
+            file: test/skill-e2e-plan.test.ts
+          - name: e2e-design
+            file: test/skill-e2e-design.test.ts
+          - name: e2e-qa-bugs
+            file: test/skill-e2e-qa-bugs.test.ts
+          - name: e2e-qa-workflow
+            file: test/skill-e2e-qa-workflow.test.ts
+          - name: e2e-review
+            file: test/skill-e2e-review.test.ts
+          - name: e2e-workflow
+            file: test/skill-e2e-workflow.test.ts
+          - name: e2e-routing
+            file: test/skill-routing-e2e.test.ts
+          - name: e2e-codex
+            file: test/codex-e2e.test.ts
+          - name: e2e-gemini
+            file: test/gemini-e2e.test.ts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix bun temp
+        run: |
+          mkdir -p /home/runner/.cache/bun
+          {
+            echo "BUN_INSTALL_CACHE_DIR=/home/runner/.cache/bun"
+            echo "BUN_TMPDIR=/home/runner/.cache/bun"
+            echo "TMPDIR=/home/runner/.cache"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore deps
+        run: |
+          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
+            ln -s /opt/node_modules_cache node_modules
+          else
+            bun install
+          fi
+
+      - run: bun run build
+
+      - name: Run ${{ matrix.suite.name }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EVALS_CONCURRENCY: "40"
+          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+        run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-periodic-${{ matrix.suite.name }}
+          path: ~/.gstack-dev/evals/*.json
+          retention-days: 90

@@ -1,6 +1,6 @@
 interface:
   display_name: "gstack-setup-browser-cookies"
-  short_description: "Import cookies from your real browser (Comet, Chrome, Arc, Brave, Edge) into the headless browse session. Opens an..."
+  short_description: "Import cookies from your real Chromium browser into the headless browse session. Opens an interactive picker UI..."
   default_prompt: "Use gstack-setup-browser-cookies for this task."
 policy:
   allow_implicit_invocation: true

@@ -1,5 +1,6 @@
 ---
 name: retro
+preamble-tier: 2
 version: 2.0.0
 description: |
   Weekly engineering retrospective. Analyzes commit history, work patterns,
@@ -17,15 +18,7 @@ allowed-tools:
 
 {{PREAMBLE}}
 
-## Detect default branch
-
-Before gathering data, detect the repo's default branch name:
-`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`
-
-If this fails, fall back to `main`. Use the detected name wherever the instructions
-say `origin/<default>` below.
-
----
+{{BASE_BRANCH_DETECT}}
 
 # /retro — Weekly Engineering Retrospective
 
@@ -94,8 +87,8 @@ git log origin/<default> --since="<window>" --format="%at|%aN|%ai|%s" | sort -n
 # 4. Files most frequently changed (hotspot analysis)
 git log origin/<default> --since="<window>" --format="" --name-only | grep -v '^$' | sort | uniq -c | sort -rn
 
-# 5. PR numbers from commit messages (extract #NNN patterns)
-git log origin/<default> --since="<window>" --format="%s" | grep -oE '#[0-9]+' | sed 's/^#//' | sort -n | uniq | sed 's/^/#/'
+# 5. PR/MR numbers from commit messages (GitHub #NNN, GitLab !NNN)
+git log origin/<default> --since="<window>" --format="%s" | grep -oE '[#!][0-9]+' | sort -t'#' -k1 | uniq
 
 # 6. Per-author file hotspots (who touches what)
 git log origin/<default> --since="<window>" --format="AUTHOR:%aN" --name-only
@@ -314,6 +307,7 @@ Count backward from today — how many consecutive days have at least one commit
 Before saving the new snapshot, check for prior retro history:
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 ls -t .context/retros/*.json 2>/dev/null
 ```
 
@@ -340,6 +334,7 @@ mkdir -p .context/retros
 
 Determine the next sequence number for today (substitute the actual date for `$(date +%Y-%m-%d)`):
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 # Count existing retros for today to get next sequence number
 today=$(date +%Y-%m-%d)
 existing=$(ls .context/retros/${today}-*.json 2>/dev/null | wc -l | tr -d ' ')
@@ -459,6 +454,29 @@ Narrative covering:
 - If prior retro exists and has `test_health`: show delta "Test count: {last} → {now} (+{delta})"
 - If test ratio < 20%: flag as growth area — "100% test coverage is the goal. Tests make vibe coding safe."
 
+### Plan Completion
+Check review JSONL logs for plan completion data from /ship runs this period:
+
+```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+cat ~/.gstack/projects/$SLUG/*-reviews.jsonl 2>/dev/null | grep '"skill":"ship"' | grep '"plan_items_total"' || echo "NO_PLAN_DATA"
+```
+
+If plan completion data exists within the retro time window:
+- Count branches shipped with plans (entries that have `plan_items_total` > 0)
+- Compute average completion: sum of `plan_items_done` / sum of `plan_items_total`
+- Identify most-skipped item category if data supports it
+
+Output:
+```
+Plan Completion This Period:
+  {N} branches shipped with plans
+  Average completion: {X}% ({done}/{total} items)
+```
+
+If no plan data exists, skip this section silently.
+
 ### Focus & Highlights
 (from Step 8)
 - Focus score with interpretation
@@ -566,8 +584,8 @@ git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%at|
 # Per-author commit counts
 git -C <path> shortlog origin/$DEFAULT --since="<start_date>T00:00:00" -sn --no-merges
 
-# PR numbers from commit messages
-git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%s" | grep -oE '#[0-9]+' | sort -n | uniq
+# PR/MR numbers from commit messages (GitHub #NNN, GitLab !NNN)
+git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%s" | grep -oE '[#!][0-9]+' | sort -t'#' -k1 | uniq
 ```
 
 For repos that fail (deleted paths, network errors): skip and note "N repos could not be reached."
@@ -645,7 +663,7 @@ align cleanly. Never truncate project names.
 ║  • [1-line description of second theme]
 ║  • [1-line description of third theme]
 ║
-║  Powered by gstack · github.com/garrytan/gstack
+║  Powered by gstack
 ╚═══════════════════════════════════════════════════════════════
 ```
 
@@ -742,6 +760,7 @@ Considering the full cross-project picture.
 ### Global Step 8: Load history & compare
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 ls -t ~/.gstack/retros/global-*.json 2>/dev/null | head -5
 ```
 
@@ -759,6 +778,7 @@ mkdir -p ~/.gstack/retros
 
 Determine the next sequence number for today:
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 today=$(date +%Y-%m-%d)
 existing=$(ls ~/.gstack/retros/global-${today}-*.json 2>/dev/null | wc -l | tr -d ' ')
 next=$((existing + 1))
@@ -774,7 +794,7 @@ Use the Write tool to save JSON to `~/.gstack/retros/global-${today}-${next}.jso
   "projects": [
     {
       "name": "gstack",
-      "remote": "https://github.com/garrytan/gstack",
+      "remote": "<detected from git remote get-url origin, normalized to HTTPS>",
       "commits": 47,
       "insertions": 3200,
       "deletions": 800,

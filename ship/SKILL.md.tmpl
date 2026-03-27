@@ -1,5 +1,6 @@
 ---
 name: ship
+preamble-tier: 4
 version: 1.0.0
 description: |
   Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy", "push to main", "create a PR", or "merge and push".
@@ -31,6 +32,9 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - Pre-landing review finds ASK items that need user judgment
 - MINOR or MAJOR version bump needed (ask — see Step 4)
 - Greptile review comments that need user decision (complex fixes, false positives)
+- AI-assessed coverage below minimum threshold (hard gate with user override — see Step 3.4)
+- Plan items NOT DONE with no user override (see Step 3.45)
+- Plan verification failures (see Step 3.47)
 - TODOS.md missing and user wants to create one (ask — see Step 5.5)
 - TODOS.md disorganized and user wants to reorganize (ask — see Step 5.5)
 
@@ -42,7 +46,7 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - Multi-file changesets (auto-split into bisectable commits)
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
-- Test coverage gaps (auto-generate and commit, or flag in PR body)
+- Test coverage gaps within target threshold (auto-generate and commit, or flag in PR body)
 
 ---
 
@@ -60,26 +64,43 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 
 If the Eng Review is NOT "CLEAR":
 
-1. **Check for a prior override on this branch:**
-   ```bash
-   {{SLUG_EVAL}}
-   grep '"skill":"ship-review-override"' ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_OVERRIDE"
-   ```
-   If an override exists, display the dashboard and note "Review gate previously accepted — continuing." Do NOT ask again.
+Print: "No prior eng review found — ship will run its own pre-landing review in Step 3.5."
 
-2. **If no override exists,** use AskUserQuestion:
-   - Show that Eng Review is missing or has open issues
-   - RECOMMENDATION: Choose C if the change is obviously trivial (< 20 lines, typo fix, config-only); Choose B for larger changes
-   - Options: A) Ship anyway  B) Abort — run /review or /plan-eng-review first  C) Change is too small to need eng review
-   - If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block
-   - For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 3.5, but consider running /design-review for a full visual audit post-implementation." Still never block.
+Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
 
-3. **If the user chooses A or C,** persist the decision so future `/ship` runs on this branch skip the gate:
+If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block.
+
+For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 3.5, but consider running /design-review for a full visual audit post-implementation." Still never block.
+
+Continue to Step 1.5 — do NOT block or ask. Ship runs its own review in Step 3.5.
+
+---
+
+## Step 1.5: Distribution Pipeline Check
+
+If the diff introduces a new standalone artifact (CLI binary, library package, tool) — not a web
+service with existing deployment — verify that a distribution pipeline exists.
+
+1. Check if the diff adds a new `cmd/` directory, `main.go`, or `bin/` entry point:
    ```bash
-   {{SLUG_EVAL}}
-   echo '{"skill":"ship-review-override","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","decision":"USER_CHOICE"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+   git diff origin/<base> --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
    ```
-   Substitute USER_CHOICE with "ship_anyway" or "not_relevant".
+
+2. If new artifact detected, check for a release workflow:
+   ```bash
+   ls .github/workflows/ 2>/dev/null | grep -iE 'release|publish|dist'
+   grep -qE 'release|publish|deploy' .gitlab-ci.yml 2>/dev/null && echo "GITLAB_CI_RELEASE"
+   ```
+
+3. **If no release pipeline exists and a new artifact was added:** Use AskUserQuestion:
+   - "This PR adds a new binary/tool but there's no CI/CD pipeline to build and publish it.
+     Users won't be able to download the artifact after merge."
+   - A) Add a release workflow now (CI/CD release pipeline — GitHub Actions or GitLab CI depending on platform)
+   - B) Defer — add to TODOS.md
+   - C) Not needed — this is internal/web-only, existing deployment covers it
+
+4. **If release pipeline exists:** Continue silently.
+5. **If no new artifact detected:** Skip silently.
 
 ---
 
@@ -197,6 +218,16 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 ---
 
+## Step 3.45: Plan Completion Audit
+
+{{PLAN_COMPLETION_AUDIT_SHIP}}
+
+---
+
+{{PLAN_VERIFICATION_EXEC}}
+
+---
+
 ## Step 3.5: Pre-Landing Review
 
 Review the diff for structural issues that tests don't catch.
@@ -232,6 +263,13 @@ Review the diff for structural issues that tests don't catch.
 8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
 
    If no issues found: `Pre-Landing Review: No issues found.`
+
+9. Persist the review result to the review log:
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
+```
+Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
+and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
 
 Save the review output — it goes into the PR body in Step 8.
 
@@ -301,10 +339,26 @@ For each classified comment:
 
 1. Read `CHANGELOG.md` header to know the format.
 
-2. Auto-generate the entry from **ALL commits on the branch** (not just recent ones):
-   - Use `git log <base>..HEAD --oneline` to see every commit being shipped
-   - Use `git diff <base>...HEAD` to see the full diff against the base branch
-   - The CHANGELOG entry must be comprehensive of ALL changes going into the PR
+2. **First, enumerate every commit on the branch:**
+   ```bash
+   git log <base>..HEAD --oneline
+   ```
+   Copy the full list. Count the commits. You will use this as a checklist.
+
+3. **Read the full diff** to understand what each commit actually changed:
+   ```bash
+   git diff <base>...HEAD
+   ```
+
+4. **Group commits by theme** before writing anything. Common themes:
+   - New features / capabilities
+   - Performance improvements
+   - Bug fixes
+   - Dead code removal / cleanup
+   - Infrastructure / tooling / tests
+   - Refactoring
+
+5. **Write the CHANGELOG entry** covering ALL groups:
    - If existing CHANGELOG entries on the branch already cover some commits, replace them with one unified entry for the new version
    - Categorize changes into applicable sections:
      - `### Added` — new features
@@ -314,6 +368,11 @@ For each classified comment:
    - Write concise, descriptive bullet points
    - Insert after the file header (line 5), dated today
    - Format: `## [X.Y.Z.W] - YYYY-MM-DD`
+
+6. **Cross-check:** Compare your CHANGELOG entry against the commit list from step 2.
+   Every commit must map to at least one bullet point. If any commit is unrepresented,
+   add it now. If the branch has N commits spanning K themes, the CHANGELOG must
+   reflect all K themes.
 
 **Do NOT ask the user to describe changes.** Infer from the diff and commit history.
 
@@ -405,7 +464,7 @@ Save this summary — it goes into the PR body in Step 8.
 git commit -m "$(cat <<'EOF'
 chore: bump version and changelog (vX.Y.Z.W)
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+{{CO_AUTHOR_TRAILER}}
 EOF
 )"
 ```
@@ -444,14 +503,20 @@ git push -u origin <branch-name>
 
 ---
 
-## Step 8: Create PR
+## Step 8: Create PR/MR
 
-Create a pull request using `gh`:
+Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
-```bash
-gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
+The PR/MR body should contain these sections:
+
+```
 ## Summary
-<bullet points from CHANGELOG>
+<Summarize ALL changes being shipped. Run `git log <base>..HEAD --oneline` to enumerate
+every commit. Exclude the VERSION/CHANGELOG metadata commit (that's this PR's bookkeeping,
+not a substantive change). Group the remaining commits into logical sections (e.g.,
+"**Performance**", "**Dead Code Removal**", "**Infrastructure**"). Every substantive commit
+must appear in at least one section. If a commit's work isn't reflected in the summary,
+you missed it.>
 
 ## Test Coverage
 <coverage diagram from Step 3.4, or "All new code paths have test coverage.">
@@ -472,6 +537,16 @@ gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 <If no Greptile comments found: "No Greptile comments.">
 <If no PR existed during Step 3.75: omit this section entirely>
 
+## Plan Completion
+<If plan file found: completion checklist summary from Step 3.45>
+<If no plan file: "No plan file detected.">
+<If plan items deferred: list deferred items>
+
+## Verification Results
+<If verification ran: summary from Step 3.47 (N PASS, M FAIL, K SKIPPED)>
+<If skipped: reason (no plan, no server, no verification section)>
+<If not applicable: omit this section>
+
 ## TODOS
 <If items marked complete: bullet list of completed items with version>
 <If no items completed: "No TODO items completed in this PR.">
@@ -483,11 +558,30 @@ gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 - [x] All Vitest tests pass (N tests)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+**If GitHub:**
+
+```bash
+gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
+<PR body from above>
 EOF
 )"
 ```
 
-**Output the PR URL** — then proceed to Step 8.5.
+**If GitLab:**
+
+```bash
+glab mr create -b <base> -t "<type>: <summary>" -d "$(cat <<'EOF'
+<MR body from above>
+EOF
+)"
+```
+
+**If neither CLI is available:**
+Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
+
+**Output the PR/MR URL** — then proceed to Step 8.5.
 
 ---
 
@@ -509,6 +603,32 @@ execute its full workflow:
 
 This step is automatic. Do not ask the user for confirmation. The goal is zero-friction
 doc updates — the user runs `/ship` and documentation stays current without a separate command.
+
+---
+
+## Step 8.75: Persist ship metrics
+
+Log coverage and plan completion data so `/retro` can track trends:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+```
+
+Append to `~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl`:
+
+```bash
+echo '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"BRANCH"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+```
+
+Substitute from earlier steps:
+- **COVERAGE_PCT**: coverage percentage from Step 3.4 diagram (integer, or -1 if undetermined)
+- **PLAN_TOTAL**: total plan items extracted in Step 3.45 (0 if no plan file)
+- **PLAN_DONE**: count of DONE + CHANGED items from Step 3.45 (0 if no plan file)
+- **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 3.47
+- **VERSION**: from the VERSION file
+- **BRANCH**: current branch name
+
+This step is automatic — never skip it, never ask for confirmation.
 
 ---
 

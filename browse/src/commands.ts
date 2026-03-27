@@ -31,6 +31,11 @@ export const META_COMMANDS = new Set([
   'chain', 'diff',
   'url', 'snapshot',
   'handoff', 'resume',
+  'connect', 'disconnect', 'focus',
+  'inbox',
+  'watch',
+  'state',
+  'frame',
 ]);
 
 export const ALL_COMMANDS = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
@@ -73,7 +78,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'viewport':{ category: 'Interaction', description: 'Set viewport size', usage: 'viewport <WxH>' },
   'cookie':  { category: 'Interaction', description: 'Set cookie on current page domain', usage: 'cookie <name>=<value>' },
   'cookie-import': { category: 'Interaction', description: 'Import cookies from JSON file', usage: 'cookie-import <json>' },
-  'cookie-import-browser': { category: 'Interaction', description: 'Import cookies from Comet, Chrome, Arc, Brave, or Edge (opens picker, or use --domain for direct import)', usage: 'cookie-import-browser [browser] [--domain d]' },
+  'cookie-import-browser': { category: 'Interaction', description: 'Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import)', usage: 'cookie-import-browser [browser] [--domain d]' },
   'header':  { category: 'Interaction', description: 'Set custom request header (colon-separated, sensitive values auto-redacted)', usage: 'header <name>:<value>' },
   'useragent': { category: 'Interaction', description: 'Set user agent', usage: 'useragent <string>' },
   'dialog-accept': { category: 'Interaction', description: 'Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response', usage: 'dialog-accept [text]' },
@@ -98,6 +103,18 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   // Handoff
   'handoff': { category: 'Server', description: 'Open visible Chrome at current page for user takeover', usage: 'handoff [message]' },
   'resume':  { category: 'Server', description: 'Re-snapshot after user takeover, return control to AI', usage: 'resume' },
+  // Headed mode
+  'connect': { category: 'Server', description: 'Launch headed Chromium with Chrome extension', usage: 'connect' },
+  'disconnect': { category: 'Server', description: 'Disconnect headed browser, return to headless mode' },
+  'focus':   { category: 'Server', description: 'Bring headed browser window to foreground (macOS)', usage: 'focus [@ref]' },
+  // Inbox
+  'inbox':   { category: 'Meta', description: 'List messages from sidebar scout inbox', usage: 'inbox [--clear]' },
+  // Watch
+  'watch':   { category: 'Meta', description: 'Passive observation — periodic snapshots while user browses', usage: 'watch [stop]' },
+  // State
+  'state':   { category: 'Server', description: 'Save/load browser state (cookies + URLs)', usage: 'state save|load <name>' },
+  // Frame
+  'frame':   { category: 'Meta', description: 'Switch to iframe context (or main to return)', usage: 'frame <sel|@ref|--name n|--url pattern|main>' },
 };
 
 // Load-time validation: descriptions must cover exactly the command sets

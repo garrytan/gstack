@@ -1,0 +1,240 @@
+name: E2E Evals
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: evals-${{ github.head_ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/ci
+  EVALS_TIER: gate
+
+jobs:
+  # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
+  build-image:
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image exists
+        id: check
+        run: |
+          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.exists == 'false'
+        run: cp package.json .github/docker/
+
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/docker
+          file: .github/docker/Dockerfile.ci
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+
+  evals:
+    runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-2' }}
+    needs: build-image
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: llm-judge
+            file: test/skill-llm-eval.test.ts
+          - name: e2e-browse
+            file: test/skill-e2e-bws.test.ts
+            runner: ubicloud-standard-8
+          - name: e2e-plan
+            file: test/skill-e2e-plan.test.ts
+          - name: e2e-deploy
+            file: test/skill-e2e-deploy.test.ts
+          - name: e2e-design
+            file: test/skill-e2e-design.test.ts
+          - name: e2e-qa-bugs
+            file: test/skill-e2e-qa-bugs.test.ts
+          - name: e2e-qa-workflow
+            file: test/skill-e2e-qa-workflow.test.ts
+          - name: e2e-review
+            file: test/skill-e2e-review.test.ts
+          - name: e2e-workflow
+            file: test/skill-e2e-workflow.test.ts
+          - name: e2e-routing
+            file: test/skill-routing-e2e.test.ts
+          - name: e2e-codex
+            file: test/codex-e2e.test.ts
+          - name: e2e-gemini
+            file: test/gemini-e2e.test.ts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Bun creates root-owned temp dirs during Docker build. GH Actions runs as
+      # runner user with HOME=/github/home. Redirect bun's cache to a writable dir.
+      - name: Fix bun temp
+        run: |
+          mkdir -p /home/runner/.cache/bun
+          {
+            echo "BUN_INSTALL_CACHE_DIR=/home/runner/.cache/bun"
+            echo "BUN_TMPDIR=/home/runner/.cache/bun"
+            echo "TMPDIR=/home/runner/.cache"
+          } >> "$GITHUB_ENV"
+
+      # Restore pre-installed node_modules from Docker image via symlink (~0s vs ~15s install)
+      - name: Restore deps
+        run: |
+          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
+            ln -s /opt/node_modules_cache node_modules
+          else
+            bun install
+          fi
+
+      - run: bun run build
+
+      # Verify Playwright can launch Chromium (fails fast if sandbox/deps are broken)
+      - name: Verify Chromium
+        if: matrix.suite.name == 'e2e-browse'
+        run: |
+          echo "whoami=$(whoami) HOME=$HOME TMPDIR=${TMPDIR:-unset}"
+          touch /tmp/.bun-test && rm /tmp/.bun-test && echo "/tmp writable"
+          bun -e "import {chromium} from 'playwright';const b=await chromium.launch({args:['--no-sandbox']});console.log('Chromium OK');await b.close()"
+
+      - name: Run ${{ matrix.suite.name }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EVALS_CONCURRENCY: "40"
+          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+        run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-${{ matrix.suite.name }}
+          path: ~/.gstack-dev/evals/*.json
+          retention-days: 90
+
+  report:
+    runs-on: ubicloud-standard-2
+    needs: evals
+    if: always() && github.event_name == 'pull_request'
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download all eval artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: eval-*
+          path: /tmp/eval-results
+          merge-multiple: true
+
+      - name: Post PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # shellcheck disable=SC2086,SC2059
+          RESULTS=$(find /tmp/eval-results -name '*.json' 2>/dev/null | sort)
+          if [ -z "$RESULTS" ]; then
+            echo "No eval results found"
+            exit 0
+          fi
+
+          TOTAL=0; PASSED=0; FAILED=0; COST="0"
+          SUITE_LINES=""
+          for f in $RESULTS; do
+            if ! jq -e '.total_tests' "$f" >/dev/null 2>&1; then
+              echo "Skipping malformed JSON: $f"
+              continue
+            fi
+            T=$(jq -r '.total_tests // 0' "$f")
+            P=$(jq -r '.passed // 0' "$f")
+            F=$(jq -r '.failed // 0' "$f")
+            C=$(jq -r '.total_cost_usd // 0' "$f")
+            TIER=$(jq -r '.tier // "unknown"' "$f")
+            [ "$T" -eq 0 ] && continue
+            TOTAL=$((TOTAL + T))
+            PASSED=$((PASSED + P))
+            FAILED=$((FAILED + F))
+            COST=$(echo "$COST + $C" | bc)
+            STATUS_ICON="✅"
+            [ "$F" -gt 0 ] && STATUS_ICON="❌"
+            SUITE_LINES="${SUITE_LINES}| ${TIER} | ${P}/${T} | ${STATUS_ICON} | \$${C} |\n"
+          done
+
+          STATUS="✅ PASS"
+          [ "$FAILED" -gt 0 ] && STATUS="❌ FAIL"
+
+          BODY="## E2E Evals: ${STATUS}
+
+          **${PASSED}/${TOTAL}** tests passed | **\$${COST}** total cost | **12 parallel runners**
+
+          | Suite | Result | Status | Cost |
+          |-------|--------|--------|------|
+          $(echo -e "$SUITE_LINES")
+
+          ---
+          *12x ubicloud-standard-2 (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
+
+          if [ "$FAILED" -gt 0 ]; then
+            FAILURES=""
+            for f in $RESULTS; do
+              if ! jq -e '.failed' "$f" >/dev/null 2>&1; then continue; fi
+              F=$(jq -r '.failed // 0' "$f")
+              [ "$F" -eq 0 ] && continue
+              FAILS=$(jq -r '.tests[] | select(.passed == false) | "- ❌ \(.name): \(.exit_reason // "unknown")"' "$f" 2>/dev/null || echo "- ⚠️ $(basename "$f"): parse error")
+              FAILURES="${FAILURES}${FAILS}\n"
+            done
+            BODY="${BODY}
+
+          ### Failures
+          $(echo -e "$FAILURES")"
+          fi
+
+          # Update existing comment or create new one
+          COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+            --jq '.[] | select(.body | startswith("## E2E Evals")) | .id' | tail -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -X PATCH -f body="$BODY"
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
+          fi

@@ -69,7 +69,7 @@ The server writes `.gstack/browse.json` (atomic write via tmp + rename, mode 0o6
 { "pid": 12345, "port": 34567, "token": "uuid-v4", "startedAt": "...", "binaryVersion": "abc123" }
 ```
 
-The CLI reads this file to find the server. If the file is missing, stale, or the PID is dead, the CLI spawns a new server.
+The CLI reads this file to find the server. If the file is missing or the server fails an HTTP health check, the CLI spawns a new server. On Windows, PID-based process detection is unreliable in Bun binaries, so the health check (GET /health) is the primary liveness signal on all platforms.
 
 ### Port selection
 

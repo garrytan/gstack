@@ -61,8 +61,122 @@ export class BrowserManager {
   private isHeaded: boolean = false;
   private consecutiveFailures: number = 0;
 
+  // ─── Watch Mode ─────────────────────────────────────────
+  private watching = false;
+  public watchInterval: ReturnType<typeof setInterval> | null = null;
+  private watchSnapshots: string[] = [];
+  private watchStartTime: number = 0;
+
+  // ─── Headed State ────────────────────────────────────────
+  private connectionMode: 'launched' | 'headed' = 'launched';
+  private intentionalDisconnect = false;
+
+  getConnectionMode(): 'launched' | 'headed' { return this.connectionMode; }
+
+  // ─── Watch Mode Methods ─────────────────────────────────
+  isWatching(): boolean { return this.watching; }
+
+  startWatch(): void {
+    this.watching = true;
+    this.watchSnapshots = [];
+    this.watchStartTime = Date.now();
+  }
+
+  stopWatch(): { snapshots: string[]; duration: number } {
+    this.watching = false;
+    if (this.watchInterval) {
+      clearInterval(this.watchInterval);
+      this.watchInterval = null;
+    }
+    const snapshots = this.watchSnapshots;
+    const duration = Date.now() - this.watchStartTime;
+    this.watchSnapshots = [];
+    this.watchStartTime = 0;
+    return { snapshots, duration };
+  }
+
+  addWatchSnapshot(snapshot: string): void {
+    this.watchSnapshots.push(snapshot);
+  }
+
+  /**
+   * Find the gstack Chrome extension directory.
+   * Checks: repo root /extension, global install, dev install.
+   */
+  private findExtensionPath(): string | null {
+    const fs = require('fs');
+    const path = require('path');
+    const candidates = [
+      // Relative to this source file (dev mode: browse/src/ -> ../../extension)
+      path.resolve(__dirname, '..', '..', 'extension'),
+      // Global gstack install
+      path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'extension'),
+      // Git repo root (detected via BROWSE_STATE_FILE location)
+      (() => {
+        const stateFile = process.env.BROWSE_STATE_FILE || '';
+        if (stateFile) {
+          const repoRoot = path.resolve(path.dirname(stateFile), '..');
+          return path.join(repoRoot, '.claude', 'skills', 'gstack', 'extension');
+        }
+        return '';
+      })(),
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(path.join(candidate, 'manifest.json'))) {
+          return candidate;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  /**
+   * Get the ref map for external consumers (e.g., /refs endpoint).
+   */
+  getRefMap(): Array<{ ref: string; role: string; name: string }> {
+    const refs: Array<{ ref: string; role: string; name: string }> = [];
+    for (const [ref, entry] of this.refMap) {
+      refs.push({ ref, role: entry.role, name: entry.name });
+    }
+    return refs;
+  }
+
   async launch() {
-    this.browser = await chromium.launch({ headless: true });
+    // ─── Extension Support ────────────────────────────────────
+    // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
+    // Extensions only work in headed mode, so we use an off-screen window.
+    const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
+    const launchArgs: string[] = [];
+    let useHeadless = true;
+
+    // Docker/CI: Chromium sandbox requires unprivileged user namespaces which
+    // are typically disabled in containers. Detect container environment and
+    // add --no-sandbox automatically.
+    if (process.env.CI || process.env.CONTAINER) {
+      launchArgs.push('--no-sandbox');
+    }
+
+    if (extensionsDir) {
+      launchArgs.push(
+        `--disable-extensions-except=${extensionsDir}`,
+        `--load-extension=${extensionsDir}`,
+        '--window-position=-9999,-9999',
+        '--window-size=1,1',
+      );
+      useHeadless = false; // extensions require headed mode; off-screen window simulates headless
+      console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
+    }
+
+    this.browser = await chromium.launch({
+      headless: useHeadless,
+      // On Windows, Chromium's sandbox fails when the server is spawned through
+      // the Bun→Node process chain (GitHub #276). Disable it — local daemon
+      // browsing user-specified URLs has marginal sandbox benefit.
+      chromiumSandbox: process.platform !== 'win32',
+      ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
+    });
 
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {
@@ -87,15 +201,140 @@ export class BrowserManager {
     await this.newTab();
   }
 
-  async close() {
+  // ─── Headed Mode ─────────────────────────────────────────────
+  /**
+   * Launch Playwright's bundled Chromium in headed mode with the gstack
+   * Chrome extension auto-loaded. Uses launchPersistentContext() which
+   * is required for extension loading (launch() + newContext() can't
+   * load extensions).
+   *
+   * The browser launches headed with a visible window — the user sees
+   * every action Claude takes in real time.
+   */
+  async launchHeaded(): Promise<void> {
+    // Clear old state before repopulating
+    this.pages.clear();
+    this.refMap.clear();
+    this.nextTabId = 1;
+
+    // Find the gstack extension directory for auto-loading
+    const extensionPath = this.findExtensionPath();
+    const launchArgs = ['--hide-crash-restore-bubble'];
+    if (extensionPath) {
+      launchArgs.push(`--disable-extensions-except=${extensionPath}`);
+      launchArgs.push(`--load-extension=${extensionPath}`);
+    }
+
+    // Launch headed Chromium via Playwright's persistent context.
+    // Extensions REQUIRE launchPersistentContext (not launch + newContext).
+    // Real Chrome (executablePath/channel) silently blocks --load-extension,
+    // so we use Playwright's bundled Chromium which reliably loads extensions.
+    const fs = require('fs');
+    const path = require('path');
+    const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+    fs.mkdirSync(userDataDir, { recursive: true });
+
+    this.context = await chromium.launchPersistentContext(userDataDir, {
+      headless: false,
+      args: launchArgs,
+      viewport: null,  // Use browser's default viewport (real window size)
+      // Playwright adds flags that block extension loading
+      ignoreDefaultArgs: [
+        '--disable-extensions',
+        '--disable-component-extensions-with-background-pages',
+      ],
+    });
+    this.browser = this.context.browser();
+    this.connectionMode = 'headed';
+    this.intentionalDisconnect = false;
+
+    // Inject visual indicator — subtle top-edge amber gradient
+    // Extension's content script handles the floating pill
+    const indicatorScript = () => {
+      const injectIndicator = () => {
+        if (document.getElementById('gstack-ctrl')) return;
+
+        const topLine = document.createElement('div');
+        topLine.id = 'gstack-ctrl';
+        topLine.style.cssText = `
+          position: fixed; top: 0; left: 0; right: 0; height: 2px;
+          background: linear-gradient(90deg, #F59E0B, #FBBF24, #F59E0B);
+          background-size: 200% 100%;
+          animation: gstack-shimmer 3s linear infinite;
+          pointer-events: none; z-index: 2147483647;
+          opacity: 0.8;
+        `;
+
+        const style = document.createElement('style');
+        style.textContent = `
+          @keyframes gstack-shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            #gstack-ctrl { animation: none !important; }
+          }
+        `;
+
+        document.documentElement.appendChild(style);
+        document.documentElement.appendChild(topLine);
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', injectIndicator);
+      } else {
+        injectIndicator();
+      }
+    };
+    await this.context.addInitScript(indicatorScript);
+
+    // Persistent context opens a default page — adopt it instead of creating a new one
+    const existingPages = this.context.pages();
+    if (existingPages.length > 0) {
+      const page = existingPages[0];
+      const id = this.nextTabId++;
+      this.pages.set(id, page);
+      this.activeTabId = id;
+      this.wirePageEvents(page);
+      // Inject indicator on restored page (addInitScript only fires on new navigations)
+      try { await page.evaluate(indicatorScript); } catch {}
+    } else {
+      await this.newTab();
+    }
+
+    // Browser disconnect handler — exit code 2 distinguishes from crashes (1)
     if (this.browser) {
-      // Remove disconnect handler to avoid exit during intentional close
-      this.browser.removeAllListeners('disconnected');
-      // Timeout: headed browser.close() can hang on macOS
-      await Promise.race([
-        this.browser.close(),
-        new Promise(resolve => setTimeout(resolve, 5000)),
-      ]).catch(() => {});
+      this.browser.on('disconnected', () => {
+        if (this.intentionalDisconnect) return;
+        console.error('[browse] Real browser disconnected (user closed or crashed).');
+        console.error('[browse] Run `$B connect` to reconnect.');
+        process.exit(2);
+      });
+    }
+
+    // Headed mode defaults
+    this.dialogAutoAccept = false;  // Don't dismiss user's real dialogs
+    this.isHeaded = true;
+    this.consecutiveFailures = 0;
+  }
+
+  async close() {
+    if (this.browser || (this.connectionMode === 'headed' && this.context)) {
+      if (this.connectionMode === 'headed') {
+        // Headed/persistent context mode: close the context (which closes the browser)
+        this.intentionalDisconnect = true;
+        if (this.browser) this.browser.removeAllListeners('disconnected');
+        await Promise.race([
+          this.context ? this.context.close() : Promise.resolve(),
+          new Promise(resolve => setTimeout(resolve, 5000)),
+        ]).catch(() => {});
+      } else {
+        // Launched mode: close the browser we spawned
+        this.browser.removeAllListeners('disconnected');
+        await Promise.race([
+          this.browser.close(),
+          new Promise(resolve => setTimeout(resolve, 5000)),
+        ]).catch(() => {});
+      }
       this.browser = null;
     }
   }
@@ -163,6 +402,7 @@ export class BrowserManager {
   switchTab(id: number): void {
     if (!this.pages.has(id)) throw new Error(`Tab ${id} not found`);
     this.activeTabId = id;
+    this.activeFrame = null; // Frame context is per-tab
   }
 
   getTabCount(): number {
@@ -292,6 +532,42 @@ export class BrowserManager {
     return this.customUserAgent;
   }
 
+  // ─── Lifecycle helpers ───────────────────────────────
+  /**
+   * Close all open pages and clear the pages map.
+   * Used by state load to replace the current session.
+   */
+  async closeAllPages(): Promise<void> {
+    for (const page of this.pages.values()) {
+      await page.close().catch(() => {});
+    }
+    this.pages.clear();
+    this.clearRefs();
+  }
+
+  // ─── Frame context ─────────────────────────────────
+  private activeFrame: import('playwright').Frame | null = null;
+
+  setFrame(frame: import('playwright').Frame | null): void {
+    this.activeFrame = frame;
+  }
+
+  getFrame(): import('playwright').Frame | null {
+    return this.activeFrame;
+  }
+
+  /**
+   * Returns the active frame if set, otherwise the current page.
+   * Use this for operations that work on both Page and Frame (locator, evaluate, etc.).
+   */
+  getActiveFrameOrPage(): import('playwright').Page | import('playwright').Frame {
+    // Auto-recover from detached frames (iframe removed/navigated)
+    if (this.activeFrame?.isDetached()) {
+      this.activeFrame = null;
+    }
+    return this.activeFrame ?? this.getPage();
+  }
+
   // ─── State Save/Restore (shared by recreateContext + handoff) ─
   /**
    * Capture browser state: cookies, localStorage, sessionStorage, URLs, active tab.
@@ -384,6 +660,9 @@ export class BrowserManager {
    * Falls back to a clean slate on any failure.
    */
   async recreateContext(): Promise<string | null> {
+    if (this.connectionMode === 'headed') {
+      throw new Error('Cannot recreate context in headed mode. Use disconnect first.');
+    }
     if (!this.browser || !this.context) {
       throw new Error('Browser not launched');
     }
@@ -450,7 +729,7 @@ export class BrowserManager {
    *   If step 2 fails → return error, headless browser untouched
    */
   async handoff(message: string): Promise<string> {
-    if (this.isHeaded) {
+    if (this.connectionMode === 'headed' || this.isHeaded) {
       return `HANDOFF: Already in headed mode at ${this.getCurrentUrl()}`;
     }
     if (!this.browser || !this.context) {
@@ -461,49 +740,68 @@ export class BrowserManager {
     const state = await this.saveState();
     const currentUrl = this.getCurrentUrl();
 
-    // 2. Launch new headed browser (try-catch — if this fails, headless stays running)
-    let newBrowser: Browser;
+    // 2. Launch new headed browser with extension (same as launchHeaded)
+    //    Uses launchPersistentContext so the extension auto-loads.
+    let newContext: BrowserContext;
     try {
-      newBrowser = await chromium.launch({ headless: false, timeout: 15000 });
+      const fs = require('fs');
+      const path = require('path');
+      const extensionPath = this.findExtensionPath();
+      const launchArgs = ['--hide-crash-restore-bubble'];
+      if (extensionPath) {
+        launchArgs.push(`--disable-extensions-except=${extensionPath}`);
+        launchArgs.push(`--load-extension=${extensionPath}`);
+        console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
+      } else {
+        console.log('[browse] Handoff: extension not found — headed mode without side panel');
+      }
+
+      const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+      fs.mkdirSync(userDataDir, { recursive: true });
+
+      newContext = await chromium.launchPersistentContext(userDataDir, {
+        headless: false,
+        args: launchArgs,
+        viewport: null,
+        ignoreDefaultArgs: [
+          '--disable-extensions',
+          '--disable-component-extensions-with-background-pages',
+        ],
+        timeout: 15000,
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return `ERROR: Cannot open headed browser — ${msg}. Headless browser still running.`;
     }
 
-    // 3. Create context and restore state into new headed browser
+    // 3. Restore state into new headed browser
     try {
-      const contextOptions: BrowserContextOptions = {
-        viewport: { width: 1280, height: 720 },
-      };
-      if (this.customUserAgent) {
-        contextOptions.userAgent = this.customUserAgent;
-      }
-      const newContext = await newBrowser.newContext(contextOptions);
+      // Swap to new browser/context before restoreState (it uses this.context)
+      const oldBrowser = this.browser;
+
+      this.context = newContext;
+      this.browser = newContext.browser();
+      this.pages.clear();
+      this.connectionMode = 'headed';
 
       if (Object.keys(this.extraHeaders).length > 0) {
         await newContext.setExtraHTTPHeaders(this.extraHeaders);
       }
 
-      // Swap to new browser/context before restoreState (it uses this.context)
-      const oldBrowser = this.browser;
-      const oldContext = this.context;
-
-      this.browser = newBrowser;
-      this.context = newContext;
-      this.pages.clear();
-
       // Register crash handler on new browser
-      this.browser.on('disconnected', () => {
-        console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
-        console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
-        process.exit(1);
-      });
+      if (this.browser) {
+        this.browser.on('disconnected', () => {
+          if (this.intentionalDisconnect) return;
+          console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
+          process.exit(1);
+        });
+      }
 
       await this.restoreState(state);
       this.isHeaded = true;
+      this.dialogAutoAccept = false;  // User controls dialogs in headed mode
 
-      // 4. Close old headless browser (fire-and-forget — close() can hang
-      // when another Playwright instance is active, so we don't await it)
+      // 4. Close old headless browser (fire-and-forget)
       oldBrowser.removeAllListeners('disconnected');
       oldBrowser.close().catch(() => {});
 
@@ -513,8 +811,8 @@ export class BrowserManager {
         `STATUS: Waiting for user. Run 'resume' when done.`,
       ].join('\n');
     } catch (err: unknown) {
-      // Restore failed — close the new browser, keep old one
-      await newBrowser.close().catch(() => {});
+      // Restore failed — close the new context, keep old state
+      await newContext.close().catch(() => {});
       const msg = err instanceof Error ? err.message : String(err);
       return `ERROR: Handoff failed during state restore — ${msg}. Headless browser still running.`;
     }
@@ -528,6 +826,7 @@ export class BrowserManager {
   resume(): void {
     this.clearRefs();
     this.resetFailures();
+    this.activeFrame = null;
   }
 
   getIsHeaded(): boolean {
@@ -557,6 +856,7 @@ export class BrowserManager {
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) {
         this.clearRefs();
+        this.activeFrame = null; // Navigation invalidates frame context
       }
     });
 

@@ -4,7 +4,7 @@ import { outcomeJudge } from './helpers/llm-judge';
 import { judgePassed } from './helpers/eval-store';
 import {
   ROOT, browseBin, runId, evalsEnabled, selectedTests, hasApiKey,
-  describeIfSelected, describeE2E,
+  describeIfSelected, describeE2E, testConcurrentIfSelected,
   copyDirSync, setupBrowseShims, logCost, recordE2E, dumpOutcomeDiagnostic,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
@@ -172,17 +172,17 @@ CRITICAL RULES:
   }
 
   // B6: Static dashboard — broken link, disabled submit, overflow, missing alt, console error
-  test('/qa finds >= 2 of 5 planted bugs (static)', async () => {
+  testConcurrentIfSelected('qa-b6-static', async () => {
     await runPlantedBugEval('qa-eval.html', 'qa-eval-ground-truth.json', 'b6-static');
   }, 360_000);
 
   // B7: SPA — broken route, stale state, async race, missing aria, console warning
-  test('/qa finds >= 2 of 5 planted SPA bugs', async () => {
+  testConcurrentIfSelected('qa-b7-spa', async () => {
     await runPlantedBugEval('qa-eval-spa.html', 'qa-eval-spa-ground-truth.json', 'b7-spa');
   }, 360_000);
 
   // B8: Checkout — email regex, NaN total, CC overflow, missing required, stripe error
-  test('/qa finds >= 2 of 5 planted checkout bugs', async () => {
+  testConcurrentIfSelected('qa-b8-checkout', async () => {
     await runPlantedBugEval('qa-eval-checkout.html', 'qa-eval-checkout-ground-truth.json', 'b8-checkout');
   }, 360_000);
 

@@ -7,7 +7,7 @@
 
 import type { BrowserManager } from './browser-manager';
 import { consoleBuffer, networkBuffer, dialogBuffer } from './buffers';
-import type { Page } from 'playwright';
+import type { Page, Frame } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TEMP_DIR, isPathWithin } from './platform';
@@ -57,7 +57,7 @@ export function validateReadPath(filePath: string): void {
  * Extract clean text from a page (strips script/style/noscript/svg).
  * Exported for DRY reuse in meta-commands (diff).
  */
-export async function getCleanText(page: Page): Promise<string> {
+export async function getCleanText(page: Page | Frame): Promise<string> {
   return await page.evaluate(() => {
     const body = document.body;
     if (!body) return '';
@@ -77,10 +77,12 @@ export async function handleReadCommand(
   bm: BrowserManager
 ): Promise<string> {
   const page = bm.getPage();
+  // Frame-aware target for content extraction
+  const target = bm.getActiveFrameOrPage();
 
   switch (command) {
     case 'text': {
-      return await getCleanText(page);
+      return await getCleanText(target);
     }
 
     case 'html': {
@@ -90,13 +92,19 @@ export async function handleReadCommand(
         if ('locator' in resolved) {
           return await resolved.locator.innerHTML({ timeout: 5000 });
         }
-        return await page.innerHTML(resolved.selector);
+        return await target.locator(resolved.selector).innerHTML({ timeout: 5000 });
       }
-      return await page.content();
+      // page.content() is page-only; use evaluate for frame compat
+      const doctype = await target.evaluate(() => {
+        const dt = document.doctype;
+        return dt ? `<!DOCTYPE ${dt.name}>` : '';
+      });
+      const html = await target.evaluate(() => document.documentElement.outerHTML);
+      return doctype ? `${doctype}\n${html}` : html;
     }
 
     case 'links': {
-      const links = await page.evaluate(() =>
+      const links = await target.evaluate(() =>
         [...document.querySelectorAll('a[href]')].map(a => ({
           text: a.textContent?.trim().slice(0, 120) || '',
           href: (a as HTMLAnchorElement).href,
@@ -106,7 +114,7 @@ export async function handleReadCommand(
     }
 
     case 'forms': {
-      const forms = await page.evaluate(() => {
+      const forms = await target.evaluate(() => {
         return [...document.querySelectorAll('form')].map((form, i) => {
           const fields = [...form.querySelectorAll('input, select, textarea')].map(el => {
             const input = el as HTMLInputElement;
@@ -136,7 +144,7 @@ export async function handleReadCommand(
     }
 
     case 'accessibility': {
-      const snapshot = await page.locator("body").ariaSnapshot();
+      const snapshot = await target.locator("body").ariaSnapshot();
       return snapshot;
     }
 
@@ -144,7 +152,7 @@ export async function handleReadCommand(
       const expr = args[0];
       if (!expr) throw new Error('Usage: browse js <expression>');
       const wrapped = wrapForEvaluate(expr);
-      const result = await page.evaluate(wrapped);
+      const result = await target.evaluate(wrapped);
       return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result ?? '');
     }
 
@@ -155,7 +163,7 @@ export async function handleReadCommand(
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const code = fs.readFileSync(filePath, 'utf-8');
       const wrapped = wrapForEvaluate(code);
-      const result = await page.evaluate(wrapped);
+      const result = await target.evaluate(wrapped);
       return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result ?? '');
     }
 
@@ -170,7 +178,7 @@ export async function handleReadCommand(
         );
         return value;
       }
-      const value = await page.evaluate(
+      const value = await target.evaluate(
         ([sel, prop]) => {
           const el = document.querySelector(sel);
           if (!el) return `Element not found: ${sel}`;
@@ -195,7 +203,7 @@ export async function handleReadCommand(
         });
         return JSON.stringify(attrs, null, 2);
       }
-      const attrs = await page.evaluate((sel) => {
+      const attrs = await target.evaluate((sel: string) => {
         const el = document.querySelector(sel);
         if (!el) return `Element not found: ${sel}`;
         const result: Record<string, string> = {};
@@ -253,7 +261,7 @@ export async function handleReadCommand(
       if ('locator' in resolved) {
         locator = resolved.locator;
       } else {
-        locator = page.locator(resolved.selector);
+        locator = target.locator(resolved.selector);
       }
 
       switch (property) {
@@ -283,10 +291,10 @@ export async function handleReadCommand(
       if (args[0] === 'set' && args[1]) {
         const key = args[1];
         const value = args[2] || '';
-        await page.evaluate(([k, v]) => localStorage.setItem(k, v), [key, value]);
+        await target.evaluate(([k, v]: string[]) => localStorage.setItem(k, v), [key, value]);
         return `Set localStorage["${key}"]`;
       }
-      const storage = await page.evaluate(() => ({
+      const storage = await target.evaluate(() => ({
         localStorage: { ...localStorage },
         sessionStorage: { ...sessionStorage },
       }));

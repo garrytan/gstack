@@ -1,5 +1,6 @@
 ---
 name: document-release
+preamble-tier: 2
 version: 1.0.0
 description: |
   Post-ship documentation update. Reads all project docs, cross-references the
@@ -279,7 +280,7 @@ committing.
 git commit -m "$(cat <<'EOF'
 docs: update project documentation for vX.Y.Z.W
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+{{CO_AUTHOR_TRAILER}}
 EOF
 )"
 ```
@@ -290,12 +291,18 @@ EOF
 git push
 ```
 
-**PR body update (idempotent, race-safe):**
+**PR/MR body update (idempotent, race-safe):**
 
-1. Read the existing PR body into a PID-unique tempfile:
+1. Read the existing PR/MR body into a PID-unique tempfile (use the platform detected in Step 0):
 
+**If GitHub:**
 ```bash
 gh pr view --json body -q .body > /tmp/gstack-pr-body-$$.md
+```
+
+**If GitLab:**
+```bash
+glab mr view -F json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('description',''))" > /tmp/gstack-pr-body-$$.md
 ```
 
 2. If the tempfile already contains a `## Documentation` section, replace that section with the
@@ -307,8 +314,18 @@ gh pr view --json body -q .body > /tmp/gstack-pr-body-$$.md
 
 4. Write the updated body back:
 
+**If GitHub:**
 ```bash
 gh pr edit --body-file /tmp/gstack-pr-body-$$.md
+```
+
+**If GitLab:**
+Read the contents of `/tmp/gstack-pr-body-$$.md` using the Read tool, then pass it to `glab mr update` using a heredoc to avoid shell metacharacter issues:
+```bash
+glab mr update -d "$(cat <<'MRBODY'
+<paste the file contents here>
+MRBODY
+)"
 ```
 
 5. Clean up the tempfile:
@@ -317,8 +334,8 @@ gh pr edit --body-file /tmp/gstack-pr-body-$$.md
 rm -f /tmp/gstack-pr-body-$$.md
 ```
 
-6. If `gh pr view` fails (no PR exists): skip with message "No PR found — skipping body update."
-7. If `gh pr edit` fails: warn "Could not update PR body — documentation changes are in the
+6. If `gh pr view` / `glab mr view` fails (no PR/MR exists): skip with message "No PR/MR found — skipping body update."
+7. If `gh pr edit` / `glab mr update` fails: warn "Could not update PR/MR body — documentation changes are in the
    commit." and continue.
 
 **Structured doc health summary (final output):**

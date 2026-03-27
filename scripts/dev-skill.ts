@@ -7,16 +7,17 @@
  */
 
 import { validateSkill } from '../test/helpers/skill-parser';
+import { discoverTemplates } from './discover-skills';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
-const TEMPLATES = [
-  { tmpl: path.join(ROOT, 'SKILL.md.tmpl'), output: 'SKILL.md' },
-  { tmpl: path.join(ROOT, 'browse', 'SKILL.md.tmpl'), output: 'browse/SKILL.md' },
-];
+const TEMPLATES = discoverTemplates(ROOT).map(t => ({
+  tmpl: path.join(ROOT, t.tmpl),
+  output: t.output,
+}));
 
 function regenerateAndValidate() {
   // Regenerate

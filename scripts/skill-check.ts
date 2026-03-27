@@ -9,34 +9,15 @@
  */
 
 import { validateSkill } from '../test/helpers/skill-parser';
+import { discoverTemplates, discoverSkillFiles } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
-// Find all SKILL.md files
-const SKILL_FILES = [
-  'SKILL.md',
-  'browse/SKILL.md',
-  'qa/SKILL.md',
-  'qa-only/SKILL.md',
-  'ship/SKILL.md',
-  'review/SKILL.md',
-  'retro/SKILL.md',
-  'plan-ceo-review/SKILL.md',
-  'plan-eng-review/SKILL.md',
-  'setup-browser-cookies/SKILL.md',
-  'plan-design-review/SKILL.md',
-  'design-review/SKILL.md',
-  'gstack-upgrade/SKILL.md',
-  'document-release/SKILL.md',
-  'canary/SKILL.md',
-  'benchmark/SKILL.md',
-  'land-and-deploy/SKILL.md',
-  'setup-deploy/SKILL.md',
-  'cso/SKILL.md',
-].filter(f => fs.existsSync(path.join(ROOT, f)));
+// Find all SKILL.md files (dynamic discovery — no hardcoded list)
+const SKILL_FILES = discoverSkillFiles(ROOT);
 
 let hasErrors = false;
 
@@ -73,10 +54,7 @@ for (const file of SKILL_FILES) {
 // ─── Templates ──────────────────────────────────────────────
 
 console.log('\n  Templates:');
-const TEMPLATES = [
-  { tmpl: 'SKILL.md.tmpl', output: 'SKILL.md' },
-  { tmpl: 'browse/SKILL.md.tmpl', output: 'browse/SKILL.md' },
-];
+const TEMPLATES = discoverTemplates(ROOT);
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);

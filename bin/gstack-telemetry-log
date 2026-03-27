@@ -32,20 +32,29 @@ OUTCOME="unknown"
 USED_BROWSE="false"
 SESSION_ID=""
 ERROR_CLASS=""
+ERROR_MESSAGE=""
+FAILED_STEP=""
 EVENT_TYPE="skill_run"
+SOURCE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --skill)       SKILL="$2"; shift 2 ;;
-    --duration)    DURATION="$2"; shift 2 ;;
-    --outcome)     OUTCOME="$2"; shift 2 ;;
-    --used-browse) USED_BROWSE="$2"; shift 2 ;;
-    --session-id)  SESSION_ID="$2"; shift 2 ;;
-    --error-class) ERROR_CLASS="$2"; shift 2 ;;
-    --event-type)  EVENT_TYPE="$2"; shift 2 ;;
+    --skill)         SKILL="$2"; shift 2 ;;
+    --duration)      DURATION="$2"; shift 2 ;;
+    --outcome)       OUTCOME="$2"; shift 2 ;;
+    --used-browse)   USED_BROWSE="$2"; shift 2 ;;
+    --session-id)    SESSION_ID="$2"; shift 2 ;;
+    --error-class)   ERROR_CLASS="$2"; shift 2 ;;
+    --error-message) ERROR_MESSAGE="$2"; shift 2 ;;
+    --failed-step)   FAILED_STEP="$2"; shift 2 ;;
+    --event-type)    EVENT_TYPE="$2"; shift 2 ;;
+    --source)        SOURCE="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
+
+# Source: flag > env > default 'live'
+SOURCE="${SOURCE:-${GSTACK_TELEMETRY_SOURCE:-live}}"
 
 # ─── Read telemetry tier ─────────────────────────────────────
 TIER="$("$CONFIG_CMD" get telemetry 2>/dev/null || true)"
@@ -106,18 +115,29 @@ if [ -d "$STATE_DIR/sessions" ]; then
 fi
 
 # Generate installation_id for community tier
+# Uses a random UUID stored locally — not derived from hostname/user so it
+# can't be guessed or correlated by someone who knows your machine identity.
 INSTALL_ID=""
 if [ "$TIER" = "community" ]; then
-  HOST="$(hostname 2>/dev/null || echo "unknown")"
-  USER="$(whoami 2>/dev/null || echo "unknown")"
-  if command -v shasum >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | shasum -a 256 | awk '{print $1}')"
-  elif command -v sha256sum >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | sha256sum | awk '{print $1}')"
-  elif command -v openssl >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | openssl dgst -sha256 | awk '{print $NF}')"
+  ID_FILE="$HOME/.gstack/installation-id"
+  if [ -f "$ID_FILE" ]; then
+    INSTALL_ID="$(cat "$ID_FILE" 2>/dev/null)"
   fi
-  # If no SHA-256 command available, install_id stays empty
+  if [ -z "$INSTALL_ID" ]; then
+    # Generate a random UUID v4
+    if command -v uuidgen >/dev/null 2>&1; then
+      INSTALL_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    elif [ -r /proc/sys/kernel/random/uuid ]; then
+      INSTALL_ID="$(cat /proc/sys/kernel/random/uuid)"
+    else
+      # Fallback: random hex from /dev/urandom
+      INSTALL_ID="$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    fi
+    if [ -n "$INSTALL_ID" ]; then
+      mkdir -p "$(dirname "$ID_FILE")" 2>/dev/null
+      printf '%s' "$INSTALL_ID" > "$ID_FILE" 2>/dev/null
+    fi
+  fi
 fi
 
 # Local-only fields (never sent remotely)
@@ -131,9 +151,31 @@ fi
 # ─── Construct and append JSON ───────────────────────────────
 mkdir -p "$ANALYTICS_DIR"
 
-# Escape null fields
+# Sanitize string fields for JSON safety (strip quotes, backslashes, control chars)
+json_safe() { printf '%s' "$1" | tr -d '"\\\n\r\t' | head -c 200; }
+SKILL="$(json_safe "$SKILL")"
+OUTCOME="$(json_safe "$OUTCOME")"
+SESSION_ID="$(json_safe "$SESSION_ID")"
+SOURCE="$(json_safe "$SOURCE")"
+EVENT_TYPE="$(json_safe "$EVENT_TYPE")"
+
+# Escape null fields — sanitize ERROR_CLASS and FAILED_STEP via json_safe()
 ERR_FIELD="null"
-[ -n "$ERROR_CLASS" ] && ERR_FIELD="\"$ERROR_CLASS\""
+[ -n "$ERROR_CLASS" ] && ERR_FIELD="\"$(json_safe "$ERROR_CLASS")\""
+
+ERR_MSG_FIELD="null"
+[ -n "$ERROR_MESSAGE" ] && ERR_MSG_FIELD="\"$(printf '%s' "$ERROR_MESSAGE" | head -c 200 | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/	/\\t/g' | tr '\n\r' '  ')\""
+
+STEP_FIELD="null"
+[ -n "$FAILED_STEP" ] && STEP_FIELD="\"$(json_safe "$FAILED_STEP")\""
+
+# Cap unreasonable durations
+if [ -n "$DURATION" ] && [ "$DURATION" -gt 86400 ] 2>/dev/null; then
+  DURATION=""  # null if > 24h
+fi
+if [ -n "$DURATION" ] && [ "$DURATION" -lt 0 ] 2>/dev/null; then
+  DURATION=""  # null if negative
+fi
 
 DUR_FIELD="null"
 [ -n "$DURATION" ] && DUR_FIELD="$DURATION"
@@ -144,10 +186,11 @@ INSTALL_FIELD="null"
 BROWSE_BOOL="false"
 [ "$USED_BROWSE" = "true" ] && BROWSE_BOOL="true"
 
-printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"_repo_slug":"%s","_branch":"%s"}\n' \
+printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"error_message":%s,"failed_step":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"source":"%s","_repo_slug":"%s","_branch":"%s"}\n' \
   "$TS" "$EVENT_TYPE" "$SKILL" "$SESSION_ID" "$GSTACK_VERSION" "$OS" "$ARCH" \
-  "$DUR_FIELD" "$OUTCOME" "$ERR_FIELD" "$BROWSE_BOOL" "${SESSIONS:-1}" \
-  "$INSTALL_FIELD" "$REPO_SLUG" "$BRANCH" >> "$JSONL_FILE" 2>/dev/null || true
+  "$DUR_FIELD" "$OUTCOME" "$ERR_FIELD" "$ERR_MSG_FIELD" "$STEP_FIELD" \
+  "$BROWSE_BOOL" "${SESSIONS:-1}" \
+  "$INSTALL_FIELD" "$SOURCE" "$REPO_SLUG" "$BRANCH" >> "$JSONL_FILE" 2>/dev/null || true
 
 # ─── Trigger sync if tier is not off ─────────────────────────
 SYNC_CMD="$GSTACK_DIR/bin/gstack-telemetry-sync"

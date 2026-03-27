@@ -1,0 +1,124 @@
+/* gstack browse — ref overlay + status pill styles
+ * Design system: DESIGN.md (amber accent, zinc neutrals)
+ */
+
+#gstack-ref-overlays {
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace !important;
+}
+
+/* Connection status pill — bottom-right corner */
+#gstack-status-pill {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(12, 12, 12, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 9999px;
+  color: #e0e0e0;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: opacity 0.5s ease;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+#gstack-status-pill:hover {
+  opacity: 1 !important;
+}
+
+.gstack-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #F59E0B;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #gstack-status-pill {
+    transition: none;
+  }
+}
+
+.gstack-ref-badge {
+  position: absolute;
+  background: rgba(220, 38, 38, 0.9);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 14px;
+  pointer-events: none;
+  z-index: 2147483647;
+}
+
+/* Floating ref panel (used when positions are unknown) */
+.gstack-ref-panel {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  width: 220px;
+  max-height: 300px;
+  background: rgba(12, 12, 12, 0.95);
+  border: 1px solid #262626;
+  border-radius: 8px;
+  overflow: hidden;
+  pointer-events: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  font-size: 11px;
+}
+
+.gstack-ref-panel-header {
+  padding: 6px 10px;
+  background: #141414;
+  border-bottom: 1px solid #262626;
+  color: #FAFAFA;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.gstack-ref-panel-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.gstack-ref-panel-row {
+  padding: 3px 10px;
+  border-bottom: 1px solid #1f1f1f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gstack-ref-panel-id {
+  color: #FBBF24;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.gstack-ref-panel-role {
+  color: #A1A1AA;
+  margin-right: 4px;
+}
+
+.gstack-ref-panel-name {
+  color: #e0e0e0;
+}
+
+.gstack-ref-panel-more {
+  padding: 4px 10px;
+  color: #52525B;
+  font-style: italic;
+}

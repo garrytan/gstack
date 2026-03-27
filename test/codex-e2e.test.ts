@@ -13,12 +13,13 @@
  * Skips gracefully when prerequisites are not met.
  */
 
-import { describe, test, expect, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { runCodexSkill, parseCodexJSONL, installSkillToTempHome } from './helpers/codex-session-runner';
 import type { CodexResult } from './helpers/codex-session-runner';
 import { EvalCollector } from './helpers/eval-store';
 import type { EvalTestEntry } from './helpers/eval-store';
 import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
+import { createTestWorktree, harvestAndCleanup } from './helpers/e2e-helpers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -118,16 +119,25 @@ afterAll(async () => {
 // --- Tests ---
 
 describeCodex('Codex E2E', () => {
+  let testWorktree: string;
+
+  beforeAll(() => {
+    testWorktree = createTestWorktree('codex');
+  });
+
+  afterAll(() => {
+    harvestAndCleanup('codex');
+  });
 
   testIfSelected('codex-discover-skill', async () => {
     // Install gstack-review skill to a temp HOME and ask Codex to list skills
-    const skillDir = path.join(ROOT, '.agents', 'skills', 'gstack-review');
+    const skillDir = path.join(testWorktree, '.agents', 'skills', 'gstack-review');
 
     const result = await runCodexSkill({
       skillDir,
       prompt: 'List any skills or instructions you have available. Just list the names.',
       timeoutMs: 60_000,
-      cwd: ROOT,
+      cwd: testWorktree,
       skillName: 'gstack-review',
     });
 
@@ -153,14 +163,14 @@ describeCodex('Codex E2E', () => {
   // code review, and produce structured review output with findings/issues.
   // Accepts Codex timeout (exit 124/137) as non-failure since that's a CLI perf issue.
   testIfSelected('codex-review-findings', async () => {
-    // Install gstack-review skill and ask Codex to review the current repo
-    const skillDir = path.join(ROOT, '.agents', 'skills', 'gstack-review');
+    // Install gstack-review skill and ask Codex to review the worktree
+    const skillDir = path.join(testWorktree, '.agents', 'skills', 'gstack-review');
 
     const result = await runCodexSkill({
       skillDir,
       prompt: 'Run the gstack-review skill on this repository. Review the current branch diff and report your findings.',
       timeoutMs: 540_000,
-      cwd: ROOT,
+      cwd: testWorktree,
       skillName: 'gstack-review',
     });
 

@@ -1,19 +1,12 @@
 ---
 name: gstack
+preamble-tier: 1
 version: 1.1.0
 description: |
   Fast headless browser for QA testing and site dogfooding. Navigate pages, interact with
   elements, verify state, diff before/after, take annotated screenshots, test responsive
   layouts, forms, uploads, dialogs, and capture bug evidence. Use when asked to open or
   test a site, verify a deployment, dogfood a user flow, or file a bug with screenshots.
-  Also suggest adjacent gstack skills by stage: brainstorm /office-hours; strategy
-  /plan-ceo-review; architecture /plan-eng-review; design /plan-design-review or
-  /design-consultation; auto-review /autoplan; debugging /investigate; QA /qa; code review
-  /review; visual audit /design-review; shipping /ship; docs /document-release; retro
-  /retro; second opinion /codex; prod safety /careful or /guard; scoped edits /freeze or
-  /unfreeze; gstack upgrades /gstack-upgrade. If the user opts out of suggestions, stop
-  and run gstack-config set proactive false; if they opt back in, run gstack-config set
-  proactive true.
 allowed-tools:
   - Bash
   - Read
@@ -26,6 +19,28 @@ allowed-tools:
 If `PROACTIVE` is `false`: do NOT proactively suggest other gstack skills during this session.
 Only run skills the user explicitly invokes. This preference persists across sessions via
 `gstack-config`.
+
+If `PROACTIVE` is `true` (default): suggest adjacent gstack skills when relevant to the
+user's workflow stage:
+- Brainstorming → /office-hours
+- Strategy → /plan-ceo-review
+- Architecture → /plan-eng-review
+- Design → /plan-design-review or /design-consultation
+- Auto-review → /autoplan
+- Debugging → /investigate
+- QA → /qa
+- Code review → /review
+- Visual audit → /design-review
+- Shipping → /ship
+- Docs → /document-release
+- Retro → /retro
+- Second opinion → /codex
+- Prod safety → /careful or /guard
+- Scoped edits → /freeze or /unfreeze
+- Upgrades → /gstack-upgrade
+
+If the user opts out of suggestions, run `gstack-config set proactive false`.
+If they opt back in, run `gstack-config set proactive true`.
 
 # gstack browse: QA Testing & Dogfooding
 

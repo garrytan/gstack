@@ -1,5 +1,6 @@
 ---
 name: review
+preamble-tier: 4
 version: 1.0.0
 description: |
   Pre-landing PR review. Analyzes diff against the base branch for SQL safety, LLM trust
@@ -44,8 +45,11 @@ Before reviewing code quality, check: **did they build what was requested — no
    Read commit messages (`git log origin/<base>..HEAD --oneline`).
    **If no PR exists:** rely on commit messages and TODOS.md for stated intent — this is the common case since /review runs before /ship creates the PR.
 2. Identify the **stated intent** — what was this branch supposed to accomplish?
-3. Run `git diff origin/<base> --stat` and compare the files changed against the stated intent.
-4. Evaluate with skepticism:
+3. Run `git diff origin/<base>...HEAD --stat` and compare the files changed against the stated intent.
+
+{{PLAN_COMPLETION_AUDIT_REVIEW}}
+
+4. Evaluate with skepticism (incorporating plan completion results if available):
 
    **SCOPE CREEP detection:**
    - Files changed that are unrelated to the stated intent

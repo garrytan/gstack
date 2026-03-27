@@ -11,6 +11,8 @@ import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TEMP_DIR, isPathWithin } from './platform';
+import { resolveConfig } from './config';
+import type { Frame } from 'playwright';
 
 // Security: Path validation to prevent path traversal attacks
 const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
@@ -21,6 +23,25 @@ export function validateOutputPath(filePath: string): void {
   if (!isSafe) {
     throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
+}
+
+/** Tokenize a pipe segment respecting double-quoted strings. */
+function tokenizePipeSegment(segment: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inQuote = false;
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i];
+    if (ch === '"') {
+      inQuote = !inQuote;
+    } else if (ch === ' ' && !inQuote) {
+      if (current) { tokens.push(current); current = ''; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) tokens.push(current);
+  return tokens;
 }
 
 export async function handleMetaCommand(
@@ -61,8 +82,10 @@ export async function handleMetaCommand(
     case 'status': {
       const page = bm.getPage();
       const tabs = bm.getTabCount();
+      const mode = bm.getConnectionMode();
       return [
         `Status: healthy`,
+        `Mode: ${mode}`,
         `URL: ${page.url()}`,
         `Tabs: ${tabs}`,
         `PID: ${process.pid}`,
@@ -114,7 +137,11 @@ export async function handleMetaCommand(
 
       // Separate target (selector/@ref) from output path
       for (const arg of remaining) {
-        if (arg.startsWith('@e') || arg.startsWith('@c') || arg.startsWith('.') || arg.startsWith('#') || arg.includes('[')) {
+        // File paths containing / and ending with an image/pdf extension are never CSS selectors
+        const isFilePath = arg.includes('/') && /\.(png|jpe?g|webp|pdf)$/i.test(arg);
+        if (isFilePath) {
+          outputPath = arg;
+        } else if (arg.startsWith('@e') || arg.startsWith('@c') || arg.startsWith('.') || arg.startsWith('#') || arg.includes('[')) {
           targetSelector = arg;
         } else {
           outputPath = arg;
@@ -185,33 +212,52 @@ export async function handleMetaCommand(
     case 'chain': {
       // Read JSON array from args[0] (if provided) or expect it was passed as body
       const jsonStr = args[0];
-      if (!jsonStr) throw new Error('Usage: echo \'[["goto","url"],["text"]]\' | browse chain');
+      if (!jsonStr) throw new Error(
+        'Usage: echo \'[["goto","url"],["text"]]\' | browse chain\n' +
+        '   or: browse chain \'goto url | click @e5 | snapshot -ic\''
+      );
 
       let commands: string[][];
       try {
         commands = JSON.parse(jsonStr);
+        if (!Array.isArray(commands)) throw new Error('not array');
       } catch {
-        throw new Error('Invalid JSON. Expected: [["command", "arg1", "arg2"], ...]');
+        // Fallback: pipe-delimited format "goto url | click @e5 | snapshot -ic"
+        commands = jsonStr.split(' | ')
+          .filter(seg => seg.trim().length > 0)
+          .map(seg => tokenizePipeSegment(seg.trim()));
       }
-
-      if (!Array.isArray(commands)) throw new Error('Expected JSON array of commands');
 
       const results: string[] = [];
       const { handleReadCommand } = await import('./read-commands');
       const { handleWriteCommand } = await import('./write-commands');
 
+      let lastWasWrite = false;
       for (const cmd of commands) {
         const [name, ...cmdArgs] = cmd;
         try {
           let result: string;
-          if (WRITE_COMMANDS.has(name))    result = await handleWriteCommand(name, cmdArgs, bm);
-          else if (READ_COMMANDS.has(name))  result = await handleReadCommand(name, cmdArgs, bm);
-          else if (META_COMMANDS.has(name))  result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
-          else throw new Error(`Unknown command: ${name}`);
+          if (WRITE_COMMANDS.has(name)) {
+            result = await handleWriteCommand(name, cmdArgs, bm);
+            lastWasWrite = true;
+          } else if (READ_COMMANDS.has(name)) {
+            result = await handleReadCommand(name, cmdArgs, bm);
+            lastWasWrite = false;
+          } else if (META_COMMANDS.has(name)) {
+            result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
+            lastWasWrite = false;
+          } else {
+            throw new Error(`Unknown command: ${name}`);
+          }
           results.push(`[${name}] ${result}`);
         } catch (err: any) {
           results.push(`[${name}] ERROR: ${err.message}`);
         }
+      }
+
+      // Wait for network to settle after write commands before returning
+      if (lastWasWrite) {
+        await bm.getPage().waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
       }
 
       return results.join('\n\n');
@@ -261,6 +307,232 @@ export async function handleMetaCommand(
       // Re-snapshot to capture current page state after human interaction
       const snapshot = await handleSnapshot(['-i'], bm);
       return `RESUMED\n${snapshot}`;
+    }
+
+    // ─── Headed Mode ──────────────────────────────────────
+    case 'connect': {
+      // connect is handled as a pre-server command in cli.ts
+      // If we get here, server is already running — tell the user
+      if (bm.getConnectionMode() === 'headed') {
+        return 'Already in headed mode with extension.';
+      }
+      return 'The connect command must be run from the CLI (not sent to a running server). Run: $B connect';
+    }
+
+    case 'disconnect': {
+      if (bm.getConnectionMode() !== 'headed') {
+        return 'Not in headed mode — nothing to disconnect.';
+      }
+      // Signal that we want a restart in headless mode
+      console.log('[browse] Disconnecting headed browser. Restarting in headless mode.');
+      await shutdown();
+      return 'Disconnected. Server will restart in headless mode on next command.';
+    }
+
+    case 'focus': {
+      if (bm.getConnectionMode() !== 'headed') {
+        return 'focus requires headed mode. Run `$B connect` first.';
+      }
+      try {
+        const { execSync } = await import('child_process');
+        // Try common Chromium-based browser app names to bring to foreground
+        const appNames = ['Comet', 'Google Chrome', 'Arc', 'Brave Browser', 'Microsoft Edge'];
+        let activated = false;
+        for (const appName of appNames) {
+          try {
+            execSync(`osascript -e 'tell application "${appName}" to activate'`, { stdio: 'pipe', timeout: 3000 });
+            activated = true;
+            break;
+          } catch {
+            // Try next browser
+          }
+        }
+
+        if (!activated) {
+          return 'Could not bring browser to foreground. macOS only.';
+        }
+
+        // If a ref was passed, scroll it into view
+        if (args.length > 0 && args[0].startsWith('@')) {
+          try {
+            const resolved = await bm.resolveRef(args[0]);
+            if ('locator' in resolved) {
+              await resolved.locator.scrollIntoViewIfNeeded({ timeout: 5000 });
+              return `Browser activated. Scrolled ${args[0]} into view.`;
+            }
+          } catch {
+            // Ref not found — still activated the browser
+          }
+        }
+
+        return 'Browser window activated.';
+      } catch (err: any) {
+        return `focus failed: ${err.message}. macOS only.`;
+      }
+    }
+
+    // ─── Watch ──────────────────────────────────────────
+    case 'watch': {
+      if (args[0] === 'stop') {
+        if (!bm.isWatching()) return 'Not currently watching.';
+        const result = bm.stopWatch();
+        const durationSec = Math.round(result.duration / 1000);
+        return [
+          `WATCH STOPPED (${durationSec}s, ${result.snapshots.length} snapshots)`,
+          '',
+          'Last snapshot:',
+          result.snapshots.length > 0 ? result.snapshots[result.snapshots.length - 1] : '(none)',
+        ].join('\n');
+      }
+
+      if (bm.isWatching()) return 'Already watching. Run `$B watch stop` to stop.';
+      if (bm.getConnectionMode() !== 'headed') {
+        return 'watch requires headed mode. Run `$B connect` first.';
+      }
+
+      bm.startWatch();
+      return 'WATCHING — observing user browsing. Periodic snapshots every 5s.\nRun `$B watch stop` to stop and get summary.';
+    }
+
+    // ─── Inbox ──────────────────────────────────────────
+    case 'inbox': {
+      const { execSync } = await import('child_process');
+      let gitRoot: string;
+      try {
+        gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+      } catch {
+        return 'Not in a git repository — cannot locate inbox.';
+      }
+
+      const inboxDir = path.join(gitRoot, '.context', 'sidebar-inbox');
+      if (!fs.existsSync(inboxDir)) return 'Inbox empty.';
+
+      const files = fs.readdirSync(inboxDir)
+        .filter(f => f.endsWith('.json') && !f.startsWith('.'))
+        .sort()
+        .reverse(); // newest first
+
+      if (files.length === 0) return 'Inbox empty.';
+
+      const messages: { timestamp: string; url: string; userMessage: string }[] = [];
+      for (const file of files) {
+        try {
+          const data = JSON.parse(fs.readFileSync(path.join(inboxDir, file), 'utf-8'));
+          messages.push({
+            timestamp: data.timestamp || '',
+            url: data.page?.url || 'unknown',
+            userMessage: data.userMessage || '',
+          });
+        } catch {
+          // Skip malformed files
+        }
+      }
+
+      if (messages.length === 0) return 'Inbox empty.';
+
+      const lines: string[] = [];
+      lines.push(`SIDEBAR INBOX (${messages.length} message${messages.length === 1 ? '' : 's'})`);
+      lines.push('────────────────────────────────');
+
+      for (const msg of messages) {
+        const ts = msg.timestamp ? `[${msg.timestamp}]` : '[unknown]';
+        lines.push(`${ts} ${msg.url}`);
+        lines.push(`  "${msg.userMessage}"`);
+        lines.push('');
+      }
+
+      lines.push('────────────────────────────────');
+
+      // Handle --clear flag
+      if (args.includes('--clear')) {
+        for (const file of files) {
+          try { fs.unlinkSync(path.join(inboxDir, file)); } catch {}
+        }
+        lines.push(`Cleared ${files.length} message${files.length === 1 ? '' : 's'}.`);
+      }
+
+      return lines.join('\n');
+    }
+
+    // ─── State ────────────────────────────────────────
+    case 'state': {
+      const [action, name] = args;
+      if (!action || !name) throw new Error('Usage: state save|load <name>');
+
+      // Sanitize name: alphanumeric + hyphens + underscores only
+      if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+        throw new Error('State name must be alphanumeric (a-z, 0-9, _, -)');
+      }
+
+      const config = resolveConfig();
+      const stateDir = path.join(config.stateDir, 'browse-states');
+      fs.mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, `${name}.json`);
+
+      if (action === 'save') {
+        const state = await bm.saveState();
+        // V1: cookies + URLs only (not localStorage — breaks on load-before-navigate)
+        const saveData = {
+          version: 1,
+          cookies: state.cookies,
+          pages: state.pages.map(p => ({ url: p.url, isActive: p.isActive })),
+        };
+        fs.writeFileSync(statePath, JSON.stringify(saveData, null, 2), { mode: 0o600 });
+        return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages — treat as sensitive)`;
+      }
+
+      if (action === 'load') {
+        if (!fs.existsSync(statePath)) throw new Error(`State not found: ${statePath}`);
+        const data = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+        if (!Array.isArray(data.cookies) || !Array.isArray(data.pages)) {
+          throw new Error('Invalid state file: expected cookies and pages arrays');
+        }
+        // Close existing pages, then restore (replace, not merge)
+        bm.setFrame(null);
+        await bm.closeAllPages();
+        await bm.restoreState({
+          cookies: data.cookies,
+          pages: data.pages.map((p: any) => ({ ...p, storage: null })),
+        });
+        return `State loaded: ${data.cookies.length} cookies, ${data.pages.length} pages`;
+      }
+
+      throw new Error('Usage: state save|load <name>');
+    }
+
+    // ─── Frame ───────────────────────────────────────
+    case 'frame': {
+      const target = args[0];
+      if (!target) throw new Error('Usage: frame <selector|@ref|--name name|--url pattern|main>');
+
+      if (target === 'main') {
+        bm.setFrame(null);
+        bm.clearRefs();
+        return 'Switched to main frame';
+      }
+
+      const page = bm.getPage();
+      let frame: Frame | null = null;
+
+      if (target === '--name') {
+        if (!args[1]) throw new Error('Usage: frame --name <name>');
+        frame = page.frame({ name: args[1] });
+      } else if (target === '--url') {
+        if (!args[1]) throw new Error('Usage: frame --url <pattern>');
+        frame = page.frame({ url: new RegExp(args[1]) });
+      } else {
+        // CSS selector or @ref for the iframe element
+        const resolved = await bm.resolveRef(target);
+        const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
+        const elementHandle = await locator.elementHandle({ timeout: 5000 });
+        frame = await elementHandle?.contentFrame() ?? null;
+        await elementHandle?.dispose();
+      }
+
+      if (!frame) throw new Error(`Frame not found: ${target}`);
+      bm.setFrame(frame);
+      bm.clearRefs();
+      return `Switched to frame: ${frame.url()}`;
     }
 
     default:
