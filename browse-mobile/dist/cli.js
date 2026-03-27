@@ -30,7 +30,6 @@ var __toESM = (mod, isNodeMode, target) => {
   return to;
 };
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
-var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 
 // node_modules/fast-xml-parser/src/util.js
 var require_util = __commonJS((exports) => {
@@ -2090,6 +2089,39 @@ var require_fxp = __commonJS((exports, module) => {
 });
 
 // browse-mobile/src/ref-system.ts
+var import_fast_xml_parser = __toESM(require_fxp(), 1);
+var IOS_INTERACTIVE_TYPES = new Set([
+  "XCUIElementTypeButton",
+  "XCUIElementTypeTextField",
+  "XCUIElementTypeSecureTextField",
+  "XCUIElementTypeSwitch",
+  "XCUIElementTypeSlider",
+  "XCUIElementTypeLink",
+  "XCUIElementTypeSearchField",
+  "XCUIElementTypeTextView",
+  "XCUIElementTypeCell",
+  "XCUIElementTypeImage",
+  "XCUIElementTypeSegmentedControl",
+  "XCUIElementTypePicker",
+  "XCUIElementTypePickerWheel",
+  "XCUIElementTypeStepper",
+  "XCUIElementTypePageIndicator",
+  "XCUIElementTypeTab",
+  "XCUIElementTypeTabBar"
+]);
+var IOS_WRAPPER_TYPES = new Set([
+  "XCUIElementTypeApplication",
+  "XCUIElementTypeWindow",
+  "XCUIElementTypeOther",
+  "XCUIElementTypeGroup",
+  "XCUIElementTypeScrollView",
+  "XCUIElementTypeTable",
+  "XCUIElementTypeCollectionView",
+  "XCUIElementTypeNavigationBar",
+  "XCUIElementTypeToolbar",
+  "XCUIElementTypeStatusBar",
+  "XCUIElementTypeKeyboard"
+]);
 function parseBounds(attrs) {
   const x = parseInt(attrs.x, 10);
   const y = parseInt(attrs.y, 10);
@@ -2293,45 +2325,14 @@ function snapshotDiff(previous, current) {
   return result.join(`
 `);
 }
-var import_fast_xml_parser, IOS_INTERACTIVE_TYPES, IOS_WRAPPER_TYPES;
-var init_ref_system = __esm(() => {
-  import_fast_xml_parser = __toESM(require_fxp(), 1);
-  IOS_INTERACTIVE_TYPES = new Set([
-    "XCUIElementTypeButton",
-    "XCUIElementTypeTextField",
-    "XCUIElementTypeSecureTextField",
-    "XCUIElementTypeSwitch",
-    "XCUIElementTypeSlider",
-    "XCUIElementTypeLink",
-    "XCUIElementTypeSearchField",
-    "XCUIElementTypeTextView",
-    "XCUIElementTypeCell",
-    "XCUIElementTypeImage",
-    "XCUIElementTypeSegmentedControl",
-    "XCUIElementTypePicker",
-    "XCUIElementTypePickerWheel",
-    "XCUIElementTypeStepper",
-    "XCUIElementTypePageIndicator",
-    "XCUIElementTypeTab",
-    "XCUIElementTypeTabBar"
-  ]);
-  IOS_WRAPPER_TYPES = new Set([
-    "XCUIElementTypeApplication",
-    "XCUIElementTypeWindow",
-    "XCUIElementTypeOther",
-    "XCUIElementTypeGroup",
-    "XCUIElementTypeScrollView",
-    "XCUIElementTypeTable",
-    "XCUIElementTypeCollectionView",
-    "XCUIElementTypeNavigationBar",
-    "XCUIElementTypeToolbar",
-    "XCUIElementTypeStatusBar",
-    "XCUIElementTypeKeyboard"
-  ]);
-});
 
 // browse-mobile/src/platform/ios.ts
 import { execSync } from "child_process";
+function assertSafeShellArg(value, name) {
+  if (/[;&|`$"'\\<>(){}\n\r]/.test(value)) {
+    throw new Error(`Unsafe ${name}: contains shell metacharacters`);
+  }
+}
 function listDevices() {
   try {
     const output = execSync("xcrun simctl list devices available -j", {
@@ -2369,6 +2370,7 @@ function ensureBootedSimulator() {
   if (!target)
     return null;
   try {
+    assertSafeShellArg(target.udid, "simulator UDID");
     execSync(`xcrun simctl boot "${target.udid}"`, {
       timeout: 30000,
       stdio: "pipe"
@@ -2382,11 +2384,13 @@ function ensureBootedSimulator() {
     return null;
   }
 }
-var init_ios = () => {};
 
 // browse-mobile/src/mobile-driver.ts
 import * as fs from "fs";
 import * as path from "path";
+var APPIUM_BASE = "http://127.0.0.1:4723";
+var REQUEST_TIMEOUT = 30000;
+var SESSION_TIMEOUT = 180000;
 async function appiumPost(sessionId, endpoint, body, timeout = REQUEST_TIMEOUT) {
   const url = `${APPIUM_BASE}/session/${sessionId}${endpoint}`;
   const res = await fetch(url, {
@@ -2427,9 +2431,42 @@ async function findElement(sessionId, using, value) {
   try {
     const result = await appiumPost(sessionId, "/element", { using, value });
     return result["element-6066-11e4-a52e-4f735466cecf"] || result["ELEMENT"] || Object.values(result)[0] || null;
-  } catch {
-    return null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("no such element") || msg.includes("NoSuchElement") || msg.includes("unable to find")) {
+      return null;
+    }
+    throw err;
   }
+}
+function tapAction(x, y) {
+  return {
+    actions: [{
+      type: "pointer",
+      id: "finger1",
+      parameters: { pointerType: "touch" },
+      actions: [
+        { type: "pointerMove", duration: 0, x: Math.round(x), y: Math.round(y) },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerUp", button: 0 }
+      ]
+    }]
+  };
+}
+function swipeAction(startX, startY, endX, endY, durationMs = 300) {
+  return {
+    actions: [{
+      type: "pointer",
+      id: "finger1",
+      parameters: { pointerType: "touch" },
+      actions: [
+        { type: "pointerMove", duration: 0, x: startX, y: startY },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerMove", duration: durationMs, x: endX, y: endY },
+        { type: "pointerUp", button: 0 }
+      ]
+    }]
+  };
 }
 
 class MobileDriver {
@@ -2585,18 +2622,7 @@ class MobileDriver {
   async performClick(sid, result) {
     if (result.usedCoordinates) {
       const coords = result.element;
-      await appiumPost(sid, "/actions", {
-        actions: [{
-          type: "pointer",
-          id: "finger1",
-          parameters: { pointerType: "touch" },
-          actions: [
-            { type: "pointerMove", duration: 0, x: Math.round(coords.x), y: Math.round(coords.y) },
-            { type: "pointerDown", button: 0 },
-            { type: "pointerUp", button: 0 }
-          ]
-        }]
-      });
+      await appiumPost(sid, "/actions", tapAction(coords.x, coords.y));
       return `Tapped at (${Math.round(coords.x)}, ${Math.round(coords.y)}) \u2014 coordinate fallback. Consider adding accessibilityLabel.`;
     }
     const elementId = result.element;
@@ -2607,18 +2633,7 @@ class MobileDriver {
   }
   async tapCoordinates(x, y) {
     const sid = this.ensureSession();
-    await appiumPost(sid, "/actions", {
-      actions: [{
-        type: "pointer",
-        id: "finger1",
-        parameters: { pointerType: "touch" },
-        actions: [
-          { type: "pointerMove", duration: 0, x, y },
-          { type: "pointerDown", button: 0 },
-          { type: "pointerUp", button: 0 }
-        ]
-      }]
-    });
+    await appiumPost(sid, "/actions", tapAction(x, y));
     return `Tapped at (${x}, ${y})`;
   }
   async fill(refOrSelector, text) {
@@ -2634,18 +2649,7 @@ class MobileDriver {
       }
       if (result.usedCoordinates) {
         const coords = result.element;
-        await appiumPost(sid, "/actions", {
-          actions: [{
-            type: "pointer",
-            id: "finger1",
-            parameters: { pointerType: "touch" },
-            actions: [
-              { type: "pointerMove", duration: 0, x: Math.round(coords.x), y: Math.round(coords.y) },
-              { type: "pointerDown", button: 0 },
-              { type: "pointerUp", button: 0 }
-            ]
-          }]
-        });
+        await appiumPost(sid, "/actions", tapAction(coords.x, coords.y));
         await new Promise((r) => setTimeout(r, 500));
         const keyActions = [];
         for (const char of text) {
@@ -2756,19 +2760,7 @@ Annotated screenshot saved (note: mobile screenshots do not have overlay boxes)`
         startY = 500;
         endY = 200;
     }
-    await appiumPost(sid, "/actions", {
-      actions: [{
-        type: "pointer",
-        id: "finger1",
-        parameters: { pointerType: "touch" },
-        actions: [
-          { type: "pointerMove", duration: 0, x: startX, y: startY },
-          { type: "pointerDown", button: 0 },
-          { type: "pointerMove", duration: 300, x: endX, y: endY },
-          { type: "pointerUp", button: 0 }
-        ]
-      }]
-    });
+    await appiumPost(sid, "/actions", swipeAction(startX, startY, endX, endY));
     return `Scrolled ${direction || "down"}`;
   }
   async back() {
@@ -2829,17 +2821,79 @@ Annotated screenshot saved (note: mobile screenshots do not have overlay boxes)`
     }
   }
 }
-var APPIUM_BASE = "http://127.0.0.1:4723", REQUEST_TIMEOUT = 30000, SESSION_TIMEOUT = 180000;
-var init_mobile_driver = __esm(() => {
-  init_ref_system();
-  init_ios();
-});
 
 // browse-mobile/src/server.ts
-var exports_server = {};
 import * as fs2 from "fs";
 import * as path2 from "path";
 import * as crypto from "crypto";
+var TOKEN = crypto.randomUUID();
+var STATE_FILE = process.env.BROWSE_MOBILE_STATE_FILE || ".gstack/browse-mobile.json";
+var IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_MOBILE_IDLE_TIMEOUT || "1800000", 10);
+var mobileDriver = null;
+var lastActivity = Date.now();
+var idleTimer = null;
+var commandQueue = Promise.resolve();
+var READ_COMMANDS = new Set([
+  "text",
+  "links",
+  "forms",
+  "snapshot"
+]);
+var WRITE_COMMANDS = new Set([
+  "goto",
+  "click",
+  "tap",
+  "fill",
+  "scroll",
+  "back",
+  "viewport",
+  "dialog-accept",
+  "dialog-dismiss"
+]);
+var META_COMMANDS = new Set([
+  "screenshot",
+  "status",
+  "stop"
+]);
+var UNSUPPORTED_COMMANDS = new Set([
+  "html",
+  "css",
+  "attrs",
+  "js",
+  "eval",
+  "accessibility",
+  "console",
+  "network",
+  "cookies",
+  "storage",
+  "perf",
+  "dialog",
+  "is",
+  "forward",
+  "reload",
+  "select",
+  "hover",
+  "type",
+  "press",
+  "wait",
+  "cookie",
+  "cookie-import",
+  "cookie-import-browser",
+  "header",
+  "useragent",
+  "upload",
+  "tabs",
+  "tab",
+  "newtab",
+  "closetab",
+  "pdf",
+  "responsive",
+  "chain",
+  "diff",
+  "url",
+  "handoff",
+  "resume"
+]);
 async function handleCommand(command, args) {
   if (!mobileDriver) {
     throw new Error("MobileDriver not initialized");
@@ -2873,10 +2927,15 @@ async function handleCommand(command, args) {
       if (args.length === 0)
         throw new Error("click requires a ref (e.g., @e1) or label:Text");
       return mobileDriver.click(args[0]);
-    case "tap":
+    case "tap": {
       if (args.length < 2)
         throw new Error("tap requires x y coordinates (e.g., tap 195 750)");
-      return mobileDriver.tapCoordinates(parseInt(args[0], 10), parseInt(args[1], 10));
+      const tapX = parseInt(args[0], 10);
+      const tapY = parseInt(args[1], 10);
+      if (isNaN(tapX) || isNaN(tapY))
+        throw new Error(`Invalid coordinates: "${args[0]}" "${args[1]}" \u2014 must be numbers`);
+      return mobileDriver.tapCoordinates(tapX, tapY);
+    }
     case "fill":
       if (args.length < 2)
         throw new Error('fill requires a ref and text (e.g., @e1 "hello")');
@@ -2910,6 +2969,7 @@ async function handleCommand(command, args) {
       throw new Error(`Unknown command: ${command}`);
   }
 }
+var startTime = Date.now();
 async function findAvailablePort() {
   const explicit = process.env.BROWSE_MOBILE_PORT;
   if (explicit)
@@ -3037,430 +3097,7 @@ async function init() {
     console.error("[browse-mobile] Server is running \u2014 Appium connection will be retried on first command");
   }
 }
-var TOKEN, STATE_FILE, IDLE_TIMEOUT_MS, mobileDriver = null, lastActivity, idleTimer = null, commandQueue, READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, UNSUPPORTED_COMMANDS, startTime;
-var init_server = __esm(() => {
-  init_mobile_driver();
-  TOKEN = crypto.randomUUID();
-  STATE_FILE = process.env.BROWSE_MOBILE_STATE_FILE || ".gstack/browse-mobile.json";
-  IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_MOBILE_IDLE_TIMEOUT || "1800000", 10);
-  lastActivity = Date.now();
-  commandQueue = Promise.resolve();
-  READ_COMMANDS = new Set([
-    "text",
-    "links",
-    "forms",
-    "snapshot"
-  ]);
-  WRITE_COMMANDS = new Set([
-    "goto",
-    "click",
-    "tap",
-    "fill",
-    "scroll",
-    "back",
-    "viewport",
-    "dialog-accept",
-    "dialog-dismiss"
-  ]);
-  META_COMMANDS = new Set([
-    "screenshot",
-    "status",
-    "stop"
-  ]);
-  UNSUPPORTED_COMMANDS = new Set([
-    "html",
-    "css",
-    "attrs",
-    "js",
-    "eval",
-    "accessibility",
-    "console",
-    "network",
-    "cookies",
-    "storage",
-    "perf",
-    "dialog",
-    "is",
-    "forward",
-    "reload",
-    "select",
-    "hover",
-    "type",
-    "press",
-    "wait",
-    "cookie",
-    "cookie-import",
-    "cookie-import-browser",
-    "header",
-    "useragent",
-    "upload",
-    "tabs",
-    "tab",
-    "newtab",
-    "closetab",
-    "pdf",
-    "responsive",
-    "chain",
-    "diff",
-    "url",
-    "handoff",
-    "resume"
-  ]);
-  startTime = Date.now();
-  init().catch((err) => {
-    console.error(`[browse-mobile] Fatal error: ${err}`);
-    process.exit(1);
-  });
-});
-
-// browse-mobile/src/cli.ts
-import * as fs3 from "fs";
-import * as path3 from "path";
-import { execSync as execSync2, spawn } from "child_process";
-var __filename = "/Users/tenzindhonyoe/Desktop/side_proj/garry/gstack/browse-mobile/src/cli.ts";
-function getConfig() {
-  const projectRoot = findProjectRoot();
-  const gstackDir = path3.join(projectRoot, ".gstack");
-  return {
-    stateFile: path3.join(gstackDir, "browse-mobile.json"),
-    lockFile: path3.join(gstackDir, "browse-mobile.json.lock"),
-    maxStartWait: 30000
-  };
-}
-function findProjectRoot() {
-  let dir = process.cwd();
-  while (dir !== path3.dirname(dir)) {
-    if (fs3.existsSync(path3.join(dir, ".git")))
-      return dir;
-    if (fs3.existsSync(path3.join(dir, "package.json")))
-      return dir;
-    dir = path3.dirname(dir);
-  }
-  return process.cwd();
-}
-function readState(config) {
-  try {
-    const raw = fs3.readFileSync(config.stateFile, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-function isPidAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function acquireLock(config) {
-  try {
-    const fd = fs3.openSync(config.lockFile, fs3.constants.O_CREAT | fs3.constants.O_EXCL | fs3.constants.O_WRONLY);
-    fs3.writeSync(fd, `${process.pid}
-`);
-    fs3.closeSync(fd);
-    return () => {
-      try {
-        fs3.unlinkSync(config.lockFile);
-      } catch {}
-    };
-  } catch {
-    return null;
-  }
-}
-function runSetupCheck() {
-  const results = [];
-  try {
-    const output = execSync2("java -version 2>&1", {
-      encoding: "utf-8",
-      timeout: 5000
-    });
-    const match = output.match(/version "(\d+)/);
-    const version = match ? parseInt(match[1], 10) : 0;
-    if (version >= 17) {
-      results.push({
-        name: "Java 17+",
-        ok: true,
-        version: match ? match[0] : "found"
-      });
-    } else {
-      results.push({
-        name: "Java 17+",
-        ok: false,
-        version: `${version}`,
-        error: `Java ${version} found, need 17+`,
-        fix: "brew install openjdk@17"
-      });
-    }
-  } catch {
-    results.push({
-      name: "Java 17+",
-      ok: false,
-      error: "Java not found",
-      fix: "brew install openjdk@17"
-    });
-  }
-  if (process.env.JAVA_HOME) {
-    results.push({
-      name: "JAVA_HOME",
-      ok: true,
-      version: process.env.JAVA_HOME
-    });
-  } else {
-    results.push({
-      name: "JAVA_HOME",
-      ok: false,
-      error: "JAVA_HOME not set",
-      fix: "export JAVA_HOME=$(/usr/libexec/java_home) # add to ~/.zshrc"
-    });
-  }
-  try {
-    const output = execSync2("appium --version", {
-      encoding: "utf-8",
-      timeout: 5000
-    });
-    results.push({
-      name: "Appium",
-      ok: true,
-      version: output.trim()
-    });
-  } catch {
-    results.push({
-      name: "Appium",
-      ok: false,
-      error: "Appium not found",
-      fix: "npm install -g appium"
-    });
-  }
-  try {
-    const output = execSync2("appium driver list --installed 2>&1", {
-      encoding: "utf-8",
-      timeout: 1e4
-    });
-    if (output.includes("xcuitest")) {
-      results.push({ name: "xcuitest driver", ok: true, version: "installed" });
-    } else {
-      results.push({
-        name: "xcuitest driver",
-        ok: false,
-        error: "xcuitest driver not installed",
-        fix: "appium driver install xcuitest"
-      });
-    }
-  } catch {
-    results.push({
-      name: "xcuitest driver",
-      ok: false,
-      error: "Could not check Appium drivers (is Appium installed?)",
-      fix: "npm install -g appium && appium driver install xcuitest"
-    });
-  }
-  try {
-    execSync2("xcode-select -p", { stdio: "pipe", timeout: 5000 });
-    results.push({ name: "Xcode CLI Tools", ok: true });
-  } catch {
-    results.push({
-      name: "Xcode CLI Tools",
-      ok: false,
-      error: "Xcode CLI tools not found",
-      fix: "xcode-select --install"
-    });
-  }
-  return results;
-}
-function printSetupCheck() {
-  const results = runSetupCheck();
-  const allOk = results.every((r) => r.ok);
-  console.log(`browse-mobile setup check
-`);
-  for (const r of results) {
-    const status = r.ok ? "OK" : "MISSING";
-    const icon = r.ok ? "+" : "x";
-    let line = `  [${icon}] ${r.name}: ${status}`;
-    if (r.version)
-      line += ` (${r.version})`;
-    if (r.error)
-      line += ` \u2014 ${r.error}`;
-    console.log(line);
-    if (r.fix && !r.ok) {
-      console.log(`      Fix: ${r.fix}`);
-    }
-  }
-  console.log("");
-  if (allOk) {
-    console.log("All dependencies satisfied. Ready to use browse-mobile.");
-  } else {
-    console.log("Some dependencies are missing. Install them and run setup-check again.");
-    process.exit(1);
-  }
-}
-async function startServer2(config, bundleId) {
-  const releaseLock = acquireLock(config);
-  if (!releaseLock) {
-    const start = Date.now();
-    while (Date.now() - start < config.maxStartWait) {
-      await new Promise((r) => setTimeout(r, 200));
-      const state = readState(config);
-      if (state && isPidAlive(state.pid)) {
-        return state;
-      }
-    }
-    throw new Error("Timed out waiting for another process to start the server");
-  }
-  try {
-    const dir = path3.dirname(config.stateFile);
-    if (!fs3.existsSync(dir)) {
-      fs3.mkdirSync(dir, { recursive: true });
-    }
-    const bundlePath = path3.join(path3.dirname(process.argv[1] || __filename), "../dist/cli.js");
-    const sourcePath = path3.join(path3.dirname(process.argv[1] || __filename), "cli.ts");
-    let serverCmd;
-    let serverArgs;
-    if (fs3.existsSync(bundlePath)) {
-      serverCmd = "bun";
-      serverArgs = ["run", bundlePath, "--server"];
-    } else if (fs3.existsSync(sourcePath)) {
-      serverCmd = "bun";
-      serverArgs = ["run", sourcePath, "--server"];
-    } else {
-      serverCmd = process.argv[0];
-      serverArgs = process.argv[1]?.endsWith(".ts") ? [process.argv[1], "--server"] : ["--server"];
-    }
-    const child = spawn(serverCmd, serverArgs, {
-      detached: true,
-      stdio: "ignore",
-      env: {
-        ...process.env,
-        BROWSE_MOBILE_STATE_FILE: config.stateFile,
-        ...bundleId ? { BROWSE_MOBILE_BUNDLE_ID: bundleId } : {}
-      }
-    });
-    child.unref();
-    const start = Date.now();
-    while (Date.now() - start < config.maxStartWait) {
-      await new Promise((r) => setTimeout(r, 100));
-      const state = readState(config);
-      if (state && isPidAlive(state.pid)) {
-        return state;
-      }
-    }
-    throw new Error(`Server failed to start within ${config.maxStartWait / 1000}s. Check Appium installation: browse-mobile setup-check`);
-  } finally {
-    releaseLock();
-  }
-}
-async function ensureServer(config, bundleId) {
-  const state = readState(config);
-  if (state && isPidAlive(state.pid)) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${state.port}/health`, {
-        signal: AbortSignal.timeout(2000)
-      });
-      const data = await res.json();
-      if (data.status === "healthy" || data.status === "unhealthy") {
-        return state;
-      }
-    } catch {
-      try {
-        process.kill(state.pid, "SIGTERM");
-      } catch {}
-    }
-  }
-  return startServer2(config, bundleId);
-}
-async function sendCommand(state, command, args) {
-  try {
-    const res = await fetch(`http://127.0.0.1:${state.port}/command`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${state.token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ command, args }),
-      signal: AbortSignal.timeout(command === "goto" ? 180000 : 60000)
-    });
-    if (res.status === 401) {
-      console.error("Auth failed \u2014 server may have restarted. Try again.");
-      process.exit(1);
-    }
-    const text = await res.text();
-    if (res.ok) {
-      console.log(text);
-    } else {
-      try {
-        const err = JSON.parse(text);
-        console.error(`Error: ${err.error}`);
-        if (err.hint)
-          console.error(`Hint: ${err.hint}`);
-      } catch {
-        console.error(text);
-      }
-      process.exit(1);
-    }
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      console.error("Command timed out after 30s");
-    } else {
-      console.error(`Connection failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    process.exit(1);
-  }
-}
-async function main() {
-  const args = process.argv.slice(2);
-  if (args[0] === "--server") {
-    await Promise.resolve().then(() => (init_server(), exports_server));
-    return;
-  }
-  if (args[0] === "setup-check") {
-    printSetupCheck();
-    return;
-  }
-  if (args.length === 0 || args[0] === "help" || args[0] === "--help") {
-    console.log(`browse-mobile \u2014 Appium-backed mobile automation for gstack
-
-Usage:
-  browse-mobile <command> [args...]
-  browse-mobile setup-check          Check dependencies
-
-Commands:
-  goto <app://bundle.id>    Launch app or deep link
-  click <@e1>               Tap element by ref
-  click label:Sign In       Tap by accessibility label
-  tap <x> <y>               Tap at coordinates
-  fill <@e1> <text>         Type into input field
-  snapshot [-i] [-D] [-a]   Get accessibility tree with refs
-  screenshot <path>         Save screenshot
-  text                      Extract visible text
-  scroll [up|down|left|right]
-  back                      Device back button
-  viewport <landscape|portrait>
-  links                     List tappable elements
-  forms                     List input fields
-  status                    Server status
-  stop                      Stop server
-
-Examples:
-  browse-mobile goto app://com.example.myapp
-  browse-mobile snapshot -i
-  browse-mobile click @e3
-  browse-mobile click label:Sign In
-  browse-mobile tap 195 750
-  browse-mobile screenshot /tmp/screen.png`);
-    return;
-  }
-  const config = getConfig();
-  const command = args[0];
-  const commandArgs = args.slice(1);
-  let bundleId = process.env.BROWSE_MOBILE_BUNDLE_ID || "";
-  if (command === "goto" && commandArgs[0]?.startsWith("app://")) {
-    bundleId = commandArgs[0].replace("app://", "");
-  }
-  const state = await ensureServer(config, bundleId);
-  await sendCommand(state, command, commandArgs);
-}
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
+init().catch((err) => {
+  console.error(`[browse-mobile] Fatal error: ${err}`);
   process.exit(1);
 });

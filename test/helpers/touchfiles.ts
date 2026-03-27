@@ -44,11 +44,14 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'contributor-mode':           ['SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'session-awareness':        ['SKILL.md', 'SKILL.md.tmpl'],
 
+  // Browse-mobile
+  'browse-mobile-basic': ['browse-mobile/src/**', 'browse-mobile/test/**'],
+
   // QA
-  'qa-quick':       ['qa/**', 'browse/src/**'],
-  'qa-b6-static':   ['qa/**', 'browse/src/**', 'browse/test/fixtures/qa-eval.html', 'test/fixtures/qa-eval-ground-truth.json'],
-  'qa-b7-spa':      ['qa/**', 'browse/src/**', 'browse/test/fixtures/qa-eval-spa.html', 'test/fixtures/qa-eval-spa-ground-truth.json'],
-  'qa-b8-checkout': ['qa/**', 'browse/src/**', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json'],
+  'qa-quick':       ['qa/**', 'browse/src/**', 'browse-mobile/src/**'],
+  'qa-b6-static':   ['qa/**', 'browse/src/**', 'browse-mobile/src/**', 'browse/test/fixtures/qa-eval.html', 'test/fixtures/qa-eval-ground-truth.json'],
+  'qa-b7-spa':      ['qa/**', 'browse/src/**', 'browse-mobile/src/**', 'browse/test/fixtures/qa-eval-spa.html', 'test/fixtures/qa-eval-spa-ground-truth.json'],
+  'qa-b8-checkout': ['qa/**', 'browse/src/**', 'browse-mobile/src/**', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json'],
   'qa-only-no-fix': ['qa-only/**', 'qa/templates/**'],
   'qa-fix-loop':    ['qa/**', 'browse/src/**'],
   'qa-bootstrap':   ['qa/**', 'ship/**'],
