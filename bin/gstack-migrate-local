@@ -100,6 +100,9 @@ if [ -d "$OLD" ]; then
   # Greptile history
   [ -e "$OLD/greptile-history.md" ] && migrate "$OLD/greptile-history.md" "$NEW"
 
+  # Deploy confirmation fingerprint
+  [ -e "$OLD/land-deploy-confirmed" ] && migrate "$OLD/land-deploy-confirmed" "$NEW"
+
   # CEO handoff files
   for f in "$OLD"/*-ceo-handoff-*.md; do
     [ -e "$f" ] && migrate "$f" "$NEW"
