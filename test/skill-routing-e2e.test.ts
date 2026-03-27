@@ -537,6 +537,36 @@ export default app;
     }
   }, 150_000);
 
+  testIfSelected('journey-social-strategy', async () => {
+    const tmpDir = createRoutingWorkDir('social-strategy');
+    try {
+
+      const testName = 'journey-social-strategy';
+      const expectedSkill = 'social-strategy';
+      const result = await runSkillTest({
+        prompt: "I need help with my social media strategy. I'm a solo founder building a developer tool and I have zero online presence. I want to figure out where to post, what topics to cover, and how to build relationships with the right people in my space.",
+        workingDirectory: tmpDir,
+        maxTurns: 5,
+        allowedTools: ['Skill', 'Read', 'Bash', 'Glob', 'Grep'],
+        timeout: 60_000,
+        testName,
+        runId,
+      });
+
+      const skillCalls = result.toolCalls.filter(tc => tc.tool === 'Skill');
+      const actualSkill = skillCalls.length > 0 ? skillCalls[0]?.input?.skill : undefined;
+
+      logCost(`journey: ${testName}`, result);
+      recordRouting(testName, result, expectedSkill, actualSkill);
+
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      const validSkills = ['social-strategy', 'strategist'];
+      expect(validSkills, `Expected one of ${validSkills.join('/')} but got ${actualSkill}`).toContain(actualSkill);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }, 150_000);
+
   testIfSelected('journey-visual-qa', async () => {
     const tmpDir = createRoutingWorkDir('visual-qa');
     try {
