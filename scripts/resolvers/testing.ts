@@ -1,6 +1,6 @@
 import type { TemplateContext } from './types';
 
-export function generateTestBootstrap(_ctx: TemplateContext): string {
+export function generateTestBootstrap(ctx: TemplateContext): string {
   return `## Test Framework Bootstrap
 
 **Detect existing test framework and project runtime:**
