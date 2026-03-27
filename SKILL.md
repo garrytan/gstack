@@ -256,6 +256,7 @@ user's workflow stage:
 - Retro → /retro
 - Second opinion → /codex
 - Prod safety → /careful or /guard
+- Active pentest → /pentest
 - Scoped edits → /freeze or /unfreeze
 - Upgrades → /gstack-upgrade
 
