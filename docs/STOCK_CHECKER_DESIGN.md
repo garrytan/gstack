@@ -12,12 +12,13 @@
 
 ## 4. Narrowest Wedge
 - A Bun script: `stock.ts`.
-- It takes a ticker symbol as a command-line argument (e.g., `bun run stock.ts AAPL`).
-- It uses a free, no-auth API (like `query1.finance.yahoo.com`) to fetch real-time data.
-- It prints: `Ticker`, `Price`, `Change (%)`, and a `Color-coded indicator` (Green for up, Red for down).
+- It takes a ticker symbol as a command-line argument (e.g., `bun run stock.ts SPY`).
+- It uses a free, no-auth API (like `query1.finance.yahoo.com`) to fetch real-time and historical data.
+- It prints: `Ticker`, `Price`, `Probabilities`, `Technical Indicators (MA, Bollinger Bands)`.
+- It mimics a professional market analysis layout with Chinese text and emojis.
 
 ## 5. Observation
-- We know it's working if `bun run stock.ts TSLA` returns a valid price in < 2 seconds.
+- We know it's working if `bun run stock.ts SPY` returns a valid analysis with support/resistance levels in < 5 seconds.
 
 ## 6. Future-Fit
 - This evolves into a full "Portfolio Watcher" that can alert you via terminal notifications or even use `/browse` to scrape sentiment from news sites.
@@ -25,7 +26,10 @@
 ---
 
 ## Technical Implementation Plan
-1. Use `fetch()` to call Yahoo Finance's v8 chart API.
-2. Parse the JSON response for `regularMarketPrice` and `previousClose`.
-3. Calculate the percentage change.
-4. Use ANSI colors for the output.
+1. Use `fetch()` to call Yahoo Finance's v8 chart API for both Daily and 4H data.
+2. Implement SMA (Simple Moving Average) and Bollinger Bands calculations.
+3. Calculate:
+   - Daily: 20MA, 200MA, Bollinger Lower (20, 2).
+   - 4H: 20MA, 50MA, Bollinger Lower (20, 2).
+4. Use a heuristic for "Probability" based on price vs 20MA.
+5. Format output with Chinese text and emojis to match the target layout.
