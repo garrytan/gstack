@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deal Analyzer — Sågade Trävaror</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap">
+<style>
+:root {
+  --bg: #0a0c12;
+  --bg2: #0f1119;
+  --panel: rgba(255,255,255,0.05);
+  --panel-solid: #181b25;
+  --border: rgba(255,255,255,0.09);
+  --border-hover: rgba(255,255,255,0.16);
+  --accent: #5AC8FA;
+  --accent2: #34C759;
+  --accent3: #FF9F0A;
+  --accent4: #FF453A;
+  --accent-dim: rgba(90,200,250,0.12);
+  --text: #f5f6f8;
+  --text2: #d8dbe3;
+  --text3: #a8adb8;
+  --r: 18px;
+  --rs: 12px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hero {
+  text-align: center;
+  padding: 4rem 1.5rem 2.5rem;
+  background: radial-gradient(ellipse 800px 400px at 50% 0%, rgba(90,200,250,0.07), transparent);
+}
+.hero .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(90,200,250,0.2);
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 1.5rem;
+}
+.hero h1 {
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.75rem;
+}
+.hero h1 span {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero p {
+  color: var(--text3);
+  font-size: 1rem;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.wrap { max-width: 820px; margin: 0 auto; padding: 0 1.25rem 4rem; }
+
+/* ── FORM ── */
+.form-card {
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 2rem;
+  margin-bottom: 2rem;
+}
+.form-card h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text2);
+}
+.form-card h2 .step-dot {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  border: 1px solid rgba(90,200,250,0.25);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text3);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.field select, .field input {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  padding: 10px 14px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a8adb8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+  cursor: pointer;
+}
+.field select:focus, .field input:focus {
+  border-color: rgba(90,200,250,0.4);
+  background: rgba(90,200,250,0.04);
+}
+.field input::placeholder { color: var(--text3); }
+
+.btn-analyze {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(90,200,250,0.15), rgba(52,199,89,0.1));
+  border: 1px solid rgba(90,200,250,0.3);
+  border-radius: var(--rs);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s;
+  margin-top: 1.5rem;
+  letter-spacing: 0.01em;
+}
+.btn-analyze:hover {
+  background: linear-gradient(135deg, rgba(90,200,250,0.22), rgba(52,199,89,0.15));
+  border-color: rgba(90,200,250,0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px rgba(90,200,250,0.12);
+}
+.btn-analyze:active { transform: translateY(0); }
+
+/* ── RESULTS ── */
+#results { display: none; }
+
+.risk-banner {
+  border-radius: var(--r);
+  padding: 1.75rem 2rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+.risk-banner.low {
+  background: rgba(52,199,89,0.07);
+  border-color: rgba(52,199,89,0.2);
+}
+.risk-banner.medium {
+  background: rgba(255,159,10,0.07);
+  border-color: rgba(255,159,10,0.2);
+}
+.risk-banner.high {
+  background: rgba(255,69,58,0.07);
+  border-color: rgba(255,69,58,0.2);
+}
+.risk-score {
+  flex-shrink: 0;
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+}
+.risk-banner.low .risk-score { background: rgba(52,199,89,0.15); border: 2px solid rgba(52,199,89,0.3); color: #34C759; }
+.risk-banner.medium .risk-score { background: rgba(255,159,10,0.15); border: 2px solid rgba(255,159,10,0.3); color: #FF9F0A; }
+.risk-banner.high .risk-score { background: rgba(255,69,58,0.15); border: 2px solid rgba(255,69,58,0.3); color: #FF453A; }
+.risk-score .num { font-size: 1.6rem; line-height: 1; }
+.risk-score .lbl { font-size: 0.55rem; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7; }
+.risk-banner .info h3 { font-size: 1.1rem; font-weight: 800; margin-bottom: 4px; }
+.risk-banner.low .info h3 { color: #34C759; }
+.risk-banner.medium .info h3 { color: #FF9F0A; }
+.risk-banner.high .info h3 { color: #FF453A; }
+.risk-banner .info p { color: var(--text2); font-size: 0.88rem; }
+
+.results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+
+.result-card {
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 1.5rem;
+}
+.result-card .card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.result-card .card-head .icon {
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.result-card .card-head h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Checklist */
+.checklist { list-style: none; }
+.checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 0.88rem;
+  color: var(--text2);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.checklist li:last-child { border-bottom: none; }
+.checklist li:hover { color: var(--text); }
+.check-box {
+  width: 18px; height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-hover);
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center;
+}
+.checklist li.done .check-box {
+  background: var(--accent2);
+  border-color: var(--accent2);
+}
+.checklist li.done .check-box::after {
+  content: '✓';
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+.checklist li.done .check-label { text-decoration: line-through; opacity: 0.5; }
+.check-req {
+  margin-left: auto;
+  font-size: 0.65rem;
+  padding: 2px 7px;
+  border-radius: 100px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.req-must { background: rgba(255,69,58,0.15); color: #FF453A; }
+.req-cond { background: rgba(255,159,10,0.15); color: #FF9F0A; }
+.req-opt  { background: rgba(168,173,184,0.15); color: var(--text3); }
+
+/* Load card */
+.load-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 0.88rem;
+}
+.load-stat:last-child { border-bottom: none; }
+.load-stat .ls-label { color: var(--text3); }
+.load-stat .ls-value { font-weight: 600; color: var(--text); }
+.load-stat .ls-value.accent { color: var(--accent); }
+.load-stat .ls-value.green { color: var(--accent2); }
+.load-stat .ls-value.orange { color: var(--accent3); }
+
+/* Warning boxes */
+.warn-box {
+  border-radius: var(--rs);
+  padding: 12px 14px;
+  margin-top: 10px;
+  font-size: 0.83rem;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  line-height: 1.5;
+}
+.warn-box.info { background: rgba(90,200,250,0.07); border-left: 3px solid var(--accent); color: var(--text2); }
+.warn-box.warn { background: rgba(255,159,10,0.07); border-left: 3px solid var(--accent3); color: var(--text2); }
+.warn-box.danger { background: rgba(255,69,58,0.07); border-left: 3px solid var(--accent4); color: var(--text2); }
+.warn-box.ok { background: rgba(52,199,89,0.07); border-left: 3px solid var(--accent2); color: var(--text2); }
+
+/* Incoterm pill */
+.inco-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 100px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.inco-sea { background: rgba(90,200,250,0.12); color: var(--accent); border: 1px solid rgba(90,200,250,0.2); }
+.inco-any { background: rgba(52,199,89,0.12); color: var(--accent2); border: 1px solid rgba(52,199,89,0.2); }
+
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tag {
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text3);
+}
+
+/* payment timeline */
+.pay-timeline { position: relative; padding-left: 28px; }
+.pay-timeline::before {
+  content: '';
+  position: absolute;
+  left: 7px; top: 6px; bottom: 6px;
+  width: 2px;
+  background: var(--border);
+  border-radius: 2px;
+}
+.pay-step {
+  position: relative;
+  padding: 6px 0 6px 12px;
+  font-size: 0.85rem;
+  color: var(--text2);
+}
+.pay-step::before {
+  content: '';
+  position: absolute;
+  left: -21px;
+  top: 12px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--panel-solid);
+  border: 2px solid var(--border-hover);
+}
+.pay-step.done::before { background: var(--accent2); border-color: var(--accent2); }
+.pay-step .step-title { font-weight: 600; color: var(--text); font-size: 0.82rem; }
+
+/* summary bar */
+.summary-bar {
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 1.25rem 1.5rem;
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  align-items: center;
+}
+.sum-item { display: flex; flex-direction: column; gap: 2px; }
+.sum-item .si-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); font-weight: 600; }
+.sum-item .si-value { font-size: 1rem; font-weight: 800; color: var(--text); }
+
+.reset-btn {
+  margin-top: 2rem;
+  padding: 10px 20px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  color: var(--text3);
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.reset-btn:hover { border-color: var(--border-hover); color: var(--text2); }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="badge">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    Deal Analyzer
+  </div>
+  <h1>Analysera din <span>trävaruaffär</span></h1>
+  <p>Mata in affärens parametrar — få riskscore, dokumentchecklista och lastoptimering direkt.</p>
+</div>
+
+<div class="wrap">
+
+  <!-- FORM -->
+  <div class="form-card">
+    <h2><span class="step-dot">1</span> Destinationsland &amp; region</h2>
+    <div class="grid-2">
+      <div class="field">
+        <label>Destinationsland</label>
+        <select id="country">
+          <option value="">— Välj land —</option>
+          <optgroup label="Europa (EU/EES)">
+            <option value="DE">Tyskland</option>
+            <option value="GB">Storbritannien</option>
+            <option value="FR">Frankrike</option>
+            <option value="NL">Nederländerna</option>
+            <option value="NO">Norge</option>
+            <option value="DK">Danmark</option>
+            <option value="FI">Finland</option>
+          </optgroup>
+          <optgroup label="Nordafrika / MENA">
+            <option value="EG">Egypten</option>
+            <option value="MA">Marocko</option>
+            <option value="DZ">Algeriet</option>
+            <option value="SA">Saudiarabien</option>
+            <option value="AE">UAE</option>
+          </optgroup>
+          <optgroup label="Asien">
+            <option value="CN">Kina</option>
+            <option value="JP">Japan</option>
+            <option value="IN">Indien</option>
+          </optgroup>
+          <optgroup label="Övriga">
+            <option value="US">USA</option>
+            <option value="AU">Australien</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field">
+        <label>Incoterm 2020</label>
+        <select id="incoterm">
+          <option value="">— Välj incoterm —</option>
+          <optgroup label="Sjöfrakt (bulk/breakbulk)">
+            <option value="FOB">FOB — Free On Board</option>
+            <option value="CFR">CFR — Cost and Freight</option>
+            <option value="CIF">CIF — Cost, Insurance &amp; Freight</option>
+            <option value="FAS">FAS — Free Alongside Ship</option>
+          </optgroup>
+          <optgroup label="Alla transportslag">
+            <option value="EXW">EXW — Ex Works</option>
+            <option value="FCA">FCA — Free Carrier</option>
+            <option value="CPT">CPT — Carriage Paid To</option>
+            <option value="CIP">CIP — Carriage &amp; Insurance Paid</option>
+            <option value="DAP">DAP — Delivered at Place</option>
+            <option value="DPU">DPU — Delivered at Place Unloaded</option>
+            <option value="DDP">DDP — Delivered Duty Paid</option>
+          </optgroup>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-card">
+    <h2><span class="step-dot">2</span> Betalning &amp; kreditrisk</h2>
+    <div class="grid-2">
+      <div class="field">
+        <label>Betalningssätt</label>
+        <select id="payment">
+          <option value="">— Välj betalningssätt —</option>
+          <option value="LC">Remburs (Letter of Credit)</option>
+          <option value="CAD">CAD — Dokumentinkasso</option>
+          <option value="TT_before">Förskottsbetalning (TT before)</option>
+          <option value="TT_after">Öppen räkning (TT after)</option>
+          <option value="credit_insured">Öppen räkning + kreditförsäkring</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Kundrelation</label>
+        <select id="customer_type">
+          <option value="new">Ny kund (ingen historik)</option>
+          <option value="known">Känd kund (&lt;2 år)</option>
+          <option value="established">Etablerad kund (2+ år)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-card">
+    <h2><span class="step-dot">3</span> Volym &amp; produkt</h2>
+    <div class="grid-3">
+      <div class="field">
+        <label>Volym (m³)</label>
+        <input type="number" id="volume" placeholder="t.ex. 50" min="1" max="50000">
+      </div>
+      <div class="field">
+        <label>Transportslag</label>
+        <select id="transport">
+          <option value="trailer">Trailer (13,6 flm)</option>
+          <option value="container">Container (20' / 40')</option>
+          <option value="sea_bulk">Sjöfrakt — Bulk/Breakbulk</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Certifiering</label>
+        <select id="cert">
+          <option value="PEFC">PEFC-certifierad</option>
+          <option value="FSC">FSC-certifierad</option>
+          <option value="none">Ej certifierad</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn-analyze" onclick="analyze()">
+      Analysera affären →
+    </button>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results">
+
+    <div id="risk-banner" class="risk-banner"></div>
+
+    <div class="results-grid">
+      <!-- Documents -->
+      <div class="result-card">
+        <div class="card-head">
+          <div class="icon" style="background:rgba(90,200,250,0.1)">📄</div>
+          <h3>Dokumentchecklista</h3>
+        </div>
+        <ul class="checklist" id="doc-checklist"></ul>
+      </div>
+
+      <!-- Load optimization -->
+      <div class="result-card">
+        <div class="card-head">
+          <div class="icon" style="background:rgba(52,199,89,0.1)">📦</div>
+          <h3>Lastoptimering</h3>
+        </div>
+        <div id="load-content"></div>
+      </div>
+    </div>
+
+    <div class="results-grid">
+      <!-- Payment flow -->
+      <div class="result-card">
+        <div class="card-head">
+          <div class="icon" style="background:rgba(255,159,10,0.1)">💰</div>
+          <h3>Betalningsflöde</h3>
+        </div>
+        <div id="payment-content"></div>
+      </div>
+
+      <!-- Incoterm analysis -->
+      <div class="result-card">
+        <div class="card-head">
+          <div class="icon" style="background:rgba(255,69,58,0.1)">⚖️</div>
+          <h3>Incoterm-analys</h3>
+        </div>
+        <div id="incoterm-content"></div>
+      </div>
+    </div>
+
+    <!-- Summary bar -->
+    <div class="summary-bar" id="summary-bar"></div>
+
+    <button class="reset-btn" onclick="reset()">← Ny analys</button>
+  </div>
+
+</div>
+
+<script>
+// ── DATA ──
+const EU_COUNTRIES = ['DE','FR','NL','DK','FI','NO'];
+const SEA_INCOTERMS = ['FOB','CFR','CIF','FAS'];
+const NON_EU_SEA = ['GB','EG','MA','DZ','SA','AE','CN','JP','IN','US','AU'];
+
+const COUNTRY_NAMES = {
+  DE:'Tyskland', GB:'Storbritannien', FR:'Frankrike', NL:'Nederländerna',
+  NO:'Norge', DK:'Danmark', FI:'Finland', EG:'Egypten', MA:'Marocko',
+  DZ:'Algeriet', SA:'Saudiarabien', AE:'UAE', CN:'Kina', JP:'Japan',
+  IN:'Indien', US:'USA', AU:'Australien'
+};
+
+const INCOTERM_INFO = {
+  EXW: { seller_risk: 1, text: 'Minimalt säljaransvar. Köparen hanterar allt från din port. Undvik vid export — exporttullhanteringen hamnar på köparen.',  transport: 'any' },
+  FCA: { seller_risk: 2, text: 'Godset överlämnas till köparens speditör. Praktiskt för trailer och järnväg. Rekommenderas för inrikes/EU-leveranser.',         transport: 'any' },
+  FAS: { seller_risk: 2, text: 'Ansvar till kaj i utskeppningshamnen. Vanlig för sågade trävaror vid sjöfrakt. Köparen ordnar B/L.',                           transport: 'sea' },
+  FOB: { seller_risk: 3, text: 'Ansvar övergår när godset är ombord. Vanligast vid bulkfrakt. Säljaren klar när godset lastas.',                               transport: 'sea' },
+  CFR: { seller_risk: 4, text: 'Säljaren betalar frakt till destinationshamnen. Risk övergår vid lastning. Ingen försäkringsskyldighet.',                      transport: 'sea' },
+  CIF: { seller_risk: 5, text: 'Inkluderar frakt + minimiförsäkring (110% av varans värde). Vanligast vid remburs till MENA/Asien.',                          transport: 'sea' },
+  CPT: { seller_risk: 4, text: 'Frakt betald till destination, alla transportslag. Risk övergår vid lämning till first carrier.',                              transport: 'any' },
+  CIP: { seller_risk: 5, text: 'Frakt + fullständig försäkring (ICC A). Starkare skydd än CIF. Rekommenderas vid container.',                                 transport: 'any' },
+  DAP: { seller_risk: 6, text: 'Leverans till köparens port/plats, ej lossat. Säljaren arrangerar tull i importland (köparen klarerar). Vanligt mot EU.',      transport: 'any' },
+  DPU: { seller_risk: 7, text: 'Leverans lossad vid destination. Säljaren ansvarar för lossning — sällan praktiskt för trävaror.',                            transport: 'any' },
+  DDP: { seller_risk: 8, text: 'Maximalt säljaransvar. Du betalar tull och importmoms i köparens land. Kräver kunskap om importregler. Hög risk.',             transport: 'any' }
+};
+
+const PAYMENT_INFO = {
+  LC:             { risk: 1, label: 'Remburs (LC)',             color: 'green' },
+  TT_before:      { risk: 1, label: 'Förskott (TT)',            color: 'green' },
+  CAD:            { risk: 3, label: 'Dokumentinkasso (CAD)',     color: 'orange' },
+  credit_insured: { risk: 4, label: 'Öppen + kreditförsäkring', color: 'orange' },
+  TT_after:       { risk: 6, label: 'Öppen räkning (TT after)', color: 'red' }
+};
+
+const PHYTO_REQUIRED = ['EG','MA','DZ','SA','AE','CN','JP','IN','US','AU','GB'];
+
+// Trailer: ~70m3 (22m long loads 44x84 bundles)
+const TRAILER_M3 = 70;
+// 20ft container: ~25m3, 40ft: ~55m3
+const CONT_20_M3 = 25;
+const CONT_40_M3 = 55;
+
+function analyze() {
+  const country   = document.getElementById('country').value;
+  const incoterm  = document.getElementById('incoterm').value;
+  const payment   = document.getElementById('payment').value;
+  const custType  = document.getElementById('customer_type').value;
+  const volume    = parseFloat(document.getElementById('volume').value) || 0;
+  const transport = document.getElementById('transport').value;
+  const cert      = document.getElementById('cert').value;
+
+  if (!country || !incoterm || !payment || volume <= 0) {
+    alert('Fyll i alla fält och ange en volym > 0.');
+    return;
+  }
+
+  // ── Risk scoring ──
+  let riskPoints = 0;
+  const riskFactors = [];
+
+  // Payment risk (0–6 pts)
+  const payRisk = PAYMENT_INFO[payment].risk;
+  riskPoints += payRisk;
+  if (payRisk >= 5) riskFactors.push({ label: 'Osäkert betalningssätt', sev: 'high' });
+  else if (payRisk >= 3) riskFactors.push({ label: 'Måttlig betalningsrisk', sev: 'medium' });
+  else riskFactors.push({ label: 'Säkert betalningssätt', sev: 'low' });
+
+  // Customer type risk (0–2 pts)
+  if (custType === 'new') { riskPoints += 2; riskFactors.push({ label: 'Ny kund — kreditupplysning krävs', sev: 'high' }); }
+  else if (custType === 'known') { riskPoints += 1; riskFactors.push({ label: 'Känd kund — verifiera kreditlimit', sev: 'medium' }); }
+  else riskFactors.push({ label: 'Etablerad kund', sev: 'low' });
+
+  // Incoterm risk (0–3 pts for seller)
+  const iData = INCOTERM_INFO[incoterm];
+  if (iData.seller_risk >= 7) { riskPoints += 3; riskFactors.push({ label: `${incoterm}: Högt säljaransvar`, sev: 'high' }); }
+  else if (iData.seller_risk >= 5) { riskPoints += 1; riskFactors.push({ label: `${incoterm}: Säljaren betalar frakt + försäkring`, sev: 'medium' }); }
+  else riskFactors.push({ label: `${incoterm}: Hanterbart säljaransvar`, sev: 'low' });
+
+  // Phyto risk
+  const needsPhyto = PHYTO_REQUIRED.includes(country);
+  if (needsPhyto) { riskPoints += 1; riskFactors.push({ label: 'Sundhetscertifikat krävs', sev: 'medium' }); }
+
+  // Incoterm/transport mismatch
+  const seaOnlyInco = SEA_INCOTERMS.includes(incoterm);
+  if (seaOnlyInco && transport !== 'sea_bulk') {
+    riskPoints += 2;
+    riskFactors.push({ label: `${incoterm} används med ${transport} — mismatch!`, sev: 'high' });
+  }
+
+  // EU vs non-EU open account
+  const isEU = EU_COUNTRIES.includes(country);
+  if (!isEU && (payment === 'TT_after' || payment === 'credit_insured') && custType === 'new') {
+    riskPoints += 2;
+    riskFactors.push({ label: 'Öppen räkning till ny kund utanför EU — hög risk', sev: 'high' });
+  }
+
+  const maxRisk = 14;
+  const riskPct = Math.min(100, Math.round((riskPoints / maxRisk) * 100));
+  const riskLevel = riskPct < 35 ? 'low' : riskPct < 65 ? 'medium' : 'high';
+  const riskLabels = { low: 'Låg risk', medium: 'Medelhög risk', high: 'Hög risk' };
+  const riskDescs = {
+    low: 'Affären ser välstrukturerad ut. Dokumenthygien och kreditkoll räcker.',
+    medium: 'Ett par faktorer kräver extra uppmärksamhet. Se rekommendationerna nedan.',
+    high: 'Affären har signifikanta risker. Överväg starkare betalningssätt eller Incoterm-byte.'
+  };
+
+  // ── Risk banner ──
+  document.getElementById('risk-banner').className = `risk-banner ${riskLevel}`;
+  document.getElementById('risk-banner').innerHTML = `
+    <div class="risk-score">
+      <span class="num">${riskPct}</span>
+      <span class="lbl">risk</span>
+    </div>
+    <div class="info">
+      <h3>${riskLabels[riskLevel]}</h3>
+      <p>${riskDescs[riskLevel]}</p>
+      <div class="tag-row" style="margin-top:8px">
+        ${riskFactors.map(f => `<span class="tag" style="
+          background:${f.sev==='high'?'rgba(255,69,58,0.1)':f.sev==='medium'?'rgba(255,159,10,0.1)':'rgba(52,199,89,0.1)'};
+          color:${f.sev==='high'?'#FF453A':f.sev==='medium'?'#FF9F0A':'#34C759'};
+          border-color:${f.sev==='high'?'rgba(255,69,58,0.2)':f.sev==='medium'?'rgba(255,159,10,0.2)':'rgba(52,199,89,0.2)'}
+        ">${f.label}</span>`).join('')}
+      </div>
+    </div>`;
+
+  // ── Documents checklist ──
+  const docs = [];
+  docs.push({ name: 'Handelsfaktura', req: 'must', note: 'Obligatorisk vid all export' });
+  docs.push({ name: 'Packlista / specifikation', req: 'must', note: 'Paketmärkning, m3, vikt' });
+
+  if (transport === 'sea_bulk' || transport === 'container') {
+    docs.push({ name: 'Bill of Lading (B/L)', req: 'must', note: '3 original vid remburs' });
+    docs.push({ name: 'CMR / Fraktsedel', req: 'opt', note: 'Vid hamnleverans med trailer' });
+  } else {
+    docs.push({ name: 'CMR-fraktsedel', req: 'must', note: '3 ex — 2 med förare, 1 stanna' });
+  }
+
+  if (!isEU) {
+    docs.push({ name: 'Exportdeklaration (EX1)', req: 'must', note: 'Tullverket — vid export utanför EU' });
+    docs.push({ name: 'Ursprungsintyg EUR.1', req: 'cond', note: 'Om köparen kräver för tulllättnad' });
+    docs.push({ name: 'Handelsutfärdarcertifikat', req: 'cond', note: 'Mellansvenska Handelskammaren' });
+  } else {
+    docs.push({ name: 'EU-faktura (0% moms)', req: 'must', note: 'Vid försäljning till momsregistrerad EU-köpare' });
+  }
+
+  if (needsPhyto) {
+    docs.push({ name: 'Sundhetscertifikat', req: 'must', note: 'Jordbruksverket — barrträ utanför EU' });
+    docs.push({ name: 'Fumigerings-/värmbehandlingsprotokoll', req: 'cond', note: 'Krävs vid ISPM 15-krav' });
+  }
+
+  if (payment === 'LC') {
+    docs.push({ name: 'Remburskontroll — alla dokument mot LC', req: 'must', note: 'Varje detail måste matcha exakt' });
+    docs.push({ name: 'Försäkringsbevis', req: seaOnlyInco && (incoterm==='CIF'||incoterm==='CIP') ? 'must' : 'cond', note: 'Krävs om LC specificerar det' });
+  }
+
+  if (cert !== 'none') {
+    docs.push({ name: `${cert}-certifikat (Chain of Custody)`, req: 'cond', note: 'Om köparen kräver certifierat material' });
+  }
+
+  const checklistEl = document.getElementById('doc-checklist');
+  checklistEl.innerHTML = docs.map((d, i) => `
+    <li id="doc-${i}" onclick="toggleDoc(${i})">
+      <span class="check-box"></span>
+      <span class="check-label">${d.name}<br><small style="color:var(--text3);font-size:0.75rem">${d.note}</small></span>
+      <span class="check-req req-${d.req}">${d.req==='must'?'Obligatorisk':d.req==='cond'?'Villkorlig':'Frivillig'}</span>
+    </li>`).join('');
+
+  // ── Load optimization ──
+  const loadEl = document.getElementById('load-content');
+  let loadHtml = '';
+
+  if (transport === 'trailer') {
+    const trailers = Math.ceil(volume / TRAILER_M3);
+    const fillPct = Math.round((volume / (trailers * TRAILER_M3)) * 100);
+    const lastFill = Math.round(((volume % TRAILER_M3) || TRAILER_M3) / TRAILER_M3 * 100);
+    loadHtml = `
+      <div class="load-stat"><span class="ls-label">Volym</span><span class="ls-value">${volume} m³</span></div>
+      <div class="load-stat"><span class="ls-label">Kapacitet/trailer</span><span class="ls-value">~${TRAILER_M3} m³</span></div>
+      <div class="load-stat"><span class="ls-label">Antal trailers</span><span class="ls-value accent">${trailers} st</span></div>
+      <div class="load-stat"><span class="ls-label">Genomsnittlig fyllnad</span><span class="ls-value ${fillPct>=90?'green':fillPct>=70?'':'orange'}">${fillPct}%</span></div>
+      <div class="load-stat"><span class="ls-label">Sista trailern</span><span class="ls-value ${lastFill>=85?'green':'orange'}">${lastFill}% full</span></div>
+      ${lastFill < 70 ? `<div class="warn-box warn">⚠️ Sista trailern är bara ${lastFill}% full. Överväg att samla ihop till ett avrop på ${Math.ceil(volume/TRAILER_M3)*TRAILER_M3} m³ för full lastfyllnad.</div>` : ''}
+    `;
+  } else if (transport === 'container') {
+    const cont40 = Math.floor(volume / CONT_40_M3);
+    const rem = volume - cont40 * CONT_40_M3;
+    const cont20 = rem > 0 ? Math.ceil(rem / CONT_20_M3) : 0;
+    loadHtml = `
+      <div class="load-stat"><span class="ls-label">Volym</span><span class="ls-value">${volume} m³</span></div>
+      <div class="load-stat"><span class="ls-label">40'-containers</span><span class="ls-value accent">${cont40} st (~${CONT_40_M3} m³ var)</span></div>
+      <div class="load-stat"><span class="ls-label">20'-containers</span><span class="ls-value accent">${cont20} st (~${CONT_20_M3} m³ var)</span></div>
+      <div class="load-stat"><span class="ls-label">Totalt antal</span><span class="ls-value green">${cont40+cont20} containers</span></div>
+      <div class="warn-box info">ℹ️ FOB/CFR/CIF avser sjöfrakt — använd FCA eller CIP för containerleveranser.</div>
+    `;
+  } else {
+    const tons = Math.round(volume * 0.55); // ~550 kg/m3 torr gran
+    loadHtml = `
+      <div class="load-stat"><span class="ls-label">Volym</span><span class="ls-value">${volume} m³</span></div>
+      <div class="load-stat"><span class="ls-label">Uppskattad vikt</span><span class="ls-value accent">~${tons} ton</span></div>
+      <div class="load-stat"><span class="ls-label">Transportform</span><span class="ls-value">Bulk/Breakbulk</span></div>
+      <div class="warn-box ok">✓ ${incoterm} är korrekt Incoterm för sjöfrakt (bulk/breakbulk).</div>
+    `;
+  }
+  loadEl.innerHTML = loadHtml;
+
+  // ── Payment flow ──
+  const payEl = document.getElementById('payment-content');
+  const payFlows = {
+    LC: [
+      { title: 'Kontrakt med LC-krav undertecknas', done: true },
+      { title: 'Köparens bank öppnar remburs', done: true },
+      { title: 'Du kontrollerar LC mot kontraktet', done: false },
+      { title: 'Produktion + leverans', done: false },
+      { title: 'Dokument presenteras till din bank', done: false },
+      { title: 'Bankerna verifierar — betalning frigörs', done: false }
+    ],
+    TT_before: [
+      { title: 'Order bekräftad', done: true },
+      { title: 'Förskottsbetalning mottagen', done: true },
+      { title: 'Produktion + leverans', done: false },
+      { title: 'Faktura + dokument skickas', done: false }
+    ],
+    CAD: [
+      { title: 'Order + kontrakt', done: true },
+      { title: 'Leverans + dokument till din bank', done: false },
+      { title: 'Din bank skickar till köparens bank', done: false },
+      { title: 'Köparen betalar → bank lämnar ut dokument', done: false },
+      { title: 'Betalning krediteras ditt konto', done: false }
+    ],
+    credit_insured: [
+      { title: 'Kreditgräns godkänd av Allianz/EKN', done: true },
+      { title: 'Leverans + faktura', done: false },
+      { title: 'Betalning inom kredit-tid', done: false },
+      { title: 'Vid utebliven betalning — skadeärende', done: false }
+    ],
+    TT_after: [
+      { title: 'Leverans + faktura', done: true },
+      { title: 'Köparen betalar inom avtalad tid', done: false },
+      { title: '(Betalningsbevakning / påminnelse)', done: false }
+    ]
+  };
+  const steps = payFlows[payment] || [];
+  payEl.innerHTML = `
+    <div style="margin-bottom:10px">
+      <span style="font-size:0.82rem;color:var(--text3)">Betalningssätt: </span>
+      <strong style="color:var(--text)">${PAYMENT_INFO[payment].label}</strong>
+    </div>
+    <div class="pay-timeline">
+      ${steps.map(s => `<div class="pay-step ${s.done?'done':''}"><span class="step-title">${s.title}</span></div>`).join('')}
+    </div>
+    ${payment === 'LC' ? '<div class="warn-box warn" style="margin-top:12px">⚠️ Vid remburs: varje dokument måste matcha LC:s villkor exakt — ett fel kan stoppa betalningen i veckor.</div>' : ''}
+    ${payment === 'TT_after' && !isEU ? '<div class="warn-box danger" style="margin-top:12px">🚨 Öppen räkning till land utanför EU utan kreditförsäkring — hög kreditrisk.</div>' : ''}
+  `;
+
+  // ── Incoterm analysis ──
+  const iEl = document.getElementById('incoterm-content');
+  const iInfo = INCOTERM_INFO[incoterm];
+  const seaOnly = SEA_INCOTERMS.includes(incoterm);
+  iEl.innerHTML = `
+    <div class="inco-pill ${seaOnly?'inco-sea':'inco-any'}" style="margin-bottom:12px">
+      ${incoterm} — ${seaOnly ? 'Sjöfrakt' : 'Alla transportslag'}
+    </div>
+    <p style="font-size:0.88rem;color:var(--text2);line-height:1.7;margin-bottom:12px">${iInfo.text}</p>
+    <div class="load-stat"><span class="ls-label">Säljaransvar</span>
+      <span class="ls-value ${iInfo.seller_risk<=3?'green':iInfo.seller_risk<=5?'orange':''}">
+        ${'●'.repeat(iInfo.seller_risk)}${'○'.repeat(8-iInfo.seller_risk)} ${iInfo.seller_risk}/8
+      </span>
+    </div>
+    ${seaOnly && transport !== 'sea_bulk' ?
+      `<div class="warn-box danger" style="margin-top:12px">🚨 ${incoterm} är ett sjöfrakt-Incoterm men du valt ${transport === 'trailer' ? 'trailer' : 'container'}. Använd FCA/DAP istället.</div>` :
+      `<div class="warn-box ok" style="margin-top:12px">✓ ${incoterm} är kompatibelt med valt transportslag.</div>`
+    }
+    ${incoterm === 'DDP' && !isEU ? `<div class="warn-box danger" style="margin-top:8px">🚨 DDP utanför EU kräver att du hanterar importtull i ${COUNTRY_NAMES[country]} — sällan praktiskt.</div>` : ''}
+  `;
+
+  // ── Summary bar ──
+  document.getElementById('summary-bar').innerHTML = `
+    <div class="sum-item"><span class="si-label">Land</span><span class="si-value">${COUNTRY_NAMES[country]}</span></div>
+    <div class="sum-item"><span class="si-label">Incoterm</span><span class="si-value">${incoterm}</span></div>
+    <div class="sum-item"><span class="si-label">Betalning</span><span class="si-value">${PAYMENT_INFO[payment].label}</span></div>
+    <div class="sum-item"><span class="si-label">Volym</span><span class="si-value">${volume} m³</span></div>
+    <div class="sum-item"><span class="si-label">Dokument</span><span class="si-value">${docs.filter(d=>d.req==='must').length} obligatoriska</span></div>
+    <div class="sum-item"><span class="si-label">Riskscore</span><span class="si-value" style="color:${riskLevel==='low'?'#34C759':riskLevel==='medium'?'#FF9F0A':'#FF453A'}">${riskPct}/100</span></div>
+  `;
+
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function toggleDoc(i) {
+  const li = document.getElementById(`doc-${i}`);
+  li.classList.toggle('done');
+}
+
+function reset() {
+  document.getElementById('results').style.display = 'none';
+  ['country','incoterm','payment','transport','cert'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('customer_type').value = 'new';
+  document.getElementById('volume').value = '';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+</script>
+</body>
+</html>
