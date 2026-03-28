@@ -161,7 +161,7 @@ async function askClaude(queueEntry: any): Promise<void> {
   return new Promise((resolve) => {
     // Build args fresh — don't trust --resume from queue (session may be stale)
     let claudeArgs = ['-p', prompt, '--output-format', 'stream-json', '--verbose',
-      '--allowedTools', 'Bash,Read,Glob,Grep'];
+      '--allowedTools', 'Bash,Read,Glob,Grep,Write'];
 
     // Validate cwd exists — queue may reference a stale worktree
     let effectiveCwd = cwd || process.cwd();
@@ -187,7 +187,11 @@ async function askClaude(queueEntry: any): Promise<void> {
       }
     });
 
-    proc.stderr.on('data', () => {}); // Claude logs to stderr, ignore
+    // Capture stderr for error reporting
+    let stderrBuffer = '';
+    proc.stderr.on('data', (data: Buffer) => {
+      stderrBuffer += data.toString();
+    });
 
     proc.on('close', (code) => {
       if (buffer.trim()) {
@@ -200,7 +204,8 @@ async function askClaude(queueEntry: any): Promise<void> {
     });
 
     proc.on('error', (err) => {
-      sendEvent({ type: 'agent_error', error: err.message }).then(() => {
+      const errorMsg = stderrBuffer ? `${err.message}\nStderr: ${stderrBuffer}` : err.message;
+      sendEvent({ type: 'agent_error', error: errorMsg }).then(() => {
         isProcessing = false;
         resolve();
       });
@@ -210,7 +215,10 @@ async function askClaude(queueEntry: any): Promise<void> {
     const timeoutMs = parseInt(process.env.SIDEBAR_AGENT_TIMEOUT || '300000', 10);
     setTimeout(() => {
       try { proc.kill(); } catch {}
-      sendEvent({ type: 'agent_error', error: `Timed out after ${timeoutMs / 1000}s` }).then(() => {
+      const errorMsg = stderrBuffer
+        ? `Timed out after ${timeoutMs / 1000}s\nStderr: ${stderrBuffer}`
+        : `Timed out after ${timeoutMs / 1000}s`;
+      sendEvent({ type: 'agent_error', error: errorMsg }).then(() => {
         isProcessing = false;
         resolve();
       });
