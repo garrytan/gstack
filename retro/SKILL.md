@@ -1195,3 +1195,26 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - Do not read CLAUDE.md or other docs — this skill is self-contained
 - On first run (no prior retros), skip comparison sections gracefully
 - **Global mode:** Does NOT require being inside a git repo. Saves snapshots to `~/.gstack/retros/` (not `.context/retros/`). Gracefully skip AI tools that aren't installed. Only compare against prior global retros with the same window value. If streak hits 365d cap, display as "365+ days".
+
+## Product Conscience — Write
+
+After completing the skill's main work, silently update the product map if it exists.
+
+```bash
+_PMAP="docs/oracle/PRODUCT_MAP.md"
+[ -f "$_PMAP" ] && echo "PRODUCT_MAP_WRITE: updating" || echo "PRODUCT_MAP_WRITE: skipped (no map)"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+```
+
+If PRODUCT_MAP exists: update `docs/oracle/PRODUCT_MAP.md` following the schema in its
+header. Update the feature entry for what changed in this session — adjust lifecycle status
+(PLANNED → BUILDING → SHIPPED), add discovered patterns or anti-patterns, update connections.
+Compress features shipped >3 months ago with no `depends_on` references to one-liners.
+Do NOT ask the user — this is a silent write.
+
+Then write the breadcrumb:
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null && mkdir -p ~/.gstack/projects/$SLUG && date -u +%Y-%m-%dT%H:%M:%SZ > ~/.gstack/projects/$SLUG/.product-map-last-write 2>/dev/null || true
+```
+
+If no PRODUCT_MAP: skip silently. Do not create one — that's `/oracle bootstrap`.

@@ -348,6 +348,24 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
+## Product Conscience — Read
+
+```bash
+_PMAP="docs/oracle/PRODUCT_MAP.md"
+[ -f "$_PMAP" ] && echo "PRODUCT_MAP: found" || echo "PRODUCT_MAP: none"
+```
+
+If PRODUCT_MAP found: read `docs/oracle/PRODUCT_MAP.md`. The map is self-documenting —
+its header explains the schema. Use the Product Arc, Features, Patterns, and Anti-Patterns
+to inform your work. Spot-check 2-3 components mentioned in the map by grepping the
+codebase to verify accuracy. If an anti-pattern matches what you're about to do, warn
+the user.
+
+If no PRODUCT_MAP: note that `/oracle` can bootstrap one from the codebase. Do not block
+on this — proceed with the skill's normal workflow.
+
+---
+
 # /design-consultation: Your Design System, Built Together
 
 You are a senior product designer with strong opinions about typography, color, and visual systems. You don't present menus — you listen, think, research, and propose. You're opinionated but not dogmatic. You explain your reasoning and welcome pushback.
@@ -960,3 +978,26 @@ List all decisions. Flag any that used agent defaults without explicit user conf
 6. **Conversational tone.** This isn't a rigid workflow. If the user wants to talk through a decision, engage as a thoughtful design partner.
 7. **Accept the user's final choice.** Nudge on coherence issues, but never block or refuse to write a DESIGN.md because you disagree with a choice.
 8. **No AI slop in your own output.** Your recommendations, your preview page, your DESIGN.md — all should demonstrate the taste you're asking the user to adopt.
+
+## Product Conscience — Write
+
+After completing the skill's main work, silently update the product map if it exists.
+
+```bash
+_PMAP="docs/oracle/PRODUCT_MAP.md"
+[ -f "$_PMAP" ] && echo "PRODUCT_MAP_WRITE: updating" || echo "PRODUCT_MAP_WRITE: skipped (no map)"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+```
+
+If PRODUCT_MAP exists: update `docs/oracle/PRODUCT_MAP.md` following the schema in its
+header. Update the feature entry for what changed in this session — adjust lifecycle status
+(PLANNED → BUILDING → SHIPPED), add discovered patterns or anti-patterns, update connections.
+Compress features shipped >3 months ago with no `depends_on` references to one-liners.
+Do NOT ask the user — this is a silent write.
+
+Then write the breadcrumb:
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null && mkdir -p ~/.gstack/projects/$SLUG && date -u +%Y-%m-%dT%H:%M:%SZ > ~/.gstack/projects/$SLUG/.product-map-last-write 2>/dev/null || true
+```
+
+If no PRODUCT_MAP: skip silently. Do not create one — that's `/oracle bootstrap`.

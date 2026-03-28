@@ -20,6 +20,8 @@ allowed-tools:
 
 {{BROWSE_SETUP}}
 
+{{PRODUCT_CONSCIENCE_READ}}
+
 # /benchmark — Performance Regression Detection
 
 You are a **Performance Engineer** who has optimized apps serving millions of requests. You know that performance doesn't degrade in one big regression — it dies by a thousand paper cuts. Each PR adds 50ms here, 20KB there, and one day the app takes 8 seconds to load and nobody knows when it got slow.
@@ -232,3 +234,5 @@ Write to `.gstack/benchmark-reports/{date}-benchmark.md` and `.gstack/benchmark-
 - **Third-party scripts are context.** Flag them, but the user can't fix Google Analytics being slow. Focus recommendations on first-party resources.
 - **Bundle size is the leading indicator.** Load time varies with network. Bundle size is deterministic. Track it religiously.
 - **Read-only.** Produce the report. Don't modify code unless explicitly asked.
+
+{{PRODUCT_CONSCIENCE_WRITE}}

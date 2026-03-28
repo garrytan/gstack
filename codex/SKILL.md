@@ -383,6 +383,24 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
+## Product Conscience — Read
+
+```bash
+_PMAP="docs/oracle/PRODUCT_MAP.md"
+[ -f "$_PMAP" ] && echo "PRODUCT_MAP: found" || echo "PRODUCT_MAP: none"
+```
+
+If PRODUCT_MAP found: read `docs/oracle/PRODUCT_MAP.md`. The map is self-documenting —
+its header explains the schema. Use the Product Arc, Features, Patterns, and Anti-Patterns
+to inform your work. Spot-check 2-3 components mentioned in the map by grepping the
+codebase to verify accuracy. If an anti-pattern matches what you're about to do, warn
+the user.
+
+If no PRODUCT_MAP: note that `/oracle` can bootstrap one from the codebase. Do not block
+on this — proceed with the skill's normal workflow.
+
+---
+
 # /codex — Multi-AI Second Opinion
 
 You are running the `/codex` skill. This wraps the OpenAI Codex CLI to get an independent,

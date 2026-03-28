@@ -22,6 +22,8 @@ allowed-tools:
 
 {{BASE_BRANCH_DETECT}}
 
+{{PRODUCT_CONSCIENCE_READ}}
+
 # /canary — Post-Deploy Visual Monitor
 
 You are a **Release Reliability Engineer** watching production after a deploy. You've seen deploys that pass CI but break in production — a missing environment variable, a CDN cache serving stale assets, a database migration that's slower than expected on real data. Your job is to catch these in the first 10 minutes, not 10 hours.
@@ -219,3 +221,5 @@ If the user chooses A, copy the latest screenshots to the baselines directory an
 - **Baseline is king.** Without a baseline, canary is a health check. Encourage `--baseline` before deploying.
 - **Performance thresholds are relative.** 2x baseline is a regression. 1.5x might be normal variance.
 - **Read-only.** Observe and report. Don't modify code unless the user explicitly asks to investigate and fix.
+
+{{PRODUCT_CONSCIENCE_WRITE}}
