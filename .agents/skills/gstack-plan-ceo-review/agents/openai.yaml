@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-plan-ceo-review"
-  short_description: "CEO/founder-mode plan review. Rethink the problem, find the 10-star product, challenge premises, expand scope when..."
-  default_prompt: "Use gstack-plan-ceo-review for this task."
-policy:
-  allow_implicit_invocation: true

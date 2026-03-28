@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-land-and-deploy"
-  short_description: "Land and deploy workflow. Merges the PR, waits for CI and deploy, verifies production health via canary checks...."
-  default_prompt: "Use gstack-land-and-deploy for this task."
-policy:
-  allow_implicit_invocation: true

@@ -130,6 +130,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-design-review-no-ui-scope': ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
   'design-review-fix':              ['design-review/**', 'browse/src/**', 'scripts/gen-skill-docs.ts'],
 
+  // Design Shotgun
+  'design-shotgun-path':            ['design-shotgun/**', 'design/src/**', 'scripts/resolvers/design.ts'],
+  'design-shotgun-session':         ['design-shotgun/**', 'scripts/resolvers/design.ts'],
+  'design-shotgun-full':            ['design-shotgun/**', 'design/src/**', 'browse/src/**'],
+
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**'],
 
@@ -253,6 +258,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-design-review-plan-mode': 'periodic',
   'plan-design-review-no-ui-scope': 'gate',
   'design-review-fix': 'periodic',
+  'design-shotgun-path': 'gate',
+  'design-shotgun-session': 'gate',
+  'design-shotgun-full': 'periodic',
 
   // gstack-upgrade
   'gstack-upgrade-happy-path': 'gate',

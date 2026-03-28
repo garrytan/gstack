@@ -5,6 +5,7 @@ export interface HostPaths {
   localSkillRoot: string;
   binDir: string;
   browseDir: string;
+  designDir: string;
 }
 
 export const HOST_PATHS: Record<Host, HostPaths> = {
@@ -13,12 +14,14 @@ export const HOST_PATHS: Record<Host, HostPaths> = {
     localSkillRoot: '.claude/skills/gstack',
     binDir: '~/.claude/skills/gstack/bin',
     browseDir: '~/.claude/skills/gstack/browse/dist',
+    designDir: '~/.claude/skills/gstack/design/dist',
   },
   codex: {
     skillRoot: '$GSTACK_ROOT',
     localSkillRoot: '.agents/skills/gstack',
     binDir: '$GSTACK_BIN',
     browseDir: '$GSTACK_BROWSE',
+    designDir: '$GSTACK_DESIGN',
   },
 };
 

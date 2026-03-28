@@ -722,3 +722,212 @@ ${slopItems}
 
 Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.`;
 }
+
+export function generateDesignSetup(ctx: TemplateContext): string {
+  return `## DESIGN SETUP (run this check BEFORE any design mockup command)
+
+\`\`\`bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
+[ -z "$D" ] && D=${ctx.paths.designDir}/design
+if [ -x "$D" ]; then
+  echo "DESIGN_READY: $D"
+else
+  echo "DESIGN_NOT_AVAILABLE"
+fi
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
+[ -z "$B" ] && B=${ctx.paths.browseDir}/browse
+if [ -x "$B" ]; then
+  echo "BROWSE_READY: $B"
+else
+  echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
+fi
+\`\`\`
+
+If \`DESIGN_NOT_AVAILABLE\`: skip visual mockup generation and fall back to the
+existing HTML wireframe approach (\`DESIGN_SKETCH\`). Design mockups are a
+progressive enhancement, not a hard requirement.
+
+If \`BROWSE_NOT_AVAILABLE\`: use \`open file://...\` instead of \`$B goto\` to open
+comparison boards. The user just needs to see the HTML file in any browser.
+
+If \`DESIGN_READY\`: the design binary is available for visual mockup generation.
+Commands:
+- \`$D generate --brief "..." --output /path.png\` — generate a single mockup
+- \`$D variants --brief "..." --count 3 --output-dir /path/\` — generate N style variants
+- \`$D compare --images "a.png,b.png,c.png" --output /path/board.html --serve\` — comparison board + HTTP server
+- \`$D serve --html /path/board.html\` — serve comparison board and collect feedback via HTTP
+- \`$D check --image /path.png --brief "..."\` — vision quality gate
+- \`$D iterate --session /path/session.json --feedback "..." --output /path.png\` — iterate
+
+**CRITICAL PATH RULE:** All design artifacts (mockups, comparison boards, approved.json)
+MUST be saved to \`~/.gstack/projects/$SLUG/designs/\`, NEVER to \`.context/\`,
+\`docs/designs/\`, \`/tmp/\`, or any project-local directory. Design artifacts are USER
+data, not project files. They persist across branches, conversations, and workspaces.`;
+}
+
+export function generateDesignMockup(ctx: TemplateContext): string {
+  return `## Visual Design Exploration
+
+\`\`\`bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
+[ -z "$D" ] && D=${ctx.paths.designDir}/design
+[ -x "$D" ] && echo "DESIGN_READY" || echo "DESIGN_NOT_AVAILABLE"
+\`\`\`
+
+**If \`DESIGN_NOT_AVAILABLE\`:** Fall back to the HTML wireframe approach below
+(the existing DESIGN_SKETCH section). Visual mockups require the design binary.
+
+**If \`DESIGN_READY\`:** Generate visual mockup explorations for the user.
+
+Generating visual mockups of the proposed design... (say "skip" if you don't need visuals)
+
+**Step 1: Set up the design directory**
+
+\`\`\`bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/mockup-$(date +%Y%m%d)
+mkdir -p "$_DESIGN_DIR"
+echo "DESIGN_DIR: $_DESIGN_DIR"
+\`\`\`
+
+**Step 2: Construct the design brief**
+
+Read DESIGN.md if it exists — use it to constrain the visual style. If no DESIGN.md,
+explore wide across diverse directions.
+
+**Step 3: Generate 3 variants**
+
+\`\`\`bash
+$D variants --brief "<assembled brief>" --count 3 --output-dir "$_DESIGN_DIR/"
+\`\`\`
+
+This generates 3 style variations of the same brief (~40 seconds total).
+
+**Step 4: Show variants inline, then open comparison board**
+
+Show each variant to the user inline first (read the PNGs with Read tool), then
+create and serve the comparison board:
+
+\`\`\`bash
+$D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
+\`\`\`
+
+This opens the board in the user's default browser and blocks until feedback is
+received. Read stdout for the structured JSON result. No polling needed.
+
+If \`$D serve\` is not available or fails, fall back to AskUserQuestion:
+"I've opened the design board. Which variant do you prefer? Any feedback?"
+
+**Step 5: Handle feedback**
+
+If the JSON contains \`"regenerated": true\`:
+1. Read \`regenerateAction\` (or \`remixSpec\` for remix requests)
+2. Generate new variants with \`$D iterate\` or \`$D variants\` using updated brief
+3. Create new board with \`$D compare\`
+4. POST the new HTML to the running server via \`curl -X POST http://localhost:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'\`
+   (parse the port from stderr: look for \`SERVE_STARTED: port=XXXXX\`)
+5. Board auto-refreshes in the same tab
+
+If \`"regenerated": false\`: proceed with the approved variant.
+
+**Step 6: Save approved choice**
+
+\`\`\`bash
+echo '{"approved_variant":"<VARIANT>","feedback":"<FEEDBACK>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"mockup","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+\`\`\`
+
+Reference the saved mockup in the design doc or plan.`;
+}
+
+export function generateDesignShotgunLoop(_ctx: TemplateContext): string {
+  return `### Comparison Board + Feedback Loop
+
+Create the comparison board and serve it over HTTP:
+
+\`\`\`bash
+$D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
+\`\`\`
+
+This command generates the board HTML, starts an HTTP server on a random port,
+and opens it in the user's default browser. **Run it in the background** with \`&\`
+because the agent needs to keep running while the user interacts with the board.
+
+**IMPORTANT: Reading feedback via file polling (not stdout):**
+
+The server writes feedback to files next to the board HTML. The agent polls for these:
+- \`$_DESIGN_DIR/feedback.json\` — written when user clicks Submit (final choice)
+- \`$_DESIGN_DIR/feedback-pending.json\` — written when user clicks Regenerate/Remix/More Like This
+
+**Polling loop** (run after launching \`$D serve\` in background):
+
+\`\`\`bash
+# Poll for feedback files every 5 seconds (up to 10 minutes)
+for i in $(seq 1 120); do
+  if [ -f "$_DESIGN_DIR/feedback.json" ]; then
+    echo "SUBMIT_RECEIVED"
+    cat "$_DESIGN_DIR/feedback.json"
+    break
+  elif [ -f "$_DESIGN_DIR/feedback-pending.json" ]; then
+    echo "REGENERATE_RECEIVED"
+    cat "$_DESIGN_DIR/feedback-pending.json"
+    rm "$_DESIGN_DIR/feedback-pending.json"
+    break
+  fi
+  sleep 5
+done
+\`\`\`
+
+The feedback JSON has this shape:
+\`\`\`json
+{
+  "preferred": "A",
+  "ratings": { "A": 4, "B": 3, "C": 2 },
+  "comments": { "A": "Love the spacing" },
+  "overall": "Go with A, bigger CTA",
+  "regenerated": false
+}
+\`\`\`
+
+**If \`feedback-pending.json\` found (\`"regenerated": true\`):**
+1. Read \`regenerateAction\` from the JSON (\`"different"\`, \`"match"\`, \`"more_like_B"\`,
+   \`"remix"\`, or custom text)
+2. If \`regenerateAction\` is \`"remix"\`, read \`remixSpec\` (e.g. \`{"layout":"A","colors":"B"}\`)
+3. Generate new variants with \`$D iterate\` or \`$D variants\` using updated brief
+4. Create new board: \`$D compare --images "..." --output "$_DESIGN_DIR/design-board.html"\`
+5. Parse the port from the \`$D serve\` stderr output (\`SERVE_STARTED: port=XXXXX\`),
+   then reload the board in the user's browser (same tab):
+   \`curl -s -X POST http://127.0.0.1:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'\`
+6. The board auto-refreshes. **Poll again** for the next feedback file.
+7. Repeat until \`feedback.json\` appears (user clicked Submit).
+
+**If \`feedback.json\` found (\`"regenerated": false\`):**
+1. Read \`preferred\`, \`ratings\`, \`comments\`, \`overall\` from the JSON
+2. Proceed with the approved variant
+
+**If \`$D serve\` fails or no feedback within 10 minutes:** Fall back to AskUserQuestion:
+"I've opened the design board. Which variant do you prefer? Any feedback?"
+
+**After receiving feedback (any path):** Output a clear summary confirming
+what was understood:
+
+"Here's what I understood from your feedback:
+PREFERRED: Variant [X]
+RATINGS: [list]
+YOUR NOTES: [comments]
+DIRECTION: [overall]
+
+Is this right?"
+
+Use AskUserQuestion to verify before proceeding.
+
+**Save the approved choice:**
+\`\`\`bash
+echo '{"approved_variant":"<V>","feedback":"<FB>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"<SCREEN>","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+\`\`\``;
+}
+
