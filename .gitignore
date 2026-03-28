@@ -25,3 +25,5 @@ nvda_full.txt
 browse/test/fixtures/*.db
 ~/
 docs/STREAK_DESIGN.md
+.wrangler/
+cloudflare/.wrangler/

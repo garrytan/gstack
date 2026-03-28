@@ -1,0 +1,9 @@
+name = "gstack-telegram-webhook"
+main = "src/index.ts"
+compatibility_date = "2026-03-29"
+
+[vars]
+# Optional. If set, only these chat IDs can use the bot. Comma-separated.
+TELEGRAM_ALLOWED_CHAT_IDS = ""
+# Optional. If set, enables /portfolio using this spec, e.g. "NVDA,AAPL,0700.HK"
+PORTFOLIO = ""
