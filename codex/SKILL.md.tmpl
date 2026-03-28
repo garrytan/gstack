@@ -77,6 +77,17 @@ per-mode default below. Otherwise, use the per-mode defaults:
 
 ---
 
+## Filesystem Boundary
+
+All prompts sent to Codex MUST be prefixed with this boundary instruction:
+
+> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Stay focused on the repository code only.
+
+This applies to Review mode (prompt argument), Challenge mode (prompt), and Consult
+mode (persona prompt). Reference this section as "the filesystem boundary" below.
+
+---
+
 ## Step 2A: Review Mode
 
 Run Codex code review against the current branch diff.
@@ -86,21 +97,25 @@ Run Codex code review against the current branch diff.
 TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
 ```
 
-2. Run the review (5-minute timeout):
+2. Run the review (5-minute timeout). **Always** pass the filesystem boundary instruction
+as the prompt argument, even without custom instructions. If the user provided custom
+instructions, append them after the boundary separated by a newline:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
 If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
 
 Use `timeout: 300000` on the Bash call. If the user provided custom instructions
-(e.g., `/codex review focus on security`), pass them as the prompt argument:
+(e.g., `/codex review focus on security`), append them after the boundary:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. Stay focused on repository code only.
+
+focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
 3. Capture the output. Then parse cost from stderr:
@@ -162,14 +177,19 @@ rm -f "$TMPERR"
 Codex tries to break your code — finding edge cases, race conditions, security holes,
 and failure modes that a normal review would miss.
 
-1. Construct the adversarial prompt. If the user provided a focus area
-(e.g., `/codex challenge security`), include it:
+1. Construct the adversarial prompt. **Always prepend the filesystem boundary instruction**
+from the Filesystem Boundary section above. If the user provided a focus area
+(e.g., `/codex challenge security`), include it after the boundary:
 
 Default prompt (no focus):
-"Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. Stay focused on repository code only.
+
+Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
 
 With focus (e.g., "security"):
-"Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. Stay focused on repository code only.
+
+Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
 
 2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls (5-minute timeout):
 
@@ -261,8 +281,14 @@ Also: scan the plan content for referenced source file paths (patterns like `src
 `lib/bar.py`, paths containing `/` that exist in the repo). If found, list them in the
 prompt so Codex reads them directly instead of discovering them via rg/find.
 
-Prepend the persona to the user's prompt:
-"You are a brutally honest technical reviewer. Review this plan for: logical gaps and
+**Always prepend the filesystem boundary instruction** from the Filesystem Boundary
+section above to every prompt sent to Codex, including plan reviews and free-form
+consult questions.
+
+Prepend the boundary and persona to the user's prompt:
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. Stay focused on repository code only.
+
+You are a brutally honest technical reviewer. Review this plan for: logical gaps and
 unstated assumptions, missing error handling or edge cases, overcomplexity (is there a
 simpler approach?), feasibility risks (what could go wrong?), and missing dependencies
 or sequencing issues. Be direct. Be terse. No compliments. Just the problems.
@@ -270,6 +296,11 @@ Also review these source files referenced in the plan: <list of referenced files
 
 THE PLAN:
 <full plan content, embedded verbatim>"
+
+For non-plan consult prompts (user typed `/codex <question>`), still prepend the boundary:
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. Stay focused on repository code only.
+
+<user's question>"
 
 4. Run codex exec with **JSONL output** to capture reasoning traces (5-minute timeout):
 
@@ -397,3 +428,8 @@ If token count is not available, display: `Tokens: unknown`
 - **5-minute timeout** on all Bash calls to codex (`timeout: 300000`).
 - **No double-reviewing.** If the user already ran `/review`, Codex provides a second
   independent opinion. Do not re-run Claude Code's own review.
+- **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
+  that Codex got distracted by skill files: `gstack-config`, `gstack-update-check`,
+  `SKILL.md`, or `skills/gstack`. If any of these appear in the output, append a
+  warning: "Codex appears to have read gstack skill files instead of reviewing your
+  code. Consider retrying."

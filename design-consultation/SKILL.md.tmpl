@@ -69,6 +69,14 @@ If the codebase is empty and purpose is unclear, say: *"I don't have a clear pic
 
 If browse is not available, that's fine — visual research is optional. The skill works without it using WebSearch and your built-in design knowledge.
 
+**Find the gstack designer (optional — enables AI mockup generation):**
+
+{{DESIGN_SETUP}}
+
+If `DESIGN_READY`: Phase 5 will generate AI mockups of your proposed design system applied to real screens, instead of just an HTML preview page. Much more powerful — the user sees what their product could actually look like.
+
+If `DESIGN_NOT_AVAILABLE`: Phase 5 falls back to the HTML preview page (still good).
+
 ---
 
 ## Phase 1: Product Context
@@ -237,7 +245,49 @@ Each drill-down is one focused AskUserQuestion. After the user decides, re-check
 
 ---
 
-## Phase 5: Font & Color Preview Page (default ON)
+## Phase 5: Design System Preview (default ON)
+
+This phase generates visual previews of the proposed design system. Two paths depending on whether the gstack designer is available.
+
+### Path A: AI Mockups (if DESIGN_READY)
+
+Generate AI-rendered mockups showing the proposed design system applied to realistic screens for this product. This is far more powerful than an HTML preview — the user sees what their product could actually look like.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)
+mkdir -p "$_DESIGN_DIR"
+echo "DESIGN_DIR: $_DESIGN_DIR"
+```
+
+Construct a design brief from the Phase 3 proposal (aesthetic, colors, typography, spacing, layout) and the product context from Phase 1:
+
+```bash
+$D variants --brief "<product name: [name]. Product type: [type]. Aesthetic: [direction]. Colors: primary [hex], secondary [hex], neutrals [range]. Typography: display [font], body [font]. Layout: [approach]. Show a realistic [page type] screen with [specific content for this product].>" --count 3 --output-dir "$_DESIGN_DIR/"
+```
+
+Run quality check on each variant:
+
+```bash
+$D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
+```
+
+Show each variant inline (Read tool on each PNG) for instant preview.
+
+Tell the user: "I've generated 3 visual directions applying your design system to a realistic [product type] screen. Pick your favorite in the comparison board that just opened in your browser. You can also remix elements across variants."
+
+{{DESIGN_SHOTGUN_LOOP}}
+
+After the user picks a direction:
+
+- Use `$D extract --image "$_DESIGN_DIR/variant-<CHOSEN>.png"` to analyze the approved mockup and extract design tokens (colors, typography, spacing) that will populate DESIGN.md in Phase 6. This grounds the design system in what was actually approved visually, not just what was described in text.
+- If the user wants to iterate further: `$D iterate --feedback "<user's feedback>" --output "$_DESIGN_DIR/refined.png"`
+
+**Plan mode vs. implementation mode:**
+- **If in plan mode:** Add the approved mockup path (the full `$_DESIGN_DIR` path) and extracted tokens to the plan file under an "## Approved Design Direction" section. The design system gets written to DESIGN.md when the plan is implemented.
+- **If NOT in plan mode:** Proceed directly to Phase 6 and write DESIGN.md with the extracted tokens.
+
+### Path B: HTML Preview Page (fallback if DESIGN_NOT_AVAILABLE)
 
 Generate a polished HTML preview page and open it in the user's browser. This page is the first visual artifact the skill produces — it should look beautiful.
 
@@ -251,7 +301,7 @@ Write the preview HTML to `$PREVIEW_FILE`, then open it:
 open "$PREVIEW_FILE"
 ```
 
-### Preview Page Requirements
+### Preview Page Requirements (Path B only)
 
 The agent writes a **single, self-contained HTML file** (no framework dependencies) that:
 
@@ -286,7 +336,11 @@ If the user says skip the preview, go directly to Phase 6.
 
 ## Phase 6: Write DESIGN.md & Confirm
 
-Write `DESIGN.md` to the repo root with this structure:
+If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the primary source for DESIGN.md values — colors, typography, and spacing grounded in the approved mockup rather than text descriptions alone. Merge extracted tokens with the Phase 3 proposal (the proposal provides rationale and context; the extraction provides exact values).
+
+**If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" section. Do NOT write the actual file — that happens at implementation time.
+
+**If NOT in plan mode:** Write `DESIGN.md` to the repo root with this structure:
 
 ```markdown
 # Design System — [Project Name]

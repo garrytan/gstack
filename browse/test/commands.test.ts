@@ -1758,7 +1758,7 @@ describe('Path traversal prevention', () => {
       await handleReadCommand('eval', ['../../etc/passwd'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Path traversal');
+      expect(err.message).toContain('Path must be within');
     }
   });
 
@@ -1767,7 +1767,7 @@ describe('Path traversal prevention', () => {
       await handleReadCommand('eval', ['/etc/passwd'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Absolute path must be within');
+      expect(err.message).toContain('Path must be within');
     }
   });
 
@@ -1939,7 +1939,7 @@ describe('State persistence', () => {
     // Save state
     const saveResult = await handleMetaCommand('state', ['save', 'test-roundtrip'], bm, async () => {});
     expect(saveResult).toContain('State saved');
-    expect(saveResult).toContain('treat as sensitive');
+    expect(saveResult).toContain('Cookies stored in plaintext');
 
     // Navigate away
     await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);

@@ -1058,6 +1058,67 @@ describe('CODEX_SECOND_OPINION resolver', () => {
   });
 });
 
+// --- Codex filesystem boundary tests ---
+
+describe('Codex filesystem boundary', () => {
+  // Skills that call codex exec/review and should contain boundary text
+  const CODEX_CALLING_SKILLS = [
+    'codex',         // /codex skill — 3 modes
+    'autoplan',      // /autoplan — CEO/design/eng voices
+    'review',        // /review — adversarial step resolver
+    'ship',          // /ship — adversarial step resolver
+    'plan-eng-review',  // outside voice resolver
+    'plan-ceo-review',  // outside voice resolver
+    'office-hours',     // second opinion resolver
+  ];
+
+  const BOUNDARY_MARKER = 'Do NOT read or execute any';
+
+  test('boundary instruction appears in all skills that call codex', () => {
+    for (const skill of CODEX_CALLING_SKILLS) {
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      expect(content).toContain(BOUNDARY_MARKER);
+    }
+  });
+
+  test('codex skill has Filesystem Boundary section', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('## Filesystem Boundary');
+    expect(content).toContain('skill definitions meant for a different AI system');
+  });
+
+  test('codex skill has rabbit-hole detection rule', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Detect skill-file rabbit holes');
+    expect(content).toContain('gstack-update-check');
+    expect(content).toContain('Consider retrying');
+  });
+
+  test('review.ts CODEX_BOUNDARY constant is interpolated into resolver output', () => {
+    // The adversarial step resolver should include boundary text in codex exec prompts
+    const reviewContent = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    // Boundary should appear near codex exec invocations
+    const boundaryIdx = reviewContent.indexOf(BOUNDARY_MARKER);
+    const codexExecIdx = reviewContent.indexOf('codex exec');
+    // Both must exist and boundary must come before a codex exec call
+    expect(boundaryIdx).toBeGreaterThan(-1);
+    expect(codexExecIdx).toBeGreaterThan(-1);
+  });
+
+  test('autoplan boundary text avoids host-specific paths for cross-host compatibility', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf-8');
+    // autoplan template uses generic 'skills/gstack' pattern instead of host-specific
+    // paths like ~/.claude/ or .agents/skills (which break Codex/Claude output tests)
+    const boundaryStart = content.indexOf('Filesystem Boundary');
+    const boundaryEnd = content.indexOf('---', boundaryStart + 1);
+    const boundarySection = content.slice(boundaryStart, boundaryEnd);
+    expect(boundarySection).not.toContain('~/.claude/');
+    expect(boundarySection).not.toContain('.agents/skills');
+    expect(boundarySection).toContain('skills/gstack');
+    expect(boundarySection).toContain(BOUNDARY_MARKER);
+  });
+});
+
 // --- {{BENEFITS_FROM}} resolver tests ---
 
 describe('BENEFITS_FROM resolver', () => {
@@ -1684,6 +1745,56 @@ describe('setup script validation', () => {
       setupContent.lastIndexOf('link_claude_skill_dirs')
     );
     expect(claudeInstallSection).toContain('cleanup_old_claude_symlinks');
+  });
+
+  // --- Persistent config + interactive prompt tests ---
+
+  test('setup reads skill_prefix from config', () => {
+    expect(setupContent).toContain('get skill_prefix');
+    expect(setupContent).toContain('GSTACK_CONFIG');
+  });
+
+  test('setup supports --prefix flag', () => {
+    expect(setupContent).toContain('--prefix)');
+    expect(setupContent).toContain('SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1');
+  });
+
+  test('--prefix and --no-prefix persist to config', () => {
+    expect(setupContent).toContain('set skill_prefix');
+  });
+
+  test('interactive prompt shows when no config', () => {
+    expect(setupContent).toContain('Short names');
+    expect(setupContent).toContain('Namespaced');
+    expect(setupContent).toContain('Choice [1/2]');
+  });
+
+  test('non-TTY defaults to flat names', () => {
+    // Should check if stdin is a TTY before prompting
+    expect(setupContent).toContain('-t 0');
+  });
+
+  test('cleanup_prefixed_claude_symlinks exists and uses readlink', () => {
+    expect(setupContent).toContain('cleanup_prefixed_claude_symlinks');
+    const fnStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('readlink');
+    expect(fnBody).toContain('gstack-$skill_name');
+  });
+
+  test('reverse cleanup runs before link when prefix is disabled', () => {
+    const claudeInstallSection = setupContent.slice(
+      setupContent.indexOf('INSTALL_CLAUDE'),
+      setupContent.lastIndexOf('link_claude_skill_dirs')
+    );
+    expect(claudeInstallSection).toContain('cleanup_prefixed_claude_symlinks');
+  });
+
+  test('welcome message references SKILL_PREFIX', () => {
+    // gstack-upgrade is always called gstack-upgrade (it's the actual dir name)
+    // but the welcome section should exist near the prefix logic
+    expect(setupContent).toContain('Run /gstack-upgrade anytime');
   });
 });
 

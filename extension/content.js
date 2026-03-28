@@ -103,7 +103,16 @@ function renderRefPanel(refs) {
   for (const ref of refs.slice(0, 30)) { // Show max 30 in panel
     const row = document.createElement('div');
     row.className = 'gstack-ref-panel-row';
-    row.innerHTML = `<span class="gstack-ref-panel-id">${ref.ref}</span> <span class="gstack-ref-panel-role">${ref.role}</span> <span class="gstack-ref-panel-name">"${ref.name}"</span>`;
+    const idSpan = document.createElement('span');
+    idSpan.className = 'gstack-ref-panel-id';
+    idSpan.textContent = ref.ref;
+    const roleSpan = document.createElement('span');
+    roleSpan.className = 'gstack-ref-panel-role';
+    roleSpan.textContent = ref.role;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'gstack-ref-panel-name';
+    nameSpan.textContent = '"' + ref.name + '"';
+    row.append(idSpan, document.createTextNode(' '), roleSpan, document.createTextNode(' '), nameSpan);
     list.appendChild(row);
   }
   if (refs.length > 30) {

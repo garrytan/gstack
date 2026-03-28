@@ -59,6 +59,9 @@ Auto-shuts down after 30 min idle. State persists between calls (cookies, tabs, 
 
 ## QA Workflows
 
+> **Credential safety:** Use environment variables for test credentials.
+> Set them before running: `export TEST_EMAIL="..." TEST_PASSWORD="..."`
+
 ### Test a user flow (login, signup, checkout, etc.)
 
 ```bash
@@ -69,8 +72,8 @@ $B goto https://app.example.com/login
 $B snapshot -i
 
 # 3. Fill the form using refs
-$B fill @e3 "test@example.com"
-$B fill @e4 "password123"
+$B fill @e3 "$TEST_EMAIL"
+$B fill @e4 "$TEST_PASSWORD"
 $B click @e5
 
 # 4. Verify it worked
@@ -198,6 +201,9 @@ $B snapshot -i
 $B screenshot /tmp/github-profile.png
 ```
 
+> **Cookie safety:** `cookie-import-browser` transfers real session data.
+> Only import cookies from browsers you control.
+
 ### Compare two pages / environments
 
 ```bash
@@ -210,8 +216,8 @@ $B diff https://staging.app.com https://prod.app.com
 echo '[
   ["goto","https://app.example.com"],
   ["snapshot","-i"],
-  ["fill","@e3","test@test.com"],
-  ["fill","@e4","password"],
+  ["fill","@e3","$TEST_EMAIL"],
+  ["fill","@e4","$TEST_PASSWORD"],
   ["click","@e5"],
   ["snapshot","-D"],
   ["screenshot","/tmp/result.png"]

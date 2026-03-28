@@ -53,6 +53,7 @@ export async function handleCookiePickerRoute(
   url: URL,
   req: Request,
   bm: BrowserManager,
+  authToken?: string,
 ): Promise<Response> {
   const pathname = url.pathname;
   const port = parseInt(url.port, 10) || 9400;
@@ -64,7 +65,7 @@ export async function handleCookiePickerRoute(
       headers: {
         'Access-Control-Allow-Origin': corsOrigin(port),
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
     });
   }
@@ -72,11 +73,22 @@ export async function handleCookiePickerRoute(
   try {
     // GET /cookie-picker — serve the picker UI
     if (pathname === '/cookie-picker' && req.method === 'GET') {
-      const html = getCookiePickerHTML(port);
+      const html = getCookiePickerHTML(port, authToken);
       return new Response(html, {
         status: 200,
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
+    }
+
+    // ─── Auth gate: all data/action routes below require Bearer token ───
+    if (authToken) {
+      const authHeader = req.headers.get('authorization');
+      if (!authHeader || authHeader !== `Bearer ${authToken}`) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // GET /cookie-picker/browsers — list installed browsers

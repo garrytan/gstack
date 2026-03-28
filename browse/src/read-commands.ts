@@ -37,19 +37,34 @@ function wrapForEvaluate(code: string): string {
 }
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
+// Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp → /private/tmp)
+const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()].map(d => {
+  try { return fs.realpathSync(d); } catch { return d; }
+});
 
 export function validateReadPath(filePath: string): void {
-  if (path.isAbsolute(filePath)) {
-    const resolved = path.resolve(filePath);
-    const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
-    if (!isSafe) {
-      throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+  // Always resolve to absolute first (fixes relative path symlink bypass)
+  const resolved = path.resolve(filePath);
+  // Resolve symlinks — throw on non-ENOENT errors
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(resolved);
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      // File doesn't exist — resolve directory part for symlinks (e.g., /tmp → /private/tmp)
+      try {
+        const dir = fs.realpathSync(path.dirname(resolved));
+        realPath = path.join(dir, path.basename(resolved));
+      } catch {
+        realPath = resolved;
+      }
+    } else {
+      throw new Error(`Cannot resolve real path: ${filePath} (${err.code})`);
     }
   }
-  const normalized = path.normalize(filePath);
-  if (normalized.includes('..')) {
-    throw new Error('Path traversal sequences (..) are not allowed');
+  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realPath, dir));
+  if (!isSafe) {
+    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
 }
 

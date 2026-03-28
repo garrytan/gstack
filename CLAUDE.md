@@ -69,6 +69,7 @@ gstack/
 │   └── dist/        # Compiled binary
 ├── scripts/         # Build + DX tooling
 │   ├── gen-skill-docs.ts  # Template → SKILL.md generator
+│   ├── resolvers/   # Template resolver modules (preamble, design, review, etc.)
 │   ├── skill-check.ts     # Health dashboard
 │   └── dev-skill.ts       # Watch mode
 ├── test/            # Skill validation + eval tests
@@ -97,6 +98,15 @@ gstack/
 ├── document-release/ # /document-release skill (post-ship doc updates)
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
 ├── design-consultation/ # /design-consultation skill (design system from scratch)
+├── design-shotgun/  # /design-shotgun skill (visual design exploration)
+├── connect-chrome/  # /connect-chrome skill (headed Chrome with side panel)
+├── design/          # Design binary CLI (GPT Image API)
+│   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
+│   ├── test/        # Integration tests
+│   └── dist/        # Compiled binary
+├── extension/       # Chrome extension (side panel + activity feed)
+├── lib/             # Shared libraries (worktree.ts)
+├── docs/designs/    # Design documents
 ├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
 ├── .github/         # CI workflows + Docker image
 │   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
@@ -175,17 +185,24 @@ symlink or a real copy. If it's a symlink to your working directory, be aware th
 - During large refactors, remove the symlink (`rm .claude/skills/gstack`) so the
   global install at `~/.claude/skills/gstack/` is used instead
 
+**Prefix setting:** Skill symlinks use either short names (`qa -> gstack/qa`) or
+namespaced (`gstack-qa -> gstack/qa`), controlled by `skill_prefix` in
+`~/.gstack/config.yaml`. When vendoring into a project, run `./setup` after
+symlinking to create the per-skill symlinks with your preferred naming. Pass
+`--no-prefix` or `--prefix` to skip the interactive prompt.
+
 **For plan reviews:** When reviewing plans that modify skill templates or the
 gen-skill-docs pipeline, consider whether the changes should be tested in isolation
 before going live (especially if the user is actively using gstack in other windows).
 
-## Compiled binaries — NEVER commit browse/dist/
+## Compiled binaries — NEVER commit browse/dist/ or design/dist/
 
-The `browse/dist/` directory contains compiled Bun binaries (`browse`, `find-browse`,
-~58MB each). These are Mach-O arm64 only — they do NOT work on Linux, Windows, or
-Intel Macs. The `./setup` script already builds from source for every platform, so
-the checked-in binaries are redundant. They are tracked by git due to a historical
-mistake and should eventually be removed with `git rm --cached`.
+The `browse/dist/` and `design/dist/` directories contain compiled Bun binaries
+(`browse`, `find-browse`, `design`, ~58MB each). These are Mach-O arm64 only — they
+do NOT work on Linux, Windows, or Intel Macs. The `./setup` script already builds
+from source for every platform, so the checked-in binaries are redundant. They are
+tracked by git due to a historical mistake and should eventually be removed with
+`git rm --cached`.
 
 **NEVER stage or commit these files.** They show up as modified in `git status`
 because they're tracked despite `.gitignore` — ignore them. When staging files,
@@ -334,7 +351,9 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
 3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
 
-Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+Or copy the binaries directly:
+- `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+- `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
 
 ## Template placeholder reference
 

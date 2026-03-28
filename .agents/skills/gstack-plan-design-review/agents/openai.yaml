@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-plan-design-review"
-  short_description: "Designer's eye plan review — interactive, like CEO and Eng review. Rates each design dimension 0-10, explains what..."
-  default_prompt: "Use gstack-plan-design-review for this task."
-policy:
-  allow_implicit_invocation: true

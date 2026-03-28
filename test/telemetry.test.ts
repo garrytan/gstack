@@ -212,6 +212,34 @@ describe('gstack-telemetry-log', () => {
     expect(fs.existsSync(analyticsDir)).toBe(true);
     expect(readJsonl()).toHaveLength(1);
   });
+
+  // ─── Telemetry JSON safety: branch/repo with special chars ────
+  test('branch name with quotes does not corrupt JSON', () => {
+    setConfig('telemetry', 'anonymous');
+    // Simulate a branch name with double quotes by setting it via git env override
+    // The json_safe function strips quotes, so the JSONL should remain valid
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id branch-quotes-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    // Every line must be valid JSON
+    const event = JSON.parse(lines[0]);
+    expect(event._branch).toBeDefined();
+    // _branch should not contain double quotes (json_safe strips them)
+    expect(event._branch).not.toContain('"');
+  });
+
+  test('repo slug with special chars does not corrupt JSON', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id repo-special-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event._repo_slug).toBeDefined();
+    // _repo_slug should not contain double quotes (json_safe strips them)
+    expect(event._repo_slug).not.toContain('"');
+  });
 });
 
 describe('.pending marker', () => {

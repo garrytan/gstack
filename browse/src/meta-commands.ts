@@ -474,11 +474,12 @@ export async function handleMetaCommand(
         // V1: cookies + URLs only (not localStorage — breaks on load-before-navigate)
         const saveData = {
           version: 1,
+          savedAt: new Date().toISOString(),
           cookies: state.cookies,
           pages: state.pages.map(p => ({ url: p.url, isActive: p.isActive })),
         };
         fs.writeFileSync(statePath, JSON.stringify(saveData, null, 2), { mode: 0o600 });
-        return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages — treat as sensitive)`;
+        return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages)\n⚠️  Cookies stored in plaintext. Delete when no longer needed.`;
       }
 
       if (action === 'load') {
@@ -486,6 +487,14 @@ export async function handleMetaCommand(
         const data = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
         if (!Array.isArray(data.cookies) || !Array.isArray(data.pages)) {
           throw new Error('Invalid state file: expected cookies and pages arrays');
+        }
+        // Warn on state files older than 7 days
+        if (data.savedAt) {
+          const ageMs = Date.now() - new Date(data.savedAt).getTime();
+          const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+          if (ageMs > SEVEN_DAYS) {
+            console.warn(`[browse] Warning: State file is ${Math.round(ageMs / 86400000)} days old. Consider re-saving.`);
+          }
         }
         // Close existing pages, then restore (replace, not merge)
         bm.setFrame(null);

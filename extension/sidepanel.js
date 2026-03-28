@@ -413,7 +413,7 @@ function createEntryElement(entry) {
   div.innerHTML = `
     <div class="entry-header">
       <span class="entry-time">${formatTime(entry.timestamp)}</span>
-      <span class="entry-command">${entry.command || entry.type}</span>
+      <span class="entry-command">${escapeHtml(entry.command || entry.type)}</span>
     </div>
     ${argsText ? `<div class="entry-args">${escapeHtml(argsText)}</div>` : ''}
     ${entry.type === 'command_end' ? `
@@ -469,7 +469,8 @@ function connectSSE() {
   if (!serverUrl) return;
   if (eventSource) { eventSource.close(); eventSource = null; }
 
-  const url = `${serverUrl}/activity/stream?after=${lastId}`;
+  const tokenParam = serverToken ? `&token=${serverToken}` : '';
+  const url = `${serverUrl}/activity/stream?after=${lastId}${tokenParam}`;
   eventSource = new EventSource(url);
 
   eventSource.addEventListener('activity', (e) => {
@@ -493,7 +494,9 @@ function connectSSE() {
 async function fetchRefs() {
   if (!serverUrl) return;
   try {
-    const resp = await fetch(`${serverUrl}/refs`, { signal: AbortSignal.timeout(3000) });
+    const headers = {};
+    if (serverToken) headers['Authorization'] = `Bearer ${serverToken}`;
+    const resp = await fetch(`${serverUrl}/refs`, { signal: AbortSignal.timeout(3000), headers });
     if (!resp.ok) return;
     const data = await resp.json();
 
@@ -594,10 +597,8 @@ function tryConnect() {
   chrome.runtime.sendMessage({ type: 'getPort' }, (resp) => {
     if (resp && resp.port && resp.connected) {
       const url = `http://127.0.0.1:${resp.port}`;
-      // Get the token from background
-      chrome.runtime.sendMessage({ type: 'getToken' }, (tokenResp) => {
-        updateConnection(url, tokenResp?.token);
-      });
+      // Token arrives via health broadcast from background.js
+      updateConnection(url, null);
     } else {
       setTimeout(tryConnect, 2000);
     }

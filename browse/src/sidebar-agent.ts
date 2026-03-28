@@ -66,10 +66,11 @@ function writeToInbox(message: string, pageUrl?: string, sessionId?: string): vo
 // ─── Auth ────────────────────────────────────────────────────────
 
 async function refreshToken(): Promise<string | null> {
+  // Read token from state file (same-user, mode 0o600) instead of /health
   try {
-    const resp = await fetch(`${SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) });
-    if (!resp.ok) return null;
-    const data = await resp.json() as any;
+    const stateFile = process.env.BROWSE_STATE_FILE ||
+      path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
+    const data = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
     authToken = data.token || null;
     return authToken;
   } catch {

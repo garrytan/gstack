@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-retro"
-  short_description: "Weekly engineering retrospective. Analyzes commit history, work patterns, and code quality metrics with persistent..."
-  default_prompt: "Use gstack-retro for this task."
-policy:
-  allow_implicit_invocation: true

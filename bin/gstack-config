@@ -16,14 +16,28 @@ CONFIG_FILE="$STATE_DIR/config.yaml"
 case "${1:-}" in
   get)
     KEY="${2:?Usage: gstack-config get <key>}"
-    grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true
+    # Validate key (alphanumeric + underscore only)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
+      echo "Error: key must contain only alphanumeric characters and underscores" >&2
+      exit 1
+    fi
+    grep -F "${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true
     ;;
   set)
     KEY="${2:?Usage: gstack-config set <key> <value>}"
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
+    # Validate key (alphanumeric + underscore only)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
+      echo "Error: key must contain only alphanumeric characters and underscores" >&2
+      exit 1
+    fi
     mkdir -p "$STATE_DIR"
-    if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
-      sed -i '' "s/^${KEY}:.*/${KEY}: ${VALUE}/" "$CONFIG_FILE"
+    # Escape sed special chars in value and drop embedded newlines
+    ESC_VALUE="$(printf '%s' "$VALUE" | head -1 | sed 's/[&/\]/\\&/g')"
+    if grep -qF "${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
+      # Portable in-place edit (BSD sed uses -i '', GNU sed uses -i without arg)
+      _tmpfile="$(mktemp "${CONFIG_FILE}.XXXXXX")"
+      sed "s/^${KEY}:.*/${KEY}: ${ESC_VALUE}/" "$CONFIG_FILE" > "$_tmpfile" && mv "$_tmpfile" "$CONFIG_FILE"
     else
       echo "${KEY}: ${VALUE}" >> "$CONFIG_FILE"
     fi
