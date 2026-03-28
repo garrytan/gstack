@@ -1,0 +1,491 @@
+---
+name: plan-prd
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Synthesize office-hours, CEO review, design review, and eng review outputs into
+  a set of parallelizable PRDs — one per independent work unit. Reads all upstream
+  artifacts from ~/.gstack/projects/ and the current plan, resolves contradictions,
+  decomposes the product into work units with a dependency graph, then iterates
+  multiple passes over the source docs to ensure nothing is missed. Each PRD is
+  self-contained enough for a single agent (or human) to implement independently.
+  Use when asked to "write PRDs", "create requirements", "turn this into buildable
+  specs", "decompose this for parallel development", or "I'm ready to build".
+  Proactively suggest after /plan-eng-review completes, after /autoplan finishes,
+  or when the user has run multiple review skills and wants buildable specs.
+benefits-from: [office-hours, plan-ceo-review, plan-eng-review, plan-design-review]
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+{{BENEFITS_FROM}}
+
+# /prd — Parallelizable PRD Generator
+
+You synthesize the output of office-hours, CEO review, design review, and eng review
+into a **set of self-contained PRDs** — one per independent work unit — that can be
+developed concurrently by multiple agents or sequentially by one.
+
+**HARD GATE:** Do NOT write any implementation code. Do NOT scaffold projects. Do NOT
+start building. Your only output is PRD documents and a dependency graph.
+
+---
+
+## Phase 0: Artifact Discovery
+
+Understand the project and gather all upstream artifacts.
+
+```bash
+{{SLUG_EVAL}}
+```
+
+1. Read `CLAUDE.md`, `TODOS.md`, `DESIGN.md` (if they exist).
+2. Run `git log --oneline -30` and `git diff <base> --stat 2>/dev/null` to understand recent context.
+3. Discover all upstream artifacts:
+   ```bash
+   setopt +o nomatch 2>/dev/null || true
+   echo "=== Design docs (office-hours) ==="
+   ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null || echo "none"
+   echo "=== CEO plans ==="
+   ls -t ~/.gstack/projects/$SLUG/ceo-plans/*.md 2>/dev/null || echo "none"
+   echo "=== Autoplan restore points ==="
+   ls -t ~/.gstack/projects/$SLUG/*-autoplan-restore-*.md 2>/dev/null || echo "none"
+   echo "=== Review log ==="
+   ~/.claude/skills/gstack/bin/gstack-review-log --list 2>/dev/null || echo "no review log"
+   ```
+4. Read the current plan file (glob for `plan*.md`, `PLAN.md`, or branch-named plan files).
+5. Read ALL discovered upstream artifacts. For each, extract:
+   - **office-hours:** problem statement, target user, premises, chosen approach, success criteria, distribution plan
+   - **CEO review:** scope mode chosen, scope decisions (in/out), vision, 10-star version
+   - **design review:** 7-dimension scores, interaction state tables, user journey, design decisions made
+   - **eng review:** architecture, data flow diagrams, test plan, edge cases, failure modes, parallelization strategy, NOT-in-scope items
+
+6. If critical upstream artifacts are missing, use AskUserQuestion:
+
+   > I found: [list what exists with one-line summaries].
+   > Missing: [list what's absent].
+   >
+   > A) Proceed with what we have — I'll note gaps in the PRDs
+   > B) Run the missing review(s) first: [specific /skill-name suggestions]
+   > C) I have the context in my head — let me fill the gaps verbally
+
+   **Recommendation:** If eng review is missing, recommend B — architecture gaps cause
+   the most rework. If only design review is missing and there's no UI scope, proceed.
+
+---
+
+## Phase 1: Contradiction Resolution
+
+Compare all upstream artifacts for conflicts. Common conflict patterns:
+
+- CEO review expanded scope vs eng review's "NOT in scope" list
+- Design review interaction specs vs eng review architecture constraints
+- Office-hours premises vs CEO review premise challenges
+- Design review component choices vs eng review "what already exists"
+- CEO review ambition vs eng review complexity warnings
+
+For EACH contradiction found, present via AskUserQuestion:
+
+> **Conflict:** [source A says X] vs [source B says Y].
+> **Impact:** [what breaks if we pick wrong]
+>
+> A) Follow [source A] direction — [one-line rationale]
+> B) Follow [source B] direction — [one-line rationale]
+> C) Neither — let me explain what I actually want
+
+**One conflict per AskUserQuestion.** Never batch. Never silently resolve.
+
+If no contradictions found, state: "All upstream artifacts are consistent. Proceeding."
+
+---
+
+## Phase 2: Work Unit Decomposition
+
+This is the core analytical step. Decompose the entire product into **independent
+work units** — each will become its own PRD.
+
+### 2A. Identify Natural Boundaries
+
+Analyze the upstream artifacts for natural decomposition boundaries:
+
+- **Data model boundaries:** entities that can be built independently (User model vs Product model vs Payment model)
+- **API surface boundaries:** endpoint groups that serve different concerns
+- **UI surface boundaries:** pages/flows that don't share state
+- **Infrastructure boundaries:** services, queues, databases that are independent
+- **Feature boundaries:** end-to-end slices that deliver user value independently
+
+### 2B. Build the Dependency Graph
+
+For each work unit, determine:
+- What it depends on (must be built first)
+- What depends on it (blocks other units)
+- What it shares with other units (potential merge conflicts)
+
+Produce an ASCII dependency graph:
+
+```
+DEPENDENCY GRAPH:
+
+  [PRD-01: Data Models]
+       |
+       +---> [PRD-02: Auth & Users] ---> [PRD-05: User Dashboard]
+       |
+       +---> [PRD-03: Core API] -------> [PRD-06: Frontend Shell]
+       |          |
+       |          +---> [PRD-04: Background Jobs]
+       |
+       +---> [PRD-07: Admin Panel] (independent after models)
+
+  PARALLEL LANES:
+    Lane A: PRD-01 → PRD-02 → PRD-05
+    Lane B: PRD-01 → PRD-03 → PRD-04
+    Lane C: PRD-01 → PRD-03 → PRD-06
+    Lane D: PRD-01 → PRD-07
+
+  MAX PARALLELISM: 3 agents after PRD-01 completes
+  CRITICAL PATH: PRD-01 → PRD-03 → PRD-06 (longest chain)
+```
+
+### 2C. Sizing and Ordering
+
+For each work unit, estimate:
+- **Effort:** S (< 1 hour CC) / M (1-4 hours CC) / L (4-8 hours CC) / XL (> 8 hours CC)
+- **Risk:** Low / Med / High (based on unknowns, external dependencies, complexity)
+- **Files touched:** list the modules/directories (not individual files — plans describe intent)
+
+### 2D. Decomposition Review
+
+Present the decomposition via AskUserQuestion:
+
+> I've decomposed this into **{N} PRDs** across **{M} parallel lanes**.
+> Critical path: {describe}. Max parallelism: {N} agents.
+>
+> [Show the dependency graph and work unit list with sizes]
+>
+> A) Approve this decomposition
+> B) Merge some units — these are too granular: [tell me which]
+> C) Split further — these units are too large: [tell me which]
+> D) Change the dependency order — [tell me what depends on what]
+
+**STOP.** Do NOT proceed until the user approves the decomposition.
+
+---
+
+## Phase 3: PRD Generation — Iterative Multi-Pass
+
+Generate PRDs in dependency order (roots first, leaves last). Each PRD is written
+to its own file in `~/.gstack/projects/{slug}/prds/`.
+
+```bash
+{{SLUG_SETUP}}
+mkdir -p ~/.gstack/projects/$SLUG/prds
+DATETIME=$(date +%Y%m%d-%H%M%S)
+```
+
+### PRD File Template
+
+Each PRD file follows this structure. Write to
+`~/.gstack/projects/{slug}/prds/PRD-{NN}-{slug}-{datetime}.md`:
+
+```markdown
+# PRD-{NN}: {Work Unit Title}
+
+Generated by /prd on {date}
+Branch: {branch}
+Repo: {owner/repo}
+Status: DRAFT
+Depends on: [PRD-XX, PRD-YY] or "none — can start immediately"
+Blocks: [PRD-ZZ] or "none — leaf node"
+Parallel lane: {lane letter}
+Effort: {S/M/L/XL}
+Risk: {Low/Med/High}
+
+## Problem Statement
+{What specific problem does THIS work unit solve? Scoped to this unit, not the
+whole product. Derived from office-hours + CEO review.}
+
+## Success Criteria
+{Measurable criteria — when is THIS unit done? Testable assertions.}
+- [ ] {criterion}
+- [ ] {criterion}
+
+## User Stories & Acceptance Criteria
+
+### US-{NN}.1: {As a [user], I want [goal], so that [benefit]}
+**Priority:** P0/P1/P2
+**Acceptance Criteria:**
+- [ ] {testable criterion}
+- [ ] {testable criterion}
+**Edge Cases:**
+- {from eng review shadow paths — nil input, empty input, upstream error}
+**Design Specs:**
+- {from design review — states, transitions, responsive behavior}
+- {interaction state table for this feature if applicable}
+
+### US-{NN}.2: ...
+
+## Technical Specification
+
+### Architecture
+{Subset of eng review architecture relevant to THIS unit}
+{ASCII diagram of data flow within this unit}
+
+### Data Model
+{Entities, fields, relationships, migrations — only what this unit touches}
+
+### API Contracts
+{Endpoints this unit implements or consumes}
+{Request/response shapes, error codes, status codes}
+
+### Shared Interfaces
+{Contracts this unit EXPOSES to dependent PRDs — these are the integration points.
+Dependent PRDs can stub these interfaces while this unit is being built.}
+
+```typescript
+// Interface contract for PRD-{NN}
+// Downstream PRDs (PRD-XX, PRD-YY) depend on this shape
+interface {ContractName} {
+  // ...
+}
+```
+
+### Files & Modules Touched
+{Directories/modules this unit modifies — at module level, not file level}
+
+## Design Specifications
+{From design review — only the dimensions relevant to this unit}
+{Interaction state table (loading/empty/error/success/partial) for each feature}
+{Responsive behavior for each viewport}
+{Accessibility requirements}
+
+## Test Plan
+{From eng review test coverage — mapped to this unit's user stories}
+
+| User Story | Unit Tests | Integration Tests | E2E Tests |
+|------------|-----------|-------------------|-----------|
+| US-{NN}.1  | {what}    | {what}            | {what}    |
+
+## Failure Modes
+{From eng review — realistic production failure scenarios for this unit}
+| Failure | Has Test? | Has Error Handling? | User Visible? |
+|---------|-----------|--------------------|----|
+| {scenario} | {Y/N} | {Y/N} | {clear error / silent failure} |
+
+## Dependencies
+- **Upstream PRDs:** {what this unit needs from other PRDs — specific interfaces/data}
+- **External:** {third-party services, packages, APIs}
+- **Stubs needed:** {if starting before upstream PRDs complete, what to mock}
+
+## NOT in Scope for This Unit
+{What this unit explicitly does NOT do — prevents scope creep during implementation}
+
+## Implementation Checklist
+- [ ] {step 1 — ordered for implementation}
+- [ ] {step 2}
+- [ ] {step 3}
+- [ ] Write tests (per test plan above)
+- [ ] Verify shared interface contracts match dependent PRDs
+- [ ] Update TODOS.md with any deferred items
+```
+
+### Generation Order
+
+Write PRDs in dependency order:
+1. Root nodes first (no dependencies) — these are the foundation
+2. Then units that depend only on roots
+3. Continue until all leaf nodes are written
+
+For each PRD, reference the shared interface contracts from its upstream PRDs.
+This creates explicit integration points that enable parallel development — each
+agent implements against the contract, not against the other agent's code.
+
+---
+
+## Phase 4: Cross-Reference Iterations (MANDATORY)
+
+After all PRDs are written, iterate over the upstream source documents again to
+catch missed requirements. This is NOT optional — single-pass extraction always
+misses things.
+
+### Iteration 1: Coverage Audit
+
+Re-read every upstream artifact. For each section/requirement in the source docs,
+verify it appears in at least one PRD:
+
+```
+COVERAGE MATRIX:
+  Source Requirement                    → Covered in PRD
+  ─────────────────────────────────────────────────────
+  [office-hours] Problem statement     → PRD-01, PRD-03
+  [office-hours] Success criterion #1  → PRD-05
+  [CEO review] Scope expansion: X      → PRD-04
+  [design review] Empty state: feature → PRD-06
+  [eng review] Edge case: timeout      → PRD-03
+  ...
+  [eng review] Failure mode: race cond → ⚠️ NOT COVERED
+```
+
+For each uncovered requirement: either add it to the appropriate PRD or explain
+why it was intentionally excluded (add to that PRD's "NOT in Scope" section).
+
+### Iteration 2: Interface Consistency
+
+Check that every shared interface contract referenced across PRDs is consistent:
+- PRD-03 exposes `UserService.getById()` → PRD-05 consumes `UserService.getById()`
+- Types, parameter shapes, error codes match exactly
+- No PRD assumes an interface that no other PRD defines
+
+Fix any mismatches by editing the PRD files.
+
+### Iteration 3: Completeness Sweep
+
+Final pass focused on the patterns that single-pass extraction typically misses:
+- **Error paths:** Every API endpoint in every PRD has error responses defined
+- **Empty states:** Every UI feature has empty/zero-data behavior specified
+- **Auth/permissions:** Every endpoint specifies who can access it
+- **Observability:** Every new codepath has logging/metrics specified
+- **Migration paths:** Data model changes include migration strategy
+- **Rollback plan:** Each PRD states what happens if it ships and breaks
+
+For each gap found, edit the relevant PRD file to add the missing specification.
+
+### Iteration 4: Dependency Validation
+
+Re-validate the dependency graph against the written PRDs:
+- Are there circular dependencies? (fatal — must restructure)
+- Are there hidden dependencies the decomposition missed? (a PRD references a
+  module that another PRD also modifies — merge conflict risk)
+- Can the parallel lanes actually run in parallel? (check for shared file conflicts)
+
+If the dependency graph changed, update it and re-present to the user.
+
+---
+
+## Phase 5: Orchestration Plan
+
+After all PRDs pass the iteration checks, produce the final orchestration document.
+
+Write to `~/.gstack/projects/{slug}/prds/ORCHESTRATION-{datetime}.md`:
+
+```markdown
+# Orchestration Plan
+
+Generated by /prd on {date}
+Total PRDs: {N}
+Max parallelism: {M} agents
+Estimated total effort: {sum of all PRD efforts}
+Critical path effort: {sum along longest dependency chain}
+
+## Dependency Graph
+{Final ASCII dependency graph from Phase 2, updated after Phase 4}
+
+## Execution Order
+
+### Wave 1 (start immediately — no dependencies)
+| PRD | Title | Effort | Lane | Agent Assignment |
+|-----|-------|--------|------|-----------------|
+| PRD-01 | {title} | {S/M/L/XL} | A | Agent 1 |
+| PRD-07 | {title} | {S/M/L/XL} | D | Agent 2 |
+
+### Wave 2 (start after Wave 1 completes)
+| PRD | Title | Effort | Depends On | Lane | Agent Assignment |
+|-----|-------|--------|------------|------|-----------------|
+| PRD-02 | {title} | M | PRD-01 | A | Agent 1 |
+| PRD-03 | {title} | L | PRD-01 | B | Agent 2 |
+
+### Wave 3 ...
+
+## Integration Points
+{List every shared interface contract between PRDs}
+{For each: which PRD defines it, which PRDs consume it, the contract shape}
+
+## Merge Strategy
+{How to merge parallel lanes back together}
+- Wave 1 PRDs merge to main before Wave 2 starts
+- Within a wave, PRDs in different lanes merge independently
+- PRDs in the same lane merge sequentially
+- After each merge: run full test suite to catch integration issues
+
+## Risk Register
+| Risk | Probability | Impact | Mitigation | Affects PRDs |
+|------|-------------|--------|------------|-------------|
+| {risk} | {H/M/L} | {H/M/L} | {plan} | PRD-XX, PRD-YY |
+
+## Stub Strategy
+{For teams that want to start all lanes simultaneously}
+{Which stubs to create for each PRD's upstream dependencies}
+{When to replace stubs with real implementations}
+```
+
+---
+
+## Phase 6: Review & Approval
+
+Present the complete PRD set via AskUserQuestion:
+
+> **PRD Decomposition Complete**
+>
+> {N} PRDs across {M} parallel lanes.
+> Critical path: {describe chain} ({effort estimate}).
+> Max parallelism: {P} agents working concurrently.
+>
+> Coverage: {X}/{Y} source requirements covered ({percentage}%).
+> Interface contracts: {Z} defined, all consistent.
+>
+> A) Approve all — mark APPROVED, ready to implement
+> B) Revise specific PRDs — [tell me which and what to change]
+> C) Re-decompose — the granularity is wrong [tell me how]
+> D) Start building Wave 1 now — approve and begin implementation immediately
+
+If D: list the Wave 1 PRDs and suggest:
+"Run `claude` with each Wave 1 PRD file as context. For parallel execution,
+use separate worktrees or terminal sessions — one agent per PRD."
+
+---
+
+## Completion Summary
+
+```
++====================================================================+
+|              PRD GENERATION — COMPLETION SUMMARY                    |
++====================================================================+
+| Upstream artifacts read    | {N} ({list: office-hours, CEO, etc.}) |
+| Contradictions resolved    | {N}                                   |
+| PRDs generated             | {N}                                   |
+| Parallel lanes             | {N}                                   |
+| Max concurrent agents      | {N}                                   |
+| Critical path              | {PRD chain} ({effort})                |
+| Coverage iterations        | 4 passes completed                    |
+| Requirements covered       | {X}/{Y} ({%})                         |
+| Interface contracts        | {N} defined, {N} validated            |
+| Gaps found in iterations   | {N} (all resolved)                    |
++====================================================================+
+| PRD files written to: ~/.gstack/projects/{slug}/prds/              |
++====================================================================+
+```
+
+---
+
+## Important Rules
+
+- **Never start implementation.** This skill produces PRDs, not code.
+- **Questions ONE AT A TIME.** Never batch multiple questions into one AskUserQuestion.
+- **Every upstream requirement must land in a PRD or be explicitly excluded.** The coverage matrix proves this.
+- **Shared interfaces are contracts.** They must match exactly across PRDs. This is what enables parallel development.
+- **Four iteration passes are mandatory.** Single-pass extraction always misses things. The iterations are coverage audit, interface consistency, completeness sweep, dependency validation.
+- **Dependency order matters.** Write root PRDs first so downstream PRDs can reference their interface contracts.
+- **Completion status:**
+  - DONE — all PRDs approved, orchestration plan written
+  - DONE_WITH_GAPS — PRDs approved but some source requirements intentionally excluded
+  - NEEDS_UPSTREAM — missing critical upstream artifacts (recommend running the missing review skill first)
