@@ -1,5 +1,6 @@
 ---
 name: plan-ceo-review
+preamble-tier: 3
 version: 1.0.0
 description: |
   CEO/founder-mode plan review. Rethink the problem, find the 10-star product,
@@ -104,6 +105,7 @@ Then read CLAUDE.md, TODOS.md, and any existing architecture docs.
 
 **Design doc check:**
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
@@ -114,6 +116,7 @@ If a design doc exists (from `/office-hours`), read it. Use it as the source of 
 
 **Handoff note check** (reuses $SLUG and $BRANCH from the design doc check above):
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 HANDOFF=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null | head -1)
 [ -n "$HANDOFF" ] && echo "HANDOFF_FOUND: $HANDOFF" || echo "NO_HANDOFF"
 ```
@@ -591,6 +594,14 @@ If this plan has significant UI scope, recommend: "Consider running /plan-design
 
 {{CODEX_PLAN_REVIEW}}
 
+### Outside Voice Integration Rule
+
+Outside voice findings are INFORMATIONAL until the user explicitly approves each one.
+Do NOT incorporate outside voice recommendations into the plan without presenting each
+finding via AskUserQuestion and getting explicit approval. This applies even when you
+agree with the outside voice. Cross-model consensus is a strong signal — present it as
+such — but the user makes the decision.
+
 ## Post-Implementation Design Audit (if UI scope detected)
 After implementation, run `/design-review` on the live site to catch visual issues that can only be evaluated with rendered output.
 
@@ -702,6 +713,7 @@ After producing the Completion Summary, clean up any handoff notes for this bran
 the review is complete and the context is no longer needed.
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 {{SLUG_EVAL}}
 rm -f ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null || true
 ```

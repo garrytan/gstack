@@ -122,4 +122,17 @@ describe('gstack-config', () => {
     expect(exitCode).toBe(1);
     expect(stdout).toContain('Usage');
   });
+
+  // ─── security: input validation ─────────────────────────
+  test('set rejects key with regex metacharacters', () => {
+    const { exitCode, stderr } = run(['set', '.*', 'value']);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('alphanumeric');
+  });
+
+  test('set preserves value with sed special chars', () => {
+    run(['set', 'test_special', 'a/b&c\\d']);
+    const { stdout } = run(['get', 'test_special']);
+    expect(stdout).toBe('a/b&c\\d');
+  });
 });

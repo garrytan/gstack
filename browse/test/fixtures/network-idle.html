@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Page - Network Idle</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #result { margin-top: 10px; color: green; }
+  </style>
+</head>
+<body>
+  <button id="fetch-btn">Load Data</button>
+  <div id="result"></div>
+  <button id="static-btn">Static Action</button>
+  <div id="static-result"></div>
+  <script>
+    document.getElementById('fetch-btn').addEventListener('click', async () => {
+      // Simulate an XHR that takes 200ms
+      const res = await fetch('/echo');
+      const data = await res.json();
+      document.getElementById('result').textContent = 'Data loaded: ' + Object.keys(data).length + ' headers';
+    });
+
+    document.getElementById('static-btn').addEventListener('click', () => {
+      // No network activity — purely client-side
+      document.getElementById('static-result').textContent = 'Static action done';
+    });
+  </script>
+</body>
+</html>

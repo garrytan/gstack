@@ -49,6 +49,13 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 #### LLM Output Trust Boundary
 - LLM-generated values (emails, URLs, names) written to DB or passed to mailers without format validation. Add lightweight guards (`EMAIL_REGEXP`, `URI.parse`, `.strip`) before persisting.
 - Structured tool output (arrays, hashes) accepted without type/shape checks before database writes.
+- LLM-generated URLs fetched without allowlist — SSRF risk if URL points to internal network (Python: `urllib.parse.urlparse` → check hostname against blocklist before `requests.get`/`httpx.get`)
+- LLM output stored in knowledge bases or vector DBs without sanitization — stored prompt injection risk
+
+#### Shell Injection (Python-specific)
+- `subprocess.run()` / `subprocess.call()` / `subprocess.Popen()` with `shell=True` AND f-string/`.format()` interpolation in the command string — use argument arrays instead
+- `os.system()` with variable interpolation — replace with `subprocess.run()` using argument arrays
+- `eval()` / `exec()` on LLM-generated code without sandboxing
 
 #### Enum & Value Completeness
 When the diff introduces a new enum value, status string, tier name, or type constant:
@@ -58,6 +65,16 @@ When the diff introduces a new enum value, status string, tier name, or type con
 To do this: use Grep to find all references to the sibling values (e.g., grep for "lfg" or "mega" to find all tier consumers). Read each match. This step requires reading code OUTSIDE the diff.
 
 ### Pass 2 — INFORMATIONAL
+
+#### Async/Sync Mixing (Python-specific)
+- Synchronous `subprocess.run()`, `open()`, `requests.get()` inside `async def` endpoints — blocks the event loop. Use `asyncio.to_thread()`, `aiofiles`, or `httpx.AsyncClient` instead.
+- `time.sleep()` inside async functions — use `asyncio.sleep()`
+- Sync DB calls in async context without `run_in_executor()` wrapping
+
+#### Column/Field Name Safety
+- Verify column names in ORM queries (`.select()`, `.eq()`, `.gte()`, `.order()`) against actual DB schema — wrong column names silently return empty results or throw swallowed errors
+- Check `.get()` calls on query results use the column name that was actually selected
+- Cross-reference with schema documentation when available
 
 #### Conditional Side Effects
 - Code paths that branch on a condition but forget to apply a side effect on one branch. Example: item promoted to verified but URL only attached when a secondary condition is true — the other branch promotes without the URL, creating an inconsistent record.
@@ -125,6 +142,18 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 - Small utility additions (<5KB gzipped)
 - Server-side-only dependencies
 
+#### Distribution & CI/CD Pipeline
+- CI/CD workflow changes (`.github/workflows/`): verify build tool versions match project requirements, artifact names/paths are correct, secrets use `${{ secrets.X }}` not hardcoded values
+- New artifact types (CLI binary, library, package): verify a publish/release workflow exists and targets correct platforms
+- Cross-platform builds: verify CI matrix covers all target OS/arch combinations, or documents which are untested
+- Version tag format consistency: `v1.2.3` vs `1.2.3` — must match across VERSION file, git tags, and publish scripts
+- Publish step idempotency: re-running the publish workflow should not fail (e.g., `gh release delete` before `gh release create`)
+
+**DO NOT flag:**
+- Web services with existing auto-deploy pipelines (Docker build + K8s deploy)
+- Internal tools not distributed outside the team
+- Test-only CI changes (adding test steps, not publish steps)
+
 ---
 
 ## Severity Classification
@@ -141,7 +170,8 @@ CRITICAL (highest severity):      INFORMATIONAL (lower severity):
                                    ├─ Time Window Safety
                                    ├─ Type Coercion at Boundaries
                                    ├─ View/Frontend
-                                   └─ Performance & Bundle Impact
+                                   ├─ Performance & Bundle Impact
+                                   └─ Distribution & CI/CD Pipeline
 
 All findings are actioned via Fix-First Review. Severity determines
 presentation order and classification of AUTO-FIX vs ASK — critical

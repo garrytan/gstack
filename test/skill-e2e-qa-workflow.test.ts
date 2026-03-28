@@ -37,7 +37,7 @@ describeIfSelected('QA skill E2E', ['qa-quick'], () => {
     try { fs.rmSync(qaDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/qa quick completes without browse errors', async () => {
+  testConcurrentIfSelected('qa-quick', async () => {
     const result = await runSkillTest({
       prompt: `B="${browseBin}"
 
@@ -108,7 +108,7 @@ describeIfSelected('QA-Only skill E2E', ['qa-only-no-fix'], () => {
     try { fs.rmSync(qaOnlyDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/qa-only produces report without using Edit tool', async () => {
+  testConcurrentIfSelected('qa-only-no-fix', async () => {
     const result = await runSkillTest({
       prompt: `IMPORTANT: The browse binary is already assigned below as B. Do NOT search for it or run the SKILL.md setup block — just use $B directly.
 
@@ -227,7 +227,7 @@ describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
     try { fs.rmSync(qaFixDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/qa fix loop finds bugs and commits fixes', async () => {
+  testConcurrentIfSelected('qa-fix-loop', async () => {
     const qaFixUrl = `http://127.0.0.1:${qaFixServer!.port}`;
 
     const result = await runSkillTest({

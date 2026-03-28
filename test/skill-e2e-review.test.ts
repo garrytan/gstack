@@ -51,7 +51,7 @@ describeIfSelected('Review skill E2E', ['review-sql-injection'], () => {
     try { fs.rmSync(reviewDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/review produces findings on SQL injection branch', async () => {
+  testConcurrentIfSelected('review-sql-injection', async () => {
     const result = await runSkillTest({
       prompt: `You are in a git repo on a feature branch with changes against main.
 Read review-SKILL.md for the review workflow instructions.
@@ -125,7 +125,7 @@ describeIfSelected('Review enum completeness E2E', ['review-enum-completeness'],
     try { fs.rmSync(enumDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/review catches missing enum handlers for new status value', async () => {
+  testConcurrentIfSelected('review-enum-completeness', async () => {
     const result = await runSkillTest({
       prompt: `You are in a git repo on branch feature/add-returned-status with changes against main.
 Read review-SKILL.md for the review workflow instructions.
@@ -200,7 +200,7 @@ describeIfSelected('Review design lite E2E', ['review-design-lite'], () => {
     try { fs.rmSync(designDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/review catches design anti-patterns in CSS/HTML diff', async () => {
+  testConcurrentIfSelected('review-design-lite', async () => {
     const result = await runSkillTest({
       prompt: `You are in a git repo on branch feature/add-landing-page with changes against main.
 Read review-SKILL.md for the review workflow instructions.
@@ -340,21 +340,22 @@ Write your findings to ${dir}/review-output.md`,
     run('git', ['add', 'app.ts'], dir);
     run('git', ['commit', '-m', 'feat: update to v2'], dir);
 
-    // Copy ship skill
-    fs.copyFileSync(path.join(ROOT, 'ship', 'SKILL.md'), path.join(dir, 'ship-SKILL.md'));
+    // Extract only Step 0 (base branch detection) from ship/SKILL.md
+    // (copying the full 1900-line file causes agent context bloat and flaky timeouts)
+    const fullShipSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const step0Start = fullShipSkill.indexOf('## Step 0: Detect platform and base branch');
+    const step0End = fullShipSkill.indexOf('## Step 1: Pre-flight');
+    const shipSection = fullShipSkill.slice(step0Start, step0End > step0Start ? step0End : undefined);
+    fs.writeFileSync(path.join(dir, 'ship-SKILL.md'), shipSection);
 
     const result = await runSkillTest({
-      prompt: `Read ship-SKILL.md for the ship workflow.
+      prompt: `Read ship-SKILL.md. It contains Step 0 (Detect base branch) from the ship workflow.
 
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to Step 0.
+Run the base branch detection. Since there is no remote, gh commands will fail — fall back to main.
 
-Run ONLY Step 0 (Detect base branch) and Step 1 (Pre-flight) from the ship workflow.
-Since there is no remote, gh commands will fail — fall back to main.
+Then run git diff and git log against the detected base branch.
 
-After completing Step 0 and Step 1, STOP. Do NOT proceed to Step 2 or beyond.
-Do NOT push, create PRs, or modify VERSION/CHANGELOG.
-
-Write a summary of what you detected to ${dir}/ship-preflight.md including:
+Write a summary to ${dir}/ship-preflight.md including:
 - The detected base branch name
 - The current branch name
 - The diff stat against the base branch`,
@@ -497,7 +498,7 @@ describeIfSelected('Retro E2E', ['retro'], () => {
     try { fs.rmSync(retroDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/retro produces analysis from git history', async () => {
+  testConcurrentIfSelected('retro', async () => {
     const result = await runSkillTest({
       prompt: `Read retro/SKILL.md for instructions on how to run a retrospective.
 
@@ -527,6 +528,124 @@ Analyze the git history and produce the narrative report as described in the SKI
       expect(retro.length).toBeGreaterThan(100);
     }
   }, 420_000);
+});
+
+// --- Review Dashboard Via Attribution E2E ---
+
+describeIfSelected('Review Dashboard Via Attribution', ['review-dashboard-via'], () => {
+  let dashDir: string;
+
+  beforeAll(() => {
+    dashDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-dashboard-via-'));
+    const run = (cmd: string, args: string[], cwd = dashDir) =>
+      spawnSync(cmd, args, { cwd, stdio: 'pipe', timeout: 5000 });
+
+    // Create git repo with feature branch
+    run('git', ['init', '-b', 'main']);
+    run('git', ['config', 'user.email', 'test@test.com']);
+    run('git', ['config', 'user.name', 'Test']);
+
+    fs.writeFileSync(path.join(dashDir, 'app.ts'), 'console.log("v1");\n');
+    run('git', ['add', 'app.ts']);
+    run('git', ['commit', '-m', 'initial']);
+
+    run('git', ['checkout', '-b', 'feature/dashboard-test']);
+    fs.writeFileSync(path.join(dashDir, 'app.ts'), 'console.log("v2");\n');
+    run('git', ['add', 'app.ts']);
+    run('git', ['commit', '-m', 'feat: update']);
+
+    // Get HEAD commit for review entries
+    const headResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dashDir, stdio: 'pipe' });
+    const commit = headResult.stdout.toString().trim();
+
+    // Pre-populate review log with autoplan-sourced entries
+    // gstack-review-read reads from ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+    // For the test, we'll write a mock gstack-review-read script that returns our test data
+    const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const reviewData = [
+      `{"skill":"plan-eng-review","timestamp":"${timestamp}","status":"clean","unresolved":0,"critical_gaps":0,"issues_found":0,"mode":"FULL_REVIEW","via":"autoplan","commit":"${commit}"}`,
+      `{"skill":"plan-ceo-review","timestamp":"${timestamp}","status":"clean","unresolved":0,"critical_gaps":0,"mode":"SELECTIVE_EXPANSION","via":"autoplan","commit":"${commit}"}`,
+      `{"skill":"codex-plan-review","timestamp":"${timestamp}","status":"clean","source":"codex","commit":"${commit}"}`,
+    ].join('\n');
+
+    // Write a mock gstack-review-read that returns our test data
+    const mockBinDir = path.join(dashDir, '.mock-bin');
+    fs.mkdirSync(mockBinDir, { recursive: true });
+    fs.writeFileSync(path.join(mockBinDir, 'gstack-review-read'), [
+      '#!/usr/bin/env bash',
+      `echo '${reviewData.split('\n').join("'\necho '")}'`,
+      'echo "---CONFIG---"',
+      'echo "false"',
+      'echo "---HEAD---"',
+      `echo "${commit}"`,
+    ].join('\n'));
+    fs.chmodSync(path.join(mockBinDir, 'gstack-review-read'), 0o755);
+
+    // Extract only the Review Readiness Dashboard section from ship/SKILL.md
+    // (copying the full 1900-line file causes agent context bloat and timeouts)
+    const fullSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const dashStart = fullSkill.indexOf('## Review Readiness Dashboard');
+    const dashEnd = fullSkill.indexOf('\n---\n', dashStart);
+    const dashSection = fullSkill.slice(dashStart, dashEnd > dashStart ? dashEnd : undefined);
+    fs.writeFileSync(path.join(dashDir, 'ship-SKILL.md'), dashSection);
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(dashDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testConcurrentIfSelected('review-dashboard-via', async () => {
+    const mockBinDir = path.join(dashDir, '.mock-bin');
+
+    const result = await runSkillTest({
+      prompt: `Read ship-SKILL.md. You only need to run the Review Readiness Dashboard section.
+
+Instead of running ~/.claude/skills/gstack/bin/gstack-review-read, run this mock: ${mockBinDir}/gstack-review-read
+
+Parse the output and display the dashboard table. Pay attention to:
+1. The "via" field in entries — show source attribution (e.g., "via /autoplan")
+2. The codex-plan-review entry — it should populate the Outside Voice row
+3. Since Eng Review IS clear, there should be NO gate blocking — just display the dashboard
+
+Skip the preamble, lake intro, telemetry, and all other ship steps.
+Write the dashboard output to ${dashDir}/dashboard-output.md`,
+      workingDirectory: dashDir,
+      maxTurns: 12,
+      timeout: 180_000,
+      testName: 'review-dashboard-via',
+      runId,
+    });
+
+    logCost('/ship dashboard-via', result);
+    recordE2E(evalCollector, '/ship review dashboard via attribution', 'Dashboard via field', result);
+    expect(result.exitReason).toBe('success');
+
+    // Check dashboard output for via attribution
+    const dashPath = path.join(dashDir, 'dashboard-output.md');
+    const allOutput = [
+      result.output || '',
+      ...result.toolCalls.map(tc => tc.output || ''),
+    ].join('\n').toLowerCase();
+
+    // Verify via attribution appears somewhere (conversation or file)
+    let dashContent = '';
+    if (fs.existsSync(dashPath)) {
+      dashContent = fs.readFileSync(dashPath, 'utf-8').toLowerCase();
+    }
+    const combined = allOutput + dashContent;
+
+    // Should mention autoplan attribution
+    expect(combined).toMatch(/autoplan/);
+    // Should show eng review as CLEAR (it has a clean entry)
+    expect(combined).toMatch(/clear/i);
+    // Should NOT contain AskUserQuestion gate (no blocking)
+    const gateQuestions = result.toolCalls.filter(tc =>
+      tc.tool === 'mcp__conductor__AskUserQuestion' ||
+      (tc.tool === 'AskUserQuestion')
+    );
+    // Ship dashboard should not gate when eng review is clear
+    expect(gateQuestions).toHaveLength(0);
+  }, 240_000);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

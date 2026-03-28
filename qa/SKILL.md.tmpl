@@ -1,5 +1,6 @@
 ---
 name: qa
+preamble-tier: 4
 version: 2.0.0
 description: |
   Systematically QA test a web application and fix bugs found. Runs QA testing,
@@ -49,6 +50,12 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 - **Exhaustive:** + low/cosmetic severity
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
+
+**CDP mode detection:** Before starting, check if the browse server is connected to the user's real browser:
+```bash
+$B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
+```
+If `CDP_MODE=true`: skip cookie import prompts (the real browser already has cookies), skip user-agent overrides (real browser has real user-agent), and skip headless detection workarounds. The user's real auth sessions are already available.
 
 **Check for clean working tree:**
 
@@ -221,6 +228,7 @@ Before falling back to git diff heuristics, check for richer test plan sources:
 
 1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
    ```bash
+   setopt +o nomatch 2>/dev/null || true  # zsh compat
    {{SLUG_EVAL}}
    ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```

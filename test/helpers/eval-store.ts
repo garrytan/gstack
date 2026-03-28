@@ -2,7 +2,7 @@
  * Eval result persistence and comparison.
  *
  * EvalCollector accumulates test results, writes them to
- * ~/.gstack-dev/evals/{version}-{branch}-{tier}-{timestamp}.json,
+ * ~/.gstack/projects/$SLUG/evals/{version}-{branch}-{tier}-{timestamp}.json,
  * prints a summary table, and auto-compares with the previous run.
  *
  * Comparison functions are exported for reuse by the eval:compare CLI.
@@ -14,7 +14,32 @@ import * as os from 'os';
 import { spawnSync } from 'child_process';
 
 const SCHEMA_VERSION = 1;
-const DEFAULT_EVAL_DIR = path.join(os.homedir(), '.gstack-dev', 'evals');
+const LEGACY_EVAL_DIR = path.join(os.homedir(), '.gstack-dev', 'evals');
+
+/**
+ * Detect project-scoped eval dir via gstack-slug.
+ * Falls back to legacy ~/.gstack-dev/evals/ if slug detection fails.
+ */
+export function getProjectEvalDir(): string {
+  try {
+    // Try repo-local gstack-slug first, then global install
+    const localSlug = spawnSync('bash', ['-c', '.claude/skills/gstack/bin/gstack-slug 2>/dev/null || ~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null'], {
+      stdio: 'pipe', timeout: 3000,
+    });
+    const output = localSlug.stdout?.toString().trim();
+    if (output) {
+      const slugMatch = output.match(/^SLUG=(.+)$/m);
+      if (slugMatch && slugMatch[1]) {
+        const dir = path.join(os.homedir(), '.gstack', 'projects', slugMatch[1], 'evals');
+        fs.mkdirSync(dir, { recursive: true });
+        return dir;
+      }
+    }
+  } catch { /* fall through */ }
+  return LEGACY_EVAL_DIR;
+}
+
+const DEFAULT_EVAL_DIR = getProjectEvalDir();
 
 // --- Interfaces ---
 
@@ -55,6 +80,13 @@ export interface EvalTestEntry {
   missed_bugs?: string[];
 
   error?: string;
+
+  // Worktree harvest data
+  harvest?: {
+    filesChanged: number;
+    patchPath: string;
+    isDuplicate: boolean;
+  };
 }
 
 export interface EvalResult {

@@ -92,6 +92,35 @@ describe('gstack-update-check', () => {
     expect(cache).toContain('UP_TO_DATE');
   });
 
+  // ─── Path C2: Just-upgraded marker + newer remote ──────────
+  test('just-upgraded marker does not mask newer remote version', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.4.0\n');
+    writeFileSync(join(stateDir, 'just-upgraded-from'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.5.0\n');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    // Should output both the just-upgraded notice AND the new upgrade
+    expect(stdout).toContain('JUST_UPGRADED 0.3.3 0.4.0');
+    expect(stdout).toContain('UPGRADE_AVAILABLE 0.4.0 0.5.0');
+    // Cache should reflect the upgrade available, not UP_TO_DATE
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UPGRADE_AVAILABLE 0.4.0 0.5.0');
+  });
+
+  // ─── Path C3: Just-upgraded marker + remote matches local ──
+  test('just-upgraded with no further updates writes UP_TO_DATE cache', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.4.0\n');
+    writeFileSync(join(stateDir, 'just-upgraded-from'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('JUST_UPGRADED 0.3.3 0.4.0');
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE');
+  });
+
   // ─── Path D1: Fresh cache, UP_TO_DATE ───────────────────────
   test('exits silently when cache says UP_TO_DATE and is fresh', () => {
     writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
@@ -445,6 +474,24 @@ describe('gstack-update-check', () => {
     expect(forced.stdout).toBe('');
     const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
     expect(cache).toContain('UP_TO_DATE');
+  });
+
+  test('--force clears snooze so user can upgrade after snoozing', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeSnooze('0.4.0', 1, nowEpoch() - 60); // snoozed 1 min ago (within 24h)
+
+    // Without --force: snoozed, silent
+    const snoozed = run();
+    expect(snoozed.exitCode).toBe(0);
+    expect(snoozed.stdout).toBe('');
+
+    // With --force: snooze cleared, outputs upgrade
+    const forced = run({}, ['--force']);
+    expect(forced.exitCode).toBe(0);
+    expect(forced.stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    // Snooze file should be deleted
+    expect(existsSync(join(stateDir, 'update-snoozed'))).toBe(false);
   });
 
   // ─── Split TTL tests ─────────────────────────────────────────

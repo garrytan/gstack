@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-freeze"
-  short_description: "Restrict file edits to a specific directory for the session. Blocks Edit and Write outside the allowed path. Use..."
-  default_prompt: "Use gstack-freeze for this task."
-policy:
-  allow_implicit_invocation: true

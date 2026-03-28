@@ -1,0 +1,40 @@
+name: Build CI Image
+on:
+  # Rebuild weekly (Monday 6am UTC) to pick up CLI updates
+  schedule:
+    - cron: '0 6 * * 1'
+  # Rebuild on Dockerfile or lockfile changes
+  push:
+    branches: [main]
+    paths:
+      - '.github/docker/Dockerfile.ci'
+      - 'package.json'
+  # Manual trigger
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Copy lockfile + package.json into Docker build context
+      - run: cp package.json .github/docker/
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .github/docker
+          file: .github/docker/Dockerfile.ci
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/ci:latest
+            ghcr.io/${{ github.repository }}/ci:${{ github.sha }}

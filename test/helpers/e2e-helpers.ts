@@ -5,11 +5,13 @@
  * tests across multiple files by category.
  */
 
-import { describe, test, afterAll } from 'bun:test';
+import { describe, test, beforeAll, afterAll } from 'bun:test';
 import type { SkillTestResult } from './session-runner';
 import { EvalCollector, judgePassed } from './eval-store';
 import type { EvalTestEntry } from './eval-store';
-import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from './touchfiles';
+import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES } from './touchfiles';
+import { WorktreeManager } from '../../lib/worktree';
+import type { HarvestResult } from '../../lib/worktree';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -30,13 +32,6 @@ export const evalsEnabled = !!process.env.EVALS;
 // Set EVALS_ALL=1 to force all tests. Set EVALS_BASE to override base branch.
 export let selectedTests: string[] | null = null; // null = run all
 
-// EVALS_FAST: skip the 8 slowest tests (all Opus quality tests) for quick feedback
-const FAST_EXCLUDED_TESTS = [
-  'plan-ceo-review-selective', 'plan-ceo-review', 'retro', 'retro-base-branch',
-  'design-consultation-core', 'design-consultation-existing',
-  'qa-fix-loop', 'design-review-fix',
-];
-
 if (evalsEnabled && !process.env.EVALS_ALL) {
   const baseBranch = process.env.EVALS_BASE
     || detectBaseBranch(ROOT)
@@ -55,15 +50,22 @@ if (evalsEnabled && !process.env.EVALS_ALL) {
   // If changedFiles is empty (e.g., on main branch), selectedTests stays null → run all
 }
 
-// Apply EVALS_FAST filter after diff-based selection
-if (evalsEnabled && process.env.EVALS_FAST) {
+// EVALS_TIER: filter tests by tier after diff-based selection.
+// 'gate' = gate tests only (CI default — blocks merge)
+// 'periodic' = periodic tests only (weekly cron / manual)
+// not set = run all selected tests (local dev default, backward compat)
+if (evalsEnabled && process.env.EVALS_TIER) {
+  const tier = process.env.EVALS_TIER as 'gate' | 'periodic';
+  const tierTests = Object.entries(E2E_TIERS)
+    .filter(([, t]) => t === tier)
+    .map(([name]) => name);
+
   if (selectedTests === null) {
-    // Run all minus excluded
-    selectedTests = Object.keys(E2E_TOUCHFILES).filter(t => !FAST_EXCLUDED_TESTS.includes(t));
+    selectedTests = tierTests;
   } else {
-    selectedTests = selectedTests.filter(t => !FAST_EXCLUDED_TESTS.includes(t));
+    selectedTests = selectedTests.filter(t => tierTests.includes(t));
   }
-  process.stderr.write(`EVALS_FAST: excluded ${FAST_EXCLUDED_TESTS.length} slow tests, running ${selectedTests.length}\n\n`);
+  process.stderr.write(`EVALS_TIER=${tier}: ${selectedTests.length} tests\n\n`);
 }
 
 export const describeE2E = evalsEnabled ? describe : describe.skip;
@@ -205,7 +207,7 @@ export async function finalizeEvalCollector(evalCollector: EvalCollector | null)
 if (evalsEnabled) {
   const gstackDir = path.join(os.homedir(), '.gstack');
   fs.mkdirSync(gstackDir, { recursive: true });
-  for (const f of ['.completeness-intro-seen', '.telemetry-prompted']) {
+  for (const f of ['.completeness-intro-seen', '.telemetry-prompted', '.proactive-prompted']) {
     const p = path.join(gstackDir, f);
     if (!fs.existsSync(p)) fs.writeFileSync(p, '');
   }
@@ -234,6 +236,59 @@ export function testConcurrentIfSelected(testName: string, fn: () => Promise<voi
   (shouldRun ? test.concurrent : test.skip)(testName, fn, timeout);
 }
 
+// --- Worktree isolation ---
+
+let worktreeManager: WorktreeManager | null = null;
+
+export function getWorktreeManager(): WorktreeManager {
+  if (!worktreeManager) {
+    worktreeManager = new WorktreeManager();
+    worktreeManager.pruneStale();
+  }
+  return worktreeManager;
+}
+
+/** Create an isolated worktree for a test. Returns the worktree path. */
+export function createTestWorktree(testName: string): string {
+  return getWorktreeManager().create(testName);
+}
+
+/** Harvest changes and clean up. Call in afterAll(). Returns HarvestResult for eval integration. */
+export function harvestAndCleanup(testName: string): HarvestResult | null {
+  const mgr = getWorktreeManager();
+  const result = mgr.harvest(testName);
+  if (result) {
+    if (result.isDuplicate) {
+      process.stderr.write(`\n  HARVEST [${testName}]: duplicate patch (skipped)\n`);
+    } else {
+      process.stderr.write(`\n  HARVEST [${testName}]: ${result.changedFiles.length} files changed\n`);
+      process.stderr.write(`  Patch: ${result.patchPath}\n`);
+      process.stderr.write(`  ${result.diffStat}\n\n`);
+    }
+  }
+  mgr.cleanup(testName);
+  return result;
+}
+
+/**
+ * Convenience: describe block with automatic worktree isolation + harvest.
+ * Any test file can use this to get real repo context instead of a tmpdir.
+ * Note: tests with planted-bug fixtures should NOT use this — they need their fixture repos.
+ */
+export function describeWithWorktree(
+  name: string,
+  testNames: string[],
+  fn: (getWorktreePath: () => string) => void,
+) {
+  describeIfSelected(name, testNames, () => {
+    let worktreePath: string;
+    beforeAll(() => { worktreePath = createTestWorktree(name); });
+    afterAll(() => { harvestAndCleanup(name); });
+    fn(() => worktreePath);
+  });
+}
+
 export { judgePassed } from './eval-store';
 export { EvalCollector } from './eval-store';
 export type { EvalTestEntry } from './eval-store';
+export type { HarvestResult } from '../../lib/worktree';

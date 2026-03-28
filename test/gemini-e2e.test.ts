@@ -13,11 +13,12 @@
  * Skips gracefully when prerequisites are not met.
  */
 
-import { describe, test, expect, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { runGeminiSkill } from './helpers/gemini-session-runner';
 import type { GeminiResult } from './helpers/gemini-session-runner';
 import { EvalCollector } from './helpers/eval-store';
 import { selectTests, detectBaseBranch, getChangedFiles, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
+import { createTestWorktree, harvestAndCleanup } from './helpers/e2e-helpers';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -76,7 +77,7 @@ if (evalsEnabled && !process.env.EVALS_ALL) {
 /** Skip an individual test if not selected by diff-based selection. */
 function testIfSelected(testName: string, fn: () => Promise<void>, timeout: number) {
   const shouldRun = selectedTests === null || selectedTests.includes(testName);
-  (shouldRun ? test : test.skip)(testName, fn, timeout);
+  (shouldRun ? test.concurrent : test.skip)(testName, fn, timeout);
 }
 
 // --- Eval result collector ---
@@ -114,13 +115,22 @@ afterAll(async () => {
 // --- Tests ---
 
 describeGemini('Gemini E2E', () => {
+  let testWorktree: string;
+
+  beforeAll(() => {
+    testWorktree = createTestWorktree('gemini');
+  });
+
+  afterAll(() => {
+    harvestAndCleanup('gemini');
+  });
 
   testIfSelected('gemini-discover-skill', async () => {
-    // Run Gemini in the repo root where .agents/skills/ exists
+    // Run Gemini in an isolated worktree (has .agents/skills/ copied from ROOT)
     const result = await runGeminiSkill({
       prompt: 'List any skills or instructions you have available. Just list the names.',
       timeoutMs: 60_000,
-      cwd: ROOT,
+      cwd: testWorktree,
     });
 
     logGeminiCost('gemini-discover-skill', result);
@@ -139,11 +149,11 @@ describeGemini('Gemini E2E', () => {
   }, 120_000);
 
   testIfSelected('gemini-review-findings', async () => {
-    // Run gstack-review skill via Gemini on this repo
+    // Run gstack-review skill via Gemini on worktree (isolated from main working tree)
     const result = await runGeminiSkill({
       prompt: 'Run the gstack-review skill on this repository. Review the current branch diff and report your findings.',
       timeoutMs: 540_000,
-      cwd: ROOT,
+      cwd: testWorktree,
     });
 
     logGeminiCost('gemini-review-findings', result);

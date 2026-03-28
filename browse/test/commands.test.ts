@@ -543,6 +543,17 @@ describe('Visual', () => {
     }
   });
 
+  test('screenshot treats relative dot-slash path as file path, not CSS selector', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    // ./path/to/file.png must be treated as output path, not a CSS class selector (#495)
+    const relPath = './browse-test-dotpath.png';
+    const absPath = path.resolve(relPath);
+    const result = await handleMetaCommand('screenshot', [relPath], bm, async () => {});
+    expect(result).toContain('Screenshot saved');
+    expect(fs.existsSync(absPath)).toBe(true);
+    fs.unlinkSync(absPath);
+  });
+
   test('screenshot with nonexistent selector throws timeout', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     try {
@@ -1323,13 +1334,12 @@ describe('Errors', () => {
     }
   });
 
-  test('chain with invalid JSON throws', async () => {
-    try {
-      await handleMetaCommand('chain', ['not json'], bm, async () => {});
-      expect(true).toBe(false);
-    } catch (err: any) {
-      expect(err.message).toContain('Invalid JSON');
-    }
+  test('chain with invalid JSON falls back to pipe format', async () => {
+    // Non-JSON input is now treated as pipe-delimited format
+    // 'not json' → [["not", "json"]] → "not" is unknown command → error in result
+    const result = await handleMetaCommand('chain', ['not json'], bm, async () => {});
+    expect(result).toContain('ERROR');
+    expect(result).toContain('Unknown command: not');
   });
 
   test('chain with no arg throws', async () => {
@@ -1748,7 +1758,7 @@ describe('Path traversal prevention', () => {
       await handleReadCommand('eval', ['../../etc/passwd'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Path traversal');
+      expect(err.message).toContain('Path must be within');
     }
   });
 
@@ -1757,7 +1767,7 @@ describe('Path traversal prevention', () => {
       await handleReadCommand('eval', ['/etc/passwd'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Absolute path must be within');
+      expect(err.message).toContain('Path must be within');
     }
   });
 
@@ -1832,5 +1842,234 @@ describe('Chain with cookie-import', () => {
     } finally {
       try { fs.unlinkSync(tmpCookies); } catch {}
     }
+  });
+});
+
+// ─── Network Idle Detection ─────────────────────────────────────
+
+describe('Network idle', () => {
+  test('click on fetch button waits for XHR to complete', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/network-idle.html'], bm);
+    // Click the button that triggers a fetch → networkidle waits for it
+    await handleWriteCommand('click', ['#fetch-btn'], bm);
+    // The DOM should be updated by the time click returns
+    const result = await handleReadCommand('js', ['document.getElementById("result").textContent'], bm);
+    expect(result).toContain('Data loaded');
+  });
+
+  test('click on static button has no latency penalty', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/network-idle.html'], bm);
+    const start = Date.now();
+    await handleWriteCommand('click', ['#static-btn'], bm);
+    const elapsed = Date.now() - start;
+    // Static click should complete well under 2s (the networkidle timeout)
+    // networkidle resolves immediately when no requests are in flight
+    expect(elapsed).toBeLessThan(1500);
+    const result = await handleReadCommand('js', ['document.getElementById("static-result").textContent'], bm);
+    expect(result).toBe('Static action done');
+  });
+
+  test('fill triggers networkidle wait', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    // fill should complete without error (networkidle resolves immediately on static page)
+    const result = await handleWriteCommand('fill', ['#email', 'idle@test.com'], bm);
+    expect(result).toContain('Filled');
+  });
+});
+
+// ─── Chain Pipe Format ──────────────────────────────────────────
+
+describe('Chain pipe format', () => {
+  test('pipe-delimited commands work', async () => {
+    const result = await handleMetaCommand(
+      'chain',
+      [`goto ${baseUrl}/basic.html | js document.title`],
+      bm,
+      async () => {}
+    );
+    expect(result).toContain('[goto]');
+    expect(result).toContain('[js]');
+    expect(result).toContain('Test Page - Basic');
+  });
+
+  test('pipe format with quoted args', async () => {
+    const result = await handleMetaCommand(
+      'chain',
+      [`goto ${baseUrl}/forms.html | fill #email "pipe@test.com"`],
+      bm,
+      async () => {}
+    );
+    expect(result).toContain('[fill]');
+    expect(result).toContain('Filled');
+    // Verify the fill actually worked
+    const val = await handleReadCommand('js', ['document.querySelector("#email").value'], bm);
+    expect(val).toBe('pipe@test.com');
+  });
+
+  test('JSON format still works', async () => {
+    const commands = JSON.stringify([
+      ['goto', baseUrl + '/basic.html'],
+      ['js', 'document.title'],
+    ]);
+    const result = await handleMetaCommand('chain', [commands], bm, async () => {});
+    expect(result).toContain('[goto]');
+    expect(result).toContain('Test Page - Basic');
+  });
+
+  test('pipe format with unknown command includes error', async () => {
+    const result = await handleMetaCommand(
+      'chain',
+      ['bogus command'],
+      bm,
+      async () => {}
+    );
+    expect(result).toContain('ERROR');
+    expect(result).toContain('Unknown command: bogus');
+  });
+});
+
+// ─── State Persistence ──────────────────────────────────────────
+
+describe('State persistence', () => {
+  test('state save and load round-trip', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    // Set a cookie so we can verify it persists
+    await handleWriteCommand('cookie', ['state_test=hello'], bm);
+
+    // Save state
+    const saveResult = await handleMetaCommand('state', ['save', 'test-roundtrip'], bm, async () => {});
+    expect(saveResult).toContain('State saved');
+    expect(saveResult).toContain('Cookies stored in plaintext');
+
+    // Navigate away
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+
+    // Load state — should restore to basic.html with cookie
+    const loadResult = await handleMetaCommand('state', ['load', 'test-roundtrip'], bm, async () => {});
+    expect(loadResult).toContain('State loaded');
+
+    // Verify we're back on basic.html
+    const url = await handleReadCommand('js', ['location.pathname'], bm);
+    expect(url).toContain('basic.html');
+
+    // Clean up
+    try {
+      const { resolveConfig } = await import('../src/config');
+      const config = resolveConfig();
+      fs.unlinkSync(`${config.stateDir}/browse-states/test-roundtrip.json`);
+    } catch {}
+  });
+
+  test('state save rejects invalid names', async () => {
+    try {
+      await handleMetaCommand('state', ['save', '../../evil'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('alphanumeric');
+    }
+  });
+
+  test('state save accepts valid names', async () => {
+    const result = await handleMetaCommand('state', ['save', 'my-state_1'], bm, async () => {});
+    expect(result).toContain('State saved');
+    // Clean up
+    try {
+      const { resolveConfig } = await import('../src/config');
+      const config = resolveConfig();
+      fs.unlinkSync(`${config.stateDir}/browse-states/my-state_1.json`);
+    } catch {}
+  });
+
+  test('state load rejects missing state', async () => {
+    try {
+      await handleMetaCommand('state', ['load', 'nonexistent-state-xyz'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('State not found');
+    }
+  });
+
+  test('state requires action and name', async () => {
+    try {
+      await handleMetaCommand('state', [], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+});
+
+// ─── Frame (Iframe Support) ─────────────────────────────────────
+
+describe('Frame', () => {
+  test('frame switch to iframe and back', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/iframe.html'], bm);
+
+    // Verify we're on the main page
+    const mainTitle = await handleReadCommand('js', ['document.getElementById("main-title").textContent'], bm);
+    expect(mainTitle).toBe('Main Page');
+
+    // Switch to iframe by CSS selector
+    const switchResult = await handleMetaCommand('frame', ['#test-frame'], bm, async () => {});
+    expect(switchResult).toContain('Switched to frame');
+
+    // Verify we can read iframe content
+    const frameTitle = await handleReadCommand('js', ['document.getElementById("frame-title").textContent'], bm);
+    expect(frameTitle).toBe('Inside Frame');
+
+    // Switch back to main
+    const mainResult = await handleMetaCommand('frame', ['main'], bm, async () => {});
+    expect(mainResult).toBe('Switched to main frame');
+
+    // Verify we're back on the main page
+    const mainTitleAgain = await handleReadCommand('js', ['document.getElementById("main-title").textContent'], bm);
+    expect(mainTitleAgain).toBe('Main Page');
+  });
+
+  test('snapshot shows frame context header', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/iframe.html'], bm);
+    await handleMetaCommand('frame', ['#test-frame'], bm, async () => {});
+
+    const snap = await handleMetaCommand('snapshot', ['-i'], bm, async () => {});
+    expect(snap).toContain('[Context: iframe');
+
+    // Clean up — return to main
+    await handleMetaCommand('frame', ['main'], bm, async () => {});
+  });
+
+  test('goto throws error when in frame context', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/iframe.html'], bm);
+    await handleMetaCommand('frame', ['#test-frame'], bm, async () => {});
+
+    try {
+      await handleWriteCommand('goto', ['https://example.com'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Cannot use goto inside a frame');
+    }
+
+    await handleMetaCommand('frame', ['main'], bm, async () => {});
+  });
+
+  test('frame requires argument', async () => {
+    try {
+      await handleMetaCommand('frame', [], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('fill works inside iframe', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/iframe.html'], bm);
+    await handleMetaCommand('frame', ['#test-frame'], bm, async () => {});
+
+    const result = await handleWriteCommand('fill', ['#frame-input', 'hello from frame'], bm);
+    expect(result).toContain('Filled');
+
+    const value = await handleReadCommand('js', ['document.getElementById("frame-input").value'], bm);
+    expect(value).toBe('hello from frame');
+
+    await handleMetaCommand('frame', ['main'], bm, async () => {});
   });
 });

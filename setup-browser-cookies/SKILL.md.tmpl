@@ -1,11 +1,12 @@
 ---
 name: setup-browser-cookies
+preamble-tier: 1
 version: 1.0.0
 description: |
-  Import cookies from your real browser (Comet, Chrome, Arc, Brave, Edge) into the
-  headless browse session. Opens an interactive picker UI where you select which
-  cookie domains to import. Use before QA testing authenticated pages. Use when asked
-  to "import cookies", "login to the site", or "authenticate the browser".
+  Import cookies from your real Chromium browser into the headless browse session.
+  Opens an interactive picker UI where you select which cookie domains to import.
+  Use before QA testing authenticated pages. Use when asked to "import cookies",
+  "login to the site", or "authenticate the browser".
 allowed-tools:
   - Bash
   - Read
@@ -17,6 +18,14 @@ allowed-tools:
 # Setup Browser Cookies
 
 Import logged-in sessions from your real Chromium browser into the headless browse session.
+
+## CDP mode check
+
+First, check if browse is already connected to the user's real browser:
+```bash
+$B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
+```
+If `CDP_MODE=true`: tell the user "Not needed — you're connected to your real browser via CDP. Your cookies and sessions are already available." and stop. No cookie import needed.
 
 ## How it works
 
@@ -37,7 +46,7 @@ Import logged-in sessions from your real Chromium browser into the headless brow
 $B cookie-import-browser
 ```
 
-This auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge) and opens
+This auto-detects installed Chromium browsers and opens
 an interactive picker UI in your default browser where you can:
 - Switch between installed browsers
 - Search domains
@@ -68,7 +77,8 @@ Show the user a summary of imported cookies (domain counts).
 
 ## Notes
 
-- First import per browser may trigger a macOS Keychain dialog — click "Allow" / "Always Allow"
+- On macOS, the first import per browser may trigger a Keychain dialog — click "Allow" / "Always Allow"
+- On Linux, `v11` cookies may require `secret-tool`/libsecret access; `v10` cookies use Chromium's standard fallback key
 - Cookie picker is served on the same port as the browse server (no extra process)
 - Only domain names and cookie counts are shown in the UI — no cookie values are exposed
 - The browse session persists cookies between commands, so imported cookies work immediately
