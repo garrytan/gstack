@@ -1,0 +1,303 @@
+---
+name: work
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Plan-to-implementation orchestrator with optional Codex delegation. Reads plan
+  artifacts from /plan-ceo-review, /plan-eng-review, /plan-design-review. Three modes:
+  standard (Claude implements), codex (Codex implements, Claude orchestrates), hybrid
+  (try Codex, fall back to Claude). Use when asked to "build this", "implement the plan",
+  "execute the plan", or "start working".
+  Proactively suggest when the user has approved a plan in plan mode and is ready to build.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+  - Agent
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /work -- Plan-to-Implementation Orchestrator
+
+You are running the `/work` skill. This bridges the gap between plan approval and code review.
+It reads plan artifacts from gstack's planning phase, decomposes them into tasks, and builds
+the feature. Optionally delegates code writing to Codex CLI for token efficiency.
+
+---
+
+## Step 0: Check for plan artifacts
+
+Look for plan artifacts in this order (stop at first match):
+
+1. **Argument path:** If the user passed a file path, read that file.
+2. **Active plan mode:** Check if a plan file is open in the current session.
+3. **Project plan store:** Look in `~/.gstack/projects/` for the current repo:
+   ```bash
+   REPO_SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")
+   ls -t ~/.gstack/projects/"$REPO_SLUG"/*.md 2>/dev/null | head -5
+   ```
+4. **Claude plans directory:** Fall back to `~/.claude/plans/`:
+   ```bash
+   ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$REPO_SLUG" 2>/dev/null | head -3
+   ```
+
+If no plan found, tell the user:
+"No plan artifacts found. Run `/plan-eng-review` or `/office-hours` first to create a plan, then come back to `/work`."
+
+Read the plan file completely. Extract:
+- **Goal:** What to build (from the plan's title or summary)
+- **Architecture:** File structure, data flow, key decisions
+- **Test plan:** What tests to write, coverage expectations
+- **Design constraints:** UI requirements (if any, from /plan-design-review)
+- **Acceptance criteria:** How to verify completeness
+
+---
+
+## Step 1: Detect execution mode
+
+```bash
+CODEX_BIN=$(which codex 2>/dev/null || echo "")
+[ -z "$CODEX_BIN" ] && echo "CODEX: NOT_FOUND" || echo "CODEX: FOUND at $CODEX_BIN"
+```
+
+Parse the user's input for mode selection:
+
+| Input | Mode |
+|-------|------|
+| `/work` (no flag) | **Standard** -- Claude implements everything |
+| `/work --codex` | **Codex delegation** -- Codex writes code, Claude orchestrates |
+| `/work --hybrid` | **Hybrid** -- try Codex first, fall back to Claude on failure |
+| Codex not installed | **Standard** (regardless of flags) |
+
+If `--codex` or `--hybrid` was requested but Codex is not installed:
+"Codex CLI not found. Install it: `npm install -g @openai/codex`. Falling back to standard mode."
+
+Use AskUserQuestion if no mode was specified and Codex is available:
+
+> Plan loaded. How should I implement it?
+>
+> A) Standard mode -- Claude implements directly (Recommended for small plans)
+> B) Codex delegation -- Codex writes code, Claude reviews and commits (saves Claude tokens)
+> C) Hybrid -- try Codex first, fall back to Claude on failure (Recommended for large plans)
+
+---
+
+## Step 2: Decompose into tasks
+
+Break the plan into discrete work units. For each unit, extract:
+
+1. **Goal:** One sentence describing the deliverable
+2. **Files:** Which files to create or modify
+3. **Approach:** Step-by-step implementation
+4. **Dependencies:** Which other units must complete first
+5. **Tests:** How to verify this unit works
+
+Order tasks by dependency graph. Independent tasks can run in parallel (via Agent tool
+for standard mode). Dependent tasks run sequentially.
+
+Print the task breakdown:
+
+```
+Work decomposition (N tasks):
+
+  1. [INDEPENDENT] Set up data model
+     Files: src/models/briefing.ts
+     Tests: test/models/briefing.test.ts
+
+  2. [INDEPENDENT] Create API endpoint
+     Files: src/routes/briefing.ts
+     Tests: test/routes/briefing.test.ts
+
+  3. [DEPENDS ON 1,2] Wire up frontend
+     Files: src/pages/briefing.tsx
+     Tests: test/pages/briefing.test.tsx
+
+Execution strategy: Tasks 1-2 in parallel, then task 3.
+Mode: [standard/codex/hybrid]
+```
+
+---
+
+## Step 3: Execute tasks
+
+### Standard mode (Claude implements)
+
+For each task in dependency order:
+
+1. Read referenced files from the codebase
+2. Look for similar patterns in the repo (grep for related functions/classes)
+3. Implement following existing conventions exactly
+4. Write tests for new functionality
+5. Run the project's test command
+6. Fix failures immediately
+
+**Incremental commits:** After each logical unit completes and tests pass, commit:
+
+```bash
+git add <changed files>
+git commit -m "feat(scope): description of this unit"
+```
+
+**For parallel independent tasks:** Use the Agent tool to dispatch subagents.
+Each subagent gets the full plan context plus its specific task. After all
+parallel tasks complete, verify the combined changes work together before
+moving to dependent tasks.
+
+### Codex delegation mode
+
+For each task:
+
+1. **Build the prompt.** Concatenate the task description, relevant plan context,
+   and repo conventions into a focused implementation prompt:
+
+   ```
+   Implement the following task in this repository.
+
+   ## Task
+   {task goal and approach from Step 2}
+
+   ## Files to modify
+   {file list}
+
+   ## Existing patterns
+   {grep results showing how similar things are done in this codebase}
+
+   ## Rules
+   - Keep changes focused on this task only
+   - Follow existing code style and conventions
+   - Do NOT run git commit or git push
+   - After implementation, run: git status && git diff --stat
+   ```
+
+2. **Delegate to Codex.** Pipe the prompt through stdin:
+
+   ```bash
+   REPO_ROOT=$(git rev-parse --show-toplevel)
+   echo "$PROMPT" | codex exec \
+     -s workspace-write \
+     -C "$REPO_ROOT" \
+     -c 'model_reasoning_effort="medium"' \
+     -
+   ```
+
+3. **Review the diff.** After Codex finishes:
+
+   ```bash
+   git diff --stat
+   git diff | head -500
+   ```
+
+   Check:
+   - Non-empty diff (Codex actually made changes)
+   - In-scope changes (files match the task's file list)
+   - No rogue operations (no unexpected files modified)
+
+   If the diff is empty or out-of-scope, fall back to standard mode for this task.
+
+4. **Run tests.**
+
+   ```bash
+   # Use project's test command from CLAUDE.md or auto-detect
+   ```
+
+   If tests fail, try to fix inline. If the fix is non-trivial, fall back to
+   standard mode.
+
+5. **Commit.** Claude always handles git operations:
+
+   ```bash
+   git add <changed files from diff review>
+   git commit -m "feat(scope): task description"
+   ```
+
+### Hybrid mode
+
+Same as Codex delegation, but with automatic fallback:
+
+- Try Codex first for each task
+- If Codex fails (empty diff, out-of-scope, test failure), switch to standard mode for that task
+- Track consecutive failures. After 3 consecutive Codex failures, disable delegation for remaining tasks:
+  "Codex disabled after 3 consecutive failures. Completing remaining tasks in standard mode."
+
+---
+
+## Step 4: Verify
+
+After all tasks complete:
+
+1. **Run the full test suite:**
+
+   ```bash
+   # Project's test command
+   ```
+
+2. **Check plan conformance:** Re-read the plan's acceptance criteria. Verify each item.
+
+3. **Run linting/formatting** (if the project has a linter):
+
+   ```bash
+   # Auto-detect from package.json, Makefile, pyproject.toml, etc.
+   ```
+
+4. **Print build summary:**
+
+   ```
+   Build complete (N tasks, M via Codex, P via Claude):
+
+     Task 1: Set up data model .............. DONE (codex)
+     Task 2: Create API endpoint ............ DONE (codex)
+     Task 3: Wire up frontend ............... DONE (claude, codex failed)
+
+   Tests: 42 passing, 0 failing
+   Lint: clean
+   Plan conformance: 6/6 acceptance criteria met
+
+   Codex stats: 2 tasks delegated, 1 fallback, ~58K tokens used
+   ```
+
+---
+
+## Step 5: Persist build log
+
+Write a build entry to the review log so `/ship` can see the build ran:
+
+```bash
+echo '{"skill":"work","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","status":"STATUS","mode":"MODE","tasks_total":N,"tasks_codex":M,"tasks_claude":P,"tests_passing":T,"tests_failing":F}' >> ~/.gstack/analytics/reviews.jsonl 2>/dev/null || true
+```
+
+Replace STATUS with "success", "partial" (some tasks failed), or "failed".
+Replace MODE with "standard", "codex", or "hybrid".
+
+---
+
+## Step 6: Next steps
+
+Use AskUserQuestion:
+
+> Build complete. What next?
+>
+> A) Run /review -- pre-landing code review (Recommended)
+> B) Run /qa -- QA test the feature
+> C) Run /ship -- push and create PR
+> D) Done for now -- I'll review manually
+
+---
+
+## Important Rules
+
+- **No implementation without a plan.** If no plan artifact is found, send the user to /plan-eng-review first.
+- **Codex handles code. Claude handles git.** Never let Codex run git commit, git push, or git add. Claude reviews every diff.
+- **3 consecutive Codex failures = auto-disable.** Fall back to standard mode, don't keep retrying.
+- **Tests must pass before committing.** Run the project's test command after every task.
+- **Match the codebase.** Follow existing patterns and conventions exactly. Grep before writing.
+- **Completion status:**
+  - DONE -- all tasks complete, tests pass, plan conformance verified
+  - DONE_WITH_CONCERNS -- built but some acceptance criteria unmet
+  - BLOCKED -- cannot proceed (missing dependencies, unclear plan)
