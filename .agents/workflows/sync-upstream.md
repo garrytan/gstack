@@ -10,7 +10,7 @@ Follow these steps faithfully to ensure the Antigravity local fork configuration
 
 1. Add the upstream remote if it is not already configured.
 ```bash
-git remote add upstream https://github.com/garrytan/gstack.git || exit 0
+git remote add upstream https://github.com/garrytan/gstack.git || true
 ```
 2. Fetch the upstream's latest updates without making edits.
 ```bash
