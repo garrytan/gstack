@@ -120,7 +120,27 @@ Use the install type and directory detected in Step 2:
 cd "$INSTALL_DIR"
 STASH_OUTPUT=$(git stash 2>&1)
 git fetch origin
-git reset --hard origin/main
+if [ -d ".agents/workflows" ]; then
+  # Antigravity hook: Sync with upstream (garrytan) and fork (origin) automatically
+  echo "Antigravity setup detected. Syncing with gstack upstream and this fork..."
+  git remote add upstream https://github.com/garrytan/gstack.git 2>/dev/null || true
+  git fetch origin main || git fetch origin
+  git fetch upstream main
+  
+  # Step 1: Incorporate any new fork features (from origin)
+  git rebase origin/main || {
+    echo "Rebase conflict with origin! Please resolve, run 'git rebase --continue', then run gstack-upgrade again."
+    exit 1
+  }
+  
+  # Step 2: Overlay everything on top of the newest upstream (Garry Tan)
+  git rebase upstream/main || {
+    echo "Rebase conflict with upstream! Please resolve, run 'git rebase --continue', then run gstack-upgrade again."
+    exit 1
+  }
+else
+  git reset --hard origin/main
+fi
 ./setup
 ```
 If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."

@@ -15,6 +15,14 @@ By utilizing an Antigravity environment (`.agents/`), this fork tracks its own i
 
 To install `gstack` exactly like upstream and integrate its tools globally into your own terminal/AI sessions:
 
+### Quick Install
+Run this secure one-liner to clone the fork and automatically configure everything:
+```bash
+curl -fsSL https://raw.githubusercontent.com/<YOUR-GITHUB-USERNAME>/gstack/main/.agents/scripts/ag-install.sh | bash -s <YOUR-GITHUB-USERNAME>
+```
+
+### Manual Install
+
 1. Connect Antigravity or navigate to this folder.
 2. If first boot, instruct Antigravity via Slash Command `/bootstrap-ag` (or run `./.agents/scripts/ag-setup.sh` followed by `bun install && bun run build`).
 3. Run the global init script:

@@ -8,7 +8,7 @@ mkdir -p .agents/workflows
 mkdir -p .agents/scripts
 
 # Set upstream tracking appropriately
-if ! git remote -v | grep -q "garrytan/gstack.git"; then
+if ! git remote get-url upstream >/dev/null 2>&1; then
     echo "Adding upstream remote to https://github.com/garrytan/gstack.git"
     git remote add upstream https://github.com/garrytan/gstack.git
 else
