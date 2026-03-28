@@ -1,5 +1,19 @@
 # TODOS
 
+## Oracle
+
+### Quality benchmark — measure product conscience impact
+
+**What:** Compare skill output with and without product map context. Run the same planning skill (e.g., /office-hours) on the same codebase with and without a PRODUCT_MAP.md present. Measure whether connections, anti-pattern warnings, and pattern reuse suggestions actually improve.
+
+**Why:** Oracle's core hypothesis is that product context makes every skill smarter. Without measurement, we're flying blind. The outside voice in the eng review flagged this: "build a 2-hour experiment before a multi-week build." We built it anyway — now validate.
+
+**Context:** Run on iskool-prod (the first real target). Bootstrap a product map, then run /office-hours twice: once with the map, once without. LLM-judge eval comparing output quality. This also stress-tests the self-describing map format.
+
+**Effort:** S (human: ~2 hours / CC: ~30 min)
+**Priority:** P1
+**Depends on:** Oracle shipped to main
+
 ## Builder Ethos
 
 ### First-time Search Before Building intro

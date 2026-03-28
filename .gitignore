@@ -2,6 +2,7 @@
 node_modules/
 browse/dist/
 design/dist/
+oracle/bin/dist/
 bin/gstack-global-discover
 .gstack/
 .claude/skills/

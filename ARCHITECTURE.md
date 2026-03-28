@@ -353,6 +353,25 @@ The `EvalCollector` accumulates test results and writes them in two ways:
 
 Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.
 
+## Oracle, the product memory layer
+
+Oracle gives every gstack skill product-level context (not just code context).
+
+**Storage:** `docs/oracle/PRODUCT_MAP.md` in the project repo. In-repo, git-tracked, human-verifiable. The map is self-describing: its header contains the schema and instructions. Skills that read it follow the header, not hardcoded format knowledge.
+
+**Integration:** Two resolvers (`PRODUCT_CONSCIENCE_READ`, `PRODUCT_CONSCIENCE_WRITE`) inject ~10 lines each into 19 skill templates via the gen-skill-docs pipeline. Planning skills read the map for context. Post-work skills silently update it. Zero manual interaction.
+
+**Scanner:** `oracle/bin/scan-imports.ts` is an AST-powered codebase analyzer using TypeScript's compiler API. It produces a scan manifest (JSON) with routes, import graph, circular deps, dead files, and complexity classification. The scanner runs from gstack's own install directory using gstack's `node_modules/typescript`, not the user's project. Compiled to a standalone binary as a performance optimization, falls back to `bun run` from source.
+
+**Staleness:** Scan manifest stores `head_sha` from `git rev-parse HEAD`. Comparing against current HEAD catches branch switches, rebases, and amends. No timestamp-based checks.
+
+```
+docs/oracle/
+├── PRODUCT_MAP.md          # Tier 1: concise feature registry (~12 lines/feature)
+└── inventory/              # Tier 2: detailed per-feature docs
+    └── F001-feature-name.md
+```
+
 ## What's intentionally not here
 
 - **No WebSocket streaming.** HTTP request/response is simpler, debuggable with curl, and fast enough. Streaming would add complexity for marginal benefit.
