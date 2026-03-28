@@ -4,7 +4,27 @@
  * Usage: bun run stock.ts <TICKER> (e.g., bun run stock.ts SPY)
  */
 
+import { join } from "path";
+import { homedir } from "os";
+import { appendFile } from "fs/promises";
+
 const ticker = (process.argv[2] || "SPY").toUpperCase();
+
+async function logToAnalytics(symbol: string) {
+  const logDir = join(homedir(), ".gstack", "analytics");
+  const logPath = join(logDir, "skill-usage.jsonl");
+  const entry = JSON.stringify({
+    skill: "stock-analysis",
+    ts: new Date().toISOString(),
+    repo: "gstack",
+    ticker: symbol
+  }) + "\n";
+  try {
+    await appendFile(logPath, entry);
+  } catch (e) {
+    // Silent fail if analytics dir doesn't exist
+  }
+}
 
 interface ChartData {
   prices: number[];
@@ -60,6 +80,9 @@ function estimateProbability(price: number, ma20: number): { up: number; down: n
 async function runAnalysis(symbol: string) {
   try {
     console.log(`📡 正在分析標普 500 (${symbol}) 綜合日線與 4 小時線數據，請稍候...`);
+
+    // Log this analysis to gstack streak analytics
+    await logToAnalytics(symbol);
 
     // Fetch Daily (1d) and 1h (to aggregate into 4h)
     const [dailyData, hourlyData] = await Promise.all([
