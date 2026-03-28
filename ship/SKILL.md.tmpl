@@ -581,7 +581,23 @@ EOF
 **If neither CLI is available:**
 Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
 
-**Output the PR/MR URL** — then proceed to Step 8.5.
+**Output the PR/MR URL** — then proceed to Step 8.25.
+
+---
+
+## Step 8.25: MCP Registry Sync Reminder (conditional)
+
+After creating the PR, check if this repo contains an MCP server registered with an external registry:
+
+```bash
+[ -f glama.json ] && echo "GLAMA_REGISTERED=true" || echo "GLAMA_REGISTERED=false"
+```
+
+If `GLAMA_REGISTERED=true`: output this one-line reminder before continuing:
+
+> **Glama reminder:** After this PR merges, go to [glama.ai/mcp/servers](https://glama.ai/mcp/servers), find your server, and hit **Sync** to trigger a fresh Docker build. Glama caches Docker layers and will not pick up the new commit automatically.
+
+This is informational only — do not block or ask for confirmation. Proceed to Step 8.5.
 
 ---
 
