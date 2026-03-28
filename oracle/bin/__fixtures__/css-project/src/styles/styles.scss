@@ -1,0 +1,6 @@
+@use "./colors.css";
+
+.component {
+  color: var(--primary);
+  background: var(--background);
+}
