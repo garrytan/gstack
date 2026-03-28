@@ -116,6 +116,28 @@ Mutual exclusion: `--clip` + selector and `--viewport` + `--clip` both throw err
 
 Each server session generates a random UUID as a bearer token. The token is written to the state file (`.gstack/browse.json`) with chmod 600. Every HTTP request must include `Authorization: Bearer <token>`. This prevents other processes on the machine from controlling the browser.
 
+### Chrome extension support
+
+Set `BROWSE_EXTENSIONS_DIR` to an unpacked extension directory to load it into the browser. The server uses `launchPersistentContext()` with `--headless=new` so extensions run in the default browser context (where they actually work) while remaining fully headless (no visible window).
+
+```bash
+export BROWSE_EXTENSIONS_DIR="/path/to/extension"
+$B goto "https://example.com"   # extension's content scripts run on the page
+```
+
+Key details:
+- Extensions require Playwright's **persistent context** — the standard `browser.newContext()` creates an isolated context where extensions are invisible
+- `--headless=new` (Chromium 112+) runs the full browser engine headless with extension support
+- Playwright's `--disable-extensions` and `--enable-automation` flags are stripped via `ignoreDefaultArgs` so extensions load and `navigator.webdriver` returns `false`
+- Works with Manifest V3 extensions (service workers, declarativeNetRequest)
+- Effective against simple paywalls (cookie/header-based). Sites with DataDome/Cloudflare bot detection block Playwright regardless of extensions
+
+### Cookie persistence
+
+Browser cookies are automatically persisted to `~/.gstack/browse-cookies.json` (global, survives binary updates). Cookies are saved on graceful shutdown and every 5 minutes, and restored on the next server start.
+
+This means `cookie-import-browser` is a **one-time operation** — imported cookies survive all daemon restarts. There is no need to re-import cookies after a restart or update.
+
 ### Console, network, and dialog capture
 
 The server hooks into Playwright's `page.on('console')`, `page.on('response')`, and `page.on('dialog')` events. All entries are kept in O(1) circular buffers (50,000 capacity each) and flushed to disk asynchronously via `Bun.write()`:
