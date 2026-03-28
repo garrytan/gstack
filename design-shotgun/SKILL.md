@@ -592,7 +592,7 @@ After all agents complete:
 image list from whatever variant files actually exist, not a hardcoded A/B/C list:
 
 ```bash
-_IMAGES=$(ls "$_DESIGN_DIR"/variant-*.png 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+setopt +o nomatch 2>/dev/null; _IMAGES=$(ls "$_DESIGN_DIR"/variant-*.png 2>/dev/null | tr '\n' ',' | sed 's/,$//')
 ```
 
 Use `$_IMAGES` in the `$D compare --images` command.
