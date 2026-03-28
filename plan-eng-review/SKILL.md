@@ -318,8 +318,13 @@ Options:
 If they skip: "No worries — standard review. If you ever want sharper input, try
 /office-hours first next time." Then proceed normally. Do not re-offer later in the session.
 
-### Step 0: Scope Challenge
-Before reviewing anything, answer these questions:
+### Step 0: Pre-mortem
+Before reviewing anything, perform a pre-mortem:
+> "It's 3 months later and this plan failed. What are the top 3 reasons it failed?"
+Think from the perspective of production reality, not the plan's logic. Name specific failure modes (data loss, performance cliff, security hole, team confusion), not abstract concerns. Present the 3 failure modes to the user before proceeding.
+
+### Step 0.1: Scope Challenge
+After the pre-mortem, answer these questions:
 1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
 2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective. Be ruthless about scope creep.
 3. **Complexity check:** If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
