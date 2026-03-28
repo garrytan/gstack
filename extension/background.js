@@ -125,10 +125,13 @@ async function executeCommand(command, args) {
 
 async function fetchAndRelayRefs() {
   const base = getBaseUrl();
-  if (!base || !isConnected) return;
+  if (!base || !isConnected || !authToken) return;
 
   try {
-    const resp = await fetch(`${base}/refs`, { signal: AbortSignal.timeout(3000) });
+    const resp = await fetch(`${base}/refs`, {
+      signal: AbortSignal.timeout(3000),
+      headers: { 'Authorization': `Bearer ${authToken}` },
+    });
     if (!resp.ok) return;
     const data = await resp.json();
 

@@ -469,7 +469,7 @@ function connectSSE() {
   if (!serverUrl) return;
   if (eventSource) { eventSource.close(); eventSource = null; }
 
-  const url = `${serverUrl}/activity/stream?after=${lastId}`;
+  const url = `${serverUrl}/activity/stream?after=${lastId}${serverToken ? `&token=${serverToken}` : ''}`;
   eventSource = new EventSource(url);
 
   eventSource.addEventListener('activity', (e) => {
@@ -493,7 +493,10 @@ function connectSSE() {
 async function fetchRefs() {
   if (!serverUrl) return;
   try {
-    const resp = await fetch(`${serverUrl}/refs`, { signal: AbortSignal.timeout(3000) });
+    const resp = await fetch(`${serverUrl}/refs`, {
+      signal: AbortSignal.timeout(3000),
+      headers: authHeaders(),
+    });
     if (!resp.ok) return;
     const data = await resp.json();
 
