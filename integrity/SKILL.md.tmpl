@@ -1,0 +1,727 @@
+---
+name: integrity
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Cross-repo integrity audit. Checks contract alignment between frontend types,
+  mock handlers, and API manifest. Verifies backend route coverage, spec compliance,
+  dependency health, and test completeness across a multi-repo workspace. Report-only —
+  never fixes code. Use when asked to "check integrity", "contract audit",
+  "full system check", "are frontend and backend in sync", or "pre-ship integrity check".
+  Proactively suggest before /ship on paired cross-repo waves.
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+# /integrity: Cross-Repo Integrity Audit
+
+You are a systems integrity auditor. Verify that a multi-repo application holds together — contracts aligned, tests covering, specs implemented, dependencies healthy. **NEVER fix anything.** Report findings with evidence.
+
+---
+
+## Setup
+
+**Parse the user's request for these parameters:**
+
+| Parameter | Default | Override example |
+|-----------|---------|-----------------|
+| Workspace root | auto-detect (dir with both `frontend/` and `backend/`) | `--workspace /path/to/root` |
+| Frontend dir | `frontend/` | `--frontend apps/web` |
+| Backend dir | `backend/` | `--backend services/api` |
+| Manifest path | auto-detect (`**/API_MANIFEST.md` or `**/openapi.yaml`) | `--manifest docs/CONTRACT.md` |
+| Scope | `full` | `--scope contracts`, `--scope tests`, `--scope specs`, `--scope deps` |
+| Output file | `INTEGRITY_REPORT.md` (workspace root) | `--output /tmp/report.md` |
+| Live check | `false` | `--live https://api.example.com` |
+
+**Workspace detection:**
+
+If the current directory contains both a frontend and backend subdirectory, use it as workspace root. If you are inside one of the sub-repos, go up one level. The workspace root is NOT required to be a git repo — only the sub-repos need to be.
+
+```bash
+# Detect workspace root
+if [ -d "frontend" ] && [ -d "backend" ]; then
+  WS_ROOT="$(pwd)"
+elif [ -d "../frontend" ] && [ -d "../backend" ]; then
+  WS_ROOT="$(cd .. && pwd)"
+else
+  echo "NEEDS_CONTEXT: Cannot auto-detect workspace. Provide --workspace path."
+fi
+echo "WORKSPACE: $WS_ROOT"
+```
+
+**Detect sub-repo state:**
+
+```bash
+cd "$WS_ROOT/frontend" && echo "FE_BRANCH: $(git branch --show-current 2>/dev/null || echo 'unknown')" && echo "FE_COMMIT: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" && cd "$WS_ROOT"
+cd "$WS_ROOT/backend" && echo "BE_BRANCH: $(git branch --show-current 2>/dev/null || echo 'unknown')" && echo "BE_COMMIT: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" && cd "$WS_ROOT"
+```
+
+**Framework auto-detection:**
+
+The skill detects frontend and backend frameworks to tailor its analysis:
+
+| Signal | Framework | Route pattern |
+|--------|-----------|---------------|
+| `express` in package.json | Express.js | `router.(get\|post\|put\|patch\|delete)` |
+| `fastify` in package.json | Fastify | `fastify.(get\|post\|put\|patch\|delete)` |
+| `@nestjs/core` in package.json | NestJS | `@(Get\|Post\|Put\|Patch\|Delete)` decorators |
+| `hono` in package.json | Hono | `app.(get\|post\|put\|patch\|delete)` |
+| `msw` in package.json | MSW mocks | `http.(get\|post\|put\|patch\|delete)` |
+| `nock` in package.json | Nock mocks | `nock(...).(get\|post\|put\|patch\|delete)` |
+| `miragejs` in package.json | Mirage mocks | `this.(get\|post\|put\|patch\|delete)` |
+
+If detection fails, fall back to generic `router.*` + `http.*` patterns.
+
+---
+
+## Step 1: Discover Contract Surface
+
+Build five inventories by reading the codebase. Each inventory is a list of entries that will be cross-referenced in Step 2.
+
+### 1a. Manifest Inventory
+
+Find and parse the API manifest file:
+
+```bash
+find "$WS_ROOT" -name "API_MANIFEST.md" -not -path "*/node_modules/*" | head -1
+```
+
+If not found, try `openapi.yaml` or `openapi.json`:
+```bash
+find "$WS_ROOT" -name "openapi.yaml" -o -name "openapi.json" -not -path "*/node_modules/*" | head -1
+```
+
+Read the manifest and extract every endpoint row into a structured inventory:
+- **EP ID** (if present, e.g., `EP-001`)
+- **Method** (GET, POST, PUT, PATCH, DELETE)
+- **Path** (e.g., `/api/v1/patients`)
+- **Status** (MOCK, LIVE, SKIP — or equivalent)
+- **Request type** (if referenced)
+- **Response type** (if referenced)
+
+Count total endpoints by status. Print summary:
+```
+MANIFEST: N total endpoints (X MOCK, Y LIVE, Z SKIP)
+```
+
+If no manifest file found: skip manifest-dependent checks in Step 2, flag as finding:
+"No API manifest found — contract alignment checks limited to types vs handlers."
+
+### 1b. Type Inventory
+
+Glob for TypeScript type files in the frontend:
+
+- Primary pattern: `frontend/src/api/types/*.ts`
+- Fallback patterns: `frontend/src/types/*.ts`, `frontend/src/**/types.ts`
+
+For each file, use Grep to extract exported interfaces, types, and enums:
+- Pattern: `export (interface|type|enum) (\w+)`
+- Record: file path, export name, export kind
+
+Count total exports per file. Print summary:
+```
+TYPES: N files, M total exports
+```
+
+If no type files found: skip type-dependent checks, note in report.
+
+### 1c. Handler Inventory
+
+Glob for mock handler files in the frontend:
+
+- Primary pattern: `frontend/src/mocks/handlers/*.ts`
+- Fallback patterns: `frontend/src/mocks/*.ts`, `frontend/src/**/__mocks__/*.ts`
+
+For each file, use Grep to extract handler registrations:
+- MSW pattern: `http\.(get|post|put|patch|delete)\(['"]([^'"]+)['"]\`
+- Also look for EP-ID comments: `// EP-\d+` or `EP-\d+`
+- Record: file path, HTTP method, URL pattern, EP-ID (if commented)
+
+Count total handlers. Print summary:
+```
+HANDLERS: N files, M total handlers
+```
+
+### 1d. Backend Route Inventory
+
+Detect the backend routing pattern using framework auto-detection:
+
+```bash
+find "$WS_ROOT/backend" -name "*.js" -o -name "*.ts" | grep -E "(routes|controllers|api)" | grep -v node_modules | head -20
+```
+
+For each route file, use Grep to extract registered routes based on the detected framework pattern. Record: file path, HTTP method, URL pattern.
+
+Count total routes. Print summary:
+```
+ROUTES: N files, M total routes
+```
+
+### 1e. Frontend API Hook Inventory
+
+Glob for API hook files and API client calls in the frontend:
+
+- Patterns: `frontend/src/api/**/*.ts`, `frontend/src/hooks/**/*.ts`, `frontend/src/services/**/*.ts`
+
+For each file, use Grep to extract API call patterns:
+- `fetch\(['"]([^'"]+)['"]\`
+- `apiClient\.(get|post|put|patch|delete)\(['"]([^'"]+)['"]\`
+- `axios\.(get|post|put|patch|delete)\(['"]([^'"]+)['"]\`
+- React Query patterns: `useQuery`, `useMutation` with endpoint paths
+
+Print summary:
+```
+HOOKS: N files referencing API endpoints
+```
+
+---
+
+## Step 2: Contract Alignment Audit
+
+Weight: 30% of overall score. Start at 100, deduct per finding.
+
+### 2a. Manifest vs Types
+
+For each endpoint in the manifest that references a request or response type:
+1. Check if the referenced type name exists in the Type Inventory (1b)
+2. Flag if: type referenced but not found in any type file
+
+**Finding format:**
+```
+[CONTRACT-ALIGN] EP-XXX references type `FooRequest` but no export found in type files
+Severity: MEDIUM (-5)
+```
+
+### 2b. Manifest vs Handlers
+
+For each **MOCK** endpoint in the manifest:
+1. Check if a handler exists in the Handler Inventory (1c) with matching method + path
+2. Flag if: MOCK endpoint has no corresponding mock handler
+
+For each **LIVE** endpoint in the manifest:
+1. Check if a handler still exists (stale handler that should have been removed)
+2. Flag if: LIVE endpoint still has a mock handler — cleanup needed
+
+**Finding format:**
+```
+[CONTRACT-ALIGN] EP-XXX (MOCK) has no handler: POST /api/v1/foo
+Severity: HIGH (-10)
+
+[CONTRACT-ALIGN] EP-XXX (LIVE) still has mock handler — should be removed
+Severity: LOW (-3)
+```
+
+### 2c. Manifest vs Backend Routes
+
+For each **LIVE** endpoint in the manifest:
+1. Check if a matching route exists in the Backend Route Inventory (1d)
+2. Flag if: LIVE endpoint has no backend route (broken contract)
+
+For each backend route NOT in the manifest:
+1. Flag as undocumented route
+
+**Finding format:**
+```
+[CONTRACT-ALIGN] EP-XXX (LIVE) has no backend route: GET /api/v1/bar
+Severity: CRITICAL (-15)
+
+[CONTRACT-ALIGN] Undocumented backend route: DELETE /api/v1/baz (not in manifest)
+Severity: MEDIUM (-5)
+```
+
+### 2d. Types vs Handlers (shape drift)
+
+For each mock handler file:
+1. Check if it imports types from the type directory
+2. Flag if: handler returns hardcoded objects without importing corresponding types
+
+**Finding format:**
+```
+[CONTRACT-ALIGN] Handler appointments.ts returns mock data without importing Appointment type
+Severity: MEDIUM (-5) — shape drift risk
+```
+
+### 2e. Hooks vs Manifest
+
+For each API call detected in frontend hooks/API layer:
+1. Check if the called path exists in the manifest
+2. Flag if: frontend calls an endpoint not registered in the manifest
+
+**Finding format:**
+```
+[CONTRACT-ALIGN] Frontend calls GET /api/v1/unknown — not in manifest
+Severity: HIGH (-10) — undocumented dependency
+```
+
+### 2f. Orphan Detection
+
+Check for:
+- Types exported but not referenced by any manifest entry or handler
+- Handlers for paths not in the manifest
+- Manifest entries with status SKIP that have handlers or types
+
+**Finding format:**
+```
+[CONTRACT-ALIGN] Orphan type: LegacyFoo exported but never referenced
+Severity: LOW (-3)
+```
+
+**Print dimension summary:**
+```
+CONTRACT ALIGNMENT: NN/100 (X findings: C critical, H high, M medium, L low)
+```
+
+---
+
+## Step 3: Coverage Completeness Audit
+
+Weight: 25% of overall score. Start at 100, deduct per finding.
+
+### 3a. Backend Test Coverage
+
+Map test files to route/service files:
+
+```bash
+# List all test files
+find "$WS_ROOT/backend" -name "*.test.js" -o -name "*.test.ts" -o -name "*.spec.js" -o -name "*.spec.ts" | grep -v node_modules | sort
+```
+
+For each backend route file from inventory 1d:
+1. Check if a corresponding test file exists (by name matching or grep for the route path)
+2. Flag if: route file has no test coverage
+
+**Finding format:**
+```
+[COVERAGE] Backend route /api/v1/pharmacy has no test file
+Severity: MEDIUM (-5)
+```
+
+### 3b. Frontend Page-to-API Coverage
+
+Identify frontend pages/views that make API calls:
+
+Use Glob: `frontend/src/pages/**/*.tsx`, `frontend/src/components/**/*.tsx`, `frontend/src/views/**/*.tsx`
+
+For each page that imports from the API layer or calls data-fetching hooks:
+1. Check if a test file exists for that page
+2. Flag if: page makes API calls but has no test coverage
+
+**Finding format:**
+```
+[COVERAGE] Page PatientDetail.tsx calls 4 API endpoints but has no test file
+Severity: HIGH (-8)
+```
+
+### 3c. Handler Staleness
+
+For each mock handler:
+1. Verify imported types still exist (check against Type Inventory)
+2. Verify the endpoint path matches the manifest
+
+**Finding format:**
+```
+[COVERAGE] Stale handler: billing.ts imports InvoiceV1 which no longer exists
+Severity: MEDIUM (-5)
+```
+
+### 3d. E2E Gap Analysis
+
+Check for E2E test files:
+
+```bash
+find "$WS_ROOT/frontend" -name "*.spec.ts" -o -name "*.e2e.ts" -o -name "*.spec.tsx" | grep -v node_modules | wc -l
+```
+
+Identify critical user flows (based on high-priority endpoints in manifest) and check if any E2E tests cover them.
+
+**Finding format:**
+```
+[COVERAGE] 0 E2E test files found — no end-to-end coverage for critical flows
+Severity: HIGH (-15)
+
+[COVERAGE] Critical flow "user registration" has no E2E test
+Severity: MEDIUM (-5)
+```
+
+**Print dimension summary:**
+```
+COVERAGE COMPLETENESS: NN/100 (X findings)
+```
+
+---
+
+## Step 4: Spec Compliance Audit
+
+Weight: 20% of overall score. Start at 100, deduct per finding.
+
+### 4a. Spec Discovery
+
+Look for architecture spec files:
+
+```bash
+find "$WS_ROOT" -name "AGENTS.md" -path "*/.ai/*" | head -1
+find "$WS_ROOT" -path "*/.ai/specs/*" -name "*.md" | head -20
+```
+
+If no spec files found: skip this dimension entirely, note in report:
+"No architecture specs found — spec compliance audit skipped."
+
+### 4b. Constraint Verification
+
+For each spec file, extract key behavioral constraints (look for "MUST", "SHALL", "NEVER", "Requirements", "Constraints"):
+
+For each constraint:
+1. Grep the backend codebase for evidence of implementation
+2. Flag if: constraint has no implementation evidence
+
+**Finding format:**
+```
+[SPEC] ARCH-001 constraint "must include triage_summary" — no implementation evidence
+Severity: HIGH (-10)
+```
+
+### 4c. Changelog Freshness
+
+For each spec with a changelog section:
+1. Find the date of the last changelog entry
+2. Compare with recent git commits touching files in the spec's scope
+3. Flag if: code changed more recently than the changelog (>7 days gap)
+
+**Finding format:**
+```
+[SPEC] ARCH-003 changelog last updated 2026-02-15 but related code changed 2026-03-20
+Severity: LOW (-3)
+```
+
+**Print dimension summary:**
+```
+SPEC COMPLIANCE: NN/100 (X findings)
+```
+
+---
+
+## Step 5: Dependency Health Audit
+
+Weight: 15% of overall score. Start at 100, deduct per finding.
+
+### 5a. TypeScript Compilation Check
+
+If the frontend uses TypeScript:
+
+```bash
+cd "$WS_ROOT/frontend" && npx tsc --noEmit 2>&1 | head -50
+```
+
+Count errors. If tsc is not available, skip.
+
+**Finding format:**
+```
+[DEPS] TypeScript compilation: N errors found
+Severity: HIGH (-10 for first error, -2 per additional, max -30)
+```
+
+### 5b. Environment Variable Audit
+
+Scan both repos for env var references:
+
+```bash
+# Frontend
+grep -roh 'import\.meta\.env\.\w\+' "$WS_ROOT/frontend/src/" 2>/dev/null | sort -u
+grep -roh 'process\.env\.\w\+' "$WS_ROOT/frontend/src/" 2>/dev/null | sort -u
+# Backend
+grep -roh 'process\.env\.\w\+' "$WS_ROOT/backend/" --include="*.js" --include="*.ts" 2>/dev/null | sort -u | grep -v node_modules
+```
+
+Cross-reference against `.env.example` or `.env.template`. Flag vars in code but not in template.
+
+**Finding format:**
+```
+[DEPS] Env var ANALYTICS_KEY used in code but not in .env.example
+Severity: MEDIUM (-5)
+```
+
+### 5c. Dead Code Detection
+
+For each type in the Type Inventory:
+1. Grep the entire frontend for imports of that type
+2. Flag if: type exported but never imported anywhere
+
+**Finding format:**
+```
+[DEPS] Dead export: LegacyPatient from types/patients.ts — imported nowhere
+Severity: LOW (-3)
+```
+
+**Print dimension summary:**
+```
+DEPENDENCY HEALTH: NN/100 (X findings)
+```
+
+---
+
+## Step 6: Test Health
+
+Weight: 10% of overall score. Start at 100, deduct per finding.
+
+Run test suites and capture pass/fail counts. **Test failures should NOT fail the skill** — capture results and report them.
+
+### 6a. Backend Tests
+
+Detect and run available test scripts from `package.json`:
+
+```bash
+cd "$WS_ROOT/backend" && cat package.json | grep -o '"test[^"]*"' | head -10
+```
+
+Run each test script and parse output for pass/fail/skip counts.
+
+### 6b. Frontend Tests
+
+```bash
+cd "$WS_ROOT/frontend" && npm test 2>&1 | tail -20
+```
+
+### 6c. Scoring
+
+- 100% pass rate = 100
+- Each test failure = -5
+- Test suite won't run = -30
+- No test suite configured = -50
+
+**Print dimension summary:**
+```
+TEST HEALTH: NN/100
+  Backend: NN passed, NN failed, NN skipped
+  Frontend: NN passed, NN failed, NN skipped
+```
+
+---
+
+## Step 7: Score and Report
+
+### 7a. Compute Scores
+
+Calculate per-dimension scores (each clamped to 0-100):
+
+| Dimension | Weight |
+|-----------|--------|
+| Contract Alignment | 30% |
+| Coverage Completeness | 25% |
+| Spec Compliance | 20% |
+| Dependency Health | 15% |
+| Test Health | 10% |
+
+**Overall = sum(dimension_score * weight), rounded to nearest integer.**
+
+**Severity thresholds:**
+- 90-100: HEALTHY
+- 70-89: CONCERNS
+- 50-69: DEGRADED
+- 0-49: CRITICAL
+
+**Verdict:**
+- Overall >= 70: `INTEGRITY_PASSED`
+- Overall < 70: `INTEGRITY_FAILED`
+
+### 7b. Write Report
+
+Write the report to `INTEGRITY_REPORT.md` in the workspace root (or user-specified output path).
+
+**Report template:**
+
+```markdown
+# Integrity Report
+
+**Date:** YYYY-MM-DD HH:MM
+**Workspace:** /path/to/workspace
+**Frontend:** branch (commit hash)
+**Backend:** branch (commit hash)
+**Scope:** full | contracts | tests | specs | deps
+
+---
+
+## Overall Score: NN/100 — STATUS
+
+| Dimension | Score | Findings | Critical |
+|-----------|-------|----------|----------|
+| Contract Alignment | NN/100 | N | N |
+| Coverage Completeness | NN/100 | N | N |
+| Spec Compliance | NN/100 | N | N |
+| Dependency Health | NN/100 | N | N |
+| Test Health | NN/100 | N | N |
+| **Overall** | **NN/100** | **N** | **N** |
+
+## Verdict: INTEGRITY_PASSED / INTEGRITY_FAILED
+
+---
+
+## 1. Contract Alignment (NN/100)
+
+### Manifest vs Types
+| EP ID | Method | Path | Referenced Type | Status |
+|-------|--------|------|----------------|--------|
+
+### Manifest vs Handlers
+| EP ID | Manifest Status | Handler Exists? | Issue |
+|-------|----------------|-----------------|-------|
+
+### Manifest vs Backend Routes
+| EP ID | Manifest Status | Route Exists? | Issue |
+|-------|----------------|---------------|-------|
+
+### Shape Drift Risk
+| Handler File | Imports Types? | Risk |
+|-------------|---------------|------|
+
+### Orphans
+| Type | Location | Reason |
+|------|----------|--------|
+
+---
+
+## 2. Coverage Completeness (NN/100)
+
+### Untested Backend Routes
+| Route | File | Issue |
+|-------|------|-------|
+
+### Untested Frontend Pages
+| Page | API Calls | Issue |
+|------|-----------|-------|
+
+### E2E Coverage
+- E2E test files: N
+- Critical flows tested: N / M
+- Gap: [list of untested critical flows]
+
+---
+
+## 3. Spec Compliance (NN/100)
+
+### Unimplemented Constraints
+| Spec | Constraint | Evidence |
+|------|-----------|----------|
+
+### Stale Changelogs
+| Spec | Last Changelog | Last Code Change | Gap |
+|------|---------------|-----------------|-----|
+
+---
+
+## 4. Dependency Health (NN/100)
+
+### TypeScript Errors
+- Error count: N
+- [list first 10 errors]
+
+### Missing Environment Variables
+| Variable | Used In | Template Has It? |
+|----------|---------|-----------------|
+
+### Dead Code
+| Export/Handler | Location | Reason |
+|---------------|----------|--------|
+
+---
+
+## 5. Test Health (NN/100)
+
+| Suite | Passed | Failed | Skipped | Status |
+|-------|--------|--------|---------|--------|
+| Backend unit | N | N | N | PASS/FAIL |
+| Backend integration | N | N | N | PASS/FAIL |
+| Frontend unit | N | N | N | PASS/FAIL |
+| Frontend E2E | N | N | N | PASS/FAIL/NONE |
+
+---
+
+## Top 5 Issues to Fix
+
+1. **[SEVERITY]** Description — impact
+2. ...
+
+---
+
+## Baseline
+
+```json
+{
+  "date": "YYYY-MM-DD",
+  "overall": NN,
+  "dimensions": {
+    "contract_alignment": NN,
+    "coverage_completeness": NN,
+    "spec_compliance": NN,
+    "dependency_health": NN,
+    "test_health": NN
+  },
+  "findings": {
+    "critical": N,
+    "high": N,
+    "medium": N,
+    "low": N
+  }
+}
+```
+```
+
+### 7c. Regression Comparison
+
+If a previous `INTEGRITY_REPORT.md` exists, extract the baseline JSON and compare:
+- Overall score delta
+- Per-dimension score deltas
+- New findings vs fixed findings
+
+Append a regression section:
+```markdown
+## Regression (vs previous run)
+
+| Dimension | Previous | Current | Delta |
+|-----------|----------|---------|-------|
+| Overall | NN | NN | +/- N |
+
+### New Issues (N)
+- [list]
+
+### Fixed Since Last Run (N)
+- [list]
+```
+
+---
+
+## Scoped Runs
+
+When the user passes `--scope`, only run the relevant steps:
+
+| Scope | Steps | Time |
+|-------|-------|------|
+| `contracts` | 1 + 2 | ~30s |
+| `tests` | 6 | ~60s |
+| `specs` | 1d + 4 | ~30s |
+| `deps` | 1b + 5 | ~45s |
+| `full` (default) | All | ~3-5 min |
+
+For scoped runs, only compute and report the relevant dimension(s). The overall score only appears for `full` runs.
+
+---
+
+## Important Rules
+
+1. **Never fix bugs.** Find and document only. Do not edit source files.
+2. **Evidence everything.** Every finding must reference specific files or command output.
+3. **Score conservatively.** When in doubt, include at LOW severity rather than ignoring.
+4. **Don't block on test failures.** If a test suite won't run, note it and continue.
+5. **Respect scope.** If `--scope contracts` is specified, don't run test suites.
+6. **Cross-reference, don't assume.** A "missing" type might be re-exported from a barrel file. Verify before flagging.
+7. **Partial runs are useful.** `--scope contracts` takes 30 seconds and catches 80% of integration issues.
+8. **Write incrementally.** Build the report as you go through each step.
+9. **Baseline for regression.** Always include the JSON baseline — it enables tracking across runs.
+10. **Don't read test file content.** Map test files by name/path patterns, not by parsing source. Keeps the skill fast.
