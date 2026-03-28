@@ -857,7 +857,47 @@ This step subsumes the "Test Gaps" category from Pass 2 — do not duplicate fin
 
 ---
 
+## Step 4.9: Finding Validation Pass
+
+Before entering Fix-First, validate each finding from Steps 4, 4.5, and 4.75 to filter false positives. This is the precision gate — findings that survive are high-confidence.
+
+**Launch parallel validation subagents** for all CRITICAL findings from Step 4. Each subagent gets:
+- The finding description and the file:line cited
+- The PR/branch context (commit messages, stated intent from Step 1.5)
+- The relevant code context (not just the diff hunk — read surrounding code)
+
+Each validation subagent must independently confirm:
+1. The issue actually exists in the current code (not a misread of the diff)
+2. The issue is not already handled elsewhere (check for guards, validations, or constraints the reviewer missed)
+3. The issue is not a pre-existing condition (was it introduced by this branch?)
+
+**Classification after validation:**
+- **VALIDATED** — Subagent confirms the issue is real with evidence. Proceeds to Fix-First.
+- **REJECTED** — Subagent finds the issue does not exist or is already handled. Filtered out silently.
+- **UNCERTAIN** — Subagent cannot confirm or deny. Downgrade from CRITICAL to INFORMATIONAL and proceed to Fix-First with a note: "Unverified — flagged for manual review."
+
+**Rules:**
+- Use Opus subagents for SQL safety, race conditions, and security findings (highest stakes)
+- Use Sonnet subagents for CLAUDE.md compliance and informational findings (lower stakes)
+- INFORMATIONAL findings from Pass 2 skip validation (cost not justified) unless they involve data safety
+- Design review findings (Step 4.5) skip validation (visual/judgment-based, not verifiable by code reading)
+- Test coverage gaps (Step 4.75) skip validation (they are factual — the test either exists or it doesn't)
+
+**False positive checklist** (do NOT validate as real):
+- Pre-existing issues not introduced by this branch
+- Issues that appear buggy but are intentionally correct (check comments, commit messages)
+- Pedantic nitpicks a senior engineer would not flag
+- Issues a linter would catch (don't run linter to verify)
+- General code quality concerns unless explicitly required in CLAUDE.md
+- Issues mentioned in CLAUDE.md but explicitly silenced in code (e.g., lint ignore comments)
+
+**Output:** Update the finding list — remove REJECTED findings, downgrade UNCERTAIN ones. Proceed to Step 5 with the validated set.
+
+---
+
 ## Step 5: Fix-First Review
+
+**All CRITICAL findings entering this step have been validated by independent subagents (Step 4.9).** REJECTED findings are already filtered out. UNCERTAIN findings have been downgraded to INFORMATIONAL.
 
 **Every finding gets action — not just critical ones.**
 
@@ -1135,4 +1175,5 @@ If the review exits early before a real review completes (for example, no diff a
 - **Fix-first, not read-only.** AUTO-FIX items are applied directly. ASK items are only applied after user approval. Never commit, push, or create PRs — that's /ship's job.
 - **Be terse.** One line problem, one line fix. No preamble.
 - **Only flag real problems.** Skip anything that's fine.
+- **Validation-first:** CRITICAL findings must pass the Step 4.9 validation gate before Fix-First. False positives erode trust and waste reviewer time.
 - **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence. Never post vague replies.
