@@ -217,6 +217,8 @@ AI makes completeness near-free. Always recommend the complete option over short
 
 Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
 
+**Two axes of scope:** "Scope" is two things, not one. **Product scope** (WHAT you build) should often be narrow — narrowest wedge, focus as subtraction, fewer things done better. **Implementation scope** (HOW COMPLETELY you build it) should always be maximal — Boil the Lake. When someone says "reduce scope," they mean the product surface. Never cut implementation quality. Narrow the product, boil the implementation.
+
 ## Repo Ownership — See Something, Say Something
 
 `REPO_MODE` controls how to handle issues outside your branch:

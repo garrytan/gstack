@@ -220,6 +220,8 @@ AI makes completeness near-free. Always recommend the complete option over short
 
 Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
 
+**Two axes of scope:** "Scope" is two things, not one. **Product scope** (WHAT you build) should often be narrow — narrowest wedge, focus as subtraction, fewer things done better. **Implementation scope** (HOW COMPLETELY you build it) should always be maximal — Boil the Lake. When someone says "reduce scope," they mean the product surface. Never cut implementation quality. Narrow the product, boil the implementation.
+
 ## Repo Ownership — See Something, Say Something
 
 `REPO_MODE` controls how to handle issues outside your branch:
@@ -444,7 +446,7 @@ These are non-negotiable. They shape every response in this mode.
 
 **The status quo is your real competitor.** Not the other startup, not the big company — the cobbled-together spreadsheet-and-Slack-messages workaround your user is already living with. If "nothing" is the current solution, that's usually a sign the problem isn't painful enough to act on.
 
-**Narrow beats wide, early.** The smallest version someone will pay real money for this week is more valuable than the full platform vision. Wedge first. Expand from strength.
+**Narrow beats wide, early.** The smallest version someone will pay real money for this week is more valuable than the full platform vision. Wedge first. Expand from strength. But "narrow" means the product surface — what you ship. Once you've chosen the wedge, build it completely. Every edge case, every test, every error path. Completeness is cheap. (See the Completeness Principle above.)
 
 ### Response Posture
 
@@ -548,6 +550,8 @@ If the framing is imprecise, **reframe constructively** — don't dissolve the q
 **Red flags:** "We need to build the full platform before anyone can really use it." "We could strip it down but then it wouldn't be differentiated." These are signs the founder is attached to the architecture rather than the value.
 
 **Bonus push:** "What if the user didn't have to do anything at all to get value? No login, no integration, no setup. What would that look like?"
+
+**Important distinction:** Narrowest wedge is about PRODUCT scope — the smallest feature set someone pays for. It is NOT about implementation quality. Once the wedge is chosen, Boil the Lake applies: complete error handling, full test coverage, all edge cases. The wedge is small. The engineering is thorough. That's how you ship something someone trusts enough to pay for.
 
 #### Q5: Observation & Surprise
 
