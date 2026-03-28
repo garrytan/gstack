@@ -386,6 +386,20 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 **Priority:** P3
 **Depends on:** Browse sessions
 
+## Distribution
+
+### Homebrew tap
+
+**What:** Create a separate repo (`homebrew-gstack`) with a Homebrew formula so users can `brew tap garrytan/gstack && brew install gstack`.
+
+**Why:** Gold-standard dev tool distribution. Complements the curl-pipe-bash installer. Familiar install flow, automatic updates via `brew upgrade`, discoverable via Homebrew search.
+
+**Context:** The curl-pipe-bash installer (`install.sh`) ships first. The Homebrew formula would clone the repo + run `./setup`, similar to the installer. Needs a separate GitHub repo (`garrytan/homebrew-gstack`) with a `Formula/gstack.rb` file (~20 lines). Must be updated on each release.
+
+**Effort:** S (human: ~2h / CC: ~10 min)
+**Priority:** P2
+**Depends on:** install.sh shipping first
+
 ## Infrastructure
 
 ### /setup-gstack-upload skill (S3 bucket)

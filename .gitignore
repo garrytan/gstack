@@ -11,9 +11,10 @@ extension/.auth.json
 .gstack-worktrees/
 /tmp/
 *.log
+supabase/.temp/
+bun.lock
 *.bun-build
 .env
 .env.local
 .env.*
 !.env.example
-supabase/.temp/

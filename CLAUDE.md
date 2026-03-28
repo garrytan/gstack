@@ -103,6 +103,7 @@ gstack/
 ├── extension/       # Chrome extension (side panel + activity feed)
 ├── lib/             # Shared libraries (worktree.ts)
 ├── docs/designs/    # Design documents
+├── gstack-submit/   # /gstack-submit skill (showcase gallery submission)
 ├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
 ├── .github/         # CI workflows + Docker image
 │   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml

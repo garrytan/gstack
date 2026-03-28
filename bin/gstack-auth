@@ -1,0 +1,367 @@
+#!/usr/bin/env bash
+# gstack-auth — authenticate with gstack.gg
+#
+# Usage:
+#   gstack-auth                — device code flow (default: opens browser)
+#   gstack-auth otp [email]    — email OTP flow (fallback for SSH/headless)
+#   gstack-auth status         — show current auth status
+#   gstack-auth logout         — remove saved tokens
+#   gstack-auth change-email   — change your email address
+#
+# Default flow (device code, RFC 8628):
+#   1. CLI requests a device code from gstack.gg
+#   2. Browser opens → user signs in + approves
+#   3. CLI polls until approved → gets Supabase tokens
+#
+# Fallback (email OTP):
+#   Sends a 6-digit verification code to the user's email.
+#   User enters the code in the terminal to authenticate.
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR           — override ~/.gstack state directory
+#   GSTACK_DIR                 — override auto-detected gstack root
+#   GSTACK_WEB_URL             — override gstack.gg URL
+set -euo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+AUTH_FILE="$STATE_DIR/auth-token.json"
+
+# Source Supabase config
+if [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+SUPABASE_URL="${GSTACK_SUPABASE_URL:-}"
+ANON_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+WEB_URL="${GSTACK_WEB_URL:-https://gstack.gg}"
+
+if [ -z "$SUPABASE_URL" ] || [ -z "$ANON_KEY" ]; then
+  echo "Error: Supabase not configured. Check supabase/config.sh"
+  exit 1
+fi
+
+AUTH_URL="${SUPABASE_URL}/auth/v1"
+
+# ─── Helper: write auth token file ──────────────────────────
+save_token() {
+  local access_token="$1"
+  local refresh_token="$2"
+  local expires_in="$3"
+  local email="$4"
+  local user_id="$5"
+
+  local expires_at
+  expires_at=$(( $(date +%s) + expires_in ))
+
+  mkdir -p "$STATE_DIR"
+  cat > "$AUTH_FILE" <<TOKJSON
+{
+  "access_token": "${access_token}",
+  "refresh_token": "${refresh_token}",
+  "expires_at": ${expires_at},
+  "email": "${email}",
+  "user_id": "${user_id}"
+}
+TOKJSON
+  chmod 600 "$AUTH_FILE"
+}
+
+# ─── Helper: extract JSON field (using jq) ────────────────────
+json_field() {
+  local json="$1"
+  local field="$2"
+  echo "$json" | jq -r ".${field}" 2>/dev/null | sed 's/null//'
+}
+
+# ─── Subcommand: status ─────────────────────────────────────
+if [ "${1:-}" = "status" ]; then
+  if [ ! -f "$AUTH_FILE" ]; then
+    echo "Not authenticated. Run: gstack auth <email>"
+    exit 0
+  fi
+  AUTH_JSON="$(cat "$AUTH_FILE")"
+  EMAIL="$(json_field "$AUTH_JSON" "email")"
+  EXPIRES_AT="$(json_field "$AUTH_JSON" "expires_at")"
+  NOW="$(date +%s)"
+  if [ "$NOW" -lt "$EXPIRES_AT" ] 2>/dev/null; then
+    REMAINING=$(( (EXPIRES_AT - NOW) / 60 ))
+    echo "Authenticated as: $EMAIL"
+    echo "Token expires in: ${REMAINING}m"
+  else
+    echo "Authenticated as: $EMAIL (token expired — will auto-refresh)"
+  fi
+  exit 0
+fi
+
+# ─── Subcommand: logout ─────────────────────────────────────
+if [ "${1:-}" = "logout" ]; then
+  rm -f "$AUTH_FILE"
+  echo "Logged out. Auth token removed."
+  exit 0
+fi
+
+# ─── Subcommand: change-email ─────────────────────────────────
+if [ "${1:-}" = "change-email" ]; then
+  echo "To change your email, log out and re-authenticate:"
+  echo "  gstack-auth logout"
+  echo "  gstack-auth"
+  exit 0
+fi
+
+# ─── Device code flow (default) ──────────────────────────────
+# If no arguments, or first arg is not 'otp', use device code flow
+if [ "${1:-}" != "otp" ]; then
+
+  # Check if we can open a browser
+  CAN_OPEN=false
+  if command -v open >/dev/null 2>&1; then
+    CAN_OPEN=true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    CAN_OPEN=true
+  fi
+
+  if [ "$CAN_OPEN" = "false" ]; then
+    echo "No browser available — falling back to email OTP." >&2
+    echo "Run: gstack-auth otp [email]" >&2
+    # Fall through to OTP flow
+    set -- "otp" "${@}"
+  else
+    echo ""
+    echo "Requesting device code from gstack.gg..."
+
+    # Step 1: Request device code
+    DEVICE_RESPONSE="$(curl -s -w "\n%{http_code}" \
+      --max-time 15 \
+      -X POST "${WEB_URL}/api/auth/device" \
+      -H "Content-Type: application/json" \
+      2>/dev/null || echo -e "\n000")"
+
+    DEVICE_CODE_HTTP="$(echo "$DEVICE_RESPONSE" | tail -1)"
+    DEVICE_BODY="$(echo "$DEVICE_RESPONSE" | sed '$d')"
+
+    if [ "${DEVICE_CODE_HTTP}" != "200" ]; then
+      echo "Device auth unavailable (HTTP ${DEVICE_CODE_HTTP}). Falling back to email OTP." >&2
+      set -- "otp" "${@}"
+    else
+      DEVICE_CODE="$(json_field "$DEVICE_BODY" "device_code")"
+      DEVICE_SECRET="$(json_field "$DEVICE_BODY" "device_secret")"
+      USER_CODE="$(json_field "$DEVICE_BODY" "user_code")"
+      VERIFY_URL="$(json_field "$DEVICE_BODY" "verification_url")"
+
+      if [ -z "$DEVICE_CODE" ] || [ -z "$USER_CODE" ]; then
+        echo "Error: invalid device code response" >&2
+        set -- "otp" "${@}"
+      else
+        echo ""
+        echo "Your code: ${USER_CODE}"
+        echo ""
+        echo "Opening browser to approve..."
+        echo "If the browser doesn't open, visit: ${VERIFY_URL}"
+        echo ""
+
+        # Step 2: Open browser
+        if command -v open >/dev/null 2>&1; then
+          open "$VERIFY_URL" 2>/dev/null
+        elif command -v xdg-open >/dev/null 2>&1; then
+          xdg-open "$VERIFY_URL" 2>/dev/null
+        fi
+
+        # Step 3: Poll for approval (every 5s, max 2 minutes)
+        echo "Waiting for approval..."
+        POLL_COUNT=0
+        MAX_POLLS=24  # 24 * 5s = 2 minutes
+
+        while [ "$POLL_COUNT" -lt "$MAX_POLLS" ]; do
+          sleep 5
+          POLL_COUNT=$((POLL_COUNT + 1))
+
+          POLL_RESPONSE="$(curl -s -w "\n%{http_code}" \
+            --max-time 10 \
+            -X POST "${WEB_URL}/api/auth/device/token" \
+            -H "Content-Type: application/json" \
+            -d "{\"device_code\":\"${DEVICE_CODE}\",\"device_secret\":\"${DEVICE_SECRET}\"}" \
+            2>/dev/null || echo -e "\n000")"
+
+          POLL_HTTP="$(echo "$POLL_RESPONSE" | tail -1)"
+          POLL_BODY="$(echo "$POLL_RESPONSE" | sed '$d')"
+
+          case "$POLL_HTTP" in
+            200)
+              # Approved! Extract tokens
+              ACCESS_TOKEN="$(json_field "$POLL_BODY" "access_token")"
+              REFRESH_TOKEN="$(json_field "$POLL_BODY" "refresh_token")"
+              EXPIRES_IN="$(json_field "$POLL_BODY" "expires_in")"
+              USER_ID="$(json_field "$POLL_BODY" "user_id")"
+              EMAIL="$(json_field "$POLL_BODY" "email")"
+
+              if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "null" ]; then
+                echo "Error: approved but no token in response" >&2
+                exit 1
+              fi
+
+              save_token "$ACCESS_TOKEN" "$REFRESH_TOKEN" "${EXPIRES_IN:-3600}" "${EMAIL:-}" "${USER_ID:-}"
+
+              if [ -n "$EMAIL" ]; then
+                "$GSTACK_DIR/bin/gstack-config" set email "$EMAIL" 2>/dev/null || true
+              fi
+
+              echo ""
+              echo "Authenticated${EMAIL:+ as: $EMAIL}"
+              echo "Token saved to: ${AUTH_FILE}"
+              exit 0
+              ;;
+            202)
+              # Still pending — keep polling
+              printf "\r  Waiting... (%ds)" "$((POLL_COUNT * 5))"
+              ;;
+            403)
+              echo ""
+              echo "Error: invalid device secret (403). Try again." >&2
+              exit 1
+              ;;
+            410)
+              echo ""
+              echo "Device code expired. Run gstack-auth again." >&2
+              exit 1
+              ;;
+            *)
+              # Keep trying on transient errors
+              ;;
+          esac
+        done
+
+        echo ""
+        echo "Timed out waiting for approval (2 minutes)." >&2
+        echo "Run gstack-auth again to get a new code." >&2
+        exit 1
+      fi
+    fi
+  fi
+fi
+
+# ─── OTP flow (fallback) ────────────────────────────────────
+# Strip the "otp" subcommand if present
+if [ "${1:-}" = "otp" ]; then
+  shift
+fi
+
+EMAIL="${1:-}"
+if [ -z "$EMAIL" ]; then
+  printf "Enter your email: "
+  read -r EMAIL
+fi
+
+if [ -z "$EMAIL" ]; then
+  echo "Error: email is required"
+  exit 1
+fi
+
+if ! echo "$EMAIL" | grep -qE '^[^@]+@[^@]+\.[^@]+$'; then
+  echo "Error: invalid email format"
+  exit 1
+fi
+
+# ─── Step 1: Send OTP ────────────────────────────────────────
+echo ""
+echo "Sending verification code to ${EMAIL}..."
+
+OTP_BODY="{\"email\":\"${EMAIL}\"}"
+
+HTTP_RESPONSE="$(curl -s -w "\n%{http_code}" \
+  -X POST "${AUTH_URL}/otp" \
+  -H "Content-Type: application/json" \
+  -H "apikey: ${ANON_KEY}" \
+  -d "$OTP_BODY" 2>/dev/null || echo -e "\n000")"
+
+HTTP_CODE="$(echo "$HTTP_RESPONSE" | tail -1)"
+HTTP_BODY="$(echo "$HTTP_RESPONSE" | sed '$d')"
+
+case "$HTTP_CODE" in
+  2*)
+    ;; # success
+  429)
+    if echo "$HTTP_BODY" | grep -q "email_send_rate_limit"; then
+      echo ""
+      echo "Email rate limit exceeded (Supabase free tier: ~3 emails/hour)."
+      echo "Try again in a few minutes, or set up custom SMTP in the Supabase"
+      echo "dashboard for unlimited sends."
+      exit 1
+    fi
+    echo "Cooldown active — waiting 60s before retrying..."
+    for i in $(seq 60 -1 1); do
+      printf "\r  Retrying in %2ds..." "$i"
+      sleep 1
+    done
+    printf "\r                      \r"
+    echo "Retrying..."
+    HTTP_RESPONSE="$(curl -s -w "\n%{http_code}" \
+      -X POST "${AUTH_URL}/otp" \
+      -H "Content-Type: application/json" \
+      -H "apikey: ${ANON_KEY}" \
+      -d "$OTP_BODY" 2>/dev/null || echo -e "\n000")"
+    HTTP_CODE="$(echo "$HTTP_RESPONSE" | tail -1)"
+    HTTP_BODY="$(echo "$HTTP_RESPONSE" | sed '$d')"
+    case "$HTTP_CODE" in
+      2*) ;; # success on retry
+      *) echo "Error sending OTP (HTTP ${HTTP_CODE}): ${HTTP_BODY}"; exit 1 ;;
+    esac
+    ;;
+  *)
+    echo "Error sending OTP (HTTP ${HTTP_CODE}): ${HTTP_BODY}"
+    exit 1
+    ;;
+esac
+
+echo ""
+echo "Check your email for a 6-digit code."
+echo ""
+
+# ─── Step 2: Read OTP code ───────────────────────────────────
+printf "Enter code: "
+read -r OTP_CODE
+
+if [ -z "$OTP_CODE" ]; then
+  echo "No code entered."
+  exit 1
+fi
+
+# ─── Step 3: Verify OTP ─────────────────────────────────────
+OTP_CODE="$(echo "$OTP_CODE" | tr -d '[:space:]')"
+
+if ! echo "$OTP_CODE" | grep -qE '^[0-9]{6}$'; then
+  echo "Error: code must be exactly 6 digits"
+  exit 1
+fi
+
+VERIFY_RESPONSE="$(curl -s \
+  -X POST "${AUTH_URL}/verify" \
+  -H "Content-Type: application/json" \
+  -H "apikey: ${ANON_KEY}" \
+  -d "{\"email\":\"${EMAIL}\",\"token\":\"${OTP_CODE}\",\"type\":\"email\"}" \
+  2>/dev/null || echo "{}")"
+
+ACCESS_TOKEN="$(json_field "$VERIFY_RESPONSE" "access_token")"
+REFRESH_TOKEN="$(json_field "$VERIFY_RESPONSE" "refresh_token")"
+EXPIRES_IN="$(json_field "$VERIFY_RESPONSE" "expires_in")"
+USER_ID="$(json_field "$VERIFY_RESPONSE" "id" 2>/dev/null || true)"
+
+if [ -z "$USER_ID" ]; then
+  USER_ID="$(echo "$VERIFY_RESPONSE" | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//')"
+fi
+
+if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "null" ]; then
+  ERROR_MSG="$(json_field "$VERIFY_RESPONSE" "error_description" 2>/dev/null || json_field "$VERIFY_RESPONSE" "msg" 2>/dev/null || echo "unknown error")"
+  echo ""
+  echo "Verification failed: $ERROR_MSG"
+  echo "Check the code and try again."
+  exit 1
+fi
+
+save_token "$ACCESS_TOKEN" "$REFRESH_TOKEN" "${EXPIRES_IN:-3600}" "$EMAIL" "$USER_ID"
+
+# ─── Step 4: Save email to config ────────────────────────────
+"$GSTACK_DIR/bin/gstack-config" set email "$EMAIL"
+
+echo ""
+echo "Authenticated as: ${EMAIL}"
+echo "Token saved to: ${AUTH_FILE}"

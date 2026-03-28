@@ -576,3 +576,10 @@ if [ ! -f "$HOME/.gstack/.welcome-seen" ]; then
   touch "$HOME/.gstack/.welcome-seen"
 fi
 rm -f /tmp/gstack-latest-version
+
+# 9. Install ping (best-effort, non-blocking)
+# Fires update-check with --force to register this install in Supabase.
+# Sends only: version, OS, random UUID. No usage data.
+if [ -x "$SOURCE_GSTACK_DIR/bin/gstack-update-check" ]; then
+  "$SOURCE_GSTACK_DIR/bin/gstack-update-check" --force 2>/dev/null &
+fi

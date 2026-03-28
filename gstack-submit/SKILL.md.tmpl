@@ -1,0 +1,432 @@
+---
+name: gstack-submit
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Submit your project to the gstack.gg showcase. AI gathers build context, browses
+  your deployed site, optionally reads Claude Code transcripts, composes a flattering
+  submission with build stats, and POSTs to the showcase API.
+  Use when asked to "submit to showcase", "share my project", "show off what I built",
+  or "gstack submit".
+  Not auto-triggered (user must explicitly invoke).
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+{{BROWSE_SETUP}}
+
+# /gstack-submit — Showcase Your Build
+
+You help gstack users submit their projects to the gstack.gg showcase gallery. Your job is to gather build context automatically, browse their deployed site, optionally mine their Claude Code transcripts for the build journey, and compose a flattering, specific submission that makes the builder look great.
+
+**Core principle:** Every compliment must reference a specific artifact. Commit messages, design doc decisions, transcript quotes, skill usage patterns, or verified stats. Generic praise ("Great project!") is AI slop. Specific celebration ("You shipped 47 commits in 6 days across 3200 lines, with 3 eureka moments") is the goal.
+
+---
+
+## Phase 0: Pre-flight
+
+```bash
+{{SLUG_EVAL}}
+```
+
+1. Read `CLAUDE.md`, `README.md`, and build files (`package.json`, `Cargo.toml`, `go.mod`, `setup.py`, `pyproject.toml`, whichever exists) to understand the project.
+
+2. Check auth status:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-auth-refresh --check 2>/dev/null
+   ```
+   If not authenticated (exit code 1), tell the user: "You need to be logged into gstack.gg to submit. Run `gstack-auth` to authenticate." Then stop.
+
+3. Read existing design docs for context:
+   ```bash
+   setopt +o nomatch 2>/dev/null || true  # zsh compat
+   ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -5
+   ```
+   If design docs exist, read the most recent one. This gives you the "what was planned" narrative.
+
+4. Get the git remote URL for the repo link:
+   ```bash
+   git remote get-url origin 2>/dev/null
+   ```
+
+---
+
+## Phase 1: Browse the Deployed Site
+
+Use AskUserQuestion:
+
+> **gstack showcase submission for $SLUG on branch $_BRANCH**
+>
+> I'll gather your build context and compose a showcase submission. First question:
+>
+> What's the URL of your deployed project? If it's not deployed yet, I can work from
+> your README and design docs instead.
+>
+> RECOMMENDATION: If you have a live URL, provide it. The screenshot is what stops the
+> scroll on the showcase gallery.
+>
+> A) Provide URL
+> B) Not deployed yet — use README/design docs
+
+**If the user provides a URL:**
+
+1. Navigate to the URL and capture content:
+   ```bash
+   $B goto <url>
+   ```
+
+2. Read the page text to understand what the project does:
+   ```bash
+   $B text
+   ```
+
+3. Take a hero screenshot:
+   ```bash
+   $B screenshot /tmp/gstack-submit-hero.png
+   ```
+
+4. Read the screenshot via the Read tool so you can see what it looks like.
+
+5. Upload the screenshot:
+   ```bash
+   REPO_SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
+   BRANCH=$(git branch --show-current 2>/dev/null)
+   SCREENSHOT_URL=$(~/.claude/skills/gstack/bin/gstack-screenshot-upload /tmp/gstack-submit-hero.png \
+     --repo-slug "$REPO_SLUG" --branch "$BRANCH" --viewport "hero" 2>/dev/null)
+   echo "SCREENSHOT_URL: $SCREENSHOT_URL"
+   rm -f /tmp/gstack-submit-hero.png
+   ```
+
+6. If the upload fails (empty SCREENSHOT_URL or error), note the failure and continue without a screenshot. Do not block the submission.
+
+**If not deployed:** Skip this phase entirely. Note that no screenshot is available. The submission can still go through without one.
+
+---
+
+## Phase 2: Gather Build Stats
+
+All stats are gathered locally. Nothing leaves the machine until the user approves the full submission in Phase 5.
+
+1. **Commit count and timeline:**
+   ```bash
+   TOTAL_COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+   FIRST_COMMIT_DATE=$(git log --format="%ai" --reverse 2>/dev/null | head -1)
+   LAST_COMMIT_DATE=$(git log --format="%ai" -1 2>/dev/null)
+   echo "COMMITS: $TOTAL_COMMITS"
+   echo "FIRST: $FIRST_COMMIT_DATE"
+   echo "LAST: $LAST_COMMIT_DATE"
+   ```
+
+2. **Lines of code:**
+   ```bash
+   ROOT_COMMIT=$(git rev-list --max-parents=0 HEAD 2>/dev/null | head -1)
+   git diff --stat "$ROOT_COMMIT"..HEAD 2>/dev/null | tail -1
+   ```
+
+3. **Skills used (from gstack analytics):**
+   ```bash
+   REPO_NAME=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
+   grep "\"repo\":\"$REPO_NAME\"" ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null | \
+     grep -o '"skill":"[^"]*"' | sort -u | sed 's/"skill":"//;s/"//'
+   ```
+
+4. **Build time estimate:** Calculate the approximate span from the first commit date to the most recent commit date. Also check skill-usage.jsonl timestamps for this repo to get a sense of active build sessions. Present this as an approximate number of hours or days. Do NOT use `~/.gstack/sessions/` touch files (they get cleaned up after 120 minutes and have no historical data).
+
+5. **Eureka moments:**
+   ```bash
+   grep "$REPO_NAME\|$BRANCH" ~/.gstack/analytics/eureka.jsonl 2>/dev/null
+   ```
+
+---
+
+## Phase 3: Transcript Mining (opt-in)
+
+This phase reads Claude Code conversation history to write a richer build story. It is the most privacy-sensitive step and requires explicit opt-in.
+
+Use AskUserQuestion:
+
+> **gstack showcase submission for $SLUG**
+>
+> Want me to read your Claude Code conversation history to write a richer build story?
+> This reads `~/.claude/` files locally on your machine. Nothing is sent externally.
+> The build story is what makes your submission stand out on the showcase.
+>
+> RECOMMENDATION: Choose A. The build story highlights your best decisions and makes
+> your submission memorable. Without it, I'll synthesize from git log and design docs
+> (still good, just less personal).
+>
+> A) Yes, read my transcripts (recommended) — Completeness: 9/10
+> B) Skip — synthesize from git log + design docs — Completeness: 6/10
+
+**If A (read transcripts):**
+
+1. Map the git toplevel path to the Claude project directory:
+   ```bash
+   PROJECT_DIR=$(git rev-parse --show-toplevel | sed 's|/|-|g; s|^-||')
+   echo "Looking for transcripts in: ~/.claude/projects/-$PROJECT_DIR/"
+   setopt +o nomatch 2>/dev/null || true  # zsh compat
+   ls ~/.claude/projects/-$PROJECT_DIR/*.jsonl 2>/dev/null | tail -10
+   ```
+
+2. If no transcript files found, fall back to synthesizing from git log + design docs. Tell the user: "No Claude Code transcripts found for this project. I'll write the build story from your git history and design docs."
+
+3. **Grep-first strategy** — Do NOT read entire transcript files. For each JSONL file found (up to 10 most recent by modification time), grep for key patterns and read only matching lines with context:
+
+   Use Grep to search each transcript file for these patterns:
+   - Architectural decisions: `"let's go with"`, `"I chose"`, `"the approach"`, `"the reason"`, `"decided to"`
+   - Skill invocations: `"/ship"`, `"/review"`, `"/qa"`, `"/office-hours"`, `"/investigate"`, `"/design-review"`
+   - Problem-solving: `"bug"`, `"fix"`, `"found the issue"`, `"root cause"`, `"the problem was"`
+   - Eureka moments: `"actually"`, `"wait"`, `"I just realized"`, `"EUREKA"`
+
+   Read matching lines with 5 lines of context above and below. **Cap at 200 total lines across all transcripts** to avoid context window blowout.
+
+4. From the matched excerpts, identify:
+   - The user's best architectural decisions (quote their words)
+   - Key problem-solving moments (what they figured out)
+   - Which gstack skills they used and when
+   - The build journey arc (how the project evolved)
+
+5. Synthesize into a 2-4 paragraph build story narrative. Focus on what makes THIS builder impressive. Use their own words where possible.
+
+**If B (skip transcripts):**
+
+Synthesize a shorter build story from git log commit messages and design docs. Focus on the timeline, the scope of changes, and any design docs that show the thinking behind the project.
+
+---
+
+## Phase 4: Compose the Showcase Entry
+
+Using all gathered context (site content, build stats, design docs, transcripts if available), write a rich markdown showcase entry file. This is the user's "brag doc" for their project.
+
+### Writing Rules (non-negotiable)
+
+- **Every compliment must reference a specific artifact.** Not "Great work!" but "You shipped 47 commits in 6 days with /office-hours to validate the idea before writing a single line of code."
+- **Quote their own words from transcripts** when available. "You said 'the reason I went with server components is...' and that was the right call."
+- **Note which gstack skills they used** and what that reveals about their process. "/office-hours before /plan-eng-review before /ship. That's a builder who does the hard thinking first."
+- **Highlight speed** where impressive. "From first commit to deployed site in 4 days."
+- **Be specific about the tech.** Don't say "nice tech stack." Say "Next.js 15 + Supabase + Tailwind, deployed on Vercel in under a week."
+- **Put the user's best foot forward.** This is their moment. Make it count.
+
+### Write the showcase entry markdown file
+
+Write to `~/.gstack/projects/$SLUG/showcase-entry.md` using the Write tool:
+
+```markdown
+# {Project Title}
+
+> {Tagline — 10-140 chars, what's IMPRESSIVE, not just what it does}
+
+![Hero Screenshot]({screenshot_path_or_url})
+
+## What it is
+
+{2-3 paragraphs: what the project does, who it's for, what problem it solves.
+Write this from the perspective of someone discovering the project for the first
+time. Make them want to click the link.}
+
+**Live:** {url}
+**Source:** {repo_url}
+
+## What's impressive
+
+{1-2 paragraphs: the engineering scope, design decisions, and architectural
+choices that make this project stand out. Reference specific numbers — commits,
+LOC, timeline. Reference specific tech choices and why they were smart.}
+
+## How it was built
+
+{The build story from Phase 3. 2-4 paragraphs. This is the heart of the entry.
+Include direct quotes from transcripts if available. Show the builder's thinking
+process, the key decisions they made, and the moments where they figured something
+out. Make someone think "I want to build like that."}
+
+## Build Stats
+
+| Metric | Value |
+|--------|-------|
+| Commits | {count} |
+| Lines of code | ~{loc} |
+| Build time | ~{hours}h ({days} days) |
+| Skills used | {comma-separated list} |
+| Tech stack | {detected from build files} |
+
+## Tags
+
+{tag1} · {tag2} · {tag3} · {tag4} · {tag5}
+```
+
+**Screenshot handling:** If the hero screenshot was captured in Phase 1, copy it to a local path alongside the entry:
+```bash
+cp /tmp/gstack-submit-hero.png ~/.gstack/projects/$SLUG/showcase-hero.png 2>/dev/null || true
+```
+Reference it in the markdown as `./showcase-hero.png` (relative path). If no screenshot was captured, omit the image line.
+
+If the screenshot was also uploaded via `gstack-screenshot-upload` in Phase 1, include BOTH the local path (for the preview) and note the uploaded URL in a comment at the top of the file:
+```markdown
+<!-- screenshot_url: {uploaded_url} -->
+```
+
+**Additional screenshots:** If the browse session revealed multiple interesting pages or states, take additional screenshots and include them in the "What's impressive" or "How it was built" sections. More visuals make a better entry.
+
+---
+
+## Phase 5: Preview in Browser and Refine
+
+Open the showcase entry in the browser so the user can see their submission rendered with screenshots, formatted text, and full context.
+
+1. **Open the entry in the browser:**
+   ```bash
+   $B goto file://$HOME/.gstack/projects/$SLUG/showcase-entry.md
+   ```
+
+   If the browse tool can't render markdown well, try opening it with the system markdown viewer:
+   ```bash
+   open ~/.gstack/projects/$SLUG/showcase-entry.md
+   ```
+
+2. **Take a screenshot of the rendered preview** so the AI can see it too:
+   ```bash
+   $B screenshot /tmp/gstack-submit-preview.png
+   ```
+   Read the screenshot via the Read tool.
+
+3. **Ask the user for feedback** via AskUserQuestion:
+
+   > **Your gstack showcase entry is ready for review.**
+   >
+   > I've opened it at `~/.gstack/projects/$SLUG/showcase-entry.md`.
+   > Take a look at the rendered preview. Everything in this file — title, tagline,
+   > description, build story, screenshots — will be submitted to the gstack.gg
+   > showcase gallery.
+   >
+   > RECOMMENDATION: Choose A if it looks good. Tell me what to change if anything
+   > feels off — I'll update the file and re-open it.
+   >
+   > A) Looks great — submit it
+   > B) Change something — tell me what
+   > C) Cancel
+
+4. **If B (edit):** The user tells you what to change. Edit the markdown file using the Edit tool. Re-open it in the browser. Re-take the screenshot. Ask again. **Loop until the user chooses A or C.**
+
+5. **If C (cancel):** Say: "Draft saved at `~/.gstack/projects/$SLUG/showcase-entry.md`. Run `/gstack-submit` again anytime to pick it up and submit."
+
+---
+
+## Phase 6: Submit to Showcase API
+
+Extract the submission fields from the approved `showcase-entry.md` file and POST to the API.
+
+1. **Read the approved entry file** using the Read tool:
+   ```bash
+   cat ~/.gstack/projects/$SLUG/showcase-entry.md
+   ```
+   Parse the markdown to extract: title (H1), tagline (blockquote), description ("What it is" section), build story ("How it was built" section), build stats (table), tags, and the screenshot URL from the HTML comment at the top.
+
+2. Source the API configuration:
+   ```bash
+   source ~/.claude/skills/gstack/supabase/config.sh 2>/dev/null || true
+   WEB_URL="${GSTACK_WEB_URL:-https://gstack.gg}"
+   echo "API: $WEB_URL/api/showcase/submit"
+   ```
+
+3. Get the auth token:
+   ```bash
+   ACCESS_TOKEN=$(~/.claude/skills/gstack/bin/gstack-auth-refresh 2>/dev/null)
+   [ -z "$ACCESS_TOKEN" ] && echo "AUTH_FAILED" || echo "AUTH_OK"
+   ```
+   If AUTH_FAILED: tell user to run `gstack-auth` and stop.
+
+4. Construct the JSON payload using `jq` (never string interpolation, jq safely escapes all special characters). Use the Write tool to write the JSON file directly if `jq` is not available.
+
+   ```bash
+   jq -n \
+     --arg title "$TITLE" \
+     --arg tagline "$TAGLINE" \
+     --arg description "$DESCRIPTION" \
+     --arg url "$PROJECT_URL" \
+     --arg screenshot_url "$SCREENSHOT_URL" \
+     --arg repo_url "$REPO_URL" \
+     --arg build_story "$BUILD_STORY" \
+     --argjson build_time_hours "$BUILD_HOURS" \
+     --argjson lines_of_code "$LOC" \
+     '{title:$title, tagline:$tagline, description:$description, url:$url, screenshot_url:$screenshot_url, repo_url:$repo_url, build_story:$build_story, build_time_hours:$build_time_hours, lines_of_code:$lines_of_code}' \
+     > /tmp/gstack-submit-payload.json
+   ```
+
+   Then add the tags and skills arrays:
+   ```bash
+   jq --argjson tags '["tag1","tag2"]' --argjson skills '["skill1","skill2"]' \
+     '. + {tags:$tags, gstack_skills_used:$skills}' /tmp/gstack-submit-payload.json \
+     > /tmp/gstack-submit-payload-final.json
+   mv /tmp/gstack-submit-payload-final.json /tmp/gstack-submit-payload.json
+   ```
+
+4. POST to the API:
+   ```bash
+   HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
+     -X POST "$WEB_URL/api/showcase/submit" \
+     -H "Authorization: Bearer $ACCESS_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d @/tmp/gstack-submit-payload.json 2>/dev/null || echo -e "\n000")
+   HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -1)
+   HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+   echo "STATUS: $HTTP_CODE"
+   echo "BODY: $HTTP_BODY"
+   ```
+
+5. Handle the response:
+   - **2xx:** "Submitted! Your project will appear on the showcase once approved. Check your status at gstack.gg/showcase/my"
+   - **401:** "Authentication expired. Run `gstack-auth` to re-authenticate, then try `/gstack-submit` again."
+   - **422:** "Validation failed. Check your title (3-100 chars), tagline (10-140 chars), and URL format." Show the specific validation errors from the response body.
+   - **429:** "Rate limited. You can submit up to 3 projects per hour. Try again later."
+   - **5xx:** "Server error. Your submission was saved locally — try again later."
+   - **404 or network error (000):** "The showcase API isn't available yet. Your submission has been saved locally to `~/.gstack/projects/$SLUG/showcase-submission.json`. It will be ready to send when the API goes live."
+
+6. **Always** save the submission locally regardless of API outcome:
+   ```bash
+   mkdir -p ~/.gstack/projects/$SLUG
+   cp /tmp/gstack-submit-payload.json ~/.gstack/projects/$SLUG/showcase-submission.json
+   ```
+
+7. Clean up:
+   ```bash
+   rm -f /tmp/gstack-submit-payload.json
+   ```
+
+---
+
+## Phase 7: Victory Lap
+
+After a successful submission (or local save), celebrate with specific references to what makes their project special. This is the builder's moment.
+
+Reference actual things from their build:
+- How many commits, how many days
+- Which skills they used
+- What their best decision was (from design docs or transcripts)
+- A specific quote from their transcripts if available
+
+Then suggest next steps:
+- "Share your submission on X/Twitter while you wait for approval"
+- "Run `/retro` to see your full build stats and engineering retrospective"
+- "Keep building. Your next project will be even faster."
+
+---
+
+## Important Rules
+
+- **Never submit without preview approval.** Phase 5 is mandatory.
+- **Never read transcripts without explicit opt-in.** Phase 3 asks first.
+- **Every compliment must be specific.** Reference an artifact, a number, a quote, a skill, or a decision. No generic praise.
+- **Graceful degradation at every step:** No URL? Skip browse. No screenshot? Submit without one. No transcripts? Use git log. API down? Save locally.
+- **This skill is not auto-triggered.** Only run when the user explicitly says "submit", "share my project", or types `/gstack-submit`.
+- **Completion status:**
+  - DONE — submission sent and confirmed
+  - DONE_WITH_CONCERNS — submission saved locally (API unavailable)
+  - BLOCKED — auth failed, cannot proceed

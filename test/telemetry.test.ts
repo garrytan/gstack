@@ -72,31 +72,94 @@ describe('gstack-telemetry-log', () => {
     expect(readJsonl()).toHaveLength(0);
   });
 
-  test('includes installation_id for community tier', () => {
+  test('includes install_fingerprint for community tier (UUID)', () => {
     setConfig('telemetry', 'community');
     run(`${BIN}/gstack-telemetry-log --skill review --duration 100 --outcome success --session-id comm-123`);
 
     const events = parseJsonl();
     expect(events).toHaveLength(1);
-    // installation_id should be a UUID v4 (or hex fallback)
-    expect(events[0].installation_id).toMatch(/^[a-f0-9-]{32,36}$/);
+    // install_fingerprint should be a UUID v4 (or hex fallback)
+    expect(events[0].install_fingerprint).toMatch(/^[a-f0-9-]{32,36}$/);
+
   });
 
-  test('installation_id is null for anonymous tier', () => {
+  test('includes install_fingerprint for anonymous tier (not null — UUID is not PII)', () => {
     setConfig('telemetry', 'anonymous');
     run(`${BIN}/gstack-telemetry-log --skill qa --duration 50 --outcome success --session-id anon-123`);
 
     const events = parseJsonl();
-    expect(events[0].installation_id).toBeNull();
+    // All tiers now get install_fingerprint (random UUID, not PII)
+    expect(events[0].install_fingerprint).toMatch(/^[a-f0-9-]{36}$/);
   });
 
-  test('includes error_class when provided', () => {
+  test('source field defaults to live', () => {
     setConfig('telemetry', 'anonymous');
-    run(`${BIN}/gstack-telemetry-log --skill browse --duration 10 --outcome error --error-class timeout --session-id err-123`);
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 50 --outcome success --session-id src-123`);
+
+    const events = parseJsonl();
+    expect(events[0].source).toBe('live');
+  });
+
+  test('--source flag overrides default', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 50 --outcome success --source test --session-id src-456`);
+
+    const events = parseJsonl();
+    expect(events[0].source).toBe('test');
+  });
+
+  test('GSTACK_TELEMETRY_SOURCE env sets source', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`GSTACK_TELEMETRY_SOURCE=test ${BIN}/gstack-telemetry-log --skill qa --duration 50 --outcome success --session-id src-789`);
+
+    const events = parseJsonl();
+    expect(events[0].source).toBe('test');
+  });
+
+  test('duration > 86400 is capped to null', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 100000 --outcome success --session-id dur-123`);
+
+    const events = parseJsonl();
+    expect(events[0].duration_s).toBeNull();
+  });
+
+  test('negative duration is capped to null', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration -5 --outcome success --session-id dur-456`);
+
+    const events = parseJsonl();
+    expect(events[0].duration_s).toBeNull();
+  });
+
+  test('install_fingerprint persists across runs', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id fp-1`);
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 20 --outcome success --session-id fp-2`);
+
+    const events = parseJsonl();
+    expect(events).toHaveLength(2);
+    expect(events[0].install_fingerprint).toBe(events[1].install_fingerprint);
+  });
+
+  test('includes error_class, error_message, and failed_step when provided', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill browse --duration 10 --outcome error --error-class timeout --error-message "request timed out after 30s" --failed-step "goto_page" --session-id err-123`);
 
     const events = parseJsonl();
     expect(events[0].error_class).toBe('timeout');
+    expect(events[0].error_message).toBe('request timed out after 30s');
+    expect(events[0].failed_step).toBe('goto_page');
     expect(events[0].outcome).toBe('error');
+  });
+
+  test('truncates long error messages', () => {
+    setConfig('telemetry', 'anonymous');
+    const longMsg = 'a'.repeat(300);
+    run(`${BIN}/gstack-telemetry-log --skill qa --outcome error --error-message "${longMsg}" --session-id trunc-123`);
+
+    const events = parseJsonl();
+    expect(events[0].error_message).toHaveLength(200);
   });
 
   test('handles missing duration gracefully', () => {

@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# gstack-community-benchmarks — compare your stats to the community
+#
+# Fetches community benchmarks and compares against local analytics.
+# Shows side-by-side: your average vs community median per skill.
+#
+# Usage:
+#   gstack-community-benchmarks          — show comparison
+#   gstack-community-benchmarks --json   — output as JSON
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR           — override ~/.gstack state directory
+#   GSTACK_DIR                 — override auto-detected gstack root
+set -uo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+ANALYTICS_DIR="$STATE_DIR/analytics"
+JSONL_FILE="$ANALYTICS_DIR/skill-usage.jsonl"
+
+# Source Supabase config
+if [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+SUPABASE_URL="${GSTACK_SUPABASE_URL:-}"
+ANON_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+ENDPOINT="${GSTACK_TELEMETRY_ENDPOINT:-}"
+
+JSON_MODE=false
+[ "${1:-}" = "--json" ] && JSON_MODE=true
+
+# ─── Fetch community benchmarks ─────────────────────────────
+echo "gstack benchmarks"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+BENCHMARKS=""
+if [ -n "$SUPABASE_URL" ] && [ -n "$ANON_KEY" ]; then
+  # Try edge function first
+  BENCHMARKS="$(curl -sf --max-time 10 \
+    "${SUPABASE_URL}/functions/v1/community-benchmarks" \
+    -H "Authorization: Bearer ${ANON_KEY}" \
+    2>/dev/null || true)"
+
+  # Fall back to direct table query
+  if [ -z "$BENCHMARKS" ] || [ "$BENCHMARKS" = "[]" ]; then
+    BENCHMARKS="$(curl -sf --max-time 10 \
+      "${ENDPOINT}/community_benchmarks?select=skill,median_duration_s,total_runs,success_rate&order=total_runs.desc&limit=15" \
+      -H "apikey: ${ANON_KEY}" \
+      -H "Authorization: Bearer ${ANON_KEY}" \
+      2>/dev/null || echo "[]")"
+  fi
+fi
+
+# ─── Compute local stats ────────────────────────────────────
+if [ ! -f "$JSONL_FILE" ]; then
+  echo "No local analytics data. Use gstack skills to generate data."
+  exit 0
+fi
+
+# Compute per-skill average duration from local JSONL
+# Extract skill and duration, filter out nulls
+echo "  Skill              You (avg)    Community     vs."
+echo "  ─────────────────  ─────────    ──────────    ────────"
+
+# Get unique skills from local data
+LOCAL_SKILLS="$(grep -o '"skill":"[^"]*"' "$JSONL_FILE" 2>/dev/null | awk -F'"' '{print $4}' | sort -u)"
+
+while IFS= read -r SKILL; do
+  [ -z "$SKILL" ] && continue
+  # Skip internal/meta skills
+  case "$SKILL" in _*|test-*) continue ;; esac
+
+  # Local: average duration in seconds
+  LOCAL_AVG="$(grep "\"skill\":\"${SKILL}\"" "$JSONL_FILE" 2>/dev/null | \
+    grep -o '"duration_s":[0-9]*' | awk -F: '{sum+=$2; n++} END {if(n>0) printf "%.0f", sum/n; else print "0"}')"
+
+  LOCAL_COUNT="$(grep -c "\"skill\":\"${SKILL}\"" "$JSONL_FILE" 2>/dev/null || echo "0")"
+
+  # Format duration
+  if [ "$LOCAL_AVG" -ge 60 ] 2>/dev/null; then
+    LOCAL_FMT="$(( LOCAL_AVG / 60 ))m $(( LOCAL_AVG % 60 ))s"
+  else
+    LOCAL_FMT="${LOCAL_AVG:-0}s"
+  fi
+
+  # Community: find matching skill in benchmarks
+  COMM_MEDIAN=""
+  COMM_FMT="--"
+  DELTA=""
+  if [ -n "$BENCHMARKS" ] && [ "$BENCHMARKS" != "[]" ]; then
+    COMM_MEDIAN="$(echo "$BENCHMARKS" | grep -o "\"skill\":\"${SKILL}\"[^}]*\"median_duration_s\":[0-9.]*" | \
+      grep -o '"median_duration_s":[0-9.]*' | head -1 | awk -F: '{printf "%.0f", $2}')"
+
+    if [ -n "$COMM_MEDIAN" ] && [ "$COMM_MEDIAN" -gt 0 ] 2>/dev/null; then
+      if [ "$COMM_MEDIAN" -ge 60 ] 2>/dev/null; then
+        COMM_FMT="$(( COMM_MEDIAN / 60 ))m $(( COMM_MEDIAN % 60 ))s"
+      else
+        COMM_FMT="${COMM_MEDIAN}s"
+      fi
+
+      # Compute delta percentage
+      if [ "$LOCAL_AVG" -gt 0 ] 2>/dev/null && [ "$COMM_MEDIAN" -gt 0 ] 2>/dev/null; then
+        DIFF=$(( (LOCAL_AVG - COMM_MEDIAN) * 100 / COMM_MEDIAN ))
+        if [ "$DIFF" -gt 5 ] 2>/dev/null; then
+          DELTA="+${DIFF}% slower"
+        elif [ "$DIFF" -lt -5 ] 2>/dev/null; then
+          DELTA="$(( -DIFF ))% faster"
+        else
+          DELTA="~same"
+        fi
+      fi
+    fi
+  fi
+
+  printf "  /%-17s  %-10s   %-12s  %s\n" "$SKILL" "$LOCAL_FMT" "$COMM_FMT" "${DELTA:-}"
+
+done <<< "$LOCAL_SKILLS"
+
+echo ""
+echo "Your runs: $(wc -l < "$JSONL_FILE" | tr -d ' ') total events"
+echo "Community benchmarks refresh hourly."

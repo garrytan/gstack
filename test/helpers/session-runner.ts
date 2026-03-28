@@ -169,10 +169,16 @@ export async function runSkillTest(options: {
   const promptFile = path.join(os.tmpdir(), `.prompt-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   fs.writeFileSync(promptFile, prompt);
 
+  // Isolate telemetry: E2E tests use a temp state dir so they don't pollute
+  // production telemetry with test events (e.g. fake timeout crashes).
+  const testStateDir = path.join(os.tmpdir(), `gstack-e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  fs.mkdirSync(testStateDir, { recursive: true });
+
   const proc = Bun.spawn(['sh', '-c', `cat "${promptFile}" | claude ${args.map(a => `"${a}"`).join(' ')}`], {
     cwd: workingDirectory,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: { ...process.env, GSTACK_STATE_DIR: testStateDir, GSTACK_TELEMETRY_SOURCE: 'test' },
   });
 
   // Race against timeout

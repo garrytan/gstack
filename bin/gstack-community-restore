@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# gstack-community-restore — restore gstack state from cloud backup
+#
+# Requires community tier + valid auth token.
+# Restores: config, analytics summary, retro history.
+# Local config values take precedence on conflicts.
+#
+# Usage:
+#   gstack-community-restore           — restore from backup
+#   gstack-community-restore --dry-run — show what would be restored
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR           — override ~/.gstack state directory
+#   GSTACK_DIR                 — override auto-detected gstack root
+set -euo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+CONFIG_FILE="$STATE_DIR/config.yaml"
+ANALYTICS_DIR="$STATE_DIR/analytics"
+JSONL_FILE="$ANALYTICS_DIR/skill-usage.jsonl"
+AUTH_REFRESH="$GSTACK_DIR/bin/gstack-auth-refresh"
+
+# Source Supabase config
+if [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+ENDPOINT="${GSTACK_TELEMETRY_ENDPOINT:-}"
+ANON_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+
+DRY_RUN=false
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=true
+
+# ─── Pre-checks ─────────────────────────────────────────────
+if ! "$AUTH_REFRESH" --check 2>/dev/null; then
+  echo "Not authenticated. Run: gstack auth <email>"
+  exit 1
+fi
+
+ACCESS_TOKEN="$("$AUTH_REFRESH" 2>/dev/null)"
+if [ -z "$ACCESS_TOKEN" ]; then
+  echo "Failed to get auth token. Run: gstack auth <email>"
+  exit 1
+fi
+
+AUTH_JSON="$(cat "$STATE_DIR/auth-token.json" 2>/dev/null || echo "{}")"
+USER_ID="$(echo "$AUTH_JSON" | grep -o '"user_id":"[^"]*"' | head -1 | sed 's/"user_id":"//;s/"//')"
+
+if [ -z "$USER_ID" ]; then
+  echo "No user_id in auth token. Run: gstack auth <email>"
+  exit 1
+fi
+
+# ─── Fetch backup from Supabase ──────────────────────────────
+echo "Fetching backup..."
+
+BACKUP="$(curl -s --max-time 15 \
+  "${ENDPOINT}/installations?installation_id=eq.${USER_ID}&select=config_snapshot,analytics_snapshot,retro_history,last_backup_at,email" \
+  -H "apikey: ${ANON_KEY}" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  2>/dev/null || echo "[]")"
+
+# Check if we got data
+if [ "$BACKUP" = "[]" ] || [ -z "$BACKUP" ]; then
+  echo "No backup found for your account."
+  echo "Run gstack for a while and backup will happen automatically."
+  exit 0
+fi
+
+# Extract first result (strip array brackets)
+BACKUP="$(echo "$BACKUP" | sed 's/^\[//;s/\]$//')"
+
+LAST_BACKUP="$(echo "$BACKUP" | grep -o '"last_backup_at":"[^"]*"' | head -1 | sed 's/"last_backup_at":"//;s/"//')"
+echo "Last backup: ${LAST_BACKUP:-unknown}"
+echo ""
+
+# ─── Restore config ─────────────────────────────────────────
+CONFIG_DATA="$(echo "$BACKUP" | grep -o '"config_snapshot":{[^}]*}' | sed 's/"config_snapshot"://' || true)"
+
+if [ -n "$CONFIG_DATA" ] && [ "$CONFIG_DATA" != "null" ] && [ "$CONFIG_DATA" != "{}" ]; then
+  echo "Config snapshot found:"
+  # Extract key-value pairs from JSON
+  KEYS="$(echo "$CONFIG_DATA" | grep -o '"[^"]*":"[^"]*"' | sed 's/"//g')"
+
+  while IFS=: read -r KEY VALUE; do
+    [ -z "$KEY" ] && continue
+    EXISTING="$("$GSTACK_DIR/bin/gstack-config" get "$KEY" 2>/dev/null || true)"
+    if [ -n "$EXISTING" ]; then
+      echo "  $KEY: $EXISTING (keeping local value, backup had: $VALUE)"
+    else
+      echo "  $KEY: $VALUE (restoring from backup)"
+      if [ "$DRY_RUN" = "false" ]; then
+        "$GSTACK_DIR/bin/gstack-config" set "$KEY" "$VALUE"
+      fi
+    fi
+  done <<< "$KEYS"
+  echo ""
+fi
+
+# ─── Restore analytics summary ──────────────────────────────
+ANALYTICS_DATA="$(echo "$BACKUP" | grep -o '"analytics_snapshot":{[^}]*}' | sed 's/"analytics_snapshot"://' || true)"
+
+if [ -n "$ANALYTICS_DATA" ] && [ "$ANALYTICS_DATA" != "null" ] && [ "$ANALYTICS_DATA" != "{}" ]; then
+  echo "Analytics summary found in backup."
+  if [ -f "$JSONL_FILE" ]; then
+    LOCAL_LINES="$(wc -l < "$JSONL_FILE" | tr -d ' ')"
+    echo "  Local analytics: ${LOCAL_LINES} events (keeping local data)"
+  else
+    echo "  No local analytics found."
+    if [ "$DRY_RUN" = "false" ]; then
+      mkdir -p "$ANALYTICS_DIR"
+      # Extract recent_events array and write as JSONL
+      echo "$ANALYTICS_DATA" | jq -r '.recent_events[] | tojson' > "$JSONL_FILE" 2>/dev/null
+      echo "  Restored $(wc -l < "$JSONL_FILE" | tr -d ' ') recent events from backup."
+    fi
+  fi
+  echo ""
+fi
+
+# ─── Restore retro history ──────────────────────────────────
+RETRO_DATA="$(echo "$BACKUP" | grep -o '"retro_history":\[.*\]' | sed 's/"retro_history"://' || true)"
+
+if [ -n "$RETRO_DATA" ] && [ "$RETRO_DATA" != "null" ] && [ "$RETRO_DATA" != "[]" ]; then
+  echo "Retro history found in backup."
+  if [ "$DRY_RUN" = "false" ]; then
+    # Merge: each retro in the array is a JSON object. Write as retro-restored-N.json
+    echo "$RETRO_DATA" | jq -c '.[]' | while read -r RETRO; do
+      [ -z "$RETRO" ] && continue
+      TS="$(echo "$RETRO" | jq -r .ts 2>/dev/null | tr -d ':-')"
+      [ -z "$TS" ] && TS="$(date +%s)"
+      RNAME="retro-restored-${TS}-$RANDOM.json"
+      echo "$RETRO" > "$STATE_DIR/$RNAME"
+    done
+    echo "  Retro history merged with local data ($(echo "$RETRO_DATA" | jq 'length') entries restored)."
+  fi
+  echo ""
+fi
+
+if [ "$DRY_RUN" = "true" ]; then
+  echo "(dry run — no changes made)"
+else
+  echo "Restore complete."
+fi

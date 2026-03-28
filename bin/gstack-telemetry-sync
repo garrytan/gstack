@@ -84,11 +84,6 @@ while IFS= read -r LINE; do
     -e 's/,"_branch":"[^"]*"//g' \
     -e 's/,"repo":"[^"]*"//g')"
 
-  # If anonymous tier, strip installation_id
-  if [ "$TIER" = "anonymous" ]; then
-    CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
-  fi
-
   if [ "$FIRST" = "true" ]; then
     FIRST=false
   else

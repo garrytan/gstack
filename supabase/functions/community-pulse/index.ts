@@ -41,13 +41,15 @@ Deno.serve(async () => {
     // Weekly active (update checks this week)
     const { count: thisWeek } = await supabase
       .from("update_checks")
-      .select("*", { count: "exact", head: true })
+      .select("install_fingerprint")
+      .eq("source", "live")
       .gte("checked_at", weekAgo);
 
     // Last week (for change %)
     const { count: lastWeek } = await supabase
       .from("update_checks")
-      .select("*", { count: "exact", head: true })
+      .select("install_fingerprint")
+      .eq("source", "live")
       .gte("checked_at", twoWeeksAgo)
       .lt("checked_at", weekAgo);
 

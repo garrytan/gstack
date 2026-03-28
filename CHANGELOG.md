@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.14.0.0] - 2026-03-27 — Community Mode + /gstack-submit
+
+You can now submit your projects to the gstack.gg showcase gallery. Run `/gstack-submit` in any project and the AI gathers your build context (git stats, design docs, skills used), browses your deployed site for hero screenshots, optionally reads your Claude Code transcripts for the build story, writes a rich markdown showcase entry, opens it in your browser for review, and submits to gstack.gg when you're ready.
+
+This release also adds the community infrastructure that powers the showcase: device code auth (sign into gstack.gg from the CLI with one browser click), PR screenshot uploads with watermarking, and privacy controls for every piece of data that leaves your machine.
+
+### Added
+
+- **`/gstack-submit` skill.** 7-phase showcase submission workflow: pre-flight, browse site, gather stats, transcript mining (opt-in), compose entry, browser preview with edit loop, API submit with local fallback.
+- **Transcript mining.** Grep-first strategy reads Claude Code conversation history for architectural decisions, skill usage, and eureka moments. Caps at 200 lines. Explicit opt-in required.
+- **Device code auth** (`gstack-auth`). RFC 8628 flow: CLI shows a code, browser opens, you approve, CLI gets tokens. Email OTP fallback for headless/SSH.
+- **PR screenshots** in `/ship`. Frontend changes automatically get before/after screenshots uploaded to gstack.gg with watermark proxy URLs in the PR body.
+- **Screenshot upload CLI** (`gstack-screenshot-upload`). Handles compression (sips/ImageMagick), auth refresh, and error codes.
+- **Community tier infrastructure.** Backup/restore, benchmarks, recommendations edge functions, community dashboard.
+- **One-liner installer** (`curl -fsSL https://gstack.gg/install | bash`).
+- **PRIVACY.md.** Covers telemetry tiers, screenshots, auth, showcase submissions, transcript reading, data retention, and your rights. Updated with showcase section.
+
+### Fixed
+
+- **zsh glob compatibility.** 38 instances of unsafe glob patterns across 13 templates now use `find` or `setopt +o nomatch` guards.
+- **Telemetry data integrity.** Source tagging, UUID fingerprint, duration guards, error context fields.
+- **Supabase security lockdown.** RLS tightened, edge functions validate schema, source=live filtering.
+
 ## [0.13.3.0] - 2026-03-28 — Lock It Down
 
 Six fixes from community PRs and bug reports. The big one: your dependency tree is now pinned. Every `bun install` resolves the exact same versions, every time. No more floating ranges pulling fresh packages from npm on every setup.
