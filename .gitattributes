@@ -1,0 +1,17 @@
+# Store and checkout text as LF (cross-platform; matches web/TS conventions).
+* text=auto eol=lf
+
+# Binary — never apply line-ending conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.wasm binary
+*.zip binary
