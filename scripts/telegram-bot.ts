@@ -177,7 +177,7 @@ function extractBrief(stdout: string): string {
 }
 
 type MarkSixCache = { ts: number; text: string };
-let marksixCache: MarkSixCache | null = null;
+const marksixCache = new Map<number, MarkSixCache>();
 const MARKSIX_CACHE_TTL_MS = 60_000;
 
 type MarkSixDraw = { id: string; date: string; numbers: number[]; special: number };
@@ -241,6 +241,49 @@ function formatMarkSixReport(draws: MarkSixDraw[], windowSize: number): string {
     .sort((a, b) => a[1] - b[1] || a[0] - b[0])
     .slice(0, 8);
 
+  const lastSeen = new Map<number, number>();
+  window.forEach((d, idx) => {
+    for (const n of d.numbers) {
+      if (!lastSeen.has(n)) lastSeen.set(n, idx);
+    }
+  });
+  const overdue = Array.from({ length: 49 }, (_, i) => i + 1)
+    .map((n) => ({ n, miss: lastSeen.has(n) ? (lastSeen.get(n) as number) : window.length }))
+    .sort((a, b) => b.miss - a.miss || a.n - b.n)
+    .slice(0, 10);
+
+  let odd = 0;
+  let even = 0;
+  let small = 0;
+  let big = 0;
+  for (const d of window) {
+    for (const n of d.numbers) {
+      if (n % 2 === 0) even += 1;
+      else odd += 1;
+      if (n >= 25) big += 1;
+      else small += 1;
+    }
+  }
+  const totalBalls = Math.max(1, odd + even);
+
+  const pairCounts = new Map<string, number>();
+  for (const d of window) {
+    const ns = [...d.numbers].sort((a, b) => a - b);
+    for (let i = 0; i < ns.length; i++) {
+      for (let j = i + 1; j < ns.length; j++) {
+        const key = `${ns[i]}-${ns[j]}`;
+        pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+      }
+    }
+  }
+  const hotPairs = Array.from(pairCounts.entries())
+    .map(([k, c]) => {
+      const [a, b] = k.split("-").map((x) => Number(x));
+      return { a, b, c };
+    })
+    .sort((x, y) => y.c - x.c || x.a - y.a || x.b - y.b)
+    .slice(0, 10);
+
   const lines: string[] = [];
   lines.push("🎰 香港六合彩 (Mark Six) 數據分析");
   lines.push(`📌 數據來源: ${url}`);
@@ -263,20 +306,39 @@ function formatMarkSixReport(draws: MarkSixDraw[], windowSize: number): string {
     lines.push(`${markSixBall(n)} - 出現 ${c} 次`);
   }
   lines.push("");
+  lines.push("⏳ 遺漏值 (最久未出 Top 10):");
+  for (const r of overdue) {
+    lines.push(`${markSixBall(r.n)} - 未出 ${r.miss} 期`);
+  }
+  lines.push("");
+  lines.push("⚖️ 奇偶 / 大小 比例 (最近 " + window.length + " 期):");
+  lines.push(
+    `奇: ${odd} (${((odd / totalBalls) * 100).toFixed(1)}%) | 偶: ${even} (${((even / totalBalls) * 100).toFixed(1)}%)`,
+  );
+  lines.push(
+    `小(01-24): ${small} (${((small / totalBalls) * 100).toFixed(1)}%) | 大(25-49): ${big} (${((big / totalBalls) * 100).toFixed(1)}%)`,
+  );
+  lines.push("");
+  lines.push("🎯 波膽 (熱門組合 Top 10):");
+  for (const p of hotPairs) {
+    lines.push(`${markSixBall(p.a)} ${markSixBall(p.b)} - 出現 ${p.c} 次`);
+  }
+  lines.push("");
   lines.push(`Generated: ${new Date().toISOString()}`);
   return lines.join("\n");
 }
 
 async function fetchMarkSixReport(windowSize: number): Promise<string> {
   const now = Date.now();
-  if (marksixCache && now - marksixCache.ts <= MARKSIX_CACHE_TTL_MS) return marksixCache.text;
+  const cached = marksixCache.get(windowSize);
+  if (cached && now - cached.ts <= MARKSIX_CACHE_TTL_MS) return cached.text;
 
   const url = "https://lottery.hk/en/mark-six/results/";
   const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
   const html = await res.text();
   const draws = extractMarkSixDrawsFromHtml(html, Math.max(60, windowSize));
   const out = formatMarkSixReport(draws, windowSize);
-  marksixCache = { ts: now, text: out };
+  marksixCache.set(windowSize, { ts: now, text: out });
   return out;
 }
 
