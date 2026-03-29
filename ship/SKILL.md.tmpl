@@ -228,6 +228,29 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 ---
 
+## Step 3.48: Secrets Scan Gate
+
+Scan the branch diff and commit history for hardcoded secrets before code lands.
+
+Read the secrets-scan skill from disk:
+
+```bash
+cat ${CLAUDE_SKILL_DIR}/../secrets-scan/SKILL.md
+```
+
+**If unreadable:** Skip with "Could not load /secrets-scan — skipping secrets gate." and continue to Step 3.5.
+
+Follow the `/secrets-scan` workflow with these modifications:
+- **Skip the preamble** (already handled by /ship)
+- **Skip telemetry** (already handled by /ship)
+- **Use Phase 6 gate logic** to determine whether to block or continue
+
+Include a `## Secrets Scan` section in the PR body (Step 8):
+- CLEAR: "Secrets scan: CLEAR — {N} files, {M} commits scanned."
+- Findings: "Secrets scan: {N} finding(s) — see override log."
+
+---
+
 ## Step 3.5: Pre-Landing Review
 
 Review the diff for structural issues that tests don't catch.
