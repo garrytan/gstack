@@ -1153,6 +1153,98 @@ describe('BENEFITS_FROM resolver', () => {
     expect(ceoContent).toContain('office-hours/SKILL.md');
     expect(engContent).toContain('office-hours/SKILL.md');
   });
+
+  test('BENEFITS_FROM delegates to INVOKE_SKILL pattern', () => {
+    // Should contain the INVOKE_SKILL-style loading prose (not the old manual skip list)
+    expect(engContent).toContain('Follow its instructions from top to bottom');
+    expect(engContent).toContain('skipping these sections');
+    expect(ceoContent).toContain('Follow its instructions from top to bottom');
+  });
+});
+
+// --- {{INVOKE_SKILL}} resolver tests ---
+
+describe('INVOKE_SKILL resolver', () => {
+  const ceoContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
+
+  test('plan-ceo-review uses INVOKE_SKILL for mid-session office-hours fallback', () => {
+    // The mid-session detection path should use INVOKE_SKILL-generated prose
+    expect(ceoContent).toContain('office-hours/SKILL.md');
+    expect(ceoContent).toContain('Follow its instructions from top to bottom');
+  });
+
+  test('INVOKE_SKILL output includes default skip list', () => {
+    expect(ceoContent).toContain('Preamble (run first)');
+    expect(ceoContent).toContain('Telemetry (run last)');
+    expect(ceoContent).toContain('AskUserQuestion Format');
+  });
+
+  test('INVOKE_SKILL output includes error handling', () => {
+    expect(ceoContent).toContain('If unreadable');
+    expect(ceoContent).toContain('Could not load');
+  });
+
+  test('template uses {{INVOKE_SKILL:office-hours}} placeholder', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md.tmpl'), 'utf-8');
+    expect(tmpl).toContain('{{INVOKE_SKILL:office-hours}}');
+  });
+});
+
+// --- {{CHANGELOG_WORKFLOW}} resolver tests ---
+
+describe('CHANGELOG_WORKFLOW resolver', () => {
+  const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('ship SKILL.md contains changelog workflow', () => {
+    expect(shipContent).toContain('CHANGELOG (auto-generate)');
+    expect(shipContent).toContain('git log <base>..HEAD --oneline');
+  });
+
+  test('changelog workflow includes cross-check step', () => {
+    expect(shipContent).toContain('Cross-check');
+    expect(shipContent).toContain('Every commit must map to at least one bullet point');
+  });
+
+  test('changelog workflow includes voice guidance', () => {
+    expect(shipContent).toContain('Lead with what the user can now **do**');
+  });
+
+  test('template uses {{CHANGELOG_WORKFLOW}} placeholder', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
+    expect(tmpl).toContain('{{CHANGELOG_WORKFLOW}}');
+    // Should NOT contain the old inline changelog content
+    expect(tmpl).not.toContain('Group commits by theme');
+  });
+
+  test('changelog workflow includes keep-changelog format', () => {
+    expect(shipContent).toContain('### Added');
+    expect(shipContent).toContain('### Fixed');
+  });
+});
+
+// --- Parameterized resolver infrastructure tests ---
+
+describe('parameterized resolver support', () => {
+  test('gen-skill-docs regex handles colon-separated args', () => {
+    // Verify the template containing {{INVOKE_SKILL:office-hours}} was processed
+    // without leaving unresolved placeholders
+    const ceoContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
+    expect(ceoContent).not.toMatch(/\{\{INVOKE_SKILL:[^}]+\}\}/);
+  });
+
+  test('templates with parameterized resolvers pass unresolved check', () => {
+    // All generated SKILL.md files should have no unresolved {{...}} placeholders
+    const skillDirs = fs.readdirSync(ROOT).filter(d =>
+      fs.existsSync(path.join(ROOT, d, 'SKILL.md'))
+    );
+    for (const dir of skillDirs) {
+      const content = fs.readFileSync(path.join(ROOT, dir, 'SKILL.md'), 'utf-8');
+      const unresolved = content.match(/\{\{[A-Z_]+(?::[^}]*)?\}\}/g);
+      if (unresolved) {
+        throw new Error(`${dir}/SKILL.md has unresolved placeholders: ${unresolved.join(', ')}`);
+      }
+    }
+  });
 });
 
 // --- {{DESIGN_OUTSIDE_VOICES}} resolver tests ---
