@@ -152,6 +152,7 @@ function buildHelpMenu() {
         { text: "7️⃣ 宏觀 (Macro)", callback_data: "M|MACRO" },
         { text: "8️⃣ 操作建議", callback_data: "M|ACTION" },
       ],
+      [{ text: "🆔 /whoami 取得 Chat ID", callback_data: "M|WHOAMI" }],
       [{ text: "✖️ 取消/清除等待", callback_data: "M|CANCEL" }],
     ],
   };
@@ -1606,6 +1607,13 @@ export default {
       if (sel === "ACTION") {
         await setPending(chatId, null);
         const body = await handle(chatId, "/action", env);
+        ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+        return new Response("OK", { status: 200 });
+      }
+
+      if (sel === "WHOAMI") {
+        await setPending(chatId, null);
+        const body = await handle(chatId, "/whoami", env);
         ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
         return new Response("OK", { status: 200 });
       }
