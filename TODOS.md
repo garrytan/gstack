@@ -1,5 +1,19 @@
 # TODOS
 
+## Sidebar Security
+
+### ML Prompt Injection Classifier
+
+**What:** Add DeBERTa-v3-base-prompt-injection-v2 via @huggingface/transformers v4 (WASM backend) as an ML defense layer for the Chrome sidebar. Reusable `browse/src/security.ts` module with `checkInjection()` API. Includes canary tokens, attack logging, shield icon, special telemetry (AskUserQuestion on detection even when telemetry off), and BrowseSafe-bench red team test harness (3,680 adversarial cases from Perplexity).
+
+**Why:** PR 1 fixes the architecture (command allowlist, XML framing, Opus default). But attackers can still trick Claude into navigating to phishing sites or exfiltrating visible page data via allowed browse commands. The ML classifier catches prompt injection patterns that architectural controls can't see. 94.8% accuracy, 99.6% recall, ~50-100ms inference via WASM. Defense-in-depth.
+
+**Context:** Full design doc with industry research, open source tool landscape, Codex review findings, and ambitious Bun-native vision (5ms inference via FFI + Apple Accelerate): [`docs/designs/ML_PROMPT_INJECTION_KILLER.md`](docs/designs/ML_PROMPT_INJECTION_KILLER.md). CEO plan with scope decisions: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-28-sidebar-prompt-injection-defense.md`.
+
+**Effort:** L (human: ~2 weeks / CC: ~3-4 hours)
+**Priority:** P0
+**Depends on:** Sidebar security fix PR (command allowlist + XML framing + arg fix) landing first
+
 ## Builder Ethos
 
 ### First-time Search Before Building intro
@@ -631,6 +645,40 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Effort:** M (all 6 combined)
 **Priority:** P3
 **Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
+
+## Factory Droid
+
+### Browse MCP server for Factory Droid
+
+**What:** Expose gstack's browse binary and key workflows as an MCP server that Factory Droid connects to natively. Factory users would run /mcp, add the gstack server, and get browse, QA, and review capabilities as Factory tools.
+
+**Why:** Factory already supports 40+ MCP servers in its registry. Getting gstack's browse binary listed there is a distribution play. Nobody else has a real compiled browser binary as an MCP tool. This is the thing that makes gstack uniquely valuable on Factory Droid.
+
+**Context:** Option A (--host factory compatibility shim) ships first in v0.13.4.0. Option B is the follow-up that provides deeper integration. The browse binary is already a stateless CLI, so wrapping it as an MCP server is straightforward (stdin/stdout JSON-RPC). Each browse command becomes an MCP tool.
+
+**Effort:** L (human: ~1 week / CC: ~5 hours)
+**Priority:** P1
+**Depends on:** --host factory (Option A, shipping in v0.13.4.0)
+
+### .agent/skills/ dual output for cross-agent compatibility
+
+**What:** Factory also reads from `<repo>/.agent/skills/` as a cross-agent compatibility path. Could output there in addition to `.factory/skills/` for broader reach across other agents that use the `.agent` convention.
+
+**Why:** Multiple AI agents beyond Factory may adopt the `.agent/skills/` convention. Outputting there too would give free compatibility.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** --host factory
+
+### Custom Droid definitions alongside skills
+
+**What:** Factory has "custom droids" (subagents with tool restrictions, model selection, autonomy levels). Could ship `gstack-qa.md` droid configs alongside skills that restrict tools to read-only + execute for safety.
+
+**Why:** Deeper Factory integration. Droid configs give Factory users tighter control over what gstack skills can do.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** --host factory
 
 ## Completed
 

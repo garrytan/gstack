@@ -159,8 +159,9 @@ async function askClaude(queueEntry: any): Promise<void> {
   await sendEvent({ type: 'agent_start' });
 
   return new Promise((resolve) => {
-    // Build args fresh — don't trust --resume from queue (session may be stale)
-    let claudeArgs = ['-p', prompt, '--output-format', 'stream-json', '--verbose',
+    // Use args from queue entry (server sets --model, --allowedTools, prompt framing).
+    // Fall back to defaults only if queue entry has no args (backward compat).
+    let claudeArgs = args || ['-p', prompt, '--output-format', 'stream-json', '--verbose',
       '--allowedTools', 'Bash,Read,Glob,Grep'];
 
     // Validate cwd exists — queue may reference a stale worktree

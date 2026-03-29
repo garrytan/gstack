@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gstack-platform-detect: show which AI coding agents are installed and gstack status
+printf "%-16s %-10s %-40s %s\n" "Agent" "Version" "Skill Path" "gstack"
+printf "%-16s %-10s %-40s %s\n" "-----" "-------" "----------" "------"
+for entry in "claude:claude" "codex:codex" "droid:factory" "kiro-cli:kiro"; do
+  bin="${entry%%:*}"; label="${entry##*:}"
+  if command -v "$bin" >/dev/null 2>&1; then
+    ver=$("$bin" --version 2>/dev/null | head -1 || echo "unknown")
+    case "$label" in
+      claude)  spath="$HOME/.claude/skills/gstack" ;;
+      codex)   spath="$HOME/.codex/skills/gstack" ;;
+      factory) spath="$HOME/.factory/skills/gstack" ;;
+      kiro)    spath="$HOME/.kiro/skills/gstack" ;;
+    esac
+    status=$([ -d "$spath" ] && echo "INSTALLED" || echo "NOT INSTALLED")
+    printf "%-16s %-10s %-40s %s\n" "$label" "$ver" "$spath" "$status"
+  fi
+done

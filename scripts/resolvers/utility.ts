@@ -373,5 +373,8 @@ export function generateCoAuthorTrailer(ctx: TemplateContext): string {
   if (ctx.host === 'codex') {
     return 'Co-Authored-By: OpenAI Codex <noreply@openai.com>';
   }
+  if (ctx.host === 'factory') {
+    return 'Co-Authored-By: Factory Droid <droid@users.noreply.github.com>';
+  }
   return 'Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>';
 }
