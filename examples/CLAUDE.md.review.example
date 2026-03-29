@@ -1,0 +1,15 @@
+# Example: `## Review` section for CLAUDE.md
+
+Add this section to your project's `CLAUDE.md` to give `/review` repo-specific context.
+
+```markdown
+## Review
+
+- Source of truth for intent: if the PR or commit message links a GitHub issue / Linear ticket, read it before deciding scope drift.
+- High-risk paths: `db/migrate/**`, `app/services/billing/**`, `config/initializers/auth*`.
+- Never AUTO-FIX without explicit approval: money movement, auth/session logic, customer-visible API contract changes.
+- External consumers exist outside this repo: mobile app, webhooks, warehouse sync jobs.
+- Known hotspot: `app/services/reconciliation/**` has intentionally defensive duplication; do not flag it as dead code without tracing the call sites.
+- If a diff touches a high-risk path and the stated intent is silent about it, call out probable scope drift explicitly.
+- If auth or billing code changes, prefer ASK over AUTO-FIX unless the fix is obviously mechanical and reversible.
+```

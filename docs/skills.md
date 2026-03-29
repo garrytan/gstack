@@ -449,6 +449,14 @@ That is the point of `/review`.
 I do not want flattery here.
 I want the model imagining the production incident before it happens.
 
+### Repo-owned review context
+
+`/review` already uses `.claude/skills/review/checklist.md` for the actual rubric.
+
+If you need to calibrate `/review` for your specific repo — scope rules, high-risk paths, trust boundaries, auto-fix boundaries, escalation rules, or external consumers — add a `## Review` section to your project's `CLAUDE.md`.
+
+`/review` reads it before scope drift detection and uses it for risk and scope calibration. Skips silently if the section doesn't exist.
+
 ---
 
 ## `/investigate`

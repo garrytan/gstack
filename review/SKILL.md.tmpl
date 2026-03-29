@@ -37,6 +37,16 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 ---
 
+## Step 1.25: Read project review context (optional)
+
+Before the main review, check `CLAUDE.md` for a `## Review` section. If present, read it as additive repo-specific context — not a replacement for `.claude/skills/review/checklist.md`.
+
+Use it for scope calibration (source of truth for intent, ticketing conventions), risk calibration (high-risk paths, trust boundaries), escalation rules (who to involve for auth/billing changes), and auto-fix boundaries (areas that should never be AUTO-FIXed without explicit approval).
+
+If this context names an accessible ticketing source of truth, use it during Scope Drift Detection in Step 1.5. If no `## Review` section exists, skip silently.
+
+---
+
 ## Step 1.5: Scope Drift Detection
 
 Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
