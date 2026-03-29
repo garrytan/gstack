@@ -146,6 +146,7 @@ function buildHelpMenu() {
         { text: "5️⃣ 投資組合", callback_data: "M|PORTFOLIO" },
         { text: "6️⃣ 六合彩", callback_data: "M|MARKSIX" },
       ],
+      [{ text: "7️⃣ 宏觀 (Macro)", callback_data: "M|MACRO" }],
       [{ text: "✖️ 取消/清除等待", callback_data: "M|CANCEL" }],
     ],
   };
@@ -188,6 +189,163 @@ async function sendDocument(token: string, chatId: number, params: { filename: s
   const res = await fetch(url, { method: "POST", body: form });
   const json = await res.json<any>();
   if (!json.ok) throw new Error(json.description || "Telegram sendDocument error");
+}
+
+async function fetchFredLatest(seriesId: string): Promise<number | null> {
+  const cacheKey = new Request(`https://cache.local/fred/${encodeURIComponent(seriesId)}`);
+  const cached = await caches.default.match(cacheKey);
+  if (cached) {
+    const t = await cached.text();
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
+  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
+  const csv = await res.text();
+  const lines = csv.trim().split(/\r?\n/);
+  if (lines.length < 2) return null;
+  for (let i = lines.length - 1; i >= 1; i--) {
+    const parts = lines[i].split(",");
+    if (parts.length < 2) continue;
+    const v = parts[1].trim();
+    if (!v || v === ".") continue;
+    const n = Number(v);
+    if (!Number.isFinite(n)) continue;
+    await caches.default.put(cacheKey, new Response(String(n), { headers: { "cache-control": "max-age=300" } }));
+    return n;
+  }
+  return null;
+}
+
+function weeklyCloses(timestamps: number[], closes: number[]): number[] {
+  const n = Math.min(timestamps.length, closes.length);
+  const out: number[] = [];
+  let lastKey = "";
+  for (let i = 0; i < n; i++) {
+    const ts = timestamps[i] * 1000;
+    const d = new Date(ts);
+    const y = d.getUTCFullYear();
+    const week = Math.floor((Date.UTC(y, d.getUTCMonth(), d.getUTCDate()) - Date.UTC(y, 0, 1)) / 86400000 / 7);
+    const key = `${y}-W${week}`;
+    if (key !== lastKey) {
+      out.push(closes[i]);
+      lastKey = key;
+    } else {
+      out[out.length - 1] = closes[i];
+    }
+  }
+  return out;
+}
+
+function sharpe30d(closes: number[]): number {
+  if (closes.length < 35) return 0;
+  const rs: number[] = [];
+  for (let i = closes.length - 31; i < closes.length; i++) {
+    const prev = closes[i - 1];
+    const cur = closes[i];
+    if (!prev || !cur) continue;
+    rs.push((cur - prev) / prev);
+  }
+  if (rs.length < 10) return 0;
+  const mean = rs.reduce((a, b) => a + b, 0) / rs.length;
+  const variance = rs.reduce((acc, x) => acc + (x - mean) ** 2, 0) / Math.max(1, rs.length - 1);
+  const sd = Math.sqrt(variance);
+  if (!sd) return 0;
+  return (mean / sd) * Math.sqrt(252);
+}
+
+function fmtPct(x: number): string {
+  const s = `${x >= 0 ? "+" : ""}${x.toFixed(2)}%`;
+  return s;
+}
+
+async function formatMacroDashboard(profile: { risk: RiskTolerance; horizon: Horizon }): Promise<string> {
+  const btc = await fetchYahooChart("BTC-USD");
+  const btcPrice = btc.closes[btc.closes.length - 1] || 0;
+  const rsiD = rsi14(btc.closes);
+  const wCloses = weeklyCloses(btc.timestamps, btc.closes);
+  const rsiW = rsi14(wCloses);
+  const s30 = sharpe30d(btc.closes);
+  const d20 = sma(btc.closes, 20);
+  const d200 = sma(btc.closes, 200);
+
+  const rules: Array<{ name: string; ok: boolean }> = [
+    { name: "RSI(日) <= 40", ok: rsiD <= 40 },
+    { name: "RSI(週) >= 45", ok: rsiW >= 45 },
+    { name: "站上 20MA", ok: btcPrice >= d20 },
+    { name: "站上 200MA", ok: btcPrice >= d200 },
+    { name: "30D Sharpe > 0", ok: s30 > 0 },
+    { name: "回撤 < 20%", ok: (() => { const hi = Math.max(...btc.closes.slice(-60)); return hi ? (btcPrice / hi - 1) > -0.2 : true; })() },
+    { name: "波動(ATR%) < 6%", ok: (() => { const atr = atr14(btc.highs, btc.lows, btc.closes); return btcPrice ? (atr / btcPrice) * 100 < 6 : true; })() },
+  ];
+  const met = rules.filter((r) => r.ok).length;
+  const signal = met >= 5 ? "買入" : met >= 4 ? "偏買" : met >= 3 ? "觀望" : "避險";
+  const pos = met >= 5 ? "5–10%" : met >= 4 ? "2–5%" : "0–2%";
+
+  const vix = await fetchYahooChart("^VIX");
+  const spx = await fetchYahooChart("^GSPC");
+  const gold = await fetchYahooChart("GC=F");
+  const wti = await fetchYahooChart("CL=F");
+  const dxy = await fetchYahooChart("DX-Y.NYB");
+  const tnx = await fetchYahooChart("^TNX");
+
+  const pVix = vix.closes[vix.closes.length - 1] || 0;
+  const pSpx = spx.closes[spx.closes.length - 1] || 0;
+  const pGold = gold.closes[gold.closes.length - 1] || 0;
+  const pWti = wti.closes[wti.closes.length - 1] || 0;
+  const pDxy = dxy.closes[dxy.closes.length - 1] || 0;
+  const pTnx = tnx.closes[tnx.closes.length - 1] || 0;
+
+  const chg = (series: ChartData) => {
+    const last = series.closes[series.closes.length - 1] || 0;
+    const prev = pickBack(series.closes, 1);
+    return computePctChange(last, prev);
+  };
+
+  const hyOas = await fetchFredLatest("BAMLH0A0HYM2");
+  const igOas = await fetchFredLatest("BAMLC0A0CM");
+  const sofr = await fetchFredLatest("SOFR");
+
+  const walcl = await fetchFredLatest("WALCL");
+  const rrp = await fetchFredLatest("RRPONTSYD");
+  const tga = await fetchFredLatest("WTREGEN");
+  const netLiquidity =
+    walcl != null && rrp != null && tga != null ? walcl - rrp - tga : null;
+
+  const regime = pVix >= 20 || (hyOas != null && hyOas >= 4.0) ? "RISK-OFF" : "RISK-ON";
+  const liquidityStatus =
+    netLiquidity != null && sofr != null && sofr < 6 ? "正常" : "偏緊";
+
+  const parts: string[] = [];
+  parts.push("🌍 全球宏觀儀表板 (Macro)");
+  parts.push("");
+  parts.push("🧡 比特幣 (BTC) 分析");
+  parts.push(`- 訊號: ${signal}`);
+  parts.push(`- 建議倉位: ${pos}`);
+  parts.push(`- 現價: ${btcPrice.toFixed(0)} USD`);
+  parts.push(`- RSI(日): ${rsiD.toFixed(1)} | RSI(週): ${rsiW.toFixed(1)}`);
+  parts.push(`- 30D Sharpe: ${s30.toFixed(2)}`);
+  parts.push(`- 分數: ${met}/7`);
+  parts.push("");
+  parts.push("🌐 全球 Macro 看板");
+  parts.push(`- Regime: ${regime}`);
+  parts.push(`- VIX: ${pVix.toFixed(2)} (${fmtPct(chg(vix))})`);
+  parts.push(`- S&P 500: ${pSpx.toFixed(0)} (${fmtPct(chg(spx))})`);
+  parts.push(`- Gold (GC=F): ${pGold.toFixed(2)} (${fmtPct(chg(gold))})`);
+  parts.push(`- WTI (CL=F): ${pWti.toFixed(2)} (${fmtPct(chg(wti))})`);
+  if (hyOas != null) parts.push(`- HY OAS: ${hyOas.toFixed(2)}% (${Math.round(hyOas * 100)} bps)`);
+  if (igOas != null) parts.push(`- IG OAS: ${igOas.toFixed(2)}% (${Math.round(igOas * 100)} bps)`);
+  parts.push(`- DXY: ${pDxy.toFixed(2)} (${fmtPct(chg(dxy))})`);
+  parts.push(`- US 10Y (^TNX): ${(pTnx / 10).toFixed(2)}%`);
+  parts.push("");
+  parts.push("💧 流動性狀態");
+  if (netLiquidity != null) parts.push(`- Net Liquidity (WALCL-RRP-TGA): ${netLiquidity.toFixed(2)}B`);
+  if (sofr != null) parts.push(`- SOFR: ${sofr.toFixed(2)}%`);
+  parts.push(`- 狀態: ${liquidityStatus}`);
+  parts.push("");
+  parts.push(`Generated: ${new Date().toISOString()} | 偏好: 風險=${riskLabelZh(profile.risk)} 週期=${horizonLabelZh(profile.horizon)}`);
+  return parts.join("\n");
 }
 
 function stateKey(chatId: number) {
@@ -823,6 +981,7 @@ async function handle(chatId: number, text: string, env: Env): Promise<string> {
       "- `/summary NVDA`（重點）",
       "- `/watch NVDA,AAPL,TSLA`（觀察清單掃描）",
       "- `/heatmap NVDA,AAPL,TSLA`（熱力圖）",
+      "- `/macro`（宏觀儀表板）",
       "- `/marksix`（預設 30 期）",
       "- `/marksix 60`",
       "- `/portfolio NVDA,AAPL,0700.HK`（臨時投資組合）",
@@ -834,6 +993,10 @@ async function handle(chatId: number, text: string, env: Env): Promise<string> {
       "偏好設定（env vars）: RISK=low|medium|high, HORIZON=day|swing|invest",
       "投資組合（env vars）: PORTFOLIO_POSITIONS=NVDA:15@167.52,0700.HK:100@493.4 或 PORTFOLIO=NVDA,AAPL,0700.HK",
     ].join("\n");
+  }
+
+  if (cmd === "macro") {
+    return await formatMacroDashboard(profile);
   }
 
   if (cmd === "marksix") {
@@ -1122,13 +1285,20 @@ export default {
         ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
         return new Response("OK", { status: 200 });
       }
+
+      if (sel === "MACRO") {
+        await setPending(chatId, null);
+        const body = await handle(chatId, "/macro", env);
+        ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+        return new Response("OK", { status: 200 });
+      }
     }
 
     const pending = await getPending(chatId);
     let text = decodeCallbackData(raw);
 
     const numeric = text.trim();
-    if (!numeric.startsWith("/") && /^[1-6]$/.test(numeric)) {
+    if (!numeric.startsWith("/") && /^[1-7]$/.test(numeric)) {
       const map: Record<string, string> = {
         "1": "M|FULL",
         "2": "M|SUMMARY",
@@ -1136,6 +1306,7 @@ export default {
         "4": "M|HEATMAP",
         "5": "M|PORTFOLIO",
         "6": "M|MARKSIX",
+        "7": "M|MACRO",
       };
       const cmd = map[numeric];
       if (cmd) {
@@ -1166,6 +1337,12 @@ export default {
         if (sel === "MARKSIX") {
           await setPending(chatId, null);
           const body = await handle(chatId, "/marksix", env);
+          ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+          return new Response("OK", { status: 200 });
+        }
+        if (sel === "MACRO") {
+          await setPending(chatId, null);
+          const body = await handle(chatId, "/macro", env);
           ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
           return new Response("OK", { status: 200 });
         }

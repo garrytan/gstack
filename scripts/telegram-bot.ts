@@ -2,7 +2,7 @@ import { spawnSync } from "child_process";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { mkdirSync } from "fs";
-import { readFile } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
 import fs from "fs";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_TOKEN || "";
@@ -79,7 +79,7 @@ function buildMainKeyboard() {
     keyboard: [
       [{ text: "📌 新手完全指南" }, { text: "📋 股票熱力圖" }],
       [{ text: "🧾 投資組合" }, { text: "👀 Watchlist 掃描" }],
-      [{ text: "🎰 六合彩 Mark6" }],
+      [{ text: "🌍 宏觀 Macro" }, { text: "🎰 六合彩 Mark6" }],
       [{ text: "📈 /full NVDA" }, { text: "🎯 /summary NVDA" }],
       [{ text: "⚙️ Profile 設定" }, { text: "❓ /help" }],
     ],
@@ -370,6 +370,211 @@ async function fetchMarkSixReport(windowSize: number): Promise<string> {
   return out;
 }
 
+async function fetchFredLatest(seriesId: string): Promise<number | null> {
+  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
+  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
+  const csv = await res.text();
+  const lines = csv.trim().split(/\r?\n/);
+  if (lines.length < 2) return null;
+  for (let i = lines.length - 1; i >= 1; i--) {
+    const parts = lines[i].split(",");
+    if (parts.length < 2) continue;
+    const v = parts[1].trim();
+    if (!v || v === ".") continue;
+    const n = Number(v);
+    if (!Number.isFinite(n)) continue;
+    return n;
+  }
+  return null;
+}
+
+function weeklyCloses(timestamps: number[], closes: number[]): number[] {
+  const n = Math.min(timestamps.length, closes.length);
+  const out: number[] = [];
+  let lastKey = "";
+  for (let i = 0; i < n; i++) {
+    const ts = timestamps[i] * 1000;
+    const d = new Date(ts);
+    const y = d.getUTCFullYear();
+    const week = Math.floor((Date.UTC(y, d.getUTCMonth(), d.getUTCDate()) - Date.UTC(y, 0, 1)) / 86400000 / 7);
+    const key = `${y}-W${week}`;
+    if (key !== lastKey) {
+      out.push(closes[i]);
+      lastKey = key;
+    } else {
+      out[out.length - 1] = closes[i];
+    }
+  }
+  return out;
+}
+
+function rsi14(values: number[]): number {
+  const period = 14;
+  if (values.length <= period + 1) return 50;
+  let gains = 0;
+  let losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = values[i] - values[i - 1];
+    if (d >= 0) gains += d;
+    else losses -= d;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  for (let i = period + 1; i < values.length; i++) {
+    const d = values[i] - values[i - 1];
+    const g = d >= 0 ? d : 0;
+    const l = d < 0 ? -d : 0;
+    avgGain = (avgGain * (period - 1) + g) / period;
+    avgLoss = (avgLoss * (period - 1) + l) / period;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+function sma(values: number[], period: number): number {
+  if (values.length === 0) return 0;
+  if (values.length < period) return values[values.length - 1] || 0;
+  const slice = values.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
+function atr14(highs: number[], lows: number[], closes: number[]): number {
+  const period = 14;
+  if (closes.length <= period) return 0;
+  const trs: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    trs.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+  }
+  return sma(trs, period);
+}
+
+function sharpe30d(closes: number[]): number {
+  if (closes.length < 35) return 0;
+  const rs: number[] = [];
+  for (let i = closes.length - 31; i < closes.length; i++) {
+    const prev = closes[i - 1];
+    const cur = closes[i];
+    if (!prev || !cur) continue;
+    rs.push((cur - prev) / prev);
+  }
+  if (rs.length < 10) return 0;
+  const mean = rs.reduce((a, b) => a + b, 0) / rs.length;
+  const variance = rs.reduce((acc, x) => acc + (x - mean) ** 2, 0) / Math.max(1, rs.length - 1);
+  const sd = Math.sqrt(variance);
+  if (!sd) return 0;
+  return (mean / sd) * Math.sqrt(252);
+}
+
+function computePctChange(latest: number, earlier: number): number {
+  if (!Number.isFinite(latest) || !Number.isFinite(earlier) || earlier === 0) return 0;
+  return ((latest - earlier) / earlier) * 100;
+}
+
+function pickBack(prices: number[], back: number): number {
+  const idx = prices.length - 1 - back;
+  if (idx < 0) return prices[0] ?? 0;
+  return prices[idx] ?? 0;
+}
+
+async function fetchYahooChart(symbol: string): Promise<{ closes: number[]; highs: number[]; lows: number[]; timestamps: number[]; currency: string }> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y`;
+  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
+  const json = await res.json();
+  if (json.chart?.error) throw new Error(json.chart.error.description || "chart error");
+  const r = json.chart.result[0];
+  const q = r.indicators.quote[0];
+  const closes = (q.close || []).filter((x: any) => x != null).map((x: any) => Number(x));
+  const highs = (q.high || []).filter((x: any) => x != null).map((x: any) => Number(x));
+  const lows = (q.low || []).filter((x: any) => x != null).map((x: any) => Number(x));
+  const timestamps = (r.timestamp || []).filter((x: any) => x != null).map((x: any) => Number(x));
+  return { closes, highs, lows, timestamps, currency: r.meta?.currency || "USD" };
+}
+
+async function formatMacroDashboard(): Promise<string> {
+  const btc = await fetchYahooChart("BTC-USD");
+  const btcPrice = btc.closes[btc.closes.length - 1] || 0;
+  const rsiD = rsi14(btc.closes);
+  const rsiW = rsi14(weeklyCloses(btc.timestamps, btc.closes));
+  const s30 = sharpe30d(btc.closes);
+  const d20 = sma(btc.closes, 20);
+  const d200 = sma(btc.closes, 200);
+  const atr = atr14(btc.highs, btc.lows, btc.closes);
+  const atrPct = btcPrice ? (atr / btcPrice) * 100 : 0;
+
+  const rules: Array<{ ok: boolean }> = [
+    { ok: rsiD <= 40 },
+    { ok: rsiW >= 45 },
+    { ok: btcPrice >= d20 },
+    { ok: btcPrice >= d200 },
+    { ok: s30 > 0 },
+    { ok: (() => { const hi = Math.max(...btc.closes.slice(-60)); return hi ? (btcPrice / hi - 1) > -0.2 : true; })() },
+    { ok: atrPct < 6 },
+  ];
+  const met = rules.filter((r) => r.ok).length;
+  const signal = met >= 5 ? "買入" : met >= 4 ? "偏買" : met >= 3 ? "觀望" : "避險";
+  const pos = met >= 5 ? "5–10%" : met >= 4 ? "2–5%" : "0–2%";
+
+  const vix = await fetchYahooChart("^VIX");
+  const spx = await fetchYahooChart("^GSPC");
+  const gold = await fetchYahooChart("GC=F");
+  const wti = await fetchYahooChart("CL=F");
+  const dxy = await fetchYahooChart("DX-Y.NYB");
+  const tnx = await fetchYahooChart("^TNX");
+
+  const chg = (series: { closes: number[] }) => {
+    const last = series.closes[series.closes.length - 1] || 0;
+    const prev = pickBack(series.closes, 1);
+    return computePctChange(last, prev);
+  };
+
+  const hyOas = await fetchFredLatest("BAMLH0A0HYM2");
+  const igOas = await fetchFredLatest("BAMLC0A0CM");
+  const sofr = await fetchFredLatest("SOFR");
+
+  const walcl = await fetchFredLatest("WALCL");
+  const rrp = await fetchFredLatest("RRPONTSYD");
+  const tga = await fetchFredLatest("WTREGEN");
+  const netLiquidity =
+    walcl != null && rrp != null && tga != null ? walcl - rrp - tga : null;
+
+  const pVix = vix.closes[vix.closes.length - 1] || 0;
+  const regime = pVix >= 20 || (hyOas != null && hyOas >= 4.0) ? "RISK-OFF" : "RISK-ON";
+  const liquidityStatus = netLiquidity != null && sofr != null && sofr < 6 ? "正常" : "偏緊";
+
+  const fmtPct = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(2)}%`;
+
+  const parts: string[] = [];
+  parts.push("🌍 **Global Macro Dashboard**");
+  parts.push("");
+  parts.push("🧡 **Bitcoin Analysis**");
+  parts.push(`- 訊號: ${signal}`);
+  parts.push(`- 建議倉位: ${pos}`);
+  parts.push(`- 現價: ${btcPrice.toFixed(0)} USD`);
+  parts.push(`- RSI(日): ${rsiD.toFixed(1)} | RSI(週): ${rsiW.toFixed(1)}`);
+  parts.push(`- 30D Sharpe: ${s30.toFixed(2)} | ATR%: ${atrPct.toFixed(1)}%`);
+  parts.push(`- 分數: ${met}/7`);
+  parts.push("");
+  parts.push("🌐 **Global Macro**");
+  parts.push(`- Regime: ${regime}`);
+  parts.push(`- VIX: ${(vix.closes[vix.closes.length - 1] || 0).toFixed(2)} (${fmtPct(chg(vix))})`);
+  parts.push(`- S&P 500: ${(spx.closes[spx.closes.length - 1] || 0).toFixed(0)} (${fmtPct(chg(spx))})`);
+  parts.push(`- Gold: ${(gold.closes[gold.closes.length - 1] || 0).toFixed(2)} (${fmtPct(chg(gold))})`);
+  parts.push(`- WTI: ${(wti.closes[wti.closes.length - 1] || 0).toFixed(2)} (${fmtPct(chg(wti))})`);
+  if (hyOas != null) parts.push(`- HY OAS: ${hyOas.toFixed(2)}% (${Math.round(hyOas * 100)} bps)`);
+  if (igOas != null) parts.push(`- IG OAS: ${igOas.toFixed(2)}% (${Math.round(igOas * 100)} bps)`);
+  parts.push(`- DXY: ${(dxy.closes[dxy.closes.length - 1] || 0).toFixed(2)} (${fmtPct(chg(dxy))})`);
+  parts.push(`- US 10Y: ${((tnx.closes[tnx.closes.length - 1] || 0) / 10).toFixed(2)}%`);
+  parts.push("");
+  parts.push("💧 **Liquidity Status**");
+  if (netLiquidity != null) parts.push(`- Net liquidity: ${netLiquidity.toFixed(2)}B`);
+  if (sofr != null) parts.push(`- SOFR: ${sofr.toFixed(2)}%`);
+  parts.push(`- 狀態: ${liquidityStatus}`);
+  parts.push("");
+  parts.push(`Generated: ${new Date().toISOString()}`);
+  return parts.join("\n");
+}
+
 async function runCached(key: string, run: () => Promise<{ outPath: string; stdout: string; stderr: string; ok: boolean }>): Promise<{ hit: boolean; outPath: string; brief: string; stdout: string; stderr: string; ok: boolean }> {
   const now = Date.now();
   const existing = cache.get(key);
@@ -388,7 +593,7 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
   const decoded = decodeCallbackData(trimmed);
   const effectiveText = decoded !== trimmed ? decoded : trimmed;
 
-  if (/^[1-6]$/.test(effectiveText) && !effectiveText.startsWith("/")) {
+  if (/^[1-7]$/.test(effectiveText) && !effectiveText.startsWith("/")) {
     const n = Number(effectiveText);
     if (n === 1) {
       pendingByChat.set(chatId, "full");
@@ -418,6 +623,11 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
     if (n === 6) {
       pendingByChat.delete(chatId);
       await handleMessage(chatId, "/marksix");
+      return;
+    }
+    if (n === 7) {
+      pendingByChat.delete(chatId);
+      await handleMessage(chatId, "/macro");
       return;
     }
   }
@@ -458,12 +668,13 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         "- `/summary NVDA` (brief only)",
         "- `/watch NVDA,AAPL,TSLA` (watchlist scan)",
         "- `/heatmap NVDA,AAPL,TSLA` (sector heatmap)",
+        "- `/macro` (macro dashboard)",
         "- `/marksix` (default 30 draws)",
         "- `/marksix 60`",
         "- `/portfolio` (uses `portfolio.json`)",
         "",
         "*快捷選單（回覆數字即可）*",
-        "1) 完整報告  2) 重點  3) 觀察清單  4) 熱力圖  5) 投資組合  6) 六合彩",
+        "1) 完整報告  2) 重點  3) 觀察清單  4) 熱力圖  5) 投資組合  6) 六合彩  7) 宏觀",
         "",
         "- Profile (env): `GSTOCK_RISK=low|medium|high`, `GSTOCK_HORIZON=day|swing|invest`",
       ].join("\n"),
@@ -505,6 +716,11 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
     return;
   }
 
+  if (effectiveText === "🌍 宏觀 Macro") {
+    await handleMessage(chatId, "/macro");
+    return;
+  }
+
   if (effectiveText === "🎰 六合彩 Mark6") {
     await handleMessage(chatId, "/marksix");
     return;
@@ -532,6 +748,24 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
       const windowSize = Number.isFinite(rawN) ? Math.max(10, Math.min(120, rawN)) : 30;
       const text = await fetchMarkSixReport(windowSize);
       await sendMessage(chatId, `\`\`\`\n${escapeMarkdown(text)}\n\`\`\``, { replyMarkup: buildMainKeyboard() });
+    } catch (e: any) {
+      await sendMessage(chatId, `❌ Failed: ${escapeMarkdown(String(e?.message || e))}`, { replyMarkup: buildMainKeyboard() });
+    }
+    return;
+  }
+
+  if (effectiveText === "/macro") {
+    try {
+      mkdirSync(REPORTS_DIR, { recursive: true });
+      const outPath = join(REPORTS_DIR, `macro_${Date.now()}.txt`);
+      const text = await formatMacroDashboard();
+      await writeFile(outPath, text + "\n", "utf8");
+
+      const preview = text.split(/\r?\n/).slice(0, 28).join("\n");
+      await sendMessage(chatId, `\`\`\`\n${escapeMarkdown(preview)}\n\`\`\`\n（完整報告已輸出附件檔）`, {
+        replyMarkup: buildMainKeyboard(),
+      });
+      await sendDocument(chatId, outPath, "Macro dashboard");
     } catch (e: any) {
       await sendMessage(chatId, `❌ Failed: ${escapeMarkdown(String(e?.message || e))}`, { replyMarkup: buildMainKeyboard() });
     }
