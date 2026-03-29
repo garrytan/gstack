@@ -20,6 +20,7 @@ export interface BrowseConfig {
   consoleLog: string;
   networkLog: string;
   dialogLog: string;
+  auditLog: string;
 }
 
 /**
@@ -70,6 +71,7 @@ export function resolveConfig(
     consoleLog: path.join(stateDir, 'browse-console.log'),
     networkLog: path.join(stateDir, 'browse-network.log'),
     dialogLog: path.join(stateDir, 'browse-dialog.log'),
+    auditLog: path.join(stateDir, 'browse-audit.jsonl'),
   };
 }
 

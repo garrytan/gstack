@@ -314,6 +314,7 @@ export async function handleWriteCommand(
       }
 
       await page.context().addCookies(cookies);
+      bm.markCookiesImported();
       return `Loaded ${cookies.length} cookies from ${filePath}`;
     }
 
@@ -333,6 +334,7 @@ export async function handleWriteCommand(
         const result = await importCookies(browser, [domain], profile);
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
+          bm.markCookiesImported();
         }
         const msg = [`Imported ${result.count} cookies for ${domain} from ${browser}`];
         if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
