@@ -43,6 +43,11 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(${ctx.paths.binDir}/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=\${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+# Auto-migrate legacy ~/.gstack/projects/ data to project-local .gstack/ (once per project)
+eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" || true
+if [ -n "\${PROJECT_DATA_DIR:-}" ] && [ -d "$HOME/.gstack/projects/\${SLUG:-}" ] && [ ! -f "\${PROJECT_DATA_DIR}/.migrated" ]; then
+  ${ctx.paths.binDir}/gstack-migrate-local 2>/dev/null && touch "\${PROJECT_DATA_DIR}/.migrated" 2>/dev/null || true
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(${ctx.paths.binDir}/gstack-config get telemetry 2>/dev/null || true)
