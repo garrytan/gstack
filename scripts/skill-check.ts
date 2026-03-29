@@ -111,6 +111,37 @@ if (fs.existsSync(AGENTS_DIR)) {
   console.log('\n  Codex Skills: .agents/skills/ not found (run: bun run gen:skill-docs --host codex)');
 }
 
+// ─── Factory Skills ─────────────────────────────────────────
+
+const FACTORY_DIR = path.join(ROOT, '.factory', 'skills');
+if (fs.existsSync(FACTORY_DIR)) {
+  console.log('\n  Factory Skills (.factory/skills/):');
+  const factoryDirs = fs.readdirSync(FACTORY_DIR).sort();
+  let factoryCount = 0;
+  let factoryMissing = 0;
+  for (const dir of factoryDirs) {
+    const skillMd = path.join(FACTORY_DIR, dir, 'SKILL.md');
+    if (fs.existsSync(skillMd)) {
+      factoryCount++;
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      const hasClaude = content.includes('.claude/skills');
+      if (hasClaude) {
+        hasErrors = true;
+        console.log(`  \u274c ${dir.padEnd(30)} — contains .claude/skills reference`);
+      } else {
+        console.log(`  \u2705 ${dir.padEnd(30)} — OK`);
+      }
+    } else {
+      factoryMissing++;
+      hasErrors = true;
+      console.log(`  \u274c ${dir.padEnd(30)} — SKILL.md missing`);
+    }
+  }
+  console.log(`  Total: ${factoryCount} skills, ${factoryMissing} missing`);
+} else {
+  console.log('\n  Factory Skills: .factory/skills/ not found (run: bun run gen:skill-docs --host factory)');
+}
+
 // ─── Freshness ──────────────────────────────────────────────
 
 console.log('\n  Freshness (Claude):');
@@ -139,6 +170,20 @@ try {
     console.log(`      ${line}`);
   }
   console.log('      Run: bun run gen:skill-docs --host codex');
+}
+
+console.log('\n  Freshness (Factory):');
+try {
+  execSync('bun run scripts/gen-skill-docs.ts --host factory --dry-run', { cwd: ROOT, stdio: 'pipe' });
+  console.log('  \u2705 All Factory generated files are fresh');
+} catch (err: any) {
+  hasErrors = true;
+  const output = err.stdout?.toString() || '';
+  console.log('  \u274c Factory generated files are stale:');
+  for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
+    console.log(`      ${line}`);
+  }
+  console.log('      Run: bun run gen:skill-docs --host factory');
 }
 
 console.log('');

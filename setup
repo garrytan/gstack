@@ -14,6 +14,8 @@ INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
 CODEX_SKILLS="$HOME/.codex/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
+FACTORY_SKILLS="$HOME/.factory/skills"
+FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -37,8 +39,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, or auto)" >&2; exit 1 ;;
+  claude|codex|kiro|factory|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -95,12 +97,14 @@ fi
 INSTALL_CLAUDE=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
+INSTALL_FACTORY=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
+  command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -109,6 +113,8 @@ elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
   INSTALL_KIRO=1
+elif [ "$HOST" = "factory" ]; then
+  INSTALL_FACTORY=1
 fi
 
 migrate_direct_codex_install() {
@@ -198,6 +204,16 @@ if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host codex
+  )
+fi
+
+# 1c. Generate .factory/ Factory Droid skill docs
+if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  echo "Generating .factory/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host factory
   )
 fi
 
@@ -455,6 +471,76 @@ create_codex_runtime_root() {
   fi
 }
 
+create_factory_runtime_root() {
+  local gstack_dir="$1"
+  local factory_gstack="$2"
+  local factory_dir="$gstack_dir/.factory/skills"
+
+  if [ -L "$factory_gstack" ]; then
+    rm -f "$factory_gstack"
+  elif [ -d "$factory_gstack" ] && [ "$factory_gstack" != "$gstack_dir" ]; then
+    rm -rf "$factory_gstack"
+  fi
+
+  mkdir -p "$factory_gstack" "$factory_gstack/browse" "$factory_gstack/gstack-upgrade" "$factory_gstack/review"
+
+  if [ -f "$factory_dir/gstack/SKILL.md" ]; then
+    ln -snf "$factory_dir/gstack/SKILL.md" "$factory_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$factory_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$factory_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$factory_gstack/browse/bin"
+  fi
+  if [ -f "$factory_dir/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$factory_gstack/review/$f"
+    fi
+  done
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$factory_gstack/ETHOS.md"
+  fi
+}
+
+link_factory_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local factory_dir="$gstack_dir/.factory/skills"
+  local linked=()
+
+  if [ ! -d "$factory_dir" ]; then
+    echo "  Generating .factory/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host factory )
+  fi
+
+  if [ ! -d "$factory_dir" ]; then
+    echo "  warning: .factory/skills/ generation failed — run 'bun run gen:skill-docs --host factory' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$factory_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
 # 4. Install for Claude (default)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -561,6 +647,16 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
     echo "  browse: $BROWSE_BIN"
     echo "  kiro skills: $KIRO_SKILLS"
   fi
+fi
+
+# 6b. Install for Factory Droid
+if [ "$INSTALL_FACTORY" -eq 1 ]; then
+  mkdir -p "$FACTORY_SKILLS"
+  create_factory_runtime_root "$SOURCE_GSTACK_DIR" "$FACTORY_GSTACK"
+  link_factory_skill_dirs "$SOURCE_GSTACK_DIR" "$FACTORY_SKILLS"
+  echo "gstack ready (factory)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  factory skills: $FACTORY_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

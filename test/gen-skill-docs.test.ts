@@ -1318,7 +1318,7 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('allow_implicit_invocation: true');
   });
 
-  test('codexSkillName mapping: root is gstack, others are gstack-{dir}', () => {
+  test('externalSkillName mapping: root is gstack, others are gstack-{dir}', () => {
     // Root → gstack
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'))).toBe(true);
     // Subdirectories → gstack-{dir}
@@ -1571,6 +1571,160 @@ describe('Codex generation (--host codex)', () => {
   });
 });
 
+// ─── Factory generation tests ────────────────────────────────
+
+describe('Factory generation (--host factory)', () => {
+  const FACTORY_DIR = path.join(ROOT, '.factory', 'skills');
+
+  // Generate Factory output for tests
+  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'factory'], {
+    cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+  });
+
+  const FACTORY_SKILLS = (() => {
+    const skills: Array<{ dir: string; factoryName: string }> = [];
+    const isSymlinkLoop = (name: string): boolean => {
+      const factorySkillDir = path.join(ROOT, '.factory', 'skills', name);
+      try { return fs.realpathSync(factorySkillDir) === fs.realpathSync(ROOT); }
+      catch { return false; }
+    };
+    if (fs.existsSync(path.join(ROOT, 'SKILL.md.tmpl'))) {
+      if (!isSymlinkLoop('gstack')) skills.push({ dir: '.', factoryName: 'gstack' });
+    }
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (entry.name === 'codex') continue;
+      if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
+      const factoryName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
+      if (isSymlinkLoop(factoryName)) continue;
+      skills.push({ dir: entry.name, factoryName });
+    }
+    return skills;
+  })();
+
+  test('--host factory generates correct output paths', () => {
+    for (const skill of FACTORY_SKILLS) {
+      const skillMd = path.join(FACTORY_DIR, skill.factoryName, 'SKILL.md');
+      expect(fs.existsSync(skillMd)).toBe(true);
+    }
+  });
+
+  test('Factory frontmatter has name + description + user-invocable', () => {
+    for (const skill of FACTORY_SKILLS) {
+      const content = fs.readFileSync(path.join(FACTORY_DIR, skill.factoryName, 'SKILL.md'), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = content.slice(4, fmEnd);
+      expect(frontmatter).toContain('name:');
+      expect(frontmatter).toContain('description:');
+      expect(frontmatter).toContain('user-invocable: true');
+      expect(frontmatter).not.toContain('allowed-tools:');
+      expect(frontmatter).not.toContain('preamble-tier:');
+      expect(frontmatter).not.toContain('sensitive:');
+    }
+  });
+
+  test('sensitive skills have disable-model-invocation', () => {
+    const SENSITIVE = ['gstack-ship', 'gstack-land-and-deploy', 'gstack-guard', 'gstack-careful', 'gstack-freeze', 'gstack-unfreeze'];
+    for (const name of SENSITIVE) {
+      const content = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = content.slice(4, fmEnd);
+      expect(frontmatter).toContain('disable-model-invocation: true');
+    }
+  });
+
+  test('non-sensitive skills lack disable-model-invocation', () => {
+    const NON_SENSITIVE = ['gstack-qa', 'gstack-review', 'gstack-investigate', 'gstack-browse'];
+    for (const name of NON_SENSITIVE) {
+      const content = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = content.slice(4, fmEnd);
+      expect(frontmatter).not.toContain('disable-model-invocation');
+    }
+  });
+
+  test('no .claude/skills/ in Factory output', () => {
+    for (const skill of FACTORY_SKILLS) {
+      const content = fs.readFileSync(path.join(FACTORY_DIR, skill.factoryName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('.claude/skills');
+    }
+  });
+
+  test('no ~/.claude/skills/ paths in Factory output', () => {
+    for (const skill of FACTORY_SKILLS) {
+      const content = fs.readFileSync(path.join(FACTORY_DIR, skill.factoryName, 'SKILL.md'), 'utf-8');
+      // ~/.claude/skills should be rewritten, but ~/.claude/plans is legitimate
+      // (plan directory lookup) and ~/.claude/ in codex prompts is intentional
+      expect(content).not.toContain('~/.claude/skills');
+    }
+  });
+
+  test('/codex skill excluded from Factory output', () => {
+    expect(fs.existsSync(path.join(FACTORY_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(FACTORY_DIR, 'gstack-codex'))).toBe(false);
+  });
+
+  test('Factory keeps Codex integration blocks', () => {
+    // Factory users CAN use Codex second opinions (codex exec is a standalone binary)
+    const shipContent = fs.readFileSync(path.join(FACTORY_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(shipContent).toContain('codex');
+  });
+
+  test('no agents/openai.yaml in Factory output', () => {
+    for (const skill of FACTORY_SKILLS) {
+      const yamlPath = path.join(FACTORY_DIR, skill.factoryName, 'agents', 'openai.yaml');
+      expect(fs.existsSync(yamlPath)).toBe(false);
+    }
+  });
+
+  test('--host droid alias works', () => {
+    const factoryResult = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'factory', '--dry-run'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    const droidResult = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'droid', '--dry-run'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    expect(factoryResult.exitCode).toBe(0);
+    expect(droidResult.exitCode).toBe(0);
+    expect(factoryResult.stdout.toString()).toBe(droidResult.stdout.toString());
+  });
+
+  test('--host factory --dry-run freshness', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'factory', '--dry-run'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    for (const skill of FACTORY_SKILLS) {
+      expect(output).toContain(`FRESH: .factory/skills/${skill.factoryName}/SKILL.md`);
+    }
+    expect(output).not.toContain('STALE');
+  });
+
+  test('Factory preamble uses .factory paths', () => {
+    const content = fs.readFileSync(path.join(FACTORY_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('GSTACK_ROOT');
+    expect(content).toContain('$_ROOT/.factory/skills/gstack');
+    expect(content).toContain('$GSTACK_BIN/gstack-config');
+  });
+});
+
+// ─── --host all tests ────────────────────────────────────────
+
+describe('--host all', () => {
+  test('--host all generates for claude, codex, and factory', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--dry-run'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    // All three hosts should appear in output
+    expect(output).toContain('FRESH: SKILL.md');           // claude
+    expect(output).toContain('FRESH: .agents/skills/');     // codex
+    expect(output).toContain('FRESH: .factory/skills/');    // factory
+  });
+});
+
 // ─── Setup script validation ─────────────────────────────────
 // These tests verify the setup script's install layout matches
 // what the generator produces — catching the bug where setup
@@ -1648,7 +1802,7 @@ describe('setup script validation', () => {
 
   test('setup supports --host auto|claude|codex|kiro', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|auto');
   });
 
   test('auto mode detects claude, codex, and kiro binaries', () => {

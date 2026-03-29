@@ -646,6 +646,40 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Priority:** P3
 **Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
 
+## Factory Droid
+
+### Browse MCP server for Factory Droid
+
+**What:** Expose gstack's browse binary and key workflows as an MCP server that Factory Droid connects to natively. Factory users would run /mcp, add the gstack server, and get browse, QA, and review capabilities as Factory tools.
+
+**Why:** Factory already supports 40+ MCP servers in its registry. Getting gstack's browse binary listed there is a distribution play. Nobody else has a real compiled browser binary as an MCP tool. This is the thing that makes gstack uniquely valuable on Factory Droid.
+
+**Context:** Option A (--host factory compatibility shim) ships first in v0.13.4.0. Option B is the follow-up that provides deeper integration. The browse binary is already a stateless CLI, so wrapping it as an MCP server is straightforward (stdin/stdout JSON-RPC). Each browse command becomes an MCP tool.
+
+**Effort:** L (human: ~1 week / CC: ~5 hours)
+**Priority:** P1
+**Depends on:** --host factory (Option A, shipping in v0.13.4.0)
+
+### .agent/skills/ dual output for cross-agent compatibility
+
+**What:** Factory also reads from `<repo>/.agent/skills/` as a cross-agent compatibility path. Could output there in addition to `.factory/skills/` for broader reach across other agents that use the `.agent` convention.
+
+**Why:** Multiple AI agents beyond Factory may adopt the `.agent/skills/` convention. Outputting there too would give free compatibility.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** --host factory
+
+### Custom Droid definitions alongside skills
+
+**What:** Factory has "custom droids" (subagents with tool restrictions, model selection, autonomy levels). Could ship `gstack-qa.md` droid configs alongside skills that restrict tools to read-only + execute for safety.
+
+**Why:** Deeper Factory integration. Droid configs give Factory users tighter control over what gstack skills can do.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** --host factory
+
 ## Completed
 
 ### CI eval pipeline (v0.9.9.0)

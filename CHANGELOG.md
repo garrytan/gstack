@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.13.5.0] - 2026-03-29 — Factory Droid Compatibility
+
+gstack now works with Factory Droid. Type `/qa` in Droid and get the same 29 skills you use in Claude Code. This makes gstack the first skill library that works across Claude Code, Codex, and Factory Droid.
+
+### Added
+
+- **Factory Droid support (`--host factory`).** Generate Factory-native skills with `bun run gen:skill-docs --host factory`. Skills install to `.factory/skills/` with proper frontmatter (`user-invocable: true`, `disable-model-invocation: true` for sensitive skills like /ship and /land-and-deploy).
+- **`--host all` flag.** One command generates skills for all 3 hosts. Fault-tolerant: catches per-host errors, only fails if Claude generation fails.
+- **`gstack-platform-detect` binary.** Prints a table of installed AI coding agents with versions, skill paths, and gstack status. Useful for debugging multi-host setups.
+- **Sensitive skill safety.** Six skills with side effects (ship, land-and-deploy, guard, careful, freeze, unfreeze) now declare `sensitive: true` in their templates. Factory Droids won't auto-invoke them. Claude and Codex output strips the field.
+- **Factory CI freshness check.** The skill-docs workflow now verifies Factory output is fresh on every PR.
+- **Factory awareness across operational tooling.** skill-check dashboard, gstack-uninstall, and setup script all know about Factory.
+
+### Changed
+
+- **Refactored multi-host generation.** Extracted `processExternalHost()` shared helper from the Codex-specific code block. Both Codex and Factory use the same function for output routing, symlink loop detection, frontmatter transformation, and path rewrites. Codex output is byte-identical after refactor.
+- **Build script uses `--host all`.** Replaces chained `gen:skill-docs` calls with a single `--host all` invocation.
+- **Tool name translation for Factory.** Claude Code tool names ("use the Bash tool") are translated to generic phrasing ("run this command") in Factory output, matching Factory's tool naming conventions.
+
 ## [0.13.4.0] - 2026-03-29 — Sidebar Defense
 
 The Chrome sidebar now defends against prompt injection attacks. Three layers: XML-framed prompts with trust boundaries, a command allowlist that restricts bash to browse commands only, and Opus as the default model (harder to manipulate).
