@@ -633,6 +633,46 @@ This step is automatic — never skip it, never ask for confirmation.
 
 ---
 
+## Step 8.8: Ship Log
+
+Append a structured entry to the global ship log so `/retro` can track shipping velocity over time.
+
+```bash
+mkdir -p ~/.gstack
+```
+
+Build a JSON object with these fields from earlier steps and append it to `~/.gstack/ship-log.json`:
+
+- **version**: the version string written to the VERSION file in Step 4
+- **date**: current UTC timestamp in ISO 8601 format
+- **branch**: the current feature branch name
+- **baseBranch**: the base branch detected in Step 0 (e.g., "main")
+- **prUrl**: the PR/MR URL created in Step 8 (empty string if PR creation failed or was skipped)
+- **reviewFindings**: integer count of issues found in Step 3.5 pre-landing review (0 if clean)
+- **testsRan**: boolean — whether the test suite ran in Step 3
+- **testsPassed**: boolean — whether all tests passed (after triage)
+
+Read the existing `~/.gstack/ship-log.json` array (or start with `[]` if the file does not exist), append the new entry, and write it back:
+
+```bash
+SHIP_LOG=~/.gstack/ship-log.json
+NEW_ENTRY='{"version":"VERSION","date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","branch":"BRANCH","baseBranch":"BASE_BRANCH","prUrl":"PR_URL","reviewFindings":REVIEW_FINDINGS,"testsRan":TESTS_RAN,"testsPassed":TESTS_PASSED}'
+
+if [ -f "$SHIP_LOG" ]; then
+  # Remove trailing ] and append
+  sed -i '' -e '$ s/]$//' "$SHIP_LOG"
+  echo ",$NEW_ENTRY]" >> "$SHIP_LOG"
+else
+  echo "[$NEW_ENTRY]" > "$SHIP_LOG"
+fi
+```
+
+Substitute the uppercase placeholders with actual values from earlier steps. Use `true`/`false` (unquoted) for boolean fields.
+
+This step is automatic — never skip it, never ask for confirmation. If the file write fails, warn and continue. Never block the ship workflow for a log failure.
+
+---
+
 ## Important Rules
 
 - **Never skip tests.** If tests fail, stop.
