@@ -218,6 +218,10 @@ gstack is powerful with one sprint. It is transformative with ten running at onc
 
 The sprint structure is what makes parallelism work. Without a process, ten agents is ten sources of chaos. With a process — think, plan, build, review, test, ship — each agent knows exactly what to do and when to stop. You manage them the way a CEO manages a team: check in on the decisions that matter, let the rest run.
 
+### Alternative runtimes
+
+gstack skills are Markdown system prompts - they work with any runtime that discovers SKILL.md files. See [docs/opencode-guide.md](docs/opencode-guide.md) for compatibility notes on OpenCode, OpenRouter, and local models.
+
 ---
 
 Free, MIT licensed, open source. No premium tier, no waitlist.
