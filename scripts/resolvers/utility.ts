@@ -71,11 +71,17 @@ fi
 [ -f Procfile ] && echo "PLATFORM:heroku"
 ([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
 
-# Detect deploy workflows
+# Detect deploy workflows (GitHub Actions)
 for f in $(find .github/workflows -maxdepth 1 \\( -name '*.yml' -o -name '*.yaml' \\) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
 done
+
+# Detect deploy workflows (GitLab CI)
+if [ -f .gitlab-ci.yml ]; then
+  grep -qiE "deploy|release|production|cd" .gitlab-ci.yml 2>/dev/null && echo "DEPLOY_WORKFLOW:.gitlab-ci.yml"
+  grep -qiE "staging" .gitlab-ci.yml 2>/dev/null && echo "STAGING_WORKFLOW:.gitlab-ci.yml"
+fi
 \`\`\`
 
 If \`PERSISTED_PLATFORM\` and \`PERSISTED_URL\` were found in CLAUDE.md, use them directly
