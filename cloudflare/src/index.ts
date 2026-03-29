@@ -6,6 +6,8 @@ type Env = {
   WEBHOOK_SECRET?: string;
   PORTFOLIO?: string;
   PORTFOLIO_POSITIONS?: string;
+  POSITION_UNIT_USD?: string;
+  POSITION_UNIT_HKD?: string;
   RISK?: string;
   HORIZON?: string;
 };
@@ -146,7 +148,10 @@ function buildHelpMenu() {
         { text: "5️⃣ 投資組合", callback_data: "M|PORTFOLIO" },
         { text: "6️⃣ 六合彩", callback_data: "M|MARKSIX" },
       ],
-      [{ text: "7️⃣ 宏觀 (Macro)", callback_data: "M|MACRO" }],
+      [
+        { text: "7️⃣ 宏觀 (Macro)", callback_data: "M|MACRO" },
+        { text: "8️⃣ 操作建議", callback_data: "M|ACTION" },
+      ],
       [{ text: "✖️ 取消/清除等待", callback_data: "M|CANCEL" }],
     ],
   };
@@ -465,6 +470,174 @@ async function formatMacroDashboard(profile: { risk: RiskTolerance; horizon: Hor
   parts.push("");
   parts.push(`Generated: ${new Date().toISOString()} | 偏好: 風險=${riskLabelZh(profile.risk)} 週期=${horizonLabelZh(profile.horizon)}`);
   return parts.join("\n");
+}
+
+function parseUnit(envValue: string | undefined, fallback: number): number {
+  const n = envValue != null ? Number(String(envValue).trim()) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+async function formatActionPlan(env: Env, profile: { risk: RiskTolerance; horizon: Horizon }): Promise<string> {
+  const unitUSD = parseUnit(env.POSITION_UNIT_USD, 250);
+  const unitHKD = parseUnit(env.POSITION_UNIT_HKD, 2000);
+
+  const vix = await fetchYahooChart("^VIX");
+  const dxy = await fetchYahooChart("DX-Y.NYB");
+  const hyOas = await fetchFredLatest("BAMLH0A0HYM2");
+  const year = new Date().getUTCFullYear();
+  const yc = (await fetchTreasuryYieldCurveLastTwo(year)) || (await fetchTreasuryYieldCurveLastTwo(year - 1));
+
+  const pVix = vix.closes[vix.closes.length - 1] || 0;
+  const pDxy = dxy.closes[dxy.closes.length - 1] || 0;
+  const us10y = yc ? yc.latest.y10 : null;
+  const us10yChgBps = yc ? (yc.latest.y10 - yc.prev.y10) * 100 : null;
+
+  const sentiment = pVix >= 30 ? "PANIC" : pVix >= 20 ? "FEAR" : "NORMAL";
+  const regime = pVix >= 25 || (hyOas != null && hyOas >= 4.0) ? "RISK-OFF" : "RISK-ON";
+  const stance = sentiment === "PANIC" ? "DEFENSIVE" : sentiment === "FEAR" ? "CAUTIOUS" : "NEUTRAL";
+
+  const triggers: string[] = [];
+  if (pVix >= 30) triggers.push("VIX>30");
+  if (hyOas != null && hyOas >= 6.0) triggers.push("HY OAS>6%");
+  if (pDxy >= 105) triggers.push("DXY>105");
+  if (us10yChgBps != null && us10yChgBps >= 10) triggers.push("10Y ↑(>=10bps)");
+
+  const spec = (env.PORTFOLIO_POSITIONS || "").trim() || (env.PORTFOLIO || "").trim();
+  if (!spec) {
+    return [
+      "📌 今日操作建議 (Action Plan)",
+      "",
+      `市場情緒: ${sentiment} | Regime: ${regime}`,
+      `投資組合立場: ${stance}`,
+      "",
+      "尚未設定投資組合。",
+      "請設定 Worker env：PORTFOLIO_POSITIONS=NVDA:15@167.52,0700.HK:100@493.4",
+      "或輸入：/portfolio NVDA:15@167.52,0700.HK:100@493.4",
+      "",
+      `觸發條件: ${triggers.length ? triggers.join(", ") : "無"}`,
+      `Generated: ${new Date().toISOString()} | 偏好: 風險=${riskLabelZh(profile.risk)} 週期=${horizonLabelZh(profile.horizon)}`,
+    ].join("\n");
+  }
+
+  const hasQty = spec.includes(":");
+  if (!hasQty) {
+    return [
+      "📌 今日操作建議 (Action Plan)",
+      "",
+      `市場情緒: ${sentiment} | Regime: ${regime}`,
+      `投資組合立場: ${stance}`,
+      "",
+      "目前只設定了清單（沒有數量/成本），無法計算權重與單位調整。",
+      "建議改用：PORTFOLIO_POSITIONS（含數量/成本）",
+      "格式：NVDA:15@167.52,0700.HK:100@493.4",
+      "",
+      `觸發條件: ${triggers.length ? triggers.join(", ") : "無"}`,
+      `Generated: ${new Date().toISOString()} | 偏好: 風險=${riskLabelZh(profile.risk)} 週期=${horizonLabelZh(profile.horizon)}`,
+    ].join("\n");
+  }
+
+  const positions = parsePositionsSpec(spec).slice(0, 30);
+  if (positions.length === 0) {
+    return [
+      "📌 今日操作建議 (Action Plan)",
+      "",
+      "投資組合格式錯誤。",
+      "範例：/portfolio NVDA:15@167.52,0700.HK:100@493.4",
+    ].join("\n");
+  }
+
+  const rows: Array<{ ticker: string; ccy: string; mv: number; weight: number; bias: Bias; conf: number }> = [];
+  const mvByCcy = new Map<string, number>();
+  const maxAsOfArr: number[] = [];
+
+  for (const p of positions) {
+    const data = await fetchYahooChart(p.ticker);
+    maxAsOfArr.push(data.asOfUnix || 0);
+    const price = data.closes[data.closes.length - 1] || 0;
+    const mv = price * p.quantity;
+    const ccy = data.currency;
+    mvByCcy.set(ccy, (mvByCcy.get(ccy) || 0) + mv);
+
+    const d20 = sma(data.closes, 20);
+    const d200 = sma(data.closes, 200);
+    const rsi = rsi14(data.closes);
+    const hist = macdHistogram(data.closes);
+    const { bias, confidence } = computeBias(price, d20, d200, hist, rsi, profile);
+    rows.push({ ticker: p.ticker, ccy, mv, weight: 0, bias, conf: confidence });
+  }
+
+  for (const r of rows) {
+    const total = mvByCcy.get(r.ccy) || 1;
+    r.weight = total ? (r.mv / total) * 100 : 0;
+  }
+
+  const byRisk = rows
+    .slice()
+    .sort((a, b) => b.weight - a.weight);
+
+  const trim: Array<{ ticker: string; ccy: string; units: number; amount: number }> = [];
+  const add: Array<{ ticker: string; ccy: string; units: number; amount: number }> = [];
+
+  const unitFor = (ccy: string) => (ccy === "HKD" ? unitHKD : unitUSD);
+
+  if (regime === "RISK-OFF") {
+    const cands = byRisk.filter((r) => r.weight >= 20 || r.bias === "Bearish" || r.conf < 40).slice(0, 2);
+    for (const r of cands) {
+      const amt = unitFor(r.ccy);
+      trim.push({ ticker: r.ticker, ccy: r.ccy, units: -1, amount: -amt });
+    }
+  } else if (regime === "RISK-ON") {
+    const cands = byRisk.filter((r) => r.bias === "Bullish" && r.conf >= 60 && r.weight < 20).slice(0, 2);
+    for (const r of cands) {
+      const amt = unitFor(r.ccy);
+      add.push({ ticker: r.ticker, ccy: r.ccy, units: 1, amount: amt });
+    }
+  }
+
+  const holds = rows
+    .filter((r) => !trim.some((t) => t.ticker === r.ticker) && !add.some((a) => a.ticker === r.ticker))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 6);
+
+  const fmtUnits = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(2)}u`;
+  const fmtAmt = (ccy: string, amt: number) => `${amt >= 0 ? "+" : ""}${amt.toFixed(0)} ${ccy}`;
+
+  const lines: string[] = [];
+  lines.push(`📌 今日操作建議 (Action Plan) — ${new Date().toISOString().slice(0, 10)}`);
+  lines.push("");
+  lines.push(`市場情緒: ${sentiment}`);
+  lines.push(`投資組合立場: ${stance} | Regime: ${regime}`);
+  lines.push("");
+  lines.push("操作單位 (Unit)");
+  lines.push(`- 1.00u = ${unitUSD.toFixed(0)} USD（USD 持倉）`);
+  lines.push(`- 1.00u = ${unitHKD.toFixed(0)} HKD（HKD 持倉）`);
+  lines.push("");
+  lines.push("觸發條件 (Triggers)");
+  lines.push(`- ${triggers.length ? triggers.join(", ") : "無"}`);
+  lines.push("");
+  lines.push("宏觀摘要 (Macro)");
+  lines.push(`- VIX: ${pVix.toFixed(2)}`);
+  if (hyOas != null) lines.push(`- HY OAS: ${hyOas.toFixed(2)}%`);
+  lines.push(`- DXY: ${pDxy.toFixed(2)}`);
+  if (us10y != null) lines.push(`- US 10Y: ${us10y.toFixed(2)}% (${us10yChgBps != null ? `${us10yChgBps >= 0 ? "+" : ""}${us10yChgBps.toFixed(0)} bps` : "Δ N/A"})`);
+  lines.push("");
+  lines.push("行動建議 (Actions)");
+  lines.push(`- 加碼 (Add): ${add.length ? "" : "無"}`);
+  for (const a of add) lines.push(`  - ${a.ticker} ${fmtUnits(a.units)} (${fmtAmt(a.ccy, a.amount)})`);
+  lines.push(`- 減碼/避免 (Trim/Avoid): ${trim.length ? "" : "無"}`);
+  for (const t of trim) lines.push(`  - ${t.ticker} ${fmtUnits(t.units)} (${fmtAmt(t.ccy, t.amount)})`);
+  lines.push(`- 持有/觀察 (Hold/Watch): ${holds.length ? "" : "無"}`);
+  for (const h of holds) lines.push(`  - ${h.ticker} | ${h.ccy} | 權重 ${h.weight.toFixed(1)}% | ${biasLabelZh(h.bias)} ${h.conf}%`);
+
+  lines.push("");
+  lines.push("持倉概覽 (By currency, not FX-converted)");
+  for (const [ccy, mv] of Array.from(mvByCcy.entries()).sort((a, b) => b[1] - a[1])) {
+    lines.push(`- ${ccy}: ${mv.toFixed(2)}`);
+  }
+
+  lines.push("");
+  lines.push(formatFooter(profile, Math.max(0, ...maxAsOfArr)));
+  return lines.join("\n");
 }
 
 function stateKey(chatId: number) {
@@ -1101,6 +1274,7 @@ async function handle(chatId: number, text: string, env: Env): Promise<string> {
       "- `/watch NVDA,AAPL,TSLA`（觀察清單掃描）",
       "- `/heatmap NVDA,AAPL,TSLA`（熱力圖）",
       "- `/macro`（宏觀儀表板）",
+      "- `/action`（今日操作建議）",
       "- `/marksix`（預設 30 期）",
       "- `/marksix 60`",
       "- `/portfolio NVDA,AAPL,0700.HK`（臨時投資組合）",
@@ -1108,15 +1282,20 @@ async function handle(chatId: number, text: string, env: Env): Promise<string> {
       "- `/portfolio`（使用 Worker env：PORTFOLIO_POSITIONS 或 PORTFOLIO）",
       "- `/whoami`（取得你的 Chat ID，用於白名單）",
       "",
-      "快捷選單：直接回覆 1/2/3/4/5/6 也可以（會提示你輸入代號）",
+      "快捷選單：直接回覆 1/2/3/4/5/6/7/8 也可以",
       "",
       "偏好設定（env vars）: RISK=low|medium|high, HORIZON=day|swing|invest",
       "投資組合（env vars）: PORTFOLIO_POSITIONS=NVDA:15@167.52,0700.HK:100@493.4 或 PORTFOLIO=NVDA,AAPL,0700.HK",
+      "操作單位（env vars）: POSITION_UNIT_USD=250, POSITION_UNIT_HKD=2000",
     ].join("\n");
   }
 
   if (cmd === "whoami") {
     return `你的 Chat ID: ${chatId}\n請把這串數字傳給 bot 管理員，讓他把你加入 TELEGRAM_ALLOWED_CHAT_IDS 白名單。`;
+  }
+
+  if (cmd === "action") {
+    return await formatActionPlan(env, profile);
   }
 
   if (cmd === "macro") {
@@ -1423,13 +1602,20 @@ export default {
         ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
         return new Response("OK", { status: 200 });
       }
+
+      if (sel === "ACTION") {
+        await setPending(chatId, null);
+        const body = await handle(chatId, "/action", env);
+        ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+        return new Response("OK", { status: 200 });
+      }
     }
 
     const pending = await getPending(chatId);
     let text = decodeCallbackData(raw);
 
     const numeric = text.trim();
-    if (!numeric.startsWith("/") && /^[1-7]$/.test(numeric)) {
+    if (!numeric.startsWith("/") && /^[1-8]$/.test(numeric)) {
       const map: Record<string, string> = {
         "1": "M|FULL",
         "2": "M|SUMMARY",
@@ -1438,6 +1624,7 @@ export default {
         "5": "M|PORTFOLIO",
         "6": "M|MARKSIX",
         "7": "M|MACRO",
+        "8": "M|ACTION",
       };
       const cmd = map[numeric];
       if (cmd) {
@@ -1474,6 +1661,12 @@ export default {
         if (sel === "MACRO") {
           await setPending(chatId, null);
           const body = await handle(chatId, "/macro", env);
+          ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+          return new Response("OK", { status: 200 });
+        }
+        if (sel === "ACTION") {
+          await setPending(chatId, null);
+          const body = await handle(chatId, "/action", env);
           ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
           return new Response("OK", { status: 200 });
         }
