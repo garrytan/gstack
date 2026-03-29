@@ -87,6 +87,9 @@ if [ "$LOCAL_INSTALL" -eq 1 ]; then
   fi
   INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
   mkdir -p "$INSTALL_SKILLS_DIR"
+  # Per-skill symlinks point at gstack/<skill>, so create a gstack/ symlink
+  # back to the repo root so the chain resolves (e.g. qa -> gstack/qa -> repo/qa)
+  ln -snf "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR/gstack"
   HOST="claude"
   INSTALL_CODEX=0
 fi
