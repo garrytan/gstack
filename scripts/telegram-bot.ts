@@ -22,6 +22,9 @@ type CacheEntry = { ts: number; outPath: string; brief: string };
 const CACHE_TTL_MS = 90_000;
 const cache = new Map<string, CacheEntry>();
 
+type PendingAction = "full" | "summary" | "watch" | "heatmap" | "portfolio";
+const pendingByChat = new Map<number, PendingAction>();
+
 function isAllowedChat(chatId: number): boolean {
   if (TELEGRAM_ALLOWED_CHAT_IDS.length === 0) return true;
   return TELEGRAM_ALLOWED_CHAT_IDS.includes(chatId);
@@ -360,6 +363,66 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
   const decoded = decodeCallbackData(trimmed);
   const effectiveText = decoded !== trimmed ? decoded : trimmed;
 
+  if (/^[1-6]$/.test(effectiveText) && !effectiveText.startsWith("/")) {
+    const n = Number(effectiveText);
+    if (n === 1) {
+      pendingByChat.set(chatId, "full");
+      await sendMessage(chatId, "請輸入股票代號（例如：NVDA 或 0700.HK）。", { replyMarkup: buildMainKeyboard() });
+      return;
+    }
+    if (n === 2) {
+      pendingByChat.set(chatId, "summary");
+      await sendMessage(chatId, "請輸入股票代號（例如：NVDA 或 0700.HK）。", { replyMarkup: buildMainKeyboard() });
+      return;
+    }
+    if (n === 3) {
+      pendingByChat.set(chatId, "watch");
+      await sendMessage(chatId, "請輸入觀察清單（例如：NVDA,AAPL,TSLA）。", { replyMarkup: buildMainKeyboard() });
+      return;
+    }
+    if (n === 4) {
+      pendingByChat.set(chatId, "heatmap");
+      await sendMessage(chatId, "請輸入熱力圖清單（例如：NVDA,AAPL,TSLA）。", { replyMarkup: buildMainKeyboard() });
+      return;
+    }
+    if (n === 5) {
+      pendingByChat.delete(chatId);
+      await handleMessage(chatId, "/portfolio");
+      return;
+    }
+    if (n === 6) {
+      pendingByChat.delete(chatId);
+      await handleMessage(chatId, "/marksix");
+      return;
+    }
+  }
+
+  const pending = pendingByChat.get(chatId) || null;
+  if (pending && !effectiveText.startsWith("/") && !effectiveText.startsWith("M|")) {
+    const payload = effectiveText.trim();
+    pendingByChat.delete(chatId);
+    if (pending === "full") {
+      await handleMessage(chatId, `/full ${payload}`);
+      return;
+    }
+    if (pending === "summary") {
+      await handleMessage(chatId, `/summary ${payload}`);
+      return;
+    }
+    if (pending === "watch") {
+      await handleMessage(chatId, `/watch ${payload}`);
+      return;
+    }
+    if (pending === "heatmap") {
+      await handleMessage(chatId, `/heatmap ${payload}`);
+      return;
+    }
+    if (pending === "portfolio") {
+      await handleMessage(chatId, `/portfolio ${payload}`);
+      return;
+    }
+  }
+
   if (effectiveText === "/start" || effectiveText === "/help") {
     await sendMessage(
       chatId,
@@ -373,6 +436,9 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         "- `/marksix` (default 30 draws)",
         "- `/marksix 60`",
         "- `/portfolio` (uses `portfolio.json`)",
+        "",
+        "*快捷選單（回覆數字即可）*",
+        "1) 完整報告  2) 重點  3) 觀察清單  4) 熱力圖  5) 投資組合  6) 六合彩",
         "",
         "- Profile (env): `GSTOCK_RISK=low|medium|high`, `GSTOCK_HORIZON=day|swing|invest`",
       ].join("\n"),

@@ -130,6 +130,28 @@ function buildInlineActions(ticker: string) {
   };
 }
 
+function buildHelpMenu() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "1️⃣ 完整報告", callback_data: "M|FULL" },
+        { text: "2️⃣ 重點", callback_data: "M|SUMMARY" },
+      ],
+      [
+        { text: "3️⃣ 觀察清單", callback_data: "M|WATCH" },
+        { text: "4️⃣ 熱力圖", callback_data: "M|HEATMAP" },
+      ],
+      [
+        { text: "5️⃣ 投資組合", callback_data: "M|PORTFOLIO" },
+        { text: "6️⃣ 六合彩", callback_data: "M|MARKSIX" },
+      ],
+      [{ text: "✖️ 取消/清除等待", callback_data: "M|CANCEL" }],
+    ],
+  };
+}
+
+type PendingAction = "full" | "summary" | "watch" | "heatmap" | "portfolio";
+
 function decodeCallbackData(data: string): string {
   const raw = (data || "").trim();
   if (!raw) return "/help";
@@ -154,6 +176,36 @@ async function sendMessage(token: string, chatId: number, text: string, options?
       ...(options?.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
     });
   }
+}
+
+function stateKey(chatId: number) {
+  return new Request(`https://state.local/pending/${chatId}`);
+}
+
+async function getPending(chatId: number): Promise<PendingAction | null> {
+  const res = await caches.default.match(stateKey(chatId));
+  if (!res) return null;
+  try {
+    const json = await res.json<any>();
+    const v = String(json?.pending || "");
+    if (v === "full" || v === "summary" || v === "watch" || v === "heatmap" || v === "portfolio") return v;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function setPending(chatId: number, pending: PendingAction | null): Promise<void> {
+  if (!pending) {
+    await caches.default.delete(stateKey(chatId));
+    return;
+  }
+  await caches.default.put(
+    stateKey(chatId),
+    new Response(JSON.stringify({ pending }), {
+      headers: { "content-type": "application/json", "cache-control": "max-age=300" },
+    }),
+  );
 }
 
 type MarkSixDraw = { id: string; date: string; numbers: number[]; special: number };
@@ -736,7 +788,10 @@ async function handle(chatId: number, text: string, env: Env): Promise<string> {
       "- `/heatmap NVDA,AAPL,TSLA`（熱力圖）",
       "- `/marksix`（預設 30 期）",
       "- `/marksix 60`",
-      "- `/portfolio`（用 PORTFOLIO 變數）",
+      "- `/portfolio NVDA,AAPL,0700.HK`（臨時投資組合）",
+      "- `/portfolio`（使用 Worker env 的 PORTFOLIO）",
+      "",
+      "快捷選單：直接回覆 1/2/3/4/5/6 也可以（會提示你輸入代號）",
       "",
       "偏好設定（env vars）: RISK=low|medium|high, HORIZON=day|swing|invest",
     ].join("\n");
@@ -749,8 +804,8 @@ async function handle(chatId: number, text: string, env: Env): Promise<string> {
   }
 
   if (cmd === "portfolio") {
-    const spec = (env.PORTFOLIO || "").trim();
-    if (!spec) return "未設定 PORTFOLIO。請在 Worker env 設定 PORTFOLIO，例如：NVDA,AAPL,0700.HK";
+    const spec = (arg || (env.PORTFOLIO || "").trim()).trim();
+    if (!spec) return "未設定 PORTFOLIO。請輸入：/portfolio NVDA,AAPL,0700.HK（或在 Worker env 設定 PORTFOLIO）";
     const tickers = spec.split(",").map((s) => normalizeTicker(s)).filter(Boolean);
     const briefs: string[] = [];
     let maxAsOf = 0;
@@ -890,7 +945,106 @@ export default {
       ctx.waitUntil(telegramApi(token, "answerCallbackQuery", { callback_query_id: cb.id }));
     }
 
-    const text = decodeCallbackData(rawText);
+    const raw = String(rawText).trim();
+
+    if (raw.startsWith("M|")) {
+      const sel = raw.slice(2).trim().toUpperCase();
+      if (sel === "CANCEL") {
+        await setPending(chatId, null);
+        ctx.waitUntil(sendMessage(token, chatId, "✅ 已清除等待狀態。", { replyMarkup: buildHelpMenu() }));
+        return new Response("OK", { status: 200 });
+      }
+
+      if (sel === "FULL" || sel === "SUMMARY") {
+        await setPending(chatId, sel === "FULL" ? "full" : "summary");
+        ctx.waitUntil(sendMessage(token, chatId, "請輸入股票代號（例如：NVDA 或 0700.HK）。", { replyMarkup: buildHelpMenu() }));
+        return new Response("OK", { status: 200 });
+      }
+
+      if (sel === "WATCH" || sel === "HEATMAP") {
+        await setPending(chatId, sel === "WATCH" ? "watch" : "heatmap");
+        ctx.waitUntil(sendMessage(token, chatId, "請輸入清單（例如：NVDA,AAPL,TSLA）。", { replyMarkup: buildHelpMenu() }));
+        return new Response("OK", { status: 200 });
+      }
+
+      if (sel === "PORTFOLIO") {
+        const spec = (env.PORTFOLIO || "").trim();
+        if (!spec) {
+          await setPending(chatId, "portfolio");
+          ctx.waitUntil(sendMessage(token, chatId, "尚未設定 PORTFOLIO。請輸入投資組合清單（例如：NVDA,AAPL,0700.HK）。", { replyMarkup: buildHelpMenu() }));
+          return new Response("OK", { status: 200 });
+        }
+        await setPending(chatId, null);
+        const body = await handle(chatId, "/portfolio", env);
+        ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+        return new Response("OK", { status: 200 });
+      }
+
+      if (sel === "MARKSIX") {
+        await setPending(chatId, null);
+        const body = await handle(chatId, "/marksix", env);
+        ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+        return new Response("OK", { status: 200 });
+      }
+    }
+
+    const pending = await getPending(chatId);
+    let text = decodeCallbackData(raw);
+
+    const numeric = text.trim();
+    if (!numeric.startsWith("/") && /^[1-6]$/.test(numeric)) {
+      const map: Record<string, string> = {
+        "1": "M|FULL",
+        "2": "M|SUMMARY",
+        "3": "M|WATCH",
+        "4": "M|HEATMAP",
+        "5": "M|PORTFOLIO",
+        "6": "M|MARKSIX",
+      };
+      const cmd = map[numeric];
+      if (cmd) {
+        const fake = cmd;
+        const sel = fake.slice(2).trim().toUpperCase();
+        if (sel === "FULL" || sel === "SUMMARY") {
+          await setPending(chatId, sel === "FULL" ? "full" : "summary");
+          ctx.waitUntil(sendMessage(token, chatId, "請輸入股票代號（例如：NVDA 或 0700.HK）。", { replyMarkup: buildHelpMenu() }));
+          return new Response("OK", { status: 200 });
+        }
+        if (sel === "WATCH" || sel === "HEATMAP") {
+          await setPending(chatId, sel === "WATCH" ? "watch" : "heatmap");
+          ctx.waitUntil(sendMessage(token, chatId, "請輸入清單（例如：NVDA,AAPL,TSLA）。", { replyMarkup: buildHelpMenu() }));
+          return new Response("OK", { status: 200 });
+        }
+        if (sel === "PORTFOLIO") {
+          const spec = (env.PORTFOLIO || "").trim();
+          if (!spec) {
+            await setPending(chatId, "portfolio");
+            ctx.waitUntil(sendMessage(token, chatId, "尚未設定 PORTFOLIO。請輸入投資組合清單（例如：NVDA,AAPL,0700.HK）。", { replyMarkup: buildHelpMenu() }));
+            return new Response("OK", { status: 200 });
+          }
+          await setPending(chatId, null);
+          const body = await handle(chatId, "/portfolio", env);
+          ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+          return new Response("OK", { status: 200 });
+        }
+        if (sel === "MARKSIX") {
+          await setPending(chatId, null);
+          const body = await handle(chatId, "/marksix", env);
+          ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+          return new Response("OK", { status: 200 });
+        }
+      }
+    }
+
+    if (pending && !text.trim().startsWith("/")) {
+      const payload = text.trim();
+      if (pending === "full") text = `/full ${payload}`;
+      else if (pending === "summary") text = `/summary ${payload}`;
+      else if (pending === "watch") text = `/watch ${payload}`;
+      else if (pending === "heatmap") text = `/heatmap ${payload}`;
+      else if (pending === "portfolio") text = `/portfolio ${payload}`;
+      await setPending(chatId, null);
+    }
 
     const cacheKey = new Request(`https://cache.local/${encodeURIComponent(chatId)}/${encodeURIComponent(text.trim())}`);
     const cached = await caches.default.match(cacheKey);
@@ -901,7 +1055,16 @@ export default {
         : !text.startsWith("/") ? text : "";
       const tickerForButtons = tickerForButtonsRaw.includes(",") ? tickerForButtonsRaw.split(",")[0] : tickerForButtonsRaw;
       const replyMarkup = tickerForButtons ? buildInlineActions(normalizeTicker(tickerForButtons)) : undefined;
-      ctx.waitUntil(sendMessage(token, chatId, body, replyMarkup ? { replyMarkup } : undefined));
+      if (text === "/help" || text === "/start") ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+      else ctx.waitUntil(sendMessage(token, chatId, body, replyMarkup ? { replyMarkup } : undefined));
+      return new Response("OK", { status: 200 });
+    }
+
+    if (text === "/portfolio" && !(env.PORTFOLIO || "").trim()) {
+      await setPending(chatId, "portfolio");
+      const prompt =
+        "尚未設定 PORTFOLIO。\n請直接輸入投資組合清單（例如：NVDA,AAPL,0700.HK），或用 `/portfolio NVDA,AAPL,0700.HK`。";
+      ctx.waitUntil(sendMessage(token, chatId, prompt, { replyMarkup: buildHelpMenu() }));
       return new Response("OK", { status: 200 });
     }
 
@@ -918,7 +1081,8 @@ export default {
       : !text.startsWith("/") ? text : "";
     const tickerForButtons = tickerForButtonsRaw.includes(",") ? tickerForButtonsRaw.split(",")[0] : tickerForButtonsRaw;
     const replyMarkup = tickerForButtons ? buildInlineActions(normalizeTicker(tickerForButtons)) : undefined;
-    ctx.waitUntil(sendMessage(token, chatId, reply, replyMarkup ? { replyMarkup } : undefined));
+    if (text === "/help" || text === "/start") ctx.waitUntil(sendMessage(token, chatId, reply, { replyMarkup: buildHelpMenu() }));
+    else ctx.waitUntil(sendMessage(token, chatId, reply, replyMarkup ? { replyMarkup } : undefined));
     ctx.waitUntil(
       caches.default.put(cacheKey, new Response(reply, { headers: { "cache-control": "max-age=90" } })),
     );
