@@ -1,0 +1,378 @@
+---
+name: bye
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Session-end safety check. Commits uncommitted work, updates PROGRESS/HANDOFF docs,
+  runs lint, checks Linear issue status, captures session learnings to memory.
+  Auto-fixes routine items, asks only for unusual or destructive actions.
+  Use when asked to "end session", "wrap up", "park this", "bye", or "session end".
+  Proactively suggest when the user says "I'm done", "gotta go", "that's it for today",
+  or after a long session with uncommitted changes.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+  - Agent
+sensitive: true
+---
+
+{{PREAMBLE}}
+
+# /bye — Session End Safety Check
+
+You are running the `/bye` workflow. Your job: make sure everything is committed,
+documented, clean, and safe to close. You are the last line of defense against
+lost work and broken context.
+
+**Core rule:** auto-fix the routine, ask about the unusual.
+
+## User-invocable
+When the user types `/bye`, run this skill.
+
+## Instructions
+
+Run all 6 blocks in sequence. Each block prints its status line at the end.
+After all blocks complete, print the final report.
+
+If not inside a git repo, skip Blocks 1-4. Run only Block 5 (Memory) and Block 6 (Report).
+
+---
+
+## Block 1: Git Hygiene
+
+Check the state of the working tree and fix what's routine.
+
+### Step 1.1: Status scan
+
+```bash
+git status --porcelain
+git stash list
+git worktree list
+git branch --merged $(git rev-parse --abbrev-ref HEAD) 2>/dev/null | grep -v '^\*' | grep -v 'main\|master'
+```
+
+### Step 1.2: Uncommitted changes (auto-fix)
+
+If `git status --porcelain` shows staged or unstaged tracked files:
+
+1. Read the diff: `git diff` and `git diff --cached`
+2. Write a conventional commit message summarizing the changes. Use the format:
+   `chore(bye): session checkpoint — <brief summary of changes>`
+3. Stage and commit:
+   ```bash
+   git add -u
+   git commit -m "<message>
+
+   Co-Authored-By: Claude <noreply@anthropic.com>"
+   ```
+
+If only documentation files changed (PROGRESS.md, HANDOFF.md, CLAUDE.md, CHANGELOG.md,
+README.md), use prefix `docs(bye):` instead of `chore(bye):`.
+
+### Step 1.3: Untracked files (ask)
+
+If there are untracked files, show the list and use AskUserQuestion:
+- "These files are untracked. What should I do?"
+- Options: "Commit them", "Add to .gitignore", "Leave them (I'll handle it)"
+
+If the user says commit, stage and include in the session checkpoint commit (or create
+a new one if Step 1.2 already committed).
+
+If the user says .gitignore, append the file patterns to .gitignore and commit that.
+
+### Step 1.4: Merged branches (ask)
+
+If there are local branches already merged into the current branch (excluding main/master),
+list them and ask: "Delete these merged branches?"
+
+Only delete if the user confirms. Use `git branch -d` (safe delete, not force).
+
+### Step 1.5: Report items (no action)
+
+Note for the final report:
+- If current branch is ahead of remote: "Branch is N commits ahead of origin"
+- If there are stash entries: "N stash entries found"
+- If there are worktrees beyond the main one: list them
+
+Print: `GIT: ✅ <summary>` or `GIT: ⚠️ <issue>` or `GIT: ❌ <uncommitted changes remain>`
+
+---
+
+## Block 2: Documentation Update
+
+Detect which documentation files exist and update them with session activity.
+
+### Step 2.1: Detect documentation model
+
+```bash
+ls -la PROGRESS.md HANDOFF.md CLAUDE.md 2>/dev/null
+```
+
+Note which files exist. Each repo uses a different model — respect what's there.
+
+### Step 2.2: Determine session activity
+
+Figure out what was done this session. Use multiple signals:
+
+1. **Git log:** Find commits from today (or since the last PROGRESS entry timestamp):
+   ```bash
+   git log --since="today 00:00" --oneline --no-merges
+   ```
+2. **Diff against PROGRESS.md:** If PROGRESS.md exists, find its most recent date entry
+   and get commits since then.
+3. If there are zero commits (including any made in Block 1), skip doc updates.
+
+### Step 2.3: Update PROGRESS.md (auto-fix)
+
+If PROGRESS.md exists and there are new commits to document:
+
+1. Read the existing file to understand its format (date headers, section style,
+   level of detail).
+2. Append a new entry at the appropriate location (usually after the last date entry)
+   matching the existing format. Include:
+   - Date header
+   - What was done (derived from commit messages, grouped by theme)
+   - Key decisions made (if any are evident from commits or conversation)
+   - References to Linear issues (SEN-XXX) if present in commits
+
+**Format detection is critical.** Read the existing entries and replicate their style
+exactly. Some repos use `### YYYY-MM-DD`, others use `## YYYY-MM-DD`, some use bullet
+lists, others use paragraphs. Match what's there.
+
+### Step 2.4: Update HANDOFF.md (auto-fix)
+
+If HANDOFF.md exists:
+
+1. Read the existing file to understand its structure.
+2. Rewrite the file preserving its format but updating:
+   - "Última sessão" / "Last session" → today's date
+   - "O que foi completado" / "Completed" → items from this session
+   - "Próximos passos" / "Next steps" → infer from commit messages, TODOs, and
+     conversation context
+   - "Decisões já tomadas" / "Locked decisions" → preserve existing + add new ones
+3. Preserve any "não renegociar" / "do not re-discuss" sections intact.
+
+### Step 2.5: CLAUDE.md check (ask)
+
+If CLAUDE.md exists, scan the session for architectural decisions:
+- New library/dependency added
+- New pattern or convention established
+- Stack change
+- New skill or command created
+
+If any are found, use AskUserQuestion: "Houve decisão arquitetural nesta sessão.
+Atualizar CLAUDE.md?" with a preview of what would change.
+
+Only update if the user confirms.
+
+### Step 2.6: Missing docs (ask)
+
+If the repo has commits but no PROGRESS.md and no HANDOFF.md, ask:
+"This repo has no PROGRESS.md or HANDOFF.md. Want me to create one?"
+Options: "Create PROGRESS.md", "Create HANDOFF.md", "Both", "Skip"
+
+If creating, use the format from the gstack convention:
+- PROGRESS.md: date-based append-only log
+- HANDOFF.md: session bridge with completed/next/decisions sections
+
+### Step 2.7: Commit doc updates
+
+If any documentation files were created or modified:
+```bash
+git add PROGRESS.md HANDOFF.md CLAUDE.md 2>/dev/null
+git commit -m "docs(bye): update session documentation
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+Print: `DOCS: ✅ <which files updated>` or `DOCS: ⚠️ no docs to update` or `DOCS: ❌ <issue>`
+
+---
+
+## Block 3: Code Quality
+
+Quick quality check. Fix what's auto-fixable, report the rest.
+
+### Step 3.1: Detect linter
+
+Check which linter is available:
+```bash
+# Python
+[ -f pyproject.toml ] && grep -q ruff pyproject.toml && echo "ruff"
+[ -f .flake8 ] && echo "flake8"
+
+# JavaScript/TypeScript
+[ -f .eslintrc* ] || [ -f eslint.config.* ] && echo "eslint"
+[ -f biome.json ] && echo "biome"
+
+# Go
+[ -f go.mod ] && echo "golangci-lint"
+```
+
+### Step 3.2: Run lint with auto-fix (auto-fix)
+
+If a linter is detected, run it with auto-fix:
+- ruff: `ruff check --fix . && ruff format .`
+- eslint: `npx eslint --fix .`
+- biome: `npx biome check --fix .`
+
+If fixes were applied, commit:
+```bash
+git add -u
+git commit -m "chore(bye): lint auto-fixes
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+If the linter fails (not installed, config error), skip silently.
+
+### Step 3.3: Run tests (report only)
+
+Check if a test runner exists and estimate runtime:
+```bash
+# Check for test commands
+[ -f Makefile ] && grep -q "^test:" Makefile && echo "make test"
+[ -f pyproject.toml ] && echo "pytest"
+[ -f package.json ] && grep -q '"test"' package.json && echo "npm test"
+```
+
+If found, run the test suite with a 60-second timeout. If tests pass, report ✅.
+If tests fail, report ⚠️ with the failure summary. Do NOT attempt to fix failing tests.
+
+If no test runner found or tests take >60s, skip with note.
+
+### Step 3.4: Scan for new TODOs (report only)
+
+Find TODO/FIXME/HACK comments added in this session:
+```bash
+git diff HEAD~$(git log --since="today 00:00" --oneline | wc -l) -- '*.py' '*.ts' '*.js' '*.go' '*.rs' 2>/dev/null | grep '^\+.*\(TODO\|FIXME\|HACK\)' | head -10
+```
+
+If found, list them in the report as awareness items.
+
+Print: `QUALITY: ✅ clean` or `QUALITY: ⚠️ <issues found>`
+
+---
+
+## Block 4: Linear Sync
+
+Check if Linear issues mentioned in the session are in the right status.
+
+### Step 4.1: Check Linear CLI
+
+```bash
+which linear 2>/dev/null || npx linear --version 2>/dev/null
+```
+
+If Linear CLI is not available, skip this entire block silently. Print `LINEAR: — skipped (CLI not available)`.
+
+### Step 4.2: Extract issue references
+
+Find SEN-XXX patterns in:
+1. Commit messages from this session
+2. Branch name
+3. PROGRESS.md entries added in Block 2
+
+```bash
+git log --since="today 00:00" --format="%s %b" | grep -oE 'SEN-[0-9]+' | sort -u
+git branch --show-current | grep -oE 'SEN-[0-9]+'
+```
+
+### Step 4.3: Check status (ask before acting)
+
+For each issue found, check current status. If there's a mismatch:
+- Issue has commits but status is "Todo" → ask: "Move SEN-XXX to In Progress?"
+- Issue has merged PR but status is not "Done" → ask: "Move SEN-XXX to Done?"
+
+Only change status if user confirms.
+
+Print: `LINEAR: ✅ <N issues checked>` or `LINEAR: ⚠️ <mismatches found>` or `LINEAR: — skipped`
+
+---
+
+## Block 5: Memory Check
+
+Review the session for learnings that should persist across conversations.
+
+### Step 5.1: Scan for feedback
+
+Look back through the conversation for:
+- Explicit corrections: "don't do X", "always Y", "stop doing Z"
+- Approach confirmations: user accepted a non-obvious choice without pushback
+- Preferences expressed: "I prefer...", "next time...", "remember that..."
+
+For each clear feedback item, auto-save to the memory system:
+- File: `~/.claude/projects/<project>/memory/feedback_<slug>.md`
+- Type: feedback
+- Include the rule, why, and how to apply
+
+### Step 5.2: Scan for project learnings (ask)
+
+Look for non-obvious project facts learned during the session:
+- External system details (API endpoints, service names, credentials locations)
+- Team/stakeholder information
+- Deadlines or constraints mentioned
+- Technical decisions that aren't captured in CLAUDE.md
+
+If any are found, use AskUserQuestion: "Found N potential learnings from this session.
+Save to memory?" with a preview of each item.
+
+### Step 5.3: Skip ephemeral details
+
+Do NOT save:
+- What files were edited (that's in git)
+- Debug solutions (that's in the commit)
+- Anything already captured in PROGRESS.md, HANDOFF.md, or CLAUDE.md
+- Task-specific details that won't matter next session
+
+Print: `MEMORY: ✅ <N items saved>` or `MEMORY: — nothing to save`
+
+---
+
+## Block 6: Final Report
+
+Print the session-end report. This is the last thing the user sees.
+
+```
+═══════════════════════════════════════════════
+  /bye — session report
+═══════════════════════════════════════════════
+
+  GIT        ✅  2 commits criados, working tree limpa
+  DOCS       ✅  PROGRESS.md atualizado, HANDOFF.md reescrito
+  QUALITY    ⚠️  3 TODOs novos (tier2/extractor.py:45, :78, :112)
+  LINEAR     ✅  SEN-704 → In Progress
+  MEMORY     ✅  1 feedback salvo
+
+  VERDICT: ✅ Safe to close
+
+═══════════════════════════════════════════════
+```
+
+**Verdict logic:**
+- ✅ **Safe to close** — all blocks are ✅ or ⚠️ (warnings don't block)
+- ❌ **Not safe** — at least one block has ❌ (uncommitted changes the user refused
+  to commit, critical test failures, etc.)
+
+If verdict is ❌, list exactly what needs attention before closing.
+
+After the report, say: "Session wrapped. See you next time."
+
+---
+
+## Important Rules
+
+- **Never push to remote.** /bye commits locally only. Pushing is a separate decision.
+- **Never delete untracked files.** Only offer to commit or .gitignore them.
+- **Never force-delete branches.** Only `git branch -d` (safe delete).
+- **Respect existing doc formats.** Read before writing. Match the style.
+- **Skip gracefully.** Missing tools, empty repos, no commits — handle all edge cases
+  without errors.
+- **Stay fast.** Target <30 seconds for a typical session. Skip slow operations.
+- **Language:** Follow the user's language setting. If pt-br, use Portuguese for
+  AskUserQuestion prompts and report labels.
