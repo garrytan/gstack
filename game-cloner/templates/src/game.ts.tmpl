@@ -1,0 +1,199 @@
+// {{NAME}} — {{GENRE}} clone
+// Extracted mechanics: {{MECHANICS_LIST}}
+//
+// Genre: {{GENRE}}
+// Win condition:  {{WIN_CONDITION}}
+// Lose condition: {{LOSE_CONDITION}}
+//
+// HOW TO IMPLEMENT THIS FILE:
+//  1. Fill in the TODO sections below with your game objects and logic.
+//  2. Add Three.js meshes/lights in init().
+//  3. Drive everything from update(delta) — delta is seconds since last frame.
+//  4. Use this.input.* helpers to read keyboard state.
+//  5. Call this.input.flush() at the end of update().
+//
+// Keyboard controls are defined in input.ts (generated alongside this file).
+
+import * as THREE from 'three';
+import { InputManager } from './input';
+
+// ─── Game state ──────────────────────────────────────────────────────────────
+
+type GameState = 'idle' | 'playing' | 'paused' | 'gameover' | 'win';
+
+// ─── Game class ──────────────────────────────────────────────────────────────
+
+export class Game {
+  private input: InputManager;
+  private state: GameState = 'idle';
+  private score: number = 0;
+  private lives: number = 3;
+  private elapsed: number = 0; // total seconds played
+
+  // TODO: Add typed fields for your game objects, e.g.:
+  //   private player!: THREE.Mesh;
+  //   private obstacles: THREE.Mesh[] = [];
+  //   private collectibles: THREE.Mesh[] = [];
+
+  // ─── Genre-specific state hints ────────────────────────────────────────────
+  //
+  // {{GENRE}} games typically need:
+  //
+  // runner    → player mesh, scroll speed (increases over time), obstacle pool,
+  //             lane/column position, jump velocity + gravity constant
+  //
+  // platformer→ player mesh, velocity: THREE.Vector2, isGrounded flag,
+  //             platform meshes[], gravity constant, coyote-time timer
+  //
+  // puzzle    → grid: Cell[][], selected cell, move counter, solved flag,
+  //             rule-checker function per puzzle type
+  //
+  // shooter   → player mesh, bullets: Bullet[], enemies: Enemy[],
+  //             fireRate timer, player velocity, bounds clamping
+  //
+  // clicker   → clickTarget mesh (keyboard-activated), clickCount, clicksPerSecond,
+  //             upgrade tiers, passive income accumulator
+  //
+  // (scaffolder will inject the matching hint above based on detected genre)
+
+  constructor(private scene: THREE.Scene) {
+    this.input = new InputManager();
+    this.init();
+  }
+
+  // ─── Initialization ───────────────────────────────────────────────────────
+
+  private init(): void {
+    this.setupLighting();
+    this.setupCamera();
+    this.createGameObjects();
+  }
+
+  private setupLighting(): void {
+    // TODO: Tune lighting to match visual style: {{VISUAL_STYLE}}
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    this.scene.add(ambient);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+    sun.position.set(5, 10, 5);
+    this.scene.add(sun);
+  }
+
+  private setupCamera(): void {
+    // TODO: Adjust camera position and type to fit genre.
+    // runner/shooter → fixed perspective looking forward or top-down
+    // platformer     → side-scrolling ortho or perspective
+    // puzzle         → top-down ortho
+    // The camera is owned by main.ts — reach it via:
+    //   (this.scene.userData.camera as THREE.Camera)
+  }
+
+  private createGameObjects(): void {
+    // TODO: Create and add meshes to this.scene.
+
+    // Example player placeholder (replace with real geometry):
+    // const geo = new THREE.BoxGeometry(1, 1, 1);
+    // const mat = new THREE.MeshStandardMaterial({ color: 0x4488ff });
+    // this.player = new THREE.Mesh(geo, mat);
+    // this.scene.add(this.player);
+  }
+
+  // ─── Public API ───────────────────────────────────────────────────────────
+
+  /** Called by main.ts every animation frame. delta is in seconds. */
+  update(delta: number): void {
+    this.handleMenuInput();
+
+    if (this.state !== 'playing') {
+      this.input.flush();
+      return;
+    }
+
+    this.elapsed += delta;
+    this.updateGameplay(delta);
+    this.input.flush(); // must be last — clears wasJustPressed state
+  }
+
+  getScore(): number { return this.score; }
+  getState(): GameState { return this.state; }
+  getLives(): number { return this.lives; }
+
+  start(): void {
+    this.score = 0;
+    this.lives = 3;
+    this.elapsed = 0;
+    this.state = 'playing';
+    this.createGameObjects();
+  }
+
+  // ─── Input: menu / meta controls ─────────────────────────────────────────
+
+  private handleMenuInput(): void {
+    // Space or Enter to start / restart
+    if (this.input.wasJustPressed('Space') || this.input.wasJustPressed('Enter')) {
+      if (this.state === 'idle' || this.state === 'gameover' || this.state === 'win') {
+        this.start();
+        return;
+      }
+    }
+    // Escape to pause / unpause
+    if (this.input.wasJustPressed('Escape')) {
+      if (this.state === 'playing') this.state = 'paused';
+      else if (this.state === 'paused') this.state = 'playing';
+    }
+  }
+
+  // ─── Core gameplay loop ───────────────────────────────────────────────────
+
+  private updateGameplay(delta: number): void {
+    // TODO: Implement your game loop here.
+    // The mechanics extracted from the original game are:
+    //
+    {{MECHANICS_TODOS}}
+    //
+    // Check win / lose conditions each frame:
+    this.checkWinCondition();
+    this.checkLoseCondition();
+  }
+
+  // ─── Win / Lose ───────────────────────────────────────────────────────────
+
+  private checkWinCondition(): void {
+    // Win condition: {{WIN_CONDITION}}
+    // TODO: Detect win condition and call this.triggerWin()
+  }
+
+  private checkLoseCondition(): void {
+    // Lose condition: {{LOSE_CONDITION}}
+    // TODO: Detect lose condition. On hit: decrement lives or call this.triggerGameOver()
+  }
+
+  private triggerWin(): void {
+    this.state = 'win';
+    // TODO: Play win effect, display score
+  }
+
+  private triggerGameOver(): void {
+    if (this.lives > 1) {
+      this.lives--;
+      // TODO: Respawn player / reset round state
+    } else {
+      this.state = 'gameover';
+      // TODO: Play death effect, show game-over screen
+    }
+  }
+
+  // ─── Utilities ────────────────────────────────────────────────────────────
+
+  /** Axis-aligned bounding-box collision between two meshes. */
+  private collides(a: THREE.Mesh, b: THREE.Mesh): boolean {
+    const boxA = new THREE.Box3().setFromObject(a);
+    const boxB = new THREE.Box3().setFromObject(b);
+    return boxA.intersectsBox(boxB);
+  }
+
+  /** Clamp a value between min and max. */
+  private clamp(v: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, v));
+  }
+}

@@ -126,19 +126,15 @@ git fetch origin <base> && git merge origin/<base> --no-edit
 
 ## Step 3: Run tests (on merged code)
 
-**Do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
-`db:test:prepare` internally, which loads the schema into the correct lane database.
-Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
+**Read CLAUDE.md for the test command.** Look for a `## Commands` or `## Testing` section with an explicit test command. If found, use that. If not found, use the test command detected in Step 2.5. If still unclear, use AskUserQuestion: "What command runs your test suite?"
 
-Run both test suites in parallel:
+Run the test suite:
 
 ```bash
-bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
-npm run test 2>&1 | tee /tmp/ship_vitest.txt &
-wait
+{test command from CLAUDE.md or Step 2.5} 2>&1 | tee /tmp/ship_tests.txt
 ```
 
-After both complete, read the output files and check pass/fail.
+After it completes, read the output and check pass/fail.
 
 **If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
 

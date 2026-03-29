@@ -1,0 +1,76 @@
+// Generated keyboard controls for: {{NAME}}
+// Original controls: {{CONTROLS_JSON}}
+
+/**
+ * InputManager — keyboard state tracker with held/just-pressed/just-released semantics.
+ *
+ * Usage:
+ *   Call input.flush() once at the END of each game frame.
+ *   isPressed()      → true every frame the key is held
+ *   wasJustPressed() → true only on the FIRST frame a key goes down
+ *   wasJustReleased()→ true only on the FIRST frame a key comes up
+ */
+export class InputManager {
+  private keys: Set<string> = new Set();
+  private justPressed: Set<string> = new Set();
+  private justReleased: Set<string> = new Set();
+
+  constructor() {
+    window.addEventListener('keydown', (e) => {
+      if (!this.keys.has(e.code)) {
+        this.justPressed.add(e.code);
+      }
+      this.keys.add(e.code);
+      // Prevent arrow keys / space from scrolling the page
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+        e.preventDefault();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      this.justReleased.add(e.code);
+    });
+
+    // Release all keys when window loses focus to avoid stuck keys
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this.justPressed.clear();
+      this.justReleased.clear();
+    });
+  }
+
+  /** True every frame the key is held down */
+  isPressed(code: string): boolean {
+    return this.keys.has(code);
+  }
+
+  /** True only on the first frame a key is pressed (not held) */
+  wasJustPressed(code: string): boolean {
+    return this.justPressed.has(code);
+  }
+
+  /** True only on the first frame a key is released */
+  wasJustReleased(code: string): boolean {
+    return this.justReleased.has(code);
+  }
+
+  /**
+   * Flush per-frame edge state. Call once at the END of each update().
+   * If you call it at the start, wasJustPressed() always returns false.
+   */
+  flush(): void {
+    this.justPressed.clear();
+    this.justReleased.clear();
+  }
+
+  // ─── Generated per-action helpers ────────────────────────────────────────
+  // Each helper below maps a game action to one or more key codes.
+  // Dual bindings (arrow keys + WASD) are included where appropriate.
+  // Example of what scaffold.ts generates here:
+  //   moveLeft(): boolean { return this.isPressed('ArrowLeft') || this.isPressed('KeyA'); }
+  //   moveRight(): boolean { return this.isPressed('ArrowRight') || this.isPressed('KeyD'); }
+  //   jump(): boolean { return this.wasJustPressed('Space') || this.wasJustPressed('ArrowUp'); }
+
+  {{ACTION_HELPERS}}
+}
