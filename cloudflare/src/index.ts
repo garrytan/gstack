@@ -662,6 +662,41 @@ async function fetchYahooQuoteSummary(symbol: string): Promise<{
     }
   }
 
+  if (
+    trailingPE == null &&
+    forwardPE == null &&
+    epsForward == null &&
+    epsTTM == null &&
+    growthPct == null &&
+    /^[A-Z]{1,6}$/.test(symbol)
+  ) {
+    try {
+      const url3 = `https://stockanalysis.com/stocks/${encodeURIComponent(symbol.toLowerCase())}/`;
+      const res3 = await fetch(url3, { headers: { "user-agent": "Mozilla/5.0" } });
+      const html = await res3.text();
+      const extractMetric = (label: string): number | null => {
+        const re = new RegExp(`>${label}<\\/td><td[^>]*>([0-9.,-]+)`, "i");
+        const m = html.match(re);
+        if (!m) return null;
+        const n = Number(String(m[1]).replace(/,/g, ""));
+        return Number.isFinite(n) ? n : null;
+      };
+      trailingPE = extractMetric("PE Ratio") ?? trailingPE;
+      forwardPE = extractMetric("Forward PE") ?? forwardPE;
+
+      if (growthPct == null) {
+        const re = new RegExp(`>EPS<\\/td><td[^>]*>([0-9.,-]+)[\\s\\S]*?([+-]?[0-9.]+)%`, "i");
+        const m = html.match(re);
+        if (m) {
+          const n = Number(m[2]);
+          if (Number.isFinite(n)) growthPct = n;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const out = { trailingPE, forwardPE, epsForward, epsTrailing12Months: epsTTM, growthPct };
   const hasAny =
     out.trailingPE != null ||
