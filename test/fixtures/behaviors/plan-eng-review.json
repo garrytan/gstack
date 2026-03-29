@@ -1,0 +1,31 @@
+{
+  "skill": "plan-eng-review",
+  "assertions": [
+    {
+      "type": "section_exists",
+      "pattern": "Step 0|Scope Challenge|scope",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output must include Step 0 scope challenge"
+    },
+    {
+      "type": "pattern_exists",
+      "pattern": "test|Test|testing|coverage",
+      "regex": true,
+      "description": "Output must address test coverage"
+    },
+    {
+      "type": "pattern_exists",
+      "pattern": "diagram|ascii|flow|\\+--",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output should include diagrams or diagram references"
+    },
+    {
+      "type": "min_sections",
+      "heading_level": 2,
+      "min_count": 2,
+      "description": "Output must have at least 2 major sections"
+    }
+  ]
+}

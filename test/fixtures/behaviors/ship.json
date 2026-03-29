@@ -1,0 +1,19 @@
+{
+  "skill": "ship",
+  "assertions": [
+    {
+      "type": "pattern_exists",
+      "pattern": "PR|pull request|push|branch",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output must reference PR creation or branch push"
+    },
+    {
+      "type": "pattern_exists",
+      "pattern": "test|passing|passed|green|CI",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output must reference test results"
+    }
+  ]
+}

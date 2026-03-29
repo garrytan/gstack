@@ -1,0 +1,24 @@
+{
+  "skill": "review",
+  "assertions": [
+    {
+      "type": "pattern_exists",
+      "pattern": "CRITICAL|Critical|critical",
+      "regex": true,
+      "description": "Output must contain critical findings or explicitly state none found"
+    },
+    {
+      "type": "pattern_exists",
+      "pattern": "INFORMATIONAL|Informational|informational|info",
+      "regex": true,
+      "description": "Output must contain informational findings section"
+    },
+    {
+      "type": "pattern_absent",
+      "pattern": "variable name|naming convention|import order|whitespace style",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output should not nitpick style issues"
+    }
+  ]
+}

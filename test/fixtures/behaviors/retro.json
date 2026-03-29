@@ -1,0 +1,25 @@
+{
+  "skill": "retro",
+  "assertions": [
+    {
+      "type": "pattern_exists",
+      "pattern": "\\d+\\s*(commit|PR|merge|push)",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output must contain quantitative commit or PR metrics"
+    },
+    {
+      "type": "pattern_exists",
+      "pattern": "contributor|author|team|person",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output must reference contributors or team members"
+    },
+    {
+      "type": "min_sections",
+      "heading_level": 2,
+      "min_count": 2,
+      "description": "Output must have at least 2 major sections"
+    }
+  ]
+}

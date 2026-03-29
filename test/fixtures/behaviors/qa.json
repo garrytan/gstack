@@ -1,0 +1,26 @@
+{
+  "skill": "qa",
+  "assertions": [
+    {
+      "type": "pattern_exists",
+      "pattern": "bug|issue|finding|error|defect",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output must report bugs, issues, or findings"
+    },
+    {
+      "type": "pattern_exists",
+      "pattern": "severity|critical|high|medium|low",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output must classify findings by severity"
+    },
+    {
+      "type": "pattern_exists",
+      "pattern": "screenshot|evidence|console|observed",
+      "regex": true,
+      "case_insensitive": true,
+      "description": "Output must include evidence for findings"
+    }
+  ]
+}
