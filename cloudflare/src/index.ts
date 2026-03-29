@@ -1106,12 +1106,17 @@ async function handle(chatId: number, text: string, env: Env): Promise<string> {
       "- `/portfolio NVDA,AAPL,0700.HK`（臨時投資組合）",
       "- `/portfolio NVDA:15@167.52,0700.HK:100@493.4`（含數量/成本）",
       "- `/portfolio`（使用 Worker env：PORTFOLIO_POSITIONS 或 PORTFOLIO）",
+      "- `/whoami`（取得你的 Chat ID，用於白名單）",
       "",
       "快捷選單：直接回覆 1/2/3/4/5/6 也可以（會提示你輸入代號）",
       "",
       "偏好設定（env vars）: RISK=low|medium|high, HORIZON=day|swing|invest",
       "投資組合（env vars）: PORTFOLIO_POSITIONS=NVDA:15@167.52,0700.HK:100@493.4 或 PORTFOLIO=NVDA,AAPL,0700.HK",
     ].join("\n");
+  }
+
+  if (cmd === "whoami") {
+    return `你的 Chat ID: ${chatId}\n請把這串數字傳給 bot 管理員，讓他把你加入 TELEGRAM_ALLOWED_CHAT_IDS 白名單。`;
   }
 
   if (cmd === "macro") {
@@ -1357,13 +1362,20 @@ export default {
     const chatId = cb?.message?.chat?.id || msg?.chat?.id;
     const rawText = cb?.data || msg?.text;
     if (!rawText || !chatId) return new Response("OK", { status: 200 });
-    if (!isAllowed(chatId, allowed)) return new Response("OK", { status: 200 });
 
     if (cb?.id) {
       ctx.waitUntil(telegramApi(token, "answerCallbackQuery", { callback_query_id: cb.id }));
     }
 
     const raw = String(rawText).trim();
+    const decodedQuick = decodeCallbackData(raw);
+    if (decodedQuick === "/whoami") {
+      const body = `你的 Chat ID: ${chatId}\n請把這串數字傳給 bot 管理員，讓他把你加入 TELEGRAM_ALLOWED_CHAT_IDS 白名單。`;
+      ctx.waitUntil(sendMessage(token, chatId, body, { replyMarkup: buildHelpMenu() }));
+      return new Response("OK", { status: 200 });
+    }
+
+    if (!isAllowed(chatId, allowed)) return new Response("OK", { status: 200 });
 
     if (raw.startsWith("M|")) {
       const sel = raw.slice(2).trim().toUpperCase();

@@ -738,6 +738,7 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         "- `/marksix` (default 30 draws)",
         "- `/marksix 60`",
         "- `/portfolio` (uses `portfolio.json`)",
+        "- `/whoami` (show your chat id)",
         "",
         "*快捷選單（回覆數字即可）*",
         "1) 完整報告  2) 重點  3) 觀察清單  4) 熱力圖  5) 投資組合  6) 六合彩  7) 宏觀",
@@ -746,6 +747,11 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
       ].join("\n"),
       { replyMarkup: buildMainKeyboard() },
     );
+    return;
+  }
+
+  if (effectiveText === "/whoami") {
+    await sendMessage(chatId, `你的 Chat ID: \`${chatId}\``, { replyMarkup: buildMainKeyboard() });
     return;
   }
 
