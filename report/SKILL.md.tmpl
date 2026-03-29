@@ -1,0 +1,209 @@
+---
+name: report
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Sprint report for the CEO — detailed per-sprint and cross-sprint analysis showing
+  lines changed, bugs caught at review vs QA, test coverage delta, stage durations,
+  decision audit, and team performance trends. Use when asked for "report", "sprint
+  report", "retrospective data", "how did that sprint go", or "show me the numbers".
+  Proactively suggest after multiple sprints complete or at the end of a work session.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /report — Sprint Report for CEO
+
+Detailed analysis of PM sprint performance. Unlike `/status` (quick glance),
+`/report` digs into the data: where bugs were caught, how long each stage took,
+which decisions were escalated, and how the team is trending over time.
+
+---
+
+## Step 1: Gather all sprint data
+
+Run slug setup and file discovery in a single block (variables do not persist
+between bash blocks):
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+mkdir -p ~/.gstack/projects/$SLUG
+echo "=== SLUG: $SLUG ==="
+echo "=== Sprint logs ==="
+ls -t ~/.gstack/projects/$SLUG/pm-sprint-*.json 2>/dev/null || echo "(none)"
+echo "=== Review logs ==="
+cat ~/.gstack/projects/$SLUG/*-reviews.jsonl 2>/dev/null || echo "(none)"
+```
+
+Remember the SLUG value output above — use it as a literal string in subsequent steps.
+
+If the user specifies a sprint or issue number, filter to that sprint only.
+Otherwise, report on all sprints (with summary aggregation).
+
+---
+
+## Step 2: Per-sprint breakdown
+
+For each completed sprint, produce:
+
+```
+=== SPRINT REPORT: #<issue> — <title> ===
+Type: <bug/feature/enhancement>
+Branch: pm/issue-<N>
+PR: #<pr-number>
+Duration: <total> (plan: <t>, build: <t>, review: <t>, ship: <t>)
+
+STAGE TIMELINE
+──────────────────────────────────────────────────────
+  Stage     Start    End      Duration  Status
+  ──────── ──────── ──────── ──────── ────────
+  Intake    14:30    14:31    1m        completed
+  Plan      14:31    14:38    7m        completed
+  Build     14:38    14:52    14m       completed
+  Review    14:52    14:57    5m        completed
+  Ship      14:57    14:59    2m        completed
+──────────────────────────────────────────────────────
+  Total                       29m
+
+BUGS & ISSUES
+──────────────────────────────────────────────────────
+  Found in self-check: 1 (caught by tests during build)
+  Found in review:     3 (2 auto-fixed, 1 escalated)
+  Total:               4
+  Early detection:     100% (all caught before ship)
+──────────────────────────────────────────────────────
+
+DECISIONS
+──────────────────────────────────────────────────────
+  Total decisions:    8
+  Auto-decided:       6 (75%)
+  Escalated to CEO:   2 (25%)
+    - Plan approval (mandatory)
+    - Taste: DB index strategy (chose covering index)
+──────────────────────────────────────────────────────
+
+SCOPE
+──────────────────────────────────────────────────────
+  Lines changed:      247 (+198 / -49)
+  Files changed:      6
+  Tests added:        4
+  Coverage delta:     +2.3%
+  Requirements met:   5/5 (100%)
+──────────────────────────────────────────────────────
+```
+
+---
+
+## Step 3: Cross-sprint analysis (if multiple sprints)
+
+When reporting on multiple sprints, add aggregate analysis:
+
+```
+=== CROSS-SPRINT ANALYSIS ===
+Period: <earliest sprint> to <latest sprint>
+Sprints completed: <N>
+
+EFFICIENCY TRENDS
+──────────────────────────────────────────────────────
+  Metric              Average    Best     Worst    Trend
+  ─────────────────── ──────── ──────── ──────── ──────
+  Total duration       14m      6m       32m      steady
+  Plan stage           4m       2m       8m       improving
+  Build stage          7m       3m       18m      steady
+  Review stage         2m       1m       5m       steady
+  Ship stage           1m       1m       2m       steady
+  Lines per sprint     183      37       412      —
+  Bugs per sprint      1.3      0        4        improving
+──────────────────────────────────────────────────────
+
+BUG DETECTION EFFECTIVENESS
+──────────────────────────────────────────────────────
+  Where bugs are caught:
+    Self-check (earliest): 22%  █████░░░░░░░░░░░░░░░░░
+    Review (early):        78%  ████████████████░░░░░░
+
+  Review is catching most bugs — good signal.
+  [or: Self-check catching most — review may be redundant for simple issues.]
+  [or: Review catching everything — self-check tests may need strengthening.]
+──────────────────────────────────────────────────────
+
+DECISION PATTERNS
+──────────────────────────────────────────────────────
+  Auto-decided:         89% across all sprints
+  Escalation rate:      11%
+  Most common escalation type: taste decisions (scope/approach)
+  CEO response time:    avg <t> per escalation
+──────────────────────────────────────────────────────
+
+COMPLEXITY DISTRIBUTION
+──────────────────────────────────────────────────────
+  Small (1-3 files):    40%  ████████░░░░░░░░░░░░░░
+  Medium (4-10 files):  45%  █████████░░░░░░░░░░░░░
+  Large (10+ files):    15%  ████░░░░░░░░░░░░░░░░░░
+──────────────────────────────────────────────────────
+```
+
+---
+
+## Step 4: Recommendations
+
+Based on the data, provide actionable recommendations:
+
+**If review is catching most bugs but self-check is not (>80% found in review):**
+> "Review is doing the heavy lifting — 80% of bugs are found there, not in self-check. Consider:
+> - Writing more targeted tests during the build phase to catch issues earlier
+> - Adding /cso for security-sensitive changes
+> - Improving test coverage in the build stage"
+
+**If a particular stage is consistently slow:**
+> "Build stage averages 18m — 2x longer than other stages. Common causes:
+> - Plans may not be specific enough (ambiguous plans slow implementation)
+> - Consider running /autoplan for medium+ complexity issues"
+
+**If escalation rate is very low (<5%):**
+> "Only 3% of decisions are escalated. This could mean:
+> - The PM is handling things well (check bug escape rate to confirm)
+> - OR the PM may be auto-deciding things that should be escalated
+> Review the decision log for any questionable auto-decisions"
+
+**If escalation rate is very high (>25%):**
+> "28% of decisions are escalated. Consider:
+> - Issues may have unclear requirements — improve issue templates
+> - The PM's decision framework may be too conservative for this project"
+
+---
+
+## Step 5: Export option
+
+After presenting the report, offer:
+
+```
+A) Done — thanks
+B) Export to markdown — save report to ~/.gstack/projects/<slug>/pm-report-<date>.md
+   (substitute the project slug resolved in Step 1)
+C) Post to issue — add report as a GitHub issue comment
+D) Drill into sprint #<N> — show full decision log
+```
+
+If the user chooses D, read the sprint log's `decision_log` array and present
+each decision with its principle, rationale, and outcome.
+
+---
+
+## Important Rules
+
+- **Data-driven, not opinionated.** Every number comes from sprint logs. Never estimate or guess.
+- **Trends over snapshots.** One sprint's metrics are noise. Three sprints show a pattern. Caveat small sample sizes.
+- **Actionable recommendations.** Don't just show data — tell the CEO what to do differently.
+- **Respect the CEO's time.** Lead with the summary, details below. If everything looks good, say so.
+- **Handle missing data gracefully.** If a sprint log is incomplete (e.g., no QA stage), note it and work with what's available.
+- **Visual over verbal.** Use tables, bar charts (ASCII), and clear formatting. The CEO scans, they don't read paragraphs.

@@ -1,0 +1,174 @@
+---
+name: status
+preamble-tier: 3
+version: 1.0.0
+description: |
+  CEO dashboard — shows the current state of all PM-managed sprints: what's in
+  progress, current stage, bugs found, blockers, and key metrics. Reads sprint
+  logs from ~/.gstack/projects/ and presents a concise executive summary.
+  Use when asked for "status", "what's going on", "dashboard", "show me progress",
+  or "how are things going".
+  Proactively suggest after a /pm sprint completes or when the user returns after
+  a break.
+allowed-tools:
+  - Bash
+  - Read
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /status — CEO Dashboard
+
+Quick executive view of all PM-managed work. No details you don't need,
+all the signals you do.
+
+---
+
+## Step 1: Discover sprint logs
+
+Run slug setup and file discovery in a single block (variables do not persist
+between bash blocks):
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+mkdir -p ~/.gstack/projects/$SLUG
+echo "=== SLUG: $SLUG ==="
+echo "=== Sprint logs ==="
+ls -t ~/.gstack/projects/$SLUG/pm-sprint-*.json 2>/dev/null || echo "(none)"
+echo "=== Review logs ==="
+ls -t ~/.gstack/projects/$SLUG/*-reviews.jsonl 2>/dev/null || echo "(none)"
+```
+
+Remember the SLUG value output above — use it as a literal string in subsequent steps.
+
+If nothing exists:
+```
+No PM sprints found for this project.
+Run /pm <issue-url> to start one.
+```
+
+---
+
+## Step 2: Parse sprint data
+
+For each sprint log file, read it and extract:
+- `sprint_id`, `issue.number`, `issue.title`, `issue.type`
+- `current_stage`, `started_at`, `completed_at`
+- `metrics.bugs_found`, `metrics.decisions`, `metrics.lines_changed`
+- `blockers` (any active blockers)
+- Stage statuses and durations
+
+Classify each sprint as:
+- **ACTIVE** — `completed_at` is null
+- **COMPLETED** — `completed_at` is set
+- **BLOCKED** — has active blockers
+
+---
+
+## Step 3: Present the dashboard
+
+Output the dashboard in this format:
+
+```
+=== CEO DASHBOARD — <project name> ===
+Updated: <now>
+
+ACTIVE SPRINTS
+──────────────────────────────────────────────────────
+  #   Issue                    Stage      Elapsed   Bugs  Blockers
+  ─── ──────────────────────── ────────── ──────── ───── ────────
+  123 Add user notifications   review     12m       2     0
+  456 Fix login timeout        build      8m        0     0
+  789 Refactor auth middleware  [BLOCKED]  25m       1     1
+──────────────────────────────────────────────────────
+
+BLOCKED (needs CEO attention)
+──────────────────────────────────────────────────────
+  #789 — Refactor auth middleware
+  Blocker: Critical review finding — SQL injection in query builder
+  Waiting for: CEO decision (escalated 3m ago)
+──────────────────────────────────────────────────────
+
+RECENTLY COMPLETED (last 7 days)
+──────────────────────────────────────────────────────
+  #   Issue                    Duration  Bugs  Lines   PR
+  ─── ──────────────────────── ──────── ───── ─────── ────
+  100 Add dark mode toggle     18m       1     142     #201
+  101 Fix CSV export encoding  9m        0     37      #202
+──────────────────────────────────────────────────────
+
+TEAM PERFORMANCE (this project)
+──────────────────────────────────────────────────────
+  Sprints completed:  12
+  Avg duration:       14m
+  Avg bugs/sprint:    1.3
+  Bugs caught early:  92% (in self-check or review)
+  Auto-decided:       89% of decisions
+  Escalation rate:    11%
+──────────────────────────────────────────────────────
+```
+
+**Formatting rules:**
+- Active sprints sorted by elapsed time (longest first — these might need attention)
+- Blocked sprints always shown prominently with the blocker reason
+- Completed sprints limited to last 7 days, sorted by completion time (most recent first)
+- Performance metrics calculated across ALL sprints for this project
+- If there are no active sprints, skip that section
+- If there are no blockers, skip that section
+- If there are no completed sprints, show "No completed sprints yet"
+
+---
+
+## Step 4: Supplement with review logs
+
+Also read the review JSONL logs for additional context:
+
+Re-run slug setup in this block (variables do not persist between blocks).
+Use the SLUG value from Step 1:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+cat ~/.gstack/projects/$SLUG/*-reviews.jsonl 2>/dev/null | tail -20
+```
+
+Parse the most recent entries to show:
+- Last review result (clean / issues_found)
+- Last ship result (version shipped)
+- Coverage trend (if available from ship metrics)
+
+Add a "RECENT ACTIVITY" section if there are review log entries not tied to PM sprints:
+
+```
+RECENT ACTIVITY (non-PM)
+──────────────────────────────────────────────────────
+  2m ago   /review  clean — 0 issues
+  15m ago  /ship    v0.19.2.0 — PR #203
+  1h ago   /autoplan approved — 3 taste decisions
+──────────────────────────────────────────────────────
+```
+
+---
+
+## Step 5: Actionable suggestions
+
+Based on the dashboard state, suggest next actions:
+
+- If there are blocked sprints: "Sprint #789 needs your attention — run `/pm` to resume"
+- If there are no active sprints: "All clear. Pick up a new issue with `/pm <issue-url>`"
+- If a sprint has been in the same stage for unusually long: "Sprint #123 has been in review for 25m — may need investigation"
+- If bug escape rate is high: "Bug escape rate is 15% — consider running `/qa` more frequently"
+
+---
+
+## Important Rules
+
+- **Be concise.** This is an executive dashboard, not a detailed report. One line per sprint.
+- **Highlight blockers.** Blocked sprints should be impossible to miss.
+- **Show trends, not noise.** Performance metrics matter; individual commit hashes don't.
+- **Respect the CEO's time.** If everything is green, say so in one line and suggest next actions.
+- **Read, don't guess.** All data comes from sprint logs and review logs on disk. Never fabricate metrics.
