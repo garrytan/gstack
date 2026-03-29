@@ -3,9 +3,10 @@ name: land-and-deploy
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Land and deploy workflow. Merges the PR, waits for CI and deploy,
+  Land and deploy workflow. Merges the PR/MR, waits for CI and deploy,
   verifies production health via canary checks. Takes over after /ship
-  creates the PR. Use when: "merge", "land", "deploy", "merge and verify",
+  creates the PR/MR. Supports GitHub (gh) and GitLab (glab).
+  Use when: "merge", "land", "deploy", "merge and verify",
   "land it", "ship it to production".
 allowed-tools:
   - Bash
@@ -405,7 +406,9 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-**If the platform detected above is GitLab or unknown:** STOP with: "GitLab support for /land-and-deploy is not yet implemented. Run `/ship` to create the MR, then merge manually via the GitLab web UI." Do not proceed.
+**If the platform detected above is unknown (neither GitHub nor GitLab):** STOP with: "I couldn't detect a supported git hosting platform. /land-and-deploy requires either GitHub (`gh` CLI) or GitLab (`glab` CLI). Check your remote URL and CLI authentication, then try again."
+
+**Important:** Throughout this skill, commands are shown for both GitHub and GitLab. Use the platform detected in Step 0 to choose the correct command variant. When the instructions say "PR", read it as "MR" (merge request) on GitLab. GitLab does not have merge queues, so skip merge queue logic on GitLab.
 
 # /land-and-deploy — Merge, Deploy, Verify
 
@@ -431,8 +434,8 @@ readiness first.
 **Always stop for:**
 - **First-run dry-run validation (Step 1.5)** — shows deploy infrastructure and confirms setup
 - **Pre-merge readiness gate (Step 3.5)** — reviews, tests, docs check before merge
-- GitHub CLI not authenticated
-- No PR found for this branch
+- GitHub/GitLab CLI not authenticated
+- No PR/MR found for this branch
 - CI failures or merge conflicts
 - Permission denied on merge
 - Deploy workflow failure (offer revert)
@@ -460,26 +463,42 @@ sitting next to them. The tone is:
 
 Tell the user: "Starting deploy sequence. First, let me make sure everything is connected and find your PR."
 
-1. Check GitHub CLI authentication:
+1. Check CLI authentication for the detected platform:
+
+**If GitHub:**
 ```bash
 gh auth status
 ```
 If not authenticated, **STOP**: "I need GitHub CLI access to merge your PR. Run `gh auth login` to connect, then try `/land-and-deploy` again."
 
+**If GitLab:**
+```bash
+glab auth status
+```
+If not authenticated, **STOP**: "I need GitLab CLI access to merge your MR. Run `glab auth login` to connect, then try `/land-and-deploy` again."
+
 2. Parse arguments. If the user specified `#NNN`, use that PR number. If a URL was provided, save it for canary verification in Step 7.
 
-3. If no PR number specified, detect from current branch:
+3. If no PR/MR number specified, detect from current branch:
+
+**If GitHub:**
 ```bash
 gh pr view --json number,state,title,url,mergeStateStatus,mergeable,baseRefName,headRefName
 ```
 
-4. Tell the user what you found: "Found PR #NNN — '{title}' (branch → base)."
+**If GitLab:**
+```bash
+glab mr view -F json
+```
+Parse the JSON output to extract `iid` (MR number), `state`, `title`, `web_url`, `target_branch`, and `source_branch`.
 
-5. Validate the PR state:
-   - If no PR exists: **STOP.** "No PR found for this branch. Run `/ship` first to create a PR, then come back here to land and deploy it."
-   - If `state` is `MERGED`: "This PR is already merged — nothing to deploy. If you need to verify the deploy, run `/canary <url>` instead."
-   - If `state` is `CLOSED`: "This PR was closed without merging. Reopen it on GitHub first, then try again."
-   - If `state` is `OPEN`: continue.
+4. Tell the user what you found: "Found PR #NNN — '{title}' (branch -> base)." (On GitLab, say "MR" instead of "PR".)
+
+5. Validate the PR/MR state:
+   - If no PR/MR exists: **STOP.** "No PR/MR found for this branch. Run `/ship` first to create one, then come back here to land and deploy it."
+   - If `state` is `MERGED` (GitHub) or `merged` (GitLab): "This PR/MR is already merged — nothing to deploy. If you need to verify the deploy, run `/canary <url>` instead."
+   - If `state` is `CLOSED` (GitHub) or `closed` (GitLab): "This PR/MR was closed without merging. Reopen it first, then try again."
+   - If `state` is `OPEN` (GitHub) or `opened` (GitLab): continue.
 
 ---
 
@@ -496,8 +515,8 @@ else
   # Check if deploy config has changed since confirmation
   SAVED_HASH=$(cat ~/.gstack/projects/$SLUG/land-deploy-confirmed 2>/dev/null)
   CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-  # Also hash workflow files that affect deploy behavior
-  WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+  # Also hash workflow files that affect deploy behavior (GitHub Actions + GitLab CI)
+  WORKFLOW_HASH=$({ find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null; cat .gitlab-ci.yml 2>/dev/null; } | shasum -a 256 | cut -d' ' -f1)
   COMBINED_HASH="${CURRENT_HASH}-${WORKFLOW_HASH}"
   if [ "$SAVED_HASH" != "$COMBINED_HASH" ] && [ -n "$SAVED_HASH" ]; then
     echo "CONFIG_CHANGED"
@@ -553,11 +572,17 @@ fi
 [ -f Procfile ] && echo "PLATFORM:heroku"
 ([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
 
-# Detect deploy workflows
+# Detect deploy workflows (GitHub Actions)
 for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
 done
+
+# Detect deploy workflows (GitLab CI)
+if [ -f .gitlab-ci.yml ]; then
+  grep -qiE "deploy|release|production|cd" .gitlab-ci.yml 2>/dev/null && echo "DEPLOY_WORKFLOW:.gitlab-ci.yml"
+  grep -qiE "staging" .gitlab-ci.yml 2>/dev/null && echo "STAGING_WORKFLOW:.gitlab-ci.yml"
+fi
 ```
 
 If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in CLAUDE.md, use them directly
@@ -575,8 +600,9 @@ and any persisted config from CLAUDE.md.
 Test each detected command to verify the detection is accurate. Build a validation table:
 
 ```bash
-# Test gh auth (already passed in Step 1, but confirm)
-gh auth status 2>&1 | head -3
+# Test CLI auth (already passed in Step 1, but confirm)
+# GitHub: gh auth status 2>&1 | head -3
+# GitLab: glab auth status 2>&1 | head -3
 
 # Test platform CLI if detected
 # Fly.io: fly status --app {app} 2>/dev/null
@@ -599,7 +625,7 @@ Run whichever commands are relevant based on the detected platform. Build the re
 ║  Prod URL:    {url or "not configured"}                    ║
 ║                                                            ║
 ║  COMMAND VALIDATION                                        ║
-║  ├─ gh auth status:     ✓ PASS                             ║
+║  ├─ CLI auth status:    ✓ PASS (gh or glab)                ║
 ║  ├─ {platform CLI}:     ✓ PASS / ⚠ NOT INSTALLED / ✗ FAIL ║
 ║  ├─ curl prod URL:      ✓ PASS (200 OK) / ⚠ UNREACHABLE   ║
 ║  └─ deploy workflow:    {file or "none detected"}          ║
@@ -621,7 +647,7 @@ Run whichever commands are relevant based on the detected platform. Build the re
 ╚══════════════════════════════════════════════════════════╝
 ```
 
-**Validation failures are WARNINGs, not BLOCKERs** (except `gh auth status` which already
+**Validation failures are WARNINGs, not BLOCKERs** (except CLI auth status which already
 failed at Step 1). If `curl` fails, note "I couldn't reach that URL — might be a network
 issue, VPN requirement, or incorrect address. I'll still be able to deploy, but I won't
 be able to verify the site is healthy afterward."
@@ -638,18 +664,33 @@ Check for staging environments in this order:
 grep -i "staging" CLAUDE.md 2>/dev/null | head -3
 ```
 
-2. **GitHub Actions staging workflow:** Check for workflow files with "staging" in the name or content:
+2. **CI staging workflow:** Check for workflow files with "staging" in the name or content:
+
+**If GitHub:**
 ```bash
 for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
 done
 ```
 
-3. **Vercel/Netlify preview deploys:** Check PR status checks for preview URLs:
+**If GitLab:**
+```bash
+grep -qiE "staging" .gitlab-ci.yml 2>/dev/null && echo "STAGING_WORKFLOW:.gitlab-ci.yml"
+```
+
+3. **Preview deploys:** Check PR/MR status checks for preview URLs:
+
+**If GitHub:**
 ```bash
 gh pr checks --json name,targetUrl 2>/dev/null | head -20
 ```
 Look for check names containing "vercel", "netlify", or "preview" and extract the target URL.
+
+**If GitLab:**
+```bash
+glab mr view -F json 2>/dev/null | grep -i "environment\|url" | head -10
+```
+Look for environment URLs associated with the MR.
 
 Record any staging targets found. These will be offered in Step 5.
 
@@ -690,7 +731,7 @@ Save the deploy config fingerprint so we can detect future changes:
 ```bash
 mkdir -p ~/.gstack/projects/$SLUG
 CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+WORKFLOW_HASH=$({ find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null; cat .gitlab-ci.yml 2>/dev/null; } | shasum -a 256 | cut -d' ' -f1)
 echo "${CURRENT_HASH}-${WORKFLOW_HASH}" > ~/.gstack/projects/$SLUG/land-deploy-confirmed
 ```
 Continue to Step 2.
@@ -707,20 +748,35 @@ Tell the user: "Checking CI status and merge readiness..."
 
 Check CI status and merge readiness:
 
+**If GitHub:**
 ```bash
 gh pr checks --json name,state,status,conclusion
 ```
 
+**If GitLab:**
+```bash
+glab ci status
+```
+Parse the output for pipeline status. GitLab CI statuses map as follows: `success` = passed, `failed` = failing, `running`/`pending` = pending, `canceled` = failed.
+
 Parse the output:
-1. If any required checks are **FAILING**: **STOP.** "CI is failing on this PR. Here are the failing checks: {list}. Fix these before deploying — I won't merge code that hasn't passed CI."
+1. If any required checks are **FAILING**: **STOP.** "CI is failing on this PR/MR. Here are the failing checks: {list}. Fix these before deploying -- I won't merge code that hasn't passed CI."
 2. If required checks are **PENDING**: Tell the user "CI is still running. I'll wait for it to finish." Proceed to Step 3.
 3. If all checks pass (or no required checks): Tell the user "CI passed." Skip Step 3, go to Step 4.
 
 Also check for merge conflicts:
+
+**If GitHub:**
 ```bash
 gh pr view --json mergeable -q .mergeable
 ```
 If `CONFLICTING`: **STOP.** "This PR has merge conflicts with the base branch. Resolve the conflicts and push, then run `/land-and-deploy` again."
+
+**If GitLab:**
+```bash
+glab mr view -F json 2>/dev/null
+```
+Check the `has_conflicts` field (or `merge_status` for `cannot_be_merged`). If conflicts exist: **STOP.** "This MR has merge conflicts with the target branch. Resolve the conflicts and push, then run `/land-and-deploy` again."
 
 ---
 
@@ -728,15 +784,23 @@ If `CONFLICTING`: **STOP.** "This PR has merge conflicts with the base branch. R
 
 If required checks are still pending, wait for them to complete. Use a timeout of 15 minutes:
 
+**If GitHub:**
 ```bash
 gh pr checks --watch --fail-fast
 ```
+
+**If GitLab:**
+Poll the pipeline status every 30 seconds using:
+```bash
+glab ci status
+```
+Wait until the pipeline reaches a terminal state (`success`, `failed`, `canceled`).
 
 Record the CI wait time for the deploy report.
 
 If CI passes within the timeout: Tell the user "CI passed after {duration}. Moving to readiness checks." Continue to Step 4.
 If CI fails: **STOP.** "CI failed. Here's what broke: {failures}. This needs to pass before I can merge."
-If timeout (15 min): **STOP.** "CI has been running for over 15 minutes — that's unusual. Check the GitHub Actions tab to see if something is stuck."
+If timeout (15 min): **STOP.** "CI has been running for over 15 minutes -- that's unusual. Check the CI/CD tab to see if something is stuck."
 
 ---
 
@@ -854,16 +918,23 @@ ls -t ~/.gstack-dev/evals/*-llm-judge-*-$(date +%Y-%m-%d)*.json 2>/dev/null | he
 
 If found, parse and show pass/fail. If not found, note "No LLM evals run today."
 
-### 3.5c: PR body accuracy check
+### 3.5c: PR/MR body accuracy check
 
-Read the current PR body:
+Read the current PR/MR body:
+
+**If GitHub:**
 ```bash
 gh pr view --json body -q .body
 ```
 
-Read the current diff summary:
+**If GitLab:**
 ```bash
-git log --oneline $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)..HEAD | head -20
+glab mr view -F json 2>/dev/null | jq -r .description
+```
+
+Read the current diff summary (use the base branch detected in Step 0):
+```bash
+git log --oneline <base>..HEAD | head -20
 ```
 
 Compare the PR body against the actual commits. Check for:
@@ -876,15 +947,15 @@ changes.** List what's missing or stale.
 
 ### 3.5d: Document-release check
 
-Check if documentation was updated on this branch:
+Check if documentation was updated on this branch (use the base branch detected in Step 0):
 
 ```bash
-git log --oneline --all-match --grep="docs:" $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)..HEAD | head -5
+git log --oneline --all-match --grep="docs:" <base>..HEAD | head -5
 ```
 
 Also check if key doc files were modified:
 ```bash
-git diff --name-only $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)...HEAD -- README.md CHANGELOG.md ARCHITECTURE.md CONTRIBUTING.md CLAUDE.md VERSION
+git diff --name-only <base>...HEAD -- README.md CHANGELOG.md ARCHITECTURE.md CONTRIBUTING.md CLAUDE.md VERSION
 ```
 
 If CHANGELOG.md and VERSION were NOT modified on this branch and the diff includes
@@ -904,7 +975,7 @@ Build the full readiness report:
 ║              PRE-MERGE READINESS REPORT                  ║
 ╠══════════════════════════════════════════════════════════╣
 ║                                                          ║
-║  PR: #NNN — title                                        ║
+║  PR/MR: #NNN — title                                     ║
 ║  Branch: feature → main                                  ║
 ║                                                          ║
 ║  REVIEWS                                                 ║
@@ -937,9 +1008,9 @@ If everything is green: recommend A.
 
 Use AskUserQuestion:
 
-- **Re-ground:** "Ready to merge PR #NNN — '{title}' into {base}. Here's what I found."
+- **Re-ground:** "Ready to merge PR/MR #NNN -- '{title}' into {base}. Here's what I found."
   Show the report above.
-- If everything is green: "All checks passed. This PR is ready to merge."
+- If everything is green: "All checks passed. This PR/MR is ready to merge."
 - If there are warnings: List each one in plain English. E.g., "The engineering review
   was done 6 commits ago — the code has changed since then" not "STALE (6 commits)."
 - If there are blockers: "I found issues that need to be fixed before merging: {list}"
@@ -953,16 +1024,18 @@ If the user chooses B: **STOP.** Give specific next steps:
 - If reviews are stale: "Run `/review` or `/autoplan` to review the current code, then `/land-and-deploy` again."
 - If E2E not run: "Run your E2E tests to make sure nothing is broken, then come back."
 - If docs not updated: "Run `/document-release` to update CHANGELOG and docs."
-- If PR body stale: "The PR description doesn't match what's actually in the diff — update it on GitHub."
+- If PR/MR body stale: "The PR/MR description doesn't match what's actually in the diff -- update it on the web UI."
 
 If the user chooses A or C: Tell the user "Merging now." Continue to Step 4.
 
 ---
 
-## Step 4: Merge the PR
+## Step 4: Merge the PR/MR
 
 Record the start timestamp for timing data. Also record which merge path is taken
 (auto-merge vs direct) for the deploy report.
+
+**If GitHub:**
 
 Try auto-merge first (respects repo merge settings and merge queues):
 
@@ -981,14 +1054,28 @@ gh pr merge --squash --delete-branch
 
 If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully. The branch has been cleaned up."
 
-If the merge fails with a permission error: **STOP.** "I don't have permission to merge this PR. You'll need a maintainer to merge it, or check your repo's branch protection rules."
+**If GitLab:**
 
-### 4a: Merge queue detection and messaging
+GitLab does not have merge queues. Merge the MR directly:
+
+```bash
+glab mr merge --squash --remove-source-branch --yes
+```
+
+If the merge succeeds: record `MERGE_PATH=direct`. Tell the user: "MR merged successfully. The source branch has been cleaned up."
+
+**Both platforms:**
+
+If the merge fails with a permission error: **STOP.** "I don't have permission to merge this PR/MR. You'll need a maintainer to merge it, or check the branch protection rules."
+
+### 4a: Merge queue detection and messaging (GitHub only)
+
+Skip this sub-step entirely on GitLab -- GitLab does not have merge queues.
 
 If `MERGE_PATH=auto` and the PR state does not immediately become `MERGED`, the PR is
 in a **merge queue**. Tell the user:
 
-"Your repo uses a merge queue — that means GitHub will run CI one more time on the final merge commit before it actually merges. This is a good thing (it catches last-minute conflicts), but it means we wait. I'll keep checking until it goes through."
+"Your repo uses a merge queue -- that means GitHub will run CI one more time on the final merge commit before it actually merges. This is a good thing (it catches last-minute conflicts), but it means we wait. I'll keep checking until it goes through."
 
 Poll for the PR to actually merge:
 
@@ -1000,26 +1087,38 @@ Poll every 30 seconds, up to 30 minutes. Show a progress message every 2 minutes
 "Still in the merge queue... ({X}m so far)"
 
 If the PR state changes to `MERGED`: capture the merge commit SHA. Tell the user:
-"Merge queue finished — PR is merged. Took {duration}."
+"Merge queue finished -- PR is merged. Took {duration}."
 
-If the PR is removed from the queue (state goes back to `OPEN`): **STOP.** "The PR was removed from the merge queue — this usually means a CI check failed on the merge commit, or another PR in the queue caused a conflict. Check the GitHub merge queue page to see what happened."
-If timeout (30 min): **STOP.** "The merge queue has been processing for 30 minutes. Something might be stuck — check the GitHub Actions tab and the merge queue page."
+If the PR is removed from the queue (state goes back to `OPEN`): **STOP.** "The PR was removed from the merge queue -- this usually means a CI check failed on the merge commit, or another PR in the queue caused a conflict. Check the GitHub merge queue page to see what happened."
+If timeout (30 min): **STOP.** "The merge queue has been processing for 30 minutes. Something might be stuck -- check the GitHub Actions tab and the merge queue page."
 
 ### 4b: CI auto-deploy detection
 
-After the PR is merged, check if a deploy workflow was triggered by the merge:
+After the PR/MR is merged, check if a deploy workflow was triggered by the merge:
 
+**If GitHub:**
 ```bash
 gh run list --branch <base> --limit 5 --json name,status,workflowName,headSha
 ```
+Look for runs matching the merge commit SHA.
 
-Look for runs matching the merge commit SHA. If a deploy workflow is found:
-- Tell the user: "PR merged. I can see a deploy workflow ('{workflow-name}') kicked off automatically. I'll monitor it and let you know when it's done."
+**If GitLab:**
+```bash
+glab ci list -p <base> 2>/dev/null | head -10
+```
+Look for a pipeline triggered on the base branch after the merge. Alternatively:
+```bash
+glab ci view --branch <base> 2>/dev/null
+```
+Check the latest pipeline status and its jobs for deploy-related stages.
+
+If a deploy workflow/pipeline is found:
+- Tell the user: "PR/MR merged. I can see a deploy workflow ('{workflow-name}') kicked off automatically. I'll monitor it and let you know when it's done."
 
 If no deploy workflow is found after merge:
-- Tell the user: "PR merged. I don't see a deploy workflow — your project might deploy a different way, or it might be a library/CLI that doesn't have a deploy step. I'll figure out the right verification in the next step."
+- Tell the user: "PR/MR merged. I don't see a deploy workflow -- your project might deploy a different way, or it might be a library/CLI that doesn't have a deploy step. I'll figure out the right verification in the next step."
 
-If `MERGE_PATH=auto` and the repo uses merge queues AND a deploy workflow exists:
+If `MERGE_PATH=auto` and the repo uses merge queues AND a deploy workflow exists (GitHub only):
 - Tell the user: "PR made it through the merge queue and the deploy workflow is running. Monitoring it now."
 
 Record merge timestamp, duration, and merge path for the deploy report.
@@ -1053,11 +1152,17 @@ fi
 [ -f Procfile ] && echo "PLATFORM:heroku"
 ([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
 
-# Detect deploy workflows
+# Detect deploy workflows (GitHub Actions)
 for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
 done
+
+# Detect deploy workflows (GitLab CI)
+if [ -f .gitlab-ci.yml ]; then
+  grep -qiE "deploy|release|production|cd" .gitlab-ci.yml 2>/dev/null && echo "DEPLOY_WORKFLOW:.gitlab-ci.yml"
+  grep -qiE "staging" .gitlab-ci.yml 2>/dev/null && echo "STAGING_WORKFLOW:.gitlab-ci.yml"
+fi
 ```
 
 If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in CLAUDE.md, use them directly
@@ -1067,10 +1172,10 @@ in the decision tree below.
 
 If you want to persist deploy settings for future runs, suggest the user run `/setup-deploy`.
 
-Then run `gstack-diff-scope` to classify the changes:
+Then run `gstack-diff-scope` to classify the changes (use the base branch detected in Step 0):
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-diff-scope $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main) 2>/dev/null)
+eval $(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 echo "FRONTEND=$SCOPE_FRONTEND BACKEND=$SCOPE_BACKEND DOCS=$SCOPE_DOCS CONFIG=$SCOPE_CONFIG"
 ```
 
@@ -1078,19 +1183,29 @@ echo "FRONTEND=$SCOPE_FRONTEND BACKEND=$SCOPE_BACKEND DOCS=$SCOPE_DOCS CONFIG=$S
 
 1. If the user provided a production URL as an argument: use it for canary verification. Also check for deploy workflows.
 
-2. Check for GitHub Actions deploy workflows:
+2. Check for CI/CD deploy workflows:
+
+**If GitHub:**
 ```bash
 gh run list --branch <base> --limit 5 --json name,status,conclusion,headSha,workflowName
 ```
-Look for workflow names containing "deploy", "release", "production", or "cd". If found: poll the deploy workflow in Step 6, then run canary.
+Look for workflow names containing "deploy", "release", "production", or "cd".
 
-3. If SCOPE_DOCS is the only scope that's true (no frontend, no backend, no config): skip verification entirely. Tell the user: "This was a docs-only change — nothing to deploy or verify. You're all set." Go to Step 9.
+**If GitLab:**
+```bash
+glab ci list -p <base> 2>/dev/null | head -10
+```
+Check for pipelines on the base branch. Also inspect `.gitlab-ci.yml` for stages named "deploy", "release", or "production".
+
+If a deploy workflow/pipeline is found: poll it in Step 6, then run canary.
+
+3. If SCOPE_DOCS is the only scope that's true (no frontend, no backend, no config): skip verification entirely. Tell the user: "This was a docs-only change -- nothing to deploy or verify. You're all set." Go to Step 9.
 
 4. If no deploy workflows detected and no URL provided: use AskUserQuestion once:
-   - **Re-ground:** "PR is merged, but I don't see a deploy workflow or a production URL for this project. If this is a web app, I can verify the deploy if you give me the URL. If it's a library or CLI tool, there's nothing to verify — we're done."
+   - **Re-ground:** "PR/MR is merged, but I don't see a deploy workflow or a production URL for this project. If this is a web app, I can verify the deploy if you give me the URL. If it's a library or CLI tool, there's nothing to verify -- we're done."
    - **RECOMMENDATION:** Choose B if this is a library/CLI tool. Choose A if this is a web app.
    - A) Here's the production URL: {let them type it}
-   - B) No deploy needed — this isn't a web app
+   - B) No deploy needed -- this isn't a web app
 
 ### 5a: Staging-first option
 
@@ -1128,20 +1243,32 @@ Then tell the user: "Staging looks good. When you're ready for production, run `
 
 The deploy verification strategy depends on the platform detected in Step 5.
 
-### Strategy A: GitHub Actions workflow
+### Strategy A: CI/CD workflow (GitHub Actions or GitLab CI)
 
-If a deploy workflow was detected, find the run triggered by the merge commit:
+If a deploy workflow was detected, find the run/pipeline triggered by the merge commit:
 
+**If GitHub:**
 ```bash
 gh run list --branch <base> --limit 10 --json databaseId,headSha,status,conclusion,name,workflowName
 ```
-
 Match by the merge commit SHA (captured in Step 4). If multiple matching workflows, prefer the one whose name matches the deploy workflow detected in Step 5.
 
 Poll every 30 seconds:
 ```bash
 gh run view <run-id> --json status,conclusion
 ```
+
+**If GitLab:**
+```bash
+glab ci list -p <base> 2>/dev/null | head -5
+```
+Find the pipeline triggered after the merge. Extract the pipeline ID.
+
+Poll every 30 seconds:
+```bash
+glab ci view <pipeline-id> 2>/dev/null
+```
+Check the pipeline status. GitLab statuses: `success` = passed, `failed` = failed, `running`/`pending` = still going, `canceled` = failed.
 
 ### Strategy B: Platform CLI (Fly.io, Render, Heroku)
 
@@ -1256,7 +1383,7 @@ If any fail: show the evidence (screenshot path, console errors, perf numbers). 
 
 If the user chose to revert at any point:
 
-Tell the user: "Reverting the merge now. This will create a new commit that undoes all the changes from this PR. The previous version of your site will be restored once the revert deploys."
+Tell the user: "Reverting the merge now. This will create a new commit that undoes all the changes from this PR/MR. The previous version of your site will be restored once the revert deploys."
 
 ```bash
 git fetch origin <base>
@@ -1265,10 +1392,19 @@ git revert <merge-commit-sha> --no-edit
 git push origin <base>
 ```
 
-If the revert has conflicts: "The revert has merge conflicts — this can happen if other changes landed on {base} after your merge. You'll need to resolve the conflicts manually. The merge commit SHA is `<sha>` — run `git revert <sha>` to try again."
+If the revert has conflicts: "The revert has merge conflicts -- this can happen if other changes landed on {base} after your merge. You'll need to resolve the conflicts manually. The merge commit SHA is `<sha>` -- run `git revert <sha>` to try again."
 
-If the base branch has push protections: "This repo has branch protections, so I can't push the revert directly. I'll create a revert PR instead — merge it to roll back."
-Then create a revert PR: `gh pr create --title 'revert: <original PR title>'`
+If the base branch has push protections: "This repo has branch protections, so I can't push the revert directly. I'll create a revert PR/MR instead -- merge it to roll back."
+
+**If GitHub:**
+```bash
+gh pr create --title 'revert: <original PR title>'
+```
+
+**If GitLab:**
+```bash
+glab mr create -t 'revert: <original MR title>' --yes
+```
 
 After a successful revert: Tell the user "Revert pushed to {base}. The deploy should roll back automatically once CI passes. Keep an eye on the site to confirm." Note the revert commit SHA and continue to Step 9 with status REVERTED.
 
@@ -1287,7 +1423,7 @@ Produce and display the ASCII summary:
 ```
 LAND & DEPLOY REPORT
 ═════════════════════
-PR:           #<number> — <title>
+PR/MR:        #<number> — <title>
 Branch:       <head-branch> → <base-branch>
 Merged:       <timestamp> (<merge method>)
 Merge SHA:    <sha>
@@ -1354,7 +1490,7 @@ Then suggest relevant follow-ups:
 
 ## Important Rules
 
-- **Never force push.** Use `gh pr merge` which is safe.
+- **Never force push.** Use `gh pr merge` / `glab mr merge` which is safe.
 - **Never skip CI.** If checks are failing, stop and explain why.
 - **Narrate the journey.** The user should always know: what just happened, what's happening now, and what's about to happen next. No silent gaps between steps.
 - **Auto-detect everything.** PR number, merge method, deploy strategy, project type, merge queues, staging environments. Only ask when information genuinely can't be inferred.
