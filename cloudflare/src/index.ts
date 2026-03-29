@@ -617,6 +617,12 @@ async function fetchYahooQuoteSummary(symbol: string): Promise<{
   let epsForward: number | null = null;
   let epsTTM: number | null = null;
   let growthPct: number | null = null;
+  const hkSlugs: Record<string, string> = {
+    "0700.HK": "tencent",
+    "9988.HK": "alibaba",
+    "1810.HK": "xiaomi",
+    "3690.HK": "meituan-dianping",
+  };
 
   const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=summaryDetail,defaultKeyStatistics,financialData`;
   try {
@@ -694,6 +700,41 @@ async function fetchYahooQuoteSummary(symbol: string): Promise<{
       }
     } catch {
       // ignore
+    }
+  }
+
+  if (
+    trailingPE == null &&
+    forwardPE == null &&
+    epsForward == null &&
+    epsTTM == null &&
+    growthPct == null &&
+    symbol.endsWith(".HK")
+  ) {
+    const slug = hkSlugs[symbol.toUpperCase()] || "";
+    if (slug) {
+      try {
+        const cmcKey = new Request(`https://cache.local/cmc/pe/${encodeURIComponent(slug)}`);
+        const cachedCmc = await caches.default.match(cmcKey);
+        if (cachedCmc) {
+          const n = Number(await cachedCmc.text());
+          if (Number.isFinite(n)) trailingPE = n;
+        } else {
+          const url3 = `https://companiesmarketcap.com/${encodeURIComponent(slug)}/pe-ratio/`;
+          const res3 = await fetch(url3, { headers: { "user-agent": "Mozilla/5.0" } });
+          const html = await res3.text();
+          const m =
+            html.match(/P\/?E ratio[^<]*<[^>]*>\s*([0-9.,-]+)/i) ||
+            html.match(/P\/?E ratio[^:]*:\s*([0-9.,-]+)/i);
+          const pe = m ? Number(String(m[1]).replace(/,/g, "")) : NaN;
+          if (Number.isFinite(pe)) {
+            trailingPE = pe;
+            await caches.default.put(cmcKey, new Response(String(pe), { headers: { "cache-control": "max-age=3600" } }));
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 
