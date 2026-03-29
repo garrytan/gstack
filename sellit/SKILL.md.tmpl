@@ -14,13 +14,12 @@ description: |
 allowed-tools:
   - Bash
   - Read
+  - Write
   - Grep
   - Glob
   - AskUserQuestion
   - WebSearch
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
 
 {{PREAMBLE}}
 
@@ -153,62 +152,78 @@ Aim for 10. Minimum 7.
 
 ## Phase 5: Hit List Output
 
-Deliver the hit list in this exact format:
+Write a file called `sellit-hitlist.html` in the current directory using the Write tool.
 
----
+The HTML must be plain, functional, no CSS frameworks, no JavaScript — just old-school HTML that works in any browser. The goal: open it, see all 10 prospects, click one button to fire off a pre-written email.
 
-# Hit List: [Product Name] — First 10 Sales
+**HTML structure:**
 
-ICP: [confirmed ICP — title + company type + pain, one sentence]
-Goal: 10 paid commitments to prove PMF
+```html
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>[Product Name] — Hit List</title></head>
+<body>
+<h1>[Product Name] — Hit List</h1>
+<p><b>ICP:</b> [confirmed ICP one sentence]</p>
+<p><b>Goal:</b> 10 paid commitments to prove PMF. Ranked #1 = most likely to close.</p>
 
----
+<table border="1" cellpadding="8" cellspacing="0">
+<tr>
+  <th>#</th>
+  <th>Name</th>
+  <th>Profile</th>
+  <th>Why They Buy</th>
+  <th>Hook</th>
+  <th>Message</th>
+  <th>Action</th>
+</tr>
 
-| # | Name | Title | Company | Why They Buy | Hook | Channel |
-|---|------|-------|---------|--------------|------|---------|
-| 1 | ... | ... | ... | ... | ... | Email/LinkedIn |
-| 2 | ... | ... | ... | ... | ... | ... |
-...
+<!-- One row per prospect: -->
+<tr>
+  <td>1</td>
+  <td>[First Last]<br><small>[Title]<br>[Company]</small></td>
+  <td><a href="[linkedin or web url]" target="_blank">Profile</a></td>
+  <td>[Why this specific person buys — 1-2 sentences]</td>
+  <td>[The hook — recent trigger]</td>
+  <td><pre style="white-space:pre-wrap;max-width:400px">[Full message body — plain text, 4-6 sentences]</pre></td>
+  <td>
+    <!-- If email known: mailto link that opens email client pre-filled -->
+    <a href="mailto:[email]?subject=[URL-encoded subject]&body=[URL-encoded message body]">
+      <button>Email</button>
+    </a>
+    <!-- If no email: LinkedIn link -->
+    <!-- <a href="[linkedin url]" target="_blank"><button>LinkedIn</button></a> -->
+    <!-- If needs research: -->
+    <!-- <small>Find: [firstname]@[domain]</small> -->
+  </td>
+</tr>
+<!-- repeat for all prospects -->
 
-(Ranked: #1 = most likely to respond and pay, #10 = worth trying but lower signal)
+</table>
 
----
+<hr>
+<h2>48-Hour Assignment</h2>
+<ol>
+  <li>[Specific action with name and channel]</li>
+  <li>[Specific action]</li>
+  <li>[Specific action]</li>
+</ol>
 
-## Top 3 — Full First Message
+</body>
+</html>
+```
 
-### #1: [Name] @ [Company]
-**Channel:** [Email / LinkedIn DM]
-**Subject:** [Subject line — under 50 chars, no exclamation marks, no "quick question"]
+**Rules for the Action column:**
+- Email known → `<a href="mailto:email?subject=...&body=..."><button>Email</button></a>`. URL-encode the subject and body (spaces = `%20`, newlines = `%0A`).
+- Email unknown but LinkedIn known → `<a href="[linkedin]" target="_blank"><button>LinkedIn</button></a>`
+- Email unknown, no LinkedIn → `<small>Find: [firstname]@[companydomain.com]</small>`
 
-[Full message body — 4–6 sentences. Plain text. No bold, no bullet points, no markdown.
-Lead with the hook. One sentence on their likely pain. One sentence proof point if you have it.
-One clear, low-friction ask. No pitch dump.]
+**Every prospect gets a full message in the Message column** — not just the top 3. For prospects ranked 4-10, the message can be a shorter 2-3 sentence opener but must still be specific to that person.
 
----
+After writing the file, tell the user:
+> "Hit list written to `sellit-hitlist.html`. Open it in your browser. Each row has the pre-written message and an Email button that fires your mail client with subject and body pre-filled — just hit send."
 
-### #2: [Name] @ [Company]
-**Channel:** [Email / LinkedIn DM]
-**Subject:** [Subject line]
-
-[Full message]
-
----
-
-### #3: [Name] @ [Company]
-**Channel:** [Email / LinkedIn DM]
-**Subject:** [Subject line]
-
-[Full message]
-
----
-
-## The 48-Hour Assignment
-
-1. [Specific action — "Send the message above to [Name] at [Company] via [channel]"]
-2. [Specific action — "Find [Name 2]'s email: try [firstname]@[company domain] or check their LinkedIn About section"]
-3. [Specific action — "Before messaging [Name 3], comment on their [post/article from date] — then message 24 hours later"]
-
-Do these three things before anything else. Not "reach out to prospects." These three people, in this order, using these messages.
+Then print the 48-Hour Assignment as plain text in the conversation as well (3 numbered concrete actions).
 
 ---
 
