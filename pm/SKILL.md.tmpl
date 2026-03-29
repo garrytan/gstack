@@ -140,7 +140,7 @@ Write the initial sprint state:
     "ship": { "status": "pending" }
   },
   "metrics": {
-    "bugs_found": { "review": 0, "self_check": 0, "total": 0 },
+    "bugs_found": { "review_claude": 0, "review_codex": 0, "confirmed": 0, "dismissed": 0, "review": 0, "self_check": 0, "total": 0 },
     "decisions": { "auto": 0, "escalated": 0, "total": 0 },
     "lines_changed": 0,
     "files_changed": 0,
@@ -291,38 +291,92 @@ echo "Lines changed: $LINES"
 
 ---
 
-## Phase 3: Review
+## Phase 3: Review (Dual-Model Cross-Validation)
 
-### Step 1: Run /review
+The PM runs BOTH Claude (/review) and Codex (/codex review) independently, then
+cross-validates their findings. This catches real bugs while filtering false
+positives that would otherwise break the code.
 
-Load and execute the review skill:
+### Step 1: Run both reviewers
 
+Run Claude's /review and Codex's /codex review in parallel (use two Agent calls):
+
+**Agent 1 — Claude /review:**
 Read `~/.claude/skills/gstack/review/SKILL.md` and follow its methodology.
+Collect all findings as a structured list: `[{id, severity, file, line, description, suggested_fix}]`
 
-**PM override rules for review:**
-- AUTO-FIX items: fix them immediately, no escalation
-- ASK items with severity CRITICAL: escalate to CEO with context
-- ASK items with severity INFORMATIONAL: auto-decide using autoplan's 6 principles, log the decision
+**Agent 2 — Codex /codex review:**
+Read `~/.claude/skills/gstack/codex/SKILL.md` and run it in review mode.
+Collect all findings as a structured list in the same format.
+
+### Step 2: Cross-validate findings
+
+After both reviewers complete, build a combined findings table:
+
+| # | Source | File | Finding | Severity | Agreed? |
+|---|--------|------|---------|----------|---------|
+| 1 | Claude | ... | ... | ... | ... |
+| 2 | Codex | ... | ... | ... | ... |
+
+For each finding, classify it:
+
+1. **Both agree** — Finding appears in both reviews (same file, same issue).
+   Verdict: **CONFIRMED**. Fix it.
+
+2. **One reviewer only, severity CRITICAL** — Only one reviewer flagged it, but
+   it's a security issue, data loss risk, or race condition.
+   Action: Ask the OTHER model to verify. Construct a focused prompt:
+   ```
+   The following potential bug was found in <file>:<line>.
+   Finding: <description>
+   Suggested fix: <suggested_fix>
+
+   Read the code at <file>:<line> and its surrounding context.
+   Is this a real bug, or a false alarm? Explain why.
+   If false alarm, what would actually happen at runtime?
+   ```
+   - If the other model confirms → **CONFIRMED**. Fix it.
+   - If the other model says false alarm with a convincing explanation → **DISMISSED**.
+     Log: "Dismissed by cross-validation — <reason>"
+   - If unclear → Escalate to CEO as a taste decision.
+
+3. **One reviewer only, severity non-critical** — Only one reviewer flagged it,
+   and it's informational, style, or minor.
+   Action: Auto-dismiss. These are the most common false positives.
+   Log: "Auto-dismissed — single-reviewer non-critical finding"
+
+4. **Contradictory findings** — One reviewer says to do X, the other says to do
+   the opposite (e.g., "add null check" vs "remove unnecessary null check").
+   Action: Escalate to CEO with both perspectives.
+
+**PM override rules (still apply):**
+- AUTO-FIX items that both reviewers agree on: fix immediately, no escalation
 - Scope drift detection: if review flags scope creep, check against the plan — if it matches the plan, dismiss; if it's unplanned, log as a deviation
 
-### Step 2: Track review metrics
+### Step 3: Track review metrics
 
-After review completes, update the sprint log's `metrics.bugs_found` object.
+After cross-validation completes, update the sprint log's `metrics.bugs_found` object.
 Merge these values into the existing object — preserve all existing fields:
 
-- Set `metrics.bugs_found.review` to the count of issues found by /review
-- Update `metrics.bugs_found.total` to the running total (self_check + review)
+- Set `metrics.bugs_found.review_claude` to the count of issues found by /review
+- Set `metrics.bugs_found.review_codex` to the count of issues found by /codex
+- Set `metrics.bugs_found.confirmed` to the count of CONFIRMED findings
+- Set `metrics.bugs_found.dismissed` to the count of DISMISSED findings (false positives filtered)
+- Update `metrics.bugs_found.review` to the count of CONFIRMED findings only
+- Update `metrics.bugs_found.total` to the running total (self_check + confirmed review findings)
 - Keep `metrics.bugs_found.self_check` unchanged
 
-### Step 3: Fix review findings
+### Step 4: Fix confirmed findings only
 
-Apply all fixes (auto-fix + CEO-approved). Re-run tests after fixes.
+Apply fixes ONLY for CONFIRMED findings. Never fix DISMISSED findings.
+Re-run tests after fixes.
 
 **If tests fail after fixes:** This is a blocker. Escalate to CEO:
 ```
 PM BLOCKER — Review fixes broke tests
 
-The review found <N> issues. After applying fixes, <M> tests fail.
+Cross-validated review found <N> confirmed issues (filtered <M> false positives).
+After applying fixes for confirmed issues, <K> tests fail.
 Failing tests: <list>
 
 A) Let me debug and fix
@@ -374,7 +428,10 @@ gh issue comment <issue-number> --body "$(cat <<'EOF'
 - Lines changed: <N>
 - Files changed: <N>
 - Bugs found (self-check): <N>
-- Bugs found (review): <N>
+- Bugs found (Claude review): <N>
+- Bugs found (Codex review): <N>
+- Cross-validated (confirmed): <N>
+- False positives filtered: <N>
 - Decisions auto-resolved: <N>
 - Decisions escalated to CEO: <N>
 
