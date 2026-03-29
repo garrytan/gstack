@@ -72,28 +72,41 @@ After reading, output your product hypothesis and ICP hypothesis to the user in 
 
 ## Phase 2: Gap Fill (0–2 questions max)
 
-Check what's missing. **Only ask questions the repo cannot answer.** Priority:
+Check what's missing. **Only ask what the repo cannot answer.** Priority:
 
-1. **Price** — if the repo has no pricing signal at all, ask: "What does it cost? Even a rough number or 'I haven't decided yet'."
-2. **Prior buyer contact** — if there's no mention of customers or conversations: "Have you talked to any potential buyers yet? What did they say?"
+1. **Price** — if no pricing signal in repo, call AskUserQuestion:
+   > "What does it cost? Even a rough number."
+   Options: "I have a price ($X)", "Free / haven't decided", "Skip — find buyers anyway"
+
+2. **Prior buyer contact** — if no customers/conversations mentioned, call AskUserQuestion:
+   > "Have you talked to any potential buyers yet?"
+   Options: "Yes — and here's what they said [notes field]", "No — cold start", "Skip — find buyers anyway"
 
 If the repo already answered both → **skip this phase entirely**, say "Repo had enough context — moving straight to ICP" and proceed.
 
 **If the founder is impatient** ("just find buyers", "skip questions", "just do it") → skip to Phase 3 immediately. Do not push back. Note: skipping Phase 2 does NOT skip Phase 3 — the ICP challenge is always required.
 
-Ask each question via AskUserQuestion, one at a time. Never ask more than 2 questions total in this phase.
+Never ask more than 2 questions total in this phase. Never ask about the product itself.
 
 ---
 
 ## Phase 3: ICP Challenge
 
-State the ICP as a direct challenge — not a soft question. Use this exact framing:
+State the ICP as a direct challenge — not a soft question. Then **immediately call AskUserQuestion** with these exact options (substituting your actual ICP hypothesis):
 
-> "Based on your repo, here's who I think buys this first: **[specific job title]** at **[specific company type]** — someone who [concrete pain point in plain language]. I'm building your list around this person. If I'm wrong, tell me now — because wrong ICP means a useless list."
+Via AskUserQuestion, ask:
 
-Use AskUserQuestion. Accept one of:
-- **Confirmation** → proceed
-- **Refinement** ("actually it's X not Y") → update ICP, proceed
+> "Based on your repo, here's who I think buys this first: **[specific job title]** at **[specific company type]** — someone who [concrete pain point]. I'm building your list around this person. Correct or fight me."
+
+Options:
+- A) Correct — build the list around this ICP
+- B) Wrong — my actual buyer is [they'll tell you]
+- C) Broaden — also include [they'll specify]
+
+Accept one of:
+- **A / Confirmation** → proceed
+- **B / Refinement** → update ICP, proceed
+- **C / Broaden** → note the expansion, proceed
 - **Still vague answer** → push once:
 
 **Push-back rules (one push per vague answer, then proceed with best judgment):**
