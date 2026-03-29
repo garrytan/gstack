@@ -17,6 +17,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
 | [`/cso`](#cso) | **Chief Security Officer** | OWASP Top 10 + STRIDE threat modeling security audit. Scans for injection, auth, crypto, and access control issues. |
 | [`/document-release`](#document-release) | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
+| [`/codebase-audit`](#codebase-audit) | **Code Auditor** | Full codebase audit from cold. Bugs, security, architecture, tech debt, test gaps. Read-only report. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
@@ -818,6 +819,60 @@ Claude: Current version: 0.7.4
 ```
 
 Set `auto_upgrade: true` in `~/.gstack/config.yaml` to skip the prompt entirely — gstack upgrades silently at the start of each session when a new version is available.
+
+---
+
+## `/codebase-audit`
+
+This is my **principal engineer mode**.
+
+When I clone a repo I've never seen before — or when I suspect accumulated debt in a codebase I own — I want a systematic assessment. Not a diff review (that's `/review`), not a runtime test (that's `/qa`), not a single bug investigation (that's the debugger). A full physical exam.
+
+`/codebase-audit` reads the entire codebase cold and produces a structured report: what's wrong, how bad it is, and what to fix first. It never modifies code — it's read-only by design.
+
+### Three modes
+
+- **Full** (default) — All four phases: orientation, architecture scan, targeted deep dives, and report generation. Takes 10-30 minutes depending on codebase size.
+- **Quick** (`--quick`) — Two-minute smoke audit. Orientation phase + top-10 highest-severity patterns from the checklist + a health score. For the question: "I just cloned this — should I worry?"
+- **Regression** (automatic) — When a previous audit's `baseline.json` exists, the full audit automatically includes a comparison: what's new, what's fixed, and how the health score changed.
+
+### Health scoring
+
+Every audit produces a health score from 0-100, calculated by deducting points per finding (critical: -25, important: -10, notable: -3). The model is deliberately simple — use regression mode to track relative improvement rather than fixating on the absolute number.
+
+### When to use it
+
+| Situation | Use |
+|-----------|-----|
+| Onboarding to a new codebase | `/codebase-audit` |
+| Reviewing a PR or diff | `/review` |
+| Testing a live application | `/qa` |
+| Debugging a specific issue | debugger / `/investigate` |
+| Due diligence on an acquisition | `/codebase-audit` |
+| Quarterly tech debt assessment | `/codebase-audit` (regression mode) |
+| "Should I worry about this repo?" | `/codebase-audit --quick` |
+
+### Example
+
+```
+You:    /codebase-audit
+Claude: Orientation complete. This is a Node.js/Express project,
+        ~15K LOC, 42 test files. Medium codebase — reading all
+        high-risk files, sampling the rest by recent change frequency.
+
+        [... Architecture scan, deep dives ...]
+
+        Health Score: 64/100
+
+        Top 5 Priorities:
+        1. FINDING-003: SQL injection in user search endpoint (Critical)
+        2. FINDING-007: No rate limiting on auth endpoints (Critical)
+        3. FINDING-012: Empty catch blocks in payment service (Important)
+        4. FINDING-001: 14 TODO/FIXME markers in core modules (Notable)
+        5. FINDING-015: Missing integration tests for checkout flow (Important)
+
+        Full report saved to ~/.gstack/projects/my-app/audits/20260320-153000-audit.md
+```
 
 ---
 

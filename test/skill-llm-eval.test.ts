@@ -841,6 +841,21 @@ ${voiceSection}`);
   }, 30_000);
 });
 
+// Block 5: Codebase Audit skill
+describeIfSelected('Codebase Audit skill evals', ['codebase-audit/SKILL.md workflow'], () => {
+  testIfSelected('codebase-audit/SKILL.md workflow', async () => {
+    await runWorkflowJudge({
+      testName: 'codebase-audit/SKILL.md workflow',
+      suite: 'Codebase Audit skill evals',
+      skillPath: 'codebase-audit/SKILL.md',
+      startMarker: '## Phase 1: Orientation',
+      endMarker: '## Edge Cases',
+      judgeContext: 'a codebase audit workflow document with 4 phases',
+      judgeGoal: 'how to conduct a full codebase audit: orient on the project, scan architecture, perform targeted deep dives on critical areas, and generate a structured report with health score, findings, and baseline',
+    });
+  }, 30_000);
+});
+
 // Module-level afterAll — finalize eval collector after all tests complete
 afterAll(async () => {
   if (evalCollector) {

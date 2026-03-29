@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+Project instructions for Claude Code working on gstack — a skill and tooling suite for Claude Code.
+
 # gstack development
 
 ## Commands
@@ -368,3 +372,82 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 Or copy the binaries directly:
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
+
+## Template placeholder reference
+
+The generator (`scripts/gen-skill-docs.ts`) resolves `{{PLACEHOLDER}}` tokens in
+`.tmpl` files. The full set (defined in `RESOLVERS` at line ~1090):
+
+| Placeholder | Source | What it expands to |
+|---|---|---|
+| `COMMAND_REFERENCE` | `browse/src/commands.ts` | Categorized command table (Navigation, Reading, etc.) |
+| `SNAPSHOT_FLAGS` | `browse/src/snapshot.ts` | Flag reference table for `snapshot` command |
+| `PREAMBLE` | inline in generator | Shared skill preamble (session awareness, project context) |
+| `BROWSE_SETUP` | inline in generator | `$B` alias setup + binary detection block |
+| `BASE_BRANCH_DETECT` | inline in generator | Shell snippet to detect `main`/`master` dynamically |
+| `QA_METHODOLOGY` | inline in generator | QA health rubric + bug-severity taxonomy |
+| `DESIGN_METHODOLOGY` | inline in generator | Design review rubric + severity levels |
+| `DESIGN_REVIEW_LITE` | inline in generator | Lightweight design review pass for `/review` |
+| `REVIEW_DASHBOARD` | inline in generator | Review summary dashboard format |
+| `TEST_BOOTSTRAP` | inline in generator | Test discovery + run block for `/ship` |
+
+To add a new placeholder: add a resolver function + entry in `RESOLVERS`.
+
+## Browse architecture
+
+The `browse/` subsystem is a client-server headless browser built on Playwright.
+
+**Daemon model:** The CLI (`cli.ts`) is a thin HTTP client. The server (`server.ts`)
+is a persistent Chromium daemon that stays alive across commands (auto-shutdown
+after 30 min idle). CLI auto-starts/restarts the server as needed.
+
+**State file:** `.gstack/browse.json` stores `{ pid, port, token, startedAt,
+binaryVersion }`. The CLI reads this to find the server; the server writes it on
+startup. Token is a random UUID for auth.
+
+**Command dispatch:** Commands are split into 3 sets in `commands.ts`:
+- `READ_COMMANDS` — page inspection (text, html, links, js, console, etc.)
+- `WRITE_COMMANDS` — page mutation (goto, click, fill, scroll, etc.)
+- `META_COMMANDS` — server/tab/visual ops (screenshot, tabs, snapshot, chain, etc.)
+
+The server routes each command to `handleReadCommand`, `handleWriteCommand`, or
+`handleMetaCommand` based on set membership.
+
+**Ref system:** `snapshot` assigns `@e1`/`@e2`/`@c1` refs to elements, stored in
+`BrowserManager.refMap`. Later commands resolve `@e3` → the Playwright `Locator`
+from the last snapshot. `-C` flag adds `@c` refs for non-ARIA clickable elements.
+
+**Logging:** 3 `CircularBuffer` instances (console, network, dialog) in `buffers.ts`,
+flushed to `.gstack/browse-{console,network,dialog}.log`. Ring buffer with fixed
+capacity — old entries are overwritten.
+
+**Tests:** Direct handler invocation against `BrowserManager` (no HTTP layer),
+using a shared test server in `browse/test/test-server.ts`.
+
+## Test infrastructure internals
+
+Key helpers in `test/helpers/` that the test system depends on:
+
+**`touchfiles.ts`** — Diff-based test selection. Maps test names → file glob
+patterns. `selectTests()` checks `git diff` against base branch, runs only tests
+whose dependencies changed. `GLOBAL_TOUCHFILES` (session-runner, eval-store,
+llm-judge, gen-skill-docs, touchfiles itself, test-server) trigger all tests.
+
+**`session-runner.ts`** — Spawns `claude -p` as a subprocess (not Agent SDK),
+streams NDJSON output for real-time progress. Returns `SkillTestResult` with tool
+calls, browse errors, cost estimate, exit reason, and full transcript.
+
+**`eval-store.ts`** — `EvalCollector` accumulates test results, writes them to
+`~/.gstack-dev/evals/{version}-{branch}-{tier}-{timestamp}.json`. Prints summary
+table and auto-compares with the previous run. Comparison functions exported for
+`eval:compare` CLI.
+
+**`llm-judge.ts`** — Two judge types via `callJudge()` (claude-sonnet-4-6):
+- `judge()` — doc quality scorer (clarity, completeness, actionability; 1-5 each)
+- `outcomeJudge()` — planted-bug detection scorer (detection rate, false positives,
+  evidence quality)
+
+**Observability files:**
+- `~/.gstack-dev/e2e-live.json` — heartbeat updated during E2E runs
+- Partial results persisted during long runs for crash recovery
+- NDJSON transcripts saved per-test for debugging

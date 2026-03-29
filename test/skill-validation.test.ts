@@ -242,6 +242,7 @@ describe('Update check preamble', () => {
     'land-and-deploy/SKILL.md',
     'setup-deploy/SKILL.md',
     'cso/SKILL.md',
+    'codebase-audit/SKILL.md',
   ];
 
   for (const skill of skillsWithUpdateCheck) {
@@ -560,6 +561,7 @@ describe('v0.4.1 preamble features', () => {
     'land-and-deploy/SKILL.md',
     'setup-deploy/SKILL.md',
     'cso/SKILL.md',
+    'codebase-audit/SKILL.md',
   ];
 
   const skillsWithPreamble = [...tier1Skills, ...tier2PlusSkills];
@@ -753,6 +755,7 @@ describe('Contributor mode preamble structure', () => {
     'benchmark/SKILL.md',
     'land-and-deploy/SKILL.md',
     'setup-deploy/SKILL.md',
+    'codebase-audit/SKILL.md',
   ];
 
   for (const skill of skillsWithPreamble) {
@@ -835,7 +838,9 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
-    'cso/SKILL.md',  ];
+    'cso/SKILL.md',
+    'codebase-audit/SKILL.md',
+  ];
 
   for (const skill of skillsWithPreamble) {
     test(`${skill} contains Completeness Principle section`, () => {
@@ -1545,5 +1550,52 @@ describe('Test failure triage in ship skill', () => {
   test('ship/SKILL.md uses in-branch language for stop condition', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(content).toContain('In-branch test failures');
+  });
+});
+
+// --- Codebase audit skill structure validation ---
+
+describe('Codebase audit skill structure', () => {
+  test('checklist.md exists and contains all category headers', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codebase-audit', 'checklist.md'), 'utf-8');
+    const categories = ['Security', 'Correctness', 'Reliability', 'Architecture', 'Tests', 'Tech Debt', 'Performance'];
+    for (const cat of categories) {
+      expect(content).toContain(`### ${cat}`);
+    }
+  });
+
+  test('checklist.md has [QUICK] tagged items', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codebase-audit', 'checklist.md'), 'utf-8');
+    const quickCount = (content.match(/\[QUICK\]/g) || []).length;
+    expect(quickCount).toBeGreaterThanOrEqual(7);
+    expect(quickCount).toBeLessThanOrEqual(14);
+  });
+
+  test('report-template.md exists and contains key sections', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codebase-audit', 'report-template.md'), 'utf-8');
+    expect(content).toContain('Health Score');
+    expect(content).toContain('Executive Summary');
+    expect(content).toContain('Findings');
+    expect(content).toContain('Architecture');
+    expect(content).toContain('Regression');
+  });
+
+  test('references/patterns.md exists and contains language sections', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codebase-audit', 'references', 'patterns.md'), 'utf-8');
+    const languages = ['JavaScript', 'Python', 'Ruby', 'Go', 'Rust', 'Swift', 'PHP', 'General'];
+    for (const lang of languages) {
+      expect(content).toContain(lang);
+    }
+  });
+
+  test('generated SKILL.md contains phase markers and key rules', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codebase-audit', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Phase 1');
+    expect(content).toContain('Phase 2');
+    expect(content).toContain('Phase 3');
+    expect(content).toContain('Phase 4');
+    expect(content).toContain('MUST NOT modify');
+    expect(content).toContain('critical');
+    expect(content).toContain('important');
   });
 });

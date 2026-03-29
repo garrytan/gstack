@@ -164,6 +164,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'journey-retro':          ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-design-system':  ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-visual-qa':      ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+
+  // Codebase audit
+  'codebase-audit-quick': ['codebase-audit/**', 'scripts/gen-skill-docs.ts'],
 };
 
 /**
@@ -291,6 +294,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'journey-retro': 'periodic',
   'journey-design-system': 'periodic',
   'journey-visual-qa': 'periodic',
+
+  // Codebase audit
+  'codebase-audit-quick': 'periodic',
 };
 
 /**
@@ -338,6 +344,9 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
 
   // Voice directive
   'voice directive tone':                 ['scripts/resolvers/preamble.ts', 'review/SKILL.md', 'review/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+
+  // Codebase audit
+  'codebase-audit/SKILL.md workflow': ['codebase-audit/SKILL.md', 'codebase-audit/SKILL.md.tmpl', 'codebase-audit/checklist.md', 'codebase-audit/report-template.md', 'codebase-audit/references/patterns.md'],
 };
 
 /**
