@@ -581,6 +581,43 @@ async function formatMacroDashboard(profile: { risk: RiskTolerance; horizon: Hor
   return parts.join("\n");
 }
 
+async function fetchYahooQuoteSummary(symbol: string): Promise<{
+  trailingPE: number | null;
+  forwardPE: number | null;
+  epsForward: number | null;
+  epsTrailing12Months: number | null;
+  growthPct: number | null;
+}> {
+  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(
+    symbol,
+  )}?modules=summaryDetail,defaultKeyStatistics,financialData`;
+  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
+  const json = await res.json();
+  const r = json?.quoteSummary?.result?.[0] || {};
+  const sd = r.summaryDetail || {};
+  const ks = r.defaultKeyStatistics || {};
+  const fd = r.financialData || {};
+  const getNum = (obj: any, path: string[]): number | null => {
+    try {
+      let v: any = obj;
+      for (const k of path) v = v?.[k];
+      const n = v?.raw ?? v;
+      return Number.isFinite(Number(n)) ? Number(n) : null;
+    } catch {
+      return null;
+    }
+  };
+  const trailingPE =
+    getNum(sd, ["trailingPE"]) ?? getNum(ks, ["trailingPE"]) ?? getNum(ks, ["trailingPE", "raw"]) ?? null;
+  const forwardPE =
+    getNum(sd, ["forwardPE"]) ?? getNum(ks, ["forwardPE"]) ?? getNum(fd, ["forwardPE"]) ?? null;
+  const epsForward = getNum(fd, ["epsForward"]) ?? null;
+  const epsTTM = getNum(ks, ["trailingEps"]) ?? getNum(fd, ["epsTrailingTwelveMonths"]) ?? null;
+  const growthRaw = getNum(fd, ["earningsGrowth"]) ?? getNum(fd, ["revenueGrowth"]) ?? null;
+  const growthPct = growthRaw != null ? growthRaw * 100 : null;
+  return { trailingPE, forwardPE, epsForward, epsTrailing12Months: epsTTM, growthPct };
+}
+
 function parseUnit(envValue: string | undefined, fallback: number): number {
   const n = envValue != null ? Number(String(envValue).trim()) : NaN;
   return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -1684,7 +1721,49 @@ async function handle(chatId: number, text: string, env: Env): Promise<string> {
   if (!target) return "Send a ticker like NVDA, or /help";
   const ticker = normalizeTicker(target);
   const data = await fetchYahooChart(ticker);
-  const body = cmd === "summary" ? formatBrief(ticker, data, profile) : formatFull(ticker, data, profile);
+  let body = cmd === "summary" ? formatBrief(ticker, data, profile) : formatFull(ticker, data, profile);
+
+  if (cmd === "full") {
+    try {
+      const f = await fetchYahooQuoteSummary(ticker);
+      const year = new Date().getUTCFullYear();
+      const yc = (await fetchTreasuryYieldCurveLastTwo(year)) || (await fetchTreasuryYieldCurveLastTwo(year - 1));
+      const us10y = yc ? yc.latest.y10 : null;
+      const pe = f.trailingPE;
+      const fpe = f.forwardPE;
+      const usedForward = fpe != null && fpe > 0;
+      const ey = usedForward ? (100 / (fpe as number)) : pe != null && pe > 0 ? (100 / pe) : null;
+      const spread = ey != null && us10y != null ? ey - us10y : null;
+      const growthPct = f.growthPct != null && Number.isFinite(f.growthPct) ? f.growthPct : null;
+      const peg = growthPct != null && growthPct > 0 && fpe != null && fpe > 0 ? fpe / growthPct : null;
+      const fairPE =
+        growthPct != null && Number.isFinite(growthPct) ? Math.max(8, Math.min(30, growthPct * 0.4)) : null;
+      const epsForFair = f.epsForward != null && f.epsForward > 0 ? f.epsForward : f.epsTrailing12Months;
+      const fairPrice = fairPE != null && epsForFair != null && epsForFair > 0 ? fairPE * epsForFair : null;
+      const lastPrice = data.closes[data.closes.length - 1] || 0;
+      const gapPct = fairPrice != null && fairPrice > 0 ? ((lastPrice - fairPrice) / fairPrice) * 100 : null;
+      const lines: string[] = [];
+      lines.push("");
+      lines.push("估值 (Valuation)");
+      lines.push(`- P/E (TTM): ${pe != null ? pe.toFixed(2) : "N/A"}`);
+      lines.push(`- Forward P/E: ${fpe != null ? fpe.toFixed(2) : "N/A"}`);
+      if (growthPct != null) lines.push(`- Growth (YoY): ${growthPct.toFixed(1)}%`);
+      if (peg != null) lines.push(`- PEG (Fwd): ${peg.toFixed(2)}`);
+      if (fairPE != null) lines.push(`- Fair P/E (heuristic): ${fairPE.toFixed(1)}`);
+      if (fairPrice != null && gapPct != null) {
+        lines.push(`- Fair Price (heuristic): ${fairPrice.toFixed(2)} | Gap: ${gapPct >= 0 ? "+" : ""}${gapPct.toFixed(1)}%`);
+      }
+      if (ey != null) {
+        lines.push(`- Earnings Yield (${usedForward ? "Fwd" : "TTM"}): ${ey.toFixed(2)}%${us10y != null ? ` | US 10Y: ${us10y.toFixed(2)}% | Spread: ${spread!.toFixed(2)}%` : ""}`);
+      } else if (us10y != null) {
+        lines.push(`- US 10Y: ${us10y.toFixed(2)}%`);
+      }
+      body = body + "\n" + lines.join("\n");
+    } catch {
+      // ignore valuation errors
+    }
+  }
+
   return body + "\n\n" + formatFooter(profile, data.asOfUnix);
 }
 

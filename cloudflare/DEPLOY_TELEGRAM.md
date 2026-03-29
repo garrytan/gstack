@@ -48,7 +48,7 @@ npx wrangler@latest secret put PORTFOLIO
 ```
 
 Enter a comma-separated ticker list, for example:
-`NVDA,AAPL,0700.HK`
+`GOOGL,NVDA,TSM,MSFT,MSTR,TCOM,0700.HK,7226.HK,9988.HK,1810.HK`
 
 ## Important note (secrets vs vars)
 
