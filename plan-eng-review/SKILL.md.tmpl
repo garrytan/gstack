@@ -74,8 +74,12 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-br
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
 [ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
 [ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
+STRATEGY=$(ls -t ~/.gstack/projects/$SLUG/*-strategy-*.md 2>/dev/null | grep -v brief | head -1)
+[ -n "$STRATEGY" ] && echo "Strategy doc found: $STRATEGY" || echo "No strategy doc found"
 ```
 If a design doc exists, read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design — check the prior version for context on what changed and why.
+
+If a strategy doc exists (from `/strategist`), read it for competitive context and strategic priorities. Use it to inform architecture decisions — "why are we building this?" and "what's the competitive positioning?"
 
 {{BENEFITS_FROM}}
 

@@ -153,6 +153,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Autoplan
   'autoplan-core':  ['autoplan/**', 'plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**'],
 
+  // Social Strategy
+  'journey-social-strategy': ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+
   // Skill routing — journey-stage tests (depend on ALL skill descriptions)
   'journey-ideation':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-plan-eng':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
@@ -279,6 +282,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Autoplan — periodic (not yet implemented)
   'autoplan-core': 'periodic',
+
+  // Social Strategy — periodic (LLM routing is non-deterministic)
+  'journey-social-strategy': 'periodic',
 
   // Skill routing — periodic (LLM routing is non-deterministic)
   'journey-ideation': 'periodic',

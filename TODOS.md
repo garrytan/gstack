@@ -632,6 +632,94 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Priority:** P3
 **Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
 
+## Strategist
+
+### CSO/retro artifact ingestion
+
+**What:** Add CSO and retro artifact ingestion to `/strategist brief` when those skills gain persistent project-scoped output.
+
+**Why:** Security posture (from `/cso`) and shipping velocity (from `/retro`) are valuable strategic inputs. Currently those skills write to stdout or `.context/` dirs that aren't accessible cross-skill.
+
+**Context:** `/strategist` design doc lists these as "reads from" but they don't actually persist to `~/.gstack/projects/` yet. When `/cso` and `/retro` gain project-scoped artifact output, add the appropriate globs to `/strategist`'s context ingestion phase.
+
+**Effort:** S (once upstream skills persist artifacts)
+**Priority:** P2
+**Depends on:** `/cso` and `/retro` writing to `~/.gstack/projects/`
+
+### Autoplan integration
+
+**What:** Integrate `/strategist` into `/autoplan`'s review pipeline. If a strategy doc exists, surface it as context during reviews. Optionally offer to run `/strategist brief` first.
+
+**Why:** Without this, the default planning path (`/autoplan`) bypasses competitive strategy entirely. A strategy doc should inform scope and ambition decisions in CEO review.
+
+**Context:** `/autoplan` currently runs CEO, design, and eng reviews. Strategy docs at `*-strategy-*.md` should be discoverable alongside design docs. The simplest integration: `/autoplan` reads strategy docs if they exist (same as it reads design docs) and mentions `/strategist` as a prerequisite option.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** `/strategist` skill existing and being dogfooded
+
+### E2E eval test for /strategist
+
+**What:** Write E2E eval test after the first dogfood session. Use real output as ground truth. Test: (a) brief produces a file with inline citations, (b) session produces a strategy doc with framework selection rationale, (c) 90-day plan items are specific not generic.
+
+**Why:** Without an eval, quality regressions in the template are invisible. The template's framework selection logic and citation requirements need automated validation.
+
+**Context:** Classify as `periodic` tier (non-deterministic, quality benchmark). Dogfood session produces real output to calibrate eval expectations. Add touchfile entry in `test/helpers/touchfiles.ts` with `strategist/**` dependency.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** First dogfood session completing
+
+## Social Strategy
+
+### Framework panel curation (PREREQUISITE)
+
+**What:** Research and curate the narrative framework panel for `/social-strategy`. For each candidate thinker: engage with their actual body of work (not summaries), identify which specific ideas apply to founder content strategy, justify inclusion (what failure mode does this thinker uniquely catch), and define how the skill should represent their work faithfully.
+
+**Why:** Blocks three features: framework orientation session step, framework-annotated content pillars, and review mode audience value criterion. See ADR 0005.
+
+**Context:** Candidates from design conversation: Godin, Sierra, Miller, Cialdini, Christensen (JTBD only). Unevaluated: Handley, Schwartz, Moore (may belong in /strategist). Deliverable: a framework panel document with 4-6 thinkers, each with name, relevant works, which ideas apply, core question(s), what failure mode they catch, and justification.
+
+**Effort:** M (human: ~2 weeks reading/research, CC cannot do this — ADR 0005 explicitly requires human engagement with source material)
+**Priority:** P1
+**Depends on:** Nothing — can start immediately
+
+### Review mode (v1.1)
+
+**What:** Add `/social-strategy review` subcommand. Draft critique against voice doc + content pillars + style guide. Scores 1-10 on 5 criteria (voice consistency, pillar alignment, audience value, effectiveness habits, domain safety). Never rewrites, only critiques.
+
+**Why:** Closes the feedback loop. Without review mode, the founder has strategy artifacts but no structured way to evaluate their own content against them.
+
+**Context:** Depends on voice fingerprint quality being validated via dogfood (are fingerprints specific enough to score against?) and framework panel being curated (for audience value criterion). Pattern: inline critique only, no file output.
+
+**Effort:** M (human: ~2 weeks / CC: ~1-2 hours)
+**Priority:** P1
+**Depends on:** Framework panel curation, voice fingerprint quality validation from dogfood
+
+### E2E eval test for /social-strategy
+
+**What:** Write E2E eval test using dogfood output as ground truth. Test: (a) audit produces file with inline citations, (b) voice prompts are topically relevant to audit findings, (c) strategy doc has pillar-to-strategy linkage, (d) style guide has both effectiveness patterns and domain landmines personalized to the founder's space.
+
+**Why:** Without an eval, quality regressions in the template are invisible. Classify as periodic tier (non-deterministic, quality benchmark).
+
+**Context:** Add touchfile entry in `test/helpers/touchfiles.ts` with `social-strategy/**` dependency. Pattern: same as `/strategist` E2E eval TODO.
+
+**Effort:** M (human: ~2 weeks / CC: ~30 min)
+**Priority:** P2
+**Depends on:** First dogfood session completing
+
+### Autoplan integration
+
+**What:** Add `/social-strategy audit` as an optional prerequisite in the `/autoplan` pipeline, alongside `/strategist`.
+
+**Why:** Without this, the default planning path (`/autoplan`) bypasses social strategy entirely. Social context should inform scope and narrative decisions in CEO review.
+
+**Context:** `/autoplan` currently runs CEO, design, and eng reviews. Social strategy docs at `*-social-strategy-*.md` should be discoverable alongside strategy docs. Simplest integration: `/autoplan` reads social docs if they exist and mentions `/social-strategy` as a prerequisite option.
+
+**Effort:** S (human: ~1 day / CC: ~10 min)
+**Priority:** P3
+**Depends on:** Both `/social-strategy` and `/strategist` being stable
+
 ## Completed
 
 ### CI eval pipeline (v0.9.9.0)
