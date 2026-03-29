@@ -1,0 +1,262 @@
+---
+name: pre-publish
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Pre-publish repo hygiene audit. Scans every git-tracked file before a repo
+  goes public and catches dev scaffolding, hardcoded credentials, security
+  disclosures, language inconsistency, and PII in sample/fixture data.
+  Use before making any repo public, or run periodically on existing public repos.
+  Proactively suggest when a user says "make this public", "open source this",
+  or "publish this repo".
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - Edit
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /pre-publish — Repo Hygiene Audit
+
+You are a pre-publish safety gate. Your job: scan every git-tracked file before a repo goes public and catch anything that would be embarrassing, dangerous, or harmful once visible to the world.
+
+**Posture:** conservative. Flag on doubt. A false positive costs 30 seconds. A false negative costs users' privacy, API credits, or security.
+
+**Five categories. All mandatory. No skips.**
+
+---
+
+## Step 0: Establish scope
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$REPO_ROOT" ]; then
+  echo "ERROR: not inside a git repo."
+  exit 1
+fi
+REPO_NAME=$(basename "$REPO_ROOT")
+echo "Auditing: $REPO_NAME"
+
+git ls-files | grep -vE "^(\.venv|venv|node_modules|\.yarn|dist/|build/|__pycache__)" \
+  > /tmp/pp_files.txt
+TOTAL=$(wc -l < /tmp/pp_files.txt | tr -d ' ')
+echo "Tracked files: $TOTAL"
+```
+
+---
+
+## Step 1: Dev scaffolding
+
+Files that belong in a developer's local workflow, not a public repo.
+
+```bash
+echo "=== 1. DEV SCAFFOLDING ==="
+
+# Known scaffolding names
+grep -iE "^(TODOS?|PLAN|FIXME|NOTES|ROADMAP-internal|SCRATCHPAD|INTERNAL|DRAFT|WIP|HACKS?|DEVNOTES?)\.(md|txt|yaml)?$" \
+  /tmp/pp_files.txt
+
+# gstack autoplan outputs (contain internal review reports)
+grep -iE "(PLAN\.md$|\.plan\.md$)" /tmp/pp_files.txt
+
+# CLAUDE.md with personal tool config rather than contributor guide
+if git show HEAD:CLAUDE.md > /tmp/pp_claude.txt 2>/dev/null; then
+  if grep -qiE "(available skills|gstack skills|/browse|/ship|/qa)" /tmp/pp_claude.txt; then
+    echo "SCAFFOLDING | CLAUDE.md | contains personal tool config, not a contributor guide"
+  fi
+fi
+
+# Personal deployment guides (contain names, personal paths)
+grep -iE "(DEPLOY_FOR_|FOR_[A-Z]{2,}\.md$|SETUP_[A-Z]{2,}\.md$)" /tmp/pp_files.txt
+```
+
+Severity: **MEDIUM**. Offer to delete each finding or move to a gitignored `docs/internal/` folder.
+
+---
+
+## Step 2: Credentials and secrets
+
+```bash
+echo "=== 2. CREDENTIALS ==="
+
+# Real credential patterns (skip obvious placeholders)
+PATTERN='(sk-ant-api[0-9]{3}-[A-Za-z0-9_\-]{20,}|sk-[a-zA-Z0-9\-]{40,}|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36}|[Aa][Pp][Ii][_-]?[Kk][Ee][Yy]\s*[=:]\s*["\x27]?[A-Za-z0-9_\-]{32,}|[Ss][Ee][Cc][Rr][Ee][Tt]\s*[=:]\s*["\x27]?[A-Za-z0-9_\-]{20,})'
+EXCLUDE='(example|placeholder|YOUR_|<YOUR|xxx|\.\.\.|fake|test_key|mock|your_.*_here)'
+
+while IFS= read -r f; do
+  [ -f "$REPO_ROOT/$f" ] || continue
+  hit=$(grep -nE "$PATTERN" "$REPO_ROOT/$f" 2>/dev/null | grep -viE "$EXCLUDE" | head -3)
+  [ -n "$hit" ] && echo "CREDENTIAL | $f | $hit"
+done < /tmp/pp_files.txt
+
+# Tracked .env files — always wrong
+grep -E "(^|/)\.env$" /tmp/pp_files.txt | while read f; do
+  echo "CREDENTIAL | $f | .env tracked in git — must be in .gitignore"
+done
+```
+
+Severity: **CRITICAL**. For every real key found:
+1. Show only the first 12 characters: `sk-kimi-g944...`
+2. Say: "Revoke this key immediately before proceeding. Deleting the file is not enough — it is in git history."
+3. Offer to run `git filter-repo --path {file} --invert-paths` to purge it from all commits.
+4. Provide the vendor's key management URL if recognizable (Anthropic: console.anthropic.com/settings/keys; OpenAI: platform.openai.com/api-keys; Moonshot: platform.moonshot.cn/console/api-keys; DeepSeek: platform.deepseek.com/api_keys; AWS: console.aws.amazon.com/iam/home#/security_credentials).
+
+---
+
+## Step 3: Security disclosures
+
+Undisclosed security issues documented in tracked files that are now public.
+
+```bash
+echo "=== 3. SECURITY DISCLOSURES ==="
+
+grep -rniE \
+  "(cannot ship|do not ship|not safe for production|security hardening deferred|\
+no auth|unauthenticated.*port|no authentication|auth.*not implemented|\
+security.*todo|security.*fixme|vulnerable|exposed.*endpoint|\
+do not commit|do not push)" \
+  "$REPO_ROOT" \
+  --include="*.md" --include="*.txt" --include="*.yaml" \
+  2>/dev/null | grep -vE "node_modules|\.venv|\.git" | head -20 | while read line; do
+    echo "SECURITY | $line"
+  done
+```
+
+Severity: **MEDIUM** if the issue is documented and linked to a GitHub Issue. **HIGH** if not.
+
+---
+
+## Step 4: Language consistency
+
+```bash
+echo "=== 4. LANGUAGE CONSISTENCY ==="
+
+README_LANG="unknown"
+if [ -f "$REPO_ROOT/README.md" ]; then
+  README_LANG=$(python3 -c "
+import re
+text = open('$REPO_ROOT/README.md').read()[:800]
+zh = len(re.findall(r'[\u4e00-\u9fff]', text))
+en = len(re.findall(r'[a-zA-Z]', text))
+print('zh' if zh > en * 0.15 else 'en')
+" 2>/dev/null || echo "unknown")
+fi
+echo "README: $README_LANG"
+
+for doc in DEPLOYMENT.md CONTRIBUTING.md INSTALL.md SETUP.md GUIDE.md; do
+  [ -f "$REPO_ROOT/$doc" ] || continue
+  lang=$(python3 -c "
+import re
+text = open('$REPO_ROOT/$doc').read()[:600]
+zh = len(re.findall(r'[\u4e00-\u9fff]', text))
+en = len(re.findall(r'[a-zA-Z]', text))
+print('zh' if zh > en * 0.15 else 'en')
+" 2>/dev/null || echo "unknown")
+  [ "$lang" != "$README_LANG" ] && [ "$lang" != "unknown" ] && \
+    echo "LANGUAGE | $doc | README=$README_LANG doc=$lang"
+done
+```
+
+Severity: **MEDIUM**. Offer to translate the mismatched doc (backup original locally first).
+
+---
+
+## Step 5: Privacy and PII
+
+The most serious category. PII committed to git cannot be truly removed — it lives in history forever once pushed.
+
+Check: `data/`, `datasets/`, `samples/`, `fixtures/`, `examples/`, `testdata/`, `demo/`, any `.json/.jsonl/.csv/.tsv` in any directory, files with "chat", "message", "export", "backup" in the name.
+
+```bash
+echo "=== 5. PRIVACY / PII ==="
+
+# High-risk files by path
+grep -iE "(^|/)(data|dataset|sample|fixture|example|testdata|demo|export|backup|dump|chat|message|conversation|record)s?/" \
+  /tmp/pp_files.txt
+
+# High-risk files by extension (excluding package manifests)
+grep -iE "\.(jsonl?|csv|tsv|sqlite|db)$" /tmp/pp_files.txt | \
+  grep -vE "(package\.json|tsconfig|pyproject|requirements|Pipfile|\.schema\.)"
+
+# Scan data-adjacent files for PII signals
+grep -iE "\.(json|jsonl|csv|tsv|txt|md)$" /tmp/pp_files.txt | \
+  grep -iE "(data|sample|fixture|example|demo|chat|message|export|test)" | \
+  head -30 | while IFS= read -r f; do
+  [ -f "$REPO_ROOT/$f" ] || continue
+  # Chinese phone numbers
+  phone=$(grep -cE '1[3-9][0-9]{9}' "$REPO_ROOT/$f" 2>/dev/null || echo 0)
+  # Real email addresses (not safe placeholder domains)
+  real_email=$(grep -oE '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}' "$REPO_ROOT/$f" 2>/dev/null | \
+    grep -cvE '@(example|test|foo|bar|domain|email|company|your|mail)\.(com|org|net|io)' 2>/dev/null || echo 0)
+  # WeChat/social fields in JSON
+  wechat=$(grep -cE '"(nickname|wxid|openid|unionid|username|realname|display_name|sender)"\s*:\s*"[^"]{2,}"' \
+    "$REPO_ROOT/$f" 2>/dev/null || echo 0)
+  # Personal file system paths
+  paths=$(grep -cE '(/Users/[A-Za-z][^/\s]{2,}/|C:\\Users\\[^\\]+\\|/home/[a-z][^/\s]{2,}/)' \
+    "$REPO_ROOT/$f" 2>/dev/null || echo 0)
+  if [ "$phone" -gt 0 ] || [ "$real_email" -gt 0 ] || [ "$wechat" -gt 0 ] || [ "$paths" -gt 0 ]; then
+    echo "PII | $f | phones=$phone real_emails=$real_email wechat_fields=$wechat personal_paths=$paths"
+  fi
+done
+
+# Personal info in any doc
+grep -rniE \
+  "(@gmail\.com|@qq\.com|@163\.com|@126\.com|@hotmail\.com|/Users/[A-Z][a-z]{2,}/Desktop)" \
+  "$REPO_ROOT" \
+  --include="*.md" --include="*.txt" --include="*.yaml" \
+  2>/dev/null | grep -vE "node_modules|\.venv|\.git|example|placeholder" | head -10 | while read line; do
+    echo "PII | $line"
+  done
+```
+
+Severity: **CRITICAL** for real PII. Say: "Deleting the file is not enough. Use `git filter-repo` to purge history, then notify affected users if required by law (GDPR, PIPL, CCPA)."
+
+---
+
+## Step 6: .gitignore completeness
+
+```bash
+echo "=== 6. GITIGNORE CHECK ==="
+for pattern in ".env" "*.env" "data/" "storage/" "node_modules/" "__pycache__/" "*.key" "*.pem" "*.sqlite" "*.db"; do
+  grep -qF "$pattern" "$REPO_ROOT/.gitignore" 2>/dev/null || \
+    echo "MISSING_FROM_GITIGNORE | $pattern"
+done
+```
+
+Offer to append missing patterns.
+
+---
+
+## Step 7: Report and fix loop
+
+Compile all findings into a single structured report:
+
+```
+PRE-PUBLISH AUDIT: {repo}
+Tracked files scanned: {N}
+────────────────────────────────────────
+CRITICAL  {n}  ← must fix, do not publish
+HIGH      {n}  ← strongly recommended
+MEDIUM    {n}  ← fix if possible
+────────────────────────────────────────
+[CRITICAL] {category} | {file} | {description}
+           Action: {specific next step}
+
+[HIGH]     ...
+
+[MEDIUM]   ...
+
+VERDICT: BLOCKED / PROCEED_WITH_CAUTION / CLEAN
+```
+
+- **BLOCKED** — any CRITICAL finding. Do not publish until resolved.
+- **PROCEED_WITH_CAUTION** — HIGH or MEDIUM only.
+- **CLEAN** — no findings.
+
+For each finding, use AskUserQuestion to offer fixes. Auto-fix MEDIUM findings (delete scaffolding files, add .gitignore entries). Ask before touching credentials or PII (irreversible operations).
+
+{{CO_AUTHOR_TRAILER}}
