@@ -314,32 +314,58 @@ export async function handleWriteCommand(
       }
 
       await page.context().addCookies(cookies);
+      const importedDomains = [...new Set(cookies.map((c: any) => c.domain).filter(Boolean))];
+      if (importedDomains.length > 0) bm.trackCookieImportDomains(importedDomains);
       return `Loaded ${cookies.length} cookies from ${filePath}`;
     }
 
     case 'cookie-import-browser': {
       // Two modes:
       // 1. Direct CLI import: cookie-import-browser <browser> --domain <domain> [--profile <profile>]
-      // 2. Open picker UI: cookie-import-browser [browser]
+      //    Requires --domain (or --all to explicitly import everything).
+      // 2. Open picker UI: cookie-import-browser [browser] (interactive domain selection)
       const browserArg = args[0];
       const domainIdx = args.indexOf('--domain');
       const profileIdx = args.indexOf('--profile');
+      const hasAll = args.includes('--all');
       const profile = (profileIdx !== -1 && profileIdx + 1 < args.length) ? args[profileIdx + 1] : 'Default';
 
       if (domainIdx !== -1 && domainIdx + 1 < args.length) {
-        // Direct import mode — no UI
+        // Direct import mode — scoped to specific domain
         const domain = args[domainIdx + 1];
         const browser = browserArg || 'comet';
         const result = await importCookies(browser, [domain], profile);
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
+          bm.trackCookieImportDomains([domain]);
         }
         const msg = [`Imported ${result.count} cookies for ${domain} from ${browser}`];
         if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
         return msg.join(' ');
       }
 
-      // Picker UI mode — open in user's browser
+      if (hasAll) {
+        // Explicit all-cookies import — requires --all flag as a deliberate opt-in.
+        // Imports every non-expired cookie domain from the browser.
+        const browser = browserArg || 'comet';
+        const { listDomains } = await import('./cookie-import-browser');
+        const { domains } = listDomains(browser, profile);
+        const allDomainNames = domains.map(d => d.domain);
+        if (allDomainNames.length === 0) {
+          return `No cookies found in ${browser} (profile: ${profile})`;
+        }
+        const result = await importCookies(browser, allDomainNames, profile);
+        if (result.cookies.length > 0) {
+          await page.context().addCookies(result.cookies);
+          bm.trackCookieImportDomains(allDomainNames);
+        }
+        const msg = [`Imported ${result.count} cookies across ${Object.keys(result.domainCounts).length} domains from ${browser}`];
+        msg.push('(used --all: all browser cookies imported — consider --domain for tighter scoping)');
+        if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
+        return msg.join(' ');
+      }
+
+      // Picker UI mode — open in user's browser for interactive domain selection
       const port = bm.serverPort;
       if (!port) throw new Error('Server port not available');
 
@@ -355,7 +381,7 @@ export async function handleWriteCommand(
         // open may fail silently — URL is in the message below
       }
 
-      return `Cookie picker opened at ${pickerUrl}\nDetected browsers: ${browsers.map(b => b.name).join(', ')}\nSelect domains to import, then close the picker when done.`;
+      return `Cookie picker opened at ${pickerUrl}\nDetected browsers: ${browsers.map(b => b.name).join(', ')}\nSelect domains to import, then close the picker when done.\n\nTip: For scripted imports, use --domain <domain> to scope cookies to a single domain.`;
     }
 
     default:
