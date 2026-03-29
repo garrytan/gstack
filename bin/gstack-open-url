@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# gstack-open-url — cross-platform URL opener
+# Usage: gstack-open-url <url>
+# Detects platform and uses the correct open command.
+
+set -euo pipefail
+
+URL="${1:-}"
+if [ -z "$URL" ]; then
+  echo "Usage: gstack-open-url <url>" >&2
+  exit 1
+fi
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  open "$URL"
+elif [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "linux"* ]]; then
+  if command -v xdg-open &>/dev/null; then
+    xdg-open "$URL"
+  elif command -v gnome-open &>/dev/null; then
+    gnome-open "$URL"
+  else
+    echo "gstack-open-url: no URL opener found (tried xdg-open, gnome-open)" >&2
+    exit 1
+  fi
+elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win32"* ]]; then
+  # Git Bash / WSL on Windows
+  cmd.exe /c start "" "$URL" 2>/dev/null || powershell.exe -Command "Start-Process '$URL'" 2>/dev/null
+else
+  echo "gstack-open-url: unsupported platform ($OSTYPE)" >&2
+  exit 1
+fi

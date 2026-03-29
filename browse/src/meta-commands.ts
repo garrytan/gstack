@@ -137,8 +137,8 @@ export async function handleMetaCommand(
 
       // Separate target (selector/@ref) from output path
       for (const arg of remaining) {
-        // File paths containing / and ending with an image/pdf extension are never CSS selectors
-        const isFilePath = arg.includes('/') && /\.(png|jpe?g|webp|pdf)$/i.test(arg);
+        // File paths (/ or \ path separator, or starts with . for relative) ending with image/pdf extension are never CSS selectors
+        const isFilePath = (arg.includes('/') || arg.includes('\\') || /^\.[a-zA-Z0-9_\-]/.test(arg)) && /\.(png|jpe?g|webp|pdf)$/i.test(arg);
         if (isFilePath) {
           outputPath = arg;
         } else if (arg.startsWith('@e') || arg.startsWith('@c') || arg.startsWith('.') || arg.startsWith('#') || arg.includes('[')) {

@@ -1,0 +1,208 @@
+---
+name: claude-check
+hosts-only: codex
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Claude Code second opinion — three modes. Code review: independent diff review with
+  pass/fail gate. Challenge: adversarial mode that tries to break your code. Consult:
+  ask Claude anything with session continuity. The reverse of /codex for Codex users.
+  Use when asked to "claude review", "get claude opinion", "second opinion", or "consult claude".
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /claude-check — Claude Code Second Opinion
+
+You are running the `/claude-check` skill. This wraps the Claude CLI (`claude -p`) to get an
+independent second opinion from Claude Code — the reverse of what `/codex` does for Claude users.
+
+Claude brings a different perspective: strong reasoning, broad knowledge, and careful
+analysis. It presents findings directly and structures them clearly.
+
+---
+
+## Step 0: Check claude binary
+
+```bash
+CLAUDE_BIN=$(which claude 2>/dev/null || echo "")
+[ -z "$CLAUDE_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CLAUDE_BIN"
+```
+
+If `NOT_FOUND`: stop and tell the user:
+"Claude CLI not found. Install it: `npm install -g @anthropic-ai/claude-code` or see https://claude.ai/code"
+
+---
+
+## Step 1: Detect mode
+
+Parse the user's input to determine which mode to run:
+
+1. `/claude-check review` or `/claude-check review <instructions>` — **Review mode** (Step 2A)
+2. `/claude-check challenge` or `/claude-check challenge <focus>` — **Challenge mode** (Step 2B)
+3. `/claude-check` with no arguments — **Auto-detect:**
+   - Check for a diff:
+     `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
+   - If a diff exists, ask the user what Claude should do (Review / Challenge / Something else)
+   - If no diff exists, ask: "What would you like to ask Claude?"
+4. `/claude-check <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
+
+---
+
+## Step 2A: Review Mode
+
+Run Claude code review against the current branch diff.
+
+1. Get the diff:
+```bash
+git diff origin/<base> 2>/dev/null || git diff <base> 2>/dev/null
+```
+
+2. Build the review prompt. If the user provided custom instructions, include them:
+
+Default prompt:
+"You are a staff engineer doing a pre-landing code review. Analyze this git diff carefully.
+Check for: SQL injection / XSS / auth bypasses, N+1 queries and performance issues, missing
+error handling and edge cases, logic bugs that pass CI but fail in prod, completeness gaps
+(does the diff do what it claims?). Rate each finding [P1] critical or [P2] important.
+Be direct. No compliments."
+
+With custom instructions (e.g., `review focus on security`):
+"You are a staff engineer doing a pre-landing code review. Focus specifically on: focus on security.
+Analyze this git diff. Rate findings [P1] critical or [P2] important. Be direct."
+
+3. Run Claude with the diff piped in (5-minute timeout):
+```bash
+DIFF=$(git diff origin/<base> 2>/dev/null || git diff <base> 2>/dev/null)
+echo "$DIFF" | claude -p "<prompt>" 2>/dev/null
+```
+
+4. Determine gate verdict:
+   - If output contains `[P1]` — gate is **FAIL**
+   - If no `[P1]` markers — gate is **PASS**
+
+5. Present the output:
+
+```
+CLAUDE SAYS (code review):
+════════════════════════════════════════════════════════════
+<full claude output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+GATE: PASS
+```
+
+or
+
+```
+GATE: FAIL (N critical findings)
+```
+
+6. **Cross-model comparison:** If `/codex review` was already run earlier in this conversation,
+compare the two sets of findings:
+
+```
+CROSS-MODEL ANALYSIS:
+  Both found: [findings that overlap between Codex and Claude]
+  Only Claude found: [findings unique to Claude's review]
+  Only Codex found: [findings unique to Codex's review]
+  Agreement rate: X% (N/M total unique findings overlap)
+```
+
+---
+
+## Step 2B: Challenge (Adversarial) Mode
+
+Claude tries to break your code — finding edge cases, race conditions, security holes,
+and failure modes that a normal review would miss.
+
+1. Construct the adversarial prompt. If the user provided a focus area, include it:
+
+Default prompt:
+"Your job is to break this code. Think like an attacker and a chaos engineer. Find edge cases,
+race conditions, security holes, resource leaks, failure modes, and silent data corruption paths.
+Look at the git diff: run `git diff origin/<base>` to see the changes. Be adversarial. Be thorough.
+No compliments — just the problems."
+
+With focus (e.g., "performance"):
+"Your job is to break this code's PERFORMANCE. Find slow paths, N+1 queries, missing indexes,
+unbounded loops, and memory leaks. Look at the git diff. Be adversarial."
+
+2. Run Claude (5-minute timeout):
+```bash
+claude -p "<prompt>" 2>/dev/null
+```
+
+3. Present the output:
+
+```
+CLAUDE SAYS (adversarial challenge):
+════════════════════════════════════════════════════════════
+<full output, verbatim>
+════════════════════════════════════════════════════════════
+```
+
+---
+
+## Step 2C: Consult Mode
+
+Ask Claude anything about the codebase. Supports plan review auto-detection.
+
+1. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
+   check for plan files:
+```bash
+ls -t ~/.codex/plans/*.md 2>/dev/null | head -1 || ls -t .claude/plans/*.md 2>/dev/null | head -1
+```
+If a plan file exists, offer to send it to Claude:
+"Found plan: <filename>. Send it to Claude for review? Y/N"
+
+If yes, prepend to prompt:
+"You are a brutally honest technical reviewer. Review this plan for: logical gaps and
+unstated assumptions, missing error handling or edge cases, overcomplexity (simpler approach?),
+feasibility risks. Be direct. Be terse. No compliments. Just the problems.\n\nTHE PLAN:\n<content>"
+
+2. Run Claude (5-minute timeout):
+```bash
+claude -p "<prompt>" 2>/dev/null
+```
+
+3. Present the output:
+
+```
+CLAUDE SAYS (consult):
+════════════════════════════════════════════════════════════
+<full output, verbatim>
+════════════════════════════════════════════════════════════
+```
+
+4. After presenting, note any points where Claude's analysis differs from your own understanding.
+   If there is a disagreement, flag it: "Note: Codex disagrees on X because Y."
+
+---
+
+## Important Rules
+
+- **Never modify files.** This skill is read-only.
+- **Present output verbatim.** Do not truncate, summarize, or editorialize Claude's output.
+  Show it in full inside the CLAUDE SAYS block.
+- **Add synthesis after, not instead of.** Any commentary comes after the full output.
+- **5-minute timeout** on all Bash calls to claude (`timeout: 300000`).
+- **No double-reviewing.** If the user already ran a Codex review, Claude provides an
+  independent second opinion — do not re-run Codex's review.
+
+---
+
+## Error Handling
+
+- **Binary not found:** Detected in Step 0. Stop with install instructions.
+- **Auth error:** Claude prints auth errors to stderr. Surface them:
+  "Claude authentication failed. Run `claude auth` in your terminal to authenticate."
+- **Timeout:** Tell the user: "Claude timed out after 5 minutes. Try again or use a smaller scope."
+- **Empty response:** Tell the user: "Claude returned no response. Check your API key and try again."
