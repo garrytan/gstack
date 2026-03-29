@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+
+/**
+ * gstack-opencode-setup - Installs gstack OpenCode integration globally
+ * 
+ * This script copies the gstack OpenCode command files to the user's OpenCode
+ * commands directory so they're available in any OpenCode instance.
+ */
+
+import fs from 'fs';
+import path from 'path';
+
+function log(message) {
+  console.log(`[gstack-opencode-setup] ${message}`);
+}
+
+function error(message) {
+  console.error(`[gstack-opencode-setup] ERROR: ${message}`);
+  process.exit(1);
+}
+
+try {
+  // Get the directory where this script is located
+  const scriptDir = path.dirname(process.argv[1]);
+  const gstackRoot = path.resolve(scriptDir, '..');
+  
+  // Source directory: gstack's opencode commands
+  const sourceDir = path.join(gstackRoot, 'opencode', 'commands', 'gstack');
+  
+  // Determine OpenCode commands directory
+  let opencodeCommandsDir;
+  
+  if (process.platform === 'win32') {
+    // Windows: %USERPROFILE%\.opencode\commands
+    const userProfile = process.env.USERPROFILE;
+    if (!userProfile) {
+      error('USERPROFILE environment variable not found');
+    }
+    opencodeCommandsDir = path.join(userProfile, '.opencode', 'commands', 'gstack');
+  } else {
+    // Linux/macOS: ~/.opencode/commands or $XDG_CONFIG_HOME/opencode/commands
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME || 
+                         path.join(process.env.HOME, '.config');
+    opencodeCommandsDir = path.join(xdgConfigHome, 'opencode', 'commands', 'gstack');
+  }
+  
+  log(`Source directory: ${sourceDir}`);
+  log(`Target directory: ${opencodeCommandsDir}`);
+  
+  // Check if source directory exists
+  if (!fs.existsSync(sourceDir)) {
+    error(`Source directory not found: ${sourceDir}`);
+  }
+  
+  // Create target directory if it doesn't exist
+  if (!fs.existsSync(opencodeCommandsDir)) {
+    log(`Creating directory: ${opencodeCommandsDir}`);
+    fs.mkdirSync(opencodeCommandsDir, { recursive: true });
+  }
+  
+  // Copy all .md files from source to target
+  const files = fs.readdirSync(sourceDir);
+  let copiedCount = 0;
+  
+  for (const file of files) {
+    if (path.extname(file) === '.md') {
+      const sourceFile = path.join(sourceDir, file);
+      const targetFile = path.join(opencodeCommandsDir, file);
+      
+      fs.copyFileSync(sourceFile, targetFile);
+      log(`Copied: ${file}`);
+      copiedCount++;
+    }
+  }
+  
+  // Also copy the README if it exists
+  const readmeSource = path.join(sourceDir, '..', 'README.md');
+  if (fs.existsSync(readmeSource)) {
+    const readmeTarget = path.join(opencodeCommandsDir, 'README.md');
+    fs.copyFileSync(readmeSource, readmeTarget);
+    log('Copied: README.md');
+    copiedCount++;
+  }
+  
+  log(`Successfully installed ${copiedCount} gstack OpenCode commands to ${opencodeCommandsDir}`);
+  log('');
+  log('To use gstack skills in OpenCode:');
+  log('1. Open OpenCode');
+  log('2. Press Ctrl+K to open the command dialog');
+  log('3. Type "gstack:" to see all available gstack commands');
+  log('4. Select a command (e.g., "gstack:office-hours")');
+  log('5. Optionally provide input when prompted');
+  log('');
+  log('Note: These commands will be available in ALL OpenCode instances.');
+  
+} catch (err) {
+  error(`Failed to install gstack OpenCode integration: ${err.message}`);
+}
