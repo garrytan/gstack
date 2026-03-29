@@ -88,16 +88,93 @@ When on a feature branch, scope to pages affected by the branch changes:
 ### Regression (\`--regression\` or previous \`design-baseline.json\` found)
 Run full audit, then load previous \`design-baseline.json\`. Compare: per-category grade deltas, new findings, resolved findings. Output regression table in report.
 
+### Native App (\`--native\` or auto-detected from project type)
+For native macOS, iOS, Android, Flutter, or React Native apps. Uses screenshots instead of browser automation. The design audit runs against user-provided screenshots or screenshots captured via \`screencapture\` (macOS) or \`adb\` (Android).
+
+**What changes in native mode:**
+- No browser automation (\`$B\` commands are not used)
+- No responsive screenshots (native apps have fixed window/device sizes)
+- No JS evaluation, DOM inspection, or CSS extraction
+- No performance metrics (LCP, CLS, etc.)
+- Screenshots are provided by the user or captured via OS tools
+- Design system extraction is done by reading source code (SwiftUI modifiers, Android XML, Flutter themes) instead of computed styles
+
+**What stays the same:**
+- All visual design audit checklist items that can be evaluated from screenshots
+- First Impression critique
+- Information hierarchy evaluation
+- Color & contrast analysis (from visual inspection)
+- Typography evaluation (from visual inspection + source code)
+- Spacing & layout evaluation
+- Interaction states (evaluated from multiple screenshots showing different states)
+- Content & microcopy review
+- AI slop detection (still relevant for native apps)
+- Fix loop (edit source code, rebuild, re-screenshot)
+
+**Native app screenshot collection:**
+
+For macOS apps:
+\`\`\`bash
+# Build and launch the app
+xcodebuild -project *.xcodeproj -scheme <scheme> -destination 'platform=macOS' build 2>&1 | tail -5
+APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*/Build/Products/Debug/*" -maxdepth 5 2>/dev/null | head -1)
+open "$APP_PATH"
+sleep 3
+\`\`\`
+
+Then ask the user to provide screenshots of each view/screen, OR attempt automated capture:
+\`\`\`bash
+# Activate the app and capture via screencapture
+osascript -e 'tell application id "<bundle-id>" to activate'
+sleep 1
+screencapture -x "$REPORT_DIR/screenshots/<view-name>.png"
+\`\`\`
+
+If \`screencapture\` fails (permission denied, window not found), fall back to asking the user: "Please take screenshots of each view and share them in the chat. I need: [list of views based on the app's navigation structure]."
+
+**View discovery for native apps:**
+Read the project source to identify all views/screens:
+- **SwiftUI:** Find all files in \`Views/\` directory, read sidebar/tab navigation to map the view hierarchy
+- **UIKit:** Find all \`UIViewController\` subclasses and storyboard files
+- **Android:** Find all \`Activity\` and \`Fragment\` classes, read navigation graph
+- **Flutter:** Find all \`StatefulWidget\`/\`StatelessWidget\` classes in \`lib/screens/\` or \`lib/pages/\`
+
+Map the view hierarchy, then request screenshots covering: every top-level navigation destination, key detail views, empty states, error states, and loading states.
+
+**Design system extraction for native apps:**
+Instead of JS evaluation, read the source code:
+- **SwiftUI:** Read design token files (Color extensions, ViewModifiers, custom styles), \`.foregroundStyle()\`, \`.font()\`, \`.padding()\` modifiers
+- **Android:** Read \`themes.xml\`, \`colors.xml\`, \`dimens.xml\`, Material Design theme configuration
+- **Flutter:** Read \`ThemeData\`, color schemes, text themes
+- **React Native:** Read StyleSheet definitions, theme providers
+
+**Native app fix loop:**
+After each fix, the re-test step is:
+1. Rebuild: \`xcodebuild build\` (or equivalent for the platform)
+2. Relaunch the app
+3. Navigate to the affected view
+4. Re-capture screenshot
+5. Compare before/after
+
+If the rebuild-relaunch-capture cycle is too slow or unreliable, ask the user to provide the "after" screenshot manually.
+
 ---
 
 ## Phase 1: First Impression
 
 The most uniquely designer-like output. Form a gut reaction before analyzing anything.
 
+**Web mode:**
 1. Navigate to the target URL
 2. Take a full-page desktop screenshot: \`$B screenshot "$REPORT_DIR/screenshots/first-impression.png"\`
+
+**Native app mode:**
+1. Use the first screenshot provided by the user (or the first captured via \`screencapture\`) as the first impression. This should be the app's default/home view — what the user sees on launch.
+2. Copy or save it as \`$REPORT_DIR/screenshots/first-impression.png\`
+
+**Both modes — write the First Impression:**
 3. Write the **First Impression** using this structured critique format:
-   - "The site communicates **[what]**." (what it says at a glance — competence? playfulness? confusion?)
+   - "The app communicates **[what]**." (what it says at a glance — competence? playfulness? confusion?)
    - "I notice **[observation]**." (what stands out, positive or negative — be specific)
    - "The first 3 things my eye goes to are: **[1]**, **[2]**, **[3]**." (hierarchy check — are these intentional?)
    - "If I had to describe this in one word: **[word]**." (gut verdict)
@@ -108,7 +185,7 @@ This is the section users read first. Be opinionated. A designer doesn't hedge �
 
 ## Phase 2: Design System Extraction
 
-Extract the actual design system the site uses (not what a DESIGN.md says, but what's rendered):
+**Web mode — extract from rendered page:**
 
 \`\`\`bash
 # Fonts in use (capped at 500 elements to avoid timeout)
@@ -127,11 +204,26 @@ $B js "JSON.stringify([...document.querySelectorAll('a,button,input,[role=button
 $B perf
 \`\`\`
 
-Structure findings as an **Inferred Design System**:
+**Native app mode — extract from source code:**
+
+Read the project's design token files, theme configuration, and style definitions:
+
+- **SwiftUI:** Search for Color extensions, \`DesignTokens\`/\`Theme\` enums, \`.font()\` modifiers, custom ViewModifiers
+  \`\`\`bash
+  # Find design token definitions
+  grep -rn "static.*Color\\|static.*Font\\|DesignTokens\\|\.foregroundStyle\\|\.font(" --include="*.swift" . | head -40
+  # Find color hex values
+  grep -rn "Color(hex:\\|#[0-9A-Fa-f]\\{6\\}" --include="*.swift" . | head -20
+  \`\`\`
+- **Android:** Read \`res/values/colors.xml\`, \`res/values/themes.xml\`, \`res/values/dimens.xml\`, Material Theme
+- **Flutter:** Read \`ThemeData\` definitions, \`ColorScheme\`, \`TextTheme\` in theme files
+- **React Native:** Read \`StyleSheet.create\` patterns, theme providers, design token files
+
+Structure findings as an **Inferred Design System** (same output format for both modes):
 - **Fonts:** list with usage counts. Flag if >3 distinct font families.
 - **Colors:** palette extracted. Flag if >12 unique non-gray colors. Note warm/cool/mixed.
-- **Heading Scale:** h1-h6 sizes. Flag skipped levels, non-systematic size jumps.
-- **Spacing Patterns:** sample padding/margin values. Flag non-scale values.
+- **Heading Scale:** type sizes used. Flag non-systematic size jumps.
+- **Spacing Patterns:** padding/margin values used. Flag non-scale values.
 
 After extraction, offer: *"Want me to save this as your DESIGN.md? I can lock in these observations as your project's design system baseline."*
 
@@ -139,7 +231,15 @@ After extraction, offer: *"Want me to save this as your DESIGN.md? I can lock in
 
 ## Phase 3: Page-by-Page Visual Audit
 
-For each page in scope:
+**Native app mode:** Replace "page" with "view" or "screen" throughout. Each screenshot provided by the user represents one view. For each view:
+
+1. Read the screenshot (the user provides it or it was captured during setup)
+2. Save/copy to \`$REPORT_DIR/screenshots/{view}-annotated.png\`
+3. Skip responsive screenshots (native apps have fixed layouts per device)
+4. Skip console errors and performance metrics
+5. Apply the Design Audit Checklist (below) against the screenshot + source code
+
+**Web mode:** For each page in scope:
 
 \`\`\`bash
 $B goto <url>
@@ -226,7 +326,7 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - Touch targets >= 44px on all interactive elements
 - \`cursor: pointer\` on all clickable elements
 
-**6. Responsive Design** (8 items)
+**6. Responsive Design** (8 items) — **Web mode only. Skip entirely in native app mode.** Native apps handle layout via platform constraints (Auto Layout, ConstraintLayout, etc.) which are better audited through source code review of layout constraints than through screenshots.
 - Mobile layout makes *design* sense (not just stacked desktop columns)
 - Touch targets sufficient on mobile (>= 44px)
 - No horizontal scroll on any viewport
@@ -240,9 +340,9 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - Easing: ease-out for entering, ease-in for exiting, ease-in-out for moving
 - Duration: 50-700ms range (nothing slower unless page transition)
 - Purpose: every animation communicates something (state change, attention, spatial relationship)
-- \`prefers-reduced-motion\` respected (check: \`$B js "matchMedia('(prefers-reduced-motion: reduce)').matches"\`)
-- No \`transition: all\` — properties listed explicitly
-- Only \`transform\` and \`opacity\` animated (not layout properties like width, height, top, left)
+- \`prefers-reduced-motion\` respected (web: check via \`$B js "matchMedia('(prefers-reduced-motion: reduce)').matches"\`; native: check source for \`UIAccessibility.isReduceMotionEnabled\` / \`AccessibilityInfo.isReduceMotionEnabled\` / \`@Environment(\\.accessibilityReduceMotion)\`)
+- No \`transition: all\` — properties listed explicitly (web only)
+- Only \`transform\` and \`opacity\` animated, not layout properties (web: width, height, top, left; native: check that animations use \`.animation()\` modifiers with appropriate curves)
 
 **8. Content & Microcopy** (8 items)
 - Empty states designed with warmth (message + action + illustration/icon)
@@ -260,27 +360,36 @@ The test: would a human designer at a respected studio ever ship this?
 
 ${AI_SLOP_BLACKLIST.map(item => `- ${item}`).join('\n')}
 
-**10. Performance as Design** (6 items)
-- LCP < 2.0s (web apps), < 1.5s (informational sites)
-- CLS < 0.1 (no visible layout shifts during load)
-- Skeleton quality: shapes match real content layout, shimmer animation
-- Images: \`loading="lazy"\`, width/height dimensions set, WebP/AVIF format
-- Fonts: \`font-display: swap\`, preconnect to CDN origins
-- No visible font swap flash (FOUT) — critical fonts preloaded
+**10. Performance as Design** (6 items) — **In native app mode**, replace web metrics with native equivalents:
+- **Web:** LCP < 2.0s (web apps), < 1.5s (informational sites). **Native:** App launch to interactive < 2s, view transitions < 300ms
+- **Web:** CLS < 0.1 (no visible layout shifts during load). **Native:** No visible layout jumps when content loads (check for placeholder/skeleton usage)
+- Skeleton quality: shapes match real content layout, shimmer animation (applies to both web and native)
+- **Web:** Images: \`loading="lazy"\`, width/height dimensions set, WebP/AVIF format. **Native:** Images loaded asynchronously, placeholder shown during load
+- **Web:** Fonts: \`font-display: swap\`, preconnect to CDN origins. **Native:** System fonts or bundled fonts (no network font loading)
+- **Web:** No visible font swap flash (FOUT) — critical fonts preloaded. **Native:** N/A (fonts are bundled or system)
 
 ---
 
 ## Phase 4: Interaction Flow Review
 
-Walk 2-3 key user flows and evaluate the *feel*, not just the function:
+Walk 2-3 key user flows and evaluate the *feel*, not just the function.
 
+**Web mode:**
 \`\`\`bash
 $B snapshot -i
 $B click @e3           # perform action
 $B snapshot -D          # diff to see what changed
 \`\`\`
 
-Evaluate:
+**Native app mode:**
+Interaction flow review relies on screenshots of different states. Ask the user for screenshots showing:
+- Before and after a key action (e.g., clicking play, opening a detail view, performing a search)
+- Loading states, empty states, error states
+- Any transitions between views
+
+If the user cannot provide these, evaluate interaction flows by reading the source code for: animation durations, transition types, loading state implementations, error handling UI.
+
+**Both modes — evaluate:**
 - **Response feel:** Does clicking feel responsive? Any delays or missing loading states?
 - **Transition quality:** Are transitions intentional or generic/absent?
 - **Feedback clarity:** Did the action clearly succeed or fail? Is the feedback immediate?

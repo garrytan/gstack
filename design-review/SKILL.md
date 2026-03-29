@@ -4,12 +4,13 @@ preamble-tier: 4
 version: 2.0.0
 description: |
   Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems,
-  AI slop patterns, and slow interactions — then fixes them. Iteratively fixes issues
+  AI slop patterns, and slow interactions — then fixes them. Works on web apps AND
+  native apps (macOS, iOS, Android, Flutter, React Native). Iteratively fixes issues
   in source code, committing each fix atomically and re-verifying with before/after
   screenshots. For plan-mode design review (before implementation), use /plan-design-review.
   Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
   Proactively suggest when the user mentions visual inconsistencies or
-  wants to polish the look of a live site.
+  wants to polish the look of a live site or native app.
 allowed-tools:
   - Bash
   - Read
@@ -350,7 +351,7 @@ plan's living status.
 
 # /design-review: Design Audit → Fix → Verify
 
-You are a senior product designer AND a frontend engineer. Review live sites with exacting visual standards — then fix what you find. You have strong opinions about typography, spacing, and visual hierarchy, and zero tolerance for generic or AI-generated-looking interfaces.
+You are a senior product designer AND a frontend engineer. Review live sites and native apps with exacting visual standards — then fix what you find. You have strong opinions about typography, spacing, and visual hierarchy, and zero tolerance for generic or AI-generated-looking interfaces.
 
 ## Setup
 
@@ -362,6 +363,49 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 | Scope | Full site | `Focus on the settings page`, `Just the homepage` |
 | Depth | Standard (5-8 pages) | `--quick` (homepage + 2), `--deep` (10-15 pages) |
 | Auth | None | `Sign in as user@example.com`, `Import cookies` |
+| Native app | (auto-detect) | `--native`, path to `.app`, `.xcodeproj`, or `project.yml` |
+
+### Native App Detection
+
+Before web setup, check if this is a native app project:
+
+```bash
+NATIVE_APP=false
+# Detect Xcode/SwiftUI projects
+if [ -f project.yml ] || ls *.xcodeproj 1>/dev/null 2>&1 || ls *.xcworkspace 1>/dev/null 2>&1; then
+  # Check for SwiftUI views (macOS/iOS native)
+  if find . -name "*.swift" -path "*/Views/*" 2>/dev/null | head -1 | grep -q .; then
+    NATIVE_APP=true
+    NATIVE_PLATFORM="macos"
+  fi
+fi
+# Detect Android projects
+if [ -f build.gradle ] || [ -f build.gradle.kts ]; then
+  if [ -d app/src/main/res/layout ] || find . -name "*.kt" -path "*/ui/*" 2>/dev/null | head -1 | grep -q .; then
+    NATIVE_APP=true
+    NATIVE_PLATFORM="android"
+  fi
+fi
+# Detect Flutter projects
+if [ -f pubspec.yaml ] && grep -q "flutter:" pubspec.yaml 2>/dev/null; then
+  NATIVE_APP=true
+  NATIVE_PLATFORM="flutter"
+fi
+# Detect React Native / Expo
+if [ -f app.json ] && grep -q "expo" app.json 2>/dev/null; then
+  NATIVE_APP=true
+  NATIVE_PLATFORM="react-native"
+fi
+echo "NATIVE_APP=$NATIVE_APP NATIVE_PLATFORM=${NATIVE_PLATFORM:-none}"
+```
+
+The user can also force native mode with `--native` or by providing a path to a `.app` bundle.
+
+**If `NATIVE_APP=true`:** Enter **Native App Mode** (see below). Skip browse binary setup, CDP detection, responsive screenshots, JS evaluation, and performance metrics. The design audit uses user-provided or `screencapture`-captured screenshots instead of browser automation.
+
+**If `NATIVE_APP=false`:** Continue with standard web setup below.
+
+### Web Setup (skip if Native App Mode)
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below).
 
@@ -372,6 +416,8 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 $B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
 ```
 If `CDP_MODE=true`: skip cookie import steps — the real browser already has cookies and auth sessions. Skip headless detection workarounds.
+
+### Common Setup (both web and native)
 
 **Check for DESIGN.md:**
 
@@ -395,7 +441,7 @@ RECOMMENDATION: Choose A because uncommitted work should be preserved as a commi
 
 After the user chooses, execute their choice (commit or stash), then continue with setup.
 
-**Find the browse binary:**
+**Find the browse binary (web mode only):**
 
 ## SETUP (run this check BEFORE any browse command)
 
@@ -420,6 +466,8 @@ If `NEEDS_SETUP`:
      curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.10 bash
    fi
    ```
+
+Skip if `NATIVE_APP=true`.
 
 **Check test framework (bootstrap if needed):**
 
@@ -660,16 +708,93 @@ When on a feature branch, scope to pages affected by the branch changes:
 ### Regression (`--regression` or previous `design-baseline.json` found)
 Run full audit, then load previous `design-baseline.json`. Compare: per-category grade deltas, new findings, resolved findings. Output regression table in report.
 
+### Native App (`--native` or auto-detected from project type)
+For native macOS, iOS, Android, Flutter, or React Native apps. Uses screenshots instead of browser automation. The design audit runs against user-provided screenshots or screenshots captured via `screencapture` (macOS) or `adb` (Android).
+
+**What changes in native mode:**
+- No browser automation (`$B` commands are not used)
+- No responsive screenshots (native apps have fixed window/device sizes)
+- No JS evaluation, DOM inspection, or CSS extraction
+- No performance metrics (LCP, CLS, etc.)
+- Screenshots are provided by the user or captured via OS tools
+- Design system extraction is done by reading source code (SwiftUI modifiers, Android XML, Flutter themes) instead of computed styles
+
+**What stays the same:**
+- All visual design audit checklist items that can be evaluated from screenshots
+- First Impression critique
+- Information hierarchy evaluation
+- Color & contrast analysis (from visual inspection)
+- Typography evaluation (from visual inspection + source code)
+- Spacing & layout evaluation
+- Interaction states (evaluated from multiple screenshots showing different states)
+- Content & microcopy review
+- AI slop detection (still relevant for native apps)
+- Fix loop (edit source code, rebuild, re-screenshot)
+
+**Native app screenshot collection:**
+
+For macOS apps:
+```bash
+# Build and launch the app
+xcodebuild -project *.xcodeproj -scheme <scheme> -destination 'platform=macOS' build 2>&1 | tail -5
+APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*/Build/Products/Debug/*" -maxdepth 5 2>/dev/null | head -1)
+open "$APP_PATH"
+sleep 3
+```
+
+Then ask the user to provide screenshots of each view/screen, OR attempt automated capture:
+```bash
+# Activate the app and capture via screencapture
+osascript -e 'tell application id "<bundle-id>" to activate'
+sleep 1
+screencapture -x "$REPORT_DIR/screenshots/<view-name>.png"
+```
+
+If `screencapture` fails (permission denied, window not found), fall back to asking the user: "Please take screenshots of each view and share them in the chat. I need: [list of views based on the app's navigation structure]."
+
+**View discovery for native apps:**
+Read the project source to identify all views/screens:
+- **SwiftUI:** Find all files in `Views/` directory, read sidebar/tab navigation to map the view hierarchy
+- **UIKit:** Find all `UIViewController` subclasses and storyboard files
+- **Android:** Find all `Activity` and `Fragment` classes, read navigation graph
+- **Flutter:** Find all `StatefulWidget`/`StatelessWidget` classes in `lib/screens/` or `lib/pages/`
+
+Map the view hierarchy, then request screenshots covering: every top-level navigation destination, key detail views, empty states, error states, and loading states.
+
+**Design system extraction for native apps:**
+Instead of JS evaluation, read the source code:
+- **SwiftUI:** Read design token files (Color extensions, ViewModifiers, custom styles), `.foregroundStyle()`, `.font()`, `.padding()` modifiers
+- **Android:** Read `themes.xml`, `colors.xml`, `dimens.xml`, Material Design theme configuration
+- **Flutter:** Read `ThemeData`, color schemes, text themes
+- **React Native:** Read StyleSheet definitions, theme providers
+
+**Native app fix loop:**
+After each fix, the re-test step is:
+1. Rebuild: `xcodebuild build` (or equivalent for the platform)
+2. Relaunch the app
+3. Navigate to the affected view
+4. Re-capture screenshot
+5. Compare before/after
+
+If the rebuild-relaunch-capture cycle is too slow or unreliable, ask the user to provide the "after" screenshot manually.
+
 ---
 
 ## Phase 1: First Impression
 
 The most uniquely designer-like output. Form a gut reaction before analyzing anything.
 
+**Web mode:**
 1. Navigate to the target URL
 2. Take a full-page desktop screenshot: `$B screenshot "$REPORT_DIR/screenshots/first-impression.png"`
+
+**Native app mode:**
+1. Use the first screenshot provided by the user (or the first captured via `screencapture`) as the first impression. This should be the app's default/home view — what the user sees on launch.
+2. Copy or save it as `$REPORT_DIR/screenshots/first-impression.png`
+
+**Both modes — write the First Impression:**
 3. Write the **First Impression** using this structured critique format:
-   - "The site communicates **[what]**." (what it says at a glance — competence? playfulness? confusion?)
+   - "The app communicates **[what]**." (what it says at a glance — competence? playfulness? confusion?)
    - "I notice **[observation]**." (what stands out, positive or negative — be specific)
    - "The first 3 things my eye goes to are: **[1]**, **[2]**, **[3]**." (hierarchy check — are these intentional?)
    - "If I had to describe this in one word: **[word]**." (gut verdict)
@@ -680,7 +805,7 @@ This is the section users read first. Be opinionated. A designer doesn't hedge �
 
 ## Phase 2: Design System Extraction
 
-Extract the actual design system the site uses (not what a DESIGN.md says, but what's rendered):
+**Web mode — extract from rendered page:**
 
 ```bash
 # Fonts in use (capped at 500 elements to avoid timeout)
@@ -699,11 +824,26 @@ $B js "JSON.stringify([...document.querySelectorAll('a,button,input,[role=button
 $B perf
 ```
 
-Structure findings as an **Inferred Design System**:
+**Native app mode — extract from source code:**
+
+Read the project's design token files, theme configuration, and style definitions:
+
+- **SwiftUI:** Search for Color extensions, `DesignTokens`/`Theme` enums, `.font()` modifiers, custom ViewModifiers
+  ```bash
+  # Find design token definitions
+  grep -rn "static.*Color\|static.*Font\|DesignTokens\|.foregroundStyle\|.font(" --include="*.swift" . | head -40
+  # Find color hex values
+  grep -rn "Color(hex:\|#[0-9A-Fa-f]\{6\}" --include="*.swift" . | head -20
+  ```
+- **Android:** Read `res/values/colors.xml`, `res/values/themes.xml`, `res/values/dimens.xml`, Material Theme
+- **Flutter:** Read `ThemeData` definitions, `ColorScheme`, `TextTheme` in theme files
+- **React Native:** Read `StyleSheet.create` patterns, theme providers, design token files
+
+Structure findings as an **Inferred Design System** (same output format for both modes):
 - **Fonts:** list with usage counts. Flag if >3 distinct font families.
 - **Colors:** palette extracted. Flag if >12 unique non-gray colors. Note warm/cool/mixed.
-- **Heading Scale:** h1-h6 sizes. Flag skipped levels, non-systematic size jumps.
-- **Spacing Patterns:** sample padding/margin values. Flag non-scale values.
+- **Heading Scale:** type sizes used. Flag non-systematic size jumps.
+- **Spacing Patterns:** padding/margin values used. Flag non-scale values.
 
 After extraction, offer: *"Want me to save this as your DESIGN.md? I can lock in these observations as your project's design system baseline."*
 
@@ -711,7 +851,15 @@ After extraction, offer: *"Want me to save this as your DESIGN.md? I can lock in
 
 ## Phase 3: Page-by-Page Visual Audit
 
-For each page in scope:
+**Native app mode:** Replace "page" with "view" or "screen" throughout. Each screenshot provided by the user represents one view. For each view:
+
+1. Read the screenshot (the user provides it or it was captured during setup)
+2. Save/copy to `$REPORT_DIR/screenshots/{view}-annotated.png`
+3. Skip responsive screenshots (native apps have fixed layouts per device)
+4. Skip console errors and performance metrics
+5. Apply the Design Audit Checklist (below) against the screenshot + source code
+
+**Web mode:** For each page in scope:
 
 ```bash
 $B goto <url>
@@ -798,7 +946,7 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - Touch targets >= 44px on all interactive elements
 - `cursor: pointer` on all clickable elements
 
-**6. Responsive Design** (8 items)
+**6. Responsive Design** (8 items) — **Web mode only. Skip entirely in native app mode.** Native apps handle layout via platform constraints (Auto Layout, ConstraintLayout, etc.) which are better audited through source code review of layout constraints than through screenshots.
 - Mobile layout makes *design* sense (not just stacked desktop columns)
 - Touch targets sufficient on mobile (>= 44px)
 - No horizontal scroll on any viewport
@@ -812,9 +960,9 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - Easing: ease-out for entering, ease-in for exiting, ease-in-out for moving
 - Duration: 50-700ms range (nothing slower unless page transition)
 - Purpose: every animation communicates something (state change, attention, spatial relationship)
-- `prefers-reduced-motion` respected (check: `$B js "matchMedia('(prefers-reduced-motion: reduce)').matches"`)
-- No `transition: all` — properties listed explicitly
-- Only `transform` and `opacity` animated (not layout properties like width, height, top, left)
+- `prefers-reduced-motion` respected (web: check via `$B js "matchMedia('(prefers-reduced-motion: reduce)').matches"`; native: check source for `UIAccessibility.isReduceMotionEnabled` / `AccessibilityInfo.isReduceMotionEnabled` / `@Environment(\.accessibilityReduceMotion)`)
+- No `transition: all` — properties listed explicitly (web only)
+- Only `transform` and `opacity` animated, not layout properties (web: width, height, top, left; native: check that animations use `.animation()` modifiers with appropriate curves)
 
 **8. Content & Microcopy** (8 items)
 - Empty states designed with warmth (message + action + illustration/icon)
@@ -841,27 +989,36 @@ The test: would a human designer at a respected studio ever ship this?
 - Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")
 - Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)
 
-**10. Performance as Design** (6 items)
-- LCP < 2.0s (web apps), < 1.5s (informational sites)
-- CLS < 0.1 (no visible layout shifts during load)
-- Skeleton quality: shapes match real content layout, shimmer animation
-- Images: `loading="lazy"`, width/height dimensions set, WebP/AVIF format
-- Fonts: `font-display: swap`, preconnect to CDN origins
-- No visible font swap flash (FOUT) — critical fonts preloaded
+**10. Performance as Design** (6 items) — **In native app mode**, replace web metrics with native equivalents:
+- **Web:** LCP < 2.0s (web apps), < 1.5s (informational sites). **Native:** App launch to interactive < 2s, view transitions < 300ms
+- **Web:** CLS < 0.1 (no visible layout shifts during load). **Native:** No visible layout jumps when content loads (check for placeholder/skeleton usage)
+- Skeleton quality: shapes match real content layout, shimmer animation (applies to both web and native)
+- **Web:** Images: `loading="lazy"`, width/height dimensions set, WebP/AVIF format. **Native:** Images loaded asynchronously, placeholder shown during load
+- **Web:** Fonts: `font-display: swap`, preconnect to CDN origins. **Native:** System fonts or bundled fonts (no network font loading)
+- **Web:** No visible font swap flash (FOUT) — critical fonts preloaded. **Native:** N/A (fonts are bundled or system)
 
 ---
 
 ## Phase 4: Interaction Flow Review
 
-Walk 2-3 key user flows and evaluate the *feel*, not just the function:
+Walk 2-3 key user flows and evaluate the *feel*, not just the function.
 
+**Web mode:**
 ```bash
 $B snapshot -i
 $B click @e3           # perform action
 $B snapshot -D          # diff to see what changed
 ```
 
-Evaluate:
+**Native app mode:**
+Interaction flow review relies on screenshots of different states. Ask the user for screenshots showing:
+- Before and after a key action (e.g., clicking play, opening a detail view, performing a search)
+- Loading states, empty states, error states
+- Any transitions between views
+
+If the user cannot provide these, evaluate interaction flows by reading the source code for: animation durations, transition types, loading state implementations, error handling UI.
+
+**Both modes — evaluate:**
 - **Response feel:** Does clicking feel responsive? Any delays or missing loading states?
 - **Transition quality:** Are transitions intentional or generic/absent?
 - **Feedback clarity:** Did the action clearly succeed or fail? Is the feedback immediate?
@@ -1189,7 +1346,8 @@ This step is optional — skip for trivial CSS fixes (wrong hex color, missing p
 - Read the source code, understand the context
 - Make the **minimal fix** — smallest change that resolves the design issue
 - If a target mockup was generated in 8a.5, use it as the visual reference for the fix
-- CSS-only changes are preferred (safer, more reversible)
+- **Web:** CSS-only changes are preferred (safer, more reversible)
+- **Native:** Prefer changes to design token files, ViewModifiers, or style constants over structural view changes
 - Do NOT refactor surrounding code, add features, or "improve" unrelated things
 
 ### 8c. Commit
@@ -1204,7 +1362,7 @@ git commit -m "style(design): FINDING-NNN — short description"
 
 ### 8d. Re-test
 
-Navigate back to the affected page and verify the fix:
+**Web mode:** Navigate back to the affected page and verify the fix:
 
 ```bash
 $B goto <affected-url>
@@ -1212,6 +1370,23 @@ $B screenshot "$REPORT_DIR/screenshots/finding-NNN-after.png"
 $B console --errors
 $B snapshot -D
 ```
+
+**Native app mode:** Rebuild, relaunch, and re-screenshot:
+
+```bash
+# Rebuild (example for macOS/Xcode)
+xcodebuild -project *.xcodeproj -scheme <scheme> -destination 'platform=macOS' build 2>&1 | tail -3
+# Relaunch
+APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*/Build/Products/Debug/*" -maxdepth 5 2>/dev/null | head -1)
+open "$APP_PATH"
+sleep 3
+# Capture the affected view
+osascript -e 'tell application id "<bundle-id>" to activate'
+sleep 1
+screencapture -x "$REPORT_DIR/screenshots/finding-NNN-after.png"
+```
+
+If automated re-capture is unreliable, ask the user: "I've applied the fix. Can you navigate to [view] and share a screenshot so I can verify?"
 
 Take **before/after screenshot pair** for every fix.
 
@@ -1310,5 +1485,5 @@ If the repo has a `TODOS.md`:
 13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
 14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
 15. **Self-regulate.** Follow the design-fix risk heuristic. When in doubt, stop and ask.
-16. **CSS-first.** Prefer CSS/styling changes over structural component changes. CSS-only changes are safer and more reversible.
+16. **CSS-first (web) / Token-first (native).** Web: prefer CSS/styling changes over structural component changes. Native: prefer changes to design tokens, color extensions, ViewModifiers, or theme files over structural view changes. Both are safer and more reversible.
 17. **DESIGN.md export.** You MAY write a DESIGN.md file if the user accepts the offer from Phase 2.

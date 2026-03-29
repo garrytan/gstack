@@ -4,12 +4,13 @@ preamble-tier: 4
 version: 2.0.0
 description: |
   Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems,
-  AI slop patterns, and slow interactions — then fixes them. Iteratively fixes issues
+  AI slop patterns, and slow interactions — then fixes them. Works on web apps AND
+  native apps (macOS, iOS, Android, Flutter, React Native). Iteratively fixes issues
   in source code, committing each fix atomically and re-verifying with before/after
   screenshots. For plan-mode design review (before implementation), use /plan-design-review.
   Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
   Proactively suggest when the user mentions visual inconsistencies or
-  wants to polish the look of a live site.
+  wants to polish the look of a live site or native app.
 allowed-tools:
   - Bash
   - Read
@@ -25,7 +26,7 @@ allowed-tools:
 
 # /design-review: Design Audit → Fix → Verify
 
-You are a senior product designer AND a frontend engineer. Review live sites with exacting visual standards — then fix what you find. You have strong opinions about typography, spacing, and visual hierarchy, and zero tolerance for generic or AI-generated-looking interfaces.
+You are a senior product designer AND a frontend engineer. Review live sites and native apps with exacting visual standards — then fix what you find. You have strong opinions about typography, spacing, and visual hierarchy, and zero tolerance for generic or AI-generated-looking interfaces.
 
 ## Setup
 
@@ -37,6 +38,49 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 | Scope | Full site | `Focus on the settings page`, `Just the homepage` |
 | Depth | Standard (5-8 pages) | `--quick` (homepage + 2), `--deep` (10-15 pages) |
 | Auth | None | `Sign in as user@example.com`, `Import cookies` |
+| Native app | (auto-detect) | `--native`, path to `.app`, `.xcodeproj`, or `project.yml` |
+
+### Native App Detection
+
+Before web setup, check if this is a native app project:
+
+```bash
+NATIVE_APP=false
+# Detect Xcode/SwiftUI projects
+if [ -f project.yml ] || ls *.xcodeproj 1>/dev/null 2>&1 || ls *.xcworkspace 1>/dev/null 2>&1; then
+  # Check for SwiftUI views (macOS/iOS native)
+  if find . -name "*.swift" -path "*/Views/*" 2>/dev/null | head -1 | grep -q .; then
+    NATIVE_APP=true
+    NATIVE_PLATFORM="macos"
+  fi
+fi
+# Detect Android projects
+if [ -f build.gradle ] || [ -f build.gradle.kts ]; then
+  if [ -d app/src/main/res/layout ] || find . -name "*.kt" -path "*/ui/*" 2>/dev/null | head -1 | grep -q .; then
+    NATIVE_APP=true
+    NATIVE_PLATFORM="android"
+  fi
+fi
+# Detect Flutter projects
+if [ -f pubspec.yaml ] && grep -q "flutter:" pubspec.yaml 2>/dev/null; then
+  NATIVE_APP=true
+  NATIVE_PLATFORM="flutter"
+fi
+# Detect React Native / Expo
+if [ -f app.json ] && grep -q "expo" app.json 2>/dev/null; then
+  NATIVE_APP=true
+  NATIVE_PLATFORM="react-native"
+fi
+echo "NATIVE_APP=$NATIVE_APP NATIVE_PLATFORM=${NATIVE_PLATFORM:-none}"
+```
+
+The user can also force native mode with `--native` or by providing a path to a `.app` bundle.
+
+**If `NATIVE_APP=true`:** Enter **Native App Mode** (see below). Skip browse binary setup, CDP detection, responsive screenshots, JS evaluation, and performance metrics. The design audit uses user-provided or `screencapture`-captured screenshots instead of browser automation.
+
+**If `NATIVE_APP=false`:** Continue with standard web setup below.
+
+### Web Setup (skip if Native App Mode)
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below).
 
@@ -47,6 +91,8 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 $B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
 ```
 If `CDP_MODE=true`: skip cookie import steps — the real browser already has cookies and auth sessions. Skip headless detection workarounds.
+
+### Common Setup (both web and native)
 
 **Check for DESIGN.md:**
 
@@ -70,9 +116,11 @@ RECOMMENDATION: Choose A because uncommitted work should be preserved as a commi
 
 After the user chooses, execute their choice (commit or stash), then continue with setup.
 
-**Find the browse binary:**
+**Find the browse binary (web mode only):**
 
 {{BROWSE_SETUP}}
+
+Skip if `NATIVE_APP=true`.
 
 **Check test framework (bootstrap if needed):**
 
@@ -173,7 +221,8 @@ This step is optional — skip for trivial CSS fixes (wrong hex color, missing p
 - Read the source code, understand the context
 - Make the **minimal fix** — smallest change that resolves the design issue
 - If a target mockup was generated in 8a.5, use it as the visual reference for the fix
-- CSS-only changes are preferred (safer, more reversible)
+- **Web:** CSS-only changes are preferred (safer, more reversible)
+- **Native:** Prefer changes to design token files, ViewModifiers, or style constants over structural view changes
 - Do NOT refactor surrounding code, add features, or "improve" unrelated things
 
 ### 8c. Commit
@@ -188,7 +237,7 @@ git commit -m "style(design): FINDING-NNN — short description"
 
 ### 8d. Re-test
 
-Navigate back to the affected page and verify the fix:
+**Web mode:** Navigate back to the affected page and verify the fix:
 
 ```bash
 $B goto <affected-url>
@@ -196,6 +245,23 @@ $B screenshot "$REPORT_DIR/screenshots/finding-NNN-after.png"
 $B console --errors
 $B snapshot -D
 ```
+
+**Native app mode:** Rebuild, relaunch, and re-screenshot:
+
+```bash
+# Rebuild (example for macOS/Xcode)
+xcodebuild -project *.xcodeproj -scheme <scheme> -destination 'platform=macOS' build 2>&1 | tail -3
+# Relaunch
+APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*/Build/Products/Debug/*" -maxdepth 5 2>/dev/null | head -1)
+open "$APP_PATH"
+sleep 3
+# Capture the affected view
+osascript -e 'tell application id "<bundle-id>" to activate'
+sleep 1
+screencapture -x "$REPORT_DIR/screenshots/finding-NNN-after.png"
+```
+
+If automated re-capture is unreliable, ask the user: "I've applied the fix. Can you navigate to [view] and share a screenshot so I can verify?"
 
 Take **before/after screenshot pair** for every fix.
 
@@ -294,5 +360,5 @@ If the repo has a `TODOS.md`:
 13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
 14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
 15. **Self-regulate.** Follow the design-fix risk heuristic. When in doubt, stop and ask.
-16. **CSS-first.** Prefer CSS/styling changes over structural component changes. CSS-only changes are safer and more reversible.
+16. **CSS-first (web) / Token-first (native).** Web: prefer CSS/styling changes over structural component changes. Native: prefer changes to design tokens, color extensions, ViewModifiers, or theme files over structural view changes. Both are safer and more reversible.
 17. **DESIGN.md export.** You MAY write a DESIGN.md file if the user accepts the offer from Phase 2.
