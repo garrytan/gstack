@@ -583,37 +583,97 @@ function formatFull(symbol: string, data: ChartData, profile: { risk: RiskTolera
   const rrRatio = atr / (distToSupport || 1);
   const obv = obvTrend(data.closes, data.volumes);
 
-  const rsiState = rsi > 70 ? "Overbought" : rsi < 30 ? "Oversold" : "Neutral";
-  const probUp = price > d20 ? 100 : 0;
-  const probDown = price > d20 ? 0 : 100;
+  const prev = pickBack(data.closes, 1);
+  const back5 = pickBack(data.closes, 5);
+  const back21 = pickBack(data.closes, 21);
+  const change1d = computePctChange(price, prev);
+  const change5d = computePctChange(price, back5);
+  const change1m = computePctChange(price, back21);
+
+  const above20 = price > d20;
+  const above200 = price > d200;
+  const macdBull = hist > 0;
+
+  const rsiState =
+    rsi >= 70 ? "Overbought" : rsi >= 60 ? "Near-overbought" : rsi <= 30 ? "Oversold" : rsi <= 40 ? "Near-oversold" : "Neutral";
+  const atrPct = price > 0 ? (atr / price) * 100 : 0;
+
+  const fmtPct = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(2)}%`;
+  const verdict =
+    bias === "Bullish" && confidence >= 70
+      ? "Trend-following long bias"
+      : bias === "Bearish" && confidence <= 30
+        ? "Risk-off / defensive"
+        : "Wait for confirmation";
+
+  const suggestedAction =
+    bias === "Bullish"
+      ? profile.risk === "low"
+        ? "Hold; add only after confirmation above 20MA"
+        : "Hold/add on pullback; use invalidation as stop"
+      : bias === "Bearish"
+        ? profile.risk === "high"
+          ? "Avoid adding; consider tactical hedge / short only with strict stop"
+          : "Avoid adding; wait for trend reclaim"
+        : "Hold; wait for breakout/confirm";
+
+  const driverLines = [
+    `Trend: ${above20 ? "Above 20MA ✅" : "Below 20MA ❌"} | 20MA ${d20.toFixed(2)}`,
+    `Regime: ${above200 ? "Above 200MA ✅" : "Below 200MA ❌"} | 200MA ${d200.toFixed(2)}`,
+    `Momentum: MACD(H) ${hist > 0 ? "+" : ""}${hist.toFixed(2)} (${macdBull ? "Bullish" : "Bearish"})`,
+    `Flow: OBV ${obv}`,
+    `Mean-reversion: RSI(14) ${rsi.toFixed(1)} (${rsiState})`,
+  ];
+
+  const planLines =
+    bias === "Bearish"
+      ? [
+          "Plan (next move):",
+          `- Defensive until price reclaims 20MA (${d20.toFixed(2)}) and holds`,
+          `- Downside marker: S1 ${s1.toFixed(2)}; ATR(14) ${atr.toFixed(2)} (~${atrPct.toFixed(1)}%)`,
+          `- Invalidation (risk stop): ${invalidation.toFixed(2)} ${data.currency}`,
+        ]
+      : bias === "Bullish"
+        ? [
+            "Plan (next move):",
+            `- Prefer buys on pullback above 20MA (${d20.toFixed(2)})`,
+            `- Upside marker: R1 ${r1.toFixed(2)}; 1-ATR target ${(price + atr).toFixed(2)}`,
+            `- Invalidation (risk stop): ${invalidation.toFixed(2)} ${data.currency}`,
+          ]
+        : [
+            "Plan (next move):",
+            `- Neutral: wait for break above 20MA (${d20.toFixed(2)}) or clean test/hold of S1 ${s1.toFixed(2)}`,
+            `- Invalidation reference: ${invalidation.toFixed(2)} ${data.currency}`,
+          ];
 
   return [
     `TRADING BRIEF: ${symbol}`,
-    `Bias: ${bias} | Confidence: ${confidence}% | Invalidation: ${invalidation.toFixed(2)} ${data.currency}`,
+    `Bias: ${bias} | Confidence: ${confidence}% | ${verdict}`,
+    `Price: ${price.toFixed(2)} ${data.currency} | 1D ${fmtPct(change1d)} | 5D ${fmtPct(change5d)} | 1M ${fmtPct(change1m)}`,
+    `Invalidation: ${invalidation.toFixed(2)} ${data.currency} | ATR(14): ${atr.toFixed(2)} (${atrPct.toFixed(1)}%) | R/R: ${rrRatio.toFixed(2)}x`,
+    `Action: ${suggestedAction}`,
     "",
-    `${symbol} 分析`,
-    `新聞輿情分析: -`,
+    "Signal Drivers",
+    ...driverLines.map((l) => `- ${l}`),
     "",
-    `${symbol} 自訂大盤特化分析`,
-    `最新價格: ${price.toFixed(2)} ${data.currency}`,
+    ...planLines,
     "",
-    `今日上漲機率: ${probUp}%`,
-    `今日下跌機率: ${probDown}%`,
+    "Key Levels",
     "",
-    `上方壓力位 (Resistance)`,
-    `  - 日線 20MA: ${d20.toFixed(2)}`,
-    `  - 日線 50MA: ${d50.toFixed(2)}`,
-    `  - 樞軸 R1:   ${r1.toFixed(2)}`,
+    `Resistance`,
+    `  - Pivot R1:  ${r1.toFixed(2)}`,
+    `  - Daily 20MA: ${d20.toFixed(2)}`,
+    `  - Daily 50MA: ${d50.toFixed(2)}`,
     "",
-    `下方支撐位 (Support)`,
-    `  - 日線 布林帶下軌: ${dBBLower.toFixed(2)}`,
-    `  - 樞軸 S1:         ${s1.toFixed(2)}`,
-    `  - 日線 200MA:      ${d200.toFixed(2)}`,
+    `Support`,
+    `  - Daily BB(20,2) Lower: ${dBBLower.toFixed(2)}`,
+    `  - Pivot S1:             ${s1.toFixed(2)}`,
+    `  - Daily 200MA:          ${d200.toFixed(2)}`,
     "",
     `GOLDMAN SACHS SECURITY ANALYSIS: ${symbol}`,
     `================================================`,
-    `Current Quote: ${price.toFixed(2)} ${data.currency} | RSI(14): ${rsi.toFixed(1)}`,
-    `Trend Conviction: ${confidence}%`,
+    `Current Quote: ${price.toFixed(2)} ${data.currency} | RSI(14): ${rsi.toFixed(1)} (${rsiState})`,
+    `Trend Conviction: ${confidence}% | Profile: risk=${profile.risk} horizon=${profile.horizon}`,
     "",
     `MOMENTUM (MACD)`,
     `  - Histogram: ${hist > 0 ? "+" : ""}${hist.toFixed(2)} (${hist > 0 ? "Bullish" : "Bearish"})`,
@@ -624,7 +684,7 @@ function formatFull(symbol: string, data: ChartData, profile: { risk: RiskTolera
     "",
     `INSTITUTIONAL RISK REPORT: ${symbol}`,
     `================================================`,
-    `Price: ${price.toFixed(2)} ${data.currency} | RSI: ${rsi.toFixed(1)} (${rsiState})`,
+    `Price: ${price.toFixed(2)} ${data.currency} | RSI: ${rsi.toFixed(1)} (${rsiState}) | ATR%: ${atrPct.toFixed(1)}%`,
     "",
     `CAPITAL FLOW (OBV)`,
     `  - Money Flow: ${obv}`,
