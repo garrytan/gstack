@@ -1791,6 +1791,8 @@ Then jump to the first incomplete release step:
 Divergence guard:
 - If the remote branch exists but is not the same commit and is not a fast-forward ancestor of local `HEAD`, **STOP**. Do not overwrite a branch that may contain someone else's newer state.
 
+---
+
 ## Step 4: Version bump (auto-decide)
 
 **Resume safety:** If Step 3.9 determined that the branch already has a valid ship metadata commit and no new substantive commits were added after it, skip Step 4 and the CHANGELOG workflow below. Reuse the existing `VERSION` and `CHANGELOG.md` exactly.
