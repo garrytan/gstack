@@ -3,11 +3,8 @@ name: ship
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION,
-  update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy",
-  "push to main", "create a PR", "merge and push", or "get it deployed".
-  Proactively invoke this skill (do NOT push/PR directly) when the user says code
-  is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
+  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, preview deploy, browser verify, create PR. Use when asked to "ship", "deploy", "push to main", "create a PR", or "merge and push".
+  Proactively suggest when the user says code is ready or asks about deploying.
 allowed-tools:
   - Bash
   - Read
@@ -476,6 +473,8 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
 - Test coverage gaps within target threshold (auto-generate and commit, or flag in PR body)
+- Preview deploy failures (warn and continue — Step 7.5)
+- Browser verification failures (informational, included in PR body — Step 7.75)
 
 ---
 
@@ -1942,9 +1941,177 @@ git push -u origin <branch-name>
 
 ---
 
+## Step 7.5: Preview Deploy (non-blocking)
+
+Deploy a preview build so the PR links to a live, browsable environment. This step
+is entirely optional — it runs only when deploy config exists, and failures never
+block shipping.
+
+**1. Check for deploy config in CLAUDE.md:**
+
+```bash
+grep -A 5 '## Deploy' CLAUDE.md 2>/dev/null || echo "NO_DEPLOY_CONFIG"
+```
+
+If output is `NO_DEPLOY_CONFIG`: Print "No deploy config in CLAUDE.md — skipping preview deploy and browser verification. Run `/setup-deploy` to configure." Continue to Step 8.
+
+**2. Parse deploy config:**
+
+Extract these fields from the `## Deploy` section:
+- **Platform**: the value after `- Platform:` (e.g., `vercel`, `netlify`, `fly`, `render`)
+- **Deploy command**: the value after `- Deploy command:` (e.g., `vercel deploy`)
+- **Production URL**: the value after `- Production URL:` (e.g., `https://app.example.com`)
+- **Health check**: the value after `- Health check:` (optional, e.g., `https://app.example.com/api/health`)
+
+If Deploy command is missing, print "Deploy config found but no deploy command — skipping preview deploy." Continue to Step 8.
+
+**3. Run the deploy command:**
+
+```bash
+{deploy_command} 2>&1 | tee /tmp/ship_preview_deploy.txt
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS.
+
+**4. Capture the preview URL:**
+
+Read `/tmp/ship_preview_deploy.txt` and extract the preview URL:
+- **Vercel:** Look for a line matching `https://<project>-<hash>-<team>.vercel.app` or the URL printed after "Preview:"
+- **Netlify:** Look for the "Website draft URL:" line
+- **Generic:** Scan for the first `https://` URL in the output that is NOT the production URL
+
+If no URL found: Print "Preview deploy ran but no URL detected in output. Skipping browser verification." Continue to Step 8.
+
+**5. Health check (if configured):**
+
+If a Health check URL exists in the config:
+- Replace the production domain with the preview URL's domain
+- Poll up to 60 seconds (check every 5 seconds):
+
+```bash
+HEALTH_URL="<preview-domain><health-path>"
+for i in $(seq 1 12); do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null)
+  [ "$STATUS" = "200" ] && echo "HEALTH_OK" && break
+  sleep 5
+done
+```
+
+If health check times out: Print "Health check did not return 200 within 60s. Proceeding with browser verification anyway."
+
+**6. Store results:**
+
+Remember the preview URL and health check result for Steps 7.75 and 8.
+
+Print: "Preview deployed: <URL>" (or "Preview deployed: <URL> (health check: OK/TIMEOUT)")
+
+**Error handling:** If the deploy command exits non-zero, print "Preview deploy failed (exit code N). Skipping browser verification." Show the last 10 lines of output for context. Continue to Step 8.
+
+---
+
+## Step 7.75: Targeted Browser Verification (non-blocking)
+
+Browse the preview deployment to verify changed routes work. This step requires both
+a preview URL from Step 7.5 and the browse binary. If either is unavailable, skip.
+
+**1. Check prerequisites:**
+
+If no preview URL was captured in Step 7.5: Skip silently. Continue to Step 8.
+
+Check browse binary availability:
+```bash
+B=$(~/.claude/skills/gstack/browse/dist/browse 2>/dev/null && echo "OK" || which browse 2>/dev/null || echo "NOT_FOUND")
+echo "BROWSE: $B"
+```
+
+If browse binary is not found: Print "Browse binary not available — skipping browser verification." Continue to Step 8.
+
+**2. Detect changed routes from the diff:**
+
+```bash
+git diff origin/<base> --name-only
+```
+
+Map changed files to routes using framework conventions:
+- **Next.js App Router:** `app/<route>/page.tsx` → `/<route>` (strip `app/` prefix and `/page.tsx` suffix; handle nested routes, dynamic segments like `[id]` become a known valid ID or skip)
+- **Next.js Pages Router:** `pages/<route>.tsx` → `/<route>`
+- **SvelteKit:** `src/routes/<route>/+page.svelte` → `/<route>`
+- **Nuxt:** `pages/<route>.vue` → `/<route>`
+- **Route handlers / API routes:** `app/api/<path>/route.ts` → `/api/<path>` (verify these return non-error status, don't browse them visually)
+- **Components without direct routes:** Use `grep -rl "ComponentName"` on page files to trace which routes import the changed component. Add those routes.
+- **Non-route files** (utils, config, services, styles): Do not map to routes.
+
+If no routes detected: Print "No user-facing routes changed — skipping browser verification." Continue to Step 8.
+
+If the framework is not recognized from file patterns: Fall back to verifying the preview URL's root path (`/`) only.
+
+**3. Prioritize routes (if more than 5 detected):**
+
+Order by: pages before API routes, new files before modified files. Cap at 5 routes to stay within the 3-minute time budget.
+
+**4. Dispatch browser verification subagent:**
+
+Use the Agent tool to dispatch a subagent with this prompt:
+
+"You are verifying a preview deployment at {PREVIEW_URL}. Use the browse binary at {BROWSE_PATH} to check each of these routes:
+
+{ROUTE_LIST}
+
+For each route:
+1. Navigate to {PREVIEW_URL}{route}
+2. Wait for the page to fully load (network idle)
+3. Check for console errors — note any
+4. Verify the page renders meaningful content (not a blank page, not a 500 error, not a generic error page)
+5. For pages (not API routes): interact with the primary interactive element if one exists (click a button, open a form, expand a section) to verify basic interactivity
+6. Take a screenshot
+
+Report results in this exact format:
+
+~~~
+BROWSER VERIFICATION (preview: {PREVIEW_URL}):
+═══════════════════════════════════════════════
+  {route}    PASS|FAIL    {one-line reason}
+  ...
+───────────────────────────────────────────────
+  Result: N/M PASS, K/M FAIL
+═══════════════════════════════════════════════
+~~~
+
+If a route fails, include the error (status code, console error message, or what was missing). If you cannot reach the preview URL at all, report ALL routes as FAIL with 'preview URL unreachable'."
+
+Set a 3-minute timeout on the subagent. If it times out, use whatever partial results were returned.
+
+**5. Capture results:**
+
+Store the verification output (the formatted table) and any screenshots for Step 8's PR body.
+
+If the subagent failed entirely or timed out with no results: Print "Browser verification timed out — skipping." Continue to Step 8.
+
+Print the verification results table to the console.
+
+---
+
 ## Step 8: Create PR/MR
 
 Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
+
+**Conditional NEEDS ATTENTION banner:**
+
+Before assembling the PR body, evaluate whether unresolved items need the user's attention. Check these triggers:
+- Pre-landing review has ASK items that were shown to the user and skipped (not auto-fixed items)
+- Adversarial review found medium+ severity issues that were not auto-fixed
+- Browser verification (Step 7.75) has any FAIL routes
+- Test coverage was below the project threshold and the user overrode the gate
+- Plan items were marked NOT DONE and the user chose to defer them
+
+If ANY trigger fires, prepend this banner to the top of the PR body (before ## Summary):
+
+> ⚠️ **NEEDS ATTENTION** — This PR shipped with unresolved items:
+> - {list each trigger that fired with a one-line description}
+>
+> Review these before merging.
+
+If NO triggers fire, omit the banner entirely — the PR body starts with ## Summary.
 
 The PR/MR body should contain these sections:
 
@@ -1960,6 +2127,15 @@ you missed it.>
 ## Test Coverage
 <coverage diagram from Step 3.4, or "All new code paths have test coverage.">
 <If Step 3.4 ran: "Tests: {before} → {after} (+{delta} new)">
+
+## Preview Deployment
+<If preview deploy succeeded: "Preview: {URL}" + health check result if applicable>
+<If preview deploy failed: "Preview deploy failed: {reason}">
+<If no deploy config exists: omit this section entirely>
+
+## Browser Verification
+<If verification ran: paste the PASS/FAIL table from Step 7.75>
+<If skipped (no routes changed / no deploy / no browse binary): omit this section entirely>
 
 ## Pre-Landing Review
 <findings from Step 3.5 code review, or "No issues found.">
@@ -2020,7 +2196,12 @@ EOF
 **If neither CLI is available:**
 Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
 
-**Output the PR/MR URL** — then proceed to Step 8.5.
+**Output the PR/MR URL with conditional attention signal:**
+
+- If the NEEDS ATTENTION banner was included in the PR body: print the full banner to the console, followed by the PR URL.
+- If no banner (clean ship): print only `✓ PR created: <URL>`
+
+Then proceed to Step 8.5.
 
 ---
 
@@ -2056,7 +2237,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gst
 Append to `~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl`:
 
 ```bash
-echo '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"BRANCH"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+echo '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","preview_deploy":"DEPLOY_RESULT","browser_verify":"BROWSER_RESULT","version":"VERSION","branch":"BRANCH"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
 ```
 
 Substitute from earlier steps:
@@ -2064,6 +2245,8 @@ Substitute from earlier steps:
 - **PLAN_TOTAL**: total plan items extracted in Step 3.45 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 3.45 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 3.47
+- **DEPLOY_RESULT**: "success", "failed", or "skipped" from Step 7.5
+- **BROWSER_RESULT**: "N/M pass" (e.g., "3/3 pass"), "N/M pass, K/M fail", or "skipped" from Step 7.75
 - **VERSION**: from the VERSION file
 - **BRANCH**: current branch name
 
