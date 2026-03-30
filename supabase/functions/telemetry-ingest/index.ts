@@ -44,9 +44,9 @@ Deno.serve(async (req) => {
     }
 
     // Use the caller's apikey (anon key) instead of the service role key.
-    // RLS policies allow anon INSERT/SELECT on telemetry_events, and
-    // INSERT/SELECT/UPDATE on installations (for upsert). The service role
-    // key bypassed RLS entirely, which was unnecessary.
+    // RLS policies allow anon INSERT on telemetry_events and INSERT/UPDATE
+    // on installations (for upsert). Column-level GRANT restricts anon
+    // UPDATE to (last_seen, gstack_version, os) only — see migration 003.
     const callerKey = req.headers.get("apikey");
     if (!callerKey) {
       return new Response("Unauthorized — apikey header required", { status: 401 });
