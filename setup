@@ -534,6 +534,20 @@ link_factory_skill_dirs() {
     return 1
   fi
 
+  # Copy skills as REAL directories into ~/.agents/skills/.
+  # Droid reads skill files from ~/.agents/skills/. This is required because
+  # skills in ~/gstack/.factory/skills/ (a project subdirectory) are never
+  # scanned by Droid.
+  mkdir -p "$HOME/.agents/skills"
+  for skill_dir in "$factory_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      dest="$HOME/.agents/skills/$skill_name"
+      rm -rf "$dest"
+      cp -r "$skill_dir" "$dest"
+    fi
+  done
+
   # Create RELATIVE symlinks in ~/.factory/skills/ pointing to ../../.agents/skills/.
   # Droid scans ~/.factory/skills/ and follows relative symlinks (not absolute paths).
   # Relative symlinks are required; absolute paths are ignored by Droid.
