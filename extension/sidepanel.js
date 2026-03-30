@@ -1153,7 +1153,7 @@ inspectorSendBtn.addEventListener('click', () => {
 
 async function runCleanup(...buttons) {
   if (!serverUrl || !serverToken) {
-    addChatEntry({ type: 'notification', message: 'Not connected to browse server' });
+    // Don't spam errors, buttons should already be disabled
     return;
   }
   buttons.forEach(b => b?.classList.add('loading'));
@@ -1181,7 +1181,6 @@ async function runCleanup(...buttons) {
 
 async function runScreenshot(...buttons) {
   if (!serverUrl || !serverToken) {
-    addChatEntry({ type: 'notification', message: 'Not connected to browse server' });
     return;
   }
   buttons.forEach(b => b?.classList.add('loading'));
@@ -1263,6 +1262,14 @@ function connectInspectorSSE() {
 
 // ─── Server Discovery ───────────────────────────────────────────
 
+function setActionButtonsEnabled(enabled) {
+  const btns = document.querySelectorAll('.quick-action-btn, .inspector-action-btn');
+  btns.forEach(btn => {
+    btn.disabled = !enabled;
+    btn.classList.toggle('disabled', !enabled);
+  });
+}
+
 function updateConnection(url, token) {
   const wasConnected = !!serverUrl;
   serverUrl = url;
@@ -1272,6 +1279,7 @@ function updateConnection(url, token) {
     const port = new URL(url).port;
     document.getElementById('footer-port').textContent = `:${port}`;
     setConnState('connected');
+    setActionButtonsEnabled(true);
     connectSSE();
     connectInspectorSSE();
     if (chatPollInterval) clearInterval(chatPollInterval);
@@ -1284,6 +1292,7 @@ function updateConnection(url, token) {
   } else {
     document.getElementById('footer-dot').className = 'dot';
     document.getElementById('footer-port').textContent = '';
+    setActionButtonsEnabled(false);
     if (chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
     if (tabPollInterval) { clearInterval(tabPollInterval); tabPollInterval = null; }
     if (wasConnected) {

@@ -627,6 +627,12 @@ body::after {
   transform: scale(0.96);
 }
 
+.quick-action-btn.disabled, .inspector-action-btn.disabled {
+  pointer-events: none;
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 .quick-action-btn.loading {
   pointer-events: none;
   opacity: 0.5;
