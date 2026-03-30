@@ -566,6 +566,34 @@ Goes beyond `npm audit`. Checks actual supply chain risk.
 
 **FP rules:** devDependency CVEs are MEDIUM max. `node-gyp`/`cmake` install scripts expected (MEDIUM not HIGH). No-fix-available advisories without known exploits excluded. Missing lockfile for library repos (not apps) is NOT a finding.
 
+### Phase 3.5: Deterministic SAST Scan
+
+Before the LLM-driven OWASP and STRIDE analysis, run whatever static analysis
+and security scanning tools the project has available. These produce deterministic
+findings that anchor the rest of the audit.
+
+**Detection and execution:** Same tool detection as described above — check for
+ESLint, Biome, ruff, bandit, Brakeman, gosec, cargo clippy, Semgrep, gitleaks.
+Run every available tool against the full project (not scoped to diff, since /cso
+audits the whole codebase).
+
+**Integration with later phases:**
+- Feed SAST findings into Phase 9 (OWASP) as confirmed evidence. A Semgrep SQLi finding
+  in Phase 3.5 becomes a VERIFIED A03:Injection finding in Phase 9.
+- Feed security-specific findings (bandit, brakeman, gosec, semgrep) into Phase 12
+  as pre-verified — they skip the confidence gate since they're deterministic.
+- Note which tools were available vs skipped in the final report under
+  `supply_chain_summary.tools_run` and `supply_chain_summary.tools_skipped`.
+
+If no security tools are detected, recommend specific tools for the detected stack
+in the Phase 13 remediation roadmap:
+- JS/TS → eslint-plugin-security + semgrep
+- Python → bandit + ruff
+- Ruby → brakeman
+- Go → gosec + golangci-lint with security linters
+- Rust → cargo-audit + cargo clippy
+- Any stack → semgrep (language-agnostic rules)
+
 ### Phase 4: CI/CD Pipeline Security
 
 Check who can modify workflows and what secrets they can access.

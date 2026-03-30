@@ -195,6 +195,8 @@ Goes beyond `npm audit`. Checks actual supply chain risk.
 
 **FP rules:** devDependency CVEs are MEDIUM max. `node-gyp`/`cmake` install scripts expected (MEDIUM not HIGH). No-fix-available advisories without known exploits excluded. Missing lockfile for library repos (not apps) is NOT a finding.
 
+{{SAST_SCAN_CSO}}
+
 ### Phase 4: CI/CD Pipeline Security
 
 Check who can modify workflows and what secrets they can access.

@@ -16,6 +16,7 @@ import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generate
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
 import { generateConfidenceCalibration } from './confidence';
 import { generateInvokeSkill } from './composition';
+import { generateSastScan, generateSastScanCso } from './sast';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
@@ -56,4 +57,6 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   CONFIDENCE_CALIBRATION: generateConfidenceCalibration,
   INVOKE_SKILL: generateInvokeSkill,
   CHANGELOG_WORKFLOW: generateChangelogWorkflow,
+  SAST_SCAN: generateSastScan,
+  SAST_SCAN_CSO: generateSastScanCso,
 };
