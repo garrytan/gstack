@@ -182,7 +182,7 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   echo "Building browse binary..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install
+    bun install --frozen-lockfile
     bun run build
   )
   # Safety net: write .version if build script didn't (e.g., git not available during build)
