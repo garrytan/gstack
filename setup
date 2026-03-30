@@ -565,6 +565,52 @@ link_factory_skill_dirs() {
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
   fi
+
+  # Register skills in ~/.agents/.skill-lock.json with sourceType=github.
+  # Droid's lockfile ONLY loads entries with sourceType=github. Entries with
+  # sourceType=local are completely ignored — and no working skill uses it.
+  if [ -f "$HOME/.agents/.skill-lock.json" ]; then
+    python3 -c "
+import json, hashlib, os, datetime
+lock_path = '$HOME/.agents/.skill-lock.json'
+agents_skills = '$HOME/.agents/skills'
+with open(lock_path) as f:
+    lock = json.load(f)
+now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.') + '000Z'
+added = []
+for entry in os.listdir(agents_skills):
+    if not entry.startswith('gstack'):
+        continue
+    skill_md = os.path.join(agents_skills, entry, 'SKILL.md')
+    if not os.path.isfile(skill_md):
+        continue
+    hasher = hashlib.sha1()
+    for root, dirs, files in os.walk(os.path.join(agents_skills, entry)):
+        dirs.sort()
+        for fname in sorted(files):
+            fpath = os.path.join(root, fname)
+            try:
+                with open(fpath, 'rb') as fh:
+                    hasher.update(fh.read())
+            except:
+                pass
+    lock['skills'][entry] = {
+        'source': 'gstack/' + entry,
+        'sourceType': 'github',
+        'sourceUrl': 'file://' + os.path.join(agents_skills, entry),
+        'skillPath': 'SKILL.md',
+        'skillFolderHash': hasher.hexdigest(),
+        'installedAt': now_str,
+        'updatedAt': now_str
+    }
+    added.append(entry)
+with open(lock_path, 'w') as f:
+    json.dump(lock, f, indent=2)
+print('  registered skills: ' + ' '.join(added))
+"
+  else
+    echo "  warning: ~/.agents/.skill-lock.json not found — skill registration skipped" >&2
+  fi
 }
 
 # 4. Install for Claude (default)
