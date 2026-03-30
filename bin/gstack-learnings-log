@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# gstack-learnings-log — append a learning to the project learnings file
+# Usage: gstack-learnings-log '{"skill":"review","type":"pitfall","key":"n-plus-one","insight":"...","confidence":8,"source":"observed"}'
+#
+# Append-only storage. Duplicates (same key+type) are resolved at read time
+# by gstack-learnings-search ("latest winner" per key+type).
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+mkdir -p "$GSTACK_HOME/projects/$SLUG"
+
+INPUT="$1"
+
+# Validate: input must be parseable JSON
+if ! printf '%s' "$INPUT" | bun -e "JSON.parse(await Bun.stdin.text())" 2>/dev/null; then
+  echo "gstack-learnings-log: invalid JSON, skipping" >&2
+  exit 1
+fi
+
+# Inject timestamp if not present
+if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); if(!j.ts) process.exit(1)" 2>/dev/null; then
+  INPUT=$(printf '%s' "$INPUT" | bun -e "
+    const j = JSON.parse(await Bun.stdin.text());
+    j.ts = new Date().toISOString();
+    console.log(JSON.stringify(j));
+  " 2>/dev/null) || true
+fi
+
+echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"

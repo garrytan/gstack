@@ -4,7 +4,12 @@ set -e
 
 if ! command -v bun >/dev/null 2>&1; then
   echo "Error: bun is required but not installed." >&2
-  echo "Install it: curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.10 bash" >&2
+  echo "Install with checksum verification:" >&2
+  echo '  BUN_VERSION="1.3.10"' >&2
+  echo '  tmpfile=$(mktemp)' >&2
+  echo '  curl -fsSL "https://bun.sh/install" -o "$tmpfile"' >&2
+  echo '  echo "Verify checksum before running: shasum -a 256 $tmpfile"' >&2
+  echo '  BUN_VERSION="$BUN_VERSION" bash "$tmpfile" && rm "$tmpfile"' >&2
   exit 1
 fi
 
@@ -46,6 +51,7 @@ esac
 # ─── Resolve skill prefix preference ─────────────────────────
 # Priority: CLI flag > saved config > interactive prompt (or flat default for non-TTY)
 GSTACK_CONFIG="$SOURCE_GSTACK_DIR/bin/gstack-config"
+export GSTACK_SETUP_RUNNING=1  # Prevent gstack-config post-set hook from triggering relink mid-setup
 if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
   _saved_prefix="$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || true)"
   if [ "$_saved_prefix" = "true" ]; then
@@ -266,9 +272,12 @@ link_claude_skill_dirs() {
   local linked=()
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
+      dir_name="$(basename "$skill_dir")"
       # Skip node_modules
-      [ "$skill_name" = "node_modules" ] && continue
+      [ "$dir_name" = "node_modules" ] && continue
+      # Use frontmatter name: if present (e.g., run-tests/ with name: test → symlink as "test")
+      skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+      [ -z "$skill_name" ] && skill_name="$dir_name"
       # Apply gstack- prefix unless --no-prefix or already prefixed
       if [ "$SKILL_PREFIX" -eq 1 ]; then
         case "$skill_name" in
@@ -281,7 +290,7 @@ link_claude_skill_dirs() {
       target="$skills_dir/$link_name"
       # Create or update symlink; skip if a real file/directory exists
       if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "gstack/$skill_name" "$target"
+        ln -snf "gstack/$dir_name" "$target"
         linked+=("$link_name")
       fi
     fi

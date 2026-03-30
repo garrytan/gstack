@@ -586,10 +586,12 @@ describe('REVIEW_DASHBOARD resolver', () => {
     expect(content).toContain('/plan-ceo-review');
   });
 
-  test('plan-design-review chaining mentions eng and ceo reviews', () => {
+  test('plan-design-review chaining mentions eng, ceo, and design skills', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-ceo-review');
+    expect(content).toContain('/design-shotgun');
+    expect(content).toContain('/design-html');
   });
 
   test('ship does NOT contain review chaining', () => {
@@ -1152,6 +1154,138 @@ describe('BENEFITS_FROM resolver', () => {
   test('inline invocation — read-and-follow path present', () => {
     expect(ceoContent).toContain('office-hours/SKILL.md');
     expect(engContent).toContain('office-hours/SKILL.md');
+  });
+
+  test('BENEFITS_FROM delegates to INVOKE_SKILL pattern', () => {
+    // Should contain the INVOKE_SKILL-style loading prose (not the old manual skip list)
+    expect(engContent).toContain('Follow its instructions from top to bottom');
+    expect(engContent).toContain('skipping these sections');
+    expect(ceoContent).toContain('Follow its instructions from top to bottom');
+  });
+});
+
+// --- {{INVOKE_SKILL}} resolver tests ---
+
+describe('INVOKE_SKILL resolver', () => {
+  const ceoContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
+
+  test('plan-ceo-review uses INVOKE_SKILL for mid-session office-hours fallback', () => {
+    // The mid-session detection path should use INVOKE_SKILL-generated prose
+    expect(ceoContent).toContain('office-hours/SKILL.md');
+    expect(ceoContent).toContain('Follow its instructions from top to bottom');
+  });
+
+  test('INVOKE_SKILL output includes default skip list', () => {
+    expect(ceoContent).toContain('Preamble (run first)');
+    expect(ceoContent).toContain('Telemetry (run last)');
+    expect(ceoContent).toContain('AskUserQuestion Format');
+  });
+
+  test('INVOKE_SKILL output includes error handling', () => {
+    expect(ceoContent).toContain('If unreadable');
+    expect(ceoContent).toContain('Could not load');
+  });
+
+  test('template uses {{INVOKE_SKILL:office-hours}} placeholder', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md.tmpl'), 'utf-8');
+    expect(tmpl).toContain('{{INVOKE_SKILL:office-hours}}');
+  });
+});
+
+// --- {{CHANGELOG_WORKFLOW}} resolver tests ---
+
+describe('CHANGELOG_WORKFLOW resolver', () => {
+  const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('ship SKILL.md contains changelog workflow', () => {
+    expect(shipContent).toContain('CHANGELOG (auto-generate)');
+    expect(shipContent).toContain('git log <base>..HEAD --oneline');
+  });
+
+  test('changelog workflow includes cross-check step', () => {
+    expect(shipContent).toContain('Cross-check');
+    expect(shipContent).toContain('Every commit must map to at least one bullet point');
+  });
+
+  test('changelog workflow includes voice guidance', () => {
+    expect(shipContent).toContain('Lead with what the user can now **do**');
+  });
+
+  test('template uses {{CHANGELOG_WORKFLOW}} placeholder', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
+    expect(tmpl).toContain('{{CHANGELOG_WORKFLOW}}');
+    // Should NOT contain the old inline changelog content
+    expect(tmpl).not.toContain('Group commits by theme');
+  });
+
+  test('changelog workflow includes keep-changelog format', () => {
+    expect(shipContent).toContain('### Added');
+    expect(shipContent).toContain('### Fixed');
+  });
+});
+
+// --- Parameterized resolver infrastructure tests ---
+
+describe('parameterized resolver support', () => {
+  test('gen-skill-docs regex handles colon-separated args', () => {
+    // Verify the template containing {{INVOKE_SKILL:office-hours}} was processed
+    // without leaving unresolved placeholders
+    const ceoContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
+    expect(ceoContent).not.toMatch(/\{\{INVOKE_SKILL:[^}]+\}\}/);
+  });
+
+  test('templates with parameterized resolvers pass unresolved check', () => {
+    // All generated SKILL.md files should have no unresolved {{...}} placeholders
+    const skillDirs = fs.readdirSync(ROOT).filter(d =>
+      fs.existsSync(path.join(ROOT, d, 'SKILL.md'))
+    );
+    for (const dir of skillDirs) {
+      const content = fs.readFileSync(path.join(ROOT, dir, 'SKILL.md'), 'utf-8');
+      const unresolved = content.match(/\{\{[A-Z_]+(?::[^}]*)?\}\}/g);
+      if (unresolved) {
+        throw new Error(`${dir}/SKILL.md has unresolved placeholders: ${unresolved.join(', ')}`);
+      }
+    }
+  });
+});
+
+// --- Preamble routing injection tests ---
+
+describe('preamble routing injection', () => {
+  const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('preamble bash checks for routing section in CLAUDE.md', () => {
+    expect(shipContent).toContain('grep -q "## Skill routing" CLAUDE.md');
+    expect(shipContent).toContain('HAS_ROUTING');
+  });
+
+  test('preamble bash reads routing_declined config', () => {
+    expect(shipContent).toContain('routing_declined');
+    expect(shipContent).toContain('ROUTING_DECLINED');
+  });
+
+  test('preamble includes routing injection AskUserQuestion', () => {
+    expect(shipContent).toContain('Add routing rules to CLAUDE.md');
+    expect(shipContent).toContain("I'll invoke skills manually");
+  });
+
+  test('routing injection respects prior decline', () => {
+    expect(shipContent).toContain('ROUTING_DECLINED');
+    expect(shipContent).toMatch(/routing_declined.*true/);
+  });
+
+  test('routing injection only fires when all conditions met', () => {
+    // Must be: HAS_ROUTING=no AND ROUTING_DECLINED=false AND PROACTIVE_PROMPTED=yes
+    expect(shipContent).toContain('HAS_ROUTING');
+    expect(shipContent).toContain('ROUTING_DECLINED');
+    expect(shipContent).toContain('PROACTIVE_PROMPTED');
+  });
+
+  test('routing section content includes key routing rules', () => {
+    expect(shipContent).toContain('invoke office-hours');
+    expect(shipContent).toContain('invoke investigate');
+    expect(shipContent).toContain('invoke ship');
+    expect(shipContent).toContain('invoke qa');
   });
 });
 
@@ -1793,11 +1927,12 @@ describe('setup script validation', () => {
   });
 
   test('link_claude_skill_dirs creates relative symlinks', () => {
-    // Claude links should be relative: ln -snf "gstack/skill_name"
+    // Claude links should be relative: ln -snf "gstack/$dir_name"
+    // Uses dir_name (not skill_name) because symlink target must point to the physical directory
     const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('ln -snf "gstack/$skill_name"');
+    expect(fnBody).toContain('ln -snf "gstack/$dir_name"');
   });
 
   test('setup supports --host auto|claude|codex|kiro', () => {
@@ -2036,6 +2171,100 @@ describe('telemetry', () => {
   });
 });
 
+describe('community fixes wave', () => {
+  // Helper to get all generated SKILL.md files
+  function getAllSkillMds(): Array<{ name: string; content: string }> {
+    const results: Array<{ name: string; content: string }> = [];
+    const rootPath = path.join(ROOT, 'SKILL.md');
+    if (fs.existsSync(rootPath)) {
+      results.push({ name: 'root', content: fs.readFileSync(rootPath, 'utf-8') });
+    }
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const skillPath = path.join(ROOT, entry.name, 'SKILL.md');
+      if (fs.existsSync(skillPath)) {
+        results.push({ name: entry.name, content: fs.readFileSync(skillPath, 'utf-8') });
+      }
+    }
+    return results;
+  }
+
+  // #594 — Discoverability: every SKILL.md.tmpl description contains "gstack"
+  test('every SKILL.md.tmpl description contains "gstack"', () => {
+    for (const skill of ALL_SKILLS) {
+      const tmplPath = skill.dir === '.' ? path.join(ROOT, 'SKILL.md.tmpl') : path.join(ROOT, skill.dir, 'SKILL.md.tmpl');
+      const content = fs.readFileSync(tmplPath, 'utf-8');
+      const desc = extractDescription(content);
+      expect(desc.toLowerCase()).toContain('gstack');
+    }
+  });
+
+  // #594 — Discoverability: first line of each description is under 120 chars
+  test('every SKILL.md.tmpl description first line is under 120 chars', () => {
+    for (const skill of ALL_SKILLS) {
+      const tmplPath = skill.dir === '.' ? path.join(ROOT, 'SKILL.md.tmpl') : path.join(ROOT, skill.dir, 'SKILL.md.tmpl');
+      const content = fs.readFileSync(tmplPath, 'utf-8');
+      const desc = extractDescription(content);
+      const firstLine = desc.split('\n')[0];
+      expect(firstLine.length).toBeLessThanOrEqual(120);
+    }
+  });
+
+  // #573 — Feature signals: ship/SKILL.md contains feature signal detection
+  test('ship/SKILL.md contains feature signal detection in Step 4', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content.toLowerCase()).toContain('feature signal');
+  });
+
+  // #510 — Context warnings: no SKILL.md contains "running low on context"
+  test('no generated SKILL.md contains "running low on context"', () => {
+    const skills = getAllSkillMds();
+    for (const { name, content } of skills) {
+      expect(content).not.toContain('running low on context');
+    }
+  });
+
+  // #510 — Context warnings: plan-eng-review has explicit anti-warning
+  test('plan-eng-review/SKILL.md contains "Do not preemptively warn"', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Do not preemptively warn');
+  });
+
+  // #474 — Safety Net: no SKILL.md uses find with -delete
+  test('no generated SKILL.md contains find with -delete flag', () => {
+    const skills = getAllSkillMds();
+    for (const { name, content } of skills) {
+      // Match find commands that use -delete (but not prose mentioning the word "delete")
+      const lines = content.split('\n');
+      for (const line of lines) {
+        if (line.includes('find ') && line.includes('-delete')) {
+          throw new Error(`${name}/SKILL.md contains find with -delete: ${line.trim()}`);
+        }
+      }
+    }
+  });
+
+  // #467 — Telemetry: preamble JSONL writes are gated by telemetry setting
+  test('preamble JSONL writes are inside telemetry conditional', () => {
+    const preamble = fs.readFileSync(path.join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
+    // Find all skill-usage.jsonl write lines
+    const lines = preamble.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('skill-usage.jsonl') && lines[i].includes('>>')) {
+        // Look backwards for a telemetry conditional within 5 lines
+        let foundConditional = false;
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (lines[j].includes('_TEL') && lines[j].includes('off')) {
+            foundConditional = true;
+            break;
+          }
+        }
+        expect(foundConditional).toBe(true);
+      }
+    }
+  });
+});
+
 describe('codex commands must not use inline $(git rev-parse --show-toplevel) for cwd', () => {
   // Regression test: inline $(git rev-parse --show-toplevel) in codex exec -C
   // or codex review without cd evaluates in whatever cwd the background shell
@@ -2121,5 +2350,115 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
       }
     }
     expect(violations).toEqual([]);
+  });
+});
+
+// ─── Learnings + Confidence Resolver Tests ─────────────────────
+
+describe('LEARNINGS_SEARCH resolver', () => {
+  const SEARCH_SKILLS = ['review', 'ship', 'plan-eng-review', 'investigate', 'office-hours', 'plan-ceo-review'];
+
+  for (const skill of SEARCH_SKILLS) {
+    test(`${skill} generated SKILL.md contains learnings search`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Prior Learnings');
+      expect(content).toContain('gstack-learnings-search');
+    });
+  }
+
+  test('learnings search includes cross-project config check', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('cross_project_learnings');
+    expect(content).toContain('--cross-project');
+  });
+
+  test('learnings search includes AskUserQuestion for first-time cross-project opt-in', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Enable cross-project learnings');
+    expect(content).toContain('project-scoped only');
+  });
+
+  test('learnings search mentions prior learning applied display format', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Prior learning applied');
+  });
+});
+
+describe('LEARNINGS_LOG resolver', () => {
+  const LOG_SKILLS = ['review', 'retro', 'investigate'];
+
+  for (const skill of LOG_SKILLS) {
+    test(`${skill} generated SKILL.md contains learnings log`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Capture Learnings');
+      expect(content).toContain('gstack-learnings-log');
+    });
+  }
+
+  test('learnings log documents all type values', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    for (const type of ['pattern', 'pitfall', 'preference', 'architecture', 'tool']) {
+      expect(content).toContain(type);
+    }
+  });
+
+  test('learnings log documents all source values', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    for (const source of ['observed', 'user-stated', 'inferred', 'cross-model']) {
+      expect(content).toContain(source);
+    }
+  });
+
+  test('learnings log includes files field for staleness detection', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('"files"');
+    expect(content).toContain('staleness detection');
+  });
+});
+
+describe('CONFIDENCE_CALIBRATION resolver', () => {
+  const CONFIDENCE_SKILLS = ['review', 'ship', 'plan-eng-review', 'cso'];
+
+  for (const skill of CONFIDENCE_SKILLS) {
+    test(`${skill} generated SKILL.md contains confidence calibration`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Confidence Calibration');
+      expect(content).toContain('confidence score');
+    });
+  }
+
+  test('confidence calibration includes scoring rubric with all tiers', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('9-10');
+    expect(content).toContain('7-8');
+    expect(content).toContain('5-6');
+    expect(content).toContain('3-4');
+    expect(content).toContain('1-2');
+  });
+
+  test('confidence calibration includes display rules', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Show normally');
+    expect(content).toContain('Suppress from main report');
+  });
+
+  test('confidence calibration includes finding format example', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('[P1] (confidence:');
+    expect(content).toContain('SQL injection');
+  });
+
+  test('confidence calibration includes calibration learning feedback loop', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('calibration event');
+    expect(content).toContain('Log the corrected pattern');
+  });
+
+  test('skills without confidence calibration do NOT contain it', () => {
+    // office-hours and retro do NOT use confidence calibration
+    for (const skill of ['office-hours', 'retro']) {
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('## Confidence Calibration');
+    }
   });
 });

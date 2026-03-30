@@ -83,11 +83,15 @@ const OPENAI_LITMUS_CHECKS = [
 // ─── External Host Helpers ───────────────────────────────────
 
 // Re-export local copy for use in this file (matches codex-helpers.ts)
-function externalSkillName(skillDir: string): string {
+// Accepts optional frontmatter name to support directory/invocation name divergence
+function externalSkillName(skillDir: string, frontmatterName?: string): string {
+  // Root skill (skillDir === '' or '.') always maps to 'gstack' regardless of frontmatter
   if (skillDir === '.' || skillDir === '') return 'gstack';
+  // Use frontmatter name when it differs from directory name (e.g., run-tests/ with name: test)
+  const baseName = frontmatterName && frontmatterName !== skillDir ? frontmatterName : skillDir;
   // Don't double-prefix: gstack-upgrade → gstack-upgrade (not gstack-gstack-upgrade)
-  if (skillDir.startsWith('gstack-')) return skillDir;
-  return `gstack-${skillDir}`;
+  if (baseName.startsWith('gstack-')) return baseName;
+  return `gstack-${baseName}`;
 }
 
 function extractNameAndDescription(content: string): { name: string; description: string } {
@@ -255,11 +259,12 @@ function processExternalHost(
   skillDir: string,
   extractedDescription: string,
   ctx: TemplateContext,
+  frontmatterName?: string,
 ): { content: string; outputPath: string; outputDir: string; symlinkLoop: boolean } {
   const config = EXTERNAL_HOST_CONFIG[host];
   if (!config) throw new Error(`No external host config for: ${host}`);
 
-  const name = externalSkillName(skillDir === '.' ? '' : skillDir);
+  const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
   const outputDir = path.join(ROOT, config.hostSubdir, 'skills', name);
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
@@ -324,9 +329,12 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   // Determine skill directory relative to ROOT
   const skillDir = path.relative(ROOT, path.dirname(tmplPath));
 
-  // Extract skill name from frontmatter for TemplateContext
+  // Extract skill name from frontmatter early — needed for both TemplateContext and external host output paths.
+  // When frontmatter name: differs from directory name (e.g., run-tests/ with name: test),
+  // the frontmatter name is used for external skill naming and setup script symlinks.
   const { name: extractedName, description: extractedDescription } = extractNameAndDescription(tmplContent);
   const skillName = extractedName || path.basename(path.dirname(tmplPath));
+
 
   // Extract benefits-from list from frontmatter (inline YAML: benefits-from: [a, b])
   const benefitsMatch = tmplContent.match(/^benefits-from:\s*\[([^\]]*)\]/m);
@@ -340,15 +348,18 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
 
   const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier };
 
-  // Replace placeholders
-  let content = tmplContent.replace(/\{\{(\w+)\}\}/g, (match, name) => {
-    const resolver = RESOLVERS[name];
-    if (!resolver) throw new Error(`Unknown placeholder {{${name}}} in ${relTmplPath}`);
-    return resolver(ctx);
+  // Replace placeholders (supports parameterized: {{NAME:arg1:arg2}})
+  let content = tmplContent.replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (match, fullKey) => {
+    const parts = fullKey.split(':');
+    const resolverName = parts[0];
+    const args = parts.slice(1);
+    const resolver = RESOLVERS[resolverName];
+    if (!resolver) throw new Error(`Unknown placeholder {{${resolverName}}} in ${relTmplPath}`);
+    return args.length > 0 ? resolver(ctx, args) : resolver(ctx);
   });
 
   // Check for any remaining unresolved placeholders
-  const remaining = content.match(/\{\{(\w+)\}\}/g);
+  const remaining = content.match(/\{\{(\w+(?::[^}]+)?)\}\}/g);
   if (remaining) {
     throw new Error(`Unresolved placeholders in ${relTmplPath}: ${remaining.join(', ')}`);
   }
@@ -359,7 +370,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   if (host === 'claude') {
     content = transformFrontmatter(content, host);
   } else {
-    const result = processExternalHost(content, tmplContent, host, skillDir, extractedDescription, ctx);
+    const result = processExternalHost(content, tmplContent, host, skillDir, extractedDescription, ctx, extractedName || undefined);
     content = result.content;
     outputPath = result.outputPath;
     symlinkLoop = result.symlinkLoop;

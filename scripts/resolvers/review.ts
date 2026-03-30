@@ -13,6 +13,7 @@
  * Codex CLI prompts are written to temp files to prevent shell injection.
  */
 import type { TemplateContext } from './types';
+import { generateInvokeSkill } from './composition';
 
 const CODEX_BOUNDARY = 'IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\\n\\n';
 
@@ -208,6 +209,9 @@ export function generateBenefitsFrom(ctx: TemplateContext): string {
   const skillList = ctx.benefitsFrom.map(s => `\`/${s}\``).join(' or ');
   const first = ctx.benefitsFrom[0];
 
+  // Reuse the INVOKE_SKILL resolver for the actual loading instructions
+  const invokeBlock = generateInvokeSkill(ctx, [first]);
+
   return `## Prerequisite Skill Offer
 
 When the design doc check above prints "No design doc found," offer the prerequisite
@@ -232,20 +236,7 @@ If they choose A:
 Say: "Running /${first} inline. Once the design doc is ready, I'll pick up
 the review right where we left off."
 
-Read the ${first} skill file from disk using the Read tool:
-\`~/.claude/skills/gstack/${first}/SKILL.md\`
-
-Follow it inline, **skipping these sections** (already handled by the parent skill):
-- Preamble (run first)
-- AskUserQuestion Format
-- Completeness Principle — Boil the Lake
-- Search Before Building
-- Contributor Mode
-- Completion Status Protocol
-- Telemetry (run last)
-
-If the Read fails (file not found), say:
-"Could not load /${first} — proceeding with standard review."
+${invokeBlock}
 
 After /${first} completes, re-run the design doc check:
 \`\`\`bash

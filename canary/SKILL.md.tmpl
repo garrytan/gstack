@@ -7,7 +7,7 @@ description: |
   performance regressions, and page failures using the browse daemon. Takes
   periodic screenshots, compares against pre-deploy baselines, and alerts
   on anomalies. Use when: "monitor deploy", "canary", "post-deploy check",
-  "watch production", "verify deploy".
+  "watch production", "verify deploy". (gstack)
 allowed-tools:
   - Bash
   - Read

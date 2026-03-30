@@ -9,7 +9,7 @@ description: |
   screenshots. For plan-mode design review (before implementation), use /plan-design-review.
   Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
   Proactively suggest when the user mentions visual inconsistencies or
-  wants to polish the look of a live site.
+  wants to polish the look of a live site. (gstack)
 allowed-tools:
   - Bash
   - Read

@@ -396,3 +396,25 @@ describe('gstack-community-dashboard', () => {
     expect(output).not.toContain('Supabase not configured');
   });
 });
+
+describe('preamble telemetry gating (#467)', () => {
+  test('preamble source does not write JSONL unconditionally', () => {
+    const preamble = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'preamble.ts'), 'utf-8');
+    const lines = preamble.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('skill-usage.jsonl') && lines[i].includes('>>')) {
+        // Each JSONL write must be inside a _TEL conditional (within 5 lines above)
+        let foundConditional = false;
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (lines[j].includes('_TEL') && lines[j].includes('off')) {
+            foundConditional = true;
+            break;
+          }
+        }
+        if (!foundConditional) {
+          throw new Error(`Unconditional JSONL write at preamble.ts line ${i + 1}: ${lines[i].trim()}`);
+        }
+      }
+    }
+  });
+});

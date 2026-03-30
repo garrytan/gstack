@@ -115,6 +115,6 @@ describe('Sidebar prompt injection defense', () => {
 
   test('sidebar-agent falls back to defaults if queue has no args', () => {
     // Backward compatibility: if old queue entries lack args, use defaults
-    expect(AGENT_SRC).toContain("'--allowedTools', 'Bash,Read,Glob,Grep'");
+    expect(AGENT_SRC).toContain("'--allowedTools', 'Bash,Read,Glob,Grep,Write'");
   });
 });

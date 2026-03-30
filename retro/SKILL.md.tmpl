@@ -7,7 +7,7 @@ description: |
   and code quality metrics with persistent history and trend tracking.
   Team-aware: breaks down per-person contributions with praise and growth areas.
   Use when asked to "weekly retro", "what did we ship", or "engineering retrospective".
-  Proactively suggest at the end of a work week or sprint.
+  Proactively suggest at the end of a work week or sprint. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -276,6 +276,8 @@ For each contributor (including the current user), compute:
 **If only one contributor (solo repo):** Skip the team breakdown and proceed as before — the retro is personal.
 
 **If there are Co-Authored-By trailers:** Parse `Co-Authored-By:` lines in commit messages. Credit those authors for the commit alongside the primary author. Note AI co-authors (e.g., `noreply@anthropic.com`) but do not include them as team members — instead, track "AI-assisted commits" as a separate metric.
+
+{{LEARNINGS_LOG}}
 
 ### Step 10: Week-over-Week Trends (if window >= 14d)
 

@@ -8,7 +8,7 @@ description: |
   scanning, plus OWASP Top 10, STRIDE threat modeling, and active verification.
   Two modes: daily (zero-noise, 8/10 confidence gate) and comprehensive (monthly deep
   scan, 2/10 bar). Trend tracking across audit runs.
-  Use when: "security audit", "threat model", "pentest review", "OWASP", "CSO review".
+  Use when: "security audit", "threat model", "pentest review", "OWASP", "CSO review". (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -486,6 +486,8 @@ SECURITY FINDINGS
 3   HIGH   8/10   VERIFIED    Supply Chain     postinstall in prod dep          P3      node_modules/foo
 4   HIGH   9/10   UNVERIFIED  Integrations     Webhook w/o signature verify     P6      api/webhooks.ts:24
 ```
+
+{{CONFIDENCE_CALIBRATION}}
 
 For each finding:
 ```

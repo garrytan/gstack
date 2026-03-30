@@ -6,6 +6,7 @@ bin/gstack-global-discover
 .gstack/
 .claude/skills/
 .agents/
+.factory/
 .context/
 extension/.auth.json
 .gstack-worktrees/

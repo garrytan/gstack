@@ -93,11 +93,30 @@ function installSkills(tmpDir: string) {
     }
   }
 
-  // Copy CLAUDE.md so Claude has project context for skill routing.
-  const claudeMdSrc = path.join(ROOT, 'CLAUDE.md');
-  if (fs.existsSync(claudeMdSrc)) {
-    fs.copyFileSync(claudeMdSrc, path.join(tmpDir, 'CLAUDE.md'));
-  }
+  // Write a CLAUDE.md with explicit routing instructions.
+  // The skill descriptions in system-reminder aren't strong enough to override
+  // Claude's default behavior of answering directly. A CLAUDE.md instruction
+  // puts routing rules in project context which Claude weighs more heavily.
+  fs.writeFileSync(path.join(tmpDir, 'CLAUDE.md'), `# Project Instructions
+
+## Skill routing
+
+When the user's request matches an available skill, ALWAYS invoke it using the Skill
+tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
+The skill has specialized workflows that produce better results than ad-hoc answers.
+
+Key routing rules:
+- Product ideas, "is this worth building", brainstorming → invoke office-hours
+- Bugs, errors, "why is this broken", 500 errors → invoke investigate
+- Ship, deploy, push, create PR → invoke ship
+- QA, test the site, find bugs → invoke qa
+- Code review, check my diff → invoke review
+- Update docs after shipping → invoke document-release
+- Weekly retro → invoke retro
+- Design system, brand → invoke design-consultation
+- Visual audit, design polish → invoke design-review
+- Architecture review → invoke plan-eng-review
+`);
 }
 
 /** Init a git repo with config */

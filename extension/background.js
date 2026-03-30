@@ -161,6 +161,21 @@ async function fetchAndRelayRefs() {
 // ─── Message Handling ──────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Security: only accept messages from this extension's own scripts
+  if (sender.id !== chrome.runtime.id) {
+    console.warn('[gstack] Rejected message from unknown sender:', sender.id);
+    return;
+  }
+
+  const ALLOWED_TYPES = new Set([
+    'getPort', 'setPort', 'getServerUrl', 'fetchRefs',
+    'openSidePanel', 'command', 'sidebar-command'
+  ]);
+  if (!ALLOWED_TYPES.has(msg.type)) {
+    console.warn('[gstack] Rejected unknown message type:', msg.type);
+    return;
+  }
+
   if (msg.type === 'getPort') {
     sendResponse({ port: serverPort, connected: isConnected });
     return true;

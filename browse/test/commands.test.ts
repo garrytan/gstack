@@ -649,6 +649,13 @@ describe('Chain', () => {
     expect(result).toContain('[css]');
   });
 
+  test('chain wraps page-content sub-commands with trust markers', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleMetaCommand('chain', ['text'], bm, async () => {});
+    expect(result).toContain('BEGIN UNTRUSTED EXTERNAL CONTENT');
+    expect(result).toContain('END UNTRUSTED EXTERNAL CONTENT');
+  });
+
   test('chain reports real error when write command fails', async () => {
     const commands = JSON.stringify([
       ['goto', 'http://localhost:1/unreachable'],

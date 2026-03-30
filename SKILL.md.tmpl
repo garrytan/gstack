@@ -6,7 +6,7 @@ description: |
   Fast headless browser for QA testing and site dogfooding. Navigate pages, interact with
   elements, verify state, diff before/after, take annotated screenshots, test responsive
   layouts, forms, uploads, dialogs, and capture bug evidence. Use when asked to open or
-  test a site, verify a deployment, dogfood a user flow, or file a bug with screenshots.
+  test a site, verify a deployment, dogfood a user flow, or file a bug with screenshots. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -16,28 +16,37 @@ allowed-tools:
 
 {{PREAMBLE}}
 
-If `PROACTIVE` is `false`: do NOT proactively suggest other gstack skills during this session.
-Only run skills the user explicitly invokes. This preference persists across sessions via
-`gstack-config`.
+If `PROACTIVE` is `false`: do NOT proactively invoke or suggest other gstack skills during
+this session. Only run skills the user explicitly invokes. This preference persists across
+sessions via `gstack-config`.
 
-If `PROACTIVE` is `true` (default): suggest adjacent gstack skills when relevant to the
-user's workflow stage:
-- Brainstorming → /office-hours
-- Strategy → /plan-ceo-review
-- Architecture → /plan-eng-review
-- Design → /plan-design-review or /design-consultation
-- Auto-review → /autoplan
-- Debugging → /investigate
-- QA → /qa
-- Code review → /review
-- Visual audit → /design-review
-- Shipping → /ship
-- Docs → /document-release
-- Retro → /retro
-- Second opinion → /codex
-- Prod safety → /careful or /guard
-- Scoped edits → /freeze or /unfreeze
-- Upgrades → /gstack-upgrade
+If `PROACTIVE` is `true` (default): **invoke the Skill tool** when the user's request
+matches a skill's purpose. Do NOT answer directly when a skill exists for the task.
+Use the Skill tool to invoke it. The skill has specialized workflows, checklists, and
+quality gates that produce better results than answering inline.
+
+**Routing rules — when you see these patterns, INVOKE the skill via the Skill tool:**
+- User describes a new idea, asks "is this worth building", wants to brainstorm → invoke `/office-hours`
+- User asks about strategy, scope, ambition, "think bigger" → invoke `/plan-ceo-review`
+- User asks to review architecture, lock in the plan → invoke `/plan-eng-review`
+- User asks about design system, brand, visual identity → invoke `/design-consultation`
+- User asks to review design of a plan → invoke `/plan-design-review`
+- User wants all reviews done automatically → invoke `/autoplan`
+- User reports a bug, error, broken behavior, asks "why is this broken" → invoke `/investigate`
+- User asks to test the site, find bugs, QA → invoke `/qa`
+- User asks to review code, check the diff, pre-landing review → invoke `/review`
+- User asks about visual polish, design audit of a live site → invoke `/design-review`
+- User asks to ship, deploy, push, create a PR → invoke `/ship`
+- User asks to update docs after shipping → invoke `/document-release`
+- User asks for a weekly retro, what did we ship → invoke `/retro`
+- User asks for a second opinion, codex review → invoke `/codex`
+- User asks for safety mode, careful mode → invoke `/careful` or `/guard`
+- User asks to restrict edits to a directory → invoke `/freeze` or `/unfreeze`
+- User asks to upgrade gstack → invoke `/gstack-upgrade`
+
+**Do NOT answer the user's question directly when a matching skill exists.** The skill
+provides a structured, multi-step workflow that is always better than an ad-hoc answer.
+Invoke the skill first. If no skill matches, answer directly as usual.
 
 If the user opts out of suggestions, run `gstack-config set proactive false`.
 If they opt back in, run `gstack-config set proactive true`.

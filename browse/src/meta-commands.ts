@@ -5,7 +5,7 @@
 import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
-import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from './commands';
+import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
 import { validateNavigationUrl } from './url-validation';
 import * as Diff from 'diff';
 import * as fs from 'fs';
@@ -242,6 +242,9 @@ export async function handleMetaCommand(
             lastWasWrite = true;
           } else if (READ_COMMANDS.has(name)) {
             result = await handleReadCommand(name, cmdArgs, bm);
+            if (PAGE_CONTENT_COMMANDS.has(name)) {
+              result = wrapUntrustedContent(result, bm.getCurrentUrl());
+            }
             lastWasWrite = false;
           } else if (META_COMMANDS.has(name)) {
             result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
@@ -288,12 +291,13 @@ export async function handleMetaCommand(
         }
       }
 
-      return output.join('\n');
+      return wrapUntrustedContent(output.join('\n'), `diff: ${url1} vs ${url2}`);
     }
 
     // ─── Snapshot ─────────────────────────────────────
     case 'snapshot': {
-      return await handleSnapshot(args, bm);
+      const snapshotResult = await handleSnapshot(args, bm);
+      return wrapUntrustedContent(snapshotResult, bm.getCurrentUrl());
     }
 
     // ─── Handoff ────────────────────────────────────
@@ -306,7 +310,7 @@ export async function handleMetaCommand(
       bm.resume();
       // Re-snapshot to capture current page state after human interaction
       const snapshot = await handleSnapshot(['-i'], bm);
-      return `RESUMED\n${snapshot}`;
+      return `RESUMED\n${wrapUntrustedContent(snapshot, bm.getCurrentUrl())}`;
     }
 
     // ─── Headed Mode ──────────────────────────────────────
@@ -377,11 +381,14 @@ export async function handleMetaCommand(
         if (!bm.isWatching()) return 'Not currently watching.';
         const result = bm.stopWatch();
         const durationSec = Math.round(result.duration / 1000);
+        const lastSnapshot = result.snapshots.length > 0
+          ? wrapUntrustedContent(result.snapshots[result.snapshots.length - 1], bm.getCurrentUrl())
+          : '(none)';
         return [
           `WATCH STOPPED (${durationSec}s, ${result.snapshots.length} snapshots)`,
           '',
           'Last snapshot:',
-          result.snapshots.length > 0 ? result.snapshots[result.snapshots.length - 1] : '(none)',
+          lastSnapshot,
         ].join('\n');
       }
 

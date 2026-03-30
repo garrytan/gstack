@@ -45,15 +45,17 @@ describe('Audit compliance', () => {
     expect(completionSection).toContain('_TEL" != "off"');
   });
 
-  // Fix 3: W012 — Bun install is version-pinned
-  test('bun install commands use version pinning', () => {
+  // Round 2 Fix 1: W012 — Bun install uses checksum verification
+  test('bun install uses checksum-verified method', () => {
     const browseResolver = readFileSync(join(ROOT, 'scripts/resolvers/browse.ts'), 'utf-8');
-    expect(browseResolver).toContain('BUN_VERSION');
-    // Should not have unpinned curl|bash (without BUN_VERSION on same line)
-    const lines = browseResolver.split('\n');
+    expect(browseResolver).toContain('shasum -a 256');
+    expect(browseResolver).toContain('BUN_INSTALL_SHA');
+    const setup = readFileSync(join(ROOT, 'setup'), 'utf-8');
+    // Setup error message should not have unverified curl|bash
+    const lines = setup.split('\n');
     for (const line of lines) {
-      if (line.includes('bun.sh/install') && line.includes('bash') && !line.includes('BUN_VERSION') && !line.includes('command -v')) {
-        throw new Error(`Unpinned bun install found: ${line.trim()}`);
+      if (line.includes('bun.sh/install') && line.includes('| bash') && !line.includes('shasum')) {
+        throw new Error(`Unverified bun install found: ${line.trim()}`);
       }
     }
   });
@@ -69,11 +71,36 @@ describe('Audit compliance', () => {
     expect(between.toLowerCase()).toContain('untrusted');
   });
 
+  // Round 2 Fix 2: Trust boundary markers + helper + wrapping in all paths
+  test('browse wraps untrusted content with trust boundary markers', () => {
+    const commands = readFileSync(join(ROOT, 'browse/src/commands.ts'), 'utf-8');
+    expect(commands).toContain('PAGE_CONTENT_COMMANDS');
+    expect(commands).toContain('wrapUntrustedContent');
+    const server = readFileSync(join(ROOT, 'browse/src/server.ts'), 'utf-8');
+    expect(server).toContain('wrapUntrustedContent');
+    const meta = readFileSync(join(ROOT, 'browse/src/meta-commands.ts'), 'utf-8');
+    expect(meta).toContain('wrapUntrustedContent');
+  });
+
   // Fix 5: Data flow documentation in review.ts
   test('review.ts has data flow documentation', () => {
     const review = readFileSync(join(ROOT, 'scripts/resolvers/review.ts'), 'utf-8');
     expect(review).toContain('Data sent');
     expect(review).toContain('Data NOT sent');
+  });
+
+  // Round 2 Fix 3: Extension sender validation + message type allowlist
+  test('extension background.js validates message sender', () => {
+    const bg = readFileSync(join(ROOT, 'extension/background.js'), 'utf-8');
+    expect(bg).toContain('sender.id !== chrome.runtime.id');
+    expect(bg).toContain('ALLOWED_TYPES');
+  });
+
+  // Round 2 Fix 4: Chrome CDP binds to localhost only
+  test('chrome-cdp binds to localhost only', () => {
+    const cdp = readFileSync(join(ROOT, 'bin/chrome-cdp'), 'utf-8');
+    expect(cdp).toContain('--remote-debugging-address=127.0.0.1');
+    expect(cdp).toContain('--remote-allow-origins=');
   });
 
   // Fix 2+6: All generated SKILL.md files with telemetry are conditional

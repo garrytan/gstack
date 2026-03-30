@@ -95,6 +95,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'cso-diff-mode':    ['cso/**'],
   'cso-infra-scope':  ['cso/**'],
 
+  // Learnings
+  'learnings-show': ['learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts'],
+
   // Document-release
   'document-release': ['document-release/**'],
 
@@ -237,6 +240,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'cso-full-audit': 'gate',      // Hardcoded secrets detection
   'cso-diff-mode': 'gate',
   'cso-infra-scope': 'periodic',
+
+  // Learnings — gate (functional guardrail: seeded learnings must appear)
+  'learnings-show': 'gate',
 
   // Document-release — gate (CHANGELOG guardrail)
   'document-release': 'gate',
