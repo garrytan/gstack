@@ -27,7 +27,7 @@ describe("generateProductConscienceRead", () => {
     expect(result).toContain("docs/oracle/PRODUCT_MAP.md");
   });
 
-  test("contains spot-check instruction", () => {
+  test("contains spot-check instruction for full entries", () => {
     const result = generateProductConscienceRead(makeCtx());
     expect(result).toMatch(/spot.check|grep/i);
   });
@@ -37,7 +37,7 @@ describe("generateProductConscienceRead", () => {
     expect(result).toMatch(/anti.pattern/i);
   });
 
-  test("mentions /oracle bootstrap when no map", () => {
+  test("mentions /oracle for deeper analysis", () => {
     const result = generateProductConscienceRead(makeCtx());
     expect(result).toContain("/oracle");
   });
@@ -48,18 +48,56 @@ describe("generateProductConscienceRead", () => {
     expect(result).toContain("```");
   });
 
-  test("READ output is host-agnostic (no host-specific paths)", () => {
-    const claude = generateProductConscienceRead(makeCtx("claude"));
-    const codex = generateProductConscienceRead(makeCtx("codex"));
-    // READ just checks for docs/oracle/PRODUCT_MAP.md — no host-specific paths needed
-    expect(claude).toContain("docs/oracle/PRODUCT_MAP.md");
-    expect(codex).toContain("docs/oracle/PRODUCT_MAP.md");
+  test("contains auto-bootstrap instruction", () => {
+    const result = generateProductConscienceRead(makeCtx());
+    expect(result).toContain("bootstrap-ready");
   });
 
-  test("output is lean (under 30 lines)", () => {
+  test("contains commit count check", () => {
+    const result = generateProductConscienceRead(makeCtx());
+    expect(result).toContain("git rev-list --count");
+  });
+
+  test("contains auto-bootstrap breadcrumb", () => {
+    const result = generateProductConscienceRead(makeCtx());
+    expect(result).toContain(".product-map-auto-bootstrapped");
+  });
+
+  test("contains compressed entry handling in found path", () => {
+    const result = generateProductConscienceRead(makeCtx());
+    expect(result).toMatch(/compressed one-liner/i);
+  });
+
+  test("contains 60-second time constraint", () => {
+    const result = generateProductConscienceRead(makeCtx());
+    expect(result).toMatch(/60 seconds|under 60/i);
+  });
+
+  test("contains previously-bootstrapped path", () => {
+    const result = generateProductConscienceRead(makeCtx());
+    expect(result).toContain("previously bootstrapped");
+  });
+
+  test("contains young-repo path", () => {
+    const result = generateProductConscienceRead(makeCtx());
+    expect(result).toContain("need 20+");
+  });
+
+  test("both hosts contain product map path and host-specific slug", () => {
+    const claude = generateProductConscienceRead(makeCtx("claude"));
+    const codex = generateProductConscienceRead(makeCtx("codex"));
+    // Both check for the same product map file
+    expect(claude).toContain("docs/oracle/PRODUCT_MAP.md");
+    expect(codex).toContain("docs/oracle/PRODUCT_MAP.md");
+    // Each uses host-specific binDir for gstack-slug
+    expect(claude).toContain("~/.claude/skills/gstack/bin");
+    expect(codex).toContain("$GSTACK_BIN");
+  });
+
+  test("output is under 80 lines", () => {
     const result = generateProductConscienceRead(makeCtx());
     const lineCount = result.split("\n").length;
-    expect(lineCount).toBeLessThan(30);
+    expect(lineCount).toBeLessThan(80);
   });
 });
 
@@ -109,10 +147,21 @@ describe("generateProductConscienceWrite", () => {
     expect(result).toContain("$GSTACK_BIN");
   });
 
-  test("output is lean (under 30 lines)", () => {
+  test("contains progressive enrichment instruction", () => {
+    const result = generateProductConscienceWrite(makeCtx());
+    expect(result).toContain("compressed one-liner format");
+    expect(result).toContain("expand it to the full schema");
+  });
+
+  test("contains inventory nudge breadcrumb", () => {
+    const result = generateProductConscienceWrite(makeCtx());
+    expect(result).toContain(".oracle-inventory-nudged");
+  });
+
+  test("output is under 40 lines", () => {
     const result = generateProductConscienceWrite(makeCtx());
     const lineCount = result.split("\n").length;
-    expect(lineCount).toBeLessThan(30);
+    expect(lineCount).toBeLessThan(40);
   });
 
   test("does not contain AskUserQuestion", () => {

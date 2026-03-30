@@ -38,6 +38,8 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 5. Run `/qa` on your staging URL
 6. Stop there. You'll know if this is for you.
 
+> **Product conscience:** gstack automatically builds a product map from your git history the first time any skill runs (after ~20 commits). Every skill uses it to warn about anti-patterns and track features. For deeper analysis, run `/oracle inventory`.
+
 ## Install — 30 seconds
 
 **Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
