@@ -710,3 +710,41 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Effort:** M
 **Priority:** P3
 **Depends on:** This branch landing (Revyl iOS support)
+
+## Garry-Wiggum
+
+### Parallel sub-agent architecture (v0.2.0)
+
+**What:** Run QA and Design Review on separate worktrees via `claude -p`, with branch naming (`gw-qa-iter-N`, `gw-dr-iter-N`), merge strategy (QA merges first, then DR on top), and conflict resolution.
+
+**Why:** Sequential execution means each iteration takes ~2x as long as it could. Parallel execution would halve iteration time and allow QA and DR to run without blocking each other.
+
+**Context:** v0.1.0 uses sequential execution (QA first, DR second) to avoid merge conflicts. Parallel requires worktree isolation (`git worktree add`), a merge strategy when both agents modify the same files, and careful branch management. The Agent tool with `isolation: "worktree"` may provide the right primitive.
+
+**Effort:** L
+**Priority:** P2
+**Depends on:** garry-wiggum v0.1.0 landing
+
+### Diff-aware iteration (v0.2.0)
+
+**What:** Only re-test pages/components touched by the previous iteration's fixes, rather than running full QA and design review on every iteration.
+
+**Why:** Later iterations often have only 1-2 remaining issues in specific files. Re-running full QA across all pages wastes time and risks introducing new issues in unrelated areas.
+
+**Context:** Requires tracking which files were modified in each iteration (available from git diff), mapping files to pages/routes (needs route-to-file mapping or heuristic), and passing a "scope" parameter to QA and design review skills. The QA skill would need a `--files` or `--pages` flag to limit its scope.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** garry-wiggum v0.1.0 landing
+
+### Garry-Wiggum E2E test
+
+**What:** Full E2E test (`test/skill-e2e-garry-wiggum.test.ts`) that validates the iterative loop works end-to-end, including state file creation, convergence detection, and promise tag output.
+
+**Why:** v0.1.0 ships with only static validation (skill frontmatter + structure checks via `bun test`). A full E2E test would validate the integration with QA and design review skills and the Ralph Loop contract.
+
+**Context:** Requires a test app with planted bugs, Ralph Loop plugin integration, and verification that the state file is correctly updated across iterations. Could use a mock Ralph Loop or a single-pass test (--max 1) as a simpler starting point.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** garry-wiggum v0.1.0 landing

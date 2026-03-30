@@ -130,6 +130,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'benchmark-workflow':         ['benchmark/**', 'browse/src/**'],
   'setup-deploy-workflow':      ['setup-deploy/**', 'scripts/gen-skill-docs.ts'],
 
+  // Garry-Wiggum (iterative perfection loop)
+  'garry-wiggum': ['garry-wiggum/SKILL.md.tmpl', 'garry-wiggum/SKILL.md'],
+
   // Autoplan
   'autoplan-core':  ['autoplan/**', 'plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**'],
 
