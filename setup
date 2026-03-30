@@ -523,6 +523,7 @@ link_factory_skill_dirs() {
   local skills_dir="$2"
   local factory_dir="$gstack_dir/.factory/skills"
   local linked=()
+  local lock_path="$HOME/.agents/.skill-lock.json"
 
   if [ ! -d "$factory_dir" ]; then
     echo "  Generating .factory/ skill docs..."
@@ -534,15 +535,18 @@ link_factory_skill_dirs() {
     return 1
   fi
 
-  # Copy skills as REAL directories into ~/.agents/skills/.
-  # Droid reads skill files from ~/.agents/skills/. This is required because
-  # skills in ~/gstack/.factory/skills/ (a project subdirectory) are never
-  # scanned by Droid.
+  # Copy Factory skills as REAL directories into ~/.agents/skills/, but use
+  # isolated names so we do not clobber the shared non-Factory SKILL.md install
+  # convention that other hosts also use.
   mkdir -p "$HOME/.agents/skills"
   for skill_dir in "$factory_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
-      dest="$HOME/.agents/skills/$skill_name"
+      copy_name="gstack-factory"
+      if [ "$skill_name" != "gstack" ]; then
+        copy_name="gstack-factory-${skill_name#gstack-}"
+      fi
+      dest="$HOME/.agents/skills/$copy_name"
       rm -rf "$dest"
       cp -r "$skill_dir" "$dest"
     fi
@@ -555,9 +559,13 @@ link_factory_skill_dirs() {
   for skill_dir in "$factory_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
+      copy_name="gstack-factory"
+      if [ "$skill_name" != "gstack" ]; then
+        copy_name="gstack-factory-${skill_name#gstack-}"
+      fi
       target="$skills_dir/$skill_name"
       if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "../../.agents/skills/$skill_name" "$target"
+        ln -snf "../../.agents/skills/$copy_name" "$target"
         linked+=("$skill_name")
       fi
     fi
@@ -567,25 +575,46 @@ link_factory_skill_dirs() {
   fi
 
   # Register skills in ~/.agents/.skill-lock.json with sourceType=github.
-  # Droid's lockfile ONLY loads entries with sourceType=github. Entries with
-  # sourceType=local are completely ignored — and no working skill uses it.
-  if [ -f "$HOME/.agents/.skill-lock.json" ]; then
-    python3 -c "
+  # Droid's lockfile ONLY loads entries with sourceType=github. Create the
+  # registry on first install so clean machines do not skip this step.
+  mkdir -p "$HOME/.agents"
+  if [ ! -f "$lock_path" ]; then
+    cat > "$lock_path" <<'JSON'
+{
+  "version": 3,
+  "dismissed": {},
+  "lastSelectedAgents": [],
+  "skills": {}
+}
+JSON
+  fi
+
+  python3 -c "
 import json, hashlib, os, datetime
-lock_path = '$HOME/.agents/.skill-lock.json'
+lock_path = '$lock_path'
 agents_skills = '$HOME/.agents/skills'
+factory_dir = '$factory_dir'
 with open(lock_path) as f:
     lock = json.load(f)
+lock.setdefault('version', 3)
+lock.setdefault('dismissed', {})
+lock.setdefault('lastSelectedAgents', [])
+lock.setdefault('skills', {})
 now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.') + '000Z'
 added = []
-for entry in os.listdir(agents_skills):
+for entry in sorted(os.listdir(factory_dir)):
     if not entry.startswith('gstack'):
         continue
-    skill_md = os.path.join(agents_skills, entry, 'SKILL.md')
+    skill_md = os.path.join(factory_dir, entry, 'SKILL.md')
     if not os.path.isfile(skill_md):
         continue
+    copy_name = 'gstack-factory' if entry == 'gstack' else 'gstack-factory-' + entry[len('gstack-'):]
+    copy_dir = os.path.join(agents_skills, copy_name)
+    copy_skill_md = os.path.join(copy_dir, 'SKILL.md')
+    if not os.path.isfile(copy_skill_md):
+        continue
     hasher = hashlib.sha1()
-    for root, dirs, files in os.walk(os.path.join(agents_skills, entry)):
+    for root, dirs, files in os.walk(copy_dir):
         dirs.sort()
         for fname in sorted(files):
             fpath = os.path.join(root, fname)
@@ -594,23 +623,21 @@ for entry in os.listdir(agents_skills):
                     hasher.update(fh.read())
             except:
                 pass
+    existing = lock['skills'].get(entry, {})
     lock['skills'][entry] = {
         'source': 'gstack/' + entry,
         'sourceType': 'github',
-        'sourceUrl': 'file://' + os.path.join(agents_skills, entry),
+        'sourceUrl': 'file://' + copy_dir,
         'skillPath': 'SKILL.md',
         'skillFolderHash': hasher.hexdigest(),
-        'installedAt': now_str,
+        'installedAt': existing.get('installedAt', now_str),
         'updatedAt': now_str
     }
-    added.append(entry)
+    added.append(entry + '->' + copy_name)
 with open(lock_path, 'w') as f:
     json.dump(lock, f, indent=2)
 print('  registered skills: ' + ' '.join(added))
 "
-  else
-    echo "  warning: ~/.agents/.skill-lock.json not found — skill registration skipped" >&2
-  fi
 }
 
 # 4. Install for Claude (default)
