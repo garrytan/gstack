@@ -258,6 +258,18 @@ not what was already on main.
 3. Does an existing entry on this branch already cover earlier work? (If yes, replace
    it with one unified entry for the final version.)
 
+**Merging main does NOT mean adopting main's version.** When you merge origin/main into
+a feature branch, main may bring new CHANGELOG entries and a higher VERSION. Your branch
+still needs its OWN version bump on top. If main is at v0.13.8.0 and your branch adds
+features, bump to v0.13.9.0 with a new entry. Never jam your changes into an entry that
+already landed on main. Your entry goes on top because your branch lands next.
+
+**After merging main, always check:**
+- Does CHANGELOG have your branch's own entry separate from main's entries?
+- Is VERSION higher than main's VERSION?
+- Is your entry the topmost entry in CHANGELOG (above main's latest)?
+If any answer is no, fix it before continuing.
+
 CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
 
 - Lead with what the user can now **do** that they couldn't before. Sell the feature.
