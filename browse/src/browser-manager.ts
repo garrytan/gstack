@@ -57,6 +57,9 @@ export class BrowserManager {
   private dialogAutoAccept: boolean = true;
   private dialogPromptText: string | null = null;
 
+  // ─── Cookie Origin Tracking ────────────────────────────────
+  private cookieImportedDomains: Set<string> = new Set();
+
   // ─── Handoff State ─────────────────────────────────────────
   private isHeaded: boolean = false;
   private consecutiveFailures: number = 0;
@@ -519,6 +522,19 @@ export class BrowserManager {
 
   getDialogPromptText(): string | null {
     return this.dialogPromptText;
+  }
+
+  // ─── Cookie Origin Tracking ────────────────────────────────
+  trackCookieImportDomains(domains: string[]): void {
+    for (const d of domains) this.cookieImportedDomains.add(d);
+  }
+
+  getCookieImportedDomains(): ReadonlySet<string> {
+    return this.cookieImportedDomains;
+  }
+
+  hasCookieImports(): boolean {
+    return this.cookieImportedDomains.size > 0;
   }
 
   // ─── Viewport ──────────────────────────────────────────────
