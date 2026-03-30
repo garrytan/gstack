@@ -326,9 +326,51 @@ For each classified comment:
 
 {{LEARNINGS_LOG}}
 
+## Step 3.9: Resume / rerun safety
+
+`/ship` must be restartable after partial failure. If Step 7 succeeds and Step 8 fails, a re-run must resume from the first incomplete step. Never double-bump `VERSION`, never duplicate the top `CHANGELOG` entry, and never open duplicate PRs/MRs.
+
+Capture the current release state:
+
+```bash
+BRANCH=$(git branch --show-current)
+SHIP_METADATA_COMMIT=$(git log <base>..HEAD --grep='^chore: bump version and changelog' --max-count=1 --format='%H' 2>/dev/null || true)
+REMOTE_HEAD=$(git ls-remote --heads origin "$BRANCH" | awk '{print $1}')
+```
+
+**If GitHub:**
+```bash
+HEAD_OWNER=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null | cut -d/ -f1)
+EXISTING_PR_URL=$(gh pr list --head "$HEAD_OWNER:$BRANCH" --base <base> --json url,state --jq 'map(select(.state=="OPEN")) | .[0].url' 2>/dev/null || \
+  gh pr list --head "$BRANCH" --base <base> --json url,state --jq 'map(select(.state=="OPEN")) | .[0].url' 2>/dev/null || true)
+```
+
+**If GitLab:**
+```bash
+EXISTING_MR_URL=$(glab mr list --source-branch "$BRANCH" --state opened 2>/dev/null | awk 'NR==1{print $1}' || true)
+```
+
+Decision rules:
+- **No ship metadata commit found:** normal flow. Continue to Step 4.
+- **Ship metadata commit found and no substantive commits were added after it:** treat Step 4, the CHANGELOG workflow, Step 5.5, and Step 6 as already complete. Reuse the current `VERSION`, `CHANGELOG.md`, and final metadata commit exactly.
+- **Ship metadata commit found but substantive commits were added after it:** re-run Step 4 and regenerate the **top** CHANGELOG entry once so it matches the new diff. Replace the prior top entry instead of stacking another version bump on top of it.
+- **Only a docs-sync commit exists after the metadata commit:** still treat Step 4/5.5/6 as complete.
+
+Then jump to the first incomplete release step:
+- `SHIP_METADATA_COMMIT` exists, remote branch missing, no PR/MR → skip to Step 7
+- `SHIP_METADATA_COMMIT` exists, remote branch present, no PR/MR → skip to Step 8
+- `SHIP_METADATA_COMMIT` exists, PR/MR already open → output the URL and continue at Step 8.5
+
+Divergence guard:
+- If the remote branch exists but is not the same commit and is not a fast-forward ancestor of local `HEAD`, **STOP**. Do not overwrite a branch that may contain someone else's newer state.
+
+---
+
 ## Step 4: Version bump (auto-decide)
 
-1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
+**Resume safety:** If Step 3.9 determined that the branch already has a valid ship metadata commit and no new substantive commits were added after it, skip Step 4 and the CHANGELOG workflow below. Reuse the existing `VERSION` and `CHANGELOG.md` exactly.
+
+1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`) and the base branch's `VERSION` file for comparison.
 
 2. **Auto-decide the bump level based on the diff:**
    - Count lines changed (`git diff origin/<base>...HEAD --stat | tail -1`)
@@ -467,17 +509,32 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 
 ## Step 7: Push
 
-Push to the remote with upstream tracking:
+Before pushing, check whether this branch is already on the remote:
 
 ```bash
-git push -u origin <branch-name>
+git fetch origin <branch-name> 2>/dev/null || true
+REMOTE_HEAD=$(git ls-remote --heads origin <branch-name> | awk '{print $1}')
+LOCAL_HEAD=$(git rev-parse HEAD)
 ```
+
+- **No remote branch yet:** push with upstream tracking:
+  ```bash
+  git push -u origin <branch-name>
+  ```
+- **Remote branch exists and matches local `HEAD`:** skip Step 7 with "Branch already pushed — continuing."
+- **Remote branch exists and is behind local `HEAD`:** push normally (no force):
+  ```bash
+  git push origin <branch-name>
+  ```
+- **Remote branch is ahead of local `HEAD` or diverged:** **STOP.** Do not overwrite remote state.
 
 ---
 
 ## Step 8: Create PR/MR
 
 Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
+
+Before creating one, check whether an open PR/MR already exists for this branch.
 
 The PR/MR body should contain these sections:
 
@@ -534,6 +591,18 @@ you missed it.>
 
 **If GitHub:**
 
+First check for an existing PR:
+
+```bash
+HEAD_OWNER=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null | cut -d/ -f1)
+EXISTING_PR_URL=$(gh pr list --head "$HEAD_OWNER:<branch-name>" --base <base> --json url,state --jq 'map(select(.state=="OPEN")) | .[0].url' 2>/dev/null || \
+  gh pr list --head "<branch-name>" --base <base> --json url,state --jq 'map(select(.state=="OPEN")) | .[0].url' 2>/dev/null || true)
+```
+
+If `EXISTING_PR_URL` is non-empty: output it and skip creation. Continue at Step 8.5.
+
+Otherwise create the PR:
+
 ```bash
 gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 <PR body from above>
@@ -543,12 +612,24 @@ EOF
 
 **If GitLab:**
 
+First check for an existing MR:
+
+```bash
+EXISTING_MR_URL=$(glab mr list --source-branch "<branch-name>" --state opened 2>/dev/null | awk 'NR==1{print $1}' || true)
+```
+
+If `EXISTING_MR_URL` is non-empty: output it and skip creation. Continue at Step 8.5.
+
+Otherwise create the MR:
+
 ```bash
 glab mr create -b <base> -t "<type>: <summary>" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"
 ```
+
+**If PR/MR creation fails after the branch is already pushed:** **STOP** with a resume-safe message: "Branch is already pushed. Re-enter `/ship` at Step 8 after checking for an existing PR/MR." Do **not** return to Step 4 or bump `VERSION` again.
 
 **If neither CLI is available:**
 Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.

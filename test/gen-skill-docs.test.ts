@@ -880,6 +880,30 @@ describe('Coverage gate in ship', () => {
   });
 });
 
+describe('Ship rerun safety', () => {
+  const shipSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('ship SKILL.md contains a rerun safety checkpoint before version bump', () => {
+    expect(shipSkill).toContain('Step 3.9');
+    expect(shipSkill).toContain('Resume / rerun safety');
+    expect(shipSkill).toContain('Never double-bump `VERSION`');
+    expect(shipSkill).toContain('never duplicate the top `CHANGELOG` entry');
+  });
+
+  test('ship rerun safety checks remote and PR/MR state before recreating them', () => {
+    expect(shipSkill).toContain('git ls-remote --heads origin "$BRANCH"');
+    expect(shipSkill).toContain('gh pr list --head');
+    expect(shipSkill).toContain('glab mr list --source-branch');
+    expect(shipSkill).toContain('skip to Step 8');
+    expect(shipSkill).toContain('continue at Step 8.5');
+  });
+
+  test('ship rerun safety refuses to loop back into another version bump after PR creation failure', () => {
+    expect(shipSkill).toContain('Branch is already pushed. Re-enter `/ship` at Step 8');
+    expect(shipSkill).toContain('Do **not** return to Step 4 or bump `VERSION` again');
+  });
+});
+
 // --- Ship metrics logging ---
 
 describe('Ship metrics logging', () => {
