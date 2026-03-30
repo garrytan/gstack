@@ -1,4 +1,5 @@
 import type { TemplateContext } from './types';
+import { generateMobileQASections } from './mobile-qa';
 
 export function generateSlugEval(ctx: TemplateContext): string {
   return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"`;
@@ -86,7 +87,7 @@ in the decision tree below.
 If you want to persist deploy settings for future runs, suggest the user run \`/setup-deploy\`.`;
 }
 
-export function generateQAMethodology(_ctx: TemplateContext): string {
+export function generateQAMethodology(ctx: TemplateContext): string {
   return `## Modes
 
 ### Diff-aware (automatic when on a feature branch with no URL)
@@ -116,6 +117,8 @@ This is the **primary mode** for developers verifying their work. When the user 
    $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
    \`\`\`
    If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
+
+${generateMobileQASections(ctx)}
 
 4. **Test each affected page/route:**
    - Navigate to the page

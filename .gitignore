@@ -1,6 +1,8 @@
 .env
 node_modules/
 browse/dist/
+# browse-mobile dist is a JS bundle + shell script (3.2MB) — small enough to commit
+# unlike browse/dist/ which is a 58MB compiled binary
 design/dist/
 bin/gstack-global-discover
 .gstack/

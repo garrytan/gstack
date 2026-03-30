@@ -1,0 +1,4 @@
+#!/bin/bash
+# browse-mobile launcher — runs the bundled JS with bun
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec bun run "$DIR/cli.js" "$@"

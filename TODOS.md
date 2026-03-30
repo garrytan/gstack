@@ -737,3 +737,113 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 ### Auto-upgrade mode + smart update check
 - Config CLI (`bin/gstack-config`), auto-upgrade via `~/.gstack/config.yaml`, 12h cache TTL, exponential snooze backoff (24h→48h→1wk), "never ask again" option, vendored copy sync on upgrade
 **Completed:** v0.3.8
+
+## Browse-Mobile (Appium Driver for Mobile QA)
+
+### Investigate xcrun simctl + XCTest as alternative to Appium
+
+**What:** During the Phase 1 spike, benchmark Appium vs. native Apple tooling (xcrun simctl for lifecycle, XCTest/xctestctl for element inspection + interaction, xcrun simctl io screenshot for captures) on cold start latency, element tree reliability, and setup friction.
+
+**Why:** Outside voice in eng review challenged the Appium choice — it's a heavyweight Java-dependent server designed for CI, not interactive dev tools. For an iOS-only Phase 1, native tooling may be faster (no JVM boot), more reliable (direct XCTest element tree vs Appium's XML translation), and zero Java dependency. Cross-platform Appium benefit is irrelevant when Android Phase 2 would use adb + UIAutomator directly anyway.
+
+**Context:** The design doc chose Appium for cross-platform maturity. But the eng review decided on a separate binary (not shared CLI), meaning each platform already gets its own driver. If native xcrun/XCTest is significantly better for iOS, Appium adds cost without value until a unified cross-platform abstraction is needed.
+
+**Effort:** S (spike comparison during Phase 1 proof-of-concept)
+**Priority:** P1
+**Depends on:** Phase 1 spike start
+
+### Document/automate app build prerequisite
+
+**What:** The QA flow assumes the Expo app is already built and running on the simulator. Document this as a prerequisite, or automate: detect if Metro bundler is running (check port 8081), offer to start `expo start`, or require a pre-built .app path.
+
+**Why:** Outside voice flagged this as a Phase 1 blocker: the plan jumps to Appium automation without specifying who builds and serves the JS bundle. A developer running `/qa` for the first time will hit "app not found" with no guidance.
+
+**Context:** For Expo: `expo start` must be running, or `npx expo run:ios` must have been run to build a .app. For bare RN: Metro bundler + built .app. Detection: check `lsof -i :8081` for Metro, check `xcrun simctl listapps booted` for installed app.
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** browse-mobile server.ts implementation
+
+### Screenshot disk-full error handling
+
+**What:** When screenshot save fails (disk full, permission error), return an actionable error to Claude instead of silently failing. Check `fs.writeFile` result and return `{ error: "disk_full", message: "Screenshot save failed — disk may be full" }`.
+
+**Why:** Coverage diagram identified this as the only critical gap: a failure mode with no test, no error handling, and silent user impact.
+
+**Context:** Applies to both browse-mobile and potentially browse/ (same pattern). Simple `try/catch` on the write with an informative error response.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Revyl command table validation test
+
+**What:** Add a gen-skill-docs test that parses the Revyl command mapping table from generated SKILL.md files and validates command flags against a known-good reference list (e.g., `revyl device swipe` requires `--direction` + `--x/--y` or `--target`; `revyl device type` requires `--target` + `--text`).
+
+**Why:** The Revyl command table has been wrong 3 times now (--output→--out, swipe missing --x/--y, type missing --target). Each time it was caught by live testing, not automated checks. A validation test in `bun test` would catch drift immediately.
+
+**Context:** Pattern: existing `gen-skill-docs.test.ts` already validates generated SKILL.md content. This adds a focused check for Revyl CLI command syntax. The reference list is a simple map of command→required flags. Does NOT require `revyl` CLI installed — just validates the template output against known-correct syntax.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Revyl auth in headless/CI environments
+
+**What:** Handle `revyl auth login` failing in environments without a browser (SSH sessions, CI runners, headless servers). Detect headless environment and offer `revyl auth token <TOKEN>` as alternative.
+
+**Why:** `revyl auth login` opens a browser for OAuth. If no browser is available, the user gets stuck with no guidance. This blocks mobile QA in CI/CD and remote dev environments.
+
+**Context:** The QA template now auto-runs `revyl auth login` when auth is needed, with an AskUserQuestion fallback. But the fallback could be smarter: detect `$DISPLAY` (Linux) or `$SSH_CONNECTION` to preemptively offer the token-based auth path instead of trying browser auth first.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Revyl mobile QA E2E test
+
+**What:** E2E test that runs `/qa` against a test Expo app using Revyl cloud device, verifying the full flow: detect → init → build → upload → test → report.
+
+**Why:** The Revyl QA path (added in the dual-backend update) has no automated testing. A gen-skill-docs quality check catches template regressions but can't verify the actual QA flow works end-to-end with Revyl's CLI and device provisioning.
+
+**Context:** All other skill paths have E2E tests via `claude -p`. The Revyl mobile path is the only untested flow. Requires a Revyl account, costs per device session, and an Expo test app fixture. Pattern: existing E2E tests in `test/skill-e2e-*.test.ts`.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** Revyl test account setup, CI Revyl auth
+
+### /browse skill Revyl integration (dev loop mode)
+
+**What:** Add Revyl dev loop mode to `/browse` skill for interactive mobile development with hot reload on cloud devices.
+
+**Why:** The `/qa` skill now supports Revyl in static mode (Release build). `/browse` needs the complementary dev loop mode for hot-reload interactive development. The initial mobile QA report proved that dev loop works once tunnel DNS stabilizes — it just needs proper tunnel verification and retry logic.
+
+**Context:** The /qa skill's Revyl detection infrastructure (auth check, app-id resolution, YAML validation) can be reused. Dev loop adds: Metro + Cloudflare tunnel startup, tunnel health polling, deep link handling, and the "Open in X?" iOS dialog workaround. Tunnel race condition (30s DNS propagation) is the main reliability risk.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** This branch landing (Revyl detection infrastructure in gen-skill-docs.ts)
+
+### Revyl dev loop: reuse existing Metro instead of starting a new one — PARTIALLY FIXED
+
+**What:** ~~When the QA skill tries the dev loop path and Metro is already running on port 8081, detect and reuse it instead of starting a second Metro process.~~
+
+**Shipped (partial):** The QA template now detects existing Metro on :8081 via `lsof` and kills it before `revyl dev start`, avoiding the 65s timeout. This is the "kill and restart" approach.
+
+**Remaining:** A smarter approach would reuse the existing Metro instead of killing it — tell Revyl which port to connect to. This avoids the Metro restart overhead but requires understanding Revyl's port configuration options.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** Understanding Revyl's `--port` or tunnel config options
+
+### Android Revyl support
+
+**What:** Extend Revyl mobile QA path to support Android devices (`--platform android`), including APK build pipeline, ADB-based app installation, and Android-specific system dialog handling.
+
+**Why:** The current Revyl mobile QA only supports iOS. Revyl itself supports Android. Many mobile apps target both platforms and need cross-platform QA.
+
+**Context:** Android differences: APK build instead of .app (`npx expo run:android` or EAS), different system dialogs (no "Open in X?" confirmation), different accessibility tree format. The Revyl command API is the same (`revyl device start --platform android`). browse-mobile (Appium) is also iOS-only — this TODO covers both backends.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** This branch landing (Revyl iOS support)

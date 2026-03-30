@@ -299,6 +299,8 @@ function processExternalHost(
   result = result.replace(/\.claude\/skills\/gstack/g, ctx.paths.localSkillRoot);
   result = result.replace(/\.claude\/skills\/review/g, `${config.hostSubdir}/skills/gstack/review`);
   result = result.replace(/\.claude\/skills/g, `${config.hostSubdir}/skills`);
+  // Catch-all: replace any remaining ~/.claude/ paths (e.g. settings.json)
+  result = result.replace(/~\/\.claude\//g, `~/${config.hostSubdir}/`);
 
   // Factory-only: translate Claude Code tool names to generic phrasing
   if (host === 'factory') {

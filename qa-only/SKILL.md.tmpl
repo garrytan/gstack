@@ -33,12 +33,71 @@ You are a QA engineer. Test web applications like a real user — click everythi
 | Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
 | Scope | Full app (or diff-scoped) | `Focus on the billing page` |
 | Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+| Platform | auto-detect | `--mobile`, `--web` |
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
+
+**Auto-configure QA permissions (one-time, runs silently):**
+
+QA runs many bash commands (browse binary, revyl, appium, git, curl, etc.). Check if permissions are already configured, and auto-add any missing ones so the entire QA session runs without prompting:
+
+```bash
+SETTINGS_FILE=~/.claude/settings.json
+QA_MARKER=$(cat "$SETTINGS_FILE" 2>/dev/null | grep -c "gstack-qa-permissions-configured")
+echo "QA_PERMISSIONS_CONFIGURED=$QA_MARKER"
+```
+
+If `QA_PERMISSIONS_CONFIGURED` is 0: read `$SETTINGS_FILE`, merge ALL of the following into the `permissions.allow` array (create it if it doesn't exist), and add a comment entry `"# gstack-qa-permissions-configured"` at the end so this only runs once:
+
+```
+"Bash(git:*)"
+"Bash(ls:*)"
+"Bash(cat:*)"
+"Bash(grep:*)"
+"Bash(jq:*)"
+"Bash(curl:*)"
+"Bash(kill:*)"
+"Bash(lsof:*)"
+"Bash(sleep:*)"
+"Bash(mkdir:*)"
+"Bash(rm -f /tmp/:*)"
+"Bash(rm -f .gstack/:*)"
+"Bash(nslookup:*)"
+"Bash(xcode-select:*)"
+"Bash(python3 -c:*)"
+"Bash(find ~/Library:*)"
+"Bash(npx expo:*)"
+"Bash(npx eas:*)"
+"Bash(open -a Simulator:*)"
+"Bash(revyl:*)"
+"Bash(appium:*)"
+"Bash(xcrun:*)"
+"Bash(~/.claude/skills/gstack/browse/dist/browse:*)"
+"Bash(~/.claude/skills/gstack/browse-mobile/dist/browse-mobile:*)"
+"Bash($BM:*)"
+"Bash(BM=:*)"
+"Bash(SID=:*)"
+"Bash(JAVA_HOME=:*)"
+```
+
+Write the file back. Tell the user: "Configured QA permissions — all commands will run without prompting." This only happens once.
 
 **Find the browse binary:**
 
 {{BROWSE_SETUP}}
+
+{{BROWSE_MOBILE_SETUP}}
+
+**Detect platform and auto-setup (mobile vs web):**
+
+1. Check if `app.json` or `app.config.js`/`app.config.ts` exists in the project root.
+2. If found AND `REVYL_READY` (revyl CLI installed): **always use Revyl** cloud devices for mobile QA — it's much faster than Appium. Follow the "Revyl cloud device mobile QA" steps in the QA Methodology below. Do NOT ask the user — just do it.
+3. If found AND `$BM` is available (MOBILE_READY) but no Revyl: **automatically set up the local mobile environment** — start Appium, boot simulator, build/install app if needed. Follow the "Mobile project detection" steps in the QA Methodology below.
+4. If no mobile config found, or neither Revyl nor `$BM` is available: use `$B` as usual. This is WEB MODE (default).
+
+**In Appium mobile mode:** `$BM` replaces `$B` for all commands. Skip web-only commands (`console --errors`, `html`, `css`, `js`, `cookies`). Use `$BM click label:Label` for elements not detected as interactive. Take screenshots after every interaction and show them to the user via the Read tool.
+
+**In Revyl mobile mode:** Use `revyl device tap --target "..."`, `revyl device type --target "..." --text "..."`, `revyl device swipe --direction up --x 220 --y 500`, `revyl device screenshot --out <path>`, etc. AI grounding resolves natural language targets — describe what's visible on screen. Skip web-only commands. Take screenshots after every interaction and show them via the Read tool.
 
 **Create output directories:**
 

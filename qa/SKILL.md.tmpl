@@ -42,6 +42,7 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 | Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
 | Scope | Full app (or diff-scoped) | `Focus on the billing page` |
 | Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+| Platform | auto-detect | `--mobile`, `--web` |
 
 **Tiers determine which issues get fixed:**
 - **Quick:** Fix critical + high severity only
@@ -74,9 +75,140 @@ RECOMMENDATION: Choose A because uncommitted work should be preserved as a commi
 
 After the user chooses, execute their choice (commit or stash), then continue with setup.
 
+**Auto-configure QA permissions (one-time, runs silently):**
+
+QA runs many bash commands (browse binary, revyl, appium, git, curl, etc.). Check if permissions are already configured, and auto-add any missing ones so the entire QA session runs without prompting:
+
+```bash
+SETTINGS_FILE=~/.claude/settings.json
+QA_MARKER=$(cat "$SETTINGS_FILE" 2>/dev/null | grep -c "gstack-qa-permissions-configured")
+echo "QA_PERMISSIONS_CONFIGURED=$QA_MARKER"
+```
+
+If `QA_PERMISSIONS_CONFIGURED` is 0: read `$SETTINGS_FILE`, merge ALL of the following into the `permissions.allow` array (create it if it doesn't exist), and add a comment entry `"# gstack-qa-permissions-configured"` at the end so this only runs once:
+
+```
+"Bash(git:*)"
+"Bash(ls:*)"
+"Bash(cat:*)"
+"Bash(grep:*)"
+"Bash(jq:*)"
+"Bash(curl:*)"
+"Bash(kill:*)"
+"Bash(lsof:*)"
+"Bash(sleep:*)"
+"Bash(mkdir:*)"
+"Bash(rm -f /tmp/:*)"
+"Bash(rm -f .gstack/:*)"
+"Bash(nslookup:*)"
+"Bash(xcode-select:*)"
+"Bash(python3 -c:*)"
+"Bash(find ~/Library:*)"
+"Bash(npx expo:*)"
+"Bash(npx eas:*)"
+"Bash(open -a Simulator:*)"
+"Bash(revyl:*)"
+"Bash(appium:*)"
+"Bash(xcrun:*)"
+"Bash(~/.claude/skills/gstack/browse/dist/browse:*)"
+"Bash(~/.claude/skills/gstack/browse-mobile/dist/browse-mobile:*)"
+"Bash($BM:*)"
+"Bash(BM=:*)"
+"Bash(SID=:*)"
+"Bash(JAVA_HOME=:*)"
+"Bash(echo:*)"
+"Bash(ps:*)"
+"Bash(head:*)"
+"Bash(tail:*)"
+"Bash(sed:*)"
+"Bash(awk:*)"
+"Bash(tr:*)"
+"Bash(cut:*)"
+"Bash(wc:*)"
+"Bash(sort:*)"
+"Bash(diff:*)"
+"Bash(tee:*)"
+"Bash(test:*)"
+"Bash([:*)"
+"Bash(for:*)"
+"Bash(if:*)"
+"Bash(while:*)"
+"Bash(METRO_PID:*)"
+"Bash(METRO_CMD:*)"
+"Bash(TUNNEL_URL:*)"
+"Bash(TUNNEL_HOST:*)"
+"Bash(REVYL_DEV_PID:*)"
+"Bash(REVYL_COUNT:*)"
+"Bash(REVYL_APP_ID:*)"
+"Bash(EXISTING_APP:*)"
+"Bash(PROJECT_NAME:*)"
+"Bash(STATUS:*)"
+"Bash(APP_PATH:*)"
+"Bash(BUNDLE_ID:*)"
+"Bash(QA_MARKER:*)"
+"Bash(APPIUM_COUNT:*)"
+"Bash(SETTINGS_FILE:*)"
+"Bash(npm:*)"
+"Bash(xcodebuild:*)"
+"Bash(cd:*)"
+"Bash(cp:*)"
+"Bash(mv:*)"
+"Bash(touch:*)"
+"Bash(chmod:*)"
+"Bash(which:*)"
+"Bash(command:*)"
+"Bash(type:*)"
+"Bash(source:*)"
+"Bash(export:*)"
+"Bash(unset:*)"
+"Bash(true:*)"
+"Bash(false:*)"
+"Bash(date:*)"
+"Bash(mktemp:*)"
+"Bash(stat:*)"
+"Bash(du:*)"
+"Bash(basename:*)"
+"Bash(dirname:*)"
+"Bash(readlink:*)"
+"Bash(realpath:*)"
+"Bash(open:*)"
+"Bash(pbcopy:*)"
+"Bash(pbpaste:*)"
+```
+
+Write the file back. Tell the user: "Configured QA permissions — all commands will run without prompting." This only happens once.
+
 **Find the browse binary:**
 
 {{BROWSE_SETUP}}
+
+{{BROWSE_MOBILE_SETUP}}
+
+**Detect platform and auto-setup (mobile vs web):**
+
+1. Check if `app.json` or `app.config.js`/`app.config.ts` exists in the project root.
+2. If found AND `REVYL_READY` (revyl CLI installed): **always use Revyl** cloud devices for mobile QA — it's much faster than Appium. Follow the "Revyl cloud device mobile QA" steps in the QA Methodology below. Do NOT ask the user — just do it.
+3. If found AND `$BM` is available (MOBILE_READY) but no Revyl: **automatically set up the local mobile environment** — start Appium, boot simulator, build/install app if needed. Follow the "Mobile project detection" steps in the QA Methodology below.
+4. If no mobile config found, or neither Revyl nor `$BM` is available: use `$B` as usual. This is WEB MODE (default — zero change to existing behavior).
+
+**In Appium mobile mode (`$BM`), these commands change:**
+- `$B goto <url>` → `$BM goto app://<bundleId>` (launch app) or `$BM click label:Label` (navigate)
+- `$B snapshot -i` → `$BM snapshot -i` (accessibility tree from iOS, not ARIA)
+- `$B click @e3` → `$BM click @e3` (tap element) or `$BM click label:LabelText` (accessibility label fallback for RN components)
+- `$B fill @e3 "text"` → `$BM fill @e3 "text"` (coordinate tap + keyboard if needed)
+- `$B screenshot` → `$BM screenshot` (simulator capture — always use Read tool to show user)
+- `$B console --errors` → SKIP (not available in mobile mode)
+- `$B links` → `$BM links` (tap targets from last snapshot)
+- `$B scroll` → `$BM scroll down/up` (swipe gestures for ScrollView/FlatList)
+
+**In Revyl mobile mode, these commands change:**
+- `$B goto <url>` → `revyl device launch --bundle-id <bundleId>`
+- `$B click @e3` → `revyl device tap --target "description of element"` (AI grounding — describe what's visible)
+- `$B fill @e3 "text"` → `revyl device type --target "description of field" --text "text"`
+- `$B screenshot` → `revyl device screenshot --out <path>` (always use Read tool to show user)
+- `$B console --errors` → SKIP (not available in mobile mode)
+- `$B scroll down` → `revyl device swipe --direction up --x 220 --y 500` (up = finger moves up = content scrolls down)
+- `$B back` → `revyl device back`
 
 **Check test framework (bootstrap if needed):**
 
@@ -176,6 +308,7 @@ git commit -m "fix(qa): ISSUE-NNN — short description"
 
 ### 8d. Re-test
 
+**Web mode:**
 - Navigate back to the affected page
 - Take **before/after screenshot pair**
 - Check console for errors
@@ -187,6 +320,13 @@ $B screenshot "$REPORT_DIR/screenshots/issue-NNN-after.png"
 $B console --errors
 $B snapshot -D
 ```
+
+**Mobile mode (Appium or Revyl):**
+Mobile re-verification requires rebuilding the app, re-uploading (if Revyl), and re-launching — ~5 min per cycle. To avoid this overhead on every fix:
+1. After each fix, run **typecheck and lint** as primary verification: `npm run typecheck` or `npx tsc --noEmit`
+2. Mark the fix as **"best-effort"** (verified by typecheck, not visual confirmation)
+3. **After ALL fixes are done**, do one batch re-verification: rebuild the app, re-upload/re-install, and visually verify all fixes together
+4. If the user wants per-fix visual verification, ask via AskUserQuestion: "Want me to rebuild and verify on device after each fix? This adds ~5 minutes per fix."
 
 ### 8e. Classify
 

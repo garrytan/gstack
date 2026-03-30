@@ -246,8 +246,7 @@ After all agents complete:
 image list from whatever variant files actually exist, not a hardcoded A/B/C list:
 
 ```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-_IMAGES=$(ls "$_DESIGN_DIR"/variant-*.png 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+_IMAGES=$(find "$_DESIGN_DIR" -maxdepth 1 -name 'variant-*.png' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
 ```
 
 Use `$_IMAGES` in the `$D compare --images` command.
