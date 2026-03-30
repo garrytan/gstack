@@ -475,6 +475,74 @@ git push -u origin <branch-name>
 
 ---
 
+## Step 7.5: Preview Deploy (non-blocking)
+
+Deploy a preview build so the PR links to a live, browsable environment. This step
+is entirely optional — it runs only when deploy config exists, and failures never
+block shipping.
+
+**1. Check for deploy config in CLAUDE.md:**
+
+```bash
+grep -A 5 '## Deploy' CLAUDE.md 2>/dev/null || echo "NO_DEPLOY_CONFIG"
+```
+
+If output is `NO_DEPLOY_CONFIG`: Print "No deploy config in CLAUDE.md — skipping preview deploy and browser verification. Run `/setup-deploy` to configure." Continue to Step 8.
+
+**2. Parse deploy config:**
+
+Extract these fields from the `## Deploy` section:
+- **Platform**: the value after `- Platform:` (e.g., `vercel`, `netlify`, `fly`, `render`)
+- **Deploy command**: the value after `- Deploy command:` (e.g., `vercel deploy`)
+- **Production URL**: the value after `- Production URL:` (e.g., `https://app.example.com`)
+- **Health check**: the value after `- Health check:` (optional, e.g., `https://app.example.com/api/health`)
+
+If Deploy command is missing, print "Deploy config found but no deploy command — skipping preview deploy." Continue to Step 8.
+
+**3. Run the deploy command:**
+
+```bash
+{deploy_command} 2>&1 | tee /tmp/ship_preview_deploy.txt
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS.
+
+**4. Capture the preview URL:**
+
+Read `/tmp/ship_preview_deploy.txt` and extract the preview URL:
+- **Vercel:** Look for a line matching `https://<project>-<hash>-<team>.vercel.app` or the URL printed after "Preview:"
+- **Netlify:** Look for the "Website draft URL:" line
+- **Generic:** Scan for the first `https://` URL in the output that is NOT the production URL
+
+If no URL found: Print "Preview deploy ran but no URL detected in output. Skipping browser verification." Continue to Step 8.
+
+**5. Health check (if configured):**
+
+If a Health check URL exists in the config:
+- Replace the production domain with the preview URL's domain
+- Poll up to 60 seconds (check every 5 seconds):
+
+```bash
+HEALTH_URL="<preview-domain><health-path>"
+for i in $(seq 1 12); do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null)
+  [ "$STATUS" = "200" ] && echo "HEALTH_OK" && break
+  sleep 5
+done
+```
+
+If health check times out: Print "Health check did not return 200 within 60s. Proceeding with browser verification anyway."
+
+**6. Store results:**
+
+Remember the preview URL and health check result for Steps 7.75 and 8.
+
+Print: "Preview deployed: <URL>" (or "Preview deployed: <URL> (health check: OK/TIMEOUT)")
+
+**Error handling:** If the deploy command exits non-zero, print "Preview deploy failed (exit code N). Skipping browser verification." Show the last 10 lines of output for context. Continue to Step 8.
+
+---
+
 ## Step 8: Create PR/MR
 
 Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
