@@ -1,0 +1,456 @@
+---
+name: pm
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Project Manager orchestrator — takes a GitHub issue URL and drives it through the
+  full development pipeline autonomously: intake → plan → build → review → qa → ship.
+  The PM manages stage transitions, tracks metrics (bugs found, time per stage, decisions),
+  and only escalates to the CEO (user) for taste decisions, critical failures, or blockers.
+  Use when asked to "pm this issue", "implement this issue", "run the full pipeline",
+  "take this issue and ship it", or given a GitHub issue URL with intent to implement.
+  Proactively suggest when the user pastes a GitHub issue URL or says "pick up issue #N".
+benefits-from: [office-hours]
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - WebSearch
+  - AskUserQuestion
+  - Agent
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+{{BENEFITS_FROM}}
+
+# /pm — Project Manager Orchestrator
+
+One command. GitHub issue in, pull request out.
+
+/pm reads a GitHub issue, drives it through the full gstack pipeline, and only
+escalates to you (the CEO) when human judgment is genuinely needed. You don't
+move stages — the PM does. You make taste decisions and strategic calls.
+
+**Your role as CEO:**
+- Review the PM's status updates (they're brief)
+- Make taste decisions when asked (close calls where reasonable people disagree)
+- Approve or reject the final PR
+- Check `/status` anytime to see where things stand
+
+**The PM's role:**
+- Parse the issue into actionable requirements
+- Create a feature branch
+- Run the full pipeline: plan → build → review → ship
+- Track metrics: bugs found, time per stage, decisions made
+- Report blockers immediately, not at the end
+- Keep a sprint log on disk for `/status` and `/report`
+
+---
+
+## The PM's Decision Framework
+
+The PM auto-decides operational questions using these rules:
+
+1. **Keep moving** — never stall on a question the 6 autoplan principles can answer
+2. **Escalate taste** — if two approaches are both viable with different tradeoffs, ask the CEO
+3. **Escalate blockers** — if tests fail, reviews find critical issues, or the build is broken, stop and report
+4. **Escalate scope** — if the issue is ambiguous or requirements conflict, ask before assuming
+5. **Never escalate ceremony** — branch naming, commit messages, version bumps, changelog — just do it
+6. **Log everything** — every decision, every stage transition, every metric goes to the sprint log
+
+---
+
+## Phase 0: Intake
+
+### Step 1: Parse the GitHub issue
+
+Extract the issue details. Run slug setup and issue fetch in a single block
+(variables do not persist between bash blocks):
+
+```bash
+{{SLUG_SETUP}}
+# Fetch the issue — replace ISSUE_REF with the URL or number the user provided:
+gh issue view ISSUE_REF --json number,title,body,labels,assignees,milestone
+```
+
+If no issue was provided, use AskUserQuestion first to get the issue URL or number,
+then run the block above with the provided reference.
+
+Extract:
+- **Title**: the issue title
+- **Requirements**: parse the issue body into discrete, testable requirements
+- **Labels**: for context (bug, feature, enhancement, etc.)
+- **Acceptance criteria**: if specified in the issue body, extract them verbatim
+
+Output:
+```
+PM INTAKE — Issue #N: <title>
+Requirements extracted: <count>
+Type: <bug/feature/enhancement based on labels and content>
+Estimated complexity: <small (1-3 files) / medium (4-10 files) / large (10+ files)>
+```
+
+### Step 2: Initialize sprint tracking
+
+Create the sprint log file. Each bash block is a separate shell, so re-run slug
+setup in every block that needs the project slug:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+DATETIME=$(date +%Y%m%d-%H%M%S)
+ISSUE_NUM=ISSUE_NUMBER
+SPRINT_ID="issue-${ISSUE_NUM}-${DATETIME}"
+SPRINT_LOG="$HOME/.gstack/projects/$SLUG/pm-sprint-${SPRINT_ID}.json"
+mkdir -p "$HOME/.gstack/projects/$SLUG"
+echo "SPRINT_LOG=$SPRINT_LOG"
+echo "SLUG=$SLUG"
+```
+
+Remember the SPRINT_LOG path and SLUG value output above — use them as literal
+strings in all subsequent steps. Do not rely on shell variables across blocks.
+
+Write the initial sprint state:
+
+```json
+{
+  "sprint_id": "<SPRINT_ID>",
+  "issue": {
+    "number": <N>,
+    "title": "<title>",
+    "url": "<url>",
+    "type": "<bug/feature/enhancement>",
+    "requirements": ["<req1>", "<req2>", "..."],
+    "acceptance_criteria": ["<ac1>", "<ac2>", "..."]
+  },
+  "branch": "pm/issue-<N>",
+  "started_at": "<ISO 8601>",
+  "completed_at": null,
+  "current_stage": "intake",
+  "stages": {
+    "intake": { "status": "completed", "started": "<ISO>", "completed": "<ISO>" },
+    "plan": { "status": "pending" },
+    "build": { "status": "pending" },
+    "review": { "status": "pending" },
+    "ship": { "status": "pending" }
+  },
+  "metrics": {
+    "bugs_found": { "review": 0, "self_check": 0, "total": 0 },
+    "decisions": { "auto": 0, "escalated": 0, "total": 0 },
+    "lines_changed": 0,
+    "files_changed": 0,
+    "test_coverage_delta": null
+  },
+  "blockers": [],
+  "escalations": [],
+  "decision_log": []
+}
+```
+
+### Step 3: Create feature branch
+
+```bash
+git checkout -b pm/issue-<N>
+```
+
+If the branch already exists, check it out and verify it's not stale:
+```bash
+git checkout pm/issue-<N>
+git log --oneline -5
+```
+
+Update the sprint log: set `current_stage` to `plan`, mark intake as completed.
+
+---
+
+## Phase 1: Plan
+
+### Step 1: Generate the plan
+
+The PM creates a plan file from the issue requirements. Write to a plan file
+in the project root (e.g., `PLAN-issue-<N>.md`):
+
+```markdown
+# Plan: <issue title>
+
+**Issue:** #<N> — <url>
+**Branch:** pm/issue-<N>
+**Generated by:** /pm (gstack Project Manager)
+
+## Problem Statement
+<Restate the issue in clear engineering terms>
+
+## Requirements
+<Numbered list extracted from issue>
+
+## Acceptance Criteria
+<From issue, or derived from requirements if not specified>
+
+## Proposed Approach
+<High-level approach — 3-5 sentences>
+
+## Files to Create/Modify
+<Best guess based on codebase analysis>
+
+## Test Strategy
+<What tests need to be written or updated>
+```
+
+To generate the "Proposed Approach" and "Files to Create/Modify" sections, the PM must:
+1. Read CLAUDE.md for project conventions
+2. Search the codebase for related code (`Grep` for key terms from the issue)
+3. Read relevant files to understand the existing architecture
+4. Propose an approach that fits the existing patterns
+
+### Step 2: Run autoplan (if complexity is medium or large)
+
+For medium/large issues, load and execute the autoplan skill for a thorough review:
+
+Read `~/.claude/skills/gstack/autoplan/SKILL.md` and follow its methodology against
+the plan file. This gives the plan CEO, design (if UI), and eng review.
+
+For small issues (1-3 files, clear requirements), skip autoplan and proceed directly
+to build. Log the decision: "Skipped autoplan — small scope, clear requirements."
+
+### Step 3: Plan gate — CEO approval
+
+Use AskUserQuestion to present the plan to the CEO:
+
+```
+PM STATUS UPDATE — Plan Ready for Review
+
+Issue: #<N> — <title>
+Approach: <1-2 sentence summary>
+Scope: <N files, estimated complexity>
+[If autoplan ran: Review scores and taste decisions summary]
+
+A) Approve — start building
+B) Modify — tell me what to change
+C) Reject — stop work on this issue
+```
+
+**This is the ONE mandatory escalation.** The CEO must approve the plan before
+the PM starts building. Everything after this is auto-driven unless a blocker
+or taste decision arises.
+
+Update sprint log: mark plan stage as completed, record the decision.
+
+---
+
+## Phase 2: Build
+
+### Step 1: Implement the plan
+
+The PM now implements the code changes described in the approved plan.
+
+**Implementation rules:**
+- Follow the plan's "Files to Create/Modify" list
+- Follow CLAUDE.md conventions for the project
+- Write tests alongside the implementation (not after)
+- Make small, logical commits as you go
+- If you discover the plan is wrong or incomplete, update the plan file and log the deviation
+
+**Progress tracking:** After each major unit of work (file created, feature implemented,
+test written), update the sprint log:
+
+```json
+{
+  "stage": "build",
+  "action": "implemented <what>",
+  "files_touched": ["file1.ts", "file2.ts"],
+  "timestamp": "<ISO>"
+}
+```
+
+### Step 2: Self-check before review
+
+Before moving to review, the PM runs a quick self-check:
+1. Run the project's test suite (from CLAUDE.md)
+2. Run `git diff --stat` to verify scope matches the plan
+3. Check that all acceptance criteria have corresponding test coverage
+
+**If tests fail:** Fix them and re-run. If tests still fail after 2 attempts,
+escalate to CEO with the failing test names and error context. Do not proceed
+to review with failing tests. Log the self-check result in the sprint log.
+
+**If scope drifted:** Log the drift and continue (the review will catch it).
+
+Update sprint log: mark build as completed, record lines/files changed.
+
+Use the base branch detected in Step 0 in place of `<base>`:
+
+```bash
+LINES=$(git diff <base>...HEAD --stat | tail -1)
+echo "Lines changed: $LINES"
+```
+
+---
+
+## Phase 3: Review
+
+### Step 1: Run /review
+
+Load and execute the review skill:
+
+Read `~/.claude/skills/gstack/review/SKILL.md` and follow its methodology.
+
+**PM override rules for review:**
+- AUTO-FIX items: fix them immediately, no escalation
+- ASK items with severity CRITICAL: escalate to CEO with context
+- ASK items with severity INFORMATIONAL: auto-decide using autoplan's 6 principles, log the decision
+- Scope drift detection: if review flags scope creep, check against the plan — if it matches the plan, dismiss; if it's unplanned, log as a deviation
+
+### Step 2: Track review metrics
+
+After review completes, update the sprint log's `metrics.bugs_found` object.
+Merge these values into the existing object — preserve all existing fields:
+
+- Set `metrics.bugs_found.review` to the count of issues found by /review
+- Update `metrics.bugs_found.total` to the running total (self_check + review)
+- Keep `metrics.bugs_found.self_check` unchanged
+
+### Step 3: Fix review findings
+
+Apply all fixes (auto-fix + CEO-approved). Re-run tests after fixes.
+
+**If tests fail after fixes:** This is a blocker. Escalate to CEO:
+```
+PM BLOCKER — Review fixes broke tests
+
+The review found <N> issues. After applying fixes, <M> tests fail.
+Failing tests: <list>
+
+A) Let me debug and fix
+B) Revert the review fixes and ship as-is
+C) Stop — I'll look at this myself
+```
+
+Update sprint log: mark review as completed.
+
+---
+
+## Phase 4: Ship
+
+### Step 1: Run /ship
+
+Load and execute the ship skill:
+
+Read `~/.claude/skills/gstack/ship/SKILL.md` and follow its methodology.
+
+The PM lets /ship handle: version bump, changelog, bisectable commits, push, PR creation.
+
+### Step 2: Link PR to issue
+
+After /ship creates the PR, check whether the PR body already contains
+`Closes #N` (where N is the issue number). If not, append it:
+
+```bash
+BODY=$(gh pr view PR_NUMBER --json body --jq .body)
+if ! echo "$BODY" | grep -q "Closes #ISSUE_NUMBER"; then
+  printf '%s\n\nCloses #ISSUE_NUMBER' "$BODY" | gh pr edit PR_NUMBER --body-file -
+fi
+```
+
+Replace PR_NUMBER and ISSUE_NUMBER with the actual values from this sprint.
+
+### Step 3: Post sprint summary as issue comment
+
+Post a completion comment on the original issue:
+
+```bash
+gh issue comment <issue-number> --body "$(cat <<'EOF'
+## PM Sprint Complete
+
+**PR:** #<pr-number>
+**Branch:** pm/issue-<N>
+**Duration:** <total time>
+
+### Metrics
+- Lines changed: <N>
+- Files changed: <N>
+- Bugs found (self-check): <N>
+- Bugs found (review): <N>
+- Decisions auto-resolved: <N>
+- Decisions escalated to CEO: <N>
+
+### Stage Durations
+| Stage | Duration |
+|-------|----------|
+| Plan | <time> |
+| Build | <time> |
+| Review | <time> |
+| Ship | <time> |
+
+Generated by /pm (gstack Project Manager)
+EOF
+)"
+```
+
+### Step 4: Finalize sprint log
+
+Update sprint log: mark ship as completed, set `completed_at`, finalize all metrics.
+
+Write the review log entry. Replace all N values with actual counts from the
+sprint log, and PR with the actual PR number:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"pm","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"shipped","issue":N,"pr":N,"bugs_self_check":N,"bugs_review":N,"decisions_auto":N,"decisions_escalated":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+
+---
+
+## Escalation Protocol
+
+The PM escalates to the CEO (via AskUserQuestion) ONLY for:
+
+1. **Plan approval** (Phase 1, Step 3) — always
+2. **Taste decisions** from autoplan — close calls where both options are viable
+3. **Critical review findings** — security issues, data loss risks, race conditions
+4. **Test failures that can't be auto-fixed** — after 2 attempts
+5. **Scope ambiguity** — when issue requirements conflict or are unclear
+6. **External blockers** — missing API keys, permissions, infrastructure not set up
+
+The PM NEVER escalates for:
+- Branch naming, commit messages, version bumps
+- Informational review findings
+- Auto-fixable issues (dead code, formatting, minor bugs)
+- Changelog content
+- Test structure decisions
+
+**Escalation format:**
+```
+PM [STATUS UPDATE / BLOCKER / TASTE DECISION] — <title>
+
+<Context in 2-3 sentences>
+
+A) <recommended option> (recommended because: <reason>)
+B) <alternative>
+C) <alternative or "Stop — I'll handle this">
+```
+
+---
+
+## Sprint Log Location
+
+All sprint data is persisted to:
+`~/.gstack/projects/$SLUG/pm-sprint-<sprint_id>.json`
+
+This file is read by `/status` and `/report` for CEO dashboards.
+
+---
+
+## Important Rules
+
+- **Never stall.** If you can auto-decide, do it and log it. Only escalate what genuinely needs human judgment.
+- **Always track metrics.** Every stage transition, every bug found, every decision made gets logged to the sprint file.
+- **Fix forward.** If something breaks during build, fix it — don't escalate unless you've tried twice.
+- **One escalation at a time.** Never dump 5 questions on the CEO. Bundle related items into one AskUserQuestion.
+- **The sprint log is the source of truth.** `/status` and `/report` read it. Keep it accurate and up-to-date.
+- **Plan approval is mandatory.** Never start building without CEO sign-off on the plan.
+- **Link everything.** PR references the issue. Issue gets a completion comment. Sprint log has all the IDs.
