@@ -279,8 +279,7 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 **Don't need browser features?** Pass `--no-browser` to skip building the browse binary and installing Playwright Chromium. Useful on CI, headless servers, or if you only use the non-browser skills. `/browse`, `/qa`, and `/connect-chrome` won't work without it.
 
 ```bash
-./setup --no-browser          # Unix / Git Bash
-.\setup.ps1 --no-browser     # Windows PowerShell
+./setup --no-browser          # Unix / macOS / Git Bash on Windows
 ```
 
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/gstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`

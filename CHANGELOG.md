@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.13.11.0] - 2026-03-30 — No-Browser Mode
+
+You can now run `./setup --no-browser` to skip building the browse binary and installing Playwright Chromium. If your IT locks down Chromium installs, you're on a headless server, or you only use non-browser skills (ship, review, investigate, plan-*, etc.), this flag removes the biggest install barrier. One flag, 90%+ of gstack works.
+
+### Added
+
+- **`--no-browser` setup flag.** Skips browse binary compilation and Playwright Chromium installation. Accepts aliases: `--nobrowser`, `--nobrowse`, `--no-browse`.
+- **Config persistence.** The `--no-browser` choice is saved to `~/.gstack/config.yaml` via gstack-config. Subsequent `./setup` runs auto-detect the saved preference without needing the flag again. CLI flag always overrides config.
+- **Conditional browse output.** Setup output shows "browse: skipped (--no-browser)" instead of a nonexistent binary path across all host types (Claude, Codex, Kiro, agents sidecar).
+- **Browse skill symlink cleanup.** When `--no-browser` is active, browse-related symlinks are removed (or not created) across Claude (`browse`), Codex (`gstack-browse`), Kiro, and agents sidecar.
+- **Integration tests.** 6 tests covering flag parsing, config persistence, browser guards, output conditionals, and symlink skipping.
+
+### Fixed
+
+- **README: removed nonexistent `setup.ps1` reference.** The `--no-browser` section previously listed a Windows PowerShell script that doesn't exist.
+
 ## [0.13.10.0] - 2026-03-29 — Office Hours Gets a Reading List
 
 Repeat /office-hours users now get fresh, curated resources every session instead of the same YC closing. 34 hand-picked videos and essays from Garry Tan, Lightcone Podcast, YC Startup School, and Paul Graham, contextually matched to what came up during the session. The system remembers what it already showed you, so you never see the same recommendation twice.

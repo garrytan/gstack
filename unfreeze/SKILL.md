@@ -9,6 +9,7 @@ description: |
 allowed-tools:
   - Bash
   - Read
+sensitive: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
