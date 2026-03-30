@@ -2020,7 +2020,32 @@ EOF
 **If neither CLI is available:**
 Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
 
-**Output the PR/MR URL** — then proceed to Step 8.5.
+**Output the PR/MR URL** — then proceed to Step 8.25.
+
+---
+
+## Step 8.25: Ship Log
+
+Append a structured entry to the ship log for `/retro` velocity tracking. This step is fully automatic and must never fail the workflow.
+
+Collect the data from earlier steps and write a single JSONL entry:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-ship-log '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","version":"VERSION","branch":"'"$BRANCH"'","repo":"'"$SLUG"'","pr_url":"PR_URL","review_findings":N,"review_auto_fixed":N,"greptile_comments":N,"greptile_fixed":N,"greptile_fps":N,"todos_completed":N,"tests_passed":true,"coverage_before":N,"coverage_after":N}'
+```
+
+Substitute the capitalized placeholders from data gathered in earlier steps:
+- `VERSION`: the new version from Step 4
+- `PR_URL`: the PR/MR URL output from Step 8
+- `review_findings`: total issues found in Step 3.5 (0 if none)
+- `review_auto_fixed`: count of auto-fixed issues in Step 3.5
+- `greptile_comments`: total Greptile comments in Step 3.75 (0 if skipped)
+- `greptile_fixed`: Greptile comments fixed in Step 3.75
+- `greptile_fps`: Greptile false positives in Step 3.75
+- `todos_completed`: items marked complete in Step 5.5 (0 if none)
+- `tests_passed`: `true` (always true here — Step 3 would have stopped if tests failed)
+- `coverage_before`/`coverage_after`: test file counts from Step 3.4 (0 if skipped)
 
 ---
 
