@@ -249,9 +249,10 @@ export async function handleWriteCommand(
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
 
-      // Security: validate all file paths are within safe directories before upload
-      // Prevents exfiltration of arbitrary files (e.g., ~/.ssh/id_rsa) to attacker-controlled pages
+      // Security: resolve and validate all file paths within safe directories before upload.
+      // Use resolved paths for the actual operation to eliminate TOCTOU symlink races.
       const safeDirs = [TEMP_DIR, process.cwd()];
+      const resolvedPaths: string[] = [];
       for (const fp of filePaths) {
         if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
         const realFp = fs.realpathSync(path.resolve(fp));
@@ -261,16 +262,17 @@ export async function handleWriteCommand(
         if (!isSafe) {
           throw new Error(`Upload path must be within: ${safeDirs.join(', ')}`);
         }
+        resolvedPaths.push(realFp);
       }
 
       const resolved = await bm.resolveRef(selector);
       if ('locator' in resolved) {
-        await resolved.locator.setInputFiles(filePaths);
+        await resolved.locator.setInputFiles(resolvedPaths);
       } else {
-        await target.locator(resolved.selector).setInputFiles(filePaths);
+        await target.locator(resolved.selector).setInputFiles(resolvedPaths);
       }
 
-      const fileInfo = filePaths.map(fp => {
+      const fileInfo = resolvedPaths.map(fp => {
         const stat = fs.statSync(fp);
         return `${path.basename(fp)} (${stat.size}B)`;
       }).join(', ');
@@ -305,7 +307,7 @@ export async function handleWriteCommand(
       if (!isSafe) {
         throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
       }
-      const raw = fs.readFileSync(filePath, 'utf-8');
+      const raw = fs.readFileSync(realFilePath, 'utf-8');
       let cookies: any[];
       try { cookies = JSON.parse(raw); } catch { throw new Error(`Invalid JSON in ${filePath}`); }
       if (!Array.isArray(cookies)) throw new Error('Cookie file must contain a JSON array');
