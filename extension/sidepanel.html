@@ -14,6 +14,9 @@
     </div>
   </div>
 
+  <!-- Browser tab bar -->
+  <div class="browser-tabs" id="browser-tabs" style="display:none"></div>
+
   <!-- Chat Tab (default, full height) -->
   <main id="tab-chat" class="tab-content active">
     <div class="chat-messages" id="chat-messages">
@@ -48,14 +51,101 @@
     <div class="refs-footer" id="refs-footer"></div>
   </main>
 
+  <!-- Debug: Inspector Tab (hidden by default) -->
+  <main id="tab-inspector" class="tab-content">
+    <!-- Toolbar: always visible -->
+    <div class="inspector-toolbar" id="inspector-toolbar">
+      <button class="inspector-pick-btn" id="inspector-pick-btn" title="Pick an element (click, then click any element on the page)">
+        <span class="inspector-pick-icon">&#x271B;</span> Pick
+      </button>
+      <span class="inspector-selected" id="inspector-selected"></span>
+      <span class="inspector-mode-badge" id="inspector-mode-badge" style="display:none"></span>
+      <div style="flex:1"></div>
+      <button id="inspector-cleanup-btn" class="inspector-action-btn" title="Remove ads, banners, popups">🧹</button>
+      <button id="inspector-screenshot-btn" class="inspector-action-btn" title="Take a screenshot">📸</button>
+    </div>
+
+    <!-- Inspector content area -->
+    <div class="inspector-content" id="inspector-content">
+      <!-- Empty state (before first pick) -->
+      <div class="inspector-empty" id="inspector-empty">
+        <div class="inspector-empty-icon">&#x271B;</div>
+        <p>Pick an element to inspect</p>
+        <p class="muted">Click the button above, then click any element on the page</p>
+      </div>
+
+      <!-- Loading state -->
+      <div class="inspector-loading" id="inspector-loading" style="display:none">
+        <div class="inspector-loading-text">Inspecting...</div>
+        <div class="inspector-skeleton">
+          <div class="inspector-skeleton-bar"></div>
+          <div class="inspector-skeleton-bar"></div>
+          <div class="inspector-skeleton-bar"></div>
+        </div>
+      </div>
+
+      <!-- Error state -->
+      <div class="inspector-error" id="inspector-error" style="display:none"></div>
+
+      <!-- Inspector data panels -->
+      <div class="inspector-panels" id="inspector-panels" style="display:none">
+        <!-- Box Model -->
+        <div class="inspector-section" id="inspector-boxmodel-section">
+          <div class="inspector-section-header">Box Model</div>
+          <div class="inspector-boxmodel" id="inspector-boxmodel"></div>
+        </div>
+
+        <!-- Matched Rules -->
+        <div class="inspector-section" id="inspector-rules-section">
+          <button class="inspector-section-toggle" data-section="rules" aria-expanded="true">
+            <span class="inspector-toggle-arrow">&#x25BC;</span>
+            <span>Matched Rules</span>
+            <span class="inspector-rule-count" id="inspector-rule-count"></span>
+          </button>
+          <div class="inspector-section-body" id="inspector-rules" role="tree"></div>
+        </div>
+
+        <!-- Computed Styles -->
+        <div class="inspector-section" id="inspector-computed-section">
+          <button class="inspector-section-toggle collapsed" data-section="computed" aria-expanded="false">
+            <span class="inspector-toggle-arrow">&#x25B6;</span>
+            <span>Computed</span>
+          </button>
+          <div class="inspector-section-body collapsed" id="inspector-computed"></div>
+        </div>
+
+        <!-- Quick Edit -->
+        <div class="inspector-section" id="inspector-quickedit-section">
+          <button class="inspector-section-toggle collapsed" data-section="quickedit" aria-expanded="false">
+            <span class="inspector-toggle-arrow">&#x25B6;</span>
+            <span>Quick Edit</span>
+          </button>
+          <div class="inspector-section-body collapsed" id="inspector-quickedit"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Send to Agent: sticky bottom -->
+    <div class="inspector-send" id="inspector-send" style="display:none">
+      <button class="inspector-send-btn" id="inspector-send-btn">Send to Agent</button>
+    </div>
+  </main>
+
   <!-- Experimental chat banner (shown when chatEnabled) -->
   <div id="experimental-banner" class="experimental-banner" style="display: none;">
-    &#x26A0; Standalone mode &mdash; this is a separate agent from your workspace
+    Browser co-pilot &mdash; controls this browser, reports back to your workspace
+  </div>
+
+  <!-- Quick Actions Toolbar -->
+  <div class="quick-actions" id="quick-actions">
+    <button id="chat-cleanup-btn" class="quick-action-btn" title="Remove ads, banners, popups">🧹 Cleanup</button>
+    <button id="chat-screenshot-btn" class="quick-action-btn" title="Take a screenshot">📸 Screenshot</button>
   </div>
 
   <!-- Command Bar -->
   <div class="command-bar">
-    <input type="text" class="command-input" id="command-input" placeholder="Message Claude Code..." autocomplete="off" spellcheck="false">
+    <button class="stop-btn" id="stop-agent-btn" title="Stop agent" style="display: none;">&#x25A0;</button>
+    <input type="text" class="command-input" id="command-input" placeholder="Ask about this page..." autocomplete="off" spellcheck="false">
     <button class="send-btn" id="send-btn" title="Send">&#x2191;</button>
   </div>
 
@@ -76,6 +166,7 @@
   <nav class="tabs debug-tabs" id="debug-tabs" role="tablist" style="display:none">
     <button class="tab" role="tab" data-tab="activity">Activity</button>
     <button class="tab" role="tab" data-tab="refs">Refs</button>
+    <button class="tab" role="tab" data-tab="inspector">Inspector</button>
     <button class="tab close-debug" id="close-debug" title="Close debug">&times;</button>
   </nav>
 

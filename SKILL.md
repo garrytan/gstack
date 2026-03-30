@@ -674,6 +674,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 ### Interaction
 | Command | Description |
 |---------|-------------|
+| `cleanup [--ads] [--cookies] [--sticky] [--social] [--all]` | Remove page clutter (ads, cookie banners, sticky elements, social widgets) |
 | `click <sel>` | Click element |
 | `cookie <name>=<value>` | Set cookie on current page domain |
 | `cookie-import <json>` | Import cookies from JSON file |
@@ -686,6 +687,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `press <key>` | Press key — Enter, Tab, Escape, ArrowUp/Down/Left/Right, Backspace, Delete, Home, End, PageUp, PageDown, or modifiers like Shift+Enter |
 | `scroll [sel]` | Scroll element into view, or scroll to page bottom if no selector |
 | `select <sel> <val>` | Select dropdown option by value, label, or visible text |
+| `style <sel> <prop> <value> | style --undo [N]` | Modify CSS property on element (with undo support) |
 | `type <text>` | Type into focused element |
 | `upload <sel> <file> [file2...]` | Upload file(s) |
 | `useragent <string>` | Set user agent |
@@ -701,6 +703,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `css <sel> <prop>` | Computed CSS value |
 | `dialog [--clear]` | Dialog messages |
 | `eval <file>` | Run JavaScript from file and return result as string (path must be under /tmp or cwd) |
+| `inspect [selector] [--all] [--history]` | Deep CSS inspection via CDP — full rule cascade, box model, computed styles |
 | `is <prop> <sel>` | State check (visible/hidden/enabled/disabled/checked/editable/focused) |
 | `js <expr>` | Run JavaScript expression and return result as string |
 | `network [--clear]` | Network requests |
@@ -712,6 +715,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 |---------|-------------|
 | `diff <url1> <url2>` | Text diff between pages |
 | `pdf [path]` | Save as PDF |
+| `prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]` | Clean screenshot with optional cleanup, scroll positioning, and element hiding |
 | `responsive [prefix]` | Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc. |
 | `screenshot [--viewport] [--clip x,y,w,h] [selector|@ref] [path]` | Save screenshot (supports element crop via CSS/@ref, --clip region, --viewport) |
 

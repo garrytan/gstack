@@ -675,11 +675,10 @@ $D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
 
 Flag any variants that fail the quality check. Offer to regenerate failures.
 
-Show each variant inline (Read tool on each PNG) so the user sees them immediately.
-
-Tell the user: "I've generated design directions. Take a look at the variants above,
-then use the comparison board that just opened in your browser to pick your favorite,
-rate the others, remix elements, and click Submit when you're done."
+**Do NOT show variants inline via Read tool and ask for preferences.** Proceed
+directly to the Comparison Board + Feedback Loop section below. The comparison board
+IS the chooser — it has rating controls, comments, remix/regenerate, and structured
+feedback output. Showing mockups inline is a degraded experience.
 
 ### Comparison Board + Feedback Loop
 
@@ -691,31 +690,42 @@ $D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DES
 
 This command generates the board HTML, starts an HTTP server on a random port,
 and opens it in the user's default browser. **Run it in the background** with `&`
-because the agent needs to keep running while the user interacts with the board.
+because the server needs to stay running while the user interacts with the board.
 
-**IMPORTANT: Reading feedback via file polling (not stdout):**
+Parse the port from stderr output: `SERVE_STARTED: port=XXXXX`. You need this
+for the board URL and for reloading during regeneration cycles.
 
-The server writes feedback to files next to the board HTML. The agent polls for these:
+**PRIMARY WAIT: AskUserQuestion with board URL**
+
+After the board is serving, use AskUserQuestion to wait for the user. Include the
+board URL so they can click it if they lost the browser tab:
+
+"I've opened a comparison board with the design variants:
+http://127.0.0.1:<PORT>/ — Rate them, leave comments, remix
+elements you like, and click Submit when you're done. Let me know when you've
+submitted your feedback (or paste your preferences here). If you clicked
+Regenerate or Remix on the board, tell me and I'll generate new variants."
+
+**Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
+board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
+
+**After the user responds to AskUserQuestion:**
+
+Check for feedback files next to the board HTML:
 - `$_DESIGN_DIR/feedback.json` — written when user clicks Submit (final choice)
 - `$_DESIGN_DIR/feedback-pending.json` — written when user clicks Regenerate/Remix/More Like This
 
-**Polling loop** (run after launching `$D serve` in background):
-
 ```bash
-# Poll for feedback files every 5 seconds (up to 10 minutes)
-for i in $(seq 1 120); do
-  if [ -f "$_DESIGN_DIR/feedback.json" ]; then
-    echo "SUBMIT_RECEIVED"
-    cat "$_DESIGN_DIR/feedback.json"
-    break
-  elif [ -f "$_DESIGN_DIR/feedback-pending.json" ]; then
-    echo "REGENERATE_RECEIVED"
-    cat "$_DESIGN_DIR/feedback-pending.json"
-    rm "$_DESIGN_DIR/feedback-pending.json"
-    break
-  fi
-  sleep 5
-done
+if [ -f "$_DESIGN_DIR/feedback.json" ]; then
+  echo "SUBMIT_RECEIVED"
+  cat "$_DESIGN_DIR/feedback.json"
+elif [ -f "$_DESIGN_DIR/feedback-pending.json" ]; then
+  echo "REGENERATE_RECEIVED"
+  cat "$_DESIGN_DIR/feedback-pending.json"
+  rm "$_DESIGN_DIR/feedback-pending.json"
+else
+  echo "NO_FEEDBACK_FILE"
+fi
 ```
 
 The feedback JSON has this shape:
@@ -729,24 +739,30 @@ The feedback JSON has this shape:
 }
 ```
 
-**If `feedback-pending.json` found (`"regenerated": true`):**
+**If `feedback.json` found:** The user clicked Submit on the board.
+Read `preferred`, `ratings`, `comments`, `overall` from the JSON. Proceed with
+the approved variant.
+
+**If `feedback-pending.json` found:** The user clicked Regenerate/Remix on the board.
 1. Read `regenerateAction` from the JSON (`"different"`, `"match"`, `"more_like_B"`,
    `"remix"`, or custom text)
 2. If `regenerateAction` is `"remix"`, read `remixSpec` (e.g. `{"layout":"A","colors":"B"}`)
 3. Generate new variants with `$D iterate` or `$D variants` using updated brief
 4. Create new board: `$D compare --images "..." --output "$_DESIGN_DIR/design-board.html"`
-5. Parse the port from the `$D serve` stderr output (`SERVE_STARTED: port=XXXXX`),
-   then reload the board in the user's browser (same tab):
+5. Reload the board in the user's browser (same tab):
    `curl -s -X POST http://127.0.0.1:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
-6. The board auto-refreshes. **Poll again** for the next feedback file.
-7. Repeat until `feedback.json` appears (user clicked Submit).
+6. The board auto-refreshes. **AskUserQuestion again** with the same board URL to
+   wait for the next round of feedback. Repeat until `feedback.json` appears.
 
-**If `feedback.json` found (`"regenerated": false`):**
-1. Read `preferred`, `ratings`, `comments`, `overall` from the JSON
-2. Proceed with the approved variant
+**If `NO_FEEDBACK_FILE`:** The user typed their preferences directly in the
+AskUserQuestion response instead of using the board. Use their text response
+as the feedback.
 
-**If `$D serve` fails or no feedback within 10 minutes:** Fall back to AskUserQuestion:
-"I've opened the design board. Which variant do you prefer? Any feedback?"
+**POLLING FALLBACK:** Only use polling if `$D serve` fails (no port available).
+In that case, show each variant inline using the Read tool (so the user can see them),
+then use AskUserQuestion:
+"The comparison board server failed to start. I've shown the variants above.
+Which do you prefer? Any feedback?"
 
 **After receiving feedback (any path):** Output a clear summary confirming
 what was understood:
@@ -1060,6 +1076,7 @@ Follow the AskUserQuestion format from the Preamble above. Additional rules for 
 * **Map to Design Principles above.** One sentence connecting your recommendation to a specific principle.
 * Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
 * **Escape hatch:** If a section has no issues, say so and move on. If a gap has an obvious fix, state what you'll add and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine design choice with meaningful tradeoffs.
+* **NEVER use AskUserQuestion to ask which variant the user prefers.** Always create a comparison board first (`$D compare --serve`) and open it in the browser. The board has rating controls, comments, remix/regenerate buttons, and structured feedback output. Use AskUserQuestion ONLY to notify the user the board is open and wait for them to finish — not to present variants inline and ask "which do you prefer?" That is a degraded experience.
 
 ## Required Outputs
 
