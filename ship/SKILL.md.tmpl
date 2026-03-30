@@ -543,6 +543,88 @@ Print: "Preview deployed: <URL>" (or "Preview deployed: <URL> (health check: OK/
 
 ---
 
+## Step 7.75: Targeted Browser Verification (non-blocking)
+
+Browse the preview deployment to verify changed routes work. This step requires both
+a preview URL from Step 7.5 and the browse binary. If either is unavailable, skip.
+
+**1. Check prerequisites:**
+
+If no preview URL was captured in Step 7.5: Skip silently. Continue to Step 8.
+
+Check browse binary availability:
+```bash
+B=$(~/.claude/skills/gstack/browse/dist/browse 2>/dev/null && echo "OK" || which browse 2>/dev/null || echo "NOT_FOUND")
+echo "BROWSE: $B"
+```
+
+If browse binary is not found: Print "Browse binary not available — skipping browser verification." Continue to Step 8.
+
+**2. Detect changed routes from the diff:**
+
+```bash
+git diff origin/<base> --name-only
+```
+
+Map changed files to routes using framework conventions:
+- **Next.js App Router:** `app/<route>/page.tsx` → `/<route>` (strip `app/` prefix and `/page.tsx` suffix; handle nested routes, dynamic segments like `[id]` become a known valid ID or skip)
+- **Next.js Pages Router:** `pages/<route>.tsx` → `/<route>`
+- **SvelteKit:** `src/routes/<route>/+page.svelte` → `/<route>`
+- **Nuxt:** `pages/<route>.vue` → `/<route>`
+- **Route handlers / API routes:** `app/api/<path>/route.ts` → `/api/<path>` (verify these return non-error status, don't browse them visually)
+- **Components without direct routes:** Use `grep -rl "ComponentName"` on page files to trace which routes import the changed component. Add those routes.
+- **Non-route files** (utils, config, services, styles): Do not map to routes.
+
+If no routes detected: Print "No user-facing routes changed — skipping browser verification." Continue to Step 8.
+
+If the framework is not recognized from file patterns: Fall back to verifying the preview URL's root path (`/`) only.
+
+**3. Prioritize routes (if more than 5 detected):**
+
+Order by: pages before API routes, new files before modified files. Cap at 5 routes to stay within the 3-minute time budget.
+
+**4. Dispatch browser verification subagent:**
+
+Use the Agent tool to dispatch a subagent with this prompt:
+
+"You are verifying a preview deployment at {PREVIEW_URL}. Use the browse binary at {BROWSE_PATH} to check each of these routes:
+
+{ROUTE_LIST}
+
+For each route:
+1. Navigate to {PREVIEW_URL}{route}
+2. Wait for the page to fully load (network idle)
+3. Check for console errors — note any
+4. Verify the page renders meaningful content (not a blank page, not a 500 error, not a generic error page)
+5. For pages (not API routes): interact with the primary interactive element if one exists (click a button, open a form, expand a section) to verify basic interactivity
+6. Take a screenshot
+
+Report results in this exact format:
+
+~~~
+BROWSER VERIFICATION (preview: {PREVIEW_URL}):
+═══════════════════════════════════════════════
+  {route}    PASS|FAIL    {one-line reason}
+  ...
+───────────────────────────────────────────────
+  Result: N/M PASS, K/M FAIL
+═══════════════════════════════════════════════
+~~~
+
+If a route fails, include the error (status code, console error message, or what was missing). If you cannot reach the preview URL at all, report ALL routes as FAIL with 'preview URL unreachable'."
+
+Set a 3-minute timeout on the subagent. If it times out, use whatever partial results were returned.
+
+**5. Capture results:**
+
+Store the verification output (the formatted table) and any screenshots for Step 8's PR body.
+
+If the subagent failed entirely or timed out with no results: Print "Browser verification timed out — skipping." Continue to Step 8.
+
+Print the verification results table to the console.
+
+---
+
 ## Step 8: Create PR/MR
 
 Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
