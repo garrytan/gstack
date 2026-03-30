@@ -76,8 +76,8 @@ function setConnected(healthData) {
   chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' });
   chrome.action.setBadgeText({ text: ' ' });
 
-  // Broadcast health to popup and side panel (include token for sidepanel auth)
-  chrome.runtime.sendMessage({ type: 'health', data: { ...healthData, token: authToken } }).catch(() => {});
+  // Broadcast health to popup and side panel (token excluded — use getToken message instead)
+  chrome.runtime.sendMessage({ type: 'health', data: healthData }).catch(() => {});
 
   // Notify content scripts on connection change
   if (wasDisconnected) {
@@ -168,7 +168,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   const ALLOWED_TYPES = new Set([
-    'getPort', 'setPort', 'getServerUrl', 'fetchRefs',
+    'getPort', 'setPort', 'getServerUrl', 'getToken', 'fetchRefs',
     'openSidePanel', 'command', 'sidebar-command'
   ]);
   if (!ALLOWED_TYPES.has(msg.type)) {
@@ -194,7 +194,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // getToken handler removed — token distributed via health broadcast
+  // Token delivered via targeted sendResponse, not broadcast — limits exposure
+  if (msg.type === 'getToken') {
+    sendResponse({ token: authToken });
+    return true;
+  }
 
   if (msg.type === 'fetchRefs') {
     fetchAndRelayRefs().then(() => sendResponse({ ok: true }));
