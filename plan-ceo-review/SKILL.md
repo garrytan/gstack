@@ -64,6 +64,15 @@ for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null
   fi
   break
 done
+# Learnings count
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+if [ -f "$_LEARN_FILE" ]; then
+  _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
+  echo "LEARNINGS: $_LEARN_COUNT entries loaded"
+else
+  echo "LEARNINGS: 0"
+fi
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills AND do not
@@ -602,6 +611,44 @@ Run the three-layer synthesis:
 - **[Layer 3]** First-principles reasoning — where might the conventional wisdom be wrong?
 
 Feed into the Premise Challenge (0A) and Dream State Mapping (0C). If you find a eureka moment, surface it during the Expansion opt-in ceremony as a differentiation opportunity. Log it (see preamble).
+
+## Prior Learnings
+
+Search for relevant learnings from previous sessions:
+
+```bash
+_CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
+echo "CROSS_PROJECT: $_CROSS_PROJ"
+if [ "$_CROSS_PROJ" = "true" ]; then
+  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+else
+  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+fi
+```
+
+If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
+
+> gstack can search learnings from your other projects on this machine to find
+> patterns that might apply here. This stays local (no data leaves your machine).
+> Recommended for solo developers. Skip if you work on multiple client codebases
+> where cross-contamination would be a concern.
+
+Options:
+- A) Enable cross-project learnings (recommended)
+- B) Keep learnings project-scoped only
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings true`
+If B: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings false`
+
+Then re-run the search with the appropriate flag.
+
+If learnings are found, incorporate them into your analysis. When a review finding
+matches a past learning, display:
+
+**"Prior learning applied: [key] (confidence N/10, from [date])"**
+
+This makes the compounding visible. The user should see that gstack is getting
+smarter on their codebase over time.
 
 ## Step 0: Nuclear Scope Challenge + Mode Selection
 

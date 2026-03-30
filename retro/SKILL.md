@@ -59,6 +59,15 @@ for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null
   fi
   break
 done
+# Learnings count
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+if [ -f "$_LEARN_FILE" ]; then
+  _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
+  echo "LEARNINGS: $_LEARN_COUNT entries loaded"
+else
+  echo "LEARNINGS: 0"
+fi
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills AND do not
@@ -620,6 +629,30 @@ For each contributor (including the current user), compute:
 **If only one contributor (solo repo):** Skip the team breakdown and proceed as before — the retro is personal.
 
 **If there are Co-Authored-By trailers:** Parse `Co-Authored-By:` lines in commit messages. Credit those authors for the commit alongside the primary author. Note AI co-authors (e.g., `noreply@anthropic.com`) but do not include them as team members — instead, track "AI-assisted commits" as a separate metric.
+
+## Capture Learnings
+
+If you discovered a non-obvious pattern, pitfall, or architectural insight during
+this session, log it for future sessions:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"retro","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+```
+
+**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
+(user stated), `architecture` (structural decision), `tool` (library/framework insight).
+
+**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
+`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
+
+**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
+An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
+
+**files:** Include the specific file paths this learning references. This enables
+staleness detection: if those files are later deleted, the learning can be flagged.
+
+**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
+already knows. A good test: would this insight save time in a future session? If yes, log it.
 
 ### Step 10: Week-over-Week Trends (if window >= 14d)
 

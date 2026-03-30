@@ -62,6 +62,15 @@ for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null
   fi
   break
 done
+# Learnings count
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+if [ -f "$_LEARN_FILE" ]; then
+  _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
+  echo "LEARNINGS: $_LEARN_COUNT entries loaded"
+else
+  echo "LEARNINGS: 0"
+fi
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills AND do not
@@ -582,6 +591,44 @@ Run `git diff origin/<base>` to get the full diff. This includes both committed 
 
 ---
 
+## Prior Learnings
+
+Search for relevant learnings from previous sessions:
+
+```bash
+_CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
+echo "CROSS_PROJECT: $_CROSS_PROJ"
+if [ "$_CROSS_PROJ" = "true" ]; then
+  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+else
+  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+fi
+```
+
+If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
+
+> gstack can search learnings from your other projects on this machine to find
+> patterns that might apply here. This stays local (no data leaves your machine).
+> Recommended for solo developers. Skip if you work on multiple client codebases
+> where cross-contamination would be a concern.
+
+Options:
+- A) Enable cross-project learnings (recommended)
+- B) Keep learnings project-scoped only
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings true`
+If B: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings false`
+
+Then re-run the search with the appropriate flag.
+
+If learnings are found, incorporate them into your analysis. When a review finding
+matches a past learning, display:
+
+**"Prior learning applied: [key] (confidence N/10, from [date])"**
+
+This makes the compounding visible. The user should see that gstack is getting
+smarter on their codebase over time.
+
 ## Step 4: Two-pass review
 
 Apply the checklist against the diff in two passes:
@@ -599,6 +646,31 @@ Apply the checklist against the diff in two passes:
 Takes seconds, prevents recommending outdated patterns. If WebSearch is unavailable, note it and proceed with in-distribution knowledge.
 
 Follow the output format specified in the checklist. Respect the suppressions — do NOT flag items listed in the "DO NOT flag" section.
+
+## Confidence Calibration
+
+Every finding MUST include a confidence score (1-10):
+
+| Score | Meaning | Display rule |
+|-------|---------|-------------|
+| 9-10 | Verified by reading specific code. Concrete bug or exploit demonstrated. | Show normally |
+| 7-8 | High confidence pattern match. Very likely correct. | Show normally |
+| 5-6 | Moderate. Could be a false positive. | Show with caveat: "Medium confidence, verify this is actually an issue" |
+| 3-4 | Low confidence. Pattern is suspicious but may be fine. | Suppress from main report. Include in appendix only. |
+| 1-2 | Speculation. | Only report if severity would be P0. |
+
+**Finding format:**
+
+\`[SEVERITY] (confidence: N/10) file:line — description\`
+
+Example:
+\`[P1] (confidence: 9/10) app/models/user.rb:42 — SQL injection via string interpolation in where clause\`
+\`[P2] (confidence: 5/10) app/controllers/api/v1/users_controller.rb:18 — Possible N+1 query, verify with production logs\`
+
+**Calibration learning:** If you report a finding with confidence < 7 and the user
+confirms it IS a real issue, that is a calibration event. Your initial confidence was
+too low. Log the corrected pattern as a learning so future reviews catch it with
+higher confidence.
 
 ---
 
@@ -1126,6 +1198,30 @@ Substitute:
 - `critical` = remaining unresolved critical findings
 - `informational` = remaining unresolved informational findings
 - `COMMIT` = output of `git rev-parse --short HEAD`
+
+## Capture Learnings
+
+If you discovered a non-obvious pattern, pitfall, or architectural insight during
+this session, log it for future sessions:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+```
+
+**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
+(user stated), `architecture` (structural decision), `tool` (library/framework insight).
+
+**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
+`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
+
+**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
+An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
+
+**files:** Include the specific file paths this learning references. This enables
+staleness detection: if those files are later deleted, the learning can be flagged.
+
+**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
+already knows. A good test: would this insight save time in a future session? If yes, log it.
 
 If the review exits early before a real review completes (for example, no diff against the base branch), do **not** write this entry.
 

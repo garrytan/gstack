@@ -104,6 +104,8 @@ Run `git diff origin/<base>` to get the full diff. This includes both committed 
 
 ---
 
+{{LEARNINGS_SEARCH}}
+
 ## Step 4: Two-pass review
 
 Apply the checklist against the diff in two passes:
@@ -121,6 +123,8 @@ Apply the checklist against the diff in two passes:
 Takes seconds, prevents recommending outdated patterns. If WebSearch is unavailable, note it and proceed with in-distribution knowledge.
 
 Follow the output format specified in the checklist. Respect the suppressions — do NOT flag items listed in the "DO NOT flag" section.
+
+{{CONFIDENCE_CALIBRATION}}
 
 ---
 
@@ -272,6 +276,8 @@ Substitute:
 - `critical` = remaining unresolved critical findings
 - `informational` = remaining unresolved informational findings
 - `COMMIT` = output of `git rev-parse --short HEAD`
+
+{{LEARNINGS_LOG}}
 
 If the review exits early before a real review completes (for example, no diff against the base branch), do **not** write this entry.
 

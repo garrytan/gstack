@@ -110,6 +110,8 @@ Always work through the full interactive review: one section at a time (Architec
 
 ## Review Sections (after scope is agreed)
 
+{{LEARNINGS_SEARCH}}
+
 ### 1. Architecture review
 Evaluate:
 * Overall system design and component boundaries.
@@ -122,6 +124,8 @@ Evaluate:
 * **Distribution architecture:** If this introduces a new artifact (binary, package, container), how does it get built, published, and updated? Is the CI/CD pipeline part of the plan or deferred?
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+
+{{CONFIDENCE_CALIBRATION}}
 
 ### 2. Code quality review
 Evaluate:

@@ -1,19 +1,21 @@
 ---
-name: qa-only
-preamble-tier: 4
+name: learn
+preamble-tier: 2
 version: 1.0.0
 description: |
-  Report-only QA testing. Systematically tests a web application and produces a
-  structured report with health score, screenshots, and repro steps — but never
-  fixes anything. Use when asked to "just report bugs", "qa report only", or
-  "test but don't fix". For the full test-fix-verify loop, use /qa instead.
-  Proactively suggest when the user wants a bug report without any code changes.
+  Manage project learnings. Review, search, prune, and export what gstack
+  has learned across sessions. Use when asked to "what have we learned",
+  "show learnings", "prune stale learnings", or "export learnings".
+  Proactively suggest when the user asks about past patterns or wonders
+  "didn't we fix this before?"
 allowed-tools:
   - Bash
   - Read
   - Write
+  - Edit
   - AskUserQuestion
-  - WebSearch
+  - Glob
+  - Grep
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -48,7 +50,7 @@ _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
-echo '{"skill":"qa-only","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"learn","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -222,24 +224,6 @@ AI makes completeness near-free. Always recommend the complete option over short
 
 Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
 
-## Repo Ownership — See Something, Say Something
-
-`REPO_MODE` controls how to handle issues outside your branch:
-- **`solo`** — You own everything. Investigate and offer to fix proactively.
-- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
-
-Always flag anything that looks wrong — one sentence, what you noticed and its impact.
-
-## Search Before Building
-
-Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
-- **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
-
-**Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
-```bash
-jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
-```
-
 ## Contributor Mode
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major workflow step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
@@ -352,396 +336,174 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# /qa-only: Report-Only QA Testing
+# Project Learnings Manager
 
-You are a QA engineer. Test web applications like a real user — click everything, fill every form, check every state. Produce a structured report with evidence. **NEVER fix anything.**
+You are a **Staff Engineer who maintains the team wiki**. Your job is to help the user
+see what gstack has learned across sessions on this project, search for relevant
+knowledge, and prune stale or contradictory entries.
 
-## Setup
+**HARD GATE:** Do NOT implement code changes. This skill manages learnings only.
 
-**Parse the user's request for these parameters:**
+---
 
-| Parameter | Default | Override example |
-|-----------|---------|-----------------:|
-| Target URL | (auto-detect or required) | `https://myapp.com`, `http://localhost:3000` |
-| Mode | full | `--quick`, `--regression .gstack/qa-reports/baseline.json` |
-| Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
-| Scope | Full app (or diff-scoped) | `Focus on the billing page` |
-| Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+## Detect command
 
-**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
+Parse the user's input to determine which command to run:
 
-**Find the browse binary:**
+- `/learn` (no arguments) → **Show recent**
+- `/learn search <query>` → **Search**
+- `/learn prune` → **Prune**
+- `/learn export` → **Export**
+- `/learn stats` → **Stats**
+- `/learn add` → **Manual add**
 
-## SETUP (run this check BEFORE any browse command)
+---
+
+## Show recent (default)
+
+Show the most recent 20 learnings, grouped by type.
 
 ```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
-if [ -x "$B" ]; then
-  echo "READY: $B"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo "No learnings yet."
+```
+
+Present the output in a readable format. If no learnings exist, tell the user:
+"No learnings recorded yet. As you use /review, /ship, /investigate, and other skills,
+gstack will automatically capture patterns, pitfalls, and insights it discovers."
+
+---
+
+## Search
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo "No matches."
+```
+
+Replace USER_QUERY with the user's search terms. Present results clearly.
+
+---
+
+## Prune
+
+Check learnings for staleness and contradictions.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-search --limit 100 2>/dev/null
+```
+
+For each learning in the output:
+
+1. **File existence check:** If the learning has a `files` field, check whether those
+   files still exist in the repo using Glob. If any referenced files are deleted, flag:
+   "STALE: [key] references deleted file [path]"
+
+2. **Contradiction check:** Look for learnings with the same `key` but different or
+   opposite `insight` values. Flag: "CONFLICT: [key] has contradicting entries —
+   [insight A] vs [insight B]"
+
+Present each flagged entry via AskUserQuestion:
+- A) Remove this learning
+- B) Keep it
+- C) Update it (I'll tell you what to change)
+
+For removals, read the learnings.jsonl file and remove the matching line, then write
+back. For updates, append a new entry with the corrected insight (append-only, the
+latest entry wins).
+
+---
+
+## Export
+
+Export learnings as markdown suitable for adding to CLAUDE.md or project documentation.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-search --limit 50 2>/dev/null
+```
+
+Format the output as a markdown section:
+
+```markdown
+## Project Learnings
+
+### Patterns
+- **[key]**: [insight] (confidence: N/10)
+
+### Pitfalls
+- **[key]**: [insight] (confidence: N/10)
+
+### Preferences
+- **[key]**: [insight]
+
+### Architecture
+- **[key]**: [insight] (confidence: N/10)
+```
+
+Present the formatted output to the user. Ask if they want to append it to CLAUDE.md
+or save it as a separate file.
+
+---
+
+## Stats
+
+Show summary statistics about the project's learnings.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+LEARN_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+if [ -f "$LEARN_FILE" ]; then
+  TOTAL=$(wc -l < "$LEARN_FILE" | tr -d ' ')
+  echo "TOTAL: $TOTAL entries"
+  # Count by type (after dedup)
+  cat "$LEARN_FILE" | bun -e "
+    const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
+    const seen = new Map();
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        const dk = (e.key||'') + '|' + (e.type||'');
+        const existing = seen.get(dk);
+        if (!existing || new Date(e.ts) > new Date(existing.ts)) seen.set(dk, e);
+      } catch {}
+    }
+    const byType = {};
+    const bySource = {};
+    let totalConf = 0;
+    for (const e of seen.values()) {
+      byType[e.type] = (byType[e.type]||0) + 1;
+      bySource[e.source] = (bySource[e.source]||0) + 1;
+      totalConf += e.confidence || 0;
+    }
+    console.log('UNIQUE: ' + seen.size + ' (after dedup)');
+    console.log('RAW_ENTRIES: ' + lines.length);
+    console.log('BY_TYPE: ' + JSON.stringify(byType));
+    console.log('BY_SOURCE: ' + JSON.stringify(bySource));
+    console.log('AVG_CONFIDENCE: ' + (totalConf / seen.size).toFixed(1));
+  " 2>/dev/null
 else
-  echo "NEEDS_SETUP"
+  echo "NO_LEARNINGS"
 fi
 ```
 
-If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed:
-   ```bash
-   if ! command -v bun >/dev/null 2>&1; then
-     BUN_VERSION="1.3.10"
-     BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
-     tmpfile=$(mktemp)
-     curl -fsSL "https://bun.sh/install" -o "$tmpfile"
-     actual_sha=$(shasum -a 256 "$tmpfile" | awk '{print $1}')
-     if [ "$actual_sha" != "$BUN_INSTALL_SHA" ]; then
-       echo "ERROR: bun install script checksum mismatch" >&2
-       echo "  expected: $BUN_INSTALL_SHA" >&2
-       echo "  got:      $actual_sha" >&2
-       rm "$tmpfile"; exit 1
-     fi
-     BUN_VERSION="$BUN_VERSION" bash "$tmpfile"
-     rm "$tmpfile"
-   fi
-   ```
-
-**Create output directories:**
-
-```bash
-REPORT_DIR=".gstack/qa-reports"
-mkdir -p "$REPORT_DIR/screenshots"
-```
+Present the stats in a readable table format.
 
 ---
 
-## Test Plan Context
+## Manual add
 
-Before falling back to git diff heuristics, check for richer test plan sources:
+The user wants to manually add a learning. Use AskUserQuestion to gather:
+1. Type (pattern / pitfall / preference / architecture / tool)
+2. A short key (2-5 words, kebab-case)
+3. The insight (one sentence)
+4. Confidence (1-10)
+5. Related files (optional)
 
-1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
-   ```bash
-   setopt +o nomatch 2>/dev/null || true  # zsh compat
-   eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-   ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
-   ```
-2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
-3. **Use whichever source is richer.** Fall back to git diff analysis only if neither is available.
-
----
-
-## Modes
-
-### Diff-aware (automatic when on a feature branch with no URL)
-
-This is the **primary mode** for developers verifying their work. When the user says `/qa` without a URL and the repo is on a feature branch, automatically:
-
-1. **Analyze the branch diff** to understand what changed:
-   ```bash
-   git diff main...HEAD --name-only
-   git log main..HEAD --oneline
-   ```
-
-2. **Identify affected pages/routes** from the changed files:
-   - Controller/route files → which URL paths they serve
-   - View/template/component files → which pages render them
-   - Model/service files → which pages use those models (check controllers that reference them)
-   - CSS/style files → which pages include those stylesheets
-   - API endpoints → test them directly with `$B js "await fetch('/api/...')"`
-   - Static pages (markdown, HTML) → navigate to them directly
-
-   **If no obvious pages/routes are identified from the diff:** Do not skip browser testing. The user invoked /qa because they want browser-based verification. Fall back to Quick mode — navigate to the homepage, follow the top 5 navigation targets, check console for errors, and test any interactive elements found. Backend, config, and infrastructure changes affect app behavior — always verify the app still works.
-
-3. **Detect the running app** — check common local dev ports:
-   ```bash
-   $B goto http://localhost:3000 2>/dev/null && echo "Found app on :3000" || \
-   $B goto http://localhost:4000 2>/dev/null && echo "Found app on :4000" || \
-   $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
-   ```
-   If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
-
-4. **Test each affected page/route:**
-   - Navigate to the page
-   - Take a screenshot
-   - Check console for errors
-   - If the change was interactive (forms, buttons, flows), test the interaction end-to-end
-   - Use `snapshot -D` before and after actions to verify the change had the expected effect
-
-5. **Cross-reference with commit messages and PR description** to understand *intent* — what should the change do? Verify it actually does that.
-
-6. **Check TODOS.md** (if it exists) for known bugs or issues related to the changed files. If a TODO describes a bug that this branch should fix, add it to your test plan. If you find a new bug during QA that isn't in TODOS.md, note it in the report.
-
-7. **Report findings** scoped to the branch changes:
-   - "Changes tested: N pages/routes affected by this branch"
-   - For each: does it work? Screenshot evidence.
-   - Any regressions on adjacent pages?
-
-**If the user provides a URL with diff-aware mode:** Use that URL as the base but still scope testing to the changed files.
-
-### Full (default when URL is provided)
-Systematic exploration. Visit every reachable page. Document 5-10 well-evidenced issues. Produce health score. Takes 5-15 minutes depending on app size.
-
-### Quick (`--quick`)
-30-second smoke test. Visit homepage + top 5 navigation targets. Check: page loads? Console errors? Broken links? Produce health score. No detailed issue documentation.
-
-### Regression (`--regression <baseline>`)
-Run full mode, then load `baseline.json` from a previous run. Diff: which issues are fixed? Which are new? What's the score delta? Append regression section to report.
-
----
-
-## Workflow
-
-### Phase 1: Initialize
-
-1. Find browse binary (see Setup above)
-2. Create output directories
-3. Copy report template from `qa/templates/qa-report-template.md` to output dir
-4. Start timer for duration tracking
-
-### Phase 2: Authenticate (if needed)
-
-**If the user specified auth credentials:**
+Then log it:
 
 ```bash
-$B goto <login-url>
-$B snapshot -i                    # find the login form
-$B fill @e3 "user@example.com"
-$B fill @e4 "[REDACTED]"         # NEVER include real passwords in report
-$B click @e5                      # submit
-$B snapshot -D                    # verify login succeeded
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
 ```
-
-**If the user provided a cookie file:**
-
-```bash
-$B cookie-import cookies.json
-$B goto <target-url>
-```
-
-**If 2FA/OTP is required:** Ask the user for the code and wait.
-
-**If CAPTCHA blocks you:** Tell the user: "Please complete the CAPTCHA in the browser, then tell me to continue."
-
-### Phase 3: Orient
-
-Get a map of the application:
-
-```bash
-$B goto <target-url>
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/initial.png"
-$B links                          # map navigation structure
-$B console --errors               # any errors on landing?
-```
-
-**Detect framework** (note in report metadata):
-- `__next` in HTML or `_next/data` requests → Next.js
-- `csrf-token` meta tag → Rails
-- `wp-content` in URLs → WordPress
-- Client-side routing with no page reloads → SPA
-
-**For SPAs:** The `links` command may return few results because navigation is client-side. Use `snapshot -i` to find nav elements (buttons, menu items) instead.
-
-### Phase 4: Explore
-
-Visit pages systematically. At each page:
-
-```bash
-$B goto <page-url>
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
-$B console --errors
-```
-
-Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md`):
-
-1. **Visual scan** — Look at the annotated screenshot for layout issues
-2. **Interactive elements** — Click buttons, links, controls. Do they work?
-3. **Forms** — Fill and submit. Test empty, invalid, edge cases
-4. **Navigation** — Check all paths in and out
-5. **States** — Empty state, loading, error, overflow
-6. **Console** — Any new JS errors after interactions?
-7. **Responsiveness** — Check mobile viewport if relevant:
-   ```bash
-   $B viewport 375x812
-   $B screenshot "$REPORT_DIR/screenshots/page-mobile.png"
-   $B viewport 1280x720
-   ```
-
-**Depth judgment:** Spend more time on core features (homepage, dashboard, checkout, search) and less on secondary pages (about, terms, privacy).
-
-**Quick mode:** Only visit homepage + top 5 navigation targets from the Orient phase. Skip the per-page checklist — just check: loads? Console errors? Broken links visible?
-
-### Phase 5: Document
-
-Document each issue **immediately when found** — don't batch them.
-
-**Two evidence tiers:**
-
-**Interactive bugs** (broken flows, dead buttons, form failures):
-1. Take a screenshot before the action
-2. Perform the action
-3. Take a screenshot showing the result
-4. Use `snapshot -D` to show what changed
-5. Write repro steps referencing screenshots
-
-```bash
-$B screenshot "$REPORT_DIR/screenshots/issue-001-step-1.png"
-$B click @e5
-$B screenshot "$REPORT_DIR/screenshots/issue-001-result.png"
-$B snapshot -D
-```
-
-**Static bugs** (typos, layout issues, missing images):
-1. Take a single annotated screenshot showing the problem
-2. Describe what's wrong
-
-```bash
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
-```
-
-**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
-
-### Phase 6: Wrap Up
-
-1. **Compute health score** using the rubric below
-2. **Write "Top 3 Things to Fix"** — the 3 highest-severity issues
-3. **Write console health summary** — aggregate all console errors seen across pages
-4. **Update severity counts** in the summary table
-5. **Fill in report metadata** — date, duration, pages visited, screenshot count, framework
-6. **Save baseline** — write `baseline.json` with:
-   ```json
-   {
-     "date": "YYYY-MM-DD",
-     "url": "<target>",
-     "healthScore": N,
-     "issues": [{ "id": "ISSUE-001", "title": "...", "severity": "...", "category": "..." }],
-     "categoryScores": { "console": N, "links": N, ... }
-   }
-   ```
-
-**Regression mode:** After writing the report, load the baseline file. Compare:
-- Health score delta
-- Issues fixed (in baseline but not current)
-- New issues (in current but not baseline)
-- Append the regression section to the report
-
----
-
-## Health Score Rubric
-
-Compute each category score (0-100), then take the weighted average.
-
-### Console (weight: 15%)
-- 0 errors → 100
-- 1-3 errors → 70
-- 4-10 errors → 40
-- 10+ errors → 10
-
-### Links (weight: 10%)
-- 0 broken → 100
-- Each broken link → -15 (minimum 0)
-
-### Per-Category Scoring (Visual, Functional, UX, Content, Performance, Accessibility)
-Each category starts at 100. Deduct per finding:
-- Critical issue → -25
-- High issue → -15
-- Medium issue → -8
-- Low issue → -3
-Minimum 0 per category.
-
-### Weights
-| Category | Weight |
-|----------|--------|
-| Console | 15% |
-| Links | 10% |
-| Visual | 10% |
-| Functional | 20% |
-| UX | 15% |
-| Performance | 10% |
-| Content | 5% |
-| Accessibility | 15% |
-
-### Final Score
-`score = Σ (category_score × weight)`
-
----
-
-## Framework-Specific Guidance
-
-### Next.js
-- Check console for hydration errors (`Hydration failed`, `Text content did not match`)
-- Monitor `_next/data` requests in network — 404s indicate broken data fetching
-- Test client-side navigation (click links, don't just `goto`) — catches routing issues
-- Check for CLS (Cumulative Layout Shift) on pages with dynamic content
-
-### Rails
-- Check for N+1 query warnings in console (if development mode)
-- Verify CSRF token presence in forms
-- Test Turbo/Stimulus integration — do page transitions work smoothly?
-- Check for flash messages appearing and dismissing correctly
-
-### WordPress
-- Check for plugin conflicts (JS errors from different plugins)
-- Verify admin bar visibility for logged-in users
-- Test REST API endpoints (`/wp-json/`)
-- Check for mixed content warnings (common with WP)
-
-### General SPA (React, Vue, Angular)
-- Use `snapshot -i` for navigation — `links` command misses client-side routes
-- Check for stale state (navigate away and back — does data refresh?)
-- Test browser back/forward — does the app handle history correctly?
-- Check for memory leaks (monitor console after extended use)
-
----
-
-## Important Rules
-
-1. **Repro is everything.** Every issue needs at least one screenshot. No exceptions.
-2. **Verify before documenting.** Retry the issue once to confirm it's reproducible, not a fluke.
-3. **Never include credentials.** Write `[REDACTED]` for passwords in repro steps.
-4. **Write incrementally.** Append each issue to the report as you find it. Don't batch.
-5. **Never read source code.** Test as a user, not a developer.
-6. **Check console after every interaction.** JS errors that don't surface visually are still bugs.
-7. **Test like a user.** Use realistic data. Walk through complete workflows end-to-end.
-8. **Depth over breadth.** 5-10 well-documented issues with evidence > 20 vague descriptions.
-9. **Never delete output files.** Screenshots and reports accumulate — that's intentional.
-10. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
-11. **Show screenshots to the user.** After every `$B screenshot`, `$B snapshot -a -o`, or `$B responsive` command, use the Read tool on the output file(s) so the user can see them inline. For `responsive` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
-12. **Never refuse to use the browser.** When the user invokes /qa or /qa-only, they are requesting browser-based testing. Never suggest evals, unit tests, or other alternatives as a substitute. Even if the diff appears to have no UI changes, backend changes affect app behavior — always open the browser and test.
-
----
-
-## Output
-
-Write the report to both local and project-scoped locations:
-
-**Local:** `.gstack/qa-reports/qa-report-{domain}-{YYYY-MM-DD}.md`
-
-**Project-scoped:** Write test outcome artifact for cross-session context:
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-```
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
-
-### Output Structure
-
-```
-.gstack/qa-reports/
-├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
-├── screenshots/
-│   ├── initial.png                        # Landing page annotated screenshot
-│   ├── issue-001-step-1.png               # Per-issue evidence
-│   ├── issue-001-result.png
-│   └── ...
-└── baseline.json                          # For regression mode
-```
-
-Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
-
----
-
-## Additional Rules (qa-only specific)
-
-11. **Never fix bugs.** Find and document only. Do not read source code, edit files, or suggest fixes in the report. Your job is to report what's broken, not to fix it. Use `/qa` for the test-fix-verify loop.
-12. **No test framework detected?** If the project has no test infrastructure (no test config files, no test directories), include in the report summary: "No test framework detected. Run `/qa` to bootstrap one and enable regression test generation."

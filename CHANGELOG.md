@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.13.6.0] - 2026-03-29 — Security Audit Round 2
+## [0.13.7.0] - 2026-03-29 — Security Audit Round 2
 
 Browse output is now wrapped in trust boundary markers so agents can tell page content from tool output. Markers are escape-proof. The Chrome extension validates message senders. CDP binds to localhost only. Bun installs use checksum verification.
 
@@ -18,6 +18,21 @@ Browse output is now wrapped in trust boundary markers so agents can tell page c
 ### Removed
 
 - **Factory Droid support.** Removed `--host factory`, `.factory/` generated skills, Factory CI checks, and all Factory-specific code paths.
+
+## [0.13.6.0] - 2026-03-29 — GStack Learns
+
+Every session now makes the next one smarter. gstack remembers patterns, pitfalls, and preferences across sessions and uses them to improve every review, plan, debug, and ship. The more you use it, the better it gets on your codebase.
+
+### Added
+
+- **Project learnings system.** gstack automatically captures patterns and pitfalls it discovers during /review, /ship, /investigate, and other skills. Stored per-project at `~/.gstack/projects/{slug}/learnings.jsonl`. Append-only, Supabase-compatible schema.
+- **`/learn` skill.** Review what gstack has learned (`/learn`), search (`/learn search auth`), prune stale entries (`/learn prune`), export to markdown (`/learn export`), or check stats (`/learn stats`). Manually add learnings with `/learn add`.
+- **Confidence calibration.** Every review finding now includes a confidence score (1-10). High-confidence findings (7+) show normally, medium (5-6) show with a caveat, low (<5) are suppressed. No more crying wolf.
+- **"Learning applied" callouts.** When a review finding matches a past learning, gstack displays it: "Prior learning applied: [pattern] (confidence 8/10, from 2026-03-15)". You can see the compounding in action.
+- **Cross-project discovery.** gstack can search learnings from your other projects for matching patterns. Opt-in, with a one-time AskUserQuestion for consent. Stays local to your machine.
+- **Confidence decay.** Observed and inferred learnings lose 1 confidence point per 30 days. User-stated preferences never decay. A good pattern is a good pattern forever, but uncertain observations fade.
+- **Learnings count in preamble.** Every skill now shows "LEARNINGS: N entries loaded" during startup.
+- **5-release roadmap design doc.** `docs/designs/SELF_LEARNING_V0.md` maps the path from R1 (GStack Learns) through R4 (/autoship, one-command full feature) to R5 (Studio).
 
 ## [0.13.5.1] - 2026-03-29 — Gitignore .factory
 
