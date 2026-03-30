@@ -1741,25 +1741,20 @@ describe('setup script validation', () => {
   });
 
   test('Claude install uses link_claude_skill_dirs', () => {
-    // The Claude install section (section 4) should use the Claude function
-    const claudeSection = setupContent.slice(
-      setupContent.indexOf('# 4. Install for Claude'),
-      setupContent.indexOf('# 5. Install for Codex')
-    );
-    expect(claudeSection).toContain('link_claude_skill_dirs');
-    expect(claudeSection).not.toContain('link_codex_skill_dirs');
+    // The Claude install section in Phase 1 should use the Claude function
+    const phase1Start = setupContent.indexOf('# Phase 1 —');
+    const phase2Start = setupContent.indexOf('# Phase 2 —');
+    expect(phase1Start).toBeGreaterThan(-1);
+    expect(phase2Start).toBeGreaterThan(phase1Start);
+    const phase1Section = setupContent.slice(phase1Start, phase2Start);
+    expect(phase1Section).toContain('link_claude_skill_dirs');
   });
 
   test('Codex install uses link_codex_skill_dirs', () => {
-    // The Codex install section (section 5) should use the Codex function
-    const codexSection = setupContent.slice(
-      setupContent.indexOf('# 5. Install for Codex'),
-      setupContent.indexOf('# 6. Create')
-    );
-    expect(codexSection).toContain('create_codex_runtime_root');
-    expect(codexSection).toContain('link_codex_skill_dirs');
-    expect(codexSection).not.toContain('link_claude_skill_dirs');
-    expect(codexSection).not.toContain('ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"');
+    // Codex linking appears in both Phase 1 (if .agents/ exists) and Phase 2 (generation)
+    expect(setupContent).toContain('create_codex_runtime_root');
+    expect(setupContent).toContain('link_codex_skill_dirs');
+    expect(setupContent).not.toContain('ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"');
   });
 
   test('Codex install prefers repo-local .agents/skills when setup runs from there', () => {
@@ -1961,6 +1956,75 @@ describe('setup script validation', () => {
     // gstack-upgrade is always called gstack-upgrade (it's the actual dir name)
     // but the welcome section should exist near the prefix logic
     expect(setupContent).toContain('Run /gstack-upgrade anytime');
+  });
+
+  // --- Resilient two-phase setup tests ---
+
+  test('Phase 1 skill linking runs before Phase 2 browse build', () => {
+    const phase1Pos = setupContent.indexOf('# Phase 1 —');
+    const phase2Pos = setupContent.indexOf('# Phase 2 —');
+    const linkClaudePos = setupContent.indexOf('link_claude_skill_dirs "$SOURCE_GSTACK_DIR"');
+    const buildPos = setupContent.indexOf('Building browse binary');
+    expect(phase1Pos).toBeGreaterThan(-1);
+    expect(phase2Pos).toBeGreaterThan(phase1Pos);
+    expect(linkClaudePos).toBeLessThan(buildPos);
+  });
+
+  test('Codex/Factory linking guards on .agents/.factory directory existence', () => {
+    // Phase 1 Codex linking checks if .agents/skills/ exists before calling link helpers
+    const phase1Section = setupContent.slice(
+      setupContent.indexOf('# Phase 1 —'),
+      setupContent.indexOf('# Phase 2 —')
+    );
+    expect(phase1Section).toContain('if [ -d "$AGENTS_DIR" ]');
+    expect(phase1Section).toContain('if [ -d "$FACTORY_DIR" ]');
+  });
+
+  test('Kiro browse symlinks are guarded by directory existence', () => {
+    expect(setupContent).toContain('if [ -d "$SOURCE_GSTACK_DIR/browse/dist" ]');
+    expect(setupContent).toContain('if [ -d "$SOURCE_GSTACK_DIR/browse/bin" ]');
+  });
+
+  test('bun check is conditional, not fatal', () => {
+    expect(setupContent).toContain('HAS_BUN=0');
+    expect(setupContent).toContain('HAS_BUN=1');
+    // The old fatal bun check must not exist
+    expect(setupContent).not.toContain('echo "Error: bun is required but not installed."');
+  });
+
+  test('Phase 2 uses set +e to avoid fatal exits', () => {
+    const phase2Section = setupContent.slice(
+      setupContent.indexOf('# Phase 2 —'),
+      setupContent.indexOf('# Summary')
+    );
+    expect(phase2Section).toContain('set +e');
+    expect(phase2Section).toContain('set -e');
+  });
+
+  test('browse build failure does not exit the script', () => {
+    const phase2Section = setupContent.slice(
+      setupContent.indexOf('# Phase 2 —'),
+      setupContent.indexOf('# Summary')
+    );
+    // Phase 2 should warn on browse build failure, not exit
+    expect(phase2Section).toContain('warning: browse binary');
+    expect(phase2Section).not.toMatch(/exit\s+1.*browse/);
+  });
+
+  test('Playwright failure does not exit the script', () => {
+    const phase2Section = setupContent.slice(
+      setupContent.indexOf('# Phase 2 —'),
+      setupContent.indexOf('# Summary')
+    );
+    expect(phase2Section).toContain('warning: Playwright Chromium could not be launched');
+    expect(phase2Section).not.toMatch(/exit\s+1.*[Pp]laywright/);
+  });
+
+  test('setup summary section reports status', () => {
+    expect(setupContent).toContain('gstack setup complete.');
+    expect(setupContent).toContain('BROWSE_BUILT');
+    expect(setupContent).toContain('PLAYWRIGHT_OK');
+    expect(setupContent).toContain('CLAUDE_LINKED');
   });
 });
 
