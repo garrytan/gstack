@@ -468,26 +468,30 @@ Run Codex code review against the current branch diff.
 TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
 ```
 
-2. Run the review (5-minute timeout). **Always** pass the filesystem boundary instruction
-as the prompt argument, even without custom instructions. If the user provided custom
-instructions, append them after the boundary separated by a newline:
+2. Run the review (5-minute timeout). Use `timeout: 300000` on the Bash call.
+
+**IMPORTANT:** `codex review` does NOT allow `[PROMPT]` and `--base` together — they are
+mutually exclusive CLI arguments. Combining them causes: `error: the argument '[PROMPT]'
+cannot be used with '--base <BRANCH>'`.
+
+- **Default (no custom instructions):** use `--base` only:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+codex review --base <base> -c 'model_reasoning_effort="high"' 2>"$TMPERR"
+```
+
+- **With custom instructions** (e.g., `/codex review focus on security`): use the prompt
+  and include a "Review changes against `<base>`" directive so Codex knows to diff:
+```bash
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT"
+codex review "Review the changes on this branch against <base>. Run git diff origin/<base> to see the diff. IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. Stay focused on repository code only.
+
+focus on security" -c 'model_reasoning_effort="high"' 2>"$TMPERR"
 ```
 
 If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
-
-Use `timeout: 300000` on the Bash call. If the user provided custom instructions
-(e.g., `/codex review focus on security`), append them after the boundary:
-```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
-```
 
 3. Capture the output. Then parse cost from stderr:
 ```bash
@@ -633,7 +637,7 @@ If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json 2>/dev/null | PYTHONUNBUFFERED=1 python3 -u -c "
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --json 2>/dev/null | PYTHONUNBUFFERED=1 python3 -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -745,7 +749,7 @@ If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
 For a **new session:**
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -779,7 +783,7 @@ for line in sys.stdin:
 For a **resumed session** (user chose "Continue"):
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
+codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
 <same python streaming parser as above, with flush=True on all print() calls>
 "
 ```
@@ -823,9 +827,6 @@ uses them. If the user wants a specific model, pass `-m` through to codex.
 `xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
 tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
 (e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
-
-**Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
-docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
 
 If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
 or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
