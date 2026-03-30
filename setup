@@ -293,6 +293,12 @@ link_claude_skill_dirs() {
         ln -snf "gstack/$dir_name" "$target"
         linked+=("$link_name")
       fi
+      # Patch SKILL.md name: field to match the linked name so Claude Code
+      # registers the skill under the correct command (e.g., /gstack-qa not /qa)
+      if [ "$link_name" != "$skill_name" ]; then
+        _tmp="$(mktemp)"
+        sed "1,/^---$/s/^name:.*$/name: $link_name/" "$skill_dir/SKILL.md" > "$_tmp" && mv "$_tmp" "$skill_dir/SKILL.md"
+      fi
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then

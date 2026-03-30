@@ -45,6 +45,10 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
   [ -f "$skill_dir/SKILL.md" ] || continue
 
+  # Read current name: from frontmatter
+  current_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+  [ -z "$current_name" ] && current_name="$skill"
+
   if [ "$PREFIX" = "true" ]; then
     # Don't double-prefix directories already named gstack-*
     case "$skill" in
@@ -55,6 +59,7 @@ for skill_dir in "$INSTALL_DIR"/*/; do
     # Remove old flat symlink if it exists (and isn't the same as the new link)
     [ "$link_name" != "$skill" ] && [ -L "$SKILLS_DIR/$skill" ] && rm -f "$SKILLS_DIR/$skill"
   else
+    link_name="$skill"
     # Create flat symlink, remove gstack-* if exists
     ln -sfn "$INSTALL_DIR/$skill" "$SKILLS_DIR/$skill"
     # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
@@ -63,6 +68,14 @@ for skill_dir in "$INSTALL_DIR"/*/; do
       *)        [ -L "$SKILLS_DIR/gstack-$skill" ] && rm -f "$SKILLS_DIR/gstack-$skill" ;;
     esac
   fi
+
+  # Patch SKILL.md name: field to match the linked name so the host agent
+  # registers the skill under the correct command (fixes #620)
+  if [ "$link_name" != "$current_name" ]; then
+    _tmp="$(mktemp)"
+    sed "1,/^---$/s/^name:.*$/name: $link_name/" "$skill_dir/SKILL.md" > "$_tmp" && mv "$_tmp" "$skill_dir/SKILL.md"
+  fi
+
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 
