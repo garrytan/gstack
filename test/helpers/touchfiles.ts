@@ -58,6 +58,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'review-enum-completeness': ['review/**', 'test/fixtures/review-eval-enum*.rb'],
   'review-base-branch':       ['review/**'],
   'review-design-lite':       ['review/**', 'test/fixtures/review-eval-design-slop.*'],
+  'review-ci-blindspot':      ['review/**', 'test/fixtures/review-eval-ci-*'],
 
   // Office Hours
   'office-hours-spec-review':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
@@ -200,6 +201,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'review-enum-completeness': 'gate',
   'review-base-branch': 'gate',
   'review-design-lite': 'periodic',   // 4/7 threshold is subjective
+  'review-ci-blindspot': 'gate',     // Security guardrail: CI blindspot detection
   'review-coverage-audit': 'gate',
   'review-plan-completion': 'gate',
   'review-dashboard-via': 'gate',

@@ -104,6 +104,44 @@ Run `git diff origin/<base>` to get the full diff. This includes both committed 
 
 ---
 
+## Step 3.5: Classify PR type
+
+Before applying the checklist, classify the PR based on the files changed in the diff stat:
+
+1. Count files by category from the `git diff --stat` output:
+   - **Application code:** `.ts`, `.js`, `.py`, `.rb`, `.go`, `.rs`, `.java`, `.tsx`, `.jsx`, `.vue`, `.svelte` (source files in `src/`, `lib/`, `app/`, or similar)
+   - **CI/Infra:** `.yml`, `.yaml` in `.github/`, `.circleci/`, `.gitlab-ci/`; `Dockerfile*`, `docker-compose*`, `Makefile`, `Justfile`
+   - **Scripts:** `.sh`, `.bash`, `.zsh`, `.bat`, `.ps1`, `.cmd` files; files in `bin/`, `scripts/` directories
+   - **Config:** `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.env*` config files (not in CI dirs)
+   - **Docs:** `.md`, `.txt`, `.rst` files
+   - **Tests:** files in `test/`, `tests/`, `spec/`, `__tests__/` directories; files matching `*.test.*`, `*.spec.*`
+
+2. Determine the **primary PR type** based on which category has the most changed files:
+   - `APPLICATION` — majority application code
+   - `CI_INFRA` — majority CI/infra files
+   - `SCRIPTS` — majority scripts
+   - `CONFIG` — majority config files
+   - `DOCS` — majority documentation
+   - `TESTS` — majority test files
+   - `MIXED` — no single category >50% of changed files
+
+3. Output (before the two-pass review):
+   ```
+   PR Type: [TYPE] ([N] app, [N] ci, [N] scripts, [N] config, [N] docs, [N] tests)
+   ```
+
+4. **Category relevance guide:**
+   - `APPLICATION` or `MIXED`: Run ALL checklist categories (current behavior)
+   - `CI_INFRA`: Prioritize Distribution & CI/CD Pipeline, Configuration & Infrastructure Safety, Script & Shell Quality. Skip SQL, LLM, View/Frontend, Type Coercion categories.
+   - `SCRIPTS`: Prioritize Script & Shell Quality, Platform & Convention Consistency, Shell Injection. Skip SQL, LLM, View/Frontend categories.
+   - `CONFIG`: Prioritize Configuration & Infrastructure Safety, Platform & Convention Consistency. Skip most application categories.
+   - `DOCS`: Check Dead Code & Consistency (stale docs), Platform & Convention Consistency (naming). Skip all code categories.
+   - `TESTS`: Run Test Gaps, Completeness Gaps, and application categories relevant to what's being tested.
+
+   **Important:** "Skip" means "don't spend time on categories that will obviously return N/A." If a skipped category is unexpectedly relevant (e.g., a CI file that also contains SQL), still flag it. Use judgment — the classification is a guide, not a hard rule.
+
+---
+
 {{LEARNINGS_SEARCH}}
 
 ## Step 4: Two-pass review

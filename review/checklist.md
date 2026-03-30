@@ -154,6 +154,40 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 - Internal tools not distributed outside the team
 - Test-only CI changes (adding test steps, not publish steps)
 
+#### Script & Shell Quality
+- Shell scripts without `set -euo pipefail` (or individual `set -e`, `set -u`) — failures silently ignored
+- Missing or incorrect shebang lines (`#!/usr/bin/env bash` preferred over `#!/bin/bash` for portability)
+- Unquoted variables in shell scripts (`$VAR` instead of `"$VAR"`) — word splitting and globbing bugs
+- `eval` usage with variable interpolation — injection risk
+- Platform-specific commands without guards (e.g., `sed -i ''` is macOS-only, Linux needs `sed -i`)
+- Scripts missing `chmod +x` or not matching the executable permissions of sibling scripts in the same directory
+
+**DO NOT flag:**
+- Scripts that are explicitly single-platform (documented in comments or filename like `*.bat`)
+- Helper scripts only run via a parent script that already sets shell options
+
+#### Platform & Convention Consistency
+- New files using a different toolchain than existing files in the same directory (e.g., `.bat` script added to a directory of `.sh` scripts, `Makefile` added alongside existing `package.json` scripts)
+- CI workflow targeting an OS not covered by the project's test matrix or existing CI jobs (e.g., Windows step in a Linux-only CI)
+- New config files duplicating settings already managed by an existing config (e.g., adding `.prettierrc` when `package.json` already has prettier config)
+- Naming convention violations: new files not matching the case/separator pattern of sibling files (e.g., `myScript.sh` among `kebab-case.sh` files)
+
+**DO NOT flag:**
+- Cross-platform additions that are clearly intentional (documented in PR or commit message)
+- Files in new directories that establish their own conventions
+
+#### Configuration & Infrastructure Safety
+- Secrets or tokens hardcoded in CI workflows — must use `${{ secrets.X }}` or environment variable references
+- CI workflows with `pull_request_target` trigger without explicit commit SHA pinning — allows arbitrary code execution from forks
+- Docker images pinned by mutable tag (`:latest`, `:main`) instead of SHA digest in CI — supply chain risk
+- Overly broad file permissions in scripts (`chmod 777` or world-writable)
+- Missing `.gitignore` entries for new generated/build artifact directories
+- Environment-specific paths hardcoded (e.g., `/home/runner/`, `/Users/`) instead of using variables
+
+**DO NOT flag:**
+- Development-only Docker compose files using `:latest`
+- Local development scripts with relaxed permissions
+
 ---
 
 ## Severity Classification
@@ -171,7 +205,10 @@ CRITICAL (highest severity):      INFORMATIONAL (lower severity):
                                    ├─ Type Coercion at Boundaries
                                    ├─ View/Frontend
                                    ├─ Performance & Bundle Impact
-                                   └─ Distribution & CI/CD Pipeline
+                                   ├─ Distribution & CI/CD Pipeline
+                                   ├─ Script & Shell Quality
+                                   ├─ Platform & Convention Consistency
+                                   └─ Configuration & Infrastructure Safety
 
 All findings are actioned via Fix-First Review. Severity determines
 presentation order and classification of AUTO-FIX vs ASK — critical

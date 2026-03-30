@@ -252,6 +252,91 @@ Important: The design checklist should catch issues like blacklisted fonts, smal
   }, 300_000);
 });
 
+// --- Review: CI/infra blindspot E2E ---
+
+describeIfSelected('Review CI blindspot E2E', ['review-ci-blindspot'], () => {
+  let ciDir: string;
+
+  beforeAll(() => {
+    ciDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-ci-blindspot-'));
+
+    const run = (cmd: string, args: string[]) =>
+      spawnSync(cmd, args, { cwd: ciDir, stdio: 'pipe', timeout: 5000 });
+
+    run('git', ['init', '-b', 'main']);
+    run('git', ['config', 'user.email', 'test@test.com']);
+    run('git', ['config', 'user.name', 'Test']);
+
+    // Commit clean CI baseline on main
+    fs.mkdirSync(path.join(ciDir, '.github', 'workflows'), { recursive: true });
+    const baseline = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'review-eval-ci-baseline.yml'), 'utf-8');
+    fs.writeFileSync(path.join(ciDir, '.github', 'workflows', 'ci.yml'), baseline);
+
+    // Add a few bash scripts to establish repo conventions
+    fs.mkdirSync(path.join(ciDir, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(ciDir, 'bin', 'test.sh'), '#!/usr/bin/env bash\nset -euo pipefail\nnpm test\n');
+    fs.writeFileSync(path.join(ciDir, 'bin', 'build.sh'), '#!/usr/bin/env bash\nset -euo pipefail\nnpm run build\n');
+
+    run('git', ['add', '.']);
+    run('git', ['commit', '-m', 'initial CI and scripts']);
+
+    // Feature branch with planted CI issues
+    run('git', ['checkout', '-b', 'feature/update-ci']);
+    const blindspot = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'review-eval-ci-blindspot.yml'), 'utf-8');
+    fs.writeFileSync(path.join(ciDir, '.github', 'workflows', 'ci.yml'), blindspot);
+    run('git', ['add', '.']);
+    run('git', ['commit', '-m', 'update CI workflow']);
+
+    // Copy review skill files
+    fs.copyFileSync(path.join(ROOT, 'review', 'SKILL.md'), path.join(ciDir, 'review-SKILL.md'));
+    fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(ciDir, 'review-checklist.md'));
+    fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(ciDir, 'review-greptile-triage.md'));
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(ciDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testConcurrentIfSelected('review-ci-blindspot', async () => {
+    const result = await runSkillTest({
+      prompt: `You are in a git repo on branch feature/update-ci with changes against main.
+Read review-SKILL.md for the review workflow instructions.
+Also read review-checklist.md and apply it.
+Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the review.
+Run /review on the current diff (git diff main...HEAD).
+
+The diff modifies a CI workflow file. Pay attention to PR type classification and CI-specific review categories.
+Write your review findings to ${ciDir}/review-output.md`,
+      workingDirectory: ciDir,
+      maxTurns: 20,
+      timeout: 180_000,
+      testName: 'review-ci-blindspot',
+      runId,
+    });
+
+    logCost('/review ci-blindspot', result);
+    recordE2E(evalCollector, '/review CI blindspot', 'Review CI blindspot E2E', result);
+    expect(result.exitReason).toBe('success');
+
+    // Verify the review caught at least 2 of 3 planted issues
+    const reviewPath = path.join(ciDir, 'review-output.md');
+    if (fs.existsSync(reviewPath)) {
+      const review = fs.readFileSync(reviewPath, 'utf-8').toLowerCase();
+      let detected = 0;
+
+      // Issue 1: pull_request_target security risk
+      if (review.includes('pull_request_target') || review.includes('fork') || review.includes('arbitrary code')) detected++;
+      // Issue 2: Hardcoded secret/token
+      if (review.includes('hardcoded') || review.includes('secret') || review.includes('token') || review.includes('ghp_')) detected++;
+      // Issue 3: chmod 777 or Windows runner inconsistency
+      if (review.includes('777') || review.includes('windows') || review.includes('permission') || review.includes('platform')) detected++;
+
+      console.log(`CI blindspot review detected ${detected}/3 planted issues`);
+      expect(detected).toBeGreaterThanOrEqual(2);
+    }
+  }, 210_000);
+});
+
 // --- Base branch detection smoke tests ---
 
 describeIfSelected('Base branch detection', ['review-base-branch', 'ship-base-branch', 'retro-base-branch'], () => {
