@@ -30,6 +30,7 @@
     "eval:watch": "bun run scripts/eval-watch.ts",
     "eval:select": "bun run scripts/eval-select.ts",
     "streak": "bun run scripts/gstack-streak.ts",
+    "streak:node": "node scripts/gstack-streak-node.mjs",
     "analytics": "bun run scripts/analytics.ts",
     "telegram:bot": "bun run scripts/telegram-bot.ts",
     "telegram:whitelist": "bun run scripts/telegram-whitelist.ts --"
