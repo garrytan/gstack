@@ -376,7 +376,9 @@ async function ensureServer(): Promise<ServerState> {
 
 // ─── Command Dispatch ──────────────────────────────────────────
 async function sendCommand(state: ServerState, command: string, args: string[], retries = 0): Promise<void> {
-  const body = JSON.stringify({ command, args });
+  // BROWSE_TAB env var pins commands to a specific tab (set by sidebar-agent per-tab)
+  const browseTab = process.env.BROWSE_TAB;
+  const body = JSON.stringify({ command, args, ...(browseTab ? { tabId: parseInt(browseTab, 10) } : {}) });
 
   try {
     const resp = await fetch(`http://127.0.0.1:${state.port}/command`, {
