@@ -57,6 +57,9 @@ export class BrowserManager {
   private dialogAutoAccept: boolean = true;
   private dialogPromptText: string | null = null;
 
+  // ─── Cookie Import Tracking (for audit log) ───────────────
+  private _hasCookieImports: boolean = false;
+
   // ─── Handoff State ─────────────────────────────────────────
   private isHeaded: boolean = false;
   private consecutiveFailures: number = 0;
@@ -519,6 +522,15 @@ export class BrowserManager {
 
   getDialogPromptText(): string | null {
     return this.dialogPromptText;
+  }
+
+  // ─── Cookie Import Tracking ────────────────────────────────
+  markCookiesImported(): void {
+    this._hasCookieImports = true;
+  }
+
+  hasCookieImports(): boolean {
+    return this._hasCookieImports;
   }
 
   // ─── Viewport ──────────────────────────────────────────────

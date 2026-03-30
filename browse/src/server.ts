@@ -23,6 +23,7 @@ import { COMMAND_DESCRIPTIONS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } fro
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { emitActivity, subscribe, getActivityAfter, getActivityHistory, getSubscriberCount } from './activity';
+import { initAuditLog, writeAuditEntry } from './audit';
 // Bun.spawn used instead of child_process.spawn (compiled bun binaries
 // fail posix_spawn on all executables including /bin/bash)
 import * as fs from 'fs';
@@ -33,6 +34,7 @@ import * as crypto from 'crypto';
 // ─── Config ─────────────────────────────────────────────────────
 const config = resolveConfig();
 ensureStateDir(config);
+initAuditLog(config.auditLog);
 
 // ─── Auth ───────────────────────────────────────────────────────
 const AUTH_TOKEN = crypto.randomUUID();
@@ -710,15 +712,27 @@ async function handleCommand(body: any): Promise<Response> {
     }
 
     // Activity: emit command_end (success)
+    const successDuration = Date.now() - startTime;
     emitActivity({
       type: 'command_end',
       command,
       args,
       url: browserManager.getCurrentUrl(),
-      duration: Date.now() - startTime,
+      duration: successDuration,
       status: 'ok',
       result: result,
       tabs: browserManager.getTabCount(),
+      mode: browserManager.getConnectionMode(),
+    });
+
+    writeAuditEntry({
+      ts: new Date().toISOString(),
+      cmd: command,
+      args: args.join(' '),
+      origin: browserManager.getCurrentUrl(),
+      durationMs: successDuration,
+      status: 'ok',
+      hasCookies: browserManager.hasCookieImports(),
       mode: browserManager.getConnectionMode(),
     });
 
@@ -729,15 +743,28 @@ async function handleCommand(body: any): Promise<Response> {
     });
   } catch (err: any) {
     // Activity: emit command_end (error)
+    const errorDuration = Date.now() - startTime;
     emitActivity({
       type: 'command_end',
       command,
       args,
       url: browserManager.getCurrentUrl(),
-      duration: Date.now() - startTime,
+      duration: errorDuration,
       status: 'error',
       error: err.message,
       tabs: browserManager.getTabCount(),
+      mode: browserManager.getConnectionMode(),
+    });
+
+    writeAuditEntry({
+      ts: new Date().toISOString(),
+      cmd: command,
+      args: args.join(' '),
+      origin: browserManager.getCurrentUrl(),
+      durationMs: errorDuration,
+      status: 'error',
+      error: err.message,
+      hasCookies: browserManager.hasCookieImports(),
       mode: browserManager.getConnectionMode(),
     });
 
