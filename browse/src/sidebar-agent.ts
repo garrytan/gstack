@@ -19,9 +19,12 @@ const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const POLL_MS = 500;  // Fast polling — server already did the user-facing response
 const B = process.env.BROWSE_BIN || path.resolve(__dirname, '../../.claude/skills/gstack/browse/dist/browse');
 
+const CANCEL_FILE = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-cancel');
+
 let lastLine = 0;
 let authToken: string | null = null;
 let isProcessing = false;
+let activeProc: ReturnType<typeof spawn> | null = null;
 
 // ─── File drop relay ──────────────────────────────────────────
 
@@ -170,13 +173,30 @@ async function askClaude(queueEntry: any): Promise<void> {
     let effectiveCwd = cwd || process.cwd();
     try { fs.accessSync(effectiveCwd); } catch { effectiveCwd = process.cwd(); }
 
+    // Clear any stale cancel signal before starting
+    try { fs.unlinkSync(CANCEL_FILE); } catch {}
+
     const proc = spawn('claude', claudeArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: effectiveCwd,
       env: { ...process.env, BROWSE_STATE_FILE: stateFile || '' },
     });
+    activeProc = proc;
 
     proc.stdin.end();
+
+    // Poll for cancel signal from server's killAgent()
+    const cancelCheck = setInterval(() => {
+      try {
+        if (fs.existsSync(CANCEL_FILE)) {
+          console.log('[sidebar-agent] Cancel signal received — killing claude subprocess');
+          try { proc.kill('SIGTERM'); } catch {}
+          setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 3000);
+          fs.unlinkSync(CANCEL_FILE);
+          clearInterval(cancelCheck);
+        }
+      } catch {}
+    }, 500);
 
     let buffer = '';
 
@@ -196,6 +216,8 @@ async function askClaude(queueEntry: any): Promise<void> {
     });
 
     proc.on('close', (code) => {
+      clearInterval(cancelCheck);
+      activeProc = null;
       if (buffer.trim()) {
         try { handleStreamEvent(JSON.parse(buffer)); } catch {}
       }
@@ -210,6 +232,8 @@ async function askClaude(queueEntry: any): Promise<void> {
     });
 
     proc.on('error', (err) => {
+      clearInterval(cancelCheck);
+      activeProc = null;
       const errorMsg = stderrBuffer.trim()
         ? `${err.message}\nstderr: ${stderrBuffer.trim().slice(-500)}`
         : err.message;
