@@ -3,11 +3,8 @@ name: ship
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION,
-  update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy",
-  "push to main", "create a PR", "merge and push", or "get it deployed".
-  Proactively invoke this skill (do NOT push/PR directly) when the user says code
-  is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
+  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, preview deploy, browser verify, create PR. Use when asked to "ship", "deploy", "push to main", "create a PR", or "merge and push".
+  Proactively suggest when the user says code is ready or asks about deploying.
 allowed-tools:
   - Bash
   - Read
@@ -51,6 +48,8 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
 - Test coverage gaps within target threshold (auto-generate and commit, or flag in PR body)
+- Preview deploy failures (warn and continue — Step 7.5)
+- Browser verification failures (informational, included in PR body — Step 7.75)
 
 ---
 
@@ -629,6 +628,24 @@ Print the verification results table to the console.
 
 Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
+**Conditional NEEDS ATTENTION banner:**
+
+Before assembling the PR body, evaluate whether unresolved items need the user's attention. Check these triggers:
+- Pre-landing review has ASK items that were shown to the user and skipped (not auto-fixed items)
+- Adversarial review found medium+ severity issues that were not auto-fixed
+- Browser verification (Step 7.75) has any FAIL routes
+- Test coverage was below the project threshold and the user overrode the gate
+- Plan items were marked NOT DONE and the user chose to defer them
+
+If ANY trigger fires, prepend this banner to the top of the PR body (before ## Summary):
+
+> ⚠️ **NEEDS ATTENTION** — This PR shipped with unresolved items:
+> - {list each trigger that fired with a one-line description}
+>
+> Review these before merging.
+
+If NO triggers fire, omit the banner entirely — the PR body starts with ## Summary.
+
 The PR/MR body should contain these sections:
 
 ```
@@ -643,6 +660,15 @@ you missed it.>
 ## Test Coverage
 <coverage diagram from Step 3.4, or "All new code paths have test coverage.">
 <If Step 3.4 ran: "Tests: {before} → {after} (+{delta} new)">
+
+## Preview Deployment
+<If preview deploy succeeded: "Preview: {URL}" + health check result if applicable>
+<If preview deploy failed: "Preview deploy failed: {reason}">
+<If no deploy config exists: omit this section entirely>
+
+## Browser Verification
+<If verification ran: paste the PASS/FAIL table from Step 7.75>
+<If skipped (no routes changed / no deploy / no browse binary): omit this section entirely>
 
 ## Pre-Landing Review
 <findings from Step 3.5 code review, or "No issues found.">
@@ -703,7 +729,12 @@ EOF
 **If neither CLI is available:**
 Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
 
-**Output the PR/MR URL** — then proceed to Step 8.5.
+**Output the PR/MR URL with conditional attention signal:**
+
+- If the NEEDS ATTENTION banner was included in the PR body: print the full banner to the console, followed by the PR URL.
+- If no banner (clean ship): print only `✓ PR created: <URL>`
+
+Then proceed to Step 8.5.
 
 ---
 
