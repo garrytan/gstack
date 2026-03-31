@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gstack cheatsheet</title>
+<!-- AUTO-GENERATED from SKILL.md frontmatter — do not edit directly -->
+<!-- Regenerate: bun run gen:cheatsheet -->
+<style>
+:root {
+  --fg: #1a1a1a;
+  --muted: #999;
+  --border: #ccc;
+  --cmd-bg: #f0f0f0;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e5e5e5; --muted: #666; --border: #444; --cmd-bg: #222; }
+  body { background: #111; }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font: 13px/1.55 'Geist Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  color: var(--fg);
+  padding: 28px 32px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+.cat {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+}
+.cat h2 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.wf-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.wf-head h2 { padding-bottom: 0; border-bottom: none; margin-bottom: 0; }
+.ver { font-size: 12px; color: var(--muted); font-weight: 400; }
+.pipes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 2px 16px;
+}
+.pipe {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.n {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 7px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.a { color: var(--muted); font-size: 12px; }
+.row { padding: 2px 0; }
+.cmd {
+  font-weight: 700;
+  background: var(--cmd-bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.foot {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 14px;
+}
+@media print {
+  body { padding: 12px; font-size: 11px; }
+  .cat { page-break-inside: avoid; margin-bottom: 6px; padding: 8px 12px; }
+}
+</style>
+</head>
+<body>
+    <section class="cat">
+      <div class="wf-head">
+        <h2>WORKFLOW</h2>
+        <span class="ver">v0.14.5.0</span>
+      </div>
+      <div class="pipes">
+        <div class="pipe">
+          <span class="n">/office-hours</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/plan-ceo-review</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/plan-eng-review</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/plan-design-review</span>
+        </div>
+        <div class="pipe">
+          <span class="n">build</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/qa</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/design-review</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/review</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/ship</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/land-and-deploy</span>
+          <span class="a">&rarr;</span>
+          <span class="n">/retro</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="cat">
+      <h2>IDEATION &amp; PLANNING</h2>
+      <div class="row"><span class="cmd">/office-hours</span> YC brainstorming &amp; idea validation — Startup and Builder modes</div>
+      <div class="row"><span class="cmd">/autoplan</span> Auto-review pipeline — runs CEO, design, and eng reviews sequentially</div>
+      <div class="row"><span class="cmd">/plan-ceo-review</span> Strategy review — scope expand, selective, hold, or reduce</div>
+      <div class="row"><span class="cmd">/plan-eng-review</span> Architecture, data flow, edge cases, test coverage</div>
+      <div class="row"><span class="cmd">/plan-design-review</span> Rate each dimension 0–10, then fix to reach 10</div>
+      <div class="row"><span class="cmd">/design-consultation</span> Full design system — typography, color, layout → DESIGN.md</div>
+      <div class="row"><span class="cmd">/design-shotgun</span> Generate multiple AI design variants, compare, and iterate</div>
+    </section>
+
+    <section class="cat">
+      <h2>DEVELOPMENT</h2>
+      <div class="row"><span class="cmd">/browse</span> Headless browser — navigate, click, fill forms, screenshot, verify</div>
+      <div class="row"><span class="cmd">/connect-chrome</span> Launch real Chrome with gstack side panel for live browsing</div>
+      <div class="row"><span class="cmd">/investigate</span> Root cause debugging — Iron Law: no fix without root cause</div>
+      <div class="row"><span class="cmd">/design-html</span> Convert approved AI mockup to production HTML/CSS</div>
+      <div class="row"><span class="cmd">/learn</span> Review, search, prune, and export cross-session learnings</div>
+      <div class="row"><span class="cmd">/freeze &lt;dir&gt;</span> Lock edits to one directory for the session</div>
+      <div class="row"><span class="cmd">/unfreeze</span> Remove edit restrictions, allow changes everywhere</div>
+    </section>
+
+    <section class="cat">
+      <h2>TESTING &amp; QA</h2>
+      <div class="row"><span class="cmd">/qa</span> Find bugs, fix, commit, re-verify — Quick / Standard / Exhaustive</div>
+      <div class="row"><span class="cmd">/qa-only</span> Report-only QA — health score, screenshots, repro steps</div>
+      <div class="row"><span class="cmd">/design-review</span> Visual QA — spacing, hierarchy, AI slop. Before/after screenshots</div>
+      <div class="row"><span class="cmd">/benchmark</span> Performance regression detection — Core Web Vitals, load times</div>
+      <div class="row"><span class="cmd">/cso</span> Security audit — OWASP Top 10, STRIDE, secrets, supply chain</div>
+      <div class="row"><span class="cmd">/setup-browser-cookies</span> Import real browser cookies for testing auth pages</div>
+    </section>
+
+    <section class="cat">
+      <h2>SHIP &amp; REVIEW</h2>
+      <div class="row"><span class="cmd">/review</span> Pre-merge PR review — SQL safety, trust boundaries, structure</div>
+      <div class="row"><span class="cmd">/codex</span> Adversarial 2nd opinion — review / challenge / consult modes</div>
+      <div class="row"><span class="cmd">/ship</span> Merge base, tests, review, version bump, changelog, PR</div>
+      <div class="row"><span class="cmd">/land-and-deploy</span> Merge PR, wait for CI/deploy, canary verify production</div>
+      <div class="row"><span class="cmd">/canary</span> Post-deploy monitoring — errors, regressions, screenshots</div>
+      <div class="row"><span class="cmd">/setup-deploy</span> One-time deploy platform config (Fly, Vercel, Render, etc.)</div>
+      <div class="row"><span class="cmd">/document-release</span> Post-ship — sync README, ARCHITECTURE, CONTRIBUTING, CHANGELOG</div>
+      <div class="row"><span class="cmd">/retro</span> Weekly eng retro — commit analysis, work patterns, team breakdown</div>
+    </section>
+
+    <section class="cat">
+      <h2>SAFETY</h2>
+      <div class="row"><span class="cmd">/careful</span> Safety warnings before rm -rf, DROP TABLE, force-push, etc.</div>
+      <div class="row"><span class="cmd">/guard</span> Maximum safety — destructive command warnings + directory lock</div>
+    </section>
+
+    <section class="cat">
+      <h2>META</h2>
+      <div class="row"><span class="cmd">/gstack-upgrade</span> Upgrade gstack to the latest version</div>
+    </section>
+
+    <div class="foot">Generated from SKILL.md frontmatter &middot; <code>bun run gen:cheatsheet</code></div>
+</body>
+</html>
