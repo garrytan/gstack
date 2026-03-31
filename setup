@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register skills with Claude Code / Codex
+# gstack setup — build browser binary + register skills with Claude Code / Copilot CLI / Codex
 set -e
 
 if ! command -v bun >/dev/null 2>&1; then
@@ -34,7 +34,7 @@ SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, copilot, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -44,8 +44,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, or auto)" >&2; exit 1 ;;
+  claude|copilot|codex|kiro|factory|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, copilot, codex, kiro, factory, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -90,7 +90,7 @@ fi
 # --local: install to .claude/skills/ in the current working directory
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
   if [ "$HOST" = "codex" ]; then
-    echo "Error: --local is only supported for Claude Code (not Codex)." >&2
+    echo "Error: --local is only supported for Claude Code and Copilot CLI (not Codex)." >&2
     exit 1
   fi
   INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
@@ -101,6 +101,7 @@ fi
 
 # For auto: detect which agents are installed
 INSTALL_CLAUDE=0
+INSTALL_COPILOT=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
@@ -109,12 +110,17 @@ if [ "$HOST" = "auto" ]; then
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
+  if [ "$INSTALL_CLAUDE" -eq 0 ]; then
+    command -v copilot >/dev/null 2>&1 && INSTALL_COPILOT=1
+  fi
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
+elif [ "$HOST" = "copilot" ]; then
+  INSTALL_COPILOT=1
 elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
@@ -579,6 +585,25 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     echo "  browse: $BROWSE_BIN"
   else
     echo "gstack ready (claude)."
+    echo "  browse: $BROWSE_BIN"
+    echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  fi
+fi
+
+# 4b. Install for Copilot CLI (GitHub Copilot CLI officially supports .claude/skills and
+# ~/.claude/skills, so it shares the same lowest-friction layout as Claude Code.)
+if [ "$INSTALL_COPILOT" -eq 1 ]; then
+  if [ "$SKILLS_BASENAME" = "skills" ]; then
+    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    if [ "$LOCAL_INSTALL" -eq 1 ]; then
+      echo "gstack ready (project-local copilot)."
+      echo "  skills: $INSTALL_SKILLS_DIR"
+    else
+      echo "gstack ready (copilot)."
+    fi
+    echo "  browse: $BROWSE_BIN"
+  else
+    echo "gstack ready (copilot)."
     echo "  browse: $BROWSE_BIN"
     echo "  (skipped skill symlinks — not inside .claude/skills/)"
   fi
