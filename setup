@@ -91,8 +91,8 @@ fi
 
 # --local: install to .claude/skills/ in the current working directory
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
-  if [ "$HOST" = "codex" ]; then
-    echo "Error: --local is only supported for Claude Code (not Codex)." >&2
+  if [ "$HOST" != "claude" ] && [ "$HOST" != "auto" ]; then
+    echo "Error: --local is only supported for Claude Code." >&2
     exit 1
   fi
   INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
@@ -695,7 +695,7 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   echo "  codex skills: $CODEX_SKILLS"
 fi
 
-# 6. Install for Kiro CLI (copy from .agents/skills, rewrite paths)
+# 6. Install for OpenCode
 if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   if [ "$OPENCODE_REPO_LOCAL" -eq 1 ]; then
     OPENCODE_SKILLS="$INSTALL_SKILLS_DIR"
@@ -711,7 +711,7 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "  opencode skills: $OPENCODE_SKILLS"
 fi
 
-# 6. Install for Kiro CLI (copy from .agents/skills, rewrite paths)
+# 7. Install for Kiro CLI (copy from .agents/skills, rewrite paths)
 if [ "$INSTALL_KIRO" -eq 1 ]; then
   KIRO_SKILLS="$HOME/.kiro/skills"
   AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
@@ -767,7 +767,7 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   fi
 fi
 
-# 6b. Install for Factory Droid
+# 7b. Install for Factory Droid
 if [ "$INSTALL_FACTORY" -eq 1 ]; then
   mkdir -p "$FACTORY_SKILLS"
   create_factory_runtime_root "$SOURCE_GSTACK_DIR" "$FACTORY_GSTACK"
@@ -777,14 +777,14 @@ if [ "$INSTALL_FACTORY" -eq 1 ]; then
   echo "  factory skills: $FACTORY_SKILLS"
 fi
 
-# 7. Create .agents/ sidecar symlinks for the real Codex skill target.
+# 8. Create .agents/ sidecar symlinks for the real Codex skill target.
 # The root Codex skill ends up pointing at $SOURCE_GSTACK_DIR/.agents/skills/gstack,
 # so the runtime assets must live there for both global and repo-local installs.
 if [ "$INSTALL_CODEX" -eq 1 ]; then
   create_agents_sidecar "$SOURCE_GSTACK_DIR"
 fi
 
-# 8. First-time welcome + legacy cleanup
+# 9. First-time welcome + legacy cleanup
 if [ ! -f "$HOME/.gstack/.welcome-seen" ]; then
   echo "  Welcome! Run /gstack-upgrade anytime to stay current."
   touch "$HOME/.gstack/.welcome-seen"
