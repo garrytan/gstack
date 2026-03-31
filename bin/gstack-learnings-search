@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # gstack-learnings-search — read and filter project learnings
-# Usage: gstack-learnings-search [--type TYPE] [--query KEYWORD] [--limit N] [--cross-project]
+# Usage: gstack-learnings-search [--type TYPE] [--query KEYWORD] [--limit N] [--scope project|group|global] [--cross-project]
 #
-# Reads ~/.gstack/projects/$SLUG/learnings.jsonl, applies confidence decay,
-# resolves duplicates (latest winner per key+type), and outputs formatted text.
+# Reads learnings JSONL files, applies confidence decay, resolves duplicates,
+# and outputs formatted text.
+#
+# Scope modes:
+#   --scope project  (default) — just this project's learnings
+#   --scope group    — all projects in the same learnings group
+#   --scope global   — all projects on this machine
+#   --cross-project  — backward-compat alias for --scope global
+#
 # Exit 0 silently if no learnings file exists.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,99 +20,144 @@ GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 TYPE=""
 QUERY=""
 LIMIT=10
-CROSS_PROJECT=false
+SCOPE="project"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --type) TYPE="$2"; shift 2 ;;
     --query) QUERY="$2"; shift 2 ;;
     --limit) LIMIT="$2"; shift 2 ;;
-    --cross-project) CROSS_PROJECT=true; shift ;;
+    --scope) SCOPE="$2"; shift 2 ;;
+    --cross-project) SCOPE="global"; shift ;;
     *) shift ;;
   esac
 done
 
 LEARNINGS_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+GROUPS_FILE="$GSTACK_HOME/groups.json"
 
-# Collect all JSONL files to search
-FILES=()
-[ -f "$LEARNINGS_FILE" ] && FILES+=("$LEARNINGS_FILE")
+# Collect files to search, each as "slug:filepath" for provenance
+FILE_ENTRIES=()
 
-if [ "$CROSS_PROJECT" = true ]; then
-  # Add other projects' learnings (max 5, sorted by mtime)
-  for f in $(find "$GSTACK_HOME/projects" -name "learnings.jsonl" -not -path "*/$SLUG/*" 2>/dev/null | head -5); do
-    FILES+=("$f")
-  done
-fi
+case "$SCOPE" in
+  project)
+    [ -f "$LEARNINGS_FILE" ] && FILE_ENTRIES+=("$SLUG:$LEARNINGS_FILE")
+    ;;
+  group)
+    if [ -f "$GROUPS_FILE" ]; then
+      # Single bun call: look up group + enumerate members
+      group_members=$(bun -e "
+        try {
+          const data = JSON.parse(await Bun.file('$GROUPS_FILE').text());
+          const g = (data.projects || {})['$SLUG'];
+          if (!g) { console.log('NO_GROUP'); process.exit(0); }
+          const members = Object.entries(data.projects || {})
+            .filter(([_, v]) => v === g)
+            .map(([k]) => k);
+          console.log(members.join('\n'));
+        } catch { console.log('NO_GROUP'); }
+      " 2>/dev/null || echo "NO_GROUP")
 
-if [ ${#FILES[@]} -eq 0 ]; then
+      if [ "$group_members" = "NO_GROUP" ]; then
+        echo "UNASSIGNED_GROUP" >&2
+        [ -f "$LEARNINGS_FILE" ] && FILE_ENTRIES+=("$SLUG:$LEARNINGS_FILE")
+      else
+        while IFS= read -r member; do
+          member_file="$GSTACK_HOME/projects/$member/learnings.jsonl"
+          [ -f "$member_file" ] && FILE_ENTRIES+=("$member:$member_file")
+        done <<< "$group_members"
+      fi
+    else
+      [ -f "$LEARNINGS_FILE" ] && FILE_ENTRIES+=("$SLUG:$LEARNINGS_FILE")
+    fi
+    ;;
+  global)
+    [ -f "$LEARNINGS_FILE" ] && FILE_ENTRIES+=("$SLUG:$LEARNINGS_FILE")
+    if [ -d "$GSTACK_HOME/projects" ]; then
+      for f in "$GSTACK_HOME/projects"/*/learnings.jsonl; do
+        if [ -f "$f" ]; then
+          local_slug=$(basename "$(dirname "$f")")
+          [ "$local_slug" != "$SLUG" ] && FILE_ENTRIES+=("$local_slug:$f")
+        fi
+      done
+    fi
+    ;;
+esac
+
+if [ ${#FILE_ENTRIES[@]} -eq 0 ]; then
   exit 0
 fi
 
-# Process all files through bun for JSON parsing, decay, dedup, filtering
-cat "${FILES[@]}" 2>/dev/null | bun -e "
-const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
+# Single bun process: parse entries from stdin, read files, apply decay, dedup, filter, format
+export GSTACK_FILTER_TYPE="$TYPE"
+export GSTACK_FILTER_QUERY="$QUERY"
+export GSTACK_FILTER_LIMIT="$LIMIT"
+export GSTACK_CURRENT_SLUG="$SLUG"
+
+printf '%s\n' "${FILE_ENTRIES[@]}" | bun -e "
+const stdin = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
+const fileEntries = stdin.map(l => {
+  const idx = l.indexOf(':');
+  return { slug: l.substring(0, idx), path: l.substring(idx + 1) };
+});
 const now = Date.now();
-const type = '${TYPE}';
-const query = '${QUERY}'.toLowerCase();
-const limit = ${LIMIT};
-const slug = '${SLUG}';
+const type = Bun.env.GSTACK_FILTER_TYPE || '';
+const query = (Bun.env.GSTACK_FILTER_QUERY || '').toLowerCase();
+const limit = parseInt(Bun.env.GSTACK_FILTER_LIMIT || '10', 10);
+const currentSlug = Bun.env.GSTACK_CURRENT_SLUG || '';
 
 const entries = [];
-for (const line of lines) {
+for (const { slug, path } of fileEntries) {
   try {
-    const e = JSON.parse(line);
-    if (!e.key || !e.type) continue;
+    const text = await Bun.file(path).text();
+    for (const line of text.trim().split('\n').filter(Boolean)) {
+      try {
+        const e = JSON.parse(line);
+        if (!e.key || !e.type) continue;
 
-    // Apply confidence decay: observed/inferred lose 1pt per 30 days
-    let conf = e.confidence || 5;
-    if (e.source === 'observed' || e.source === 'inferred') {
-      const days = Math.floor((now - new Date(e.ts).getTime()) / 86400000);
-      conf = Math.max(0, conf - Math.floor(days / 30));
+        let conf = e.confidence || 5;
+        if (e.source === 'observed' || e.source === 'inferred') {
+          const days = Math.floor((now - new Date(e.ts).getTime()) / 86400000);
+          conf = Math.max(0, conf - Math.floor(days / 30));
+        }
+        e._effectiveConfidence = conf;
+        e._sourceSlug = slug;
+        e._crossProject = slug !== currentSlug;
+
+        entries.push(e);
+      } catch {}
     }
-    e._effectiveConfidence = conf;
-
-    // Determine if this is from the current project or cross-project
-    // Cross-project entries are tagged for display
-    e._crossProject = !line.includes(slug) && '${CROSS_PROJECT}' === 'true';
-
-    entries.push(e);
   } catch {}
 }
 
-// Dedup: latest winner per key+type
+// Dedup: same insight text = collapse (keep highest confidence).
+// Different insights with same key+type = show both with provenance.
 const seen = new Map();
 for (const e of entries) {
-  const dk = e.key + '|' + e.type;
+  const dk = e.key + '|' + e.type + '|' + (e.insight || '').trim();
   const existing = seen.get(dk);
-  if (!existing || new Date(e.ts) > new Date(existing.ts)) {
+  if (!existing || e._effectiveConfidence > existing._effectiveConfidence ||
+      (e._effectiveConfidence === existing._effectiveConfidence && new Date(e.ts) > new Date(existing.ts))) {
     seen.set(dk, e);
   }
 }
 let results = Array.from(seen.values());
 
-// Filter by type
 if (type) results = results.filter(e => e.type === type);
-
-// Filter by query
 if (query) results = results.filter(e =>
   (e.key || '').toLowerCase().includes(query) ||
   (e.insight || '').toLowerCase().includes(query) ||
   (e.files || []).some(f => f.toLowerCase().includes(query))
 );
 
-// Sort by effective confidence desc, then recency
 results.sort((a, b) => {
   if (b._effectiveConfidence !== a._effectiveConfidence) return b._effectiveConfidence - a._effectiveConfidence;
   return new Date(b.ts).getTime() - new Date(a.ts).getTime();
 });
 
-// Limit
 results = results.slice(0, limit);
-
 if (results.length === 0) process.exit(0);
 
-// Format output
 const byType = {};
 for (const e of results) {
   const t = e.type || 'unknown';
@@ -113,7 +165,6 @@ for (const e of results) {
   byType[t].push(e);
 }
 
-// Summary line
 const counts = Object.entries(byType).map(([t, arr]) => arr.length + ' ' + t + (arr.length > 1 ? 's' : ''));
 console.log('LEARNINGS: ' + results.length + ' loaded (' + counts.join(', ') + ')');
 console.log('');
@@ -121,7 +172,7 @@ console.log('');
 for (const [t, arr] of Object.entries(byType)) {
   console.log('## ' + t.charAt(0).toUpperCase() + t.slice(1) + 's');
   for (const e of arr) {
-    const cross = e._crossProject ? ' [cross-project]' : '';
+    const cross = e._crossProject ? ' [from: ' + e._sourceSlug + ']' : '';
     const files = e.files?.length ? ' (files: ' + e.files.join(', ') + ')' : '';
     console.log('- [' + e.key + '] (confidence: ' + e._effectiveConfidence + '/10, ' + e.source + ', ' + (e.ts || '').split('T')[0] + ')' + cross);
     console.log('  ' + e.insight + files);

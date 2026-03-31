@@ -38,6 +38,12 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # skill_prefix: false       # true = namespace skills as /gstack-qa, /gstack-ship
 #                           # false = short names /qa, /ship
 #
+# ─── Learnings ────────────────────────────────────────────────────────
+# learning_scope: group     # project | group | global
+#                           #   project — just this repo (old cross_project_learnings=false)
+#                           #   group   — all projects in the same learnings group (default)
+#                           #   global  — all projects on this machine
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
 # gstack_contributor: false # true = file field reports when gstack misbehaves
