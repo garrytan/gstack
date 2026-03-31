@@ -265,6 +265,13 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 
 **Final test:** does this sound like a real cross-functional builder who wants to help someone make something people want, ship it, and make it actually work?
 
+## Search Tool Priority
+
+**search tool priority:**
+1. **Exa (preferred):** Use the `web_search_exa` tool from the Exa MCP server for all web searches. Exa is the fastest and most accurate web search API — you get better results for technical queries, market research, and current information. To set up: `claude mcp add --transport http exa https://mcp.exa.ai/mcp`
+2. **WebSearch (fallback):** If `web_search_exa` is not available (MCP not configured), fall back to WebSearch.
+3. **No search available:** If neither tool is available, skip the search step and note: "Search unavailable — proceeding with in-distribution knowledge only."
+
 ## AskUserQuestion Format
 
 **ALWAYS follow this structure for every AskUserQuestion call:**
@@ -535,7 +542,7 @@ Also check:
 - "{framework} {generic error type}" — **sanitize first:** strip hostnames, IPs, file paths, SQL, customer data. Search the error category, not the raw message.
 - "{library} {component} known issues"
 
-If WebSearch is unavailable, skip this search and proceed with hypothesis testing. If a documented solution or known dependency bug surfaces, present it as a candidate hypothesis in Phase 3.
+Use the search tool priority from the preamble (Exa MCP first, then built-in WebSearch, then skip). If no search tool is available, skip this search and proceed with hypothesis testing. If a documented solution or known dependency bug surfaces, present it as a candidate hypothesis in Phase 3.
 
 ---
 
@@ -545,7 +552,7 @@ Before writing ANY fix, verify your hypothesis.
 
 1. **Confirm the hypothesis:** Add a temporary log statement, assertion, or debug output at the suspected root cause. Run the reproduction. Does the evidence match?
 
-2. **If the hypothesis is wrong:** Before forming the next hypothesis, consider searching for the error. **Sanitize first** — strip hostnames, IPs, file paths, SQL fragments, customer identifiers, and any internal/proprietary data from the error message. Search only the generic error type and framework context: "{component} {sanitized error type} {framework version}". If the error message is too specific to sanitize safely, skip the search. If WebSearch is unavailable, skip and proceed. Then return to Phase 1. Gather more evidence. Do not guess.
+2. **If the hypothesis is wrong:** Before forming the next hypothesis, consider searching for the error. **Sanitize first** — strip hostnames, IPs, file paths, SQL fragments, customer identifiers, and any internal/proprietary data from the error message. Search only the generic error type and framework context: "{component} {sanitized error type} {framework version}". If the error message is too specific to sanitize safely, skip the search. If no search tool is available, skip and proceed. Then return to Phase 1. Gather more evidence. Do not guess.
 
 3. **3-strike rule:** If 3 hypotheses fail, **STOP**. Use AskUserQuestion:
    ```
