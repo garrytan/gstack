@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.14.2.0] - 2026-03-30 — Sidebar CSS Inspector + Per-Tab Agents
+
+The sidebar is now a visual design tool. Pick any element on the page and see the full CSS rule cascade, box model, and computed styles right in the Side Panel. Edit styles live and see changes instantly. Each browser tab gets its own independent agent, so you can work on multiple pages simultaneously without cross-talk. Cleanup is LLM-powered... the agent snapshots the page, understands it semantically, and removes the junk while keeping the site's identity.
+
+### Added
+
+- **CSS Inspector in the sidebar.** Click "Pick Element", hover over anything, click it, and the sidebar shows the full CSS rule cascade with specificity badges, source file:line, box model visualization (gstack palette colors), and computed styles. Like Chrome DevTools, but inside the sidebar.
+- **Live style editing.** `$B style .selector property value` modifies CSS rules in real time via CDP. Changes show instantly on the page. Undo with `$B style --undo`.
+- **Per-tab agents.** Each browser tab gets its own Claude agent process via `BROWSE_TAB` env var. Switch tabs in the browser and the sidebar swaps to that tab's chat history. Ask questions about different pages in parallel without agents fighting over which tab is active.
+- **Tab tracking.** User-created tabs (Cmd+T, right-click "Open in new tab") are automatically tracked via `context.on('page')`. The sidebar tab bar updates in real time. Click a tab in the sidebar to switch the browser. Close a tab and it disappears.
+- **LLM-powered page cleanup.** The cleanup button sends a prompt to the sidebar agent (which IS an LLM). The agent runs a deterministic first pass, snapshots the page, analyzes what's left, and removes clutter intelligently while preserving site branding. Works on any site without brittle CSS selectors.
+- **Pretty screenshots.** `$B prettyscreenshot --cleanup --scroll-to ".pricing" ~/Desktop/hero.png` combines cleanup, scroll positioning, and screenshot in one command.
+- **Stop button.** A red stop button appears in the sidebar when an agent is working. Click it to cancel the current task.
+- **CSP fallback for inspector.** Sites with strict Content Security Policy (like SF Chronicle) now get a basic picker via the always-loaded content script. You see computed styles, box model, and same-origin CSS rules. Full CDP mode on sites that allow it.
+- **Cleanup + Screenshot buttons in chat toolbar.** Not hidden in debug... right there in the chat. Disabled when disconnected so you don't get error spam.
+
+### Fixed
+
+- **Inspector message allowlist.** The background.js allowlist was missing all inspector message types, silently rejecting them. The inspector was broken for all pages, not just CSP-restricted ones. (Found by Codex review.)
+- **Sticky nav preservation.** Cleanup no longer removes the site's top nav bar. Sorts sticky elements by position and preserves the first full-width element near the top.
+- **Agent won't stop.** System prompt now tells the agent to be concise and stop when done. No more endless screenshot-and-highlight loops.
+- **Focus stealing.** Agent commands no longer pull Chrome to the foreground. Internal tab pinning uses `bringToFront: false`.
+- **Chat message dedup.** Old messages from previous sessions no longer repeat on reconnect.
+
+### Changed
+
+- **Sidebar banner** now says "Browser co-pilot" instead of the old mode-specific text.
+- **Input placeholder** is "Ask about this page..." (more inviting than the old placeholder).
+- **System prompt** includes prompt injection defense and allowed-commands whitelist from the security audit.
+
 ## [0.14.1.0] - 2026-03-30 — Comparison Board is the Chooser
 
 The design comparison board now always opens automatically when reviewing variants. No more inline image + "which do you prefer?" — the board has rating controls, comments, remix/regenerate buttons, and structured feedback output. That's the experience. All 3 design skills (/plan-design-review, /design-shotgun, /design-consultation) get this fix.
