@@ -40,3 +40,6 @@ export interface TemplateContext {
   paths: HostPaths;
   preambleTier?: number;  // 1-4, controls which preamble sections are included
 }
+
+/** Resolver function signature. args is populated for parameterized placeholders like {{INVOKE_SKILL:name}}. */
+export type ResolverFn = (ctx: TemplateContext, args?: string[]) => string;

@@ -534,13 +534,16 @@ export class BrowserManager {
     }
   }
 
-  switchTab(id: number): void {
+  switchTab(id: number, opts?: { bringToFront?: boolean }): void {
     if (!this.pages.has(id)) throw new Error(`Tab ${id} not found`);
     this.activeTabId = id;
     this.activeFrame = null; // Frame context is per-tab
-    // Bring the page to front so the user sees the switch in the browser
-    const page = this.pages.get(id);
-    if (page) page.bringToFront().catch(() => {});
+    // Only bring to front when explicitly requested (user-initiated tab switch).
+    // Internal tab pinning (BROWSE_TAB) should NOT steal focus.
+    if (opts?.bringToFront !== false) {
+      const page = this.pages.get(id);
+      if (page) page.bringToFront().catch(() => {});
+    }
   }
 
   /**

@@ -586,10 +586,12 @@ describe('REVIEW_DASHBOARD resolver', () => {
     expect(content).toContain('/plan-ceo-review');
   });
 
-  test('plan-design-review chaining mentions eng and ceo reviews', () => {
+  test('plan-design-review chaining mentions eng, ceo, and design skills', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-ceo-review');
+    expect(content).toContain('/design-shotgun');
+    expect(content).toContain('/design-html');
   });
 
   test('ship does NOT contain review chaining', () => {
@@ -1152,6 +1154,138 @@ describe('BENEFITS_FROM resolver', () => {
   test('inline invocation — read-and-follow path present', () => {
     expect(ceoContent).toContain('office-hours/SKILL.md');
     expect(engContent).toContain('office-hours/SKILL.md');
+  });
+
+  test('BENEFITS_FROM delegates to INVOKE_SKILL pattern', () => {
+    // Should contain the INVOKE_SKILL-style loading prose (not the old manual skip list)
+    expect(engContent).toContain('Follow its instructions from top to bottom');
+    expect(engContent).toContain('skipping these sections');
+    expect(ceoContent).toContain('Follow its instructions from top to bottom');
+  });
+});
+
+// --- {{INVOKE_SKILL}} resolver tests ---
+
+describe('INVOKE_SKILL resolver', () => {
+  const ceoContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
+
+  test('plan-ceo-review uses INVOKE_SKILL for mid-session office-hours fallback', () => {
+    // The mid-session detection path should use INVOKE_SKILL-generated prose
+    expect(ceoContent).toContain('office-hours/SKILL.md');
+    expect(ceoContent).toContain('Follow its instructions from top to bottom');
+  });
+
+  test('INVOKE_SKILL output includes default skip list', () => {
+    expect(ceoContent).toContain('Preamble (run first)');
+    expect(ceoContent).toContain('Telemetry (run last)');
+    expect(ceoContent).toContain('AskUserQuestion Format');
+  });
+
+  test('INVOKE_SKILL output includes error handling', () => {
+    expect(ceoContent).toContain('If unreadable');
+    expect(ceoContent).toContain('Could not load');
+  });
+
+  test('template uses {{INVOKE_SKILL:office-hours}} placeholder', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md.tmpl'), 'utf-8');
+    expect(tmpl).toContain('{{INVOKE_SKILL:office-hours}}');
+  });
+});
+
+// --- {{CHANGELOG_WORKFLOW}} resolver tests ---
+
+describe('CHANGELOG_WORKFLOW resolver', () => {
+  const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('ship SKILL.md contains changelog workflow', () => {
+    expect(shipContent).toContain('CHANGELOG (auto-generate)');
+    expect(shipContent).toContain('git log <base>..HEAD --oneline');
+  });
+
+  test('changelog workflow includes cross-check step', () => {
+    expect(shipContent).toContain('Cross-check');
+    expect(shipContent).toContain('Every commit must map to at least one bullet point');
+  });
+
+  test('changelog workflow includes voice guidance', () => {
+    expect(shipContent).toContain('Lead with what the user can now **do**');
+  });
+
+  test('template uses {{CHANGELOG_WORKFLOW}} placeholder', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
+    expect(tmpl).toContain('{{CHANGELOG_WORKFLOW}}');
+    // Should NOT contain the old inline changelog content
+    expect(tmpl).not.toContain('Group commits by theme');
+  });
+
+  test('changelog workflow includes keep-changelog format', () => {
+    expect(shipContent).toContain('### Added');
+    expect(shipContent).toContain('### Fixed');
+  });
+});
+
+// --- Parameterized resolver infrastructure tests ---
+
+describe('parameterized resolver support', () => {
+  test('gen-skill-docs regex handles colon-separated args', () => {
+    // Verify the template containing {{INVOKE_SKILL:office-hours}} was processed
+    // without leaving unresolved placeholders
+    const ceoContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
+    expect(ceoContent).not.toMatch(/\{\{INVOKE_SKILL:[^}]+\}\}/);
+  });
+
+  test('templates with parameterized resolvers pass unresolved check', () => {
+    // All generated SKILL.md files should have no unresolved {{...}} placeholders
+    const skillDirs = fs.readdirSync(ROOT).filter(d =>
+      fs.existsSync(path.join(ROOT, d, 'SKILL.md'))
+    );
+    for (const dir of skillDirs) {
+      const content = fs.readFileSync(path.join(ROOT, dir, 'SKILL.md'), 'utf-8');
+      const unresolved = content.match(/\{\{[A-Z_]+(?::[^}]*)?\}\}/g);
+      if (unresolved) {
+        throw new Error(`${dir}/SKILL.md has unresolved placeholders: ${unresolved.join(', ')}`);
+      }
+    }
+  });
+});
+
+// --- Preamble routing injection tests ---
+
+describe('preamble routing injection', () => {
+  const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('preamble bash checks for routing section in CLAUDE.md', () => {
+    expect(shipContent).toContain('grep -q "## Skill routing" CLAUDE.md');
+    expect(shipContent).toContain('HAS_ROUTING');
+  });
+
+  test('preamble bash reads routing_declined config', () => {
+    expect(shipContent).toContain('routing_declined');
+    expect(shipContent).toContain('ROUTING_DECLINED');
+  });
+
+  test('preamble includes routing injection AskUserQuestion', () => {
+    expect(shipContent).toContain('Add routing rules to CLAUDE.md');
+    expect(shipContent).toContain("I'll invoke skills manually");
+  });
+
+  test('routing injection respects prior decline', () => {
+    expect(shipContent).toContain('ROUTING_DECLINED');
+    expect(shipContent).toMatch(/routing_declined.*true/);
+  });
+
+  test('routing injection only fires when all conditions met', () => {
+    // Must be: HAS_ROUTING=no AND ROUTING_DECLINED=false AND PROACTIVE_PROMPTED=yes
+    expect(shipContent).toContain('HAS_ROUTING');
+    expect(shipContent).toContain('ROUTING_DECLINED');
+    expect(shipContent).toContain('PROACTIVE_PROMPTED');
+  });
+
+  test('routing section content includes key routing rules', () => {
+    expect(shipContent).toContain('invoke office-hours');
+    expect(shipContent).toContain('invoke investigate');
+    expect(shipContent).toContain('invoke ship');
+    expect(shipContent).toContain('invoke qa');
   });
 });
 
@@ -1793,11 +1927,12 @@ describe('setup script validation', () => {
   });
 
   test('link_claude_skill_dirs creates relative symlinks', () => {
-    // Claude links should be relative: ln -snf "gstack/skill_name"
+    // Claude links should be relative: ln -snf "gstack/$dir_name"
+    // Uses dir_name (not skill_name) because symlink target must point to the physical directory
     const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('ln -snf "gstack/$skill_name"');
+    expect(fnBody).toContain('ln -snf "gstack/$dir_name"');
   });
 
   test('setup supports --host auto|claude|codex|kiro', () => {

@@ -41,13 +41,13 @@ describe('sidebar system prompt (server.ts)', () => {
     expect(promptSection).toContain('url`');
   });
 
-  test('system prompt includes narration instructions', () => {
+  test('system prompt includes conciseness and stop instructions', () => {
     const promptSection = serverSrc.slice(
       serverSrc.indexOf('const systemPrompt = ['),
       serverSrc.indexOf("].join('\\n');", serverSrc.indexOf('const systemPrompt = [')) + 15,
     );
-    expect(promptSection).toContain('Narrate');
-    expect(promptSection).toContain('plain English');
+    expect(promptSection).toContain('CONCISE');
+    expect(promptSection).toContain('STOP');
   });
 
   test('--resume is never used in spawnClaude args', () => {
@@ -385,12 +385,11 @@ describe('browser tab bar (sidepanel.html)', () => {
 describe('sidebar→browser tab switch', () => {
   const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
 
-  test('switchTab calls bringToFront so browser visually switches', () => {
-    const switchFn = bmSrc.slice(
-      bmSrc.indexOf('switchTab(id: number)'),
-      bmSrc.indexOf('switchTab(id: number)') + 400,
-    );
-    expect(switchFn).toContain('bringToFront');
+  test('switchTab supports bringToFront option', () => {
+    expect(bmSrc).toContain('switchTab(id: number, opts?');
+    expect(bmSrc).toContain('bringToFront');
+    // Default behavior still brings to front (opt-out, not opt-in)
+    expect(bmSrc).toContain('bringToFront !== false');
   });
 });
 
@@ -937,6 +936,82 @@ describe('chat toolbar buttons disabled state', () => {
     expect(css).toContain('.quick-action-btn.disabled');
     expect(css).toContain('.inspector-action-btn.disabled');
     expect(css).toContain('pointer-events: none');
+  });
+});
+
+// ─── Chat message dedup ─────────────────────────────────────────
+
+describe('chat message dedup (prevents repeat rendering)', () => {
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('renderedEntryIds Set exists for dedup tracking', () => {
+    expect(js).toContain('const renderedEntryIds = new Set()');
+  });
+
+  test('addChatEntry checks entry.id against renderedEntryIds', () => {
+    const addFn = js.slice(
+      js.indexOf('function addChatEntry(entry)'),
+      js.indexOf('\n  // User messages', js.indexOf('function addChatEntry(entry)')),
+    );
+    expect(addFn).toContain('renderedEntryIds.has(entry.id)');
+    expect(addFn).toContain('renderedEntryIds.add(entry.id)');
+    // Should return early (skip) if already rendered
+    expect(addFn).toContain('return');
+  });
+
+  test('addChatEntry skips dedup for entries without id (local notifications)', () => {
+    const addFn = js.slice(
+      js.indexOf('function addChatEntry(entry)'),
+      js.indexOf('\n  // User messages', js.indexOf('function addChatEntry(entry)')),
+    );
+    // Should only check dedup when entry.id is defined
+    expect(addFn).toContain('entry.id !== undefined');
+  });
+
+  test('clear chat resets renderedEntryIds', () => {
+    expect(js).toContain('renderedEntryIds.clear()');
+  });
+});
+
+// ─── Agent conciseness and focus stealing ───────────────────────
+
+describe('sidebar agent conciseness + no focus stealing', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+  const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
+
+  test('system prompt tells agent to STOP when task is done', () => {
+    const promptSection = serverSrc.slice(
+      serverSrc.indexOf('const systemPrompt = ['),
+      serverSrc.indexOf("].join('\\n');", serverSrc.indexOf('const systemPrompt = [')),
+    );
+    expect(promptSection).toContain('STOP');
+    expect(promptSection).toContain('CONCISE');
+    expect(promptSection).toContain('Do NOT keep exploring');
+  });
+
+  test('sidebar agent uses opus (not sonnet) for prompt injection resistance', () => {
+    const spawnFn = serverSrc.slice(
+      serverSrc.indexOf('function spawnClaude('),
+      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnClaude(') + 1),
+    );
+    expect(spawnFn).toContain("'opus'");
+  });
+
+  test('switchTab has bringToFront option', () => {
+    expect(bmSrc).toContain('bringToFront?: boolean');
+    expect(bmSrc).toContain('bringToFront !== false');
+  });
+
+  test('handleCommand tab pinning does NOT steal focus', () => {
+    // All switchTab calls in handleCommand should use bringToFront: false
+    const handleFn = serverSrc.slice(
+      serverSrc.indexOf('async function handleCommand('),
+      serverSrc.indexOf('\n// ', serverSrc.indexOf('async function handleCommand(') + 200),
+    );
+    const switchCalls = handleFn.match(/switchTab\([^)]+\)/g) || [];
+    for (const call of switchCalls) {
+      expect(call).toContain('bringToFront: false');
+    }
   });
 });
 

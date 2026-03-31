@@ -37,42 +37,9 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 ---
 
-## Step 1.5: Scope Drift Detection
-
-Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
-
-1. Read `TODOS.md` (if it exists). Read PR description (`gh pr view --json body --jq .body 2>/dev/null || true`).
-   Read commit messages (`git log origin/<base>..HEAD --oneline`).
-   **If no PR exists:** rely on commit messages and TODOS.md for stated intent — this is the common case since /review runs before /ship creates the PR.
-2. Identify the **stated intent** — what was this branch supposed to accomplish?
-3. Run `git diff origin/<base>...HEAD --stat` and compare the files changed against the stated intent.
+{{SCOPE_DRIFT}}
 
 {{PLAN_COMPLETION_AUDIT_REVIEW}}
-
-4. Evaluate with skepticism (incorporating plan completion results if available):
-
-   **SCOPE CREEP detection:**
-   - Files changed that are unrelated to the stated intent
-   - New features or refactors not mentioned in the plan
-   - "While I was in there..." changes that expand blast radius
-
-   **MISSING REQUIREMENTS detection:**
-   - Requirements from TODOS.md/PR description not addressed in the diff
-   - Test coverage gaps for stated requirements
-   - Partial implementations (started but not finished)
-
-5. Output (before the main review begins):
-   ```
-   Scope Check: [CLEAN / DRIFT DETECTED / REQUIREMENTS MISSING]
-   Intent: <1-line summary of what was requested>
-   Delivered: <1-line summary of what the diff actually does>
-   [If drift: list each out-of-scope change]
-   [If missing: list each unaddressed requirement]
-   ```
-
-6. This is **INFORMATIONAL** — does not block the review. Proceed to Step 2.
-
----
 
 ## Step 2: Read the checklist
 

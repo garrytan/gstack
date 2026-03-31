@@ -1,18 +1,23 @@
 ---
-name: canary
+name: design-html
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Post-deploy canary monitoring. Watches the live app for console errors,
-  performance regressions, and page failures using the browse daemon. Takes
-  periodic screenshots, compares against pre-deploy baselines, and alerts
-  on anomalies. Use when: "monitor deploy", "canary", "post-deploy check",
-  "watch production", "verify deploy". (gstack)
+  Design finalization: takes an approved AI mockup from /design-shotgun and
+  generates production-quality Pretext-native HTML/CSS. Text actually reflows,
+  heights are computed, layouts are dynamic. 30KB overhead, zero deps.
+  Smart API routing: picks the right Pretext patterns for each design type.
+  Use when: "finalize this design", "turn this mockup into HTML", "implement
+  this design", or after /design-shotgun approves a direction.
+  Proactively suggest when user has approved a design in /design-shotgun. (gstack)
 allowed-tools:
   - Bash
   - Read
   - Write
+  - Edit
   - Glob
+  - Grep
+  - Agent
   - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
@@ -49,7 +54,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
-  echo '{"skill":"canary","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+  echo '{"skill":"design-html","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -404,6 +409,56 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
+# /design-html: Pretext-Native HTML Engine
+
+You generate production-quality HTML where text actually works correctly. Not CSS
+approximations. Computed layout via Pretext. Text reflows on resize, heights adjust
+to content, cards size themselves, chat bubbles shrinkwrap, editorial spreads flow
+around obstacles.
+
+## DESIGN SETUP (run this check BEFORE any design mockup command)
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
+[ -z "$D" ] && D=~/.claude/skills/gstack/design/dist/design
+if [ -x "$D" ]; then
+  echo "DESIGN_READY: $D"
+else
+  echo "DESIGN_NOT_AVAILABLE"
+fi
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "BROWSE_READY: $B"
+else
+  echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
+fi
+```
+
+If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
+existing HTML wireframe approach (`DESIGN_SKETCH`). Design mockups are a
+progressive enhancement, not a hard requirement.
+
+If `BROWSE_NOT_AVAILABLE`: use `open file://...` instead of `$B goto` to open
+comparison boards. The user just needs to see the HTML file in any browser.
+
+If `DESIGN_READY`: the design binary is available for visual mockup generation.
+Commands:
+- `$D generate --brief "..." --output /path.png` — generate a single mockup
+- `$D variants --brief "..." --count 3 --output-dir /path/` — generate N style variants
+- `$D compare --images "a.png,b.png,c.png" --output /path/board.html --serve` — comparison board + HTTP server
+- `$D serve --html /path/board.html` — serve comparison board and collect feedback via HTTP
+- `$D check --image /path.png --brief "..."` — vision quality gate
+- `$D iterate --session /path/session.json --feedback "..." --output /path.png` — iterate
+
+**CRITICAL PATH RULE:** All design artifacts (mockups, comparison boards, approved.json)
+MUST be saved to `~/.gstack/projects/$SLUG/designs/`, NEVER to `.context/`,
+`docs/designs/`, `/tmp/`, or any project-local directory. Design artifacts are USER
+data, not project files. They persist across branches, conversations, and workspaces.
+
 ## SETUP (run this check BEFORE any browse command)
 
 ```bash
@@ -440,239 +495,475 @@ If `NEEDS_SETUP`:
    fi
    ```
 
-## Step 0: Detect platform and base branch
+---
 
-First, detect the git hosting platform from the remote URL:
+## Step 0: Input Detection
 
 ```bash
-git remote get-url origin 2>/dev/null
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ```
 
-- If the URL contains "github.com" → platform is **GitHub**
-- If the URL contains "gitlab" → platform is **GitLab**
-- Otherwise, check CLI availability:
-  - `gh auth status 2>/dev/null` succeeds → platform is **GitHub** (covers GitHub Enterprise)
-  - `glab auth status 2>/dev/null` succeeds → platform is **GitLab** (covers self-hosted)
-  - Neither → **unknown** (use git-native commands only)
+1. Find the most recent `approved.json`:
+```bash
+setopt +o nomatch 2>/dev/null || true
+ls -t ~/.gstack/projects/$SLUG/designs/*/approved.json 2>/dev/null | head -1
+```
 
-Determine which branch this PR/MR targets, or the repo's default branch if no
-PR/MR exists. Use the result as "the base branch" in all subsequent steps.
+2. If found, read it. Extract: approved variant PNG path, user feedback, screen name.
 
-**If GitHub:**
-1. `gh pr view --json baseRefName -q .baseRefName` — if succeeds, use it
-2. `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` — if succeeds, use it
+3. Read `DESIGN.md` if it exists in the repo root. These tokens take priority for
+   system-level values (fonts, brand colors, spacing scale).
 
-**If GitLab:**
-1. `glab mr view -F json 2>/dev/null` and extract the `target_branch` field — if succeeds, use it
-2. `glab repo view -F json 2>/dev/null` and extract the `default_branch` field — if succeeds, use it
+4. **Evolve mode:** Check for prior output:
+```bash
+setopt +o nomatch 2>/dev/null || true
+ls -t ~/.gstack/projects/$SLUG/designs/*/finalized.html 2>/dev/null | head -1
+```
+If a prior `finalized.html` exists, use AskUserQuestion:
+> Found a prior finalized HTML from a previous session. Want to evolve it
+> (apply new changes on top, preserving your custom edits) or start fresh?
+> A) Evolve — iterate on the existing HTML
+> B) Start fresh — regenerate from the approved mockup
 
-**Git-native fallback (if unknown platform, or CLI commands fail):**
-1. `git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'`
-2. If that fails: `git rev-parse --verify origin/main 2>/dev/null` → use `main`
-3. If that fails: `git rev-parse --verify origin/master 2>/dev/null` → use `master`
+If evolve: read the existing HTML. Apply changes on top during Step 3.
+If fresh: proceed normally.
 
-If all fail, fall back to `main`.
+5. If no `approved.json` found, use AskUserQuestion:
+> No approved design found. You need a mockup first.
+> A) Run /design-shotgun — explore design variants and approve one
+> B) I have a PNG — let me provide the path
 
-Print the detected base branch name. In every subsequent `git diff`, `git log`,
-`git fetch`, `git merge`, and PR/MR creation command, substitute the detected
-branch name wherever the instructions say "the base branch" or `<default>`.
+If B: accept a PNG file path from the user and proceed with that as the reference.
 
 ---
 
-# /canary — Post-Deploy Visual Monitor
+## Step 1: Design Analysis
 
-You are a **Release Reliability Engineer** watching production after a deploy. You've seen deploys that pass CI but break in production — a missing environment variable, a CDN cache serving stale assets, a database migration that's slower than expected on real data. Your job is to catch these in the first 10 minutes, not 10 hours.
+1. If `$D` is available (`DESIGN_READY`), extract a structured implementation spec:
+```bash
+$D prompt --image <approved-variant.png> --output json
+```
+This returns colors, typography, layout structure, and component inventory via GPT-4o vision.
 
-You use the browse daemon to watch the live app, take screenshots, check console errors, and compare against baselines. You are the safety net between "shipped" and "verified."
+2. If `$D` is not available, read the approved PNG inline using the Read tool.
+   Describe the visual layout, colors, typography, and component structure yourself.
 
-## User-invocable
-When the user types `/canary`, run this skill.
+3. Read `DESIGN.md` tokens. These override any extracted values for system-level
+   properties (brand colors, font family, spacing scale).
 
-## Arguments
-- `/canary <url>` — monitor a URL for 10 minutes after deploy
-- `/canary <url> --duration 5m` — custom monitoring duration (1m to 30m)
-- `/canary <url> --baseline` — capture baseline screenshots (run BEFORE deploying)
-- `/canary <url> --pages /,/dashboard,/settings` — specify pages to monitor
-- `/canary <url> --quick` — single-pass health check (no continuous monitoring)
+4. Output an "Implementation spec" summary: colors (hex), fonts (family + weights),
+   spacing scale, component list, layout type.
 
-## Instructions
+---
 
-### Phase 1: Setup
+## Step 2: Smart Pretext API Routing
+
+Analyze the approved design and classify it into a Pretext tier. Each tier uses
+different Pretext APIs for optimal results:
+
+| Design type | Pretext APIs | Use case |
+|-------------|-------------|----------|
+| Simple layout (landing, marketing) | `prepare()` + `layout()` | Resize-aware heights |
+| Card/grid (dashboard, listing) | `prepare()` + `layout()` | Self-sizing cards |
+| Chat/messaging UI | `prepareWithSegments()` + `walkLineRanges()` | Tight-fit bubbles, min-width |
+| Content-heavy (editorial, blog) | `prepareWithSegments()` + `layoutNextLine()` | Text around obstacles |
+| Complex editorial | Full engine + `layoutWithLines()` | Manual line rendering |
+
+State the chosen tier and why. Reference the specific Pretext APIs that will be used.
+
+---
+
+## Step 2.5: Framework Detection
+
+Check if the user's project uses a frontend framework:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null || echo "SLUG=unknown")"
-mkdir -p .gstack/canary-reports
-mkdir -p .gstack/canary-reports/baselines
-mkdir -p .gstack/canary-reports/screenshots
+[ -f package.json ] && cat package.json | grep -o '"react"\|"svelte"\|"vue"\|"@angular/core"\|"solid-js"\|"preact"' | head -1 || echo "NONE"
 ```
 
-Parse the user's arguments. Default duration is 10 minutes. Default pages: auto-discover from the app's navigation.
+If a framework is detected, use AskUserQuestion:
+> Detected [React/Svelte/Vue] in your project. What format should the output be?
+> A) Vanilla HTML — self-contained preview file (recommended for first pass)
+> B) [React/Svelte/Vue] component — framework-native with Pretext hooks
 
-### Phase 2: Baseline Capture (--baseline mode)
+If the user chooses framework output, ask one follow-up:
+> A) TypeScript
+> B) JavaScript
 
-If the user passed `--baseline`, capture the current state BEFORE deploying.
+For vanilla HTML: proceed to Step 3 with vanilla output.
+For framework output: proceed to Step 3 with framework-specific patterns.
+If no framework detected: default to vanilla HTML, no question needed.
 
-For each page (either from `--pages` or the homepage):
+---
 
+## Step 3: Generate Pretext-Native HTML
+
+### Pretext Source Embedding
+
+For **vanilla HTML output**, check for the vendored Pretext bundle:
 ```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/baselines/<page-name>.png"
-$B console --errors
-$B perf
-$B text
+_PRETEXT_VENDOR=""
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+[ -n "$_ROOT" ] && [ -f "$_ROOT/.claude/skills/gstack/design-html/vendor/pretext.js" ] && _PRETEXT_VENDOR="$_ROOT/.claude/skills/gstack/design-html/vendor/pretext.js"
+[ -z "$_PRETEXT_VENDOR" ] && [ -f ~/.claude/skills/gstack/design-html/vendor/pretext.js ] && _PRETEXT_VENDOR=~/.claude/skills/gstack/design-html/vendor/pretext.js
+[ -n "$_PRETEXT_VENDOR" ] && echo "VENDOR: $_PRETEXT_VENDOR" || echo "VENDOR_MISSING"
 ```
 
-Collect for each page: screenshot path, console error count, page load time from `perf`, and a text content snapshot.
+- If `VENDOR` found: read the file and inline it in a `<script>` tag. The HTML file
+  is fully self-contained with zero network dependencies.
+- If `VENDOR_MISSING`: use CDN import as fallback:
+  `<script type="module">import { prepare, layout, prepareWithSegments, walkLineRanges, layoutNextLine, layoutWithLines } from 'https://esm.sh/@chenglou/pretext'</script>`
+  Add a comment: `<!-- FALLBACK: vendor/pretext.js missing, using CDN -->`
 
-Save the baseline manifest to `.gstack/canary-reports/baseline.json`:
+For **framework output**, add to the project's dependencies instead:
+```bash
+# Detect package manager
+[ -f bun.lockb ] && echo "bun add @chenglou/pretext" || \
+[ -f pnpm-lock.yaml ] && echo "pnpm add @chenglou/pretext" || \
+[ -f yarn.lock ] && echo "yarn add @chenglou/pretext" || \
+echo "npm install @chenglou/pretext"
+```
+Run the detected install command. Then use standard imports in the component.
 
-```json
-{
-  "url": "<url>",
-  "timestamp": "<ISO>",
-  "branch": "<current branch>",
-  "pages": {
-    "/": {
-      "screenshot": "baselines/home.png",
-      "console_errors": 0,
-      "load_time_ms": 450
-    }
+### HTML Generation
+
+Write a single file using the Write tool. Save to:
+`~/.gstack/projects/$SLUG/designs/<screen-name>-YYYYMMDD/finalized.html`
+
+For framework output, save to:
+`~/.gstack/projects/$SLUG/designs/<screen-name>-YYYYMMDD/finalized.[tsx|svelte|vue]`
+
+**Always include in vanilla HTML:**
+- Pretext source (inlined or CDN, see above)
+- CSS custom properties for design tokens from DESIGN.md / Step 1 extraction
+- Google Fonts via `<link>` tags + `document.fonts.ready` gate before first `prepare()`
+- Semantic HTML5 (`<header>`, `<nav>`, `<main>`, `<section>`, `<footer>`)
+- Responsive behavior via Pretext relayout (not just media queries)
+- Breakpoint-specific adjustments at 375px, 768px, 1024px, 1440px
+- ARIA attributes, heading hierarchy, focus-visible states
+- `contenteditable` on text elements + MutationObserver to re-prepare + re-layout on edit
+- ResizeObserver on containers to re-layout on resize
+- `prefers-color-scheme` media query for dark mode
+- `prefers-reduced-motion` for animation respect
+- Real content extracted from the mockup (never lorem ipsum)
+
+**Never include (AI slop blacklist):**
+- Purple/blue gradients as default
+- Generic 3-column feature grids
+- Center-everything layouts with no visual hierarchy
+- Decorative blobs, waves, or geometric patterns not in the mockup
+- Stock photo placeholder divs
+- "Get Started" / "Learn More" generic CTAs not from the mockup
+- Rounded-corner cards with drop shadows as the default component
+- Emoji as visual elements
+- Generic testimonial sections
+- Cookie-cutter hero sections with left-text right-image
+
+### Pretext Wiring Patterns
+
+Use these patterns based on the tier selected in Step 2. These are the correct
+Pretext API usage patterns. Follow them exactly.
+
+**Pattern 1: Basic height computation (Simple layout, Card/grid)**
+```js
+import { prepare, layout } from './pretext-inline.js'
+// Or if inlined: const { prepare, layout } = window.Pretext
+
+// 1. PREPARE — one-time, after fonts load
+await document.fonts.ready
+const elements = document.querySelectorAll('[data-pretext]')
+const prepared = new Map()
+
+for (const el of elements) {
+  const text = el.textContent
+  const font = getComputedStyle(el).font
+  prepared.set(el, prepare(text, font))
+}
+
+// 2. LAYOUT — cheap, call on every resize
+function relayout() {
+  for (const [el, handle] of prepared) {
+    const { height } = layout(handle, el.clientWidth, parseFloat(getComputedStyle(el).lineHeight))
+    el.style.height = `${height}px`
+  }
+}
+
+// 3. RESIZE-AWARE
+new ResizeObserver(() => relayout()).observe(document.body)
+relayout()
+
+// 4. CONTENT-EDITABLE — re-prepare when text changes
+for (const el of elements) {
+  if (el.contentEditable === 'true') {
+    new MutationObserver(() => {
+      const font = getComputedStyle(el).font
+      prepared.set(el, prepare(el.textContent, font))
+      relayout()
+    }).observe(el, { characterData: true, subtree: true, childList: true })
   }
 }
 ```
 
-Then STOP and tell the user: "Baseline captured. Deploy your changes, then run `/canary <url>` to monitor."
+**Pattern 2: Shrinkwrap / tight-fit containers (Chat bubbles)**
+```js
+import { prepareWithSegments, walkLineRanges } from './pretext-inline.js'
 
-### Phase 3: Page Discovery
+// Find the tightest width that produces the same line count
+function shrinkwrap(text, font, maxWidth, lineHeight) {
+  const segs = prepareWithSegments(text, font)
+  let bestWidth = maxWidth
+  walkLineRanges(segs, maxWidth, (lineCount, startIdx, endIdx) => {
+    // walkLineRanges calls back with progressively narrower widths
+    // The first call gives us the line count at maxWidth
+    // We want the narrowest width that still produces this line count
+  })
+  // Binary search for tightest width with same line count
+  const { lineCount: targetLines } = layout(prepare(text, font), maxWidth, lineHeight)
+  let lo = 0, hi = maxWidth
+  while (hi - lo > 1) {
+    const mid = (lo + hi) / 2
+    const { lineCount } = layout(prepare(text, font), mid, lineHeight)
+    if (lineCount === targetLines) hi = mid
+    else lo = mid
+  }
+  return hi
+}
+```
 
-If no `--pages` were specified, auto-discover pages to monitor:
+**Pattern 3: Text around obstacles (Editorial layout)**
+```js
+import { prepareWithSegments, layoutNextLine } from './pretext-inline.js'
+
+function layoutAroundObstacles(text, font, containerWidth, lineHeight, obstacles) {
+  const segs = prepareWithSegments(text, font)
+  let state = null
+  let y = 0
+  const lines = []
+
+  while (true) {
+    // Calculate available width at current y position, accounting for obstacles
+    let availWidth = containerWidth
+    for (const obs of obstacles) {
+      if (y >= obs.top && y < obs.top + obs.height) {
+        availWidth -= obs.width
+      }
+    }
+
+    const result = layoutNextLine(segs, state, availWidth, lineHeight)
+    if (!result) break
+
+    lines.push({ text: result.text, width: result.width, x: 0, y })
+    state = result.state
+    y += lineHeight
+  }
+
+  return { lines, totalHeight: y }
+}
+```
+
+**Pattern 4: Full line-by-line rendering (Complex editorial)**
+```js
+import { prepareWithSegments, layoutWithLines } from './pretext-inline.js'
+
+const segs = prepareWithSegments(text, font)
+const { lines, height } = layoutWithLines(segs, containerWidth, lineHeight)
+
+// lines = [{ text, width, x, y }, ...]
+// Use for Canvas/SVG rendering or custom DOM positioning
+for (const line of lines) {
+  const span = document.createElement('span')
+  span.textContent = line.text
+  span.style.position = 'absolute'
+  span.style.left = `${line.x}px`
+  span.style.top = `${line.y}px`
+  container.appendChild(span)
+}
+```
+
+### Pretext API Reference
+
+```
+PRETEXT API CHEATSHEET:
+
+prepare(text, font) → handle
+  One-time text measurement. Call after document.fonts.ready.
+  Font: CSS shorthand like '16px Inter' or 'bold 24px Georgia'.
+
+layout(prepared, maxWidth, lineHeight) → { height, lineCount }
+  Fast layout computation. Call on every resize. Sub-millisecond.
+
+prepareWithSegments(text, font) → handle
+  Like prepare() but enables line-level APIs below.
+
+layoutWithLines(segs, maxWidth, lineHeight) → { lines: [{text, width, x, y}...], height }
+  Full line-by-line breakdown. For Canvas/SVG rendering.
+
+walkLineRanges(segs, maxWidth, onLine) → void
+  Calls onLine(lineCount, startIdx, endIdx) for each possible layout.
+  Find minimum width for N lines. For tight-fit containers.
+
+layoutNextLine(segs, state, maxWidth, lineHeight) → { text, width, state } | null
+  Iterator. Different maxWidth per line = text around obstacles.
+  Pass null as initial state. Returns null when text is exhausted.
+
+clearCache() → void
+  Clears internal measurement caches. Use when cycling many fonts.
+
+setLocale(locale?) → void
+  Retargets word segmenter for future prepare() calls.
+```
+
+---
+
+## Step 3.5: Live Reload Server
+
+After writing the HTML file, start a simple HTTP server for live preview:
 
 ```bash
-$B goto <url>
-$B links
-$B snapshot -i
+# Start a simple HTTP server in the output directory
+_OUTPUT_DIR=$(dirname <path-to-finalized.html>)
+cd "$_OUTPUT_DIR"
+python3 -m http.server 0 --bind 127.0.0.1 &
+_SERVER_PID=$!
+_PORT=$(lsof -i -P -n | grep "$_SERVER_PID" | grep LISTEN | awk '{print $9}' | cut -d: -f2 | head -1)
+echo "SERVER: http://localhost:$_PORT/finalized.html"
+echo "PID: $_SERVER_PID"
 ```
 
-Extract the top 5 internal navigation links from the `links` output. Always include the homepage. Present the page list via AskUserQuestion:
+If python3 is not available, fall back to:
+```bash
+open <path-to-finalized.html>
+```
 
-- **Context:** Monitoring the production site at the given URL after a deploy.
-- **Question:** Which pages should the canary monitor?
-- **RECOMMENDATION:** Choose A — these are the main navigation targets.
-- A) Monitor these pages: [list the discovered pages]
-- B) Add more pages (user specifies)
-- C) Monitor homepage only (quick check)
+Tell the user: "Live preview running at http://localhost:$_PORT/finalized.html.
+After each edit, just refresh the browser (Cmd+R) to see changes."
 
-### Phase 4: Pre-Deploy Snapshot (if no baseline exists)
+When the refinement loop ends (Step 4 exits), kill the server:
+```bash
+kill $_SERVER_PID 2>/dev/null || true
+```
 
-If no `baseline.json` exists, take a quick snapshot now as a reference point.
+---
 
-For each page to monitor:
+## Step 4: Preview + Refinement Loop
+
+### Verification Screenshots
+
+If `$B` is available (browse binary), take verification screenshots at 3 viewports:
 
 ```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/screenshots/pre-<page-name>.png"
-$B console --errors
-$B perf
+$B goto "file://<path-to-finalized.html>"
+$B screenshot /tmp/gstack-verify-mobile.png --width 375
+$B screenshot /tmp/gstack-verify-tablet.png --width 768
+$B screenshot /tmp/gstack-verify-desktop.png --width 1440
 ```
 
-Record the console error count and load time for each page. These become the reference for detecting regressions during monitoring.
+Show all three screenshots inline using the Read tool. Check for:
+- Text overflow (text cut off or extending beyond containers)
+- Layout collapse (elements overlapping or missing)
+- Responsive breakage (content not adapting to viewport)
 
-### Phase 5: Continuous Monitoring Loop
+If issues are found, note them and fix before presenting to the user.
 
-Monitor for the specified duration. Every 60 seconds, check each page:
+If `$B` is not available, skip verification and note:
+"Browse binary not available. Skipping automated viewport verification."
 
-```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/screenshots/<page-name>-<check-number>.png"
-$B console --errors
-$B perf
-```
-
-After each check, compare results against the baseline (or pre-deploy snapshot):
-
-1. **Page load failure** — `goto` returns error or timeout → CRITICAL ALERT
-2. **New console errors** — errors not present in baseline → HIGH ALERT
-3. **Performance regression** — load time exceeds 2x baseline → MEDIUM ALERT
-4. **Broken links** — new 404s not in baseline → LOW ALERT
-
-**Alert on changes, not absolutes.** A page with 3 console errors in the baseline is fine if it still has 3. One NEW error is an alert.
-
-**Don't cry wolf.** Only alert on patterns that persist across 2 or more consecutive checks. A single transient network blip is not an alert.
-
-**If a CRITICAL or HIGH alert is detected**, immediately notify the user via AskUserQuestion:
+### Refinement Loop
 
 ```
-CANARY ALERT
-════════════
-Time:     [timestamp, e.g., check #3 at 180s]
-Page:     [page URL]
-Type:     [CRITICAL / HIGH / MEDIUM]
-Finding:  [what changed — be specific]
-Evidence: [screenshot path]
-Baseline: [baseline value]
-Current:  [current value]
+LOOP:
+  1. If server is running, tell user to open http://localhost:PORT/finalized.html
+     Otherwise: open <path>/finalized.html
+
+  2. Show approved mockup PNG inline (Read tool) for visual comparison
+
+  3. AskUserQuestion:
+     "The HTML is live in your browser. Here's the approved mockup for comparison.
+      Try: resize the window (text should reflow dynamically),
+      click any text (it's editable, layout recomputes instantly).
+      What needs to change? Say 'done' when satisfied."
+
+  4. If "done" / "ship it" / "looks good" / "perfect" → exit loop, go to Step 5
+
+  5. Apply feedback using targeted Edit tool changes on the HTML file
+     (do NOT regenerate the entire file — surgical edits only)
+
+  6. Brief summary of what changed (2-3 lines max)
+
+  7. If verification screenshots are available, re-take them to confirm the fix
+
+  8. Go to LOOP
 ```
 
-- **Context:** Canary monitoring detected an issue on [page] after [duration].
-- **RECOMMENDATION:** Choose based on severity — A for critical, B for transient.
-- A) Investigate now — stop monitoring, focus on this issue
-- B) Continue monitoring — this might be transient (wait for next check)
-- C) Rollback — revert the deploy immediately
-- D) Dismiss — false positive, continue monitoring
+Maximum 10 iterations. If the user hasn't said "done" after 10, use AskUserQuestion:
+"We've done 10 rounds of refinement. Want to continue iterating or call it done?"
 
-### Phase 6: Health Report
+---
 
-After monitoring completes (or if the user stops early), produce a summary:
+## Step 5: Save & Next Steps
 
+### Design Token Extraction
+
+If no `DESIGN.md` exists in the repo root, offer to create one from the generated HTML:
+
+Extract from the HTML:
+- CSS custom properties (colors, spacing, font sizes)
+- Font families and weights used
+- Color palette (primary, secondary, accent, neutral)
+- Spacing scale
+- Border radius values
+- Shadow values
+
+Use AskUserQuestion:
+> No DESIGN.md found. I can extract the design tokens from the HTML we just built
+> and create a DESIGN.md for your project. This means future /design-shotgun and
+> /design-html runs will be style-consistent automatically.
+> A) Create DESIGN.md from these tokens
+> B) Skip — I'll handle the design system later
+
+If A: write `DESIGN.md` to the repo root with the extracted tokens.
+
+### Save Metadata
+
+Write `finalized.json` alongside the HTML:
+```json
+{
+  "source_mockup": "<approved variant PNG path>",
+  "html_file": "<path to finalized.html or component file>",
+  "pretext_tier": "<selected tier>",
+  "framework": "<vanilla|react|svelte|vue>",
+  "iterations": <number of refinement iterations>,
+  "date": "<ISO 8601>",
+  "screen": "<screen name from approved.json>",
+  "branch": "<current branch>"
+}
 ```
-CANARY REPORT — [url]
-═════════════════════
-Duration:     [X minutes]
-Pages:        [N pages monitored]
-Checks:       [N total checks performed]
-Status:       [HEALTHY / DEGRADED / BROKEN]
 
-Per-Page Results:
-─────────────────────────────────────────────────────
-  Page            Status      Errors    Avg Load
-  /               HEALTHY     0         450ms
-  /dashboard      DEGRADED    2 new     1200ms (was 400ms)
-  /settings       HEALTHY     0         380ms
+### Next Steps
 
-Alerts Fired:  [N] (X critical, Y high, Z medium)
-Screenshots:   .gstack/canary-reports/screenshots/
+Use AskUserQuestion:
+> Design finalized with Pretext-native layout. What's next?
+> A) Copy to project — copy the HTML/component into your codebase
+> B) Iterate more — keep refining
+> C) Done — I'll use this as a reference
 
-VERDICT: [DEPLOY IS HEALTHY / DEPLOY HAS ISSUES — details above]
-```
-
-Save report to `.gstack/canary-reports/{date}-canary.md` and `.gstack/canary-reports/{date}-canary.json`.
-
-Log the result for the review dashboard:
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-mkdir -p ~/.gstack/projects/$SLUG
-```
-
-Write a JSONL entry: `{"skill":"canary","timestamp":"<ISO>","status":"<HEALTHY/DEGRADED/BROKEN>","url":"<url>","duration_min":<N>,"alerts":<N>}`
-
-### Phase 7: Baseline Update
-
-If the deploy is healthy, offer to update the baseline:
-
-- **Context:** Canary monitoring completed. The deploy is healthy.
-- **RECOMMENDATION:** Choose A — deploy is healthy, new baseline reflects current production.
-- A) Update baseline with current screenshots
-- B) Keep old baseline
-
-If the user chooses A, copy the latest screenshots to the baselines directory and update `baseline.json`.
+---
 
 ## Important Rules
 
-- **Speed matters.** Start monitoring within 30 seconds of invocation. Don't over-analyze before monitoring.
-- **Alert on changes, not absolutes.** Compare against baseline, not industry standards.
-- **Screenshots are evidence.** Every alert includes a screenshot path. No exceptions.
-- **Transient tolerance.** Only alert on patterns that persist across 2+ consecutive checks.
-- **Baseline is king.** Without a baseline, canary is a health check. Encourage `--baseline` before deploying.
-- **Performance thresholds are relative.** 2x baseline is a regression. 1.5x might be normal variance.
-- **Read-only.** Observe and report. Don't modify code unless the user explicitly asks to investigate and fix.
+- **Mockup fidelity over code elegance.** If pixel-matching the approved mockup requires
+  `width: 312px` instead of a CSS grid class, that's correct. The mockup is the source
+  of truth. Code cleanup happens later during component extraction.
+
+- **Always use Pretext for text layout.** Even if the design looks simple, Pretext
+  ensures correct height computation on resize. The overhead is 30KB. Every page benefits.
+
+- **Surgical edits in the refinement loop.** Use the Edit tool to make targeted changes,
+  not the Write tool to regenerate the entire file. The user may have made manual edits
+  via contenteditable that should be preserved.
+
+- **Real content only.** Extract text from the approved mockup. Never use "Lorem ipsum",
+  "Your text here", or placeholder content.
+
+- **One page per invocation.** For multi-page designs, run /design-html once per page.
+  Each run produces one HTML file.

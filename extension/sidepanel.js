@@ -102,7 +102,17 @@ let agentContainer = null; // The container for the current agent response
 let agentTextEl = null;    // The text accumulator element
 let agentText = '';        // Accumulated text
 
+// Dedup: track which entry IDs have already been rendered to prevent
+// repeat rendering on reconnect or tab switch (server replays from disk)
+const renderedEntryIds = new Set();
+
 function addChatEntry(entry) {
+  // Dedup by entry ID — prevent repeat rendering on reconnect/replay
+  if (entry.id !== undefined) {
+    if (renderedEntryIds.has(entry.id)) return;
+    renderedEntryIds.add(entry.id);
+  }
+
   // Remove welcome message on first real message
   const welcome = chatMessages.querySelector('.chat-welcome');
   if (welcome) welcome.remove();
@@ -577,6 +587,7 @@ document.getElementById('clear-chat').addEventListener('click', async () => {
   } catch {}
   // Reset local state
   chatLineCount = 0;
+  renderedEntryIds.clear();
   agentContainer = null;
   agentTextEl = null;
   agentText = '';

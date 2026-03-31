@@ -513,17 +513,17 @@ describe('BROWSE_TAB tab pinning (cross-tab isolation)', () => {
     expect(handleFn).toContain('tabId');
     // Should save and restore the active tab
     expect(handleFn).toContain('savedTabId');
-    expect(handleFn).toContain('browserManager.switchTab(tabId)');
+    expect(handleFn).toContain('switchTab(tabId');
   });
 
   test('handleCommand restores active tab after command (success path)', () => {
-    // On success, should restore savedTabId
+    // On success, should restore savedTabId without stealing focus
     const handleFn = serverSrc.slice(
       serverSrc.indexOf('async function handleCommand('),
       serverSrc.length,
     );
     // Count restore calls — should appear in both success and error paths
-    const restoreCount = (handleFn.match(/browserManager\.switchTab\(savedTabId\)/g) || []).length;
+    const restoreCount = (handleFn.match(/switchTab\(savedTabId/g) || []).length;
     expect(restoreCount).toBeGreaterThanOrEqual(2); // success + error paths
   });
 
@@ -532,7 +532,7 @@ describe('BROWSE_TAB tab pinning (cross-tab isolation)', () => {
     const catchBlock = serverSrc.slice(
       serverSrc.indexOf('} catch (err: any) {', serverSrc.indexOf('async function handleCommand(')),
     );
-    expect(catchBlock).toContain('switchTab(savedTabId)');
+    expect(catchBlock).toContain('switchTab(savedTabId');
   });
 
   test('tab pinning only activates when tabId is provided', () => {

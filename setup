@@ -272,9 +272,12 @@ link_claude_skill_dirs() {
   local linked=()
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
+      dir_name="$(basename "$skill_dir")"
       # Skip node_modules
-      [ "$skill_name" = "node_modules" ] && continue
+      [ "$dir_name" = "node_modules" ] && continue
+      # Use frontmatter name: if present (e.g., run-tests/ with name: test → symlink as "test")
+      skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+      [ -z "$skill_name" ] && skill_name="$dir_name"
       # Apply gstack- prefix unless --no-prefix or already prefixed
       if [ "$SKILL_PREFIX" -eq 1 ]; then
         case "$skill_name" in
@@ -287,7 +290,7 @@ link_claude_skill_dirs() {
       target="$skills_dir/$link_name"
       # Create or update symlink; skip if a real file/directory exists
       if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "gstack/$skill_name" "$target"
+        ln -snf "gstack/$dir_name" "$target"
         linked+=("$link_name")
       fi
     fi

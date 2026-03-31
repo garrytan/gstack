@@ -152,6 +152,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Sidebar agent
   'sidebar-navigate':              ['browse/src/server.ts', 'browse/src/sidebar-agent.ts', 'browse/src/sidebar-utils.ts', 'extension/**'],
   'sidebar-url-accuracy':          ['browse/src/server.ts', 'browse/src/sidebar-agent.ts', 'browse/src/sidebar-utils.ts', 'extension/background.js'],
+  'sidebar-css-interaction':       ['browse/src/server.ts', 'browse/src/sidebar-agent.ts', 'browse/src/write-commands.ts', 'browse/src/read-commands.ts', 'browse/src/cdp-inspector.ts', 'extension/**'],
 
   // Autoplan
   'autoplan-core':  ['autoplan/**', 'plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**'],
@@ -282,6 +283,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Sidebar agent
   'sidebar-navigate': 'periodic',
   'sidebar-url-accuracy': 'periodic',
+  'sidebar-css-interaction': 'periodic',
 
   // Autoplan — periodic (not yet implemented)
   'autoplan-core': 'periodic',
