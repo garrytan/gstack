@@ -1559,12 +1559,13 @@ describe('sidebar agent (#584)', () => {
   });
 
   // #584 — Server Write: server.ts allowedTools includes Write (DRY parity)
-  test('server.ts allowedTools includes Write', () => {
+  test('server.ts allowedTools excludes Write (agent is read-only + Bash)', () => {
     const content = fs.readFileSync(path.join(ROOT, 'browse', 'src', 'server.ts'), 'utf-8');
     // Find the sidebar allowedTools in the headed-mode path
     const match = content.match(/--allowedTools['"]\s*,\s*['"]([^'"]+)['"]/);
     expect(match).not.toBeNull();
-    expect(match![1]).toContain('Write');
+    expect(match![1]).toContain('Bash');
+    expect(match![1]).not.toContain('Write');
   });
 
   // #584 — Sidebar stderr: stderr handler is not empty
