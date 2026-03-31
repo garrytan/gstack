@@ -2,11 +2,11 @@
 name: freeze
 version: 0.1.0
 description: |
-  Restrict file edits to a specific directory for the session. Blocks Edit and
-  Write outside the allowed path. Use when debugging to prevent accidentally
-  "fixing" unrelated code, or when you want to scope changes to one module.
-  Use when asked to "freeze", "restrict edits", "only edit this folder",
-  or "lock down edits". (gstack)
+  在当前会话中把文件编辑限制到某个特定目录。阻止对允许路径外的
+  Edit 和 Write 操作。适用于调试时防止误改无关代码，或当你希望
+  把改动范围严格限制在某个模块时使用。
+  当用户说 “freeze”、“restrict edits”、“only edit this folder”
+  或 “lock down edits” 时使用。（gstack）
 allowed-tools:
   - Bash
   - Read
@@ -27,32 +27,31 @@ hooks:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-# /freeze — Restrict Edits to a Directory
+# /freeze — 将编辑限制在某个目录内
 
-Lock file edits to a specific directory. Any Edit or Write operation targeting
-a file outside the allowed path will be **blocked** (not just warned).
+把文件编辑锁定到指定目录。任何指向该目录外文件的 Edit 或 Write 操作都会被**直接阻止**，而不只是提示。
 
 ```bash
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"freeze","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 ```
 
-## Setup
+## 设置步骤
 
-Ask the user which directory to restrict edits to. Use AskUserQuestion:
+先问用户要把编辑限制在哪个目录。使用 AskUserQuestion：
 
-- Question: "Which directory should I restrict edits to? Files outside this path will be blocked from editing."
-- Text input (not multiple choice) — the user types a path.
+- 问题："Which directory should I restrict edits to? Files outside this path will be blocked from editing."
+- 使用文本输入（不是多选）—— 由用户直接输入路径。
 
-Once the user provides a directory path:
+拿到目录路径后：
 
-1. Resolve it to an absolute path:
+1. 解析为绝对路径：
 ```bash
 FREEZE_DIR=$(cd "<user-provided-path>" 2>/dev/null && pwd)
 echo "$FREEZE_DIR"
 ```
 
-2. Ensure trailing slash and save to the freeze state file:
+2. 补齐末尾斜杠，并保存到 freeze 状态文件：
 ```bash
 FREEZE_DIR="${FREEZE_DIR%/}/"
 STATE_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.gstack}"
@@ -61,22 +60,21 @@ echo "$FREEZE_DIR" > "$STATE_DIR/freeze-dir.txt"
 echo "Freeze boundary set: $FREEZE_DIR"
 ```
 
-Tell the user: "Edits are now restricted to `<path>/`. Any Edit or Write
-outside this directory will be blocked. To change the boundary, run `/freeze`
-again. To remove it, run `/unfreeze` or end the session."
+告诉用户：
+"Edits are now restricted to `<path>/`. Any Edit or Write outside this directory will be blocked. To change the boundary, run `/freeze` again. To remove it, run `/unfreeze` or end the session."
 
-## How it works
+## 工作原理
 
-The hook reads `file_path` from the Edit/Write tool input JSON, then checks
-whether the path starts with the freeze directory. If not, it returns
-`permissionDecision: "deny"` to block the operation.
+hook 会从 Edit / Write 的 tool input JSON 中读取 `file_path`，
+再检查该路径是否以 freeze 目录作为前缀。
+如果不是，就返回 `permissionDecision: "deny"` 直接阻止操作。
 
-The freeze boundary persists for the session via the state file. The hook
-script reads it on every Edit/Write invocation.
+freeze 边界通过状态文件在本次 session 中持续有效。
+hook script 会在每次 Edit / Write 调用时重新读取它。
 
-## Notes
+## 说明
 
-- The trailing `/` on the freeze directory prevents `/src` from matching `/src-old`
-- Freeze applies to Edit and Write tools only — Read, Bash, Glob, Grep are unaffected
-- This prevents accidental edits, not a security boundary — Bash commands like `sed` can still modify files outside the boundary
-- To deactivate, run `/unfreeze` or end the conversation
+- freeze 目录末尾的 `/` 用来防止 `/src` 错误匹配 `/src-old`
+- freeze 只影响 Edit 和 Write，不影响 Read、Bash、Glob、Grep
+- 这只是为了防止误改，不是安全边界；像 `sed` 这样的 Bash 命令仍可能改到边界外文件
+- 如需关闭，运行 `/unfreeze` 或直接结束会话

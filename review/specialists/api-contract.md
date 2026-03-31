@@ -1,48 +1,48 @@
-# API Contract Specialist Review Checklist
+# API Contract Specialist 审查清单
 
-Scope: When SCOPE_API=true
-Output: JSON objects, one finding per line. Schema:
-{"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"api-contract","summary":"...","fix":"...","fingerprint":"path:line:api-contract","specialist":"api-contract"}
-If no findings: output `NO FINDINGS` and nothing else.
+范围：当 `SCOPE_API=true` 时运行  
+输出：每行一个 JSON 对象。Schema：
+`{"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"api-contract","summary":"...","fix":"...","fingerprint":"path:line:api-contract","specialist":"api-contract"}`
+如果没有发现：输出 `NO FINDINGS`，不要输出其他内容。
 
 ---
 
-## Categories
+## 分类
 
 ### Breaking Changes
-- Removed fields from response bodies (clients may depend on them)
-- Changed field types (string → number, object → array)
-- New required parameters added to existing endpoints
-- Changed HTTP methods (GET → POST) or status codes (200 → 201)
-- Renamed endpoints without maintaining the old path as a redirect/alias
-- Changed authentication requirements (public → authenticated)
+- 从 response body 中移除了字段（客户端可能依赖这些字段）
+- 改变字段类型（例如 string → number，object → array）
+- 给已有 endpoint 新增了必填参数
+- 修改 HTTP method（GET → POST）或 status code（200 → 201）
+- 重命名 endpoint 却没有保留旧路径作为 redirect / alias
+- 改变鉴权要求（public → authenticated）
 
 ### Versioning Strategy
-- Breaking changes made without a version bump (v1 → v2)
-- Multiple versioning strategies mixed in the same API (URL vs header vs query param)
-- Deprecated endpoints without a sunset timeline or migration guide
-- Version-specific logic scattered across controllers instead of centralized
+- 存在 breaking changes 却没有 bump version（v1 → v2）
+- 同一个 API 里混用了多种 versioning 方式（URL、header、query param）
+- deprecated endpoints 没有 sunset timeline 或 migration guide
+- version-specific 逻辑分散在各个 controller 中，而不是集中处理
 
 ### Error Response Consistency
-- New endpoints returning different error formats than existing ones
-- Error responses missing standard fields (error code, message, details)
-- HTTP status codes that don't match the error type (200 for errors, 500 for validation)
-- Error messages that leak internal implementation details (stack traces, SQL)
+- 新 endpoint 返回的错误格式与现有接口不一致
+- 错误响应缺少标准字段（error code、message、details）
+- HTTP status code 与错误类型不匹配（例如错误却返回 200，验证失败却返回 500）
+- 错误消息泄露内部实现细节（stack trace、SQL）
 
-### Rate Limiting & Pagination
-- New endpoints missing rate limiting when similar endpoints have it
-- Pagination changes (offset → cursor) without backwards compatibility
-- Changed page sizes or default limits without documentation
-- Missing total count or next-page indicators in paginated responses
+### Rate Limiting 与 Pagination
+- 新 endpoint 在同类接口已有 rate limit 的情况下却没有限制
+- 分页方式发生变化（offset → cursor）但没有向后兼容
+- 默认 page size 或 limit 变化却没有文档说明
+- 分页响应缺少 total count 或 next-page 信息
 
 ### Documentation Drift
-- OpenAPI/Swagger spec not updated to match new endpoints or changed params
-- README or API docs describing old behavior after changes
-- Example requests/responses that no longer work
-- Missing documentation for new endpoints or changed parameters
+- OpenAPI / Swagger 没有同步更新新 endpoint 或参数变化
+- README 或 API docs 仍描述旧行为
+- 示例请求 / 响应已经无法工作
+- 新 endpoint 或改动参数没有任何文档
 
 ### Backwards Compatibility
-- Clients on older versions: will they break?
-- Mobile apps that can't force-update: does the API still work for them?
-- Webhook payloads changed without notifying subscribers
-- SDK or client library changes needed to use new features
+- 旧版本客户端是否会直接挂掉？
+- 无法强制升级的 mobile apps 是否还能正常工作？
+- webhook payload 发生变化却没有通知订阅方
+- 使用新功能是否需要同步修改 SDK 或 client library？

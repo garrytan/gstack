@@ -1,85 +1,85 @@
-# QA Issue Taxonomy
+# QA 问题分类法
 
-## Severity Levels
+## 严重级别
 
-| Severity | Definition | Examples |
-|----------|------------|----------|
-| **critical** | Blocks a core workflow, causes data loss, or crashes the app | Form submit causes error page, checkout flow broken, data deleted without confirmation |
-| **high** | Major feature broken or unusable, no workaround | Search returns wrong results, file upload silently fails, auth redirect loop |
-| **medium** | Feature works but with noticeable problems, workaround exists | Slow page load (>5s), form validation missing but submit still works, layout broken on mobile only |
-| **low** | Minor cosmetic or polish issue | Typo in footer, 1px alignment issue, hover state inconsistent |
+| Severity | 定义 | 示例 |
+|----------|------|------|
+| **critical** | 阻塞核心工作流、导致数据丢失，或让应用崩溃 | 提交表单直接进入 error page、结账流程损坏、未确认就删除数据 |
+| **high** | 重要功能损坏或不可用，且没有 workaround | 搜索结果错误、文件上传静默失败、认证重定向死循环 |
+| **medium** | 功能还能工作，但存在明显问题，且有 workaround | 页面加载很慢（>5s）、表单缺少校验但仍能提交、布局只在移动端坏掉 |
+| **low** | 轻微的视觉或打磨问题 | footer 里有错字、1px 对齐问题、hover 状态不一致 |
 
-## Categories
+## 分类
 
-### 1. Visual/UI
-- Layout breaks (overlapping elements, clipped text, horizontal scrollbar)
-- Broken or missing images
-- Incorrect z-index (elements appearing behind others)
-- Font/color inconsistencies
-- Animation glitches (jank, incomplete transitions)
-- Alignment issues (off-grid, uneven spacing)
-- Dark mode / theme issues
+### 1. Visual / UI
+- 布局损坏（元素重叠、文字被裁切、出现水平滚动条）
+- 图片损坏或缺失
+- z-index 错误（元素被盖在别人后面）
+- 字体 / 颜色不一致
+- 动画故障（卡顿、过渡不完整）
+- 对齐问题（不在网格上、间距不均）
+- Dark mode / theme 问题
 
 ### 2. Functional
-- Broken links (404, wrong destination)
-- Dead buttons (click does nothing)
-- Form validation (missing, wrong, bypassed)
-- Incorrect redirects
-- State not persisting (data lost on refresh, back button)
-- Race conditions (double-submit, stale data)
-- Search returning wrong or no results
+- 链接损坏（404、跳错位置）
+- 死按钮（点击无反应）
+- 表单校验问题（缺失、错误、可绕过）
+- 错误重定向
+- 状态不持久（刷新后数据丢失、返回按钮丢状态）
+- Race conditions（重复提交、旧数据覆盖）
+- 搜索返回错误结果或完全无结果
 
 ### 3. UX
-- Confusing navigation (no breadcrumbs, dead ends)
-- Missing loading indicators (user doesn't know something is happening)
-- Slow interactions (>500ms with no feedback)
-- Unclear error messages ("Something went wrong" with no detail)
-- No confirmation before destructive actions
-- Inconsistent interaction patterns across pages
-- Dead ends (no way back, no next action)
+- 导航让人迷惑（没有 breadcrumbs、走进死胡同）
+- 缺少 loading indicators（用户不知道系统正在处理）
+- 交互响应过慢（>500ms 仍无反馈）
+- 错误提示含糊（只有 “Something went wrong”，没有上下文）
+- 破坏性操作前没有确认
+- 页面间交互模式不一致
+- 死路（没有返回方式，也没有下一步动作）
 
 ### 4. Content
-- Typos and grammar errors
-- Outdated or incorrect text
-- Placeholder / lorem ipsum text left in
-- Truncated text (cut off without ellipsis or "more")
-- Wrong labels on buttons or form fields
-- Missing or unhelpful empty states
+- 拼写与语法错误
+- 文字过时或错误
+- 残留 placeholder / lorem ipsum 文本
+- 文本被截断（没有省略号，也没有 “more”）
+- 按钮或表单标签错误
+- 缺失或质量很差的 empty states
 
 ### 5. Performance
-- Slow page loads (>3 seconds)
-- Janky scrolling (dropped frames)
-- Layout shifts (content jumping after load)
-- Excessive network requests (>50 on a single page)
-- Large unoptimized images
-- Blocking JavaScript (page unresponsive during load)
+- 页面加载过慢（>3 秒）
+- 滚动卡顿（掉帧）
+- Layout shift（内容加载后跳动）
+- 单页网络请求过多（>50）
+- 图片过大且未优化
+- 阻塞式 JavaScript（加载时页面无响应）
 
-### 6. Console/Errors
-- JavaScript exceptions (uncaught errors)
-- Failed network requests (4xx, 5xx)
-- Deprecation warnings (upcoming breakage)
+### 6. Console / Errors
+- JavaScript exceptions（未捕获错误）
+- 失败的网络请求（4xx、5xx）
+- Deprecation warnings（未来会导致 breakage）
 - CORS errors
-- Mixed content warnings (HTTP resources on HTTPS)
+- Mixed content warnings（HTTPS 页面中加载 HTTP 资源）
 - CSP violations
 
 ### 7. Accessibility
-- Missing alt text on images
-- Unlabeled form inputs
-- Keyboard navigation broken (can't tab to elements)
-- Focus traps (can't escape a modal or dropdown)
-- Missing or incorrect ARIA attributes
-- Insufficient color contrast
-- Content not reachable by screen reader
+- 图片缺少 alt text
+- 表单输入缺少 label
+- 键盘导航损坏（无法 tab 到元素）
+- Focus trap（无法从 modal 或 dropdown 中退出）
+- 缺少或错误的 ARIA attributes
+- 颜色对比度不足
+- 屏幕阅读器无法到达内容
 
-## Per-Page Exploration Checklist
+## 每页探索清单
 
-For each page visited during a QA session:
+在 QA session 中访问每个页面时，都执行以下检查：
 
-1. **Visual scan** — Take annotated screenshot (`snapshot -i -a -o`). Look for layout issues, broken images, alignment.
-2. **Interactive elements** — Click every button, link, and control. Does each do what it says?
-3. **Forms** — Fill and submit. Test empty submission, invalid data, edge cases (long text, special characters).
-4. **Navigation** — Check all paths in/out. Breadcrumbs, back button, deep links, mobile menu.
-5. **States** — Check empty state, loading state, error state, full/overflow state.
-6. **Console** — Run `console --errors` after interactions. Any new JS errors or failed requests?
-7. **Responsiveness** — If relevant, check mobile and tablet viewports.
-8. **Auth boundaries** — What happens when logged out? Different user roles?
+1. **视觉扫描** —— 使用带标注截图（`snapshot -i -a -o`）。检查布局问题、坏图、对齐问题。
+2. **交互元素** —— 点击每个按钮、链接和控件。它们是否真的按文案所说工作？
+3. **表单** —— 填写并提交。测试空提交、非法数据和边界输入（超长文本、特殊字符）。
+4. **导航** —— 检查所有进入与离开路径，包括 breadcrumbs、返回按钮、deep links、移动端菜单。
+5. **状态** —— 检查 empty state、loading state、error state，以及 full / overflow state。
+6. **Console** —— 交互后运行 `console --errors`。是否出现新的 JS errors 或失败请求？
+7. **响应式** —— 如果相关，检查移动端与平板 viewport。
+8. **Auth 边界** —— 登出后会怎样？不同用户角色下会怎样？

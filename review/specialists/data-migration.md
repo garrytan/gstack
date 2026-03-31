@@ -1,47 +1,47 @@
-# Data Migration Specialist Review Checklist
+# Data Migration Specialist 审查清单
 
-Scope: When SCOPE_MIGRATIONS=true
-Output: JSON objects, one finding per line. Schema:
-{"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"data-migration","summary":"...","fix":"...","fingerprint":"path:line:data-migration","specialist":"data-migration"}
-If no findings: output `NO FINDINGS` and nothing else.
+范围：当 `SCOPE_MIGRATIONS=true` 时运行  
+输出：每行一个 JSON 对象。Schema：
+`{"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"data-migration","summary":"...","fix":"...","fingerprint":"path:line:data-migration","specialist":"data-migration"}`
+如果没有发现：输出 `NO FINDINGS`，不要输出其他内容。
 
 ---
 
-## Categories
+## 分类
 
-### Reversibility
-- Can this migration be rolled back without data loss?
-- Is there a corresponding down/rollback migration?
-- Does the rollback actually undo the change or just no-op?
-- Would rolling back break the current application code?
+### 可回滚性
+- 这次 migration 是否能在不丢数据的前提下回滚？
+- 是否有对应的 down / rollback migration？
+- rollback 真能撤销改动，还是只是 no-op？
+- 回滚后会不会让当前应用代码失效？
 
-### Data Loss Risk
-- Dropping columns that still contain data (add deprecation period first)
-- Changing column types that truncate data (varchar(255) → varchar(50))
-- Removing tables without verifying no code references them
-- Renaming columns without updating all references (ORM, raw SQL, views)
-- NOT NULL constraints added to columns with existing NULL values (needs backfill first)
+### 数据丢失风险
+- 删除仍有数据的列（应先经历 deprecation period）
+- 修改列类型导致数据截断（例如 `varchar(255)` → `varchar(50)`）
+- 删除表时，没有确认代码中已无引用
+- 重命名列后，没有同步更新所有引用（ORM、raw SQL、views）
+- 给已有 NULL 值的列加上 NOT NULL 约束（必须先 backfill）
 
-### Lock Duration
-- ALTER TABLE on large tables without CONCURRENTLY (PostgreSQL)
-- Adding indexes without CONCURRENTLY on tables with >100K rows
-- Multiple ALTER TABLE statements that could be combined into one lock acquisition
-- Schema changes that acquire exclusive locks during peak traffic hours
+### 锁时间
+- 大表上的 `ALTER TABLE` 没有使用 `CONCURRENTLY`（PostgreSQL）
+- 超过 100K 行的表新增索引时没有使用 `CONCURRENTLY`
+- 多个 `ALTER TABLE` 本可合并为一次锁获取，却被拆开执行
+- 在高峰流量时进行会获取 exclusive lock 的 schema 改动
 
-### Backfill Strategy
-- New NOT NULL columns without DEFAULT value (requires backfill before constraint)
-- New columns with computed defaults that need batch population
-- Missing backfill script or rake task for existing records
-- Backfill that updates all rows at once instead of batching (locks table)
+### Backfill 策略
+- 新的 NOT NULL 列没有默认值（需要先 backfill 再加约束）
+- 带计算默认值的新列，需要对历史记录分批填充
+- 缺少针对历史记录的 backfill script 或 rake task
+- backfill 一次性更新全表，而不是分批执行（会锁表）
 
-### Index Creation
-- CREATE INDEX without CONCURRENTLY on production tables
-- Duplicate indexes (new index covers same columns as existing one)
-- Missing indexes on new foreign key columns
-- Partial indexes where a full index would be more useful (or vice versa)
+### 索引创建
+- 在生产表上执行 `CREATE INDEX` 却没有 `CONCURRENTLY`
+- 重复索引（新索引覆盖了已存在索引的相同列）
+- 新的外键列没加索引
+- 使用 partial index 或 full index 的选择不合理
 
-### Multi-Phase Safety
-- Migrations that must be deployed in a specific order with application code
-- Schema changes that break the current running code (deploy code first, then migrate)
-- Migrations that assume a deploy boundary (old code + new schema = crash)
-- Missing feature flag to handle mixed old/new code during rolling deploy
+### 多阶段安全性
+- 某些 migration 必须与应用代码按特定顺序发布
+- schema 改动会直接破坏当前运行中的代码（应先发代码，再跑 migration）
+- migration 默认依赖部署边界（旧代码 + 新 schema 就会崩）
+- 缺少 feature flag 来处理 rolling deploy 中的新旧代码混跑
