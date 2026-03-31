@@ -307,6 +307,7 @@ cleanup_old_claude_symlinks() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local removed=()
+  # Pass 1: remove unprefixed symlinks for skill dirs that still exist in gstack
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
@@ -326,6 +327,22 @@ cleanup_old_claude_symlinks() {
       fi
     fi
   done
+  # Pass 2: catch orphaned symlinks pointing into gstack/ for dirs that were
+  # removed upstream (e.g., debug/) — pass 1 misses these since the source is gone.
+  # Can't use glob */ here because dangling symlinks don't resolve as directories.
+  for entry in "$skills_dir"/*; do
+    [ -L "$entry" ] || continue
+    entry_name="$(basename "$entry")"
+    # Only unprefixed names (prefixed ones are handled by cleanup_prefixed)
+    case "$entry_name" in gstack-*) continue ;; esac
+    link_dest="$(readlink "$entry" 2>/dev/null || true)"
+    case "$link_dest" in
+      gstack/*|*/gstack/*)
+        rm -f "$entry"
+        removed+=("$entry_name")
+        ;;
+    esac
+  done
   if [ ${#removed[@]} -gt 0 ]; then
     echo "  cleaned up old symlinks: ${removed[*]}"
   fi
@@ -338,6 +355,7 @@ cleanup_prefixed_claude_symlinks() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local removed=()
+  # Pass 1: remove prefixed symlinks for skill dirs that still exist in gstack
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
@@ -357,6 +375,22 @@ cleanup_prefixed_claude_symlinks() {
         esac
       fi
     fi
+  done
+  # Pass 2: catch orphaned gstack-* symlinks pointing into gstack/ for dirs
+  # that were removed upstream — pass 1 misses these since the source is gone.
+  # Can't use glob */ here because dangling symlinks don't resolve as directories.
+  for entry in "$skills_dir"/gstack-*; do
+    [ -L "$entry" ] || continue
+    entry_name="$(basename "$entry")"
+    # Skip gstack-upgrade (real dir, not a generated symlink)
+    [ -d "$gstack_dir/$entry_name" ] && continue
+    link_dest="$(readlink "$entry" 2>/dev/null || true)"
+    case "$link_dest" in
+      gstack/*|*/gstack/*)
+        rm -f "$entry"
+        removed+=("$entry_name")
+        ;;
+    esac
   done
   if [ ${#removed[@]} -gt 0 ]; then
     echo "  cleaned up prefixed symlinks: ${removed[*]}"
