@@ -118,16 +118,28 @@ describe('gstack-learnings-search', () => {
     expect(output).toContain('search test insight');
   });
 
-  test('deduplicates entries by key+type (latest wins)', () => {
-    const old = JSON.stringify({ skill: 'review', type: 'pattern', key: 'dedup-test', insight: 'old version', confidence: 5, source: 'observed', ts: '2026-01-01T00:00:00Z' });
-    const newer = JSON.stringify({ skill: 'review', type: 'pattern', key: 'dedup-test', insight: 'new version', confidence: 8, source: 'observed', ts: '2026-03-28T00:00:00Z' });
+  test('deduplicates entries with same insight text (highest confidence wins)', () => {
+    const old = JSON.stringify({ skill: 'review', type: 'pattern', key: 'dedup-test', insight: 'same insight text', confidence: 5, source: 'observed', ts: '2026-01-01T00:00:00Z' });
+    const newer = JSON.stringify({ skill: 'review', type: 'pattern', key: 'dedup-test', insight: 'same insight text', confidence: 8, source: 'observed', ts: '2026-03-28T00:00:00Z' });
     runLog(old);
     runLog(newer);
 
     const output = runSearch();
-    expect(output).toContain('new version');
-    expect(output).not.toContain('old version');
+    expect(output).toContain('same insight text');
     expect(output).toContain('1 loaded');
+    expect(output).toContain('confidence: 8/10');
+  });
+
+  test('preserves different insights with same key+type', () => {
+    const v1 = JSON.stringify({ skill: 'review', type: 'pattern', key: 'dedup-test', insight: 'old version', confidence: 5, source: 'observed', ts: '2026-01-01T00:00:00Z' });
+    const v2 = JSON.stringify({ skill: 'review', type: 'pattern', key: 'dedup-test', insight: 'new version', confidence: 8, source: 'observed', ts: '2026-03-28T00:00:00Z' });
+    runLog(v1);
+    runLog(v2);
+
+    const output = runSearch();
+    expect(output).toContain('new version');
+    expect(output).toContain('old version');
+    expect(output).toContain('2 loaded');
   });
 
   test('filters by --type', () => {

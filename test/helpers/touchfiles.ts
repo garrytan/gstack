@@ -96,7 +96,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'cso-infra-scope':  ['cso/**'],
 
   // Learnings
-  'learnings-show': ['learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts'],
+  'learnings-show': ['learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'bin/gstack-group', 'scripts/resolvers/learnings.ts'],
 
   // Document-release
   'document-release': ['document-release/**'],

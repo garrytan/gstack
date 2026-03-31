@@ -2366,16 +2366,16 @@ describe('LEARNINGS_SEARCH resolver', () => {
     });
   }
 
-  test('learnings search includes cross-project config check', () => {
+  test('learnings search includes group-based scope', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('cross_project_learnings');
-    expect(content).toContain('--cross-project');
+    expect(content).toContain('gstack-group which');
+    expect(content).toContain('--scope group');
   });
 
-  test('learnings search includes AskUserQuestion for first-time cross-project opt-in', () => {
+  test('learnings search includes AskUserQuestion for first-time group assignment', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Enable cross-project learnings');
-    expect(content).toContain('project-scoped only');
+    expect(content).toContain('NO_GROUP');
+    expect(content).toContain('learnings group');
   });
 
   test('learnings search mentions prior learning applied display format', () => {
