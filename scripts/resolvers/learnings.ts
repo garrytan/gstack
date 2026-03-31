@@ -5,23 +5,30 @@
  * Each entry is a JSONL line with: ts, skill, type, key, insight, confidence,
  * source, branch, commit, files[].
  *
- * Storage is append-only. Duplicates (same key+type) are resolved at read time
- * by gstack-learnings-search ("latest winner" per key+type).
+ * Storage is append-only. Duplicates (same key+type with same insight text) are
+ * resolved at read time by gstack-learnings-search (highest confidence wins).
+ * Different insights with the same key+type are preserved (shown with provenance).
  *
- * Cross-project discovery is opt-in. The resolver asks the user once via
- * AskUserQuestion and persists the preference via gstack-config.
+ * Projects belong to named "learnings groups" stored in ~/.gstack/groups.json.
+ * When searching, --scope group returns learnings from all projects in the same
+ * group. Prompt-on-first-use assigns new projects to a group.
+ *
+ * Cross-project discovery is controlled by the learning_scope config:
+ *   project — just this project (old cross_project_learnings=false)
+ *   group   — all projects in the same group (new default)
+ *   global  — all projects on this machine (old cross_project_learnings=true)
  */
 import type { TemplateContext } from './types';
 
 export function generateLearningsSearch(ctx: TemplateContext): string {
   if (ctx.host === 'codex') {
-    // Codex: simpler version, no cross-project, uses $GSTACK_BIN
+    // Codex: project-only, no group awareness, no prompting
     return `## Prior Learnings
 
 Search for relevant learnings from previous sessions on this project:
 
 \`\`\`bash
-$GSTACK_BIN/gstack-learnings-search --limit 10 2>/dev/null || true
+$GSTACK_BIN/gstack-learnings-search --scope project --limit 10 2>/dev/null || true
 \`\`\`
 
 If learnings are found, incorporate them into your analysis. When a review finding
@@ -30,33 +37,42 @@ matches a past learning, note it: "Prior learning applied: [key] (confidence N, 
 
   return `## Prior Learnings
 
-Search for relevant learnings from previous sessions:
+Check which learnings group this project belongs to:
 
 \`\`\`bash
-_CROSS_PROJ=$(${ctx.paths.binDir}/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
-echo "CROSS_PROJECT: $_CROSS_PROJ"
-if [ "$_CROSS_PROJ" = "true" ]; then
-  ${ctx.paths.binDir}/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
-else
-  ${ctx.paths.binDir}/gstack-learnings-search --limit 10 2>/dev/null || true
-fi
+${ctx.paths.binDir}/gstack-group which 2>/dev/null || echo "NO_GROUP"
 \`\`\`
 
-If \`CROSS_PROJECT\` is \`unset\` (first time): Use AskUserQuestion:
+If the output is \`NO_GROUP\`, this project hasn't been assigned to a learnings group yet.
+Use AskUserQuestion:
 
-> gstack can search learnings from your other projects on this machine to find
-> patterns that might apply here. This stays local (no data leaves your machine).
-> Recommended for solo developers. Skip if you work on multiple client codebases
-> where cross-contamination would be a concern.
+> This project isn't in a learnings group yet. Learnings groups let gstack share
+> knowledge across related projects (e.g., all repos in your company's org).
+> Which group should this project belong to?
 
-Options:
-- A) Enable cross-project learnings (recommended)
-- B) Keep learnings project-scoped only
+To see available groups and get smart suggestions, run:
 
-If A: run \`${ctx.paths.binDir}/gstack-config set cross_project_learnings true\`
-If B: run \`${ctx.paths.binDir}/gstack-config set cross_project_learnings false\`
+\`\`\`bash
+${ctx.paths.binDir}/gstack-group suggest 2>/dev/null || ${ctx.paths.binDir}/gstack-group list 2>/dev/null || echo "No groups yet"
+\`\`\`
 
-Then re-run the search with the appropriate flag.
+Options: [list the groups from the output above] + "Create a new group"
+
+If "Create a new group": ask for a name, then run:
+\`\`\`bash
+${ctx.paths.binDir}/gstack-group create "GROUP_NAME" && ${ctx.paths.binDir}/gstack-group assign "GROUP_NAME"
+\`\`\`
+
+If an existing group: run:
+\`\`\`bash
+${ctx.paths.binDir}/gstack-group assign "GROUP_NAME"
+\`\`\`
+
+After assignment (or if the project was already assigned), search for learnings:
+
+\`\`\`bash
+${ctx.paths.binDir}/gstack-learnings-search --scope group --limit 10 2>/dev/null || true
+\`\`\`
 
 If learnings are found, incorporate them into your analysis. When a review finding
 matches a past learning, display:
