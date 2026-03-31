@@ -1969,15 +1969,17 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('ln -snf "gstack/$dir_name"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports --host auto|claude|codex|kiro|factory|opencode', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
+  test('auto mode detects claude, codex, kiro, factory, and opencode binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
+    expect(setupContent).toContain('command -v droid');
+    expect(setupContent).toContain('command -v opencode');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill

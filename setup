@@ -21,6 +21,8 @@ CODEX_SKILLS="$HOME/.codex/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
+OPENCODE_SKILLS="$HOME/.config/opencode/skills"
+OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -34,7 +36,7 @@ SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -44,8 +46,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, or auto)" >&2; exit 1 ;;
+  claude|codex|kiro|factory|opencode|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -104,13 +106,15 @@ INSTALL_CLAUDE=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
+INSTALL_OPENCODE=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
+  command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -121,6 +125,8 @@ elif [ "$HOST" = "kiro" ]; then
   INSTALL_KIRO=1
 elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
+elif [ "$HOST" = "opencode" ]; then
+  INSTALL_OPENCODE=1
 fi
 
 migrate_direct_codex_install() {
@@ -669,6 +675,58 @@ if [ "$INSTALL_FACTORY" -eq 1 ]; then
   echo "gstack ready (factory)."
   echo "  browse: $BROWSE_BIN"
   echo "  factory skills: $FACTORY_SKILLS"
+fi
+
+# 6c. Install for Opencode (copy from .opencode/skills, rewrite paths)
+if [ "$INSTALL_OPENCODE" -eq 1 ]; then
+  mkdir -p "$OPENCODE_SKILLS"
+
+  # Generate .opencode/ Opencode skill docs
+  OPENCODE_DIR="$SOURCE_GSTACK_DIR/.opencode/skills"
+  if [ ! -d "$OPENCODE_DIR" ]; then
+    echo "Generating .opencode/ skill docs..."
+    (
+      cd "$SOURCE_GSTACK_DIR"
+      bun install --frozen-lockfile 2>/dev/null || bun install
+      bun run gen:skill-docs --host opencode
+    )
+  fi
+
+  # Create gstack dir with symlinks for runtime assets
+  [ -L "$OPENCODE_GSTACK" ] && rm -f "$OPENCODE_GSTACK"
+  mkdir -p "$OPENCODE_GSTACK" "$OPENCODE_GSTACK/browse" "$OPENCODE_GSTACK/gstack-upgrade" "$OPENCODE_GSTACK/review"
+  ln -snf "$SOURCE_GSTACK_DIR/bin" "$OPENCODE_GSTACK/bin"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$OPENCODE_GSTACK/browse/dist"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$OPENCODE_GSTACK/browse/bin"
+  if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
+    ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$OPENCODE_GSTACK/ETHOS.md"
+  fi
+
+  # Rewrite root SKILL.md paths for Opencode
+  sed -e "s|~/.claude/skills/gstack|~/.config/opencode/skills/gstack|g" \
+      -e "s|\.claude/skills/gstack|.config/opencode/skills/gstack|g" \
+      -e "s|\.claude/skills|.config/opencode/skills|g" \
+      "$SOURCE_GSTACK_DIR/SKILL.md" > "$OPENCODE_GSTACK/SKILL.md"
+
+  if [ ! -d "$OPENCODE_DIR" ]; then
+    echo "  warning: no .opencode/skills/ directory found — run 'bun run gen:skill-docs --host opencode' first" >&2
+  else
+    for skill_dir in "$OPENCODE_DIR"/gstack*/; do
+      [ -f "$skill_dir/SKILL.md" ] || continue
+      skill_name="$(basename "$skill_dir")"
+      target_dir="$OPENCODE_SKILLS/$skill_name"
+      mkdir -p "$target_dir"
+      # Rewrite any remaining literal paths
+      sed -e 's|\$HOME/.codex/skills/gstack|$HOME/.config/opencode/skills/gstack|g' \
+          -e "s|~/.codex/skills/gstack|~/.config/opencode/skills/gstack|g" \
+          -e "s|~/.factory/skills/gstack|~/.config/opencode/skills/gstack|g" \
+          -e "s|\$GSTACK_ROOT|~/.config/opencode/skills/gstack|g" \
+          "$skill_dir/SKILL.md" > "$target_dir/SKILL.md"
+    done
+    echo "gstack ready (opencode)."
+    echo "  browse: $BROWSE_BIN"
+    echo "  opencode skills: $OPENCODE_SKILLS"
+  fi
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

@@ -1,4 +1,4 @@
-export type Host = 'claude' | 'codex' | 'factory';
+export type Host = 'claude' | 'codex' | 'factory' | 'opencode';
 
 export interface HostPaths {
   skillRoot: string;
@@ -29,6 +29,13 @@ export const HOST_PATHS: Record<Host, HostPaths> = {
     binDir: '$GSTACK_BIN',
     browseDir: '$GSTACK_BROWSE',
     designDir: '$GSTACK_DESIGN',
+  },
+  opencode: {
+    skillRoot: '~/.config/opencode/skills/gstack',
+    localSkillRoot: '.config/opencode/skills/gstack',
+    binDir: '~/.config/opencode/skills/gstack/bin',
+    browseDir: '~/.config/opencode/skills/gstack/browse/dist',
+    designDir: '~/.config/opencode/skills/gstack/design/dist',
   },
 };
 
