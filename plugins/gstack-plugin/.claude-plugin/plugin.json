@@ -10,5 +10,6 @@
   "license": "MIT",
   "keywords": ["browser", "qa", "deploy", "review", "security", "gstack"],
   "agents": "./agents/",
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "commands": "./commands/"
 }
