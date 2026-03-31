@@ -79,14 +79,20 @@ while IFS= read -r LINE; do
   echo "$LINE" | grep -q '^{' || continue
 
   # Strip local-only fields (keep v, ts, sessions as-is for edge function)
-  CLEAN="$(echo "$LINE" | sed \
-    -e 's/,"_repo_slug":"[^"]*"//g' \
-    -e 's/,"_branch":"[^"]*"//g' \
-    -e 's/,"repo":"[^"]*"//g')"
-
-  # If anonymous tier, strip installation_id
-  if [ "$TIER" = "anonymous" ]; then
-    CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
+  if command -v jq >/dev/null 2>&1; then
+    CLEAN="$(echo "$LINE" | jq -c 'del(._repo_slug, ._branch, .repo)')"
+    if [ "$TIER" = "anonymous" ]; then
+      CLEAN="$(echo "$CLEAN" | jq -c 'del(.installation_id)')"
+    fi
+  else
+    # Fallback: sed-based stripping (fragile with escaped quotes/commas in values)
+    CLEAN="$(echo "$LINE" | sed \
+      -e 's/,"_repo_slug":"[^"]*"//g' \
+      -e 's/,"_branch":"[^"]*"//g' \
+      -e 's/,"repo":"[^"]*"//g')"
+    if [ "$TIER" = "anonymous" ]; then
+      CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
+    fi
   fi
 
   if [ "$FIRST" = "true" ]; then
