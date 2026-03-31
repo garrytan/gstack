@@ -40,21 +40,31 @@ Parse the user's input to determine which command to run:
 - `/learn export` → **Export**
 - `/learn stats` → **Stats**
 - `/learn add` → **Manual add**
+- `/learn group` → **Group management**
+- `/learn group list` → **Group list**
+- `/learn group assign` → **Group assign**
+- `/learn group create <name>` → **Group create**
+- `/learn group which` → **Group which**
 
 ---
 
 ## Show recent (default)
 
-Show the most recent 20 learnings, grouped by type.
+Show the most recent 20 learnings from this project's learnings group, grouped by type.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo "No learnings yet."
+~/.claude/skills/gstack/bin/gstack-group which 2>/dev/null || echo "NO_GROUP"
 ```
 
-Present the output in a readable format. If no learnings exist, tell the user:
-"No learnings recorded yet. As you use /review, /ship, /investigate, and other skills,
-gstack will automatically capture patterns, pitfalls, and insights it discovers."
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-search --scope group --limit 20 2>/dev/null || echo "No learnings yet."
+```
+
+Present the output in a readable format. Include the group name from the first command
+if available (e.g., "Showing learnings from group: Work"). If no learnings exist, tell
+the user: "No learnings recorded yet. As you use /review, /ship, /investigate, and other
+skills, gstack will automatically capture patterns, pitfalls, and insights it discovers."
 
 ---
 
@@ -62,10 +72,11 @@ gstack will automatically capture patterns, pitfalls, and insights it discovers.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo "No matches."
+~/.claude/skills/gstack/bin/gstack-learnings-search --scope group --query "USER_QUERY" --limit 20 2>/dev/null || echo "No matches."
 ```
 
-Replace USER_QUERY with the user's search terms. Present results clearly.
+Replace USER_QUERY with the user's search terms. Searches within the project's learnings
+group by default. Present results clearly.
 
 ---
 
@@ -105,25 +116,31 @@ Export learnings as markdown suitable for adding to CLAUDE.md or project documen
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 50 2>/dev/null
+~/.claude/skills/gstack/bin/gstack-group which 2>/dev/null || echo "NO_GROUP"
 ```
 
-Format the output as a markdown section:
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-search --scope group --limit 50 2>/dev/null
+```
+
+Format the output as a markdown section. Include the group name and source projects:
 
 ```markdown
-## Project Learnings
+## Project Learnings (Group: GROUP_NAME)
+
+Sources: project-a, project-b
 
 ### Patterns
-- **[key]**: [insight] (confidence: N/10)
+- **[key]**: [insight] (confidence: N/10, from: source-project)
 
 ### Pitfalls
-- **[key]**: [insight] (confidence: N/10)
+- **[key]**: [insight] (confidence: N/10, from: source-project)
 
 ### Preferences
 - **[key]**: [insight]
 
 ### Architecture
-- **[key]**: [insight] (confidence: N/10)
+- **[key]**: [insight] (confidence: N/10, from: source-project)
 ```
 
 Present the formatted output to the user. Ask if they want to append it to CLAUDE.md
@@ -133,47 +150,26 @@ or save it as a separate file.
 
 ## Stats
 
-Show summary statistics about the project's learnings.
+Show summary statistics about the project's learnings group.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-LEARN_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
-if [ -f "$LEARN_FILE" ]; then
-  TOTAL=$(wc -l < "$LEARN_FILE" | tr -d ' ')
-  echo "TOTAL: $TOTAL entries"
-  # Count by type (after dedup)
-  cat "$LEARN_FILE" | bun -e "
-    const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
-    const seen = new Map();
-    for (const line of lines) {
-      try {
-        const e = JSON.parse(line);
-        const dk = (e.key||'') + '|' + (e.type||'');
-        const existing = seen.get(dk);
-        if (!existing || new Date(e.ts) > new Date(existing.ts)) seen.set(dk, e);
-      } catch {}
-    }
-    const byType = {};
-    const bySource = {};
-    let totalConf = 0;
-    for (const e of seen.values()) {
-      byType[e.type] = (byType[e.type]||0) + 1;
-      bySource[e.source] = (bySource[e.source]||0) + 1;
-      totalConf += e.confidence || 0;
-    }
-    console.log('UNIQUE: ' + seen.size + ' (after dedup)');
-    console.log('RAW_ENTRIES: ' + lines.length);
-    console.log('BY_TYPE: ' + JSON.stringify(byType));
-    console.log('BY_SOURCE: ' + JSON.stringify(bySource));
-    console.log('AVG_CONFIDENCE: ' + (totalConf / seen.size).toFixed(1));
-  " 2>/dev/null
-else
-  echo "NO_LEARNINGS"
-fi
+~/.claude/skills/gstack/bin/gstack-group which 2>/dev/null || echo "NO_GROUP"
 ```
 
-Present the stats in a readable table format.
+```bash
+~/.claude/skills/gstack/bin/gstack-group list 2>/dev/null || echo "No groups"
+```
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-search --scope group --limit 100 2>/dev/null || echo "No learnings"
+```
+
+Present the stats in a readable table format. Include:
+- Group name and member projects
+- Total learnings (across group)
+- Breakdown by type and source
+- Average confidence
 
 ---
 
@@ -191,3 +187,60 @@ Then log it:
 ```bash
 ~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
 ```
+
+---
+
+## Group management
+
+Manage which learnings group this project belongs to. Learnings groups let gstack share
+knowledge across related projects (e.g., all repos in your company's org).
+
+### Group list
+
+Show all groups and their member projects.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-group list 2>/dev/null || echo "No groups configured yet."
+```
+
+Present the output as a formatted table.
+
+### Group which
+
+Show which group the current project belongs to.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-group which 2>/dev/null || echo "NO_GROUP"
+```
+
+If `NO_GROUP`, tell the user this project isn't in a group yet and offer to assign it.
+
+### Group assign
+
+Assign this project to an existing group. Show available groups with smart suggestions:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-group suggest 2>/dev/null || ~/.claude/skills/gstack/bin/gstack-group list 2>/dev/null
+```
+
+Use AskUserQuestion to present the groups as options. Groups marked "(matches owner)" share
+the same git org as this project and are likely the best fit.
+
+After the user picks a group:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-group assign "GROUP_NAME"
+```
+
+### Group create
+
+Create a new learnings group. Use AskUserQuestion to ask for the group name.
+
+Group names must be alphanumeric with dots, hyphens, and underscores only.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-group create "GROUP_NAME"
+```
+
+After creating, offer to assign the current project to the new group.
