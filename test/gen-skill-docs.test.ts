@@ -2021,6 +2021,19 @@ describe('setup script validation', () => {
     expect(opencodeSection).toContain('OPENCODE_REPO_LOCAL');
   });
 
+  test('create_opencode_runtime_root exposes required runtime assets', () => {
+    const fnStart = setupContent.indexOf('create_opencode_runtime_root()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('ln -snf "$skill_dir/SKILL.md" "$opencode_gstack/$skill_name/SKILL.md"', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design"');
+    expect(fnBody).toContain('browse/dist');
+    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('design/dist');
+    expect(fnBody).toContain('gstack-upgrade/SKILL.md');
+    expect(fnBody).toContain('checklist.md');
+    expect(fnBody).toContain('design-checklist.md');
+  });
+
   test('Codex install uses link_codex_skill_dirs', () => {
     // The Codex install section (section 5) should use the Codex function
     const codexSection = setupContent.slice(

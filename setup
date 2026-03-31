@@ -549,7 +549,7 @@ create_opencode_runtime_root() {
     rm -rf "$opencode_gstack"
   fi
 
-  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review"
+  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review"
 
   if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
     ln -snf "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
