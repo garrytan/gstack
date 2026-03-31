@@ -138,6 +138,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-shotgun-session':         ['design-shotgun/**', 'scripts/resolvers/design.ts'],
   'design-shotgun-full':            ['design-shotgun/**', 'design/src/**', 'browse/src/**'],
 
+  // Ship CHANGELOG multi-commit
+  'ship-changelog-multi-commit': ['ship/**', 'scripts/gen-skill-docs.ts'],
+
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**'],
 
@@ -268,6 +271,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-shotgun-path': 'gate',
   'design-shotgun-session': 'gate',
   'design-shotgun-full': 'periodic',
+
+  // Ship CHANGELOG multi-commit — periodic (non-deterministic LLM behavior)
+  'ship-changelog-multi-commit': 'periodic',
 
   // gstack-upgrade
   'gstack-upgrade-happy-path': 'gate',
