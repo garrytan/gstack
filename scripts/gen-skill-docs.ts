@@ -32,9 +32,10 @@ const HOST_ARG_VAL: HostArg = (() => {
   const val = HOST_ARG.includes('=') ? HOST_ARG.split('=')[1] : process.argv[process.argv.indexOf(HOST_ARG) + 1];
   if (val === 'codex' || val === 'agents') return 'codex';
   if (val === 'factory' || val === 'droid') return 'factory';
+  if (val === 'opencode') return 'opencode';
   if (val === 'claude') return 'claude';
   if (val === 'all') return 'all';
-  throw new Error(`Unknown host: ${val}. Use claude, codex, factory, droid, agents, or all.`);
+  throw new Error(`Unknown host: ${val}. Use claude, codex, opencode, factory, droid, agents, or all.`);
 })();
 
 // For single-host mode, HOST is the host. For --host all, it's set per iteration below.
@@ -188,6 +189,18 @@ function transformFrontmatter(content: string, host: Host): string {
     return `---\nname: ${name}\ndescription: |\n${indentedDesc}\n---` + body;
   }
 
+  if (host === 'opencode') {
+    const MAX_DESC = 1024;
+    if (description.length > MAX_DESC) {
+      throw new Error(
+        `OpenCode description for "${name}" is ${description.length} chars (max ${MAX_DESC}). ` +
+        `Compress the description in the .tmpl file.`
+      );
+    }
+    const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
+    return `---\nname: ${name}\ndescription: |\n${indentedDesc}\ncompatibility: opencode\n---` + body;
+  }
+
   if (host === 'factory') {
     const sensitive = /^sensitive:\s*true/m.test(frontmatter);
     const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
@@ -240,8 +253,9 @@ interface ExternalHostConfig {
 }
 
 const EXTERNAL_HOST_CONFIG: Record<string, ExternalHostConfig> = {
-  codex:   { hostSubdir: '.agents',  generateMetadata: true,  descriptionLimit: 1024 },
-  factory: { hostSubdir: '.factory', generateMetadata: false },
+  codex:    { hostSubdir: '.agents',   generateMetadata: true,  descriptionLimit: 1024 },
+  factory:  { hostSubdir: '.factory',  generateMetadata: false },
+  opencode: { hostSubdir: '.opencode', generateMetadata: false, descriptionLimit: 1024 },
 };
 
 // ─── Template Processing ────────────────────────────────────
@@ -395,7 +409,7 @@ function findTemplates(): string[] {
   return discoverTemplates(ROOT).map(t => path.join(ROOT, t.tmpl));
 }
 
-const ALL_HOSTS: Host[] = ['claude', 'codex', 'factory'];
+const ALL_HOSTS: Host[] = ['claude', 'codex', 'factory', 'opencode'];
 const hostsToRun: Host[] = HOST_ARG_VAL === 'all' ? ALL_HOSTS : [HOST];
 const failures: { host: string; error: Error }[] = [];
 

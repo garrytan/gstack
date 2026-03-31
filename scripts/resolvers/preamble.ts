@@ -14,7 +14,7 @@ import type { TemplateContext } from './types';
  */
 
 function generatePreambleBash(ctx: TemplateContext): string {
-  const hostConfigDir: Record<string, string> = { codex: '.codex', factory: '.factory' };
+  const hostConfigDir: Record<string, string> = { codex: '.codex', factory: '.factory', opencode: '.config/opencode' };
   const runtimeRoot = (ctx.host !== 'claude')
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/${hostConfigDir[ctx.host]}/skills/gstack"
