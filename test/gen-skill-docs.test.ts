@@ -607,7 +607,8 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
   const shipSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
   const reviewSkill = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
 
-  test('all three modes share codepath tracing methodology', () => {
+  test('plan and ship modes share codepath tracing methodology', () => {
+    // Review mode delegates test coverage to the Testing specialist subagent (Review Army)
     const sharedPhrases = [
       'Trace data flow',
       'Diagram the execution',
@@ -619,33 +620,40 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     for (const phrase of sharedPhrases) {
       expect(planSkill).toContain(phrase);
       expect(shipSkill).toContain(phrase);
-      expect(reviewSkill).toContain(phrase);
     }
     // Plan mode traces the plan, not a git diff
     expect(planSkill).toContain('Trace every codepath in the plan');
     expect(planSkill).not.toContain('git diff origin');
-    // Ship and review modes trace the diff
+    // Ship mode traces the diff
     expect(shipSkill).toContain('Trace every codepath changed');
-    expect(reviewSkill).toContain('Trace every codepath changed');
   });
 
-  test('all three modes include E2E decision matrix', () => {
-    for (const skill of [planSkill, shipSkill, reviewSkill]) {
+  test('review mode uses Review Army for specialist dispatch', () => {
+    expect(reviewSkill).toContain('Review Army');
+    expect(reviewSkill).toContain('Specialist Dispatch');
+    expect(reviewSkill).toContain('testing.md');
+  });
+
+  test('plan and ship modes include E2E decision matrix', () => {
+    // Review mode delegates to Testing specialist
+    for (const skill of [planSkill, shipSkill]) {
       expect(skill).toContain('E2E Test Decision Matrix');
       expect(skill).toContain('→E2E');
       expect(skill).toContain('→EVAL');
     }
   });
 
-  test('all three modes include regression rule', () => {
-    for (const skill of [planSkill, shipSkill, reviewSkill]) {
+  test('plan and ship modes include regression rule', () => {
+    // Review mode delegates to Testing specialist
+    for (const skill of [planSkill, shipSkill]) {
       expect(skill).toContain('REGRESSION RULE');
       expect(skill).toContain('IRON RULE');
     }
   });
 
-  test('all three modes include test framework detection', () => {
-    for (const skill of [planSkill, shipSkill, reviewSkill]) {
+  test('plan and ship modes include test framework detection', () => {
+    // Review mode delegates to Testing specialist
+    for (const skill of [planSkill, shipSkill]) {
       expect(skill).toContain('Test Framework Detection');
       expect(skill).toContain('CLAUDE.md');
     }
@@ -664,11 +672,12 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     expect(shipSkill).toContain('ship-test-plan');
   });
 
-  test('review mode generates via Fix-First + gaps are INFORMATIONAL', () => {
+  test('review mode uses Fix-First + Review Army for specialist coverage', () => {
     expect(reviewSkill).toContain('Fix-First');
     expect(reviewSkill).toContain('INFORMATIONAL');
-    expect(reviewSkill).toContain('Step 4.75');
-    expect(reviewSkill).toContain('subsumes the "Test Gaps" category');
+    // Review Army handles test coverage via Testing specialist subagent
+    expect(reviewSkill).toContain('Review Army');
+    expect(reviewSkill).toContain('Testing');
   });
 
   test('plan mode does NOT include ship-specific content', () => {
@@ -681,6 +690,35 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     expect(reviewSkill).not.toContain('Test Plan Artifact');
     expect(reviewSkill).not.toContain('eng-review-test-plan');
     expect(reviewSkill).not.toContain('ship-test-plan');
+  });
+
+  test('review/specialists/ directory has all expected checklist files', () => {
+    const specDir = path.join(ROOT, 'review', 'specialists');
+    const expected = [
+      'testing.md',
+      'maintainability.md',
+      'security.md',
+      'performance.md',
+      'data-migration.md',
+      'api-contract.md',
+      'red-team.md',
+    ];
+    for (const f of expected) {
+      expect(fs.existsSync(path.join(specDir, f))).toBe(true);
+    }
+  });
+
+  test('each specialist file has standard header with scope and output format', () => {
+    const specDir = path.join(ROOT, 'review', 'specialists');
+    const files = fs.readdirSync(specDir).filter(f => f.endsWith('.md'));
+    for (const f of files) {
+      const content = fs.readFileSync(path.join(specDir, f), 'utf-8');
+      // All specialist files must have Scope and Output/JSON in header
+      expect(content).toContain('Scope:');
+      expect(content.toLowerCase()).toMatch(/output|json/);
+      // Must define NO FINDINGS behavior
+      expect(content).toContain('NO FINDINGS');
+    }
   });
 
   // Regression guard: ship output contains key phrases from before the refactor
@@ -870,12 +908,9 @@ describe('Coverage gate in ship', () => {
     expect(shipSkill).toContain('could not determine percentage — skipping');
   });
 
-  test('review SKILL.md contains coverage WARNING', () => {
-    expect(reviewSkill).toContain('COVERAGE WARNING');
-    expect(reviewSkill).toContain('Consider writing tests before running /ship');
-  });
-
-  test('review coverage warning is INFORMATIONAL', () => {
+  test('review SKILL.md delegates coverage to Testing specialist', () => {
+    // Coverage audit moved to Testing specialist subagent in Review Army
+    expect(reviewSkill).toContain('testing.md');
     expect(reviewSkill).toContain('INFORMATIONAL');
   });
 });
@@ -1604,10 +1639,9 @@ describe('Codex generation (--host codex)', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     // Correct: references to sidecar files use gstack/review/ path
     expect(content).toContain('.agents/skills/gstack/review/checklist.md');
-    expect(content).toContain('.agents/skills/gstack/review/design-checklist.md');
+    // design-checklist.md is now referenced via Review Army specialist (Claude only, stripped for Codex)
     // Wrong: must NOT reference gstack-review/checklist.md (file doesn't exist there)
     expect(content).not.toContain('.agents/skills/gstack-review/checklist.md');
-    expect(content).not.toContain('.agents/skills/gstack-review/design-checklist.md');
   });
 
   test('sidecar paths in ship skill point to gstack/review/ for pre-landing review', () => {
@@ -2459,6 +2493,52 @@ describe('CONFIDENCE_CALIBRATION resolver', () => {
     for (const skill of ['office-hours', 'retro']) {
       const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       expect(content).not.toContain('## Confidence Calibration');
+    }
+  });
+});
+
+describe('gen-skill-docs prefix warning (#620/#578)', () => {
+  const { execSync } = require('child_process');
+
+  test('warns about skill_prefix when config has prefix=true', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prefix-warn-'));
+    try {
+      // Create a fake ~/.gstack/config.yaml with skill_prefix: true
+      const fakeHome = tmpDir;
+      const fakeGstack = path.join(fakeHome, '.gstack');
+      fs.mkdirSync(fakeGstack, { recursive: true });
+      fs.writeFileSync(path.join(fakeGstack, 'config.yaml'), 'skill_prefix: true\n');
+
+      const output = execSync('bun run scripts/gen-skill-docs.ts', {
+        cwd: ROOT,
+        env: { ...process.env, HOME: fakeHome },
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+      expect(output).toContain('skill_prefix is true');
+      expect(output).toContain('gstack-relink');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('no warning when skill_prefix is false or absent', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prefix-warn-'));
+    try {
+      const fakeHome = tmpDir;
+      const fakeGstack = path.join(fakeHome, '.gstack');
+      fs.mkdirSync(fakeGstack, { recursive: true });
+      fs.writeFileSync(path.join(fakeGstack, 'config.yaml'), 'skill_prefix: false\n');
+
+      const output = execSync('bun run scripts/gen-skill-docs.ts', {
+        cwd: ROOT,
+        env: { ...process.env, HOME: fakeHome },
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+      expect(output).not.toContain('skill_prefix is true');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 });

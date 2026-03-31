@@ -3313,6 +3313,102 @@ Write your summary to ${benefitsDir}/benefits-summary.md`,
   }, 180_000);
 });
 
+// --- Ship idempotency (#649) ---
+describeIfSelected('Ship idempotency', ['ship-idempotency'], () => {
+  let idempDir: string;
+  const gitRun = (args: string[], cwd: string) =>
+    spawnSync('git', args, { cwd, stdio: 'pipe', timeout: 5000 });
+
+  beforeAll(() => {
+    idempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-ship-idemp-'));
+
+    // Create git repo with initial commit on main
+    gitRun(['init', '-b', 'main'], idempDir);
+    gitRun(['config', 'user.email', 'test@test.com'], idempDir);
+    gitRun(['config', 'user.name', 'Test'], idempDir);
+
+    fs.writeFileSync(path.join(idempDir, 'app.ts'), 'console.log("v1");\n');
+    fs.writeFileSync(path.join(idempDir, 'VERSION'), '0.1.0.0\n');
+    fs.writeFileSync(path.join(idempDir, 'CHANGELOG.md'), '# Changelog\n');
+    gitRun(['add', '.'], idempDir);
+    gitRun(['commit', '-m', 'initial'], idempDir);
+
+    // Create feature branch with changes
+    gitRun(['checkout', '-b', 'feat/my-feature'], idempDir);
+    fs.writeFileSync(path.join(idempDir, 'app.ts'), 'console.log("v2");\n');
+    gitRun(['add', 'app.ts'], idempDir);
+    gitRun(['commit', '-m', 'feat: update to v2'], idempDir);
+
+    // Simulate prior /ship run: bump VERSION and write CHANGELOG entry
+    fs.writeFileSync(path.join(idempDir, 'VERSION'), '0.2.0.0\n');
+    fs.writeFileSync(path.join(idempDir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [0.2.0.0] — 2026-03-30\n\n- Updated app to v2\n');
+    gitRun(['add', 'VERSION', 'CHANGELOG.md'], idempDir);
+    gitRun(['commit', '-m', 'chore: bump version to 0.2.0.0'], idempDir);
+
+    // Extract just the idempotency-relevant sections from ship/SKILL.md
+    const full = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const step4Start = full.indexOf('## Step 4: Version bump');
+    const step4End = full.indexOf('\n---\n', step4Start);
+    const step7Start = full.indexOf('## Step 7: Push');
+    const step8End = full.indexOf('## Step 8.5');
+    const extracted = [
+      full.slice(step4Start, step4End > step4Start ? step4End : step4Start + 500),
+      full.slice(step7Start, step8End > step7Start ? step8End : step7Start + 500),
+    ].join('\n\n---\n\n');
+    fs.writeFileSync(path.join(idempDir, 'ship-steps.md'), extracted);
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(idempDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testIfSelected('ship-idempotency', async () => {
+    const result = await runSkillTest({
+      prompt: `You are in a git repo on branch feat/my-feature. A prior /ship run already:
+- Bumped VERSION from 0.1.0.0 to 0.2.0.0
+- Wrote a CHANGELOG entry for 0.2.0.0
+- But the push/PR step failed
+
+Read ship-steps.md for the idempotency check instructions from the ship workflow.
+
+Run ONLY the idempotency checks described in Steps 4 and 7. Do NOT actually push or create PRs (there is no remote).
+
+After running the checks, write a report to ${idempDir}/idemp-result.md containing:
+- Whether VERSION was detected as ALREADY_BUMPED or not
+- Whether the push was detected as ALREADY_PUSHED or PUSH_NEEDED
+- The current VERSION value (should still be 0.2.0.0)
+
+Do NOT modify VERSION or CHANGELOG. Only run the detection checks and report.`,
+      workingDirectory: idempDir,
+      maxTurns: 10,
+      timeout: 60_000,
+      testName: 'ship-idempotency',
+      runId,
+    });
+
+    logCost('/ship idempotency', result);
+    recordE2E('/ship idempotency guard', 'Ship idempotency', result);
+    expect(result.exitReason).toBe('success');
+
+    // Verify VERSION was NOT modified
+    const version = fs.readFileSync(path.join(idempDir, 'VERSION'), 'utf-8').trim();
+    expect(version).toBe('0.2.0.0');
+
+    // Verify CHANGELOG was NOT duplicated
+    const changelog = fs.readFileSync(path.join(idempDir, 'CHANGELOG.md'), 'utf-8');
+    const versionEntries = (changelog.match(/## \[0\.2\.0\.0\]/g) || []).length;
+    expect(versionEntries).toBe(1);
+
+    // Check the result report if it was written
+    const reportPath = path.join(idempDir, 'idemp-result.md');
+    if (fs.existsSync(reportPath)) {
+      const report = fs.readFileSync(reportPath, 'utf-8');
+      expect(report.toLowerCase()).toContain('already_bumped');
+    }
+  }, 120_000);
+});
+
 // Module-level afterAll — finalize eval collector after all tests complete
 afterAll(async () => {
   if (evalCollector) {

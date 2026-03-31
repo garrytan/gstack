@@ -1305,38 +1305,49 @@ describe('Codex skill', () => {
     expect(content).toContain('mktemp');
   });
 
-  test('adversarial review in /review auto-scales by diff size', () => {
+  test('adversarial review in /review always runs both passes', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Adversarial review (auto-scaled)');
-    // Diff size thresholds
-    expect(content).toContain('< 50');
-    expect(content).toContain('50–199');
-    expect(content).toContain('200+');
-    // All three tiers present
-    expect(content).toContain('Small');
-    expect(content).toContain('Medium tier');
-    expect(content).toContain('Large tier');
+    expect(content).toContain('Adversarial review (always-on)');
+    // Always-on: both Claude and Codex adversarial
+    expect(content).toContain('Claude adversarial subagent (always runs)');
+    expect(content).toContain('Codex adversarial challenge (always runs when available)');
     // Claude adversarial subagent dispatch
     expect(content).toContain('Agent tool');
     expect(content).toContain('FIXABLE');
     expect(content).toContain('INVESTIGATE');
-    // Codex fallback logic
+    // Codex availability check
     expect(content).toContain('CODEX_NOT_AVAILABLE');
-    expect(content).toContain('fall back to the Claude adversarial subagent');
-    // Review log uses new skill name
+    // OLD_CFG only gates Codex, not Claude
+    expect(content).toContain('skip Codex passes only');
+    // Review log
     expect(content).toContain('adversarial-review');
     expect(content).toContain('reasoning_effort="high"');
     expect(content).toContain('ADVERSARIAL REVIEW SYNTHESIS');
+    // Large diff structured review still gated
+    expect(content).toContain('Codex structured review (large diffs only');
+    expect(content).toContain('200');
   });
 
-  test('adversarial review in /ship auto-scales by diff size', () => {
+  test('adversarial review in /ship always runs both passes', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Adversarial review (auto-scaled)');
-    expect(content).toContain('< 50');
-    expect(content).toContain('200+');
+    expect(content).toContain('Adversarial review (always-on)');
     expect(content).toContain('adversarial-review');
     expect(content).toContain('reasoning_effort="high"');
     expect(content).toContain('Investigate and fix');
+    expect(content).toContain('Claude adversarial subagent (always runs)');
+  });
+
+  test('scope drift detection in /review and /ship', () => {
+    const reviewContent = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    // Both should contain scope drift from the shared resolver
+    for (const content of [reviewContent, shipContent]) {
+      expect(content).toContain('Scope Check:');
+      expect(content).toContain('DRIFT DETECTED');
+      expect(content).toContain('SCOPE CREEP');
+      expect(content).toContain('MISSING REQUIREMENTS');
+      expect(content).toContain('stated intent');
+    }
   });
 
   test('codex-host ship/review do NOT contain adversarial review step', () => {

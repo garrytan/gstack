@@ -1,5 +1,64 @@
 # Changelog
 
+## [0.14.5.0] - 2026-03-31 — Ship Idempotency + Skill Prefix Fix
+
+Re-running `/ship` after a failed push or PR creation no longer double-bumps your version or duplicates your CHANGELOG. And if you use `--prefix` mode, your skill names actually work now.
+
+### Fixed
+
+- **`/ship` is now idempotent (#649).** If push succeeds but PR creation fails (API outage, rate limit), re-running `/ship` detects the already-bumped VERSION, skips the push if already up to date, and updates the existing PR body instead of creating a duplicate. The CHANGELOG step was already idempotent by design ("replace with unified entry"), so no guard needed there.
+- **Skill prefix actually patches `name:` in SKILL.md (#620, #578).** `./setup --prefix` and `gstack-relink` now patch the `name:` field in each skill's SKILL.md frontmatter to match the prefix setting. Previously, symlinks were prefixed but Claude Code read the unprefixed `name:` field and ignored the prefix entirely. Edge cases handled: `gstack-upgrade` not double-prefixed, root `gstack` skill never prefixed, prefix removal restores original names.
+- **`gen-skill-docs` warns when prefix patches need re-applying.** After regenerating SKILL.md files, if `skill_prefix: true` is set in config, a warning reminds you to run `gstack-relink`.
+- **PR idempotency checks open state.** The PR guard now verifies the existing PR is `OPEN`, so closed PRs don't block new PR creation.
+- **`--no-prefix` ordering bug.** `gstack-patch-names` now runs before `link_claude_skill_dirs` so symlink names reflect the correct patched values.
+
+### Added
+
+- **`bin/gstack-patch-names` shared helper.** DRY extraction of the name-patching logic used by both `setup` and `gstack-relink`. Handles all edge cases (no frontmatter, already-prefixed, inherently-prefixed dirs) with portable `mktemp + mv` sed.
+
+### For contributors
+
+- 4 unit tests for name: patching in `relink.test.ts`
+- 2 tests for gen-skill-docs prefix warning
+- 1 E2E test for ship idempotency (periodic tier)
+- Updated `setupMockInstall` to write SKILL.md with proper frontmatter
+
+## [0.14.4.0] - 2026-03-31 — Review Army: Parallel Specialist Reviewers
+
+Every `/review` now dispatches specialist subagents in parallel. Instead of one agent applying one giant checklist, you get focused reviewers for testing gaps, maintainability, security, performance, data migrations, API contracts, and adversarial red-teaming. Each specialist reads the diff independently with fresh context, outputs structured JSON findings, and the main agent merges, deduplicates, and boosts confidence when multiple specialists flag the same issue. Small diffs (<50 lines) skip specialists entirely for speed. Large diffs (200+ lines) activate the Red Team for adversarial analysis on top.
+
+### Added
+
+- **7 specialist reviewers** running in parallel via Agent tool subagents. Always-on: Testing + Maintainability. Conditional: Security (auth scope), Performance (backend/frontend), Data Migration (migration files), API Contract (controllers/routes), Red Team (large diffs or critical findings).
+- **JSON finding schema.** Specialists output structured JSON objects with severity, confidence, path, line, category, fix, and fingerprint fields. Reliable parsing, no more pipe-delimited text.
+- **Fingerprint-based dedup.** When two specialists flag the same file:line:category, the finding gets boosted confidence and a "MULTI-SPECIALIST CONFIRMED" marker.
+- **PR Quality Score.** Every review computes a 0-10 quality score: `10 - (critical * 2 + informational * 0.5)`. Logged to review history for trending via `/retro`.
+- **3 new diff-scope signals.** `gstack-diff-scope` now detects SCOPE_MIGRATIONS, SCOPE_API, and SCOPE_AUTH to activate the right specialists.
+- **Learning-informed specialist prompts.** Each specialist gets past learnings for its domain injected into the prompt, so reviews get smarter over time.
+- **14 new diff-scope tests** covering all 9 scope signals including the 3 new ones.
+- **7 new E2E tests** (5 gate, 2 periodic) covering migration safety, N+1 detection, delivery audit, quality score, JSON schema compliance, red team activation, and multi-specialist consensus.
+
+### Changed
+
+- **Review checklist refactored.** Categories now covered by specialists (test gaps, dead code, magic numbers, performance, crypto) removed from the main checklist. Main agent focuses on CRITICAL pass only.
+- **Delivery Integrity enhanced.** The existing plan completion audit now investigates WHY items are missing (not just that they're missing) and logs plan-file discrepancies as learnings. Commit-message inference is informational only, never persisted.
+
+## [0.14.3.0] - 2026-03-31 — Always-On Adversarial Review + Scope Drift + Plan Mode Design Tools
+
+Every code review now runs adversarial analysis from both Claude and Codex, regardless of diff size. A 5-line auth change gets the same cross-model scrutiny as a 500-line feature. The old "skip adversarial for small diffs" heuristic is gone... diff size was never a good proxy for risk.
+
+### Added
+
+- **Always-on adversarial review.** Every `/review` and `/ship` run now dispatches both a Claude adversarial subagent and a Codex adversarial challenge. No more tier-based skipping. The Codex structured review (formal P1 pass/fail gate) still runs on large diffs (200+ lines) where the formal gate adds value.
+- **Scope drift detection in `/ship`.** Before shipping, `/ship` now checks whether you built what you said you'd build, nothing more, nothing less. Catches scope creep ("while I was in there..." changes) and missing requirements. Results appear in the PR body.
+- **Plan Mode Safe Operations.** Browse screenshots, design mockups, Codex outside voices, and writing to `~/.gstack/` are now explicitly allowed in plan mode. Design-related skills (`/design-consultation`, `/design-shotgun`, `/design-html`, `/plan-design-review`) can generate visual artifacts during planning without fighting plan mode restrictions.
+
+### Changed
+
+- **Adversarial opt-out split.** The legacy `codex_reviews=disabled` config now only gates Codex passes. Claude adversarial subagent always runs since it's free and fast. Previously the kill switch disabled everything.
+- **Cross-model tension format.** Outside voice disagreements now include `RECOMMENDATION` and `Completeness` scores, matching the standard AskUserQuestion format used everywhere else in gstack.
+- **Scope drift is now a shared resolver.** Extracted from `/review` into `generateScopeDrift()` so both `/review` and `/ship` use the same logic. DRY.
+
 ## [0.14.2.0] - 2026-03-30 — Sidebar CSS Inspector + Per-Tab Agents
 
 The sidebar is now a visual design tool. Pick any element on the page and see the full CSS rule cascade, box model, and computed styles right in the Side Panel. Edit styles live and see changes instantly. Each browser tab gets its own independent agent, so you can work on multiple pages simultaneously without cross-talk. Cleanup is LLM-powered... the agent snapshots the page, understands it semantically, and removes the junk while keeping the site's identity.
