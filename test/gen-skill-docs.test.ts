@@ -2462,3 +2462,49 @@ describe('CONFIDENCE_CALIBRATION resolver', () => {
     }
   });
 });
+
+describe('gen-skill-docs prefix warning (#620/#578)', () => {
+  const { execSync } = require('child_process');
+
+  test('warns about skill_prefix when config has prefix=true', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prefix-warn-'));
+    try {
+      // Create a fake ~/.gstack/config.yaml with skill_prefix: true
+      const fakeHome = tmpDir;
+      const fakeGstack = path.join(fakeHome, '.gstack');
+      fs.mkdirSync(fakeGstack, { recursive: true });
+      fs.writeFileSync(path.join(fakeGstack, 'config.yaml'), 'skill_prefix: true\n');
+
+      const output = execSync('bun run scripts/gen-skill-docs.ts', {
+        cwd: ROOT,
+        env: { ...process.env, HOME: fakeHome },
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+      expect(output).toContain('skill_prefix is true');
+      expect(output).toContain('gstack-relink');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('no warning when skill_prefix is false or absent', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prefix-warn-'));
+    try {
+      const fakeHome = tmpDir;
+      const fakeGstack = path.join(fakeHome, '.gstack');
+      fs.mkdirSync(fakeGstack, { recursive: true });
+      fs.writeFileSync(path.join(fakeGstack, 'config.yaml'), 'skill_prefix: false\n');
+
+      const output = execSync('bun run scripts/gen-skill-docs.ts', {
+        cwd: ROOT,
+        env: { ...process.env, HOME: fakeHome },
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+      expect(output).not.toContain('skill_prefix is true');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});

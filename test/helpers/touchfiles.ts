@@ -82,6 +82,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'review-dashboard-via': ['ship/**', 'scripts/resolvers/review.ts', 'codex/**', 'autoplan/**', 'land-and-deploy/**'],
   'ship-plan-completion': ['ship/**', 'scripts/gen-skill-docs.ts'],
   'ship-plan-verification': ['ship/**', 'scripts/gen-skill-docs.ts'],
+  'ship-idempotency':      ['ship/**', 'scripts/resolvers/utility.ts'],
 
   // Retro
   'retro':             ['retro/**'],
@@ -122,6 +123,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Plan completion audit + verification
   'ship-plan-completion': ['ship/**', 'scripts/gen-skill-docs.ts'],
   'ship-plan-verification': ['ship/**', 'qa-only/**', 'scripts/gen-skill-docs.ts'],
+  'ship-idempotency':       ['ship/**', 'scripts/resolvers/utility.ts'],
   'review-plan-completion': ['review/**', 'scripts/gen-skill-docs.ts'],
 
   // Design
@@ -228,6 +230,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'ship-triage': 'gate',
   'ship-plan-completion': 'gate',
   'ship-plan-verification': 'gate',
+  'ship-idempotency': 'periodic',
 
   // Retro — gate for cheap branch detection, periodic for full Opus retro
   'retro': 'periodic',
