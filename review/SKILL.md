@@ -372,6 +372,21 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
+## Plan Mode Safe Operations
+
+When in plan mode, these operations are always allowed because they produce
+artifacts that inform the plan, not code changes:
+
+- `$B` commands (browse: screenshots, page inspection, navigation, snapshots)
+- `$D` commands (design: generate mockups, variants, comparison boards, iterate)
+- `codex exec` / `codex review` (outside voice, plan review, adversarial challenge)
+- Writing to `~/.gstack/` (config, analytics, review logs, design artifacts, learnings)
+- Writing to the plan file (already allowed by plan mode)
+- `open` commands for viewing generated artifacts (comparison boards, HTML previews)
+
+These are read-only in spirit — they inspect the live site, generate visual artifacts,
+or get independent opinions. They do NOT modify project source files.
+
 ## Plan Status Footer
 
 When you are in plan mode and about to call ExitPlanMode:
@@ -471,6 +486,31 @@ Before reviewing code quality, check: **did they build what was requested — no
 2. Identify the **stated intent** — what was this branch supposed to accomplish?
 3. Run `git diff origin/<base>...HEAD --stat` and compare the files changed against the stated intent.
 
+4. Evaluate with skepticism (incorporating plan completion results if available from an earlier step or adjacent section):
+
+   **SCOPE CREEP detection:**
+   - Files changed that are unrelated to the stated intent
+   - New features or refactors not mentioned in the plan
+   - "While I was in there..." changes that expand blast radius
+
+   **MISSING REQUIREMENTS detection:**
+   - Requirements from TODOS.md/PR description not addressed in the diff
+   - Test coverage gaps for stated requirements
+   - Partial implementations (started but not finished)
+
+5. Output (before the main review begins):
+   \`\`\`
+   Scope Check: [CLEAN / DRIFT DETECTED / REQUIREMENTS MISSING]
+   Intent: <1-line summary of what was requested>
+   Delivered: <1-line summary of what the diff actually does>
+   [If drift: list each out-of-scope change]
+   [If missing: list each unaddressed requirement]
+   \`\`\`
+
+6. This is **INFORMATIONAL** — does not block the review. Proceed to the next step.
+
+---
+
 ### Plan File Discovery
 
 1. **Conversation context (primary):** Check if there is an active plan file in this conversation. The host agent's system messages include plan file paths when in plan mode. If found, use it directly — this is the most reliable signal.
@@ -566,14 +606,69 @@ COMPLETION: 4/7 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED
 ─────────────────────────────────
 ```
 
+### Fallback Intent Sources (when no plan file found)
+
+When no plan file is detected, use these secondary intent sources:
+
+1. **Commit messages:** Run `git log origin/<base>..HEAD --oneline`. Use judgment to extract real intent:
+   - Commits with actionable verbs ("add", "implement", "fix", "create", "remove", "update") are intent signals
+   - Skip noise: "WIP", "tmp", "squash", "merge", "chore", "typo", "fixup"
+   - Extract the intent behind the commit, not the literal message
+2. **TODOS.md:** If it exists, check for items related to this branch or recent dates
+3. **PR description:** Run `gh pr view --json body -q .body 2>/dev/null` for intent context
+
+**With fallback sources:** Apply the same Cross-Reference classification (DONE/PARTIAL/NOT DONE/CHANGED) using best-effort matching. Note that fallback-sourced items are lower confidence than plan-file items.
+
+### Investigation Depth
+
+For each PARTIAL or NOT DONE item, investigate WHY:
+
+1. Check `git log origin/<base>..HEAD --oneline` for commits that suggest the work was started, attempted, or reverted
+2. Read the relevant code to understand what was built instead
+3. Determine the likely reason from this list:
+   - **Scope cut** — evidence of intentional removal (revert commit, removed TODO)
+   - **Context exhaustion** — work started but stopped mid-way (partial implementation, no follow-up commits)
+   - **Misunderstood requirement** — something was built but it doesn't match what the plan described
+   - **Blocked by dependency** — plan item depends on something that isn't available
+   - **Genuinely forgotten** — no evidence of any attempt
+
+Output for each discrepancy:
+```
+DISCREPANCY: {PARTIAL|NOT_DONE} | {plan item} | {what was actually delivered}
+INVESTIGATION: {likely reason with evidence from git log / code}
+IMPACT: {HIGH|MEDIUM|LOW} — {what breaks or degrades if this stays undelivered}
+```
+
+### Learnings Logging (plan-file discrepancies only)
+
+**Only for discrepancies sourced from plan files** (not commit messages or TODOS.md), log a learning so future sessions know this pattern occurred:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{
+  "type": "pitfall",
+  "key": "plan-delivery-gap-KEBAB_SUMMARY",
+  "insight": "Planned X but delivered Y because Z",
+  "confidence": 8,
+  "source": "observed",
+  "files": ["PLAN_FILE_PATH"]
+}'
+```
+
+Replace KEBAB_SUMMARY with a kebab-case summary of the gap, and fill in the actual values.
+
+**Do NOT log learnings from commit-message-derived or TODOS.md-derived discrepancies.** These are informational in the review output but too noisy for durable memory.
+
 ### Integration with Scope Drift Detection
 
 The plan completion results augment the existing Scope Drift Detection. If a plan file is found:
 
 - **NOT DONE items** become additional evidence for **MISSING REQUIREMENTS** in the scope drift report.
 - **Items in the diff that don't match any plan item** become evidence for **SCOPE CREEP** detection.
+- **HIGH-impact discrepancies** trigger AskUserQuestion:
+  - Show the investigation findings
+  - Options: A) Stop and implement missing items, B) Ship anyway + create P1 TODOs, C) Intentionally dropped
 
-This is **INFORMATIONAL** — does not block the review (consistent with existing scope drift behavior).
+This is **INFORMATIONAL** unless HIGH-impact discrepancies are found (then it gates via AskUserQuestion).
 
 Update the scope drift output to include plan file context:
 
@@ -583,36 +678,11 @@ Intent: <from plan file — 1-line summary>
 Plan: <plan file path>
 Delivered: <1-line summary of what the diff actually does>
 Plan items: N DONE, M PARTIAL, K NOT DONE
-[If NOT DONE: list each missing item]
+[If NOT DONE: list each missing item with investigation]
 [If scope creep: list each out-of-scope change not in the plan]
 ```
 
-**No plan file found:** Fall back to existing scope drift behavior (check TODOS.md and PR description only).
-
-4. Evaluate with skepticism (incorporating plan completion results if available):
-
-   **SCOPE CREEP detection:**
-   - Files changed that are unrelated to the stated intent
-   - New features or refactors not mentioned in the plan
-   - "While I was in there..." changes that expand blast radius
-
-   **MISSING REQUIREMENTS detection:**
-   - Requirements from TODOS.md/PR description not addressed in the diff
-   - Test coverage gaps for stated requirements
-   - Partial implementations (started but not finished)
-
-5. Output (before the main review begins):
-   ```
-   Scope Check: [CLEAN / DRIFT DETECTED / REQUIREMENTS MISSING]
-   Intent: <1-line summary of what was requested>
-   Delivered: <1-line summary of what the diff actually does>
-   [If drift: list each out-of-scope change]
-   [If missing: list each unaddressed requirement]
-   ```
-
-6. This is **INFORMATIONAL** — does not block the review. Proceed to Step 2.
-
----
+**No plan file found:** Use commit messages and TODOS.md as fallback sources (see above). If no intent sources at all, skip with: "No intent sources detected — skipping completion audit."
 
 ## Step 2: Read the checklist
 
@@ -773,12 +843,12 @@ Do NOT block the review if tools aren't available. The LLM review is the fallbac
 
 ---
 
-## Step 4: Two-pass review
+## Step 4: Critical pass (core review)
 
-Apply the checklist against the diff in two passes:
+Apply the CRITICAL categories from the checklist against the diff:
+SQL & Data Safety, Race Conditions & Concurrency, LLM Output Trust Boundary, Shell Injection, Enum & Value Completeness.
 
-1. **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, LLM Output Trust Boundary, Enum & Value Completeness
-2. **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Magic Numbers & String Coupling, Dead Code & Consistency, LLM Prompt Issues, Test Gaps, View/Frontend, Performance & Bundle Impact
+Also apply the remaining INFORMATIONAL categories that are still in the checklist (Async/Sync Mixing, Column/Field Name Safety, LLM Prompt Issues, Type Coercion, View/Frontend, Time Window Safety, Completeness Gaps, Distribution & CI/CD).
 
 **Enum & Value Completeness requires reading code OUTSIDE the diff.** When the diff introduces a new enum value, status, tier, or type constant, use Grep to find all files that reference sibling values, then Read those files to check if the new value is handled. This is the one category where within-diff review is insufficient.
 
@@ -818,258 +888,167 @@ higher confidence.
 
 ---
 
-## Step 4.5: Design Review (conditional)
+## Step 4.5: Review Army — Specialist Dispatch
 
-## Design Review (conditional, diff-scoped)
-
-Check if the diff touches frontend files using `gstack-diff-scope`:
+### Detect stack and scope
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
+source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || true
+# Detect stack for specialist context
+STACK=""
+[ -f Gemfile ] && STACK="${STACK}ruby "
+[ -f package.json ] && STACK="${STACK}node "
+[ -f requirements.txt ] || [ -f pyproject.toml ] && STACK="${STACK}python "
+[ -f go.mod ] && STACK="${STACK}go "
+[ -f Cargo.toml ] && STACK="${STACK}rust "
+echo "STACK: ${STACK:-unknown}"
+DIFF_LINES=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+echo "DIFF_LINES: $DIFF_LINES"
 ```
 
-**If `SCOPE_FRONTEND=false`:** Skip design review silently. No output.
+### Select specialists
 
-**If `SCOPE_FRONTEND=true`:**
+Based on the scope signals above, select which specialists to dispatch.
 
-1. **Check for DESIGN.md.** If `DESIGN.md` or `design-system.md` exists in the repo root, read it. All design findings are calibrated against it — patterns blessed in DESIGN.md are not flagged. If not found, use universal design principles.
+**Always-on (dispatch on every review with 50+ changed lines):**
+1. **Testing** — read `~/.claude/skills/gstack/review/specialists/testing.md`
+2. **Maintainability** — read `~/.claude/skills/gstack/review/specialists/maintainability.md`
 
-2. **Read `.claude/skills/review/design-checklist.md`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
+**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to Step 5.
 
-3. **Read each changed frontend file** (full file, not just diff hunks). Frontend files are identified by the patterns listed in the checklist.
+**Conditional (dispatch if the matching scope signal is true):**
+3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/security.md`
+4. **Performance** — if SCOPE_BACKEND=true OR SCOPE_FRONTEND=true. Read `~/.claude/skills/gstack/review/specialists/performance.md`
+5. **Data Migration** — if SCOPE_MIGRATIONS=true. Read `~/.claude/skills/gstack/review/specialists/data-migration.md`
+6. **API Contract** — if SCOPE_API=true. Read `~/.claude/skills/gstack/review/specialists/api-contract.md`
+7. **Design** — if SCOPE_FRONTEND=true. Use the existing design review checklist at `~/.claude/skills/gstack/review/design-checklist.md`
 
-4. **Apply the design checklist** against the changed files. For each item:
-   - **[HIGH] mechanical CSS fix** (`outline: none`, `!important`, `font-size < 16px`): classify as AUTO-FIX
-   - **[HIGH/MEDIUM] design judgment needed**: classify as ASK
-   - **[LOW] intent-based detection**: present as "Possible — verify visually or run /design-review"
-
-5. **Include findings** in the review output under a "Design Review" header, following the output format in the checklist. Design findings merge with code review findings into the same Fix-First flow.
-
-6. **Log the result** for the Review Readiness Dashboard:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
-```
-
-Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of `git rev-parse --short HEAD`.
-
-7. **Codex design voice** (optional, automatic if available):
-
-```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-```
-
-If Codex is available, run a lightweight design check on the diff:
-
-```bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
-```
-
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
-```bash
-cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
-```
-
-**Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
-
-Present Codex output under a `CODEX (design):` header, merged with the checklist findings above.
-
-Include any design findings alongside the findings from Step 4. They follow the same Fix-First flow in Step 5 — AUTO-FIX for mechanical CSS fixes, ASK for everything else.
+Note which specialists were selected and which were skipped. Print the selection:
+"Dispatching N specialists: [names]. Skipped: [names] (scope not detected)."
 
 ---
 
-## Step 4.75: Test Coverage Diagram
+### Dispatch specialists in parallel
 
-100% coverage is the goal. Evaluate every codepath changed in the diff and identify test gaps. Gaps become INFORMATIONAL findings that follow the Fix-First flow.
+For each selected specialist, launch an independent subagent via the Agent tool.
+**Launch ALL selected specialists in a single message** (multiple Agent tool calls)
+so they run in parallel. Each subagent has fresh context — no prior review bias.
 
-### Test Framework Detection
+**Each specialist subagent prompt:**
 
-Before analyzing coverage, detect the project's test framework:
+Construct the prompt for each specialist. The prompt includes:
 
-1. **Read CLAUDE.md** — look for a `## Testing` section with test command and framework name. If found, use that as the authoritative source.
-2. **If CLAUDE.md has no testing section, auto-detect:**
+1. The specialist's checklist content (you already read the file above)
+2. Stack context: "This is a {STACK} project."
+3. Past learnings for this domain (if any exist):
 
 ```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-# Detect project runtime
-[ -f Gemfile ] && echo "RUNTIME:ruby"
-[ -f package.json ] && echo "RUNTIME:node"
-[ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
-[ -f go.mod ] && echo "RUNTIME:go"
-[ -f Cargo.toml ] && echo "RUNTIME:rust"
-# Check for existing test infrastructure
-ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini phpunit.xml 2>/dev/null
-ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
+~/.claude/skills/gstack/bin/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
 ```
 
-3. **If no framework detected:** still produce the coverage diagram, but skip test generation.
+If learnings are found, include them: "Past learnings for this domain: {learnings}"
 
-**Step 1. Trace every codepath changed** using `git diff origin/<base>...HEAD`:
+4. Instructions:
 
-Read every changed file. For each one, trace how data flows through the code — don't just list functions, actually follow the execution:
+"You are a specialist code reviewer. Read the checklist below, then run
+`git diff origin/<base>` to get the full diff. Apply the checklist against the diff.
 
-1. **Read the diff.** For each changed file, read the full file (not just the diff hunk) to understand context.
-2. **Trace data flow.** Starting from each entry point (route handler, exported function, event listener, component render), follow the data through every branch:
-   - Where does input come from? (request params, props, database, API call)
-   - What transforms it? (validation, mapping, computation)
-   - Where does it go? (database write, API response, rendered output, side effect)
-   - What can go wrong at each step? (null/undefined, invalid input, network failure, empty collection)
-3. **Diagram the execution.** For each changed file, draw an ASCII diagram showing:
-   - Every function/method that was added or modified
-   - Every conditional branch (if/else, switch, ternary, guard clause, early return)
-   - Every error path (try/catch, rescue, error boundary, fallback)
-   - Every call to another function (trace into it — does IT have untested branches?)
-   - Every edge: what happens with null input? Empty array? Invalid type?
+For each finding, output a JSON object on its own line:
+{\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"category\",\"summary\":\"description\",\"fix\":\"recommended fix\",\"fingerprint\":\"path:line:category\",\"specialist\":\"name\"}
 
-This is the critical step — you're building a map of every line of code that can execute differently based on input. Every branch in this diagram needs a test.
+Required fields: severity, confidence, path, category, summary, specialist.
+Optional: line, fix, fingerprint, evidence.
 
-**Step 2. Map user flows, interactions, and error states:**
+If no findings: output `NO FINDINGS` and nothing else.
+Do not output anything else — no preamble, no summary, no commentary.
 
-Code coverage isn't enough — you need to cover how real users interact with the changed code. For each changed feature, think through:
+Stack context: {STACK}
+Past learnings: {learnings or 'none'}
 
-- **User flows:** What sequence of actions does a user take that touches this code? Map the full journey (e.g., "user clicks 'Pay' → form validates → API call → success/failure screen"). Each step in the journey needs a test.
-- **Interaction edge cases:** What happens when the user does something unexpected?
-  - Double-click/rapid resubmit
-  - Navigate away mid-operation (back button, close tab, click another link)
-  - Submit with stale data (page sat open for 30 minutes, session expired)
-  - Slow connection (API takes 10 seconds — what does the user see?)
-  - Concurrent actions (two tabs, same form)
-- **Error states the user can see:** For every error the code handles, what does the user actually experience?
-  - Is there a clear error message or a silent failure?
-  - Can the user recover (retry, go back, fix input) or are they stuck?
-  - What happens with no network? With a 500 from the API? With invalid data from the server?
-- **Empty/zero/boundary states:** What does the UI show with zero results? With 10,000 results? With a single character input? With maximum-length input?
+CHECKLIST:
+{checklist content}"
 
-Add these to your diagram alongside the code branches. A user flow with no test is just as much a gap as an untested if/else.
+**Subagent configuration:**
+- Use `subagent_type: "general-purpose"`
+- Do NOT use `run_in_background` — all specialists must complete before merge
+- If any specialist subagent fails or times out, log the failure and continue with results from successful specialists. Specialists are additive — partial results are better than no results.
 
-**Step 3. Check each branch against existing tests:**
+---
 
-Go through your diagram branch by branch — both code paths AND user flows. For each one, search for a test that exercises it:
-- Function `processPayment()` → look for `billing.test.ts`, `billing.spec.ts`, `test/billing_test.rb`
-- An if/else → look for tests covering BOTH the true AND false path
-- An error handler → look for a test that triggers that specific error condition
-- A call to `helperFn()` that has its own branches → those branches need tests too
-- A user flow → look for an integration or E2E test that walks through the journey
-- An interaction edge case → look for a test that simulates the unexpected action
+### Step 4.6: Collect and merge findings
 
-Quality scoring rubric:
-- ★★★  Tests behavior with edge cases AND error paths
-- ★★   Tests correct behavior, happy path only
-- ★    Smoke test / existence check / trivial assertion (e.g., "it renders", "it doesn't throw")
+After all specialist subagents complete, collect their outputs.
 
-### E2E Test Decision Matrix
+**Parse findings:**
+For each specialist's output:
+1. If output is "NO FINDINGS" — skip, this specialist found nothing
+2. Otherwise, parse each line as a JSON object. Skip lines that are not valid JSON.
+3. Collect all parsed findings into a single list, tagged with their specialist name.
 
-When checking each branch, also determine whether a unit test or E2E/integration test is the right tool:
+**Fingerprint and deduplicate:**
+For each finding, compute its fingerprint:
+- If `fingerprint` field is present, use it
+- Otherwise: `{path}:{line}:{category}` (if line is present) or `{path}:{category}`
 
-**RECOMMEND E2E (mark as [→E2E] in the diagram):**
-- Common user flow spanning 3+ components/services (e.g., signup → verify email → first login)
-- Integration point where mocking hides real failures (e.g., API → queue → worker → DB)
-- Auth/payment/data-destruction flows — too important to trust unit tests alone
+Group findings by fingerprint. For findings sharing the same fingerprint:
+- Keep the finding with the highest confidence score
+- Tag it: "MULTI-SPECIALIST CONFIRMED ({specialist1} + {specialist2})"
+- Boost confidence by +1 (cap at 10)
+- Note the confirming specialists in the output
 
-**RECOMMEND EVAL (mark as [→EVAL] in the diagram):**
-- Critical LLM call that needs a quality eval (e.g., prompt change → test output still meets quality bar)
-- Changes to prompt templates, system instructions, or tool definitions
+**Apply confidence gates:**
+- Confidence 7+: show normally in the findings output
+- Confidence 5-6: show with caveat "Medium confidence — verify this is actually an issue"
+- Confidence 3-4: move to appendix (suppress from main findings)
+- Confidence 1-2: suppress entirely
 
-**STICK WITH UNIT TESTS:**
-- Pure function with clear inputs/outputs
-- Internal helper with no side effects
-- Edge case of a single function (null input, empty array)
-- Obscure/rare flow that isn't customer-facing
+**Compute PR Quality Score:**
+After merging, compute the quality score:
+`quality_score = max(0, 10 - (critical_count * 2 + informational_count * 0.5))`
+Cap at 10. Log this in the review result at the end.
 
-### REGRESSION RULE (mandatory)
-
-**IRON RULE:** When the coverage audit identifies a REGRESSION — code that previously worked but the diff broke — a regression test is written immediately. No AskUserQuestion. No skipping. Regressions are the highest-priority test because they prove something broke.
-
-A regression is when:
-- The diff modifies existing behavior (not new code)
-- The existing test suite (if any) doesn't cover the changed path
-- The change introduces a new failure mode for existing callers
-
-When uncertain whether a change is a regression, err on the side of writing the test.
-
-Format: commit as `test: regression test for {what broke}`
-
-**Step 4. Output ASCII coverage diagram:**
-
-Include BOTH code paths and user flows in the same diagram. Mark E2E-worthy and eval-worthy paths:
+**Output merged findings:**
+Present the merged findings in the same format as the current review:
 
 ```
-CODE PATH COVERAGE
-===========================
-[+] src/services/billing.ts
-    │
-    ├── processPayment()
-    │   ├── [★★★ TESTED] Happy path + card declined + timeout — billing.test.ts:42
-    │   ├── [GAP]         Network timeout — NO TEST
-    │   └── [GAP]         Invalid currency — NO TEST
-    │
-    └── refundPayment()
-        ├── [★★  TESTED] Full refund — billing.test.ts:89
-        └── [★   TESTED] Partial refund (checks non-throw only) — billing.test.ts:101
+SPECIALIST REVIEW: N findings (X critical, Y informational) from Z specialists
 
-USER FLOW COVERAGE
-===========================
-[+] Payment checkout flow
-    │
-    ├── [★★★ TESTED] Complete purchase — checkout.e2e.ts:15
-    ├── [GAP] [→E2E] Double-click submit — needs E2E, not just unit
-    ├── [GAP]         Navigate away during payment — unit test sufficient
-    └── [★   TESTED]  Form validation errors (checks render only) — checkout.test.ts:40
+[For each finding, in order: CRITICAL first, then INFORMATIONAL, sorted by confidence descending]
+[SEVERITY] (confidence: N/10, specialist: name) path:line — summary
+  Fix: recommended fix
+  [If MULTI-SPECIALIST CONFIRMED: show confirmation note]
 
-[+] Error states
-    │
-    ├── [★★  TESTED] Card declined message — billing.test.ts:58
-    ├── [GAP]         Network timeout UX (what does user see?) — NO TEST
-    └── [GAP]         Empty cart submission — NO TEST
-
-[+] LLM integration
-    │
-    └── [GAP] [→EVAL] Prompt template change — needs eval test
-
-─────────────────────────────────
-COVERAGE: 5/13 paths tested (38%)
-  Code paths: 3/5 (60%)
-  User flows: 2/8 (25%)
-QUALITY:  ★★★: 2  ★★: 2  ★: 1
-GAPS: 8 paths need tests (2 need E2E, 1 needs eval)
-─────────────────────────────────
+PR Quality Score: X/10
 ```
 
-**Fast path:** All paths covered → "Step 4.75: All new code paths have test coverage ✓" Continue.
+These findings flow into Step 5 Fix-First alongside the CRITICAL pass findings from Step 4.
+The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification.
 
-**Step 5. Generate tests for gaps (Fix-First):**
+---
 
-If test framework is detected and gaps were identified:
-- Classify each gap as AUTO-FIX or ASK per the Fix-First Heuristic:
-  - **AUTO-FIX:** Simple unit tests for pure functions, edge cases of existing tested functions
-  - **ASK:** E2E tests, tests requiring new test infrastructure, tests for ambiguous behavior
-- For AUTO-FIX gaps: generate the test, run it, commit as `test: coverage for {feature}`
-- For ASK gaps: include in the Fix-First batch question with the other review findings
-- For paths marked [→E2E]: always ASK (E2E tests are higher-effort and need user confirmation)
-- For paths marked [→EVAL]: always ASK (eval tests need user confirmation on quality criteria)
+### Red Team dispatch (conditional)
 
-If no test framework detected → include gaps as INFORMATIONAL findings only, no generation.
+**Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
 
-**Diff is test-only changes:** Skip Step 4.75 entirely: "No new application code paths to audit."
+If activated, dispatch one more subagent via the Agent tool (foreground, not background).
 
-### Coverage Warning
+The Red Team subagent receives:
+1. The red-team checklist from `~/.claude/skills/gstack/review/specialists/red-team.md`
+2. The merged specialist findings from Step 4.6 (so it knows what was already caught)
+3. The git diff command
 
-After producing the coverage diagram, check the coverage percentage. Read CLAUDE.md for a `## Test Coverage` section with a `Minimum:` field. If not found, use default: 60%.
+Prompt: "You are a red team reviewer. The code has already been reviewed by N specialists
+who found the following issues: {merged findings summary}. Your job is to find what they
+MISSED. Read the checklist, run `git diff origin/<base>`, and look for gaps.
+Output findings as JSON objects (same schema as the specialists). Focus on cross-cutting
+concerns, integration boundary issues, and failure modes that specialist checklists
+don't cover."
 
-If coverage is below the minimum threshold, output a prominent warning **before** the regular review findings:
+If the Red Team finds additional issues, merge them into the findings list before
+Step 5 Fix-First. Red Team findings are tagged with `"specialist":"red-team"`.
 
-```
-⚠️ COVERAGE WARNING: AI-assessed coverage is {X}%. {N} code paths untested.
-Consider writing tests before running /ship.
-```
-
-This is INFORMATIONAL — does not block /review. But it makes low coverage visible early so the developer can address it before reaching the /ship coverage gate.
-
-If coverage percentage cannot be determined, skip the warning silently.
-
-This step subsumes the "Test Gaps" category from Pass 2 — do not duplicate findings between the checklist Test Gaps item and this coverage diagram. Include any coverage gaps alongside the findings from Step 4 and Step 4.5. They follow the same Fix-First flow — gaps are INFORMATIONAL findings.
+If the Red Team returns NO FINDINGS, note: "Red Team review: no additional issues found."
+If the Red Team subagent fails or times out, skip silently and continue.
 
 ---
 
@@ -1185,9 +1164,9 @@ If no documentation files exist, skip this step silently.
 
 ---
 
-## Step 5.7: Adversarial review (auto-scaled)
+## Step 5.7: Adversarial review (always-on)
 
-Adversarial review thoroughness scales automatically based on diff size. No configuration needed.
+Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
 **Detect diff size and tool availability:**
 
@@ -1196,30 +1175,34 @@ DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion'
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-# Respect old opt-out
+# Legacy opt-out — only gates Codex passes, Claude always runs
 OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
 echo "OLD_CFG: ${OLD_CFG:-not_set}"
 ```
 
-If `OLD_CFG` is `disabled`: skip this step silently. Continue to the next step.
+If `OLD_CFG` is `disabled`: skip Codex passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
 
-**User override:** If the user explicitly requested a specific tier (e.g., "run all passes", "paranoid review", "full adversarial", "do all 4 passes", "thorough review"), honor that request regardless of diff size. Jump to the matching tier section.
-
-**Auto-select tier based on diff size:**
-- **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
-- **Medium (50–199 lines changed):** Run Codex adversarial challenge (or Claude adversarial subagent if Codex unavailable). Jump to the "Medium tier" section.
-- **Large (200+ lines changed):** Run all remaining passes — Codex structured review + Claude adversarial subagent + Codex adversarial. Jump to the "Large tier" section.
+**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size.
 
 ---
 
-### Medium tier (50–199 lines)
+### Claude adversarial subagent (always runs)
 
-Claude's structured review already ran. Now add a **cross-model adversarial challenge**.
+Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
-**If Codex is available:** run the Codex adversarial challenge. **If Codex is NOT available:** fall back to the Claude adversarial subagent instead.
+Subagent prompt:
+"Read the diff for this branch with `git diff origin/<base>`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
 
-**Codex adversarial:**
+Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+
+If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing."
+
+---
+
+### Codex adversarial challenge (always runs when available)
+
+If Codex is available AND `OLD_CFG` is NOT `disabled`:
 
 ```bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
@@ -1239,34 +1222,16 @@ Present the full output verbatim. This is informational — it never blocks ship
 - **Timeout:** "Codex timed out after 5 minutes."
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
 
-On any Codex error, fall back to the Claude adversarial subagent automatically.
+**Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing.
 
-**Claude adversarial subagent** (fallback when Codex unavailable or errored):
-
-Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
-
-Subagent prompt:
-"Read the diff for this branch with `git diff origin/<base>`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
-
-Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
-
-If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing without adversarial review."
-
-**Persist the review result:**
-```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
-```
-Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "claude" if subagent ran. If both failed, do NOT persist.
-
-**Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing (if Codex was used).
+If Codex is NOT available: "Codex CLI not found — running Claude adversarial only. Install Codex for cross-model coverage: `npm install -g @openai/codex`"
 
 ---
 
-### Large tier (200+ lines)
+### Codex structured review (large diffs only, 200+ lines)
 
-Claude's structured review already ran. Now run **all three remaining passes** for maximum coverage:
+If `DIFF_TOTAL >= 200` AND Codex is available AND `OLD_CFG` is NOT `disabled`:
 
-**1. Codex structured review (if available):**
 ```bash
 TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
@@ -1287,34 +1252,34 @@ B) Continue — review will still complete
 
 If A: address the findings. Re-run `codex review` to verify.
 
-Read stderr for errors (same error handling as medium tier).
+Read stderr for errors (same error handling as Codex adversarial above).
 
 After stderr: `rm -f "$TMPERR"`
 
-**2. Claude adversarial subagent:** Dispatch a subagent with the adversarial prompt (same prompt as medium tier). This always runs regardless of Codex availability.
-
-**3. Codex adversarial challenge (if available):** Run `codex exec` with the adversarial prompt (same as medium tier).
-
-If Codex is not available for steps 1 and 3, note to the user: "Codex CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex for full 4-pass coverage: `npm install -g @openai/codex`"
-
-**Persist the review result AFTER all passes complete** (not after each sub-step):
-```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
-```
-Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
 
 ---
 
-### Cross-model synthesis (medium and large tiers)
+### Persist the review result
+
+After all passes complete, persist:
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+
+---
+
+### Cross-model synthesis
 
 After all passes complete, synthesize findings across all sources:
 
 ```
-ADVERSARIAL REVIEW SYNTHESIS (auto: TIER, N lines):
+ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
 ════════════════════════════════════════════════════════════
   High confidence (found by multiple sources): [findings agreed on by >1 pass]
   Unique to Claude structured review: [from earlier step]
-  Unique to Claude adversarial: [from subagent, if ran]
+  Unique to Claude adversarial: [from subagent]
   Unique to Codex: [from codex adversarial or code review, if ran]
   Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
 ════════════════════════════════════════════════════════════

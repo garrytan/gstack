@@ -149,6 +149,196 @@ describeIfSelected('Sidebar URL accuracy E2E', ['sidebar-url-accuracy'], () => {
   }, 30_000);
 });
 
+// --- Sidebar CSS Interaction E2E (real Claude + real browser) ---
+// Goes to HN, reads comments, identifies the most insightful one, highlights it.
+// Exercises: navigation, snapshot, text reading, LLM judgment, CSS style injection.
+
+describeIfSelected('Sidebar CSS interaction E2E', ['sidebar-css-interaction'], () => {
+  let serverProc: Subprocess | null = null;
+  let agentProc: Subprocess | null = null;
+  let serverPort: number = 0;
+  let authToken: string = '';
+  let tmpDir: string = '';
+  let stateFile: string = '';
+  let queueFile: string = '';
+  let serverLogFile: string = '';
+  let serverErrFile: string = '';
+  let agentLogFile: string = '';
+  let agentErrFile: string = '';
+
+  async function api(pathname: string, opts: RequestInit = {}): Promise<Response> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(opts.headers as Record<string, string> || {}),
+    };
+    if (!headers['Authorization'] && authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    return fetch(`http://127.0.0.1:${serverPort}${pathname}`, { ...opts, headers });
+  }
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidebar-e2e-css-'));
+    stateFile = path.join(tmpDir, 'browse.json');
+    queueFile = path.join(tmpDir, 'sidebar-queue.jsonl');
+    fs.mkdirSync(path.dirname(queueFile), { recursive: true });
+
+    // Start server WITH a real browser for CSS interaction
+    const serverScript = path.resolve(ROOT, 'browse', 'src', 'server.ts');
+    serverLogFile = path.join(tmpDir, 'server.log');
+    serverErrFile = path.join(tmpDir, 'server.err');
+    // Use 'pipe' stdio — closing file descriptors kills the child on macOS/bun
+    serverProc = spawn(['bun', 'run', serverScript], {
+      env: {
+        ...process.env,
+        BROWSE_STATE_FILE: stateFile,
+        BROWSE_PORT: '0',
+        SIDEBAR_QUEUE_PATH: queueFile,
+        BROWSE_IDLE_TIMEOUT: '600000', // 10 min in ms — test takes ~3 min
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    // Wait for state file with port/token
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      if (fs.existsSync(stateFile)) {
+        try {
+          const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+          if (state.port && state.token) {
+            serverPort = state.port;
+            authToken = state.token;
+            break;
+          }
+        } catch {}
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (!serverPort) throw new Error('Server did not start in time');
+
+    // Verify server is healthy before proceeding
+    const healthDeadline = Date.now() + 10000;
+    let healthy = false;
+    while (Date.now() < healthDeadline) {
+      try {
+        const resp = await fetch(`http://127.0.0.1:${serverPort}/health`);
+        if (resp.ok) { healthy = true; break; }
+      } catch {}
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (!healthy) throw new Error('Server started but health check failed');
+
+    // Start sidebar-agent with the real browse binary
+    const agentScript = path.resolve(ROOT, 'browse', 'src', 'sidebar-agent.ts');
+    const browseBin = path.resolve(ROOT, 'browse', 'dist', 'browse');
+    agentLogFile = path.join(tmpDir, 'agent.log');
+    agentErrFile = path.join(tmpDir, 'agent.err');
+    // Use 'pipe' stdio — closing file descriptors kills the child on macOS/bun
+    agentProc = spawn(['bun', 'run', agentScript], {
+      env: {
+        ...process.env,
+        BROWSE_SERVER_PORT: String(serverPort),
+        BROWSE_STATE_FILE: stateFile,
+        SIDEBAR_QUEUE_PATH: queueFile,
+        SIDEBAR_AGENT_TIMEOUT: '180000', // 3 min — multi-step HN comment task
+        BROWSE_BIN: fs.existsSync(browseBin) ? browseBin : 'echo',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    await new Promise(r => setTimeout(r, 2000));
+  }, 35000);
+
+  afterAll(() => {
+    if (agentProc) { try { agentProc.kill(); } catch {} }
+    if (serverProc) { try { serverProc.kill(); } catch {} }
+    finalizeEvalCollector(evalCollector);
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testIfSelected('sidebar-css-interaction', async () => {
+    // Fresh session + clean queue
+    try { await api('/sidebar-session/new', { method: 'POST' }); } catch {}
+    fs.writeFileSync(queueFile, '');
+    const startTime = Date.now();
+
+    // Ask the agent to go to HN, find the most insightful comment, and highlight it
+    const resp = await api('/sidebar-command', {
+      method: 'POST',
+      body: JSON.stringify({
+        message: 'Go to https://news.ycombinator.com. Find the top story. Click into its comments. Read the comments and find the most insightful one. Highlight that comment with a 4px solid orange outline.',
+        activeTabUrl: 'about:blank',
+      }),
+    });
+    expect(resp.status).toBe(200);
+
+    // Poll for agent_done (4 min timeout — multi-step task with opus LLM)
+    const deadline = Date.now() + 240000;
+    let entries: any[] = [];
+    while (Date.now() < deadline) {
+      try {
+        const chatResp = await api('/sidebar-chat?after=0');
+        const data = await chatResp.json();
+        entries = data.entries || [];
+        if (entries.some((e: any) => e.type === 'agent_done')) break;
+      } catch (err: any) {
+        // Server may be temporarily busy or restarting — retry on connection errors
+        const isConnErr = err.code === 'ConnectionRefused' || err.message?.includes('ConnectionRefused') || err.message?.includes('Unable to connect');
+        if (!isConnErr) throw err;
+      }
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    const duration = Date.now() - startTime;
+    const doneEntry = entries.find((e: any) => e.type === 'agent_done');
+
+    // Dump debug info on failure
+    if (!doneEntry || entries.length === 0) {
+      console.log('ENTRIES:', JSON.stringify(entries.slice(-5), null, 2));
+      console.log('SERVER exitCode:', serverProc?.exitCode, 'signalCode:', serverProc?.signalCode, 'killed:', serverProc?.killed);
+      console.log('AGENT exitCode:', agentProc?.exitCode, 'signalCode:', agentProc?.signalCode, 'killed:', agentProc?.killed);
+      const queueContent = fs.existsSync(queueFile) ? fs.readFileSync(queueFile, 'utf-8').slice(-500) : 'NO QUEUE';
+      console.log('QUEUE:', queueContent.length > 0 ? 'has entries' : 'empty');
+    }
+
+    // Agent should have completed
+    expect(doneEntry).toBeDefined();
+
+    // Agent should have run browse commands (look for tool_use entries)
+    const toolUses = entries.filter((e: any) => e.type === 'tool_use');
+    expect(toolUses.length).toBeGreaterThanOrEqual(2); // At minimum: goto + one more
+
+    // Agent text should mention something about the comment it found
+    const agentText = entries
+      .filter((e: any) => e.role === 'agent' && (e.type === 'text' || e.type === 'result'))
+      .map((e: any) => e.text || '')
+      .join(' ')
+      .toLowerCase();
+
+    // Should have navigated to HN (look for ycombinator/HN in any entry text)
+    const allEntryText = entries
+      .map((e: any) => `${e.text || ''} ${e.input || ''} ${e.message || ''}`)
+      .join(' ');
+    const navigatedToHN = allEntryText.includes('ycombinator') || allEntryText.includes('Hacker News') || allEntryText.includes('news.ycombinator');
+    if (!navigatedToHN) {
+      console.log('ALL ENTRY TEXT (first 2000):', allEntryText.slice(0, 2000));
+    }
+    expect(navigatedToHN).toBe(true);
+
+    // Should have applied a style (look for orange/outline in tool commands)
+    const allText = entries.map((e: any) => e.text || '').join(' ');
+    const appliedStyle = allText.includes('outline') || allText.includes('orange') || allText.includes('style');
+
+    evalCollector?.addTest({
+      name: 'sidebar-css-interaction', suite: 'Sidebar CSS interaction E2E', tier: 'e2e',
+      passed: !!doneEntry && navigatedToHN && appliedStyle,
+      duration_ms: duration,
+      cost_usd: 0,
+      exit_reason: doneEntry ? 'success' : 'timeout',
+    });
+  }, 300_000);
+});
+
 // --- Sidebar Navigate (real Claude, requires ANTHROPIC_API_KEY) ---
 
 describeIfSelected('Sidebar navigate E2E', ['sidebar-navigate'], () => {

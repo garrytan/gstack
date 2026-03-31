@@ -66,6 +66,9 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 
+# Patch SKILL.md name: fields to match prefix setting
+"$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
+
 if [ "$PREFIX" = "true" ]; then
   echo "Relinked $SKILL_COUNT skills as gstack-*"
 else

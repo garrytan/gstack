@@ -15,6 +15,7 @@ export const READ_COMMANDS = new Set([
   'js', 'eval', 'css', 'attrs',
   'console', 'network', 'cookies', 'storage', 'perf',
   'dialog', 'is',
+  'inspect',
 ]);
 
 export const WRITE_COMMANDS = new Set([
@@ -22,6 +23,7 @@ export const WRITE_COMMANDS = new Set([
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
   'viewport', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
   'upload', 'dialog-accept', 'dialog-dismiss',
+  'style', 'cleanup', 'prettyscreenshot',
 ]);
 
 export const META_COMMANDS = new Set([
@@ -130,6 +132,11 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'state':   { category: 'Server', description: 'Save/load browser state (cookies + URLs)', usage: 'state save|load <name>' },
   // Frame
   'frame':   { category: 'Meta', description: 'Switch to iframe context (or main to return)', usage: 'frame <sel|@ref|--name n|--url pattern|main>' },
+  // CSS Inspector
+  'inspect': { category: 'Inspection', description: 'Deep CSS inspection via CDP — full rule cascade, box model, computed styles', usage: 'inspect [selector] [--all] [--history]' },
+  'style':   { category: 'Interaction', description: 'Modify CSS property on element (with undo support)', usage: 'style <sel> <prop> <value> | style --undo [N]' },
+  'cleanup': { category: 'Interaction', description: 'Remove page clutter (ads, cookie banners, sticky elements, social widgets)', usage: 'cleanup [--ads] [--cookies] [--sticky] [--social] [--all]' },
+  'prettyscreenshot': { category: 'Visual', description: 'Clean screenshot with optional cleanup, scroll positioning, and element hiding', usage: 'prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]' },
 };
 
 // Load-time validation: descriptions must cover exactly the command sets

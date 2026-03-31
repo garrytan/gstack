@@ -17,6 +17,10 @@ let serverToken = null;
 let chatLineCount = 0;
 let chatPollInterval = null;
 let connState = 'disconnected'; // disconnected | connected | reconnecting | dead
+let lastOptimisticMsg = null; // track optimistically rendered user msg to avoid dupes
+let sidebarActiveTabId = null; // which browser tab's chat we're showing
+const chatLineCountByTab = {}; // tabId -> last seen chatLineCount
+const chatDomByTab = {}; // tabId -> saved innerHTML
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 const MAX_RECONNECT_ATTEMPTS = 30; // 30 * 2s = 60s before showing "dead"
@@ -98,13 +102,27 @@ let agentContainer = null; // The container for the current agent response
 let agentTextEl = null;    // The text accumulator element
 let agentText = '';        // Accumulated text
 
+// Dedup: track which entry IDs have already been rendered to prevent
+// repeat rendering on reconnect or tab switch (server replays from disk)
+const renderedEntryIds = new Set();
+
 function addChatEntry(entry) {
+  // Dedup by entry ID — prevent repeat rendering on reconnect/replay
+  if (entry.id !== undefined) {
+    if (renderedEntryIds.has(entry.id)) return;
+    renderedEntryIds.add(entry.id);
+  }
+
   // Remove welcome message on first real message
   const welcome = chatMessages.querySelector('.chat-welcome');
   if (welcome) welcome.remove();
 
-  // User messages → chat bubble
+  // User messages → chat bubble (skip if we already rendered it optimistically)
   if (entry.role === 'user') {
+    if (lastOptimisticMsg === entry.message) {
+      lastOptimisticMsg = null; // consumed — don't skip next identical msg
+      return;
+    }
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble user';
     bubble.innerHTML = `${escapeHtml(entry.message)}<span class="chat-time">${formatChatTime(entry.ts)}</span>`;
@@ -127,6 +145,16 @@ function addChatEntry(entry) {
     return;
   }
 
+  // System notifications (cleanup, screenshot, errors)
+  if (entry.type === 'notification') {
+    const note = document.createElement('div');
+    note.className = 'chat-notification';
+    note.textContent = entry.message;
+    chatMessages.appendChild(note);
+    note.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    return;
+  }
+
   // Agent streaming events
   if (entry.role === 'agent') {
     handleAgentEvent(entry);
@@ -136,6 +164,13 @@ function addChatEntry(entry) {
 
 function handleAgentEvent(entry) {
   if (entry.type === 'agent_start') {
+    // If we already showed thinking dots optimistically in sendMessage(),
+    // don't duplicate. Just ensure fast polling is on.
+    if (agentContainer && document.getElementById('agent-thinking')) {
+      startFastPoll();
+      updateStopButton(true);
+      return;
+    }
     // Create a new agent response container
     agentText = '';
     agentContainer = document.createElement('div');
@@ -150,6 +185,8 @@ function handleAgentEvent(entry) {
     thinking.innerHTML = '<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>';
     agentContainer.appendChild(thinking);
     agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    startFastPoll();
+    updateStopButton(true);
     return;
   }
 
@@ -157,6 +194,8 @@ function handleAgentEvent(entry) {
     // Remove thinking indicator
     const thinking = document.getElementById('agent-thinking');
     if (thinking) thinking.remove();
+    updateStopButton(false);
+    stopFastPoll();
     // Add timestamp
     if (agentContainer) {
       const ts = document.createElement('span');
@@ -172,6 +211,8 @@ function handleAgentEvent(entry) {
   if (entry.type === 'agent_error') {
     const thinking = document.getElementById('agent-thinking');
     if (thinking) thinking.remove();
+    updateStopButton(false);
+    stopFastPoll();
     if (!agentContainer) {
       agentContainer = document.createElement('div');
       agentContainer.className = 'agent-response';
@@ -200,7 +241,11 @@ function handleAgentEvent(entry) {
     toolEl.className = 'agent-tool';
     const toolName = entry.tool || 'Tool';
     const toolInput = entry.input || '';
-    toolEl.innerHTML = `<span class="tool-name">${escapeHtml(toolName)}</span> <span class="tool-input">${escapeHtml(toolInput)}</span>`;
+
+    // Use the verbose description as the primary text
+    // The tool name becomes a subtle badge
+    const toolIcon = toolName === 'Bash' ? '▸' : toolName === 'Read' ? '📄' : toolName === 'Grep' ? '🔍' : toolName === 'Glob' ? '📁' : '⚡';
+    toolEl.innerHTML = `<span class="tool-icon">${toolIcon}</span> <span class="tool-description">${escapeHtml(toolInput)}</span>`;
     agentContainer.appendChild(toolEl);
     agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
     return;
@@ -251,8 +296,34 @@ async function sendMessage() {
   commandInput.disabled = true;
   sendBtn.disabled = true;
 
+  // Show user bubble + thinking dots IMMEDIATELY — don't wait for poll.
+  // This eliminates up to 1000ms of perceived latency.
+  lastOptimisticMsg = msg;
+  const welcome = chatMessages.querySelector('.chat-welcome');
+  if (welcome) welcome.remove();
+  const userBubble = document.createElement('div');
+  userBubble.className = 'chat-bubble user';
+  userBubble.innerHTML = `${escapeHtml(msg)}<span class="chat-time">${formatChatTime(new Date().toISOString())}</span>`;
+  chatMessages.appendChild(userBubble);
+
+  agentText = '';
+  agentContainer = document.createElement('div');
+  agentContainer.className = 'agent-response';
+  agentTextEl = null;
+  chatMessages.appendChild(agentContainer);
+  const thinking = document.createElement('div');
+  thinking.className = 'agent-thinking';
+  thinking.id = 'agent-thinking';
+  thinking.innerHTML = '<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>';
+  agentContainer.appendChild(thinking);
+  agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  updateStopButton(true);
+
+  // Speed up polling while agent is working
+  startFastPoll();
+
   const result = await new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'sidebar-command', message: msg }, resolve);
+    chrome.runtime.sendMessage({ type: 'sidebar-command', message: msg, tabId: sidebarActiveTabId }, resolve);
   });
 
   commandInput.disabled = false;
@@ -260,7 +331,7 @@ async function sendMessage() {
   commandInput.focus();
 
   if (result?.ok) {
-    // Immediately poll to show the user's own message
+    // Poll immediately to sync server state
     pollChat();
   } else {
     commandInput.classList.add('error');
@@ -286,6 +357,7 @@ commandInput.addEventListener('keydown', (e) => {
 });
 
 sendBtn.addEventListener('click', sendMessage);
+document.getElementById('stop-agent-btn').addEventListener('click', stopAgent);
 
 // Poll for new chat messages
 let initialLoadDone = false;
@@ -293,16 +365,25 @@ let initialLoadDone = false;
 async function pollChat() {
   if (!serverUrl || !serverToken) return;
   try {
-    const resp = await fetch(`${serverUrl}/sidebar-chat?after=${chatLineCount}`, {
+    // Request chat for the currently displayed tab
+    const tabParam = sidebarActiveTabId !== null ? `&tabId=${sidebarActiveTabId}` : '';
+    const resp = await fetch(`${serverUrl}/sidebar-chat?after=${chatLineCount}${tabParam}`, {
       headers: authHeaders(),
       signal: AbortSignal.timeout(3000),
     });
     if (!resp.ok) return;
     const data = await resp.json();
 
+    // Detect tab switch from server — swap chat context
+    if (data.activeTabId !== undefined && data.activeTabId !== sidebarActiveTabId) {
+      switchChatTab(data.activeTabId);
+      return; // switchChatTab triggers a fresh poll
+    }
+
     // First successful poll — hide loading spinner
     if (!initialLoadDone) {
       initialLoadDone = true;
+      sidebarActiveTabId = data.activeTabId ?? null;
       const loading = document.getElementById('chat-loading');
       const welcome = document.getElementById('chat-welcome');
       if (loading) loading.style.display = 'none';
@@ -319,6 +400,181 @@ async function pollChat() {
       }
       chatLineCount = data.total;
     }
+
+    // Clean up orphaned thinking indicators after replay.
+    const thinking = document.getElementById('agent-thinking');
+    if (thinking && data.agentStatus !== 'processing') {
+      thinking.remove();
+      if (agentContainer) {
+        const notice = document.createElement('div');
+        notice.className = 'agent-text';
+        notice.style.color = 'var(--text-meta)';
+        notice.style.fontStyle = 'italic';
+        notice.textContent = '(session ended)';
+        agentContainer.appendChild(notice);
+        agentContainer = null;
+        agentTextEl = null;
+      }
+    }
+
+    // Show/hide stop button based on agent status
+    updateStopButton(data.agentStatus === 'processing');
+  } catch {}
+}
+
+/** Switch the sidebar to show a different tab's chat context */
+function switchChatTab(newTabId) {
+  if (newTabId === sidebarActiveTabId) return;
+
+  // Save current tab's chat DOM + scroll position
+  if (sidebarActiveTabId !== null) {
+    chatDomByTab[sidebarActiveTabId] = chatMessages.innerHTML;
+    chatLineCountByTab[sidebarActiveTabId] = chatLineCount;
+  }
+
+  sidebarActiveTabId = newTabId;
+
+  // Restore saved chat for new tab, or show welcome
+  if (chatDomByTab[newTabId]) {
+    chatMessages.innerHTML = chatDomByTab[newTabId];
+    chatLineCount = chatLineCountByTab[newTabId] || 0;
+  } else {
+    chatMessages.innerHTML = `
+      <div class="chat-welcome" id="chat-welcome">
+        <div class="chat-welcome-icon">G</div>
+        <p>Send a message about this page.</p>
+        <p class="muted">Each tab has its own conversation.</p>
+      </div>`;
+    chatLineCount = 0;
+  }
+
+  // Reset agent state for this tab
+  agentContainer = null;
+  agentTextEl = null;
+  agentText = '';
+
+  // Immediately poll the new tab's chat
+  pollChat();
+}
+
+function updateStopButton(agentRunning) {
+  const stopBtn = document.getElementById('stop-agent-btn');
+  if (!stopBtn) return;
+  stopBtn.style.display = agentRunning ? '' : 'none';
+}
+
+async function stopAgent() {
+  if (!serverUrl) return;
+  try {
+    await fetch(`${serverUrl}/sidebar-agent/stop`, { method: 'POST', headers: authHeaders() });
+  } catch {}
+  // Immediately clean up UI
+  const thinking = document.getElementById('agent-thinking');
+  if (thinking) thinking.remove();
+  if (agentContainer) {
+    const notice = document.createElement('div');
+    notice.className = 'agent-text';
+    notice.style.color = 'var(--text-meta)';
+    notice.style.fontStyle = 'italic';
+    notice.textContent = 'Stopped';
+    agentContainer.appendChild(notice);
+    agentContainer = null;
+    agentTextEl = null;
+  }
+  updateStopButton(false);
+  stopFastPoll();
+}
+
+// ─── Adaptive poll speed ─────────────────────────────────────────
+// 300ms while agent is working (fast first-token), 1000ms when idle.
+const FAST_POLL_MS = 300;
+const SLOW_POLL_MS = 1000;
+
+function startFastPoll() {
+  if (chatPollInterval) clearInterval(chatPollInterval);
+  chatPollInterval = setInterval(pollChat, FAST_POLL_MS);
+}
+
+function stopFastPoll() {
+  if (chatPollInterval) clearInterval(chatPollInterval);
+  chatPollInterval = setInterval(pollChat, SLOW_POLL_MS);
+}
+
+// ─── Browser Tab Bar ─────────────────────────────────────────────
+let tabPollInterval = null;
+let lastTabJson = '';
+
+async function pollTabs() {
+  if (!serverUrl || !serverToken) return;
+  try {
+    // Tell the server which Chrome tab the user is actually looking at.
+    // This syncs manual tab switches in the browser → server activeTabId.
+    let activeTabUrl = null;
+    try {
+      const chromeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      activeTabUrl = chromeTabs?.[0]?.url || null;
+    } catch {}
+
+    const resp = await fetch(`${serverUrl}/sidebar-tabs${activeTabUrl ? '?activeUrl=' + encodeURIComponent(activeTabUrl) : ''}`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.tabs) return;
+
+    // Only re-render if tabs changed
+    const json = JSON.stringify(data.tabs);
+    if (json === lastTabJson) return;
+    lastTabJson = json;
+
+    renderTabBar(data.tabs);
+  } catch {}
+}
+
+function renderTabBar(tabs) {
+  const bar = document.getElementById('browser-tabs');
+  if (!bar) return;
+
+  if (!tabs || tabs.length <= 1) {
+    bar.style.display = 'none';
+    return;
+  }
+
+  bar.style.display = '';
+  bar.innerHTML = '';
+
+  for (const tab of tabs) {
+    const el = document.createElement('div');
+    el.className = 'browser-tab' + (tab.active ? ' active' : '');
+    el.title = tab.url || '';
+
+    // Show favicon-style domain + title
+    let label = tab.title || '';
+    if (!label && tab.url) {
+      try { label = new URL(tab.url).hostname; } catch { label = tab.url; }
+    }
+    if (label.length > 20) label = label.slice(0, 20) + '…';
+
+    el.textContent = label || `Tab ${tab.id}`;
+    el.dataset.tabId = tab.id;
+
+    el.addEventListener('click', () => switchBrowserTab(tab.id));
+    bar.appendChild(el);
+  }
+}
+
+async function switchBrowserTab(tabId) {
+  if (!serverUrl) return;
+  try {
+    await fetch(`${serverUrl}/sidebar-tabs/switch`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ id: tabId }),
+    });
+    // Switch chat context + re-poll tabs
+    switchChatTab(tabId);
+    pollTabs();
   } catch {}
 }
 
@@ -331,6 +587,7 @@ document.getElementById('clear-chat').addEventListener('click', async () => {
   } catch {}
   // Reset local state
   chatLineCount = 0;
+  renderedEntryIds.clear();
   agentContainer = null;
   agentTextEl = null;
   agentText = '';
@@ -523,7 +780,536 @@ async function fetchRefs() {
   } catch {}
 }
 
+// ─── Inspector Tab ──────────────────────────────────────────────
+
+let inspectorPickerActive = false;
+let inspectorData = null; // last inspect result
+let inspectorModifications = []; // tracked style changes
+let inspectorSSE = null;
+
+// Inspector DOM refs
+const inspectorPickBtn = document.getElementById('inspector-pick-btn');
+const inspectorSelected = document.getElementById('inspector-selected');
+const inspectorModeBadge = document.getElementById('inspector-mode-badge');
+const inspectorEmpty = document.getElementById('inspector-empty');
+const inspectorLoading = document.getElementById('inspector-loading');
+const inspectorError = document.getElementById('inspector-error');
+const inspectorPanels = document.getElementById('inspector-panels');
+const inspectorBoxmodel = document.getElementById('inspector-boxmodel');
+const inspectorRules = document.getElementById('inspector-rules');
+const inspectorRuleCount = document.getElementById('inspector-rule-count');
+const inspectorComputed = document.getElementById('inspector-computed');
+const inspectorQuickedit = document.getElementById('inspector-quickedit');
+const inspectorSend = document.getElementById('inspector-send');
+const inspectorSendBtn = document.getElementById('inspector-send-btn');
+
+// Pick button
+inspectorPickBtn.addEventListener('click', () => {
+  if (inspectorPickerActive) {
+    inspectorPickerActive = false;
+    inspectorPickBtn.classList.remove('active');
+    chrome.runtime.sendMessage({ type: 'stopInspector' });
+  } else {
+    inspectorPickerActive = true;
+    inspectorPickBtn.classList.add('active');
+    inspectorShowLoading(false); // don't show loading yet, just activate
+    chrome.runtime.sendMessage({ type: 'startInspector' }, (result) => {
+      if (result?.error) {
+        inspectorPickerActive = false;
+        inspectorPickBtn.classList.remove('active');
+        inspectorShowError(result.error);
+      }
+    });
+  }
+});
+
+function inspectorShowEmpty() {
+  inspectorEmpty.style.display = '';
+  inspectorLoading.style.display = 'none';
+  inspectorError.style.display = 'none';
+  inspectorPanels.style.display = 'none';
+  inspectorSend.style.display = 'none';
+}
+
+function inspectorShowLoading(show) {
+  if (show) {
+    inspectorEmpty.style.display = 'none';
+    inspectorLoading.style.display = '';
+    inspectorError.style.display = 'none';
+    inspectorPanels.style.display = 'none';
+  } else {
+    inspectorLoading.style.display = 'none';
+  }
+}
+
+function inspectorShowError(message) {
+  inspectorEmpty.style.display = 'none';
+  inspectorLoading.style.display = 'none';
+  inspectorError.style.display = '';
+  inspectorError.textContent = message;
+  inspectorPanels.style.display = 'none';
+}
+
+function inspectorShowData(data) {
+  inspectorData = data;
+  inspectorModifications = [];
+  inspectorEmpty.style.display = 'none';
+  inspectorLoading.style.display = 'none';
+  inspectorError.style.display = 'none';
+  inspectorPanels.style.display = '';
+  inspectorSend.style.display = '';
+
+  // Update toolbar
+  const tag = data.tagName || '?';
+  const cls = data.classes && data.classes.length > 0 ? '.' + data.classes.join('.') : '';
+  const idStr = data.id ? '#' + data.id : '';
+  inspectorSelected.textContent = `<${tag}>${idStr}${cls}`;
+  inspectorSelected.title = data.selector;
+
+  // Mode badge
+  if (data.mode === 'basic') {
+    inspectorModeBadge.textContent = 'Basic mode';
+    inspectorModeBadge.style.display = '';
+    inspectorModeBadge.className = 'inspector-mode-badge basic';
+  } else if (data.mode === 'cdp') {
+    inspectorModeBadge.textContent = 'CDP';
+    inspectorModeBadge.style.display = '';
+    inspectorModeBadge.className = 'inspector-mode-badge cdp';
+  } else {
+    inspectorModeBadge.style.display = 'none';
+  }
+
+  // Render sections
+  renderBoxModel(data);
+  renderMatchedRules(data);
+  renderComputedStyles(data);
+  renderQuickEdit(data);
+  updateSendButton();
+}
+
+// ─── Box Model Rendering ────────────────────────────────────────
+
+function renderBoxModel(data) {
+  const box = data.basicData?.boxModel || data.boxModel;
+  if (!box) { inspectorBoxmodel.innerHTML = '<span class="inspector-no-data">No box model data</span>'; return; }
+
+  const m = box.margin || {};
+  const b = box.border || {};
+  const p = box.padding || {};
+  const c = box.content || {};
+
+  inspectorBoxmodel.innerHTML = `
+    <div class="boxmodel-margin">
+      <span class="boxmodel-label">margin</span>
+      <span class="boxmodel-value boxmodel-top">${fmtBoxVal(m.top)}</span>
+      <span class="boxmodel-value boxmodel-right">${fmtBoxVal(m.right)}</span>
+      <span class="boxmodel-value boxmodel-bottom">${fmtBoxVal(m.bottom)}</span>
+      <span class="boxmodel-value boxmodel-left">${fmtBoxVal(m.left)}</span>
+      <div class="boxmodel-border">
+        <span class="boxmodel-label">border</span>
+        <span class="boxmodel-value boxmodel-top">${fmtBoxVal(b.top)}</span>
+        <span class="boxmodel-value boxmodel-right">${fmtBoxVal(b.right)}</span>
+        <span class="boxmodel-value boxmodel-bottom">${fmtBoxVal(b.bottom)}</span>
+        <span class="boxmodel-value boxmodel-left">${fmtBoxVal(b.left)}</span>
+        <div class="boxmodel-padding">
+          <span class="boxmodel-label">padding</span>
+          <span class="boxmodel-value boxmodel-top">${fmtBoxVal(p.top)}</span>
+          <span class="boxmodel-value boxmodel-right">${fmtBoxVal(p.right)}</span>
+          <span class="boxmodel-value boxmodel-bottom">${fmtBoxVal(p.bottom)}</span>
+          <span class="boxmodel-value boxmodel-left">${fmtBoxVal(p.left)}</span>
+          <div class="boxmodel-content">
+            <span>${Math.round(c.width || 0)} x ${Math.round(c.height || 0)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function fmtBoxVal(v) {
+  if (v === undefined || v === null) return '-';
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  if (isNaN(n) || n === 0) return '0';
+  return Math.round(n * 10) / 10;
+}
+
+// ─── Matched Rules Rendering ────────────────────────────────────
+
+function renderMatchedRules(data) {
+  const rules = data.matchedRules || data.basicData?.matchedRules || [];
+  inspectorRuleCount.textContent = rules.length > 0 ? `(${rules.length})` : '';
+
+  if (rules.length === 0) {
+    inspectorRules.innerHTML = '<div class="inspector-no-data">No matched rules</div>';
+    return;
+  }
+
+  // Separate UA rules from author rules
+  const authorRules = [];
+  const uaRules = [];
+  for (const rule of rules) {
+    if (rule.origin === 'user-agent' || rule.isUA) {
+      uaRules.push(rule);
+    } else {
+      authorRules.push(rule);
+    }
+  }
+
+  let html = '';
+
+  // Author rules (expanded)
+  for (const rule of authorRules) {
+    html += renderRule(rule, false);
+  }
+
+  // UA rules (collapsed by default)
+  if (uaRules.length > 0) {
+    html += `
+      <div class="inspector-ua-rules">
+        <button class="inspector-ua-toggle collapsed" aria-expanded="false">
+          <span class="inspector-toggle-arrow">&#x25B6;</span>
+          User Agent (${uaRules.length})
+        </button>
+        <div class="inspector-ua-body collapsed">
+    `;
+    for (const rule of uaRules) {
+      html += renderRule(rule, true);
+    }
+    html += '</div></div>';
+  }
+
+  inspectorRules.innerHTML = html;
+
+  // Bind UA toggle
+  const uaToggle = inspectorRules.querySelector('.inspector-ua-toggle');
+  if (uaToggle) {
+    uaToggle.addEventListener('click', () => {
+      const body = inspectorRules.querySelector('.inspector-ua-body');
+      const isCollapsed = uaToggle.classList.contains('collapsed');
+      uaToggle.classList.toggle('collapsed', !isCollapsed);
+      uaToggle.setAttribute('aria-expanded', isCollapsed);
+      uaToggle.querySelector('.inspector-toggle-arrow').innerHTML = isCollapsed ? '&#x25BC;' : '&#x25B6;';
+      body.classList.toggle('collapsed', !isCollapsed);
+    });
+  }
+}
+
+function renderRule(rule, isUA) {
+  const selectorText = escapeHtml(rule.selector || '');
+  const truncatedSelector = selectorText.length > 35 ? selectorText.slice(0, 35) + '...' : selectorText;
+  const source = rule.source || '';
+  const sourceDisplay = source.includes('/') ? source.split('/').pop() : source;
+  const specificity = rule.specificity || '';
+
+  let propsHtml = '';
+  const props = rule.properties || [];
+  for (const prop of props) {
+    const overridden = prop.overridden ? ' overridden' : '';
+    const nameHtml = escapeHtml(prop.name);
+    const valText = escapeHtml(prop.value || '');
+    const truncatedVal = valText.length > 30 ? valText.slice(0, 30) + '...' : valText;
+    const priority = prop.priority === 'important' ? ' <span class="inspector-important">!important</span>' : '';
+    propsHtml += `<div class="inspector-prop${overridden}"><span class="inspector-prop-name">${nameHtml}</span>: <span class="inspector-prop-value" title="${valText}">${truncatedVal}</span>${priority};</div>`;
+  }
+
+  return `
+    <div class="inspector-rule" role="treeitem">
+      <div class="inspector-rule-header">
+        <span class="inspector-selector" title="${selectorText}">${truncatedSelector}</span>
+        ${specificity ? `<span class="inspector-specificity">${escapeHtml(specificity)}</span>` : ''}
+      </div>
+      <div class="inspector-rule-props">${propsHtml}</div>
+      ${sourceDisplay ? `<div class="inspector-rule-source">${escapeHtml(sourceDisplay)}</div>` : ''}
+    </div>
+  `;
+}
+
+// ─── Computed Styles Rendering ──────────────────────────────────
+
+function renderComputedStyles(data) {
+  const styles = data.computedStyles || data.basicData?.computedStyles || {};
+  const keys = Object.keys(styles);
+
+  if (keys.length === 0) {
+    inspectorComputed.innerHTML = '<div class="inspector-no-data">No computed styles</div>';
+    return;
+  }
+
+  let html = '';
+  for (const key of keys) {
+    const val = styles[key];
+    if (!val || val === 'none' || val === 'normal' || val === 'auto' || val === '0px' || val === 'rgba(0, 0, 0, 0)') continue;
+    html += `<div class="inspector-computed-row"><span class="inspector-prop-name">${escapeHtml(key)}</span>: <span class="inspector-prop-value">${escapeHtml(val)}</span></div>`;
+  }
+
+  if (!html) {
+    html = '<div class="inspector-no-data">All values are defaults</div>';
+  }
+
+  inspectorComputed.innerHTML = html;
+}
+
+// ─── Quick Edit ─────────────────────────────────────────────────
+
+function renderQuickEdit(data) {
+  const selector = data.selector;
+  if (!selector) { inspectorQuickedit.innerHTML = ''; return; }
+
+  // Show common editable properties with current values
+  const editableProps = ['color', 'background-color', 'font-size', 'padding', 'margin', 'border', 'display', 'opacity'];
+  const computed = data.computedStyles || data.basicData?.computedStyles || {};
+
+  let html = '<div class="inspector-quickedit-list">';
+  for (const prop of editableProps) {
+    const val = computed[prop] || '';
+    html += `
+      <div class="inspector-quickedit-row" data-prop="${escapeHtml(prop)}">
+        <span class="inspector-prop-name">${escapeHtml(prop)}</span>:
+        <span class="inspector-quickedit-value" data-selector="${escapeHtml(selector)}" data-prop="${escapeHtml(prop)}" tabindex="0" role="button" title="Click to edit">${escapeHtml(val || '(none)')}</span>
+      </div>
+    `;
+  }
+  html += '</div>';
+  inspectorQuickedit.innerHTML = html;
+
+  // Bind click-to-edit
+  inspectorQuickedit.querySelectorAll('.inspector-quickedit-value').forEach(el => {
+    el.addEventListener('click', () => startQuickEdit(el));
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startQuickEdit(el); }
+    });
+  });
+}
+
+function startQuickEdit(valueEl) {
+  if (valueEl.querySelector('input')) return; // already editing
+
+  const currentVal = valueEl.textContent === '(none)' ? '' : valueEl.textContent;
+  const prop = valueEl.dataset.prop;
+  const selector = valueEl.dataset.selector;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'inspector-quickedit-input';
+  input.value = currentVal;
+  valueEl.textContent = '';
+  valueEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  function commit() {
+    const newVal = input.value.trim();
+    valueEl.textContent = newVal || '(none)';
+    if (newVal && newVal !== currentVal) {
+      chrome.runtime.sendMessage({
+        type: 'applyStyle',
+        selector,
+        property: prop,
+        value: newVal,
+      });
+      inspectorModifications.push({ property: prop, value: newVal, selector });
+      updateSendButton();
+    }
+  }
+
+  function cancel() {
+    valueEl.textContent = currentVal || '(none)';
+  }
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { e.preventDefault(); input.removeEventListener('blur', commit); cancel(); }
+  });
+}
+
+// ─── Send to Agent ──────────────────────────────────────────────
+
+function updateSendButton() {
+  if (inspectorModifications.length > 0) {
+    inspectorSendBtn.textContent = 'Send to Code';
+    inspectorSendBtn.title = `${inspectorModifications.length} modification(s) to send`;
+  } else {
+    inspectorSendBtn.textContent = 'Send to Agent';
+    inspectorSendBtn.title = 'Send full inspector data';
+  }
+}
+
+inspectorSendBtn.addEventListener('click', () => {
+  if (!inspectorData) return;
+
+  let message;
+  if (inspectorModifications.length > 0) {
+    // Format modification diff
+    const diffs = inspectorModifications.map(m =>
+      `  ${m.property}: ${m.value} (selector: ${m.selector})`
+    ).join('\n');
+    message = `CSS Inspector modifications:\n\nSelector: ${inspectorData.selector}\n\nChanges:\n${diffs}`;
+
+    // Include source file info if available
+    const rules = inspectorData.matchedRules || inspectorData.basicData?.matchedRules || [];
+    const sources = rules.filter(r => r.source && r.source !== 'inline').map(r => r.source);
+    if (sources.length > 0) {
+      message += `\n\nSource files:\n${[...new Set(sources)].map(s => `  ${s}`).join('\n')}`;
+    }
+  } else {
+    // Send full inspector data
+    message = `CSS Inspector data for: ${inspectorData.selector}\n\n${JSON.stringify(inspectorData, null, 2)}`;
+  }
+
+  chrome.runtime.sendMessage({ type: 'sidebar-command', message });
+});
+
+// ─── Quick Action Helpers (shared between chat toolbar + inspector) ──
+
+async function runCleanup(...buttons) {
+  if (!serverUrl || !serverToken) {
+    return;
+  }
+  buttons.forEach(b => b?.classList.add('loading'));
+
+  // Smart cleanup: send a chat message to the sidebar agent (an LLM).
+  // The agent snapshots the page, understands it semantically, and removes
+  // clutter intelligently. Much better than brittle CSS selectors.
+  const cleanupPrompt = [
+    'Clean up this page for reading. First run a quick deterministic pass:',
+    '$B cleanup --all',
+    '',
+    'Then take a snapshot to see what\'s left:',
+    '$B snapshot -i',
+    '',
+    'Look at the snapshot and identify remaining non-content elements:',
+    '- Ad placeholders, "ADVERTISEMENT" labels, sponsored content',
+    '- Cookie/consent banners, newsletter popups, login walls',
+    '- Audio/podcast player widgets, video autoplay',
+    '- Sidebar widgets (puzzles, games, "most popular", recommendations)',
+    '- Social share buttons, follow prompts, "See more on Google"',
+    '- Floating chat widgets, feedback buttons',
+    '- Navigation drawers, mega-menus (unless they ARE the page content)',
+    '- Empty whitespace from removed ads',
+    '',
+    'KEEP: the site header/masthead/logo, article headline, article body,',
+    'article images, author byline, date. The page should still look like',
+    'the site it is, just without the crap.',
+    '',
+    'For each element to remove, run JavaScript via $B to hide it:',
+    '$B eval "document.querySelector(\'SELECTOR\').style.display=\'none\'"',
+    '',
+    'Also unlock scrolling if the page is scroll-locked:',
+    '$B eval "document.body.style.overflow=\'auto\';document.documentElement.style.overflow=\'auto\'"',
+  ].join('\n');
+
+  try {
+    // Send as a sidebar command (spawns the agent)
+    const resp = await fetch(`${serverUrl}/sidebar-command`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ message: cleanupPrompt }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (resp.ok) {
+      addChatEntry({ type: 'notification', message: 'Cleaning up page (agent is analyzing...)' });
+    } else {
+      addChatEntry({ type: 'notification', message: 'Failed to start cleanup' });
+    }
+  } catch (err) {
+    addChatEntry({ type: 'notification', message: 'Cleanup failed: ' + err.message });
+  } finally {
+    // Remove loading after a short delay (agent runs async)
+    setTimeout(() => buttons.forEach(b => b?.classList.remove('loading')), 2000);
+  }
+}
+
+async function runScreenshot(...buttons) {
+  if (!serverUrl || !serverToken) {
+    return;
+  }
+  buttons.forEach(b => b?.classList.add('loading'));
+  try {
+    const resp = await fetch(`${serverUrl}/command`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'screenshot', args: [] }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const text = await resp.text();
+    if (resp.ok) {
+      addChatEntry({ type: 'notification', message: text || 'Screenshot saved' });
+    } else {
+      const err = JSON.parse(text).error || 'Screenshot failed';
+      addChatEntry({ type: 'notification', message: 'Error: ' + err });
+    }
+  } catch (err) {
+    addChatEntry({ type: 'notification', message: 'Screenshot failed: ' + err.message });
+  } finally {
+    buttons.forEach(b => b?.classList.remove('loading'));
+  }
+}
+
+// ─── Wire up all cleanup/screenshot buttons (inspector + chat toolbar) ──
+
+const inspectorCleanupBtn = document.getElementById('inspector-cleanup-btn');
+const inspectorScreenshotBtn = document.getElementById('inspector-screenshot-btn');
+const chatCleanupBtn = document.getElementById('chat-cleanup-btn');
+const chatScreenshotBtn = document.getElementById('chat-screenshot-btn');
+
+if (inspectorCleanupBtn) inspectorCleanupBtn.addEventListener('click', () => runCleanup(inspectorCleanupBtn, chatCleanupBtn));
+if (inspectorScreenshotBtn) inspectorScreenshotBtn.addEventListener('click', () => runScreenshot(inspectorScreenshotBtn, chatScreenshotBtn));
+if (chatCleanupBtn) chatCleanupBtn.addEventListener('click', () => runCleanup(chatCleanupBtn, inspectorCleanupBtn));
+if (chatScreenshotBtn) chatScreenshotBtn.addEventListener('click', () => runScreenshot(chatScreenshotBtn, inspectorScreenshotBtn));
+
+// ─── Section Toggles ────────────────────────────────────────────
+
+document.querySelectorAll('.inspector-section-toggle').forEach(toggle => {
+  toggle.addEventListener('click', () => {
+    const section = toggle.dataset.section;
+    const body = document.getElementById(`inspector-${section}`);
+    const isCollapsed = toggle.classList.contains('collapsed');
+
+    toggle.classList.toggle('collapsed', !isCollapsed);
+    toggle.setAttribute('aria-expanded', isCollapsed);
+    toggle.querySelector('.inspector-toggle-arrow').innerHTML = isCollapsed ? '&#x25BC;' : '&#x25B6;';
+    body.classList.toggle('collapsed', !isCollapsed);
+  });
+});
+
+// ─── Inspector SSE ──────────────────────────────────────────────
+
+function connectInspectorSSE() {
+  if (!serverUrl || !serverToken) return;
+  if (inspectorSSE) { inspectorSSE.close(); inspectorSSE = null; }
+
+  const tokenParam = serverToken ? `&token=${serverToken}` : '';
+  const url = `${serverUrl}/inspector/events?_=${Date.now()}${tokenParam}`;
+
+  try {
+    inspectorSSE = new EventSource(url);
+
+    inspectorSSE.addEventListener('inspectResult', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        inspectorShowData(data);
+      } catch {}
+    });
+
+    inspectorSSE.addEventListener('error', () => {
+      // SSE connection failed — inspector works without it (basic mode)
+      if (inspectorSSE) { inspectorSSE.close(); inspectorSSE = null; }
+    });
+  } catch {
+    // SSE not available — that's fine
+  }
+}
+
 // ─── Server Discovery ───────────────────────────────────────────
+
+function setActionButtonsEnabled(enabled) {
+  const btns = document.querySelectorAll('.quick-action-btn, .inspector-action-btn');
+  btns.forEach(btn => {
+    btn.disabled = !enabled;
+    btn.classList.toggle('disabled', !enabled);
+  });
+}
 
 function updateConnection(url, token) {
   const wasConnected = !!serverUrl;
@@ -534,14 +1320,22 @@ function updateConnection(url, token) {
     const port = new URL(url).port;
     document.getElementById('footer-port').textContent = `:${port}`;
     setConnState('connected');
+    setActionButtonsEnabled(true);
     connectSSE();
+    connectInspectorSSE();
     if (chatPollInterval) clearInterval(chatPollInterval);
-    chatPollInterval = setInterval(pollChat, 1000);
+    chatPollInterval = setInterval(pollChat, SLOW_POLL_MS);
     pollChat();
+    // Poll browser tabs every 2s (lightweight, just tab list)
+    if (tabPollInterval) clearInterval(tabPollInterval);
+    tabPollInterval = setInterval(pollTabs, 2000);
+    pollTabs();
   } else {
     document.getElementById('footer-dot').className = 'dot';
     document.getElementById('footer-port').textContent = '';
+    setActionButtonsEnabled(false);
     if (chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
+    if (tabPollInterval) { clearInterval(tabPollInterval); tabPollInterval = null; }
     if (wasConnected) {
       startReconnect();
     }
@@ -621,6 +1415,38 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'refs') {
     if (document.querySelector('.tab[data-tab="refs"].active')) {
       fetchRefs();
+    }
+  }
+  if (msg.type === 'inspectResult') {
+    inspectorPickerActive = false;
+    inspectorPickBtn.classList.remove('active');
+    if (msg.data) {
+      inspectorShowData(msg.data);
+    } else {
+      inspectorShowError('Element not found, try picking again');
+    }
+  }
+  if (msg.type === 'pickerCancelled') {
+    inspectorPickerActive = false;
+    inspectorPickBtn.classList.remove('active');
+  }
+  // Instant tab switch — background.js fires this on chrome.tabs.onActivated
+  if (msg.type === 'browserTabActivated') {
+    // Tell the server which tab is now active, then switch chat context
+    if (serverUrl && serverToken) {
+      fetch(`${serverUrl}/sidebar-tabs?activeUrl=${encodeURIComponent(msg.url || '')}`, {
+        headers: authHeaders(),
+        signal: AbortSignal.timeout(2000),
+      }).then(r => r.json()).then(data => {
+        if (data.tabs) {
+          renderTabBar(data.tabs);
+          // Find the server-side tab ID for this Chrome tab
+          const activeTab = data.tabs.find(t => t.active);
+          if (activeTab && activeTab.id !== sidebarActiveTabId) {
+            switchChatTab(activeTab.id);
+          }
+        }
+      }).catch(() => {});
     }
   }
 });

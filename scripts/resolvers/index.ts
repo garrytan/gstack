@@ -11,12 +11,13 @@ import { generateTestFailureTriage } from './preamble';
 import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup } from './browse';
 import { generateDesignMethodology, generateDesignHardRules, generateDesignOutsideVoices, generateDesignReviewLite, generateDesignSketch, generateDesignSetup, generateDesignMockup, generateDesignShotgunLoop } from './design';
 import { generateTestBootstrap, generateTestCoverageAuditPlan, generateTestCoverageAuditShip, generateTestCoverageAuditReview } from './testing';
-import { generateReviewDashboard, generatePlanFileReviewReport, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './review';
+import { generateReviewDashboard, generatePlanFileReviewReport, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec, generateScopeDrift } from './review';
 import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer, generateChangelogWorkflow } from './utility';
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
 import { generateConfidenceCalibration } from './confidence';
 import { generateInvokeSkill } from './composition';
 import { generateSastScan, generateSastScanCso } from './sast';
+import { generateReviewArmy } from './review-army';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
@@ -46,6 +47,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   BENEFITS_FROM: generateBenefitsFrom,
   CODEX_SECOND_OPINION: generateCodexSecondOpinion,
   ADVERSARIAL_STEP: generateAdversarialStep,
+  SCOPE_DRIFT: generateScopeDrift,
   DEPLOY_BOOTSTRAP: generateDeployBootstrap,
   CODEX_PLAN_REVIEW: generateCodexPlanReview,
   PLAN_COMPLETION_AUDIT_SHIP: generatePlanCompletionAuditShip,
@@ -59,4 +61,5 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   CHANGELOG_WORKFLOW: generateChangelogWorkflow,
   SAST_SCAN: generateSastScan,
   SAST_SCAN_CSO: generateSastScanCso,
+  REVIEW_ARMY: generateReviewArmy,
 };

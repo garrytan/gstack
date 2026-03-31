@@ -11,6 +11,7 @@ import type { Page, Frame } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TEMP_DIR, isPathWithin } from './platform';
+import { inspectElement, formatInspectorResult, getModificationHistory } from './cdp-inspector';
 
 /** Detect await keyword, ignoring comments. Accepted risk: await in string literals triggers wrapping (harmless). */
 function hasAwait(code: string): boolean {
@@ -350,6 +351,54 @@ export async function handleReadCommand(
       return Object.entries(timings)
         .map(([k, v]) => `${k.padEnd(12)} ${v}ms`)
         .join('\n');
+    }
+
+    case 'inspect': {
+      // Parse flags
+      let includeUA = false;
+      let showHistory = false;
+      let selector: string | undefined;
+
+      for (const arg of args) {
+        if (arg === '--all') {
+          includeUA = true;
+        } else if (arg === '--history') {
+          showHistory = true;
+        } else if (!selector) {
+          selector = arg;
+        }
+      }
+
+      // --history mode: return modification history
+      if (showHistory) {
+        const history = getModificationHistory();
+        if (history.length === 0) return '(no style modifications)';
+        return history.map((m, i) =>
+          `[${i}] ${m.selector} { ${m.property}: ${m.oldValue} → ${m.newValue} } (${m.source}, ${m.method})`
+        ).join('\n');
+      }
+
+      // If no selector given, check for stored inspector data
+      if (!selector) {
+        // Access stored inspector data from the server's in-memory state
+        // The server stores this when the extension picks an element via POST /inspector/pick
+        const stored = (bm as any)._inspectorData;
+        const storedTs = (bm as any)._inspectorTimestamp;
+        if (stored) {
+          const stale = storedTs && (Date.now() - storedTs > 60000);
+          let output = formatInspectorResult(stored, { includeUA });
+          if (stale) output = '⚠ Data may be stale (>60s old)\n\n' + output;
+          return output;
+        }
+        throw new Error('Usage: browse inspect [selector] [--all] [--history]\nOr pick an element in the Chrome sidebar first.');
+      }
+
+      // Direct inspection by selector
+      const result = await inspectElement(page, selector, { includeUA });
+      // Store for later retrieval
+      (bm as any)._inspectorData = result;
+      (bm as any)._inspectorTimestamp = Date.now();
+      return formatInspectorResult(result, { includeUA });
     }
 
     default:

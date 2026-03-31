@@ -100,7 +100,7 @@ gstack/
 │   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
 │   ├── test/        # Integration tests
 │   └── dist/        # Compiled binary
-├── extension/       # Chrome extension (side panel + activity feed)
+├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
 ├── lib/             # Shared libraries (worktree.ts)
 ├── docs/designs/    # Design documents
 ├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
