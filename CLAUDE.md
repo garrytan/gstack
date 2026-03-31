@@ -1,387 +1,317 @@
-# gstack development
+# gstack 开发说明
 
-## Commands
-
-```bash
-bun install          # install dependencies
-bun test             # run free tests (browse + snapshot + skill validation)
-bun run test:evals   # run paid evals: LLM judge + E2E (diff-based, ~$4/run max)
-bun run test:evals:all  # run ALL paid evals regardless of diff
-bun run test:gate    # run gate-tier tests only (CI default, blocks merge)
-bun run test:periodic  # run periodic-tier tests only (weekly cron / manual)
-bun run test:e2e     # run E2E tests only (diff-based, ~$3.85/run max)
-bun run test:e2e:all # run ALL E2E tests regardless of diff
-bun run eval:select  # show which tests would run based on current diff
-bun run dev <cmd>    # run CLI in dev mode, e.g. bun run dev goto https://example.com
-bun run build        # gen docs + compile binaries
-bun run gen:skill-docs  # regenerate SKILL.md files from templates
-bun run skill:check  # health dashboard for all skills
-bun run dev:skill    # watch mode: auto-regen + validate on change
-bun run eval:list    # list all eval runs from ~/.gstack-dev/evals/
-bun run eval:compare # compare two eval runs (auto-picks most recent)
-bun run eval:summary # aggregate stats across all eval runs
-```
-
-`test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
-use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
-E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
---verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
-against the previous run.
-
-**Diff-based test selection:** `test:evals` and `test:e2e` auto-select tests based
-on `git diff` against the base branch. Each test declares its file dependencies in
-`test/helpers/touchfiles.ts`. Changes to global touchfiles (session-runner, eval-store,
-touchfiles.ts itself) trigger all tests. Use `EVALS_ALL=1` or the `:all` script
-variants to force all tests. Run `eval:select` to preview which tests would run.
-
-**Two-tier system:** Tests are classified as `gate` or `periodic` in `E2E_TIERS`
-(in `test/helpers/touchfiles.ts`). CI runs only gate tests (`EVALS_TIER=gate`);
-periodic tests run weekly via cron or manually. Use `EVALS_TIER=gate` or
-`EVALS_TIER=periodic` to filter. When adding new E2E tests, classify them:
-1. Safety guardrail or deterministic functional test? -> `gate`
-2. Quality benchmark, Opus model test, or non-deterministic? -> `periodic`
-3. Requires external service (Codex, Gemini)? -> `periodic`
-
-## Testing
+## 命令
 
 ```bash
-bun test             # run before every commit — free, <2s
-bun run test:evals   # run before shipping — paid, diff-based (~$4/run max)
+bun install          # 安装依赖
+bun test             # 运行免费测试（browse + snapshot + skill 校验）
+bun run test:evals   # 运行付费 eval：LLM judge + E2E（基于 diff，单次最多约 $4）
+bun run test:evals:all  # 无论 diff 如何都运行全部付费 eval
+bun run test:gate    # 只跑 gate 层测试（CI 默认，阻断合并）
+bun run test:periodic  # 只跑 periodic 层测试（每周 cron / 手动）
+bun run test:e2e     # 只跑 E2E 测试（基于 diff，单次最多约 $3.85）
+bun run test:e2e:all # 无论 diff 如何都运行全部 E2E 测试
+bun run eval:select  # 展示基于当前 diff 会运行哪些测试
+bun run dev <cmd>    # 用开发模式运行 CLI，例如 bun run dev goto https://example.com
+bun run build        # 生成文档 + 编译二进制
+bun run gen:skill-docs  # 从模板重新生成 SKILL.md 文件
+bun run skill:check  # 所有 skill 的健康看板
+bun run dev:skill    # watch 模式：文件变更后自动重新生成并校验
+bun run eval:list    # 列出 ~/.gstack-dev/evals/ 中的所有 eval 运行记录
+bun run eval:compare # 比较两次 eval 运行（默认自动选最新两次）
+bun run eval:summary # 汇总所有 eval 运行统计
 ```
 
-`bun test` runs skill validation, gen-skill-docs quality checks, and browse
-integration tests. `bun run test:evals` runs LLM-judge quality evals and E2E
-tests via `claude -p`. Both must pass before creating a PR.
+`test:evals` 需要 `ANTHROPIC_API_KEY`。Codex E2E 测试（`test/codex-e2e.test.ts`）
+使用 `~/.codex/` 中的 Codex 自有鉴权，不需要 `OPENAI_API_KEY` 环境变量。
+E2E 测试会实时流式输出进度（通过 `--output-format stream-json --verbose` 逐工具输出）。
+结果会持久化到 `~/.gstack-dev/evals/`，并自动与上一次运行做对比。
 
-## Project structure
+**基于 diff 的测试选择：** `test:evals` 和 `test:e2e` 会根据相对于 base branch 的 `git diff` 自动挑选测试。每个测试在 `test/helpers/touchfiles.ts` 中声明自己的文件依赖。对全局 touchfile（如 `session-runner`、`eval-store`、`touchfiles.ts` 本身）的改动会触发所有测试。使用 `EVALS_ALL=1` 或 `:all` 变体可以强制运行全部测试。执行 `eval:select` 可以预览将会跑哪些测试。
+
+**双层系统：** 测试会在 `E2E_TIERS`（位于 `test/helpers/touchfiles.ts`）中被标记为 `gate` 或 `periodic`。CI 只运行 gate 测试（`EVALS_TIER=gate`）；periodic 测试则通过每周 cron 或手动方式运行。使用 `EVALS_TIER=gate` 或 `EVALS_TIER=periodic` 进行筛选。新增 E2E 测试时，按下面标准分类：
+
+1. 是安全护栏或确定性的功能测试？→ `gate`
+2. 是质量基准、Opus 模型测试，或非确定性测试？→ `periodic`
+3. 依赖外部服务（Codex、Gemini）？→ `periodic`
+
+## 测试
+
+```bash
+bun test             # 每次提交前都跑，免费，<2s
+bun run test:evals   # 发版前运行，付费，基于 diff（单次最多约 $4）
+```
+
+`bun test` 会运行 skill 校验、`gen-skill-docs` 质量检查，以及 browse 集成测试。
+`bun run test:evals` 会运行基于 LLM-judge 的质量 eval 和通过 `claude -p` 启动的 E2E 测试。
+在创建 PR 前，这两个都必须通过。
+
+## 项目结构
 
 ```
 gstack/
-├── browse/          # Headless browser CLI (Playwright)
+├── browse/          # Headless 浏览器 CLI（Playwright）
 │   ├── src/         # CLI + server + commands
-│   │   ├── commands.ts  # Command registry (single source of truth)
-│   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
-│   ├── test/        # Integration tests + fixtures
-│   └── dist/        # Compiled binary
-├── scripts/         # Build + DX tooling
-│   ├── gen-skill-docs.ts  # Template → SKILL.md generator
-│   ├── resolvers/   # Template resolver modules (preamble, design, review, etc.)
-│   ├── skill-check.ts     # Health dashboard
-│   └── dev-skill.ts       # Watch mode
-├── test/            # Skill validation + eval tests
-│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts
-│   ├── fixtures/    # Ground truth JSON, planted-bug fixtures, eval baselines
-│   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
-│   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
-│   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
-│   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
-├── qa-only/         # /qa-only skill (report-only QA, no fixes)
-├── plan-design-review/  # /plan-design-review skill (report-only design audit)
-├── design-review/    # /design-review skill (design audit + fix loop)
-├── ship/            # Ship workflow skill
+│   │   ├── commands.ts  # 命令注册表（单一真实来源）
+│   │   └── snapshot.ts  # SNAPSHOT_FLAGS 元数据数组
+│   ├── test/        # 集成测试 + fixtures
+│   └── dist/        # 编译后的二进制
+├── scripts/         # 构建与 DX 工具
+│   ├── gen-skill-docs.ts  # 模板 → SKILL.md 生成器
+│   ├── resolvers/   # 模板解析模块（preamble、design、review 等）
+│   ├── skill-check.ts     # 健康看板
+│   └── dev-skill.ts       # watch 模式
+├── test/            # Skill 校验 + eval 测试
+│   ├── helpers/     # skill-parser.ts、session-runner.ts、llm-judge.ts、eval-store.ts
+│   ├── fixtures/    # Ground truth JSON、种植 bug 的 fixture、eval baseline
+│   ├── skill-validation.test.ts  # Tier 1：静态校验（免费，<1s）
+│   ├── gen-skill-docs.test.ts    # Tier 1：生成器质量（免费，<1s）
+│   ├── skill-llm-eval.test.ts   # Tier 3：LLM-as-judge（约 $0.15 / 次）
+│   └── skill-e2e-*.test.ts       # Tier 2：通过 claude -p 做 E2E（约 $3.85 / 次，按类别拆分）
+├── qa-only/         # /qa-only skill（只出报告，不修复）
+├── plan-design-review/  # /plan-design-review skill（只出报告的设计审计）
+├── design-review/    # /design-review skill（设计审计 + 修复循环）
+├── ship/            # Ship 工作流 skill
 ├── review/          # PR review skill
 ├── plan-ceo-review/ # /plan-ceo-review skill
 ├── plan-eng-review/ # /plan-eng-review skill
-├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
-├── benchmark/       # /benchmark skill (performance regression detection)
-├── canary/          # /canary skill (post-deploy monitoring loop)
-├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
-├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
-├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
-├── investigate/     # /investigate skill (systematic root-cause debugging)
-├── retro/           # Retrospective skill (includes /retro global cross-project mode)
-├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
-├── document-release/ # /document-release skill (post-ship doc updates)
-├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
-├── design-consultation/ # /design-consultation skill (design system from scratch)
-├── design-shotgun/  # /design-shotgun skill (visual design exploration)
-├── connect-chrome/  # /connect-chrome skill (headed Chrome with side panel)
-├── design/          # Design binary CLI (GPT Image API)
-│   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
-│   ├── test/        # Integration tests
-│   └── dist/        # Compiled binary
-├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
-├── lib/             # Shared libraries (worktree.ts)
-├── docs/designs/    # Design documents
-├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
-├── .github/         # CI workflows + Docker image
-│   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
-│   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
-├── setup            # One-time setup: build binary + symlink skills
-├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
-├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
-├── ETHOS.md         # Builder philosophy (Boil the Lake, Search Before Building)
-└── package.json     # Build scripts for browse
+├── autoplan/        # /autoplan skill（自动 review 流水线：CEO → design → eng）
+├── benchmark/       # /benchmark skill（性能回归检测）
+├── canary/          # /canary skill（发布后监控循环）
+├── codex/           # /codex skill（通过 OpenAI Codex CLI 获得多 AI second opinion）
+├── land-and-deploy/ # /land-and-deploy skill（merge → deploy → canary verify）
+├── office-hours/    # /office-hours skill（YC Office Hours，创业诊断 + builder brainstorm）
+├── investigate/     # /investigate skill（系统化根因排查）
+├── retro/           # 复盘 skill（包含 /retro 的全局跨项目模式）
+├── bin/             # CLI 工具（gstack-repo-mode、gstack-slug、gstack-config 等）
+├── document-release/ # /document-release skill（ship 后文档更新）
+├── cso/             # /cso skill（基于 OWASP Top 10 + STRIDE 的安全审计）
+├── design-consultation/ # /design-consultation skill（从零开始做设计系统）
+├── design-shotgun/  # /design-shotgun skill（视觉设计探索）
+├── connect-chrome/  # /connect-chrome skill（带侧边面板的 headed Chrome）
+├── design/          # 设计二进制 CLI（GPT Image API）
+│   ├── src/         # CLI + commands（generate、variants、compare、serve 等）
+│   ├── test/        # 集成测试
+│   └── dist/        # 编译后的二进制
+├── extension/       # Chrome 扩展（侧边面板 + 活动流 + CSS 检查器）
+├── lib/             # 共享库（worktree.ts）
+├── docs/designs/    # 设计文档
+├── setup-deploy/    # /setup-deploy skill（一次性部署配置）
+├── .github/         # CI 工作流 + Docker 镜像
+│   ├── workflows/   # evals.yml（Ubicloud 上跑 E2E）、skill-docs.yml、actionlint.yml
+│   └── docker/      # Dockerfile.ci（预置工具链 + Playwright/Chromium）
+├── setup            # 一次性安装：构建二进制 + 创建 skill symlink
+├── SKILL.md         # 由 SKILL.md.tmpl 生成（不要直接编辑）
+├── SKILL.md.tmpl    # 模板：改这个，然后运行 gen:skill-docs
+├── ETHOS.md         # Builder 哲学（Boil the Lake、Search Before Building）
+└── package.json     # browse 的构建脚本
 ```
 
-## SKILL.md workflow
+## SKILL.md 工作流
 
-SKILL.md files are **generated** from `.tmpl` templates. To update docs:
+SKILL.md 文件是从 `.tmpl` 模板**生成**出来的。要更新文档：
 
-1. Edit the `.tmpl` file (e.g. `SKILL.md.tmpl` or `browse/SKILL.md.tmpl`)
-2. Run `bun run gen:skill-docs` (or `bun run build` which does it automatically)
-3. Commit both the `.tmpl` and generated `.md` files
+1. 编辑 `.tmpl` 文件（例如 `SKILL.md.tmpl` 或 `browse/SKILL.md.tmpl`）
+2. 运行 `bun run gen:skill-docs`（或者运行 `bun run build`，它会自动做）
+3. 同时提交 `.tmpl` 文件和生成出的 `.md` 文件
 
-To add a new browse command: add it to `browse/src/commands.ts` and rebuild.
-To add a snapshot flag: add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts` and rebuild.
+要新增一个 browse 命令：把它加到 `browse/src/commands.ts` 并重新构建。  
+要新增一个 snapshot flag：把它加到 `browse/src/snapshot.ts` 中的 `SNAPSHOT_FLAGS`，然后重新构建。
 
-**Merge conflicts on SKILL.md files:** NEVER resolve conflicts on generated SKILL.md
-files by accepting either side. Instead: (1) resolve conflicts on the `.tmpl` templates
-and `scripts/gen-skill-docs.ts` (the sources of truth), (2) run `bun run gen:skill-docs`
-to regenerate all SKILL.md files, (3) stage the regenerated files. Accepting one side's
-generated output silently drops the other side's template changes.
+**SKILL.md 文件上的 merge conflict：** 永远不要直接在生成出来的 SKILL.md 文件上选某一边解决冲突。正确做法是：
 
-## Platform-agnostic design
+1. 在 `.tmpl` 模板和 `scripts/gen-skill-docs.ts`（真实来源）上解决冲突
+2. 运行 `bun run gen:skill-docs`，重新生成所有 SKILL.md 文件
+3. 把重新生成的文件加入暂存
 
-Skills must NEVER hardcode framework-specific commands, file patterns, or directory
-structures. Instead:
+如果直接接受一边的生成结果，另一边模板中的改动会被静默丢掉。
 
-1. **Read CLAUDE.md** for project-specific config (test commands, eval commands, etc.)
-2. **If missing, AskUserQuestion** — let the user tell you or let gstack search the repo
-3. **Persist the answer to CLAUDE.md** so we never have to ask again
+## 平台无关设计
 
-This applies to test commands, eval commands, deploy commands, and any other
-project-specific behavior. The project owns its config; gstack reads it.
+skill 永远不应该硬编码框架特定的命令、文件模式或目录结构。正确顺序是：
 
-## Writing SKILL templates
+1. **读取 CLAUDE.md**，获取项目特定配置（测试命令、eval 命令等）
+2. **如果缺失，就 AskUserQuestion**，要么让用户告诉你，要么让 gstack 去搜索仓库
+3. **把答案写回 CLAUDE.md**，这样以后就不用再问
 
-SKILL.md.tmpl files are **prompt templates read by Claude**, not bash scripts.
-Each bash code block runs in a separate shell — variables do not persist between blocks.
+这适用于测试命令、eval 命令、部署命令，以及任何其他项目特定行为。项目自己拥有配置，gstack 只负责读取。
 
-Rules:
-- **Use natural language for logic and state.** Don't use shell variables to pass
-  state between code blocks. Instead, tell Claude what to remember and reference
-  it in prose (e.g., "the base branch detected in Step 0").
-- **Don't hardcode branch names.** Detect `main`/`master`/etc dynamically via
-  `gh pr view` or `gh repo view`. Use `{{BASE_BRANCH_DETECT}}` for PR-targeting
-  skills. Use "the base branch" in prose, `<base>` in code block placeholders.
-- **Keep bash blocks self-contained.** Each code block should work independently.
-  If a block needs context from a previous step, restate it in the prose above.
-- **Express conditionals as English.** Instead of nested `if/elif/else` in bash,
-  write numbered decision steps: "1. If X, do Y. 2. Otherwise, do Z."
+## 编写 SKILL 模板
 
-## Browser interaction
+SKILL.md.tmpl 文件是 **给 Claude 读取的 prompt 模板**，不是 bash 脚本。
+每个 bash 代码块都在独立 shell 中执行，变量不会跨代码块保留。
 
-When you need to interact with a browser (QA, dogfooding, cookie setup), use the
-`/browse` skill or run the browse binary directly via `$B <command>`. NEVER use
-`mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
-project uses.
+规则：
 
-## Vendored symlink awareness
+- **用自然语言表达逻辑与状态。** 不要用 shell 变量在多个代码块之间传状态。应该用 prose 告诉 Claude 需要记住什么，例如“第 0 步检测到的 base branch”。
+- **不要硬编码分支名。** 通过 `gh pr view` 或 `gh repo view` 动态检测 `main` / `master` 等。面向 PR 的 skill 使用 `{{BASE_BRANCH_DETECT}}`。在 prose 里说 “the base branch”，在代码块占位里写 `<base>`。
+- **让 bash 块自包含。** 每个代码块都应该能独立运行。如果需要上一步上下文，就在上方 prose 中重新说明。
+- **条件判断用英语表达。** 不要在 bash 里堆 `if/elif/else`，改用编号式决策步骤，例如“1. If X, do Y. 2. Otherwise, do Z.”
 
-When developing gstack, `.claude/skills/gstack` may be a symlink back to this
-working directory (gitignored). This means skill changes are **live immediately** —
-great for rapid iteration, risky during big refactors where half-written skills
-could break other Claude Code sessions using gstack concurrently.
+## 浏览器交互
 
-**Check once per session:** Run `ls -la .claude/skills/gstack` to see if it's a
-symlink or a real copy. If it's a symlink to your working directory, be aware that:
-- Template changes + `bun run gen:skill-docs` immediately affect all gstack invocations
-- Breaking changes to SKILL.md.tmpl files can break concurrent gstack sessions
-- During large refactors, remove the symlink (`rm .claude/skills/gstack`) so the
-  global install at `~/.claude/skills/gstack/` is used instead
+当你需要操作浏览器（QA、dogfooding、cookie 设置）时，使用 `/browse` skill，或者直接通过 `$B <command>` 调用 browse 二进制。**绝不要使用** `mcp__claude-in-chrome__*` 工具，它们又慢又不稳定，也不是本项目的正式路径。
 
-**Prefix setting:** Skill symlinks use either short names (`qa -> gstack/qa`) or
-namespaced (`gstack-qa -> gstack/qa`), controlled by `skill_prefix` in
-`~/.gstack/config.yaml`. When vendoring into a project, run `./setup` after
-symlinking to create the per-skill symlinks with your preferred naming. Pass
-`--no-prefix` or `--prefix` to skip the interactive prompt.
+## Vendored symlink 感知
 
-**For plan reviews:** When reviewing plans that modify skill templates or the
-gen-skill-docs pipeline, consider whether the changes should be tested in isolation
-before going live (especially if the user is actively using gstack in other windows).
+在开发 gstack 时，`.claude/skills/gstack` 可能是一个指回当前工作目录的 symlink（且被 gitignore）。这意味着 skill 改动会**立刻生效**，这对于快速迭代很好，但在做大重构时也很危险，因为半写好的 skill 可能会影响其他正在用 gstack 的 Claude Code 会话。
 
-## Compiled binaries — NEVER commit browse/dist/ or design/dist/
+**每个会话检查一次：** 运行 `ls -la .claude/skills/gstack`，确认它是 symlink 还是一份真实拷贝。如果它是一个指向当前工作目录的 symlink，需要知道：
 
-The `browse/dist/` and `design/dist/` directories contain compiled Bun binaries
-(`browse`, `find-browse`, `design`, ~58MB each). These are Mach-O arm64 only — they
-do NOT work on Linux, Windows, or Intel Macs. The `./setup` script already builds
-from source for every platform, so the checked-in binaries are redundant. They are
-tracked by git due to a historical mistake and should eventually be removed with
-`git rm --cached`.
+- 模板改动 + `bun run gen:skill-docs` 会立即影响所有 gstack 调用
+- 对 `SKILL.md.tmpl` 的破坏性修改会影响并发中的 gstack 会话
+- 做大重构时，可以先移除 symlink（`rm .claude/skills/gstack`），这样会回退到使用全局安装 `~/.claude/skills/gstack/`
 
-**NEVER stage or commit these files.** They show up as modified in `git status`
-because they're tracked despite `.gitignore` — ignore them. When staging files,
-always use specific filenames (`git add file1 file2`) — never `git add .` or
-`git add -A`, which will accidentally include the binaries.
+**前缀设置：** skill symlink 既可以用短名（`qa -> gstack/qa`），也可以用带命名空间前缀的名字（`gstack-qa -> gstack/qa`），由 `~/.gstack/config.yaml` 中的 `skill_prefix` 控制。把 gstack vendoring 到项目里时，在完成 symlink 后运行 `./setup`，这样会按你的偏好创建各 skill 的 symlink。传 `--no-prefix` 或 `--prefix` 可以跳过交互式提示。
 
-## Commit style
+**对 plan review 而言：** 当你审查那些会修改 skill template 或 `gen-skill-docs` 流水线的计划时，要考虑这些改动是否应该先隔离测试，再对真实环境生效，尤其是当用户在其他窗口里还在 actively 使用 gstack 时。
 
-**Always bisect commits.** Every commit should be a single logical change. When
-you've made multiple changes (e.g., a rename + a rewrite + new tests), split them
-into separate commits before pushing. Each commit should be independently
-understandable and revertable.
+## 编译后二进制 —— 永远不要提交 `browse/dist/` 或 `design/dist/`
 
-Examples of good bisection:
-- Rename/move separate from behavior changes
-- Test infrastructure (touchfiles, helpers) separate from test implementations
-- Template changes separate from generated file regeneration
-- Mechanical refactors separate from new features
+`browse/dist/` 和 `design/dist/` 目录里包含编译后的 Bun 二进制（`browse`、`find-browse`、`design`，每个约 58MB）。这些文件是 Mach-O arm64 only，只能跑在 Apple Silicon 上，**不能** 在 Linux、Windows 或 Intel Mac 上运行。`./setup` 脚本本来就会在每个平台从源码重新构建，因此把这些二进制提交进仓库完全是冗余的。它们之所以还被 git 跟踪，只是历史原因，最终应该通过 `git rm --cached` 清掉。
 
-When the user says "bisect commit" or "bisect and push," split staged/unstaged
-changes into logical commits and push.
+**绝不要暂存或提交这些文件。** 它们之所以会在 `git status` 中显示为 modified，是因为历史上已经被跟踪了，尽管 `.gitignore` 里已经忽略它们。暂存文件时，永远显式指定文件名（`git add file1 file2`），不要 `git add .` 或 `git add -A`，否则很容易把这些二进制一并带进去。
 
-## Community PR guardrails
+## 提交风格
 
-When reviewing or merging community PRs, **always AskUserQuestion** before accepting
-any commit that:
+**永远做可二分的提交。** 每个 commit 都应该只包含一个逻辑变化。只要你做了多件事（例如重命名 + 重写 + 新增测试），就要在 push 前拆成多个独立 commit。每个 commit 都应该可以被单独理解，也可以被单独回滚。
 
-1. **Touches ETHOS.md** — this file is Garry's personal builder philosophy. No edits
-   from external contributors or AI agents, period.
-2. **Removes or softens promotional material** — YC references, founder perspective,
-   and product voice are intentional. PRs that frame these as "unnecessary" or
-   "too promotional" must be rejected.
-3. **Changes Garry's voice** — the tone, humor, directness, and perspective in skill
-   templates, CHANGELOG, and docs are not generic. PRs that rewrite voice to be
-   more "neutral" or "professional" must be rejected.
+好的拆分例子：
 
-Even if the agent strongly believes a change improves the project, these three
-categories require explicit user approval via AskUserQuestion. No exceptions.
-No auto-merging. No "I'll just clean this up."
+- 重命名 / 移动 与 行为改动 分开提交
+- 测试基础设施（`touchfiles`、helpers）与 测试实现 分开提交
+- 模板变更 与 生成文件刷新 分开提交
+- 机械性重构 与 新功能 分开提交
 
-## CHANGELOG + VERSION style
+当用户说 “bisect commit” 或 “bisect and push” 时，要把 staged / unstaged 改动拆成多个逻辑 commit 再 push。
 
-**VERSION and CHANGELOG are branch-scoped.** Every feature branch that ships gets its
-own version bump and CHANGELOG entry. The entry describes what THIS branch adds —
-not what was already on main.
+## 社区 PR 护栏
 
-**When to write the CHANGELOG entry:**
-- At `/ship` time (Step 5), not during development or mid-branch.
-- The entry covers ALL commits on this branch vs the base branch.
-- Never fold new work into an existing CHANGELOG entry from a prior version that
-  already landed on main. If main has v0.10.0.0 and your branch adds features,
-  bump to v0.10.1.0 with a new entry — don't edit the v0.10.0.0 entry.
+在审查或合并社区 PR 时，**只要触及以下任何情况，都必须先 AskUserQuestion 再决定是否接受：**
 
-**Key questions before writing:**
-1. What branch am I on? What did THIS branch change?
-2. Is the base branch version already released? (If yes, bump and create new entry.)
-3. Does an existing entry on this branch already cover earlier work? (If yes, replace
-   it with one unified entry for the final version.)
+1. **修改 `ETHOS.md`**，这是 Garry 的个人 builder 哲学。外部贡献者或 AI agent 一律不能直接改。
+2. **删除或弱化宣传性内容**，YC 引用、创始人视角和产品语气都是刻意保留的。凡是把这些内容说成“不必要”或“太宣传”的 PR，都必须拒绝。
+3. **改变 Garry 的语气**，skill 模板、CHANGELOG、文档中的口吻、幽默感、直接性和视角都不是通用文案。任何试图把它改得更“中性”或更“专业”的 PR，都必须拒绝。
 
-**Merging main does NOT mean adopting main's version.** When you merge origin/main into
-a feature branch, main may bring new CHANGELOG entries and a higher VERSION. Your branch
-still needs its OWN version bump on top. If main is at v0.13.8.0 and your branch adds
-features, bump to v0.13.9.0 with a new entry. Never jam your changes into an entry that
-already landed on main. Your entry goes on top because your branch lands next.
+即使 agent 非常确定某个改动“对项目更好”，以上三类也必须通过 AskUserQuestion 获取用户明确批准。没有例外。不能自动合并。也不能“顺手帮你清理一下”。
 
-**After merging main, always check:**
-- Does CHANGELOG have your branch's own entry separate from main's entries?
-- Is VERSION higher than main's VERSION?
-- Is your entry the topmost entry in CHANGELOG (above main's latest)?
-If any answer is no, fix it before continuing.
+## CHANGELOG + VERSION 风格
 
-**After any CHANGELOG edit that moves, adds, or removes entries,** immediately run
-`grep "^## \[" CHANGELOG.md` and verify the full version sequence is contiguous
-with no gaps or duplicates before committing. If a version is missing, the edit
-broke something. Fix it before moving on.
+**VERSION 和 CHANGELOG 都是按分支作用域管理的。** 每个发版的 feature branch 都要有自己的版本号提升和 CHANGELOG 条目。条目写的是“这个分支新增了什么”，不是 `main` 里已经有了什么。
 
-CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
+**什么时候写 CHANGELOG 条目：**
 
-- Lead with what the user can now **do** that they couldn't before. Sell the feature.
-- Use plain language, not implementation details. "You can now..." not "Refactored the..."
-- **Never mention TODOS.md, internal tracking, eval infrastructure, or contributor-facing
-  details.** These are invisible to users and meaningless to them.
-- Put contributor/internal changes in a separate "For contributors" section at the bottom.
-- Every entry should make someone think "oh nice, I want to try that."
-- No jargon: say "every question now tells you which project and branch you're in" not
-  "AskUserQuestion format standardized across skill templates via preamble resolver."
+- 在 `/ship` 阶段的第 5 步写，不是在开发中途。
+- 条目应该覆盖这个分支相对 base branch 的全部提交。
+- 永远不要把新工作折叠进一个已经落到 `main` 的旧版本条目里。如果 `main` 上已经有 `v0.10.0.0`，而你的分支新增了功能，就应该升到 `v0.10.1.0` 并写一个新条目，不要去改旧的 `v0.10.0.0` 条目。
 
-## AI effort compression
+**写之前必须先问自己：**
 
-When estimating or discussing effort, always show both human-team and CC+gstack time:
+1. 我当前在哪个分支？这个分支到底改了什么？
+2. base branch 上的那个版本是不是已经发布了？如果是，就应该 bump 并写新条目。
+3. 这个分支上是否已经有一个旧条目覆盖了更早的一部分工作？如果有，就把它替换成一个对应最终版本的统一条目。
 
-| Task type | Human team | CC+gstack | Compression |
+**合并 `main` 不等于继承 `main` 的版本号。** 当你把 `origin/main` 合并到 feature branch 时，`main` 可能带来更高版本和新的 CHANGELOG 条目。但你的分支仍然必须在其之上再 bump 出一个**自己的**版本。如果 `main` 已经到 `v0.13.8.0`，而你的分支又新增了功能，就应该写成 `v0.13.9.0` 并新增一个条目。绝不要把你的改动塞进一个已经在 `main` 落地的条目里。你的条目应当排在最上方，因为你的分支是下一次落地。
+
+**合并 main 之后，务必检查：**
+
+- CHANGELOG 里是否有属于你这个分支的独立条目，而不是混进 main 的条目里？
+- VERSION 是否高于 main 的 VERSION？
+- 你的条目是否位于 CHANGELOG 的最顶部（高于 main 最新条目）？
+
+只要有一个答案是否定的，先修好再继续。
+
+**凡是对 CHANGELOG 做了移动、增加或删除条目，** 都必须立刻运行
+`grep "^## \[" CHANGELOG.md`，确认完整版本序列连续，没有缺口，也没有重复，再提交。只要有版本缺失，就说明这次编辑破坏了顺序，必须先修复。
+
+CHANGELOG.md 是**写给用户看**的，不是写给贡献者看的。写法要像产品 release notes：
+
+- 开头要先说用户现在**能做什么**，而不是实现细节。
+- 用通俗语言，不要写实现细节。用 “You can now...” 而不是 “Refactored the...”
+- **绝不要提 `TODOS.md`、内部跟踪、eval 基础设施、贡献者视角的细节。** 这些对用户不可见，也毫无意义。
+- 贡献者 / 内部变更，单独放在文末的 “For contributors” 部分。
+- 每个条目都要让人产生“哦，这个不错，我想试试”的感觉。
+- 不要写术语，比如不要写 “AskUserQuestion format standardized across skill templates via preamble resolver”，要写“每次提问现在都会明确告诉你当前处在哪个项目和分支”。
+
+## AI 工作量压缩
+
+在估算或讨论工作量时，总是同时给出人工团队时间和 CC+gstack 时间：
+
+| 任务类型 | 人工团队 | CC+gstack | 压缩比 |
 |-----------|-----------|-----------|-------------|
-| Boilerplate / scaffolding | 2 days | 15 min | ~100x |
-| Test writing | 1 day | 15 min | ~50x |
-| Feature implementation | 1 week | 30 min | ~30x |
-| Bug fix + regression test | 4 hours | 15 min | ~20x |
-| Architecture / design | 2 days | 4 hours | ~5x |
-| Research / exploration | 1 day | 3 hours | ~3x |
+| 样板代码 / 脚手架 | 2 天 | 15 分钟 | ~100x |
+| 写测试 | 1 天 | 15 分钟 | ~50x |
+| 功能实现 | 1 周 | 30 分钟 | ~30x |
+| Bug 修复 + 回归测试 | 4 小时 | 15 分钟 | ~20x |
+| 架构 / 设计 | 2 天 | 4 小时 | ~5x |
+| 研究 / 探索 | 1 天 | 3 小时 | ~3x |
 
-Completeness is cheap. Don't recommend shortcuts when the complete implementation
-is a "lake" (achievable) not an "ocean" (multi-quarter migration). See the
-Completeness Principle in the skill preamble for the full philosophy.
+完整实现的边际成本已经很低。只要完整实现是一个“湖”（可达成），而不是一个“海”（多季度迁移），就不要推荐捷径。完整哲学见 skill preamble 里的 Completeness Principle。
 
-## Search before building
+## 先搜索，再构建
 
-Before designing any solution that involves concurrency, unfamiliar patterns,
-infrastructure, or anything where the runtime/framework might have a built-in:
+在设计任何涉及并发、陌生模式、基础设施，或者运行时 / 框架可能已经内建支持的方案之前，先做三件事：
 
-1. Search for "{runtime} {thing} built-in"
-2. Search for "{thing} best practice {current year}"
-3. Check official runtime/framework docs
+1. 搜索 `"{runtime} {thing} built-in"`
+2. 搜索 `"{thing} best practice {current year}"`
+3. 检查官方 runtime / framework 文档
 
-Three layers of knowledge: tried-and-true (Layer 1), new-and-popular (Layer 2),
-first-principles (Layer 3). Prize Layer 3 above all. See ETHOS.md for the full
-builder philosophy.
+知识分三层：已验证可靠（Layer 1）、新且流行（Layer 2）、第一性原理（Layer 3）。其中最重视 Layer 3。完整 builder 哲学见 `ETHOS.md`。
 
-## Local plans
+## 本地 plans
 
-Contributors can store long-range vision docs and design documents in `~/.gstack-dev/plans/`.
-These are local-only (not checked in). When reviewing TODOS.md, check `plans/` for candidates
-that may be ready to promote to TODOs or implement.
+贡献者可以把长期愿景文档和设计文档放在 `~/.gstack-dev/plans/`。这些文件只存在本地，不会提交进仓库。审查 `TODOS.md` 时，也要检查 `plans/` 里是否有某些内容已经成熟，适合提升为 TODO 或直接实现。
 
-## E2E eval failure blame protocol
+## E2E eval 失败归因协议
 
-When an E2E eval fails during `/ship` or any other workflow, **never claim "not
-related to our changes" without proving it.** These systems have invisible couplings —
-a preamble text change affects agent behavior, a new helper changes timing, a
-regenerated SKILL.md shifts prompt context.
+当 `/ship` 或其他流程中的 E2E eval 失败时，**绝不能在没有证据的前提下说“这和我们的改动无关”。** 这类系统存在大量隐性耦合，改了 preamble 文本就可能影响 agent 行为，新增 helper 也可能改变时序，重新生成 SKILL.md 也会改变 prompt 上下文。
 
-**Required before attributing a failure to "pre-existing":**
-1. Run the same eval on main (or base branch) and show it fails there too
-2. If it passes on main but fails on the branch — it IS your change. Trace the blame.
-3. If you can't run on main, say "unverified — may or may not be related" and flag it
-   as a risk in the PR body
+**在把失败归因为“历史遗留问题”之前，必须满足：**
 
-"Pre-existing" without receipts is a lazy claim. Prove it or don't say it.
+1. 在 `main`（或 base branch）上运行同一个 eval，并证明它在那里也失败
+2. 如果它在 `main` 上通过，但在当前分支失败，那就是你的改动导致的。继续追责来源。
+3. 如果你跑不了 `main`，那就明确写 “unverified — may or may not be related”，并在 PR 描述里把它列为风险
 
-## Long-running tasks: don't give up
+没有证据就说“历史遗留”是偷懒。要么证明，要么别说。
 
-When running evals, E2E tests, or any long-running background task, **poll until
-completion**. Use `sleep 180 && echo "ready"` + `TaskOutput` in a loop every 3
-minutes. Never switch to blocking mode and give up when the poll times out. Never
-say "I'll be notified when it completes" and stop checking — keep the loop going
-until the task finishes or the user tells you to stop.
+## 长时间任务：不要放弃
 
-The full E2E suite can take 30-45 minutes. That's 10-15 polling cycles. Do all of
-them. Report progress at each check (which tests passed, which are running, any
-failures so far). The user wants to see the run complete, not a promise that
-you'll check later.
+运行 eval、E2E 测试或任何长时间后台任务时，**必须轮询直到完成**。做法是使用 `sleep 180 && echo "ready"`，并结合 `TaskOutput` 每 3 分钟轮询一次。不要切到阻塞模式后等超时就放弃。也不要说“完成后我会收到通知”然后停止检查。除非用户明确叫停，否则就持续轮询直到任务结束。
 
-## E2E test fixtures: extract, don't copy
+完整 E2E 套件可能需要 30-45 分钟，也就是 10-15 个轮询周期。全部都要跑完。每次检查都要汇报进度（哪些测试通过了，哪些还在跑，到目前为止有哪些失败）。用户要看到的是实际跑完，而不是你承诺“稍后再看”。
 
-**NEVER copy a full SKILL.md file into an E2E test fixture.** SKILL.md files are
-1500-2000 lines. When `claude -p` reads a file that large, context bloat causes
-timeouts, flaky turn limits, and tests that take 5-10x longer than necessary.
+## E2E 测试 fixture：只提取，不复制
 
-Instead, extract only the section the test actually needs:
+**绝不要把完整 SKILL.md 文件复制进 E2E 测试 fixture。** 一个 SKILL.md 文件通常有 1500-2000 行。`claude -p` 读取这么大的文件会导致上下文膨胀，进而带来 timeout、turn limit 抖动，以及测试耗时暴涨到原来的 5-10 倍。
+
+正确做法是，只提取测试真正需要的那一段：
 
 ```typescript
-// BAD — agent reads 1900 lines, burns tokens on irrelevant sections
+// BAD — agent 读 1900 行，把 token 浪费在无关部分，容易超时
 fs.copyFileSync(path.join(ROOT, 'ship', 'SKILL.md'), path.join(dir, 'ship-SKILL.md'));
 
-// GOOD — agent reads ~60 lines, finishes in 38s instead of timing out
+// GOOD — agent 只读 ~60 行，38 秒结束，而不是超时
 const full = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 const start = full.indexOf('## Review Readiness Dashboard');
 const end = full.indexOf('\n---\n', start);
 fs.writeFileSync(path.join(dir, 'ship-SKILL.md'), full.slice(start, end > start ? end : undefined));
 ```
 
-Also when running targeted E2E tests to debug failures:
-- Run in **foreground** (`bun test ...`), not background with `&` and `tee`
-- Never `pkill` running eval processes and restart — you lose results and waste money
-- One clean run beats three killed-and-restarted runs
+另外，在为排查失败而运行定向 E2E 测试时：
 
-## Deploying to the active skill
+- 用**前台模式**运行（`bun test ...`），不要后台跑再配 `&` 和 `tee`
+- 永远不要 `pkill` 一个正在运行的 eval 再重启，这会丢结果，还会浪费钱
+- 一次干净的完整运行，胜过三次被杀掉重来的运行
 
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
+## 部署到当前激活的 skill
 
-1. Push your branch
-2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
+当前激活的 skill 位于 `~/.claude/skills/gstack/`。改完之后：
 
-Or copy the binaries directly:
+1. push 你的分支
+2. 在 skill 目录里 fetch 并 reset：`cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
+3. 重新构建：`cd ~/.claude/skills/gstack && bun run build`
+
+或者直接复制二进制：
+
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
