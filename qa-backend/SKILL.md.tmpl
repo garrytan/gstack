@@ -1,0 +1,381 @@
+---
+name: qa-backend
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Backend QA: systematically test APIs, database health, error handling, and
+  performance without a browser. Hits every endpoint, checks response contracts,
+  scans logs for errors, profiles slow queries, and verifies auth boundaries.
+  Use when asked to "test the API", "backend QA", "check the endpoints",
+  "test my server", "API health check", or "load test".
+  Proactively suggest when the user ships backend changes (new routes, DB
+  migrations, auth changes) and /qa would be overkill (no frontend to test). (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - WebSearch
+  - WebFetch
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /qa-backend: API → DB → Logs → Perf
+
+You are a backend QA engineer. Test servers like a hostile client — malformed input, auth boundary violations, race conditions, missing fields. No browser needed. Produce a structured report with pass/fail evidence.
+
+## Setup
+
+**Parse the user's request for these parameters:**
+
+| Parameter | Default | Override example |
+|-----------|---------|-----------------:|
+| Base URL | (auto-detect from CLAUDE.md or ask) | `http://localhost:3000/api` |
+| Tier | Standard | `--quick`, `--exhaustive` |
+| Scope | All endpoints | `Focus on /api/users`, `Only auth endpoints` |
+| Auth | None | `Bearer token: xxx`, `Cookie: session=xxx` |
+| Output dir | `.gstack/qa-backend-reports/` | `Output to /tmp/qa` |
+
+**Tiers:**
+- **Quick:** Smoke test — hit each endpoint once with valid input, check status codes
+- **Standard:** + invalid input, auth boundaries, error handling (default)
+- **Exhaustive:** + edge cases, concurrency, performance profiling
+
+**Create output directory:**
+
+```bash
+mkdir -p .gstack/qa-backend-reports
+```
+
+---
+
+## Phase 1: Discovery
+
+**Goal:** Map every API endpoint, its methods, expected inputs, and auth requirements.
+
+### 1a. Read project configuration
+
+```bash
+# Check CLAUDE.md for API docs, test commands, base URL
+cat CLAUDE.md 2>/dev/null | head -100
+
+# Detect runtime and framework
+```
+
+{{TEST_BOOTSTRAP}}
+
+### 1b. Discover endpoints
+
+Discover API routes from the source code. Adapt to the detected framework:
+
+**For Express/Fastify/Koa/Hono (Node.js):**
+```bash
+grep -rn "router\.\(get\|post\|put\|patch\|delete\|all\)\|app\.\(get\|post\|put\|patch\|delete\)" --include="*.ts" --include="*.js" src/ routes/ app/ 2>/dev/null | head -80
+```
+
+**For Rails:**
+```bash
+cat config/routes.rb 2>/dev/null; rails routes 2>/dev/null | head -80
+```
+
+**For Django/Flask/FastAPI (Python):**
+```bash
+grep -rn "@app\.\(route\|get\|post\|put\|delete\)\|path(\|url(" --include="*.py" . 2>/dev/null | head -80
+```
+
+**For Go (net/http, chi, gin, echo):**
+```bash
+grep -rn "HandleFunc\|Handle\|GET\|POST\|PUT\|DELETE\|r\.\(Get\|Post\|Put\|Delete\)" --include="*.go" . 2>/dev/null | head -80
+```
+
+**Also check for:**
+- OpenAPI/Swagger specs: `ls **/openapi.* **/swagger.* 2>/dev/null`
+- GraphQL schemas: `ls **/*.graphql **/schema.* 2>/dev/null`
+- API documentation files
+
+### 1c. Build endpoint inventory
+
+Create a structured list of every endpoint:
+
+```
+METHOD  PATH                AUTH?   PARAMS/BODY
+GET     /api/health         no      none
+POST    /api/auth/login     no      {email, password}
+GET     /api/users          yes     ?page=&limit=
+POST    /api/users          yes     {name, email, role}
+...
+```
+
+Store this in `.gstack/qa-backend-reports/endpoints.md`.
+
+---
+
+## Phase 2: Health Check
+
+**Goal:** Verify the server is running and responsive.
+
+```bash
+# Check if server is running at the base URL
+curl -s -o /dev/null -w "%{http_code} %{time_total}s" <BASE_URL>/health 2>/dev/null || \
+curl -s -o /dev/null -w "%{http_code} %{time_total}s" <BASE_URL>/ 2>/dev/null
+```
+
+If the server isn't running, check CLAUDE.md for the start command. Use AskUserQuestion:
+"The server doesn't seem to be running at `<BASE_URL>`. How should I start it?"
+- A) `npm run dev` / `bun run dev`
+- B) `rails server`
+- C) `python manage.py runserver`
+- D) It's already running at a different URL
+- E) Let me start it manually
+
+---
+
+## Phase 3: Contract Testing
+
+**Goal:** Hit every endpoint and verify response contracts.
+
+For each endpoint in the inventory:
+
+### 3a. Happy path
+- Send a valid request with proper auth
+- Verify: status code (200/201/204), response shape matches expected schema
+- Record: response time, response size
+
+### 3b. Input validation (Standard + Exhaustive tiers)
+- Missing required fields → expect 400/422
+- Wrong types (string where number expected) → expect 400/422
+- Oversized input (10MB body, 10000-char strings) → expect 413 or graceful 400
+- SQL injection probes (`'; DROP TABLE--`, `1 OR 1=1`) → expect no 500
+- XSS probes in text fields (`<script>alert(1)</script>`) → expect sanitized output
+- Path traversal (`../../../etc/passwd`) → expect 400/403
+
+### 3c. Auth boundary testing (Standard + Exhaustive tiers)
+- No auth header → expect 401 on protected endpoints
+- Invalid/expired token → expect 401
+- Valid token but wrong role/permission → expect 403
+- Auth endpoints: rate limiting on login failures
+
+### 3d. Error handling
+- Nonexistent resource IDs → expect 404 (not 500)
+- Invalid query parameters → expect 400 (not 500)
+- Malformed JSON body → expect 400
+
+Use `curl` for all requests. Format:
+```bash
+curl -s -w "\n%{http_code}" -X METHOD \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"key":"value"}' \
+  "BASE_URL/path"
+```
+
+Record each test result as PASS/FAIL with the request and response.
+
+---
+
+## Phase 4: Database Health (Standard + Exhaustive)
+
+**Goal:** Check for common database issues that indicate backend problems.
+
+### 4a. Migration status
+```bash
+# Rails
+rails db:migrate:status 2>/dev/null
+
+# Django
+python manage.py showmigrations 2>/dev/null
+
+# Node (prisma, drizzle, knex)
+npx prisma migrate status 2>/dev/null
+npx drizzle-kit status 2>/dev/null
+npx knex migrate:status 2>/dev/null
+```
+
+Flag: pending migrations that haven't been run.
+
+### 4b. Schema validation
+- Check that models/schemas match what the API actually returns
+- Look for columns referenced in code but missing from schema
+- Check for missing indexes on commonly-queried columns
+
+### 4c. N+1 query detection (Exhaustive only)
+- Hit list endpoints and check if response time scales linearly with count
+- Look for ORM eager-loading patterns (or lack thereof) in the code
+
+---
+
+## Phase 5: Log Scanning
+
+**Goal:** Find errors, warnings, and anomalies in server logs.
+
+```bash
+# Check common log locations
+for f in log/development.log logs/*.log tmp/logs/*.log; do
+  [ -f "$f" ] && echo "=== $f ===" && tail -200 "$f" | grep -i "error\|exception\|fatal\|panic\|warn" | tail -20
+done
+
+# Check systemd/journald if available
+journalctl -u "$(basename $(pwd))*" --since "1 hour ago" 2>/dev/null | grep -i "error\|exception" | tail -20
+
+# Check Docker logs if containerized
+docker compose logs --tail=100 2>/dev/null | grep -i "error\|exception\|fatal" | tail -20
+```
+
+Categorize findings:
+- **Critical:** Unhandled exceptions, panics, segfaults, OOM
+- **High:** Auth failures, database connection errors, timeout cascades
+- **Medium:** Deprecation warnings, slow query warnings
+- **Low:** Expected 404s, routine validation errors
+
+---
+
+## Phase 6: Performance Profiling (Exhaustive only)
+
+**Goal:** Identify slow endpoints and resource bottlenecks.
+
+### 6a. Response time baseline
+Hit each endpoint 5 times and record min/avg/max response times:
+
+```bash
+for i in 1 2 3 4 5; do
+  curl -s -o /dev/null -w "%{time_total}" "BASE_URL/path"
+  echo
+done
+```
+
+Flag endpoints slower than:
+- 100ms for simple reads
+- 500ms for complex queries
+- 2000ms for any endpoint
+
+### 6b. Concurrent load (Exhaustive only)
+```bash
+# Simple concurrent test — 10 requests in parallel
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" "BASE_URL/path" &
+done
+wait
+```
+
+Check for:
+- Response time degradation under load
+- 500 errors under concurrent access (race conditions)
+- Connection pool exhaustion
+
+---
+
+## Phase 7: Triage
+
+Sort all findings by severity. Score each category:
+
+| Category | Weight | Score (0-10) |
+|----------|--------|-------------|
+| Contract compliance | 30% | |
+| Auth boundaries | 25% | |
+| Error handling | 20% | |
+| Database health | 15% | |
+| Performance | 10% | |
+
+**Overall health score** = weighted average.
+
+Decide which issues to fix based on tier:
+- **Quick:** Critical + high only
+- **Standard:** + medium
+- **Exhaustive:** All findings
+
+---
+
+## Phase 8: Fix Loop
+
+For each fixable issue, in severity order:
+
+### 8a. Locate source
+Find the route handler, middleware, or model responsible.
+
+### 8b. Fix
+Apply the minimal fix. Common patterns:
+- Missing validation → add input validation middleware/decorator
+- 500 on bad input → add try/catch or error boundary
+- Auth bypass → add auth middleware to unprotected route
+- Missing index → add database migration
+- N+1 → add eager loading / join
+
+### 8c. Verify
+Re-run the specific test that found the issue. Confirm PASS.
+
+### 8d. Commit
+```bash
+git add <specific-files>
+git commit -m "fix(<scope>): <description>
+
+Found by /qa-backend: <issue-id>"
+```
+
+### 8e. Repeat
+Move to the next issue. After all fixes, re-run the full test suite to check for regressions.
+
+---
+
+## Phase 9: Report
+
+Write the final report to `.gstack/qa-backend-reports/qa-backend-{date}.md`:
+
+```markdown
+# Backend QA Report — {project} — {date}
+
+## Health Score: {X}/10
+
+## Summary
+- Endpoints tested: {N}
+- Tests run: {N}
+- Pass: {N} | Fail: {N} | Skipped: {N}
+- Issues found: {N} (Critical: {N}, High: {N}, Medium: {N}, Low: {N})
+- Issues fixed: {N}
+
+## Category Scores
+| Category | Score | Issues |
+|----------|-------|--------|
+| Contract compliance | {X}/10 | {details} |
+| Auth boundaries | {X}/10 | {details} |
+| Error handling | {X}/10 | {details} |
+| Database health | {X}/10 | {details} |
+| Performance | {X}/10 | {details} |
+
+## Issues
+
+### CRITICAL
+...
+
+### HIGH
+...
+
+### Deferred
+Issues not fixed in this tier:
+...
+
+## Endpoint Coverage
+| Method | Path | Status | Response Time |
+|--------|------|--------|---------------|
+| GET | /api/health | PASS (200) | 12ms |
+...
+```
+
+Present the health score and summary to the user via AskUserQuestion:
+
+"Backend QA complete. Health score: **{X}/10**. Found {N} issues, fixed {M}.
+
+{1-3 sentence summary of the most important findings}
+
+Full report: `.gstack/qa-backend-reports/qa-backend-{date}.md`"
+
+Options:
+- A) Ship it — the backend is healthy enough
+- B) Run exhaustive tier — dig deeper
+- C) Show me the full report
+- D) Fix the remaining deferred issues
