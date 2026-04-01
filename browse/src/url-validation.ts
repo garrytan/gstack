@@ -4,8 +4,10 @@
  */
 
 const BLOCKED_METADATA_HOSTS = new Set([
-  '169.254.169.254',  // AWS/GCP/Azure instance metadata
+  '169.254.169.254',  // AWS/GCP/Azure instance metadata (IPv4 link-local)
+  'fe80::1',          // IPv6 link-local — common metadata endpoint alias
   'fd00::',           // IPv6 unique local (metadata in some cloud setups)
+  '::ffff:169.254.169.254', // IPv4-mapped IPv6 form of the metadata IP
   'metadata.google.internal', // GCP metadata
   'metadata.azure.internal',  // Azure IMDS
 ]);
@@ -47,15 +49,37 @@ function isMetadataIp(hostname: string): boolean {
 /**
  * Resolve a hostname to its IP addresses and check if any resolve to blocked metadata IPs.
  * Mitigates DNS rebinding: even if the hostname looks safe, the resolved IP might not be.
+ *
+ * Checks both A (IPv4) and AAAA (IPv6) records — an attacker can use AAAA-only DNS to
+ * bypass IPv4-only checks. Each record family is tried independently; failure of one
+ * (e.g. no AAAA records exist) is not treated as a rebinding risk.
  */
 async function resolvesToBlockedIp(hostname: string): Promise<boolean> {
   try {
     const dns = await import('node:dns');
-    const { resolve4 } = dns.promises;
-    const addresses = await resolve4(hostname);
-    return addresses.some(addr => BLOCKED_METADATA_HOSTS.has(addr));
+    const { resolve4, resolve6 } = dns.promises;
+
+    // Check IPv4 A records
+    const v4Check = resolve4(hostname).then(
+      (addresses) => addresses.some(addr => BLOCKED_METADATA_HOSTS.has(addr)),
+      () => false, // ENODATA / ENOTFOUND — no A records, not a risk
+    );
+
+    // Check IPv6 AAAA records — the gap that issue #668 identified
+    const v6Check = resolve6(hostname).then(
+      (addresses) => addresses.some(addr => {
+        const normalized = addr.toLowerCase();
+        return BLOCKED_METADATA_HOSTS.has(normalized) ||
+          // fe80::/10 is link-local — always block (covers all fe80:: addresses)
+          normalized.startsWith('fe80:');
+      }),
+      () => false, // ENODATA / ENOTFOUND — no AAAA records, not a risk
+    );
+
+    const [v4Blocked, v6Blocked] = await Promise.all([v4Check, v6Check]);
+    return v4Blocked || v6Blocked;
   } catch {
-    // DNS resolution failed — not a rebinding risk
+    // Unexpected error — fail open (don't block navigation on DNS infrastructure failure)
     return false;
   }
 }
