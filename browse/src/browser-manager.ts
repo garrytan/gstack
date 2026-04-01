@@ -1016,14 +1016,28 @@ export class BrowserManager {
       }
     });
 
-    // Capture response sizes via response finished
+    // Capture response sizes via response finished.
+    // Prefer Content-Length header over res.body() — body() buffers the entire
+    // response into memory, which is O(response_size) per request and blocks
+    // the event loop on large payloads (images, JS bundles, API responses).
+    // Content-Length is available immediately from headers with zero I/O cost.
+    // Fall back to body() only when Content-Length is absent (chunked transfer).
     page.on('requestfinished', async (req) => {
       try {
         const res = await req.response();
         if (res) {
           const url = req.url();
-          const body = await res.body().catch(() => null);
-          const size = body ? body.length : 0;
+          let size = 0;
+
+          const contentLength = res.headers()['content-length'];
+          if (contentLength) {
+            size = parseInt(contentLength, 10) || 0;
+          } else {
+            // Chunked or unknown — body() is the only option
+            const body = await res.body().catch(() => null);
+            size = body ? body.length : 0;
+          }
+
           for (let i = networkBuffer.length - 1; i >= 0; i--) {
             const entry = networkBuffer.get(i);
             if (entry && entry.url === url && !entry.size) {
