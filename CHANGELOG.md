@@ -1,8 +1,8 @@
-# Changelog
+# 更新日志
 
-## [0.14.5.0] - 2026-03-31 — Ship Idempotency + 技能 Prefix Fix
+## [0.14.5.0] - 2026-03-31 — `/ship` 幂等性 + 技能前缀修复
 
-Re-running `/ship` after a failed push or PR creation no longer double-bumps your version or duplicates your CHANGELOG. And if you use `--prefix` mode, your skill names actually work now.
+当 push 或创建 PR 失败后重新执行 `/ship`，现在不会再重复提升版本号，也不会再生成重复的 CHANGELOG。与此同时，如果你使用 `--prefix` 模式，技能名现在也会真正按预期工作。
 
 ### Fixed
 
@@ -16,16 +16,16 @@ Re-running `/ship` after a failed push or PR creation no longer double-bumps you
 
 - **`bin/gstack-patch-names` shared helper.** DRY extraction of the name-patching logic used by both `setup` and `gstack-relink`. Handles all edge cases (no frontmatter, already-prefixed, inherently-prefixed dirs) with portable `mktemp + mv` sed.
 
-### For contributors
+### 给贡献者的说明
 
 - 4 unit tests for name: patching in `relink.test.ts`
 - 2 tests for gen-skill-docs prefix warning
 - 1 E2E test for ship idempotency (periodic tier)
 - Updated `setupMockInstall` to write SKILL.md with proper frontmatter
 
-## [0.14.4.0] - 2026-03-31 — 审查 Army: Parallel Specialist Reviewers
+## [0.14.4.0] - 2026-03-31 — 审查军团：并行专家审查员
 
-Every `/review` now dispatches specialist subagents in parallel. Instead of one agent applying one giant checklist, you get focused reviewers for 测试 gaps, maintainability, security, 表现, data migrations, API contracts, and adversarial red-teaming. Each specialist reads the diff independently with fresh context, outputs structured JSON findings, and the main agent merges, deduplicates, and boosts confidence when multiple specialists flag the same issue. Small diffs (<50 lines) skip specialists entirely for speed. Large diffs (200+ lines) activate the Red Team for adversarial analysis on top.
+现在每次执行 `/review` 都会并行派发多个专家子代理。过去是一个代理背着一份巨大的检查清单通读全部变更；现在则会分别安排测试缺口、可维护性、安全、性能、数据迁移、API 契约以及对抗式红队审查等专门审查员。每位专家都会在独立上下文中阅读 diff，输出结构化 JSON 结果；主代理再统一合并、去重，并在多个专家同时命中同一问题时提升置信度。小型 diff（少于 50 行）会直接跳过专家流程以提升速度；大型 diff（200 行以上）则会额外激活 Red Team 做对抗式分析。
 
 ### Added
 
@@ -43,9 +43,9 @@ Every `/review` now dispatches specialist subagents in parallel. Instead of one 
 - **Review checklist refactored.** Categories now covered by specialists (test gaps, dead code, magic numbers, 表现, crypto) removed from the main checklist. Main agent focuses on CRITICAL pass only.
 - **Delivery Integrity enhanced.** The existing plan completion audit now investigates WHY items are missing (not just that they're missing) and logs plan-file discrepancies as learnings. Commit-message inference is informational only, never persisted.
 
-## [0.14.3.0] - 2026-03-31 — Always-On Adversarial 审查 + Scope Drift + 计划模式 设计 Tools
+## [0.14.3.0] - 2026-03-31 — 常驻式对抗审查 + 范围漂移检测 + 计划模式设计工具
 
-Every code review now runs adversarial analysis from both Claude and Codex, regardless of diff size. A 5-line auth change gets the same cross-model scrutiny as a 500-line feature. The old "skip adversarial for small diffs" heuristic is gone... diff size was never a good proxy for risk.
+现在每一次代码审查都会同时运行 Claude 和 Codex 的对抗式分析，不再根据 diff 大小决定是否启用。哪怕只是 5 行认证逻辑改动，也会得到和 500 行功能迭代同等级别的跨模型审视。旧版“小 diff 就跳过对抗审查”的启发式已经被移除，因为 diff 大小从来都不是风险的好代理指标。
 
 ### Added
 
@@ -59,9 +59,9 @@ Every code review now runs adversarial analysis from both Claude and Codex, rega
 - **Cross-model tension format.** Outside voice disagreements now include `RECOMMENDATION` and `Completeness` scores, matching the standard AskUserQuestion format used everywhere else in gstack.
 - **Scope drift is now a shared resolver.** Extracted from `/review` into `generateScopeDrift()` so both `/review` and `/ship` use the same logic. DRY.
 
-## [0.14.2.0] - 2026-03-30 — Sidebar CSS Inspector + Per-Tab Agents
+## [0.14.2.0] - 2026-03-30 — 侧边栏 CSS 检查器 + 按标签页隔离的代理
 
-The sidebar is now a visual design tool. Pick any element on the page and see the full CSS rule cascade, box model, and computed styles right in the Side Panel. Edit styles live and see changes instantly. Each browser tab gets its own independent agent, so you can work on multiple pages simultaneously without cross-talk. Cleanup is LLM-powered... the agent snapshots the page, understands it semantically, and removes the junk while keeping the site's identity.
+侧边栏现在已经变成了一套可视化设计工具。你可以在页面上选中任意元素，直接在 Side Panel 里查看完整的 CSS 级联规则、盒模型和计算样式；也可以实时修改样式，并立即看到页面变化。每个浏览器标签页还会拥有自己的独立代理，因此你可以并行处理多个页面而不会互相串话。页面清理则由 LLM 驱动：代理先抓取页面快照、做语义理解，再移除杂乱内容，同时尽量保留网站本身的风格特征。
 
 ### Added
 
@@ -89,9 +89,9 @@ The sidebar is now a visual design tool. Pick any element on the page and see th
 - **Input placeholder** is "Ask about this page..." (more inviting than the old placeholder).
 - **System prompt** includes prompt injection defense and allowed-commands whitelist from the security audit.
 
-## [0.14.1.0] - 2026-03-30 — Comparison Board is the Chooser
+## [0.14.1.0] - 2026-03-30 — 由对比面板来做选择
 
-The design comparison board now always opens automatically when reviewing variants. No more inline image + "which do you prefer?" — the board has rating controls, comments, remix/regenerate buttons, and structured feedback output. That's the experience. All 3 design skills (/plan-design-review, /design-shotgun, /design-consultation) get this fix.
+在审查设计变体时，对比面板现在会自动打开。不再是简单地把图片内联出来，再问一句“你更喜欢哪个？”；现在的对比面板自带评分控件、评论输入、remix / regenerate 按钮，以及结构化反馈输出。这才是完整体验。三个设计技能 `/plan-design-review`、`/design-shotgun` 和 `/design-consultation` 都已经应用了这项修复。
 
 ### Changed
 
@@ -103,9 +103,9 @@ The design comparison board now always opens automatically when reviewing varian
 
 - **Board URL corrected.** The recovery URL now points to `http://127.0.0.1:<PORT>/` (where the server actually serves) instead of `/design-board.html` (which would 404).
 
-## [0.14.0.0] - 2026-03-30 — 设计 to Code
+## [0.14.0.0] - 2026-03-30 — 设计到代码
 
-You can now go from an approved design mockup to production-质量 HTML with one command. `/design-html` takes the winning design from `/design-shotgun` and generates Pretext-native HTML where text actually reflows on resize, heights adjust to content, and layouts are dynamic. No more hardcoded CSS heights or broken text overflow.
+现在你可以用一条命令，把已经确认的设计稿直接变成生产质量的 HTML。`/design-html` 会接收 `/design-shotgun` 选出的胜出设计，生成基于 Pretext 的原生 HTML，让文本在缩放时真正重排、容器高度随内容变化、整体布局保持动态伸缩。不再需要手写固定高度的 CSS，也不会再出现文本溢出后布局崩坏的问题。
 
 ### Added
 

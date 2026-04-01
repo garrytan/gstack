@@ -1,12 +1,12 @@
-# TODOS
+# 待办事项
 
 ## Sidebar Security
 
 ### 机器学习 Prompt Injection 分类器
 
-**What:** 通过 `@huggingface/transformers v4` 的 WASM 后端，引入 `DeBERTa-v3-base-prompt-injection-v2`，作为 Chrome 侧边栏的一层机器学习防御。做成可复用的 `browse/src/security.ts` 模块，暴露 `checkInjection()` API。包括 canary token、攻击日志、盾牌图标、特殊 telemetry（即使 telemetry 关闭，在检测到注入时仍通过 AskUserQuestion 提醒），以及 BrowseSafe-bench 红队测试基座（来自 Perplexity 的 3,680 个对抗样本）。
+**What:** 通过 `@huggingface/transformers v4` 的 WASM 后端，引入 `DeBERTa-v3-base-prompt-injection-v2`，作为 Chrome 侧边栏的一层机器学习防御。做成可复用的 `browse/src/security.ts` 模块，对外暴露 `checkInjection()` API。配套内容包括 canary token、攻击日志、盾牌图标、特殊 telemetry（即使 telemetry 已关闭，只要检测到注入仍通过 AskUserQuestion 提醒），以及 BrowseSafe-bench 红队测试基座（来自 Perplexity 的 3,680 个对抗样本）。
 
-**Why:** PR 1 已经修了架构层问题，命令 allowlist、XML framing、Opus 默认值。但攻击者仍然可能诱导 Claude 跳转到钓鱼站点，或者借助允许的 browse 命令把可见页面数据带走。机器学习分类器能捕捉到架构防线看不见的 prompt injection 模式。准确率 94.8%，召回率 99.6%，通过 WASM 推理约 50-100ms。属于 defense-in-depth。
+**Why:** PR 1 已经修复了架构层问题，例如命令 allowlist、XML framing 和默认使用 Opus。但攻击者仍可能诱导 Claude 跳转到钓鱼站点，或者借助仍被允许的 browse 命令把可见页面数据带走。机器学习分类器能补到架构防线看不见的 prompt injection 模式。当前指标是准确率 94.8%、召回率 99.6%，WASM 推理耗时约 50 到 100ms，属于典型的 defense-in-depth。
 
 **Context:** 完整设计文档，包含行业研究、开源工具版图、Codex review 结论，以及更激进的 Bun-native 方案设想（通过 FFI + Apple Accelerate 把推理压到 5ms）：[`docs/designs/ML_PROMPT_INJECTION_KILLER.md`](docs/designs/ML_PROMPT_INJECTION_KILLER.md)。CEO 计划与范围裁剪记录在：`~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-28-sidebar-prompt-injection-defense.md`。
 
@@ -20,7 +20,7 @@
 
 **What:** 增加一个 `generateSearchIntro()` 函数，类似 `generateLakeIntro()`，在用户第一次使用时介绍 Search Before Building 原则，并附上博客文章链接。
 
-**Why:** Boil the Lake 现在已经有一套首次引导流程，会跳转到文章，并写入 `.completeness-intro-seen`。Search Before Building 也应该有同样的 discoverability。
+**Why:** Boil the Lake 已经有一套首次引导流程，会跳转到文章，并写入 `.completeness-intro-seen`。Search Before Building 也应该具备相同的可发现性。
 
 **Context:** 当前阻塞在还没有可链接的博客文章。等文章写好后，加上带 `.search-intro-seen` 标记文件的 intro flow。参考模式：`gen-skill-docs.ts:176` 的 `generateLakeIntro()`。
 
@@ -32,9 +32,9 @@
 
 ### 接入真实 Chrome 会话
 
-**What:** 集成 Chrome DevTools MCP，让 gstack 直接连接用户真实的 Chrome 会话，使用真实 cookie、真实状态，不再经过 Playwright 中间层。
+**What:** 集成 Chrome DevTools MCP，让 gstack 直接连接用户真实的 Chrome 会话，使用真实 cookie 和真实登录状态，不再经过 Playwright 这一层中转。
 
-**Why:** 现在 headed mode 会启动一个全新的 Chromium profile。用户要么重新登录，要么手动导入 cookie。Chrome DevTools MCP 则能直接接入用户当前真实 Chrome，会话内所有已登录站点瞬间可用。这是 AI agent 浏览器自动化的未来方向。
+**Why:** 现在的 headed mode 会启动一个全新的 Chromium profile。用户要么重新登录，要么手动导入 cookie。Chrome DevTools MCP 则可以直接接入用户当前真实的 Chrome，会话里所有已登录站点都能立刻使用。这更接近 AI agent 浏览器自动化的未来方向。
 
 **Context:** Google 在 Chrome 146+（2025 年 6 月）发布了 Chrome DevTools MCP。它可以通过真实浏览器提供截图、console 消息、性能 trace、Lighthouse 审计，以及完整页面交互。gstack 应该用它来做真实会话访问，同时保留 Playwright 用于无头 CI / testing 场景。
 
@@ -42,7 +42,7 @@
 - `/debug-browser`：带 source map 的 JS 错误追踪
 - `/perf-debug`：性能 trace、Core Web Vitals、network waterfall
 
-对大多数场景来说，它甚至可能替代 `/setup-browser-cookies`，因为真实 cookie 已经在用户浏览器里了。
+对大多数场景来说，它甚至可能替代 `/setup-browser-cookies`，因为真实 cookie 本来就已经存在于用户浏览器里。
 
 **Effort:** L（human: ~2 weeks / CC: ~2 hours）  
 **Priority:** P0  
@@ -50,11 +50,11 @@
 
 ## Browse
 
-### 把 server.ts 打进编译后二进制
+### 把 `server.ts` 打进编译后二进制
 
 **What:** 完全移除 `resolveServerScript()` 的 fallback 链，把 `server.ts` 直接打包进编译后的 browse 二进制。
 
-**Why:** 现有 fallback 链，先找 cli.ts 邻近路径，再找全局安装路径，很脆弱，v0.3.2 就因为这个踩过坑。单个编译后二进制更简单，也更稳。
+**Why:** 现有 fallback 链会先找 `cli.ts` 邻近路径，再找全局安装路径，这套逻辑很脆弱，v0.3.2 就因为它出过问题。单个编译后二进制更简单，也更稳。
 
 **Context:** Bun 的 `--compile` 支持把多个入口一起打包。现在 server 是运行时靠文件路径解析的。直接打进去就不需要再做解析。
 
@@ -62,11 +62,11 @@
 **Priority:** P2  
 **Depends on:** None
 
-### Sessions，隔离的浏览器实例
+### Sessions：隔离的浏览器实例
 
-**What:** 提供按名称可寻址的隔离浏览器实例，每个实例有独立的 cookie / storage / history。
+**What:** 提供按名称可寻址的隔离浏览器实例，每个实例都拥有独立的 cookie、storage 和 history。
 
-**Why:** 能并行测试不同用户角色，验证 A/B 流程，以及更干净地管理认证状态。
+**Why:** 可以并行测试不同用户角色、验证 A/B 流程，也能更干净地管理认证状态。
 
 **Context:** 需要 Playwright browser context isolation。每个 session 都有独立 context，自己的 cookies 和 localStorage。这也是视频录制和 auth vault 的前置条件。
 
@@ -98,7 +98,7 @@
 
 ~~**What:** 把 cookies + localStorage 保存/加载成 JSON 文件，用于可复现实验会话。~~
 
-`$B state save/load` 已在 v0.12.1.0 发布。V1 只保存 cookies + URLs，不保存 localStorage，因为 load-before-navigate 会失效。文件保存到 `.gstack/browse-states/{name}.json`，权限 0o600。加载时会替换当前 session，先关掉所有页面。名称会清洗为 `[a-zA-Z0-9_-]`。
+`$B state save/load` 已在 v0.12.1.0 发布。V1 只保存 cookies 和 URL，不保存 localStorage，因为 load-before-navigate 会失效。文件保存到 `.gstack/browse-states/{name}.json`，权限为 `0o600`。加载时会替换当前 session，并先关闭所有页面。名称会清洗为 `[a-zA-Z0-9_-]`。
 
 **Remaining:** V2 的 localStorage 支持，还需要 pre-navigation injection 策略。  
 **Completed:** v0.12.1.0（2026-03-26）
