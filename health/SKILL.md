@@ -1,14 +1,13 @@
 ---
-name: setup-deploy
+name: health
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Configure deployment settings for /land-and-deploy. Detects your deploy
-  platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, custom),
-  production URL, health check endpoints, and deploy status commands. Writes
-  the configuration to CLAUDE.md so all future deploys are automatic.
-  Use when: "setup deploy", "configure deployment", "set up land-and-deploy",
-  "how do I deploy with gstack", "add deploy config".
+  Code quality dashboard. Wraps existing project tools (type checker, linter,
+  test runner, dead code detector, shell linter), computes a weighted composite
+  0-10 score, and tracks trends over time. Use when: "health check",
+  "code quality", "how healthy is the codebase", "run all checks",
+  "quality score". (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -52,7 +51,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
-  echo '{"skill":"setup-deploy","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+  echo '{"skill":"health","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -74,7 +73,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"setup-deploy","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"health","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -458,201 +457,268 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# /setup-deploy — Configure Deployment for gstack
+# /health -- Code Quality Dashboard
 
-You are helping the user configure their deployment so `/land-and-deploy` works
-automatically. Your job is to detect the deploy platform, production URL, health
-checks, and deploy status commands — then persist everything to CLAUDE.md.
+You are a **Staff Engineer who owns the CI dashboard**. You know that code quality
+isn't one metric -- it's a composite of type safety, lint cleanliness, test coverage,
+dead code, and script hygiene. Your job is to run every available tool, score the
+results, present a clear dashboard, and track trends so the team knows if quality
+is improving or slipping.
 
-After this runs once, `/land-and-deploy` reads CLAUDE.md and skips detection entirely.
+**HARD GATE:** Do NOT fix any issues. Produce the dashboard and recommendations only.
+The user decides what to act on.
 
 ## User-invocable
-When the user types `/setup-deploy`, run this skill.
+When the user types `/health`, run this skill.
 
-## Instructions
+---
 
-### Step 1: Check existing configuration
+## Step 1: Detect Health Stack
 
-```bash
-grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG"
-```
+Read CLAUDE.md and look for a `## Health Stack` section. If found, parse the tools
+listed there and skip auto-detection.
 
-If configuration already exists, show it and ask:
-
-- **Context:** Deploy configuration already exists in CLAUDE.md.
-- **RECOMMENDATION:** Choose A to update if your setup changed.
-- A) Reconfigure from scratch (overwrite existing)
-- B) Edit specific fields (show current config, let me change one thing)
-- C) Done — configuration looks correct
-
-If the user picks C, stop.
-
-### Step 2: Detect platform
-
-Run the platform detection from the deploy bootstrap:
+If no `## Health Stack` section exists, auto-detect available tools:
 
 ```bash
-# Platform config files
-[ -f fly.toml ] && echo "PLATFORM:fly" && cat fly.toml
-[ -f render.yaml ] && echo "PLATFORM:render" && cat render.yaml
-[ -f vercel.json ] || [ -d .vercel ] && echo "PLATFORM:vercel"
-[ -f netlify.toml ] && echo "PLATFORM:netlify" && cat netlify.toml
-[ -f Procfile ] && echo "PLATFORM:heroku"
-[ -f railway.json ] || [ -f railway.toml ] && echo "PLATFORM:railway"
+# Type checker
+[ -f tsconfig.json ] && echo "TYPECHECK: tsc --noEmit"
 
-# GitHub Actions deploy workflows
-for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
-  [ -f "$f" ] && grep -qiE "deploy|release|production|staging|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
-done
+# Linter
+[ -f biome.json ] || [ -f biome.jsonc ] && echo "LINT: biome check ."
+setopt +o nomatch 2>/dev/null || true
+ls eslint.config.* .eslintrc.* .eslintrc 2>/dev/null | head -1 | xargs -I{} echo "LINT: eslint ."
+[ -f .pylintrc ] || [ -f pyproject.toml ] && grep -q "pylint\|ruff" pyproject.toml 2>/dev/null && echo "LINT: ruff check ."
 
-# Project type
-[ -f package.json ] && grep -q '"bin"' package.json 2>/dev/null && echo "PROJECT_TYPE:cli"
-find . -maxdepth 1 -name '*.gemspec' 2>/dev/null | grep -q . && echo "PROJECT_TYPE:library"
+# Test runner
+[ -f package.json ] && grep -q '"test"' package.json 2>/dev/null && echo "TEST: $(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts.test)" 2>/dev/null)"
+[ -f pyproject.toml ] && grep -q "pytest" pyproject.toml 2>/dev/null && echo "TEST: pytest"
+[ -f Cargo.toml ] && echo "TEST: cargo test"
+[ -f go.mod ] && echo "TEST: go test ./..."
+
+# Dead code
+command -v knip >/dev/null 2>&1 && echo "DEADCODE: knip"
+[ -f package.json ] && grep -q '"knip"' package.json 2>/dev/null && echo "DEADCODE: npx knip"
+
+# Shell linting
+command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/null | head -1 | xargs -I{} echo "SHELL: shellcheck"
 ```
 
-### Step 3: Platform-specific setup
+Use Glob to search for shell scripts:
+- `**/*.sh` (shell scripts in the repo)
 
-Based on what was detected, guide the user through platform-specific configuration.
+After auto-detection, present the detected tools via AskUserQuestion:
 
-#### Fly.io
+"I detected these health check tools for this project:
 
-If `fly.toml` detected:
+- Type check: `tsc --noEmit`
+- Lint: `biome check .`
+- Tests: `bun test`
+- Dead code: `knip`
+- Shell lint: `shellcheck *.sh`
 
-1. Extract app name: `grep -m1 "^app" fly.toml | sed 's/app = "\(.*\)"/\1/'`
-2. Check if `fly` CLI is installed: `which fly 2>/dev/null`
-3. If installed, verify: `fly status --app {app} 2>/dev/null`
-4. Infer URL: `https://{app}.fly.dev`
-5. Set deploy status command: `fly status --app {app}`
-6. Set health check: `https://{app}.fly.dev` (or `/health` if the app has one)
+A) Looks right -- persist to CLAUDE.md and continue
+B) I need to adjust some tools (tell me which)
+C) Skip persistence -- just run these"
 
-Ask the user to confirm the production URL. Some Fly apps use custom domains.
-
-#### Render
-
-If `render.yaml` detected:
-
-1. Extract service name and type from render.yaml
-2. Check for Render API key: `echo $RENDER_API_KEY | head -c 4` (don't expose the full key)
-3. Infer URL: `https://{service-name}.onrender.com`
-4. Render deploys automatically on push to the connected branch — no deploy workflow needed
-5. Set health check: the inferred URL
-
-Ask the user to confirm. Render uses auto-deploy from the connected git branch — after
-merge to main, Render picks it up automatically. The "deploy wait" in /land-and-deploy
-should poll the Render URL until it responds with the new version.
-
-#### Vercel
-
-If vercel.json or .vercel detected:
-
-1. Check for `vercel` CLI: `which vercel 2>/dev/null`
-2. If installed: `vercel ls --prod 2>/dev/null | head -3`
-3. Vercel deploys automatically on push — preview on PR, production on merge to main
-4. Set health check: the production URL from vercel project settings
-
-#### Netlify
-
-If netlify.toml detected:
-
-1. Extract site info from netlify.toml
-2. Netlify deploys automatically on push
-3. Set health check: the production URL
-
-#### GitHub Actions only
-
-If deploy workflows detected but no platform config:
-
-1. Read the workflow file to understand what it does
-2. Extract the deploy target (if mentioned)
-3. Ask the user for the production URL
-
-#### Custom / Manual
-
-If nothing detected:
-
-Use AskUserQuestion to gather the information:
-
-1. **How are deploys triggered?**
-   - A) Automatically on push to main (Fly, Render, Vercel, Netlify, etc.)
-   - B) Via GitHub Actions workflow
-   - C) Via a deploy script or CLI command (describe it)
-   - D) Manually (SSH, dashboard, etc.)
-   - E) This project doesn't deploy (library, CLI, tool)
-
-2. **What's the production URL?** (Free text — the URL where the app runs)
-
-3. **How can gstack check if a deploy succeeded?**
-   - A) HTTP health check at a specific URL (e.g., /health, /api/status)
-   - B) CLI command (e.g., `fly status`, `kubectl rollout status`)
-   - C) Check the GitHub Actions workflow status
-   - D) No automated way — just check the URL loads
-
-4. **Any pre-merge or post-merge hooks?**
-   - Commands to run before merging (e.g., `bun run build`)
-   - Commands to run after merge but before deploy verification
-
-### Step 4: Write configuration
-
-Read CLAUDE.md (or create it). Find and replace the `## Deploy Configuration` section
-if it exists, or append it at the end.
+If the user chooses A or B (after adjustments), append or update a `## Health Stack`
+section in CLAUDE.md:
 
 ```markdown
-## Deploy Configuration (configured by /setup-deploy)
-- Platform: {platform}
-- Production URL: {url}
-- Deploy workflow: {workflow file or "auto-deploy on push"}
-- Deploy status command: {command or "HTTP health check"}
-- Merge method: {squash/merge/rebase}
-- Project type: {web app / API / CLI / library}
-- Post-deploy health check: {health check URL or command}
+## Health Stack
 
-### Custom deploy hooks
-- Pre-merge: {command or "none"}
-- Deploy trigger: {command or "automatic on push to main"}
-- Deploy status: {command or "poll production URL"}
-- Health check: {URL or command}
+- typecheck: tsc --noEmit
+- lint: biome check .
+- test: bun test
+- deadcode: knip
+- shell: shellcheck *.sh scripts/*.sh
 ```
 
-### Step 5: Verify
+---
 
-After writing, verify the configuration works:
+## Step 2: Run Tools
 
-1. If a health check URL was configured, try it:
+Run each detected tool. For each tool:
+
+1. Record the start time
+2. Run the command, capturing both stdout and stderr
+3. Record the exit code
+4. Record the end time
+5. Capture the last 50 lines of output for the report
+
 ```bash
-curl -sf "{health-check-url}" -o /dev/null -w "%{http_code}" 2>/dev/null || echo "UNREACHABLE"
+# Example for each tool — run each independently
+START=$(date +%s)
+tsc --noEmit 2>&1 | tail -50
+EXIT_CODE=$?
+END=$(date +%s)
+echo "TOOL:typecheck EXIT:$EXIT_CODE DURATION:$((END-START))s"
 ```
 
-2. If a deploy status command was configured, try it:
+Run tools sequentially (some may share resources or lock files). If a tool is not
+installed or not found, record it as `SKIPPED` with reason, not as a failure.
+
+---
+
+## Step 3: Score Each Category
+
+Score each category on a 0-10 scale using this rubric:
+
+| Category | Weight | 10 | 7 | 4 | 0 |
+|-----------|--------|------|-----------|------------|-----------|
+| Type check | 25% | Clean (exit 0) | <10 errors | <50 errors | >=50 errors |
+| Lint | 20% | Clean (exit 0) | <5 warnings | <20 warnings | >=20 warnings |
+| Tests | 30% | All pass (exit 0) | >95% pass | >80% pass | <=80% pass |
+| Dead code | 15% | Clean (exit 0) | <5 unused exports | <20 unused | >=20 unused |
+| Shell lint | 10% | Clean (exit 0) | <5 issues | >=5 issues | N/A (skip) |
+
+**Parsing tool output for counts:**
+- **tsc:** Count lines matching `error TS` in output.
+- **biome/eslint/ruff:** Count lines matching error/warning patterns. Parse the summary line if available.
+- **Tests:** Parse pass/fail counts from the test runner output. If the runner only reports exit code, use: exit 0 = 10, exit non-zero = 4 (assume some failures).
+- **knip:** Count lines reporting unused exports, files, or dependencies.
+- **shellcheck:** Count distinct findings (lines starting with "In ... line").
+
+**Composite score:**
+```
+composite = (typecheck_score * 0.25) + (lint_score * 0.20) + (test_score * 0.30) + (deadcode_score * 0.15) + (shell_score * 0.10)
+```
+
+If a category is skipped (tool not available), redistribute its weight proportionally
+among the remaining categories.
+
+---
+
+## Step 4: Present Dashboard
+
+Present results as a clear table:
+
+```
+CODE HEALTH DASHBOARD
+=====================
+
+Project: <project name>
+Branch:  <current branch>
+Date:    <today>
+
+Category      Tool              Score   Status     Duration   Details
+----------    ----------------  -----   --------   --------   -------
+Type check    tsc --noEmit      10/10   CLEAN      3s         0 errors
+Lint          biome check .      8/10   WARNING    2s         3 warnings
+Tests         bun test          10/10   CLEAN      12s        47/47 passed
+Dead code     knip               7/10   WARNING    5s         4 unused exports
+Shell lint    shellcheck        10/10   CLEAN      1s         0 issues
+
+COMPOSITE SCORE: 9.1 / 10
+
+Duration: 23s total
+```
+
+Use these status labels:
+- 10: `CLEAN`
+- 7-9: `WARNING`
+- 4-6: `NEEDS WORK`
+- 0-3: `CRITICAL`
+
+If any category scored below 7, list the top issues from that tool's output:
+
+```
+DETAILS: Lint (3 warnings)
+  biome check . output:
+    src/utils.ts:42 — lint/complexity/noForEach: Prefer for...of
+    src/api.ts:18 — lint/style/useConst: Use const instead of let
+    src/api.ts:55 — lint/suspicious/noExplicitAny: Unexpected any
+```
+
+---
+
+## Step 5: Persist to Health History
+
 ```bash
-{deploy-status-command} 2>/dev/null | head -5 || echo "COMMAND_FAILED"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
 
-Report results. If anything failed, note it but don't block — the config is still
-useful even if the health check is temporarily unreachable.
+Append one JSONL line to `~/.gstack/projects/$SLUG/health-history.jsonl`:
 
-### Step 6: Summary
+```json
+{"ts":"2026-03-31T14:30:00Z","branch":"main","score":9.1,"typecheck":10,"lint":8,"test":10,"deadcode":7,"shell":10,"duration_s":23}
+```
+
+Fields:
+- `ts` -- ISO 8601 timestamp
+- `branch` -- current git branch
+- `score` -- composite score (one decimal)
+- `typecheck`, `lint`, `test`, `deadcode`, `shell` -- individual category scores (integer 0-10)
+- `duration_s` -- total time for all tools in seconds
+
+If a category was skipped, set its value to `null`.
+
+---
+
+## Step 6: Trend Analysis + Recommendations
+
+Read the last 10 entries from `~/.gstack/projects/$SLUG/health-history.jsonl` (if the
+file exists and has prior entries).
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+tail -10 ~/.gstack/projects/$SLUG/health-history.jsonl 2>/dev/null || echo "NO_HISTORY"
+```
+
+**If prior entries exist, show the trend:**
 
 ```
-DEPLOY CONFIGURATION — COMPLETE
-════════════════════════════════
-Platform:      {platform}
-URL:           {url}
-Health check:  {health check}
-Status cmd:    {status command}
-Merge method:  {merge method}
+HEALTH TREND (last 5 runs)
+==========================
+Date          Branch         Score   TC   Lint  Test  Dead  Shell
+----------    -----------    -----   --   ----  ----  ----  -----
+2026-03-28    main           9.4     10   9     10    8     10
+2026-03-29    feat/auth      8.8     10   7     10    7     10
+2026-03-30    feat/auth      8.2     10   6     9     7     10
+2026-03-31    feat/auth      9.1     10   8     10    7     10
 
-Saved to CLAUDE.md. /land-and-deploy will use these settings automatically.
-
-Next steps:
-- Run /land-and-deploy to merge and deploy your current PR
-- Edit the "## Deploy Configuration" section in CLAUDE.md to change settings
-- Run /setup-deploy again to reconfigure
+Trend: IMPROVING (+0.9 since last run)
 ```
+
+**If score dropped vs the previous run:**
+1. Identify WHICH categories declined
+2. Show the delta for each declining category
+3. Correlate with tool output -- what specific errors/warnings appeared?
+
+```
+REGRESSIONS DETECTED
+  Lint: 9 -> 6 (-3) — 12 new biome warnings introduced
+    Most common: lint/complexity/noForEach (7 instances)
+  Tests: 10 -> 9 (-1) — 2 test failures
+    FAIL src/auth.test.ts > should validate token expiry
+    FAIL src/auth.test.ts > should reject malformed JWT
+```
+
+**Health improvement suggestions (always show these):**
+
+Prioritize suggestions by impact (weight * score deficit):
+
+```
+RECOMMENDATIONS (by impact)
+============================
+1. [HIGH]  Fix 2 failing tests (Tests: 9/10, weight 30%)
+   Run: bun test --verbose to see failures
+2. [MED]   Address 12 lint warnings (Lint: 6/10, weight 20%)
+   Run: biome check . --write to auto-fix
+3. [LOW]   Remove 4 unused exports (Dead code: 7/10, weight 15%)
+   Run: knip --fix to auto-remove
+```
+
+Rank by `weight * (10 - score)` descending. Only show categories below 10.
+
+---
 
 ## Important Rules
 
-- **Never expose secrets.** Don't print full API keys, tokens, or passwords.
-- **Confirm with the user.** Always show the detected config and ask for confirmation before writing.
-- **CLAUDE.md is the source of truth.** All configuration lives there — not in a separate config file.
-- **Idempotent.** Running /setup-deploy multiple times overwrites the previous config cleanly.
-- **Platform CLIs are optional.** If `fly` or `vercel` CLI isn't installed, fall back to URL-based health checks.
+1. **Wrap, don't replace.** Run the project's own tools. Never substitute your own analysis for what the tool reports.
+2. **Read-only.** Never fix issues. Present the dashboard and let the user decide.
+3. **Respect CLAUDE.md.** If `## Health Stack` is configured, use those exact commands. Do not second-guess.
+4. **Skipped is not failed.** If a tool isn't available, skip it gracefully and redistribute weight. Do not penalize the score.
+5. **Show raw output for failures.** When a tool reports errors, include the actual output (tail -50) so the user can act on it without re-running.
+6. **Trends require history.** On first run, say "First health check -- no trend data yet. Run /health again after making changes to track progress."
+7. **Be honest about scores.** A codebase with 100 type errors and all tests passing is not healthy. The composite score should reflect reality.
