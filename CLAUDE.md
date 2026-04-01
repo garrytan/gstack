@@ -1,4 +1,25 @@
-# gstack development
+# gstack-adfree development
+
+## Upstream sync
+
+This is a fork of https://github.com/garrytan/gstack. Before starting any new work,
+check for updates on the upstream repo's main branch and merge them in:
+
+```bash
+git remote add upstream https://github.com/garrytan/gstack.git 2>/dev/null || true
+git fetch upstream main
+git merge upstream/main --no-edit
+```
+
+**Conflict resolution strategy:**
+- **Generated SKILL.md files:** never manually resolve — accept either side, then
+  run `bun run gen:skill-docs` to regenerate from templates.
+- **office-hours/SKILL.md.tmpl:** accept upstream's version, then re-remove Phase 4.5
+  (Founder Signal Synthesis), Phase 6 (Handoff — Founder Discovery), and YC branding.
+- **URL-only files** (README, bin/gstack-update-check, gstack-upgrade/SKILL.md.tmpl):
+  keep our `donovan-yohan/gstack-adfree` URLs — upstream won't change theirs, so
+  these should merge cleanly.
+- After resolving, always run `bun run gen:skill-docs` and `bun test test/skill-validation.test.ts`.
 
 ## Commands
 

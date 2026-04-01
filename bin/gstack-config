@@ -15,7 +15,7 @@ CONFIG_FILE="$STATE_DIR/config.yaml"
 
 # Annotated header for new config files. Written once on first `set`.
 CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on next skill run.
-# Docs: https://github.com/garrytan/gstack
+# Docs: https://github.com/donovan-yohan/gstack-adfree
 #
 # ─── Behavior ────────────────────────────────────────────────────────
 # proactive: true           # Auto-invoke skills when your request matches one.
