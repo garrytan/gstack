@@ -20,26 +20,19 @@ Now edit any `SKILL.md`, invoke it in Claude Code (e.g. `/review`), and see your
 bin/dev-teardown               # deactivate — back to your global install
 ```
 
-## Contributor mode
+## Operational self-improvement
 
-Contributor mode turns gstack into a self-improving tool. Enable it and Claude Code
-will periodically reflect on its gstack experience — rating it 0-10 at the end of
-each major workflow step. When something isn't a 10, it thinks about why and files
-a report to `~/.gstack/contributor-logs/` with what happened, repro steps, and what
-would make it better.
+gstack automatically learns from failures. At the end of every skill session, the agent
+reflects on what went wrong (CLI errors, wrong approaches, project quirks) and logs
+operational learnings to `~/.gstack/projects/{slug}/learnings.jsonl`. Future sessions
+surface these learnings automatically, so gstack gets smarter on your codebase over time.
 
-```bash
-~/.claude/skills/gstack/bin/gstack-config set gstack_contributor true
-```
-
-The logs are for **you**. When something bugs you enough to fix, the report is
-already written. Fork gstack, symlink your fork into the project where you hit
-the issue, fix it, and open a PR.
+No setup needed. Learnings are logged automatically. View them with `/learn`.
 
 ### The contributor workflow
 
-1. **Use gstack normally** — contributor mode reflects and logs issues automatically
-2. **Check your logs:** `ls ~/.gstack/contributor-logs/`
+1. **Use gstack normally** — operational learnings are captured automatically
+2. **Check your learnings:** `/learn` or `ls ~/.gstack/projects/*/learnings.jsonl`
 3. **Fork and clone gstack** (if you haven't already)
 4. **Symlink your fork into the project where you hit the bug:**
    ```bash

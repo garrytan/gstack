@@ -104,6 +104,8 @@ grep -q "laravel" composer.json 2>/dev/null && echo "FRAMEWORK: Laravel"
 
 This is NOT a checklist — it's a reasoning phase. The output is understanding, not findings.
 
+{{LEARNINGS_SEARCH}}
+
 ### Phase 1: Attack Surface Census
 
 Map what an attacker sees — both code surface and infrastructure surface.
@@ -599,6 +601,8 @@ Write findings to `.gstack/security-reports/{date}-{HHMMSS}.json` using this sch
 ```
 
 If `.gstack/` is not in `.gitignore`, note it in findings — security reports should stay local.
+
+{{LEARNINGS_LOG}}
 
 ## Important Rules
 

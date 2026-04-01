@@ -3,13 +3,14 @@ name: design-html
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Design finalization: takes an approved AI mockup from /design-shotgun and
-  generates production-quality Pretext-native HTML/CSS. Text actually reflows,
-  heights are computed, layouts are dynamic. 30KB overhead, zero deps.
-  Smart API routing: picks the right Pretext patterns for each design type.
-  Use when: "finalize this design", "turn this mockup into HTML", "implement
-  this design", or after /design-shotgun approves a direction.
-  Proactively suggest when user has approved a design in /design-shotgun. (gstack)
+  Design finalization: generates production-quality Pretext-native HTML/CSS.
+  Works with approved mockups from /design-shotgun, CEO plans from /plan-ceo-review,
+  design review context from /plan-design-review, or from scratch with a user
+  description. Text actually reflows, heights are computed, layouts are dynamic.
+  30KB overhead, zero deps. Smart API routing: picks the right Pretext patterns
+  for each design type. Use when: "finalize this design", "turn this into HTML",
+  "build me a page", "implement this design", or after any planning skill.
+  Proactively suggest when user has approved a design or has a plan ready. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -32,7 +33,6 @@ mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -exec rm {} + 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 _PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
@@ -53,8 +53,8 @@ _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
-if [ "${_TEL:-off}" != "off" ]; then
-  echo '{"skill":"design-html","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+if [ "$_TEL" != "off" ]; then
+echo '{"skill":"design-html","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -72,9 +72,14 @@ _LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.j
 if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
+  if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
+    ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 3 2>/dev/null || true
+  fi
 else
   echo "LEARNINGS: 0"
 fi
+# Session timeline: record skill start (local-only, never sent anywhere)
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"design-html","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -198,6 +203,8 @@ Key routing rules:
 - Design system, brand → invoke design-consultation
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
+- Save progress, checkpoint, resume → invoke checkpoint
+- Code quality, health check → invoke health
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -253,6 +260,51 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 
 **Final test:** does this sound like a real cross-functional builder who wants to help someone make something people want, ship it, and make it actually work?
 
+## Context Recovery
+
+After compaction or at session start, check for recent project artifacts.
+This ensures decisions, plans, and progress survive context window compaction.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
+if [ -d "$_PROJ" ]; then
+  echo "--- RECENT ARTIFACTS ---"
+  # Last 3 artifacts across ceo-plans/ and checkpoints/
+  find "$_PROJ/ceo-plans" "$_PROJ/checkpoints" -type f -name "*.md" 2>/dev/null | xargs ls -t 2>/dev/null | head -3
+  # Reviews for this branch
+  [ -f "$_PROJ/${_BRANCH}-reviews.jsonl" ] && echo "REVIEWS: $(wc -l < "$_PROJ/${_BRANCH}-reviews.jsonl" | tr -d ' ') entries"
+  # Timeline summary (last 5 events)
+  [ -f "$_PROJ/timeline.jsonl" ] && tail -5 "$_PROJ/timeline.jsonl"
+  # Cross-session injection
+  if [ -f "$_PROJ/timeline.jsonl" ]; then
+    _LAST=$(grep "\"branch\":\"${_BRANCH}\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -1)
+    [ -n "$_LAST" ] && echo "LAST_SESSION: $_LAST"
+    # Predictive skill suggestion: check last 3 completed skills for patterns
+    _RECENT_SKILLS=$(grep "\"branch\":\"${_BRANCH}\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -3 | grep -o '"skill":"[^"]*"' | sed 's/"skill":"//;s/"//' | tr '\n' ',')
+    [ -n "$_RECENT_SKILLS" ] && echo "RECENT_PATTERN: $_RECENT_SKILLS"
+  fi
+  _LATEST_CP=$(find "$_PROJ/checkpoints" -name "*.md" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
+  [ -n "$_LATEST_CP" ] && echo "LATEST_CHECKPOINT: $_LATEST_CP"
+  echo "--- END ARTIFACTS ---"
+fi
+```
+
+If artifacts are listed, read the most recent one to recover context.
+
+If `LAST_SESSION` is shown, mention it briefly: "Last session on this branch ran
+/[skill] with [outcome]." If `LATEST_CHECKPOINT` exists, read it for full context
+on where work left off.
+
+If `RECENT_PATTERN` is shown, look at the skill sequence. If a pattern repeats
+(e.g., review,ship,review), suggest: "Based on your recent pattern, you probably
+want /[next skill]."
+
+**Welcome back message:** If any of LAST_SESSION, LATEST_CHECKPOINT, or RECENT ARTIFACTS
+are shown, synthesize a one-paragraph welcome briefing before proceeding:
+"Welcome back to {branch}. Last session: /{skill} ({outcome}). [Checkpoint summary if
+available]. [Health score if available]." Keep it to 2-3 sentences.
+
 ## AskUserQuestion Format
 
 **ALWAYS follow this structure for every AskUserQuestion call:**
@@ -280,24 +332,6 @@ AI makes completeness near-free. Always recommend the complete option over short
 
 Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
 
-## Contributor Mode
-
-If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major workflow step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
-
-**File only:** gstack tooling bugs where the input was reasonable but gstack failed. **Skip:** user app bugs, network errors, auth failures on user's site.
-
-**To file:** write `~/.gstack/contributor-logs/{slug}.md`:
-```
-# {Title}
-**What I tried:** {action} | **What happened:** {result} | **Rating:** {0-10}
-## Repro
-1. {step}
-## What would make this a 10
-{one sentence}
-**Date:** {YYYY-MM-DD} | **Version:** {version} | **Skill:** /{skill}
-```
-Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
-
 ## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -323,6 +357,24 @@ ATTEMPTED: [what you tried]
 RECOMMENDATION: [what the user should do next]
 ```
 
+## Operational Self-Improvement
+
+Before completing, reflect on this session:
+- Did any commands fail unexpectedly?
+- Did you take a wrong approach and have to backtrack?
+- Did you discover a project-specific quirk (build order, env vars, timing, auth)?
+- Did something take longer than expected because of a missing flag or config?
+
+If yes, log an operational learning for future sessions:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
+```
+
+Replace SKILL_NAME with the current skill name. Only log genuine operational discoveries.
+Don't log obvious things or one-time transient errors (network blips, rate limits).
+A good test: would knowing this save 5+ minutes in a future session? If yes, log it.
+
 ## Telemetry (run last)
 
 After the skill workflow completes (success, error, or abort), log the telemetry event.
@@ -341,22 +393,24 @@ Run this bash:
 _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-# Local + remote telemetry (both gated by _TEL setting)
+# Session timeline: record skill completion (local-only, never sent anywhere)
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+# Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
-  echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
-  if [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-    ~/.claude/skills/gstack/bin/gstack-telemetry-log \
-      --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
-      --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
-  fi
+echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+fi
+# Remote telemetry (opt-in, requires binary)
+if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.claude/skills/gstack/bin/gstack-telemetry-log \
+    --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+    --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
 ```
 
 Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
 success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
-If you cannot determine the outcome, use "unknown". Both local JSONL and remote
-telemetry only run if telemetry is not off. The remote binary additionally requires
-the binary to exist.
+If you cannot determine the outcome, use "unknown". The local JSONL always logs. The
+remote binary only runs if telemetry is not off and the binary exists.
 
 ## Plan Mode Safe Operations
 
@@ -503,37 +557,97 @@ If `NEEDS_SETUP`:
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ```
 
-1. Find the most recent `approved.json`:
+Detect what design context exists for this project. Run all four checks:
+
 ```bash
 setopt +o nomatch 2>/dev/null || true
-ls -t ~/.gstack/projects/$SLUG/designs/*/approved.json 2>/dev/null | head -1
+_CEO=$(ls -t ~/.gstack/projects/$SLUG/ceo-plans/*.md 2>/dev/null | head -1)
+[ -n "$_CEO" ] && echo "CEO_PLAN: $_CEO" || echo "NO_CEO_PLAN"
 ```
 
-2. If found, read it. Extract: approved variant PNG path, user feedback, screen name.
-
-3. Read `DESIGN.md` if it exists in the repo root. These tokens take priority for
-   system-level values (fonts, brand colors, spacing scale).
-
-4. **Evolve mode:** Check for prior output:
 ```bash
 setopt +o nomatch 2>/dev/null || true
-ls -t ~/.gstack/projects/$SLUG/designs/*/finalized.html 2>/dev/null | head -1
+_APPROVED=$(ls -t ~/.gstack/projects/$SLUG/designs/*/approved.json 2>/dev/null | head -1)
+[ -n "$_APPROVED" ] && echo "APPROVED: $_APPROVED" || echo "NO_APPROVED"
 ```
-If a prior `finalized.html` exists, use AskUserQuestion:
+
+```bash
+setopt +o nomatch 2>/dev/null || true
+_VARIANTS=$(ls -t ~/.gstack/projects/$SLUG/designs/*/variant-*.png 2>/dev/null | head -1)
+[ -n "$_VARIANTS" ] && echo "VARIANTS: $_VARIANTS" || echo "NO_VARIANTS"
+```
+
+```bash
+setopt +o nomatch 2>/dev/null || true
+_FINALIZED=$(ls -t ~/.gstack/projects/$SLUG/designs/*/finalized.html 2>/dev/null | head -1)
+[ -n "$_FINALIZED" ] && echo "FINALIZED: $_FINALIZED" || echo "NO_FINALIZED"
+[ -f DESIGN.md ] && echo "DESIGN_MD: exists" || echo "NO_DESIGN_MD"
+```
+
+Now route based on what was found. Check these cases in order:
+
+### Case A: approved.json exists (design-shotgun ran)
+
+If `APPROVED` was found, read it. Extract: approved variant PNG path, user feedback,
+screen name. Also read the CEO plan if one exists (it adds strategic context).
+
+Read `DESIGN.md` if it exists in the repo root. These tokens take priority for
+system-level values (fonts, brand colors, spacing scale).
+
+Then check for prior finalized.html. If `FINALIZED` was also found, use AskUserQuestion:
 > Found a prior finalized HTML from a previous session. Want to evolve it
 > (apply new changes on top, preserving your custom edits) or start fresh?
 > A) Evolve — iterate on the existing HTML
 > B) Start fresh — regenerate from the approved mockup
 
 If evolve: read the existing HTML. Apply changes on top during Step 3.
-If fresh: proceed normally.
+If fresh or no finalized.html: proceed to Step 1 with the approved PNG as the
+visual reference.
 
-5. If no `approved.json` found, use AskUserQuestion:
-> No approved design found. You need a mockup first.
-> A) Run /design-shotgun — explore design variants and approve one
-> B) I have a PNG — let me provide the path
+### Case B: CEO plan and/or design variants exist, but no approved.json
 
-If B: accept a PNG file path from the user and proceed with that as the reference.
+If `CEO_PLAN` or `VARIANTS` was found but no `APPROVED`:
+
+Read whichever context exists:
+- If CEO plan found: read it and summarize the product vision and design requirements.
+- If variant PNGs found: show them inline using the Read tool.
+- If DESIGN.md found: read it for design tokens and constraints.
+
+Use AskUserQuestion:
+> Found [CEO plan from /plan-ceo-review | design review variants from /plan-design-review | both]
+> but no approved design mockup.
+> A) Run /design-shotgun — explore design variants based on the existing plan context
+> B) Skip mockups — I'll design the HTML directly from the plan context
+> C) I have a PNG — let me provide the path
+
+If A: tell the user to run /design-shotgun, then come back to /design-html.
+If B: proceed to Step 1 in "plan-driven mode." There is no approved PNG, the plan is
+the source of truth. Ask the user for a screen name to use for the output directory
+(e.g., "landing-page", "dashboard", "pricing").
+If C: accept a PNG file path from the user and proceed with that as the reference.
+
+### Case C: Nothing found (clean slate)
+
+If none of the above produced any context:
+
+Use AskUserQuestion:
+> No design context found for this project. How do you want to start?
+> A) Run /plan-ceo-review first — think through the product strategy before designing
+> B) Run /plan-design-review first — design review with visual mockups
+> C) Run /design-shotgun — jump straight to visual design exploration
+> D) Just describe it — tell me what you want and I'll design the HTML live
+
+If A, B, or C: tell the user to run that skill, then come back to /design-html.
+If D: proceed to Step 1 in "freeform mode." Ask the user for a screen name.
+
+### Context summary
+
+After routing, output a brief context summary:
+- **Mode:** approved-mockup | plan-driven | freeform | evolve
+- **Visual reference:** path to approved PNG, or "none (plan-driven)" or "none (freeform)"
+- **CEO plan:** path or "none"
+- **Design tokens:** "DESIGN.md" or "none"
+- **Screen name:** from approved.json, user-provided, or inferred from CEO plan
 
 ---
 
@@ -548,10 +662,22 @@ This returns colors, typography, layout structure, and component inventory via G
 2. If `$D` is not available, read the approved PNG inline using the Read tool.
    Describe the visual layout, colors, typography, and component structure yourself.
 
-3. Read `DESIGN.md` tokens. These override any extracted values for system-level
+3. If in plan-driven or freeform mode (no approved PNG), design from context:
+   - **Plan-driven:** read the CEO plan and/or design review notes. Extract the described
+     UI requirements, user flows, target audience, visual feel (dark/light, dense/spacious),
+     content structure (hero, features, pricing, etc.), and design constraints. Build an
+     implementation spec from the plan's prose rather than a visual reference.
+   - **Freeform:** use AskUserQuestion to gather what the user wants to build. Ask about:
+     purpose/audience, visual feel (dark/light, playful/serious, dense/spacious),
+     content structure (hero, features, pricing, etc.), and any reference sites they like.
+   In both cases, describe the intended visual layout, colors, typography, and
+   component structure as your implementation spec. Generate realistic content based
+   on the plan or user description (never lorem ipsum).
+
+4. Read `DESIGN.md` tokens. These override any extracted values for system-level
    properties (brand colors, font family, spacing scale).
 
-4. Output an "Implementation spec" summary: colors (hex), fonts (family + weights),
+5. Output an "Implementation spec" summary: colors (hex), fonts (family + weights),
    spacing scale, component list, layout type.
 
 ---
@@ -875,13 +1001,17 @@ LOOP:
   1. If server is running, tell user to open http://localhost:PORT/finalized.html
      Otherwise: open <path>/finalized.html
 
-  2. Show approved mockup PNG inline (Read tool) for visual comparison
+  2. If an approved mockup PNG exists, show it inline (Read tool) for visual comparison.
+     If in plan-driven or freeform mode, skip this step.
 
-  3. AskUserQuestion:
-     "The HTML is live in your browser. Here's the approved mockup for comparison.
+  3. AskUserQuestion (adjust wording based on mode):
+     With mockup: "The HTML is live in your browser. Here's the approved mockup for comparison.
       Try: resize the window (text should reflow dynamically),
       click any text (it's editable, layout recomputes instantly).
       What needs to change? Say 'done' when satisfied."
+     Without mockup: "The HTML is live in your browser. Try: resize the window
+      (text should reflow dynamically), click any text (it's editable, layout
+      recomputes instantly). What needs to change? Say 'done' when satisfied."
 
   4. If "done" / "ship it" / "looks good" / "perfect" → exit loop, go to Step 5
 
@@ -928,13 +1058,15 @@ If A: write `DESIGN.md` to the repo root with the extracted tokens.
 Write `finalized.json` alongside the HTML:
 ```json
 {
-  "source_mockup": "<approved variant PNG path>",
+  "source_mockup": "<approved variant PNG path or null>",
+  "source_plan": "<CEO plan path or null>",
+  "mode": "<approved-mockup|plan-driven|freeform|evolve>",
   "html_file": "<path to finalized.html or component file>",
   "pretext_tier": "<selected tier>",
   "framework": "<vanilla|react|svelte|vue>",
   "iterations": <number of refinement iterations>,
   "date": "<ISO 8601>",
-  "screen": "<screen name from approved.json>",
+  "screen": "<screen name>",
   "branch": "<current branch>"
 }
 ```
@@ -951,9 +1083,11 @@ Use AskUserQuestion:
 
 ## Important Rules
 
-- **Mockup fidelity over code elegance.** If pixel-matching the approved mockup requires
-  `width: 312px` instead of a CSS grid class, that's correct. The mockup is the source
-  of truth. Code cleanup happens later during component extraction.
+- **Source of truth fidelity over code elegance.** When an approved mockup exists,
+  pixel-match it. If that requires `width: 312px` instead of a CSS grid class, that's
+  correct. When in plan-driven or freeform mode, the user's feedback during the
+  refinement loop is the source of truth. Code cleanup happens later during
+  component extraction.
 
 - **Always use Pretext for text layout.** Even if the design looks simple, Pretext
   ensures correct height computation on resize. The overhead is 30KB. Every page benefits.
@@ -962,8 +1096,9 @@ Use AskUserQuestion:
   not the Write tool to regenerate the entire file. The user may have made manual edits
   via contenteditable that should be preserved.
 
-- **Real content only.** Extract text from the approved mockup. Never use "Lorem ipsum",
-  "Your text here", or placeholder content.
+- **Real content only.** When a mockup exists, extract text from it. In plan-driven mode,
+  use content from the plan. In freeform mode, generate realistic content based on the
+  user's description. Never use "Lorem ipsum", "Your text here", or placeholder content.
 
 - **One page per invocation.** For multi-page designs, run /design-html once per page.
   Each run produces one HTML file.

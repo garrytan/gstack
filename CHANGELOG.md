@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.15.1.0] - 2026-04-01 — Design Without Shotgun
+
+You can now run `/design-html` without having to run `/design-shotgun` first. The skill detects what design context exists (CEO plans, design review artifacts, approved mockups) and asks how you want to proceed. Start from a plan, a description, or a provided PNG, not just an approved mockup.
+
+### Changed
+
+- **`/design-html` works from any starting point.** Three routing modes: (A) approved mockup from /design-shotgun, (B) CEO plan and/or design variants without formal approval, (C) clean slate with just a description. Each mode asks the right questions and proceeds accordingly.
+- **AskUserQuestion for missing context.** Instead of blocking with "no approved design found," the skill now offers choices: run the planning skills first, provide a PNG, or just describe what you want and design live.
+
+## [0.15.0.0] - 2026-04-01 — Session Intelligence
+
+Your AI sessions now remember what happened. Plans, reviews, checkpoints, and health scores survive context compaction and compound across sessions. Every skill writes a timeline event, and the preamble reads recent artifacts on startup so the agent knows where you left off.
+
+### Added
+
+- **Session timeline.** Every skill auto-logs start/complete events to `timeline.jsonl`. Local-only, never sent anywhere, always on regardless of telemetry setting. /retro can now show "this week: 3 /review, 2 /ship across 3 branches."
+- **Context recovery.** After compaction or session start, the preamble lists your recent CEO plans, checkpoints, and reviews. The agent reads the most recent one to recover decisions and progress without asking you to repeat yourself.
+- **Cross-session injection.** On session start, the preamble prints your last skill run on this branch and your latest checkpoint. You see "Last session: /review (success)" before typing anything.
+- **Predictive skill suggestion.** If your last 3 sessions on a branch follow a pattern (review, ship, review), gstack suggests what you probably want next.
+- **Welcome back message.** Sessions synthesize a one-paragraph briefing: branch name, last skill, checkpoint status, health score.
+- **`/checkpoint` skill.** Save and resume working state snapshots. Captures git state, decisions made, remaining work. Supports cross-branch listing for Conductor workspace handoff between agents.
+- **`/health` skill.** Code quality scorekeeper. Wraps your project's tools (tsc, biome, knip, shellcheck, tests), computes a composite 0-10 score, tracks trends over time. When the score drops, it tells you exactly what changed and where to fix it.
+- **Timeline binaries.** `bin/gstack-timeline-log` and `bin/gstack-timeline-read` for append-only JSONL timeline storage.
+- **Routing rules.** /checkpoint and /health added to the skill routing injection.
+
+## [0.14.6.0] - 2026-03-31 — Recursive Self-Improvement
+
+gstack now learns from its own mistakes. Every skill session captures operational failures (CLI errors, wrong approaches, project quirks) and surfaces them in future sessions. No setup needed, just works.
+
+### Added
+
+- **Operational self-improvement.** When a command fails or you hit a project-specific gotcha, gstack logs it. Next session, it remembers. "bun test needs --timeout 30000" or "login flow requires cookie import first" ... the kind of stuff that wastes 10 minutes every time you forget it.
+- **Learnings summary in preamble.** When your project has 5+ learnings, gstack shows the top 3 at the start of every session so you see them before you start working.
+- **13 skills now learn.** office-hours, plan-ceo-review, plan-eng-review, plan-design-review, design-review, design-consultation, cso, qa, qa-only, and retro all now read prior learnings AND contribute new ones. Previously only review, ship, and investigate were wired.
+
+### Changed
+
+- **Contributor mode replaced.** The old contributor mode (manual opt-in, markdown reports to ~/.gstack/contributor-logs/) never fired in 18 days of heavy use. Replaced with automatic operational learning that captures the same insights without any setup.
+
+### Fixed
+
+- **learnings-show E2E test slug mismatch.** The test seeded learnings at a hardcoded path but gstack-slug computed a different path at runtime. Now computes the slug dynamically.
+
 ## [0.14.5.0] - 2026-03-31 — Ship Idempotency + Skill Prefix Fix
 
 Re-running `/ship` after a failed push or PR creation no longer double-bumps your version or duplicates your CHANGELOG. And if you use `--prefix` mode, your skill names actually work now.

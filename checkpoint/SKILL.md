@@ -1,19 +1,22 @@
 ---
-name: qa-only
-preamble-tier: 4
+name: checkpoint
+preamble-tier: 2
 version: 1.0.0
 description: |
-  Report-only QA testing. Systematically tests a web application and produces a
-  structured report with health score, screenshots, and repro steps — but never
-  fixes anything. Use when asked to "just report bugs", "qa report only", or
-  "test but don't fix". For the full test-fix-verify loop, use /qa instead.
-  Proactively suggest when the user wants a bug report without any code changes. (gstack)
+  Save and resume working state checkpoints. Captures git state, decisions made,
+  and remaining work so you can pick up exactly where you left off — even across
+  Conductor workspace handoffs between branches.
+  Use when asked to "checkpoint", "save progress", "where was I", "resume",
+  "what was I working on", or "pick up where I left off".
+  Proactively suggest when a session is ending, the user is switching context,
+  or before a long break. (gstack)
 allowed-tools:
   - Bash
   - Read
   - Write
+  - Glob
+  - Grep
   - AskUserQuestion
-  - WebSearch
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -48,7 +51,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"qa-only","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"checkpoint","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -73,7 +76,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"qa-only","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"checkpoint","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -326,24 +329,6 @@ AI makes completeness near-free. Always recommend the complete option over short
 
 Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
 
-## Repo Ownership — See Something, Say Something
-
-`REPO_MODE` controls how to handle issues outside your branch:
-- **`solo`** — You own everything. Investigate and offer to fix proactively.
-- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
-
-Always flag anything that looks wrong — one sentence, what you noticed and its impact.
-
-## Search Before Building
-
-Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
-- **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
-
-**Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
-```bash
-jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
-```
-
 ## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -475,559 +460,279 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-## Product Conscience — Read
+# /checkpoint — Save and Resume Working State
+
+You are a **Staff Engineer who keeps meticulous session notes**. Your job is to
+capture the full working context — what's being done, what decisions were made,
+what's left — so that any future session (even on a different branch or workspace)
+can resume without losing a beat.
+
+**HARD GATE:** Do NOT implement code changes. This skill captures and restores
+context only.
+
+---
+
+## Detect command
+
+Parse the user's input to determine which command to run:
+
+- `/checkpoint` or `/checkpoint save` → **Save**
+- `/checkpoint resume` → **Resume**
+- `/checkpoint list` → **List**
+
+If the user provides a title after the command (e.g., `/checkpoint auth refactor`),
+use it as the checkpoint title. Otherwise, infer a title from the current work.
+
+---
+
+## Save flow
+
+### Step 1: Gather state
 
 ```bash
-_PMAP="docs/oracle/PRODUCT_MAP.md"
-if [ -f "$_PMAP" ]; then
-  echo "PRODUCT_MAP: found"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+```
+
+Collect the current working state:
+
+```bash
+echo "=== BRANCH ==="
+git rev-parse --abbrev-ref HEAD 2>/dev/null
+echo "=== STATUS ==="
+git status --short 2>/dev/null
+echo "=== DIFF STAT ==="
+git diff --stat 2>/dev/null
+echo "=== STAGED DIFF STAT ==="
+git diff --cached --stat 2>/dev/null
+echo "=== RECENT LOG ==="
+git log --oneline -10 2>/dev/null
+```
+
+### Step 2: Summarize context
+
+Using the gathered state plus your conversation history, produce a summary covering:
+
+1. **What's being worked on** — the high-level goal or feature
+2. **Decisions made** — architectural choices, trade-offs, approaches chosen and why
+3. **Remaining work** — concrete next steps, in priority order
+4. **Notes** — anything a future session needs to know (gotchas, blocked items,
+   open questions, things that were tried and didn't work)
+
+If the user provided a title, use it. Otherwise, infer a concise title (3-6 words)
+from the work being done.
+
+### Step 3: Compute session duration
+
+Try to determine how long this session has been active:
+
+```bash
+# Try _TEL_START (Conductor timestamp) first, then shell process start time
+if [ -n "$_TEL_START" ]; then
+  START_EPOCH="$_TEL_START"
+elif [ -n "$PPID" ]; then
+  START_EPOCH=$(ps -o lstart= -p $PPID 2>/dev/null | xargs -I{} date -jf "%c" "{}" "+%s" 2>/dev/null || echo "")
+fi
+if [ -n "$START_EPOCH" ]; then
+  NOW=$(date +%s)
+  DURATION=$((NOW - START_EPOCH))
+  echo "SESSION_DURATION_S=$DURATION"
 else
-  eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
-  _BOOTSTRAPPED="no"
-  [ -n "$SLUG" ] && [ -f ~/.gstack/projects/$SLUG/.product-map-auto-bootstrapped ] && _BOOTSTRAPPED="yes"
-  _COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
-  if [ "$_BOOTSTRAPPED" = "yes" ]; then
-    echo "PRODUCT_MAP: none (previously bootstrapped)"
-  elif [ "$_COMMITS" -ge 20 ]; then
-    echo "PRODUCT_MAP: bootstrap-ready $_COMMITS"
-  else
-    echo "PRODUCT_MAP: none (repo has $_COMMITS commits, need 20+)"
-  fi
+  echo "SESSION_DURATION_S=unknown"
 fi
 ```
 
-If PRODUCT_MAP **found**: read `docs/oracle/PRODUCT_MAP.md`. Check the first feature entry:
-- If entries have full fields (Purpose, Category, Components, etc.): spot-check 2-3
-  components by grepping the codebase. Warn if an anti-pattern matches planned work.
-- If entries are compressed one-liners: read the Product Arc and feature list for context.
-  Skip spot-checking (compressed entries don't list components).
+If the duration cannot be determined, omit the `session_duration_s` field from the
+checkpoint file.
 
-If PRODUCT_MAP is **bootstrap-ready**: auto-bootstrap a minimal product map. This is
-silent, do NOT ask the user. Under 60 seconds. Git log analysis only, no file reading,
-no scanner, no component trees.
+### Step 4: Write checkpoint file
 
-1. Run these commands:
 ```bash
-git log --oneline -50
-git log --since=6.months --name-only --format="" | sort | uniq -c | sort -rn | head -20
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+mkdir -p "$CHECKPOINT_DIR"
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
+echo "TIMESTAMP=$TIMESTAMP"
 ```
-2. Identify features from the output. Write a minimal `docs/oracle/PRODUCT_MAP.md`:
-   - `<!-- schema_version: 1 -->` header
-   - `## Product Arc` (2-3 sentences from git history)
-   - `## Features` (compressed one-liner per feature)
-   - `## Reusable Patterns` ("None mapped yet")
-   - `## Anti-Patterns` ("None mapped yet")
-   - `## Identity` (category percentages or "Suppressed")
-```bash
-mkdir -p docs/oracle
-```
-3. Write breadcrumbs:
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
-[ -n "$SLUG" ] && mkdir -p ~/.gstack/projects/$SLUG && touch ~/.gstack/projects/$SLUG/.product-map-auto-bootstrapped && date -u +%Y-%m-%dT%H:%M:%SZ > ~/.gstack/projects/$SLUG/.product-map-last-write
-```
-4. Tell the user: "Product conscience activated — {N} features mapped. Run `/oracle inventory` for deeper analysis."
-5. Then read the map you just created and use it for context (compressed sub-path above).
 
-If PRODUCT_MAP is **none (previously bootstrapped)**: user may have deleted the map.
-Proceed without product context.
+Write the checkpoint file to `{CHECKPOINT_DIR}/{TIMESTAMP}-{title-slug}.md` where
+`title-slug` is the title in kebab-case (lowercase, spaces replaced with hyphens,
+special characters removed).
 
-If PRODUCT_MAP is **none (repo has N commits, need 20+)**: repo too young.
-Proceed without product context.
+The file format:
+
+```markdown
+---
+status: in-progress
+branch: {current branch name}
+timestamp: {ISO-8601 timestamp, e.g. 2026-03-31T14:30:00-07:00}
+session_duration_s: {computed duration, omit if unknown}
+files_modified:
+  - path/to/file1
+  - path/to/file2
+---
+
+## Working on: {title}
+
+### Summary
+
+{1-3 sentences describing the high-level goal and current progress}
+
+### Decisions Made
+
+{Bulleted list of architectural choices, trade-offs, and reasoning}
+
+### Remaining Work
+
+{Numbered list of concrete next steps, in priority order}
+
+### Notes
+
+{Gotchas, blocked items, open questions, things tried that didn't work}
+```
+
+The `files_modified` list comes from `git status --short` (both staged and unstaged
+modified files). Use relative paths from the repo root.
+
+After writing, confirm to the user:
+
+```
+CHECKPOINT SAVED
+════════════════════════════════════════
+Title:    {title}
+Branch:   {branch}
+File:     {path to checkpoint file}
+Modified: {N} files
+Duration: {duration or "unknown"}
+════════════════════════════════════════
+```
 
 ---
 
-# /qa-only: Report-Only QA Testing
+## Resume flow
 
-You are a QA engineer. Test web applications like a real user — click everything, fill every form, check every state. Produce a structured report with evidence. **NEVER fix anything.**
-
-## Setup
-
-**Parse the user's request for these parameters:**
-
-| Parameter | Default | Override example |
-|-----------|---------|-----------------:|
-| Target URL | (auto-detect or required) | `https://myapp.com`, `http://localhost:3000` |
-| Mode | full | `--quick`, `--regression .gstack/qa-reports/baseline.json` |
-| Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
-| Scope | Full app (or diff-scoped) | `Focus on the billing page` |
-| Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
-
-**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
-
-**Find the browse binary:**
-
-## SETUP (run this check BEFORE any browse command)
+### Step 1: Find checkpoints
 
 ```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
-if [ -x "$B" ]; then
-  echo "READY: $B"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+if [ -d "$CHECKPOINT_DIR" ]; then
+  find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -20
 else
-  echo "NEEDS_SETUP"
+  echo "NO_CHECKPOINTS"
 fi
 ```
 
-If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed:
-   ```bash
-   if ! command -v bun >/dev/null 2>&1; then
-     BUN_VERSION="1.3.10"
-     BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
-     tmpfile=$(mktemp)
-     curl -fsSL "https://bun.sh/install" -o "$tmpfile"
-     actual_sha=$(shasum -a 256 "$tmpfile" | awk '{print $1}')
-     if [ "$actual_sha" != "$BUN_INSTALL_SHA" ]; then
-       echo "ERROR: bun install script checksum mismatch" >&2
-       echo "  expected: $BUN_INSTALL_SHA" >&2
-       echo "  got:      $actual_sha" >&2
-       rm "$tmpfile"; exit 1
-     fi
-     BUN_VERSION="$BUN_VERSION" bash "$tmpfile"
-     rm "$tmpfile"
-   fi
-   ```
+List checkpoints from **all branches** (checkpoint files contain the branch name
+in their frontmatter, so all files in the directory are candidates). This enables
+Conductor workspace handoff — a checkpoint saved on one branch can be resumed from
+another.
 
-**Create output directories:**
+### Step 2: Load checkpoint
 
-```bash
-REPORT_DIR=".gstack/qa-reports"
-mkdir -p "$REPORT_DIR/screenshots"
+If the user specified a checkpoint (by number, title fragment, or date), find the
+matching file. Otherwise, load the **most recent** checkpoint.
+
+Read the checkpoint file and present a summary:
+
 ```
+RESUMING CHECKPOINT
+════════════════════════════════════════
+Title:       {title}
+Branch:      {branch from checkpoint}
+Saved:       {timestamp, human-readable}
+Duration:    Last session was {formatted duration} (if available)
+Status:      {status}
+════════════════════════════════════════
+
+### Summary
+{summary from checkpoint}
+
+### Remaining Work
+{remaining work items from checkpoint}
+
+### Notes
+{notes from checkpoint}
+```
+
+If the current branch differs from the checkpoint's branch, note this:
+"This checkpoint was saved on branch `{branch}`. You are currently on
+`{current branch}`. You may want to switch branches before continuing."
+
+### Step 3: Offer next steps
+
+After presenting the checkpoint, ask via AskUserQuestion:
+
+- A) Continue working on the remaining items
+- B) Show the full checkpoint file
+- C) Just needed the context, thanks
+
+If A, summarize the first remaining work item and suggest starting there.
 
 ---
 
-## Prior Learnings
+## List flow
 
-Search for relevant learnings from previous sessions:
+### Step 1: Gather checkpoints
 
 ```bash
-_CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
-echo "CROSS_PROJECT: $_CROSS_PROJ"
-if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+if [ -d "$CHECKPOINT_DIR" ]; then
+  echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
+  find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null
 else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+  echo "NO_CHECKPOINTS"
 fi
 ```
 
-If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
+### Step 2: Display table
 
-> gstack can search learnings from your other projects on this machine to find
-> patterns that might apply here. This stays local (no data leaves your machine).
-> Recommended for solo developers. Skip if you work on multiple client codebases
-> where cross-contamination would be a concern.
+**Default behavior:** Show checkpoints for the **current branch** only.
 
-Options:
-- A) Enable cross-project learnings (recommended)
-- B) Keep learnings project-scoped only
+If the user passes `--all` (e.g., `/checkpoint list --all`), show checkpoints
+from **all branches**.
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings true`
-If B: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings false`
+Read the frontmatter of each checkpoint file to extract `status`, `branch`, and
+`timestamp`. Parse the title from the filename (the part after the timestamp).
 
-Then re-run the search with the appropriate flag.
+Present as a table:
 
-If learnings are found, incorporate them into your analysis. When a review finding
-matches a past learning, display:
-
-**"Prior learning applied: [key] (confidence N/10, from [date])"**
-
-This makes the compounding visible. The user should see that gstack is getting
-smarter on their codebase over time.
-
-## Test Plan Context
-
-Before falling back to git diff heuristics, check for richer test plan sources:
-
-1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
-   ```bash
-   setopt +o nomatch 2>/dev/null || true  # zsh compat
-   eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-   ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
-   ```
-2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
-3. **Use whichever source is richer.** Fall back to git diff analysis only if neither is available.
-
----
-
-## Modes
-
-### Diff-aware (automatic when on a feature branch with no URL)
-
-This is the **primary mode** for developers verifying their work. When the user says `/qa` without a URL and the repo is on a feature branch, automatically:
-
-1. **Analyze the branch diff** to understand what changed:
-   ```bash
-   git diff main...HEAD --name-only
-   git log main..HEAD --oneline
-   ```
-
-2. **Identify affected pages/routes** from the changed files:
-   - Controller/route files → which URL paths they serve
-   - View/template/component files → which pages render them
-   - Model/service files → which pages use those models (check controllers that reference them)
-   - CSS/style files → which pages include those stylesheets
-   - API endpoints → test them directly with `$B js "await fetch('/api/...')"`
-   - Static pages (markdown, HTML) → navigate to them directly
-
-   **If no obvious pages/routes are identified from the diff:** Do not skip browser testing. The user invoked /qa because they want browser-based verification. Fall back to Quick mode — navigate to the homepage, follow the top 5 navigation targets, check console for errors, and test any interactive elements found. Backend, config, and infrastructure changes affect app behavior — always verify the app still works.
-
-3. **Detect the running app** — check common local dev ports:
-   ```bash
-   $B goto http://localhost:3000 2>/dev/null && echo "Found app on :3000" || \
-   $B goto http://localhost:4000 2>/dev/null && echo "Found app on :4000" || \
-   $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
-   ```
-   If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
-
-4. **Test each affected page/route:**
-   - Navigate to the page
-   - Take a screenshot
-   - Check console for errors
-   - If the change was interactive (forms, buttons, flows), test the interaction end-to-end
-   - Use `snapshot -D` before and after actions to verify the change had the expected effect
-
-5. **Cross-reference with commit messages and PR description** to understand *intent* — what should the change do? Verify it actually does that.
-
-6. **Check TODOS.md** (if it exists) for known bugs or issues related to the changed files. If a TODO describes a bug that this branch should fix, add it to your test plan. If you find a new bug during QA that isn't in TODOS.md, note it in the report.
-
-7. **Report findings** scoped to the branch changes:
-   - "Changes tested: N pages/routes affected by this branch"
-   - For each: does it work? Screenshot evidence.
-   - Any regressions on adjacent pages?
-
-**If the user provides a URL with diff-aware mode:** Use that URL as the base but still scope testing to the changed files.
-
-### Full (default when URL is provided)
-Systematic exploration. Visit every reachable page. Document 5-10 well-evidenced issues. Produce health score. Takes 5-15 minutes depending on app size.
-
-### Quick (`--quick`)
-30-second smoke test. Visit homepage + top 5 navigation targets. Check: page loads? Console errors? Broken links? Produce health score. No detailed issue documentation.
-
-### Regression (`--regression <baseline>`)
-Run full mode, then load `baseline.json` from a previous run. Diff: which issues are fixed? Which are new? What's the score delta? Append regression section to report.
-
----
-
-## Workflow
-
-### Phase 1: Initialize
-
-1. Find browse binary (see Setup above)
-2. Create output directories
-3. Copy report template from `qa/templates/qa-report-template.md` to output dir
-4. Start timer for duration tracking
-
-### Phase 2: Authenticate (if needed)
-
-**If the user specified auth credentials:**
-
-```bash
-$B goto <login-url>
-$B snapshot -i                    # find the login form
-$B fill @e3 "user@example.com"
-$B fill @e4 "[REDACTED]"         # NEVER include real passwords in report
-$B click @e5                      # submit
-$B snapshot -D                    # verify login succeeded
+```
+CHECKPOINTS ({branch} branch)
+════════════════════════════════════════
+#  Date        Title                    Status
+─  ──────────  ───────────────────────  ───────────
+1  2026-03-31  auth-refactor            in-progress
+2  2026-03-30  api-pagination           completed
+3  2026-03-28  db-migration-setup       in-progress
+════════════════════════════════════════
 ```
 
-**If the user provided a cookie file:**
+If `--all` is used, add a Branch column:
 
-```bash
-$B cookie-import cookies.json
-$B goto <target-url>
+```
+CHECKPOINTS (all branches)
+════════════════════════════════════════
+#  Date        Title                    Branch              Status
+─  ──────────  ───────────────────────  ──────────────────  ───────────
+1  2026-03-31  auth-refactor            feat/auth           in-progress
+2  2026-03-30  api-pagination           main                completed
+3  2026-03-28  db-migration-setup       feat/db-migration   in-progress
+════════════════════════════════════════
 ```
 
-**If 2FA/OTP is required:** Ask the user for the code and wait.
-
-**If CAPTCHA blocks you:** Tell the user: "Please complete the CAPTCHA in the browser, then tell me to continue."
-
-### Phase 3: Orient
-
-Get a map of the application:
-
-```bash
-$B goto <target-url>
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/initial.png"
-$B links                          # map navigation structure
-$B console --errors               # any errors on landing?
-```
-
-**Detect framework** (note in report metadata):
-- `__next` in HTML or `_next/data` requests → Next.js
-- `csrf-token` meta tag → Rails
-- `wp-content` in URLs → WordPress
-- Client-side routing with no page reloads → SPA
-
-**For SPAs:** The `links` command may return few results because navigation is client-side. Use `snapshot -i` to find nav elements (buttons, menu items) instead.
-
-### Phase 4: Explore
-
-Visit pages systematically. At each page:
-
-```bash
-$B goto <page-url>
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
-$B console --errors
-```
-
-Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md`):
-
-1. **Visual scan** — Look at the annotated screenshot for layout issues
-2. **Interactive elements** — Click buttons, links, controls. Do they work?
-3. **Forms** — Fill and submit. Test empty, invalid, edge cases
-4. **Navigation** — Check all paths in and out
-5. **States** — Empty state, loading, error, overflow
-6. **Console** — Any new JS errors after interactions?
-7. **Responsiveness** — Check mobile viewport if relevant:
-   ```bash
-   $B viewport 375x812
-   $B screenshot "$REPORT_DIR/screenshots/page-mobile.png"
-   $B viewport 1280x720
-   ```
-
-**Depth judgment:** Spend more time on core features (homepage, dashboard, checkout, search) and less on secondary pages (about, terms, privacy).
-
-**Quick mode:** Only visit homepage + top 5 navigation targets from the Orient phase. Skip the per-page checklist — just check: loads? Console errors? Broken links visible?
-
-### Phase 5: Document
-
-Document each issue **immediately when found** — don't batch them.
-
-**Two evidence tiers:**
-
-**Interactive bugs** (broken flows, dead buttons, form failures):
-1. Take a screenshot before the action
-2. Perform the action
-3. Take a screenshot showing the result
-4. Use `snapshot -D` to show what changed
-5. Write repro steps referencing screenshots
-
-```bash
-$B screenshot "$REPORT_DIR/screenshots/issue-001-step-1.png"
-$B click @e5
-$B screenshot "$REPORT_DIR/screenshots/issue-001-result.png"
-$B snapshot -D
-```
-
-**Static bugs** (typos, layout issues, missing images):
-1. Take a single annotated screenshot showing the problem
-2. Describe what's wrong
-
-```bash
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
-```
-
-**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
-
-### Phase 6: Wrap Up
-
-1. **Compute health score** using the rubric below
-2. **Write "Top 3 Things to Fix"** — the 3 highest-severity issues
-3. **Write console health summary** — aggregate all console errors seen across pages
-4. **Update severity counts** in the summary table
-5. **Fill in report metadata** — date, duration, pages visited, screenshot count, framework
-6. **Save baseline** — write `baseline.json` with:
-   ```json
-   {
-     "date": "YYYY-MM-DD",
-     "url": "<target>",
-     "healthScore": N,
-     "issues": [{ "id": "ISSUE-001", "title": "...", "severity": "...", "category": "..." }],
-     "categoryScores": { "console": N, "links": N, ... }
-   }
-   ```
-
-**Regression mode:** After writing the report, load the baseline file. Compare:
-- Health score delta
-- Issues fixed (in baseline but not current)
-- New issues (in current but not baseline)
-- Append the regression section to the report
-
----
-
-## Health Score Rubric
-
-Compute each category score (0-100), then take the weighted average.
-
-### Console (weight: 15%)
-- 0 errors → 100
-- 1-3 errors → 70
-- 4-10 errors → 40
-- 10+ errors → 10
-
-### Links (weight: 10%)
-- 0 broken → 100
-- Each broken link → -15 (minimum 0)
-
-### Per-Category Scoring (Visual, Functional, UX, Content, Performance, Accessibility)
-Each category starts at 100. Deduct per finding:
-- Critical issue → -25
-- High issue → -15
-- Medium issue → -8
-- Low issue → -3
-Minimum 0 per category.
-
-### Weights
-| Category | Weight |
-|----------|--------|
-| Console | 15% |
-| Links | 10% |
-| Visual | 10% |
-| Functional | 20% |
-| UX | 15% |
-| Performance | 10% |
-| Content | 5% |
-| Accessibility | 15% |
-
-### Final Score
-`score = Σ (category_score × weight)`
-
----
-
-## Framework-Specific Guidance
-
-### Next.js
-- Check console for hydration errors (`Hydration failed`, `Text content did not match`)
-- Monitor `_next/data` requests in network — 404s indicate broken data fetching
-- Test client-side navigation (click links, don't just `goto`) — catches routing issues
-- Check for CLS (Cumulative Layout Shift) on pages with dynamic content
-
-### Rails
-- Check for N+1 query warnings in console (if development mode)
-- Verify CSRF token presence in forms
-- Test Turbo/Stimulus integration — do page transitions work smoothly?
-- Check for flash messages appearing and dismissing correctly
-
-### WordPress
-- Check for plugin conflicts (JS errors from different plugins)
-- Verify admin bar visibility for logged-in users
-- Test REST API endpoints (`/wp-json/`)
-- Check for mixed content warnings (common with WP)
-
-### General SPA (React, Vue, Angular)
-- Use `snapshot -i` for navigation — `links` command misses client-side routes
-- Check for stale state (navigate away and back — does data refresh?)
-- Test browser back/forward — does the app handle history correctly?
-- Check for memory leaks (monitor console after extended use)
+If there are no checkpoints, tell the user: "No checkpoints saved yet. Run
+`/checkpoint` to save your current working state."
 
 ---
 
 ## Important Rules
 
-1. **Repro is everything.** Every issue needs at least one screenshot. No exceptions.
-2. **Verify before documenting.** Retry the issue once to confirm it's reproducible, not a fluke.
-3. **Never include credentials.** Write `[REDACTED]` for passwords in repro steps.
-4. **Write incrementally.** Append each issue to the report as you find it. Don't batch.
-5. **Never read source code.** Test as a user, not a developer.
-6. **Check console after every interaction.** JS errors that don't surface visually are still bugs.
-7. **Test like a user.** Use realistic data. Walk through complete workflows end-to-end.
-8. **Depth over breadth.** 5-10 well-documented issues with evidence > 20 vague descriptions.
-9. **Never delete output files.** Screenshots and reports accumulate — that's intentional.
-10. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
-11. **Show screenshots to the user.** After every `$B screenshot`, `$B snapshot -a -o`, or `$B responsive` command, use the Read tool on the output file(s) so the user can see them inline. For `responsive` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
-12. **Never refuse to use the browser.** When the user invokes /qa or /qa-only, they are requesting browser-based testing. Never suggest evals, unit tests, or other alternatives as a substitute. Even if the diff appears to have no UI changes, backend changes affect app behavior — always open the browser and test.
-
----
-
-## Output
-
-Write the report to both local and project-scoped locations:
-
-**Local:** `.gstack/qa-reports/qa-report-{domain}-{YYYY-MM-DD}.md`
-
-**Project-scoped:** Write test outcome artifact for cross-session context:
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-```
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
-
-### Output Structure
-
-```
-.gstack/qa-reports/
-├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
-├── screenshots/
-│   ├── initial.png                        # Landing page annotated screenshot
-│   ├── issue-001-step-1.png               # Per-issue evidence
-│   ├── issue-001-result.png
-│   └── ...
-└── baseline.json                          # For regression mode
-```
-
-Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
-
----
-
-## Capture Learnings
-
-If you discovered a non-obvious pattern, pitfall, or architectural insight during
-this session, log it for future sessions:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"qa-only","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
-```
-
-**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
-(user stated), `architecture` (structural decision), `tool` (library/framework insight),
-`operational` (project environment/CLI/workflow knowledge).
-
-**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
-`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
-
-**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
-An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
-
-**files:** Include the specific file paths this learning references. This enables
-staleness detection: if those files are later deleted, the learning can be flagged.
-
-**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
-already knows. A good test: would this insight save time in a future session? If yes, log it.
-
-## Additional Rules (qa-only specific)
-
-11. **Never fix bugs.** Find and document only. Do not read source code, edit files, or suggest fixes in the report. Your job is to report what's broken, not to fix it. Use `/qa` for the test-fix-verify loop.
-12. **No test framework detected?** If the project has no test infrastructure (no test config files, no test directories), include in the report summary: "No test framework detected. Run `/qa` to bootstrap one and enable regression test generation."
-
-## Product Conscience — Write
-
-After completing the skill's main work, silently update the product map if it exists.
-
-```bash
-_PMAP="docs/oracle/PRODUCT_MAP.md"
-[ -f "$_PMAP" ] && echo "PRODUCT_MAP_WRITE: updating" || echo "PRODUCT_MAP_WRITE: skipped (no map)"
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
-_INV_NUDGED="no"
-[ -n "$SLUG" ] && [ -f ~/.gstack/projects/$SLUG/.oracle-inventory-nudged ] && _INV_NUDGED="yes"
-echo "INVENTORY_NUDGED: $_INV_NUDGED"
-```
-
-If PRODUCT_MAP exists: update `docs/oracle/PRODUCT_MAP.md` following the schema in its
-header. Update the feature entry for what changed in this session — adjust lifecycle status
-(PLANNED → BUILDING → SHIPPED), add discovered patterns or anti-patterns, update connections.
-Compress features shipped >3 months ago with no `depends_on` references to one-liners.
-Do NOT ask the user — this is a silent write.
-
-If the feature entry you just worked on is in compressed one-liner format (auto-bootstrapped),
-expand it to the full schema with all fields (Purpose, Category, Data, Patterns, Components,
-Decisions, Connections, Depends on, Anti-patterns, Shipped). You have context from this
-session's work to fill in accurate details.
-
-Then write the breadcrumb:
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null && mkdir -p ~/.gstack/projects/$SLUG && date -u +%Y-%m-%dT%H:%M:%SZ > ~/.gstack/projects/$SLUG/.product-map-last-write 2>/dev/null || true
-```
-
-If `INVENTORY_NUDGED` is "no" and the map has mostly compressed one-liner entries:
-tell the user "Tip: Run `/oracle inventory` for a deeper page-by-page analysis."
-Then mark as nudged:
-```bash
-[ -n "$SLUG" ] && touch ~/.gstack/projects/$SLUG/.oracle-inventory-nudged 2>/dev/null || true
-```
-
-If no PRODUCT_MAP: skip silently. Do not create one — that's `/oracle bootstrap`.
+- **Never modify code.** This skill only reads state and writes checkpoint files.
+- **Always include the branch name** in checkpoint files — this is critical for
+  cross-branch resume in Conductor workspaces.
+- **Checkpoint files are append-only.** Never overwrite or delete existing checkpoint
+  files. Each save creates a new file.
+- **Infer, don't interrogate.** Use git state and conversation context to fill in
+  the checkpoint. Only use AskUserQuestion if the title genuinely cannot be inferred.

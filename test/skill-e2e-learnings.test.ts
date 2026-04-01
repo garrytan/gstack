@@ -44,8 +44,9 @@ describeIfSelected('Learnings E2E', ['learnings-show'], () => {
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
 
-    // Seed learnings JSONL with 3 entries of different types
-    const slug = 'test-project';
+    // Seed learnings JSONL — slug must match what gstack-slug computes.
+    // With no git remote, gstack-slug falls back to basename(workDir).
+    const slug = path.basename(workDir).replace(/[^a-zA-Z0-9._-]/g, '');
     const projectDir = path.join(gstackHome, 'projects', slug);
     fs.mkdirSync(projectDir, { recursive: true });
 
@@ -66,6 +67,11 @@ describeIfSelected('Learnings E2E', ['learnings-show'], () => {
         skill: 'ship', type: 'preference', key: 'always-run-rubocop',
         insight: 'User wants rubocop to run before every commit, no exceptions.',
         confidence: 10, source: 'user-stated', ts: new Date().toISOString(),
+      },
+      {
+        skill: 'qa', type: 'operational', key: 'test-timeout-flag',
+        insight: 'bun test requires --timeout 30000 for E2E tests in this project.',
+        confidence: 9, source: 'observed', ts: new Date().toISOString(),
       },
     ];
 

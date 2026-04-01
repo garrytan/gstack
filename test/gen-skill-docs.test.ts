@@ -213,11 +213,20 @@ describe('gen-skill-docs', () => {
     expect(browseTmpl).toContain('{{PREAMBLE}}');
   });
 
-  test('generated SKILL.md contains contributor mode check', () => {
+  test('generated SKILL.md contains operational self-improvement (replaced contributor mode)', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Contributor Mode');
-    expect(content).toContain('gstack_contributor');
-    expect(content).toContain('contributor-logs');
+    expect(content).not.toContain('Contributor Mode');
+    expect(content).not.toContain('gstack_contributor');
+    expect(content).not.toContain('contributor-logs');
+    expect(content).toContain('Operational Self-Improvement');
+    expect(content).toContain('gstack-learnings-log');
+    expect(content).toContain('gstack-learnings-search --limit 3');
+  });
+
+  test('generated SKILL.md with LEARNINGS_LOG contains operational type', () => {
+    // Check a skill that has LEARNINGS_LOG (e.g., review)
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('operational');
   });
 
   test('generated SKILL.md contains session awareness', () => {

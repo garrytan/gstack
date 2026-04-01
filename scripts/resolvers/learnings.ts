@@ -80,7 +80,8 @@ ${binDir}/gstack-learnings-log '{"skill":"${ctx.skillName}","type":"TYPE","key":
 \`\`\`
 
 **Types:** \`pattern\` (reusable approach), \`pitfall\` (what NOT to do), \`preference\`
-(user stated), \`architecture\` (structural decision), \`tool\` (library/framework insight).
+(user stated), \`architecture\` (structural decision), \`tool\` (library/framework insight),
+\`operational\` (project environment/CLI/workflow knowledge).
 
 **Sources:** \`observed\` (you found this in the code), \`user-stated\` (user told you),
 \`inferred\` (AI deduction), \`cross-model\` (both Claude and Codex agree).
