@@ -694,7 +694,15 @@ export class BrowserManager {
       this.wirePageEvents(page);
 
       if (saved.url) {
-        await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+        // Validate the saved URL before navigating — the state file is user-writable and
+        // a tampered URL could navigate to cloud metadata endpoints or file:// URIs.
+        try {
+          await validateNavigationUrl(saved.url);
+          await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+        } catch {
+          // Invalid URL in saved state — skip navigation, leave blank page
+          console.log(`[browse] restoreState: skipping unsafe URL: ${saved.url}`);
+        }
       }
 
       if (saved.storage) {
