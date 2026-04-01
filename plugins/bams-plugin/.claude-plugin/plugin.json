@@ -11,9 +11,5 @@
   "keywords": ["bams", "org-chart", "pipeline", "crew", "gstack"],
   "commands": "./commands/",
   "agents": "./agents/",
-  "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
-  "mcpServers": "./.mcp.json",
-  "outputStyles": "./styles/",
-  "lspServers": "./.lsp.json"
+  "skills": "./skills/"
 }
