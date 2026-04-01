@@ -4,8 +4,9 @@ version: 1.0.0
 description: |
   Multi-agent orchestration via orch. Bridges gstack planning workflows into
   parallel Claude Code agent execution. Detects plans, generates role specs,
-  spins up agents. Use when asked to "spin up agents", "run orch", "execute
-  this plan", "start building", or when a task is too large for one session.
+  spins up agents. Build stage orchestrator.
+  Use when asked to "spin up agents", "run orch", "execute
+  this plan", "start building", or when a task is too large for one session. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -163,6 +164,15 @@ PATH="$HOME/go/bin:$PATH" orch specgen --task "<task description>" --skills gsta
 
 Where `<project-dir>` is the current working directory (from `pwd`).
 
+### Handle specgen failures
+
+If specgen exits non-zero or produces no spec files:
+
+1. Read stderr output — common failures: invalid plan format, missing dependencies, permission errors
+2. If the plan file couldn't be parsed: AskUserQuestion with the error and suggest reformatting
+3. If orch itself errored: check `orch version` and suggest updating
+4. **Never silently skip a failure.** Every specgen error must be surfaced.
+
 ### Show generated specs
 
 After specgen completes, briefly summarize what was generated:
@@ -171,6 +181,19 @@ ls -la <output-dir>/*.md
 ```
 
 Read each generated spec file and give a 1-2 line summary of what each agent will do.
+
+### Pre-launch validation
+
+Before confirming launch, check for common issues:
+
+1. **Spec count sanity:** If specgen produced 5+ agents, warn the user — more agents means more coordination overhead and context window consumption. Recommend consolidating if possible.
+2. **Dependency ordering:** Read specs and check if any agent depends on another's output. If so, note the dependency chain — orch runs agents in parallel, so dependent agents need file-based coordination.
+3. **Resource check:** Verify the machine can handle the load:
+   ```bash
+   echo "CPU cores: $(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null)"
+   echo "Memory free: $(vm_stat 2>/dev/null | awk '/free/ {print $3*4096/1048576 " MB"}' || free -m 2>/dev/null | awk '/Mem:/ {print $4 " MB"}')"
+   ```
+   Warn if launching more agents than CPU cores or if free memory is low (< 2GB per agent).
 
 ### Confirm launch
 
@@ -191,6 +214,11 @@ C) Cancel — I'll launch manually later"
 ```bash
 PATH="$HOME/go/bin:$PATH" orch up-dir <spec-dir> --skills gstack --dir <project-dir>
 ```
+
+If `orch up-dir` fails:
+1. Check if tmux is installed: `which tmux`
+2. Check if another orch session is running: `orch ps`
+3. Surface the error — never silently fail
 
 ### Show status
 
@@ -220,3 +248,45 @@ Commands:
 ```
 
 Tell the user: "Agents are running. You can close this terminal. Check back with `orch ps` or run `/orch` again to manage them."
+
+## Step 4: Monitor (optional)
+
+If the user asks to monitor or watch progress:
+
+### Health check loop
+
+Run a monitoring cycle every 60 seconds:
+
+```bash
+PATH="$HOME/go/bin:$PATH" orch ps
+```
+
+For each agent, check:
+1. **Still running?** If an agent exited, read its logs for the exit reason
+2. **Making progress?** Compare git log timestamps — if no commits in 10+ minutes, the agent may be stuck
+3. **Error state?** Check agent logs for repeated errors or "I'm stuck" patterns
+
+```bash
+# Check for recent agent activity
+for agent in $(PATH="$HOME/go/bin:$PATH" orch ps --names 2>/dev/null); do
+  echo "=== $agent ==="
+  PATH="$HOME/go/bin:$PATH" orch logs "$agent" 2>/dev/null | tail -5
+done
+```
+
+### Recovery actions
+
+If an agent appears stuck or crashed:
+
+1. **Crashed (not in orch ps):** Show the user the last 20 lines of logs. Offer to restart with the same spec.
+2. **Stuck (no progress for 10+ min):** Send a nudge message: `orch send <agent> "Status check — what are you working on? If stuck, describe the blocker."`
+3. **Repeated failures:** If an agent has failed 3+ times on the same task, recommend pulling it back into interactive mode.
+
+AskUserQuestion when issues are found:
+
+"Agent `<name>` appears to be {crashed/stuck}. Last activity: {timestamp}.
+
+A) Restart the agent with the same spec
+B) Show me the full logs
+C) Tear down this agent (others keep running)
+D) Tear down all agents — I'll take over"
