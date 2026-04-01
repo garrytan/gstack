@@ -176,7 +176,7 @@ resolveRef(@e3) → entry = refMap.get("e3")
 
 `console`、`network`、`dialog` 这些命令读取的是内存缓冲区，而不是磁盘。磁盘文件只是用于事后排障。
 
-## SKILL.md 模板系统
+## 技能.md 模板系统
 
 ### 问题
 

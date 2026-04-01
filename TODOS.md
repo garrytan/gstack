@@ -175,7 +175,7 @@
 **Effort:** L  
 **Priority:** P4
 
-### 带 Chrome 扩展的 headed mode，已发布
+### 带 Chrome 扩展的 headed 模式，已发布
 
 `$B connect` 会启动 Playwright 自带 Chromium 的 headed 模式，并自动加载 gstack Chrome 扩展。`$B handoff` 现在也会走同样路径，包含扩展和 side panel。侧边栏聊天仍由 `--chat` flag 控制。
 
@@ -284,7 +284,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 **Priority:** P2  
 **Depends on:** `/setup-gstack-upload`
 
-## Review
+## 审查
 
 ### 行内 PR 注释
 
@@ -310,7 +310,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 **Priority:** P2  
 **Depends on:** 需要积累足够的 FP 数据，至少 10+ 条
 
-### 带标注截图的视觉 review
+### 带标注截图的视觉 审查
 
 **What:** `/review` 第 4.5 步，打开 PR preview deploy，截图改动页面并做标注，对比 production，检查响应式布局，验证 accessibility tree。
 
@@ -402,7 +402,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 
 ## Infrastructure
 
-### `/setup-gstack-upload` skill，S3 bucket
+### `/setup-gstack-upload` 技能，S3 bucket
 
 **What:** 配置一个用于图片托管的 S3 bucket。用于视觉 PR 注释的一次性准备动作。
 
@@ -495,7 +495,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 **Priority:** P3  
 **Depends on:** Ref staleness 第 1、2 部分（已发布）
 
-## Office Hours / Design
+## Office Hours / 设计
 
 ### 设计文档同步到 Supabase team store
 
@@ -509,7 +509,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 **Priority:** P2  
 **Depends on:** `garrytan/team-supabase-store` 分支先落 main
 
-### `/yc-prep` skill
+### `/yc-prep` 技能
 
 **What:** 一个帮助 founder 准备 YC 申请的 skill，在 `/office-hours` 识别出强信号之后触发。它会拉取 design doc，整理成 YC 申请问题的答案，并跑一次 mock interview。
 
@@ -519,7 +519,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 **Priority:** P2  
 **Depends on:** 先让 office-hours 的 founder discovery engine 发布
 
-## Design Review
+## 设计 审查
 
 ### `/plan-design-review` + `/qa-design-review` + `/design-consultation`，已发布
 
@@ -569,7 +569,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 
 ## Ship Confidence Dashboard
 
-### 智能 review 相关性检测，部分已发布
+### 智能 审查 相关性检测，部分已发布
 
 ~~**What:** 根据分支变更自动判断 4 类 review 哪些相关，如果没有 CSS / view 改动就跳过 Design Review，如果只是 plan 改动就跳过 Code Review。~~
 
@@ -583,7 +583,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 
 ## Codex
 
-### Codex→Claude 反向 buddy check skill
+### Codex→Claude 反向 buddy check 技能
 
 **What:** 一个 Codex 原生 skill，`.agents/skills/gstack-claude/SKILL.md`，通过 `claude -p` 获取 Claude 的独立第二意见。也就是把今天 `/codex` 在 Claude Code 里做的事情反过来。
 
@@ -611,13 +611,13 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 
 ## Safety & Observability
 
-### 按需开启的 hook skills，`/careful`、`/freeze`、`/guard`，已发布
+### 按需开启的 hook 技能，`/careful`、`/freeze`、`/guard`，已发布
 
 ~~**What:** 三个利用 Claude Code 会话级 PreToolUse hooks 的新技能，在需要时按需加安全护栏。~~
 
 已在 v0.6.5 发布，对应 `/careful`、`/freeze`、`/guard` 和 `/unfreeze`。同时包含 hook 触发率 telemetry，只记录 pattern 名，不记录命令内容，以及内联 skill activation telemetry。
 
-### Skill 使用 telemetry，已发布
+### 技能 使用 telemetry，已发布
 
 ~~**What:** 跟踪每个 skill 被调用了多少次、在哪个 repo 里被调用。~~
 
@@ -667,7 +667,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 **Priority:** P3  
 **Depends on:** `--host factory`
 
-### 跟 skill 一起发布 Custom Droid 定义
+### 跟 技能 一起发布 Custom Droid 定义
 
 **What:** Factory 支持 “custom droids”，也就是可限制工具、指定模型、设定 autonomy 的 subagent。可以随 skill 一起发布 `gstack-qa.md` 这样的 droid 配置，让工具范围只保留 read-only + execute，提升安全性。
 
@@ -687,7 +687,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 - `EVALS_CONCURRENCY=40`，把 wall clock 从约 18 分钟压到约 6 分钟
 **Completed:** v0.9.9.0
 
-### Deploy pipeline（v0.9.8.0）
+### 部署 pipeline（v0.9.8.0）
 - `/land-and-deploy`，merge PR，等待 CI / deploy，再做 canary verification
 - `/canary`，部署后监控循环，含 anomaly detection
 - `/benchmark`，基于 Core Web Vitals 的性能回退检测
@@ -698,7 +698,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 - `test:e2e:fast` tier，以及所有 E2E 脚本的 `--retry 2`
 **Completed:** v0.9.8.0
 
-### Phase 1，基础设施（v0.2.0）
+### 阶段 1，基础设施（v0.2.0）
 - 重命名为 gstack
 - 调整为 monorepo 布局
 - 增加 skill symlink 的 setup 脚本
@@ -706,7 +706,7 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 - Snapshot tests
 **Completed:** v0.2.0
 
-### Phase 2，增强浏览器（v0.2.0）
+### 阶段 2，增强浏览器（v0.2.0）
 - 标注截图、snapshot diff、dialog handling、文件上传
 - cursor-interactive 元素、元素状态检测
 - CircularBuffer、异步 buffer flush、health check
@@ -714,20 +714,20 @@ Linux cookie 导入已在 v0.11.11.0（Wave 3）发布。支持 Linux 上的 Chr
 - 148 个 integration tests
 **Completed:** v0.2.0
 
-### Phase 3，QA Testing Agent（v0.3.0）
+### 阶段 3，QA Testing Agent（v0.3.0）
 - `/qa` 的 SKILL.md，6 阶段工作流，3 种模式，full / quick / regression
 - 问题分类体系、严重级别、探索清单
 - 报告模板、健康分标准、框架检测
 - `wait` / `console` / `cookie-import` 命令，以及 find-browse binary
 **Completed:** v0.3.0
 
-### Phase 3.5，Browser Cookie Import（v0.3.x）
+### 阶段 3.5，Browser Cookie Import（v0.3.x）
 - `cookie-import-browser` 命令，支持 Chromium cookie DB 解密
 - Cookie picker Web UI，和 `/setup-browser-cookies` skill
 - 18 个 unit tests，browser registry，Comet、Chrome、Arc、Brave、Edge
 **Completed:** v0.3.1
 
-### E2E test 成本追踪
+### E2E 测试 成本追踪
 - 跟踪累计 API 开销，超过阈值时警告
 **Completed:** v0.3.6
 

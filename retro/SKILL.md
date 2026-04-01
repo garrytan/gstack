@@ -18,7 +18,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -51,7 +51,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"retro","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -176,7 +176,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -275,7 +275,7 @@ AI makes completeness near-free. Always recommend the complete option over short
 
 Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -293,7 +293,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -353,7 +353,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -368,7 +368,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -388,7 +388,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -404,7 +404,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-## Step 0: Detect 平台 and base branch
+## Step 0: Detect 平台 and base 分支
 
 First, detect the git hosting 平台 from the remote URL:
 
@@ -447,7 +447,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code 质量 指标. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using Claude Code as a force multiplier.
 
-## User-invocable
+## 用户-invocable
 When the user types `/retro`, run this skill.
 
 ## Arguments
@@ -460,7 +460,7 @@ When the user types `/retro`, run this skill.
 - `/retro global` — cross-project retro across all AI coding tools (7d default)
 - `/retro global 14d` — cross-project retro with explicit window
 
-## Instructions
+## 使用说明
 
 Parse the argument to determine the time window. Default to 7 days if no argument given. All times should be reported in the user's **local timezone** (use the system default — do NOT set `TZ`).
 
@@ -481,7 +481,7 @@ Usage: /retro [window | compare | global]
 
 **If the first argument is `global`:** Skip the normal repo-scoped retro (步骤 1-14). Instead, follow the **Global Retrospective** flow at the end of this document. The optional second argument is the time window (default 7d). This mode does NOT require being inside a git repo.
 
-### Step 1: Gather Raw Data
+### 步骤 1: Gather Raw Data
 
 First, fetch origin and identify the current user:
 ```bash
@@ -499,12 +499,12 @@ Run ALL of these git commands in parallel (they are independent):
 # 1. All commits in window with timestamps, subject, hash, AUTHOR, files changed, insertions, deletions
 git log origin/<default> --since="<window>" --format="%H|%aN|%ae|%ai|%s" --shortstat
 
-# 2. Per-commit test vs total LOC breakdown with author
+# 2. Per-commit 测试 vs total LOC breakdown with author
 #    Each commit block starts with COMMIT:<hash>|<author>, followed by numstat lines.
-#    Separate test files (matching test/|spec/|__tests__/) from production files.
+#    Separate 测试 files (matching 测试/|spec/|__tests__/) from production files.
 git log origin/<default> --since="<window>" --format="COMMIT:%H|%aN" --numstat
 
-# 3. Commit timestamps for session detection and hourly distribution (with author)
+# 3. Commit timestamps for 会话 detection and hourly distribution (with author)
 git log origin/<default> --since="<window>" --format="%at|%aN|%ai|%s" | sort -n
 
 # 4. Files most frequently changed (hotspot analysis)
@@ -516,7 +516,7 @@ git log origin/<default> --since="<window>" --format="%s" | grep -oE '[#!][0-9]+
 # 6. Per-author file hotspots (who touches what)
 git log origin/<default> --since="<window>" --format="AUTHOR:%aN" --name-only
 
-# 7. Per-author commit counts (quick summary)
+# 7. Per-author commit counts (quick 摘要)
 git shortlog origin/<default> --since="<window>" -sn --no-merges
 
 # 8. Greptile triage history (if available)
@@ -525,20 +525,20 @@ cat ~/.gstack/greptile-history.md 2>/dev/null || true
 # 9. TODOS.md backlog (if available)
 cat TODOS.md 2>/dev/null || true
 
-# 10. Test file count
+# 10. 测试 file count
 find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' 2>/dev/null | grep -v node_modules | wc -l
 
-# 11. Regression test commits in window
+# 11. Regression 测试 commits in window
 git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep="test(design):" --grep="test: coverage"
 
-# 12. gstack skill usage telemetry (if available)
+# 12. gstack 技能 usage telemetry (if available)
 cat ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 
-# 12. Test files changed in window
+# 12. 测试 files changed in window
 git log origin/<default> --since="<window>" --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
 ```
 
-### Step 2: Compute 指标
+### 步骤 2: Compute 指标
 
 Calculate and present these 指标 in a summary table:
 
@@ -608,7 +608,7 @@ If moments exist, list them:
 
 If the JSONL file doesn't exist or has no entries in the window, skip the Eureka Moments row.
 
-### Step 3: Commit Time Distribution
+### 步骤 3: Commit Time Distribution
 
 Show hourly histogram in local time using bar chart:
 
@@ -625,7 +625,7 @@ Identify and call out:
 - Whether pattern is bimodal (morning/evening) or continuous
 - Late-night coding clusters (after 10pm)
 
-### Step 4: Work Session Detection
+### 步骤 4: Work 会话 Detection
 
 Detect sessions using **45-minute gap** threshold between consecutive commits. For each session report:
 - Start/end time (Pacific)
@@ -724,7 +724,7 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
-### Step 10: Week-over-Week Trends (if window >= 14d)
+### 步骤 10: Week-over-Week Trends (if window >= 14d)
 
 If the time window is 14 days or more, split into weekly buckets and show trends:
 - Commits per week (total and per-author)
@@ -733,7 +733,7 @@ If the time window is 14 days or more, split into weekly buckets and show trends
 - Fix ratio per week
 - Session count per week
 
-### Step 11: Streak 跟踪
+### 步骤 11: Streak 跟踪
 
 Count consecutive days with at least 1 commit to origin/<default>, going back from today. Track both team streak and personal streak:
 
@@ -741,7 +741,7 @@ Count consecutive days with at least 1 commit to origin/<default>, going back fr
 # Team streak: all unique commit dates (local time) — no hard cutoff
 git log origin/<default> --format="%ad" --date=format:"%Y-%m-%d" | sort -u
 
-# Personal streak: only the current user's commits
+# Personal streak: only the current 用户's commits
 git log origin/<default> --author="<user_name>" --format="%ad" --date=format:"%Y-%m-%d" | sort -u
 ```
 
@@ -749,7 +749,7 @@ Count backward from today — how many consecutive days have at least one commit
 - "Team shipping streak: 47 consecutive days"
 - "Your shipping streak: 32 consecutive days"
 
-### Step 12: Load History & Compare
+### 步骤 12: Load History & Compare
 
 Before saving the new snapshot, check for prior retro history:
 
@@ -771,7 +771,7 @@ Deep sessions:      3      →    5           ↑2
 
 **If no prior retros exist:** Skip the comparison section and append: "First retro recorded — run again next week to see trends."
 
-### Step 13: Save Retro History
+### 步骤 13: Save Retro History
 
 After computing all 指标 (including streak) and loading any prior history for comparison, save a JSON snapshot:
 
@@ -786,7 +786,7 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 today=$(date +%Y-%m-%d)
 existing=$(ls .context/retros/${today}-*.json 2>/dev/null | wc -l | tr -d ' ')
 next=$((existing + 1))
-# Save as .context/retros/${today}-${next}.json
+# Save as .背景/retros/${today}-${next}.json
 ```
 
 Use the Write tool to save the JSON file with this schema:
@@ -852,7 +852,7 @@ Include backlog data in the JSON when TODOS.md exists:
   }
 ```
 
-### Step 14: Write the Narrative
+### 步骤 14: Write the Narrative
 
 Structure the output as:
 
@@ -865,13 +865,13 @@ Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 1
 
 ## Engineering Retro: [date range]
 
-### Summary Table
+### 摘要 Table
 (from Step 2)
 
 ### Trends vs Last Retro
 (from Step 11, loaded before save — skip if first retro)
 
-### Time & Session Patterns
+### Time & 会话 Patterns
 (from 步骤 3-4)
 
 Narrative interpreting what the team-wide patterns mean:
@@ -894,14 +894,14 @@ Narrative covering:
 - Hotspot analysis (are the same files churning?)
 - Greptile signal ratio and trend (if history exists): "Greptile: X% signal (Y valid catches, Z false positives)"
 
-### Test Health
+### 测试 Health
 - Total test files: N (from command 10)
 - Tests added this period: M (from command 12 — test files changed)
 - Regression test commits: list `test(qa):` and `test(design):` and `test: coverage` commits from command 11
 - If prior retro exists and has `test_health`: show delta "Test count: {last} → {now} (+{delta})"
 - If test ratio < 20%: flag as growth area — "100% test coverage is the goal. Tests make vibe coding safe."
 
-### Plan Completion
+### 计划 Completion
 Check review JSONL logs for plan completion data from /ship runs this period:
 
 ```bash
@@ -975,15 +975,15 @@ Small, practical, realistic. Each must be something that takes <5 minutes to ado
 
 ---
 
-## Global Retrospective Mode
+## Global Retrospective 模式
 
 When the user runs `/retro global` (or `/retro global 14d`), follow this flow instead of the repo-scoped 步骤 1-14. This mode works from any directory — it does NOT require being inside a git repo.
 
-### Global Step 1: Compute time window
+### Global 步骤 1: Compute time window
 
 Same midnight-aligned logic as the regular retro. Default 7d. The second argument after `global` is the window (e.g., `14d`, `30d`, `24h`).
 
-### Global Step 2: Run discovery
+### Global 步骤 2: Run discovery
 
 Locate and run the discovery script using this fallback chain:
 
@@ -1007,7 +1007,7 @@ Read the stderr output from `/tmp/gstack-discover-stderr` for diagnostic info. P
 
 If `total_sessions` is 0, say: "No AI coding sessions found in the last <window>. Try a longer window: `/retro global 30d`" and stop.
 
-### Global Step 3: Run git log on each discovered repo
+### Global 步骤 3: Run git log on each discovered repo
 
 For each repo in the discovery JSON's `repos` array, find the first valid path in `paths[]` (directory exists with `.git/`). If no valid path exists, skip the repo and note it.
 
@@ -1025,7 +1025,7 @@ Detect the default branch for each repo: first try `git symbolic-ref refs/remote
 # Commits with stats
 git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%H|%aN|%ai|%s" --shortstat
 
-# Commit timestamps for session detection, streak, and context switching
+# Commit timestamps for 会话 detection, streak, and 背景 switching
 git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%at|%aN|%ai|%s" | sort -n
 
 # Per-author commit counts
@@ -1037,7 +1037,7 @@ git -C <path> log origin/$DEFAULT --since="<start_date>T00:00:00" --format="%s" 
 
 For repos that fail (deleted paths, network errors): skip and note "N repos could not be reached."
 
-### Global Step 4: Compute global shipping streak
+### Global 步骤 4: Compute global shipping streak
 
 For each repo, get commit dates (capped at 365 days):
 
@@ -1047,14 +1047,14 @@ git -C <path> log origin/$DEFAULT --since="365 days ago" --format="%ad" --date=f
 
 Union all dates across all repos. Count backward from today — how many consecutive days have at least one commit to ANY repo? If the streak hits 365 days, 展示 as "365+ days".
 
-### Global Step 5: Compute context switching metric
+### Global Step 5: Compute 背景 switching metric
 
 From the commit timestamps gathered in Step 3, group by date. For each date, count how many distinct repos had commits that day. Report:
 - Average repos/day
 - Maximum repos/day
 - Which days were focused (1 repo) vs. fragmented (3+ repos)
 
-### Global Step 6: Per-tool productivity patterns
+### Global Step 6: Per-工具 productivity patterns
 
 From the discovery JSON, analyze tool usage patterns:
 - Which AI tool is used for which repos (exclusive vs. shared)
@@ -1074,7 +1074,7 @@ team/project breakdown below. The personal card is designed to be screenshot-fri
 Week of Mar 14: 5 projects, 138 commits, 250k LOC across 5 repos | 48 AI sessions | Streak: 52d 🔥
 ```
 
-## 🚀 Your Week: [user name] — [date range]
+## 🚀 Your Week: [用户 name] — [date range]
 
 This section is the **shareable personal card**. It contains ONLY the current user's
 stats — no team data, no project breakdowns. Designed to screenshot and post.
@@ -1187,7 +1187,7 @@ Format:
 - Focused vs. fragmented days
 - Context switching trends
 
-### Tool Usage Analysis
+### 工具 Usage Analysis
 Per-tool breakdown with behavioral patterns:
 - Claude Code: N sessions across M repos — patterns observed
 - Codex: N sessions across M repos — patterns observed
@@ -1264,7 +1264,7 @@ Use the Write tool to save JSON to `~/.gstack/retros/global-${today}-${next}.jso
 
 ---
 
-## Compare Mode
+## Compare 模式
 
 When the user runs `/retro compare` (or `/retro compare 14d`):
 

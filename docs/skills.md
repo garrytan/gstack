@@ -1,4 +1,4 @@
-# Skill Deep Dives
+# 技能 Deep Dives
 
 Detailed guides for every gstack skill — philosophy, 工作流, and examples.
 
@@ -91,7 +91,7 @@ Recommends A because you learn from real usage. CRM data comes naturally in week
 
 **Builder mode** — for hackathons, side projects, open 来源, learning, and having fun. You get an enthusiastic collaborator who helps you find the coolest version of your idea. What would make someone say "whoa"? What's the fastest path to something you can share? The questions are generative, not interrogative.
 
-### The design doc
+### The 设计 doc
 
 Both modes end with a design doc written to `~/.gstack/projects/` — and that doc feeds directly into `/plan-ceo-review` and `/plan-eng-review`. The full lifecycle is now: `office-hours → plan → implement → review → QA → ship → retro`.
 
@@ -206,7 +206,7 @@ That is `/plan-eng-review`.
 Not "make the idea smaller."
 **Make the idea buildable.**
 
-### Review Readiness Dashboard
+### 审查 Readiness Dashboard
 
 Every review (CEO, Eng, Design) logs its result. At the end of each review, you see a dashboard:
 
@@ -226,7 +226,7 @@ Every review (CEO, Eng, Design) logs its result. At the end of each review, you 
 
 Eng Review is the only required gate (disable with `gstack-config set skip_eng_review true`). CEO and Design are informational — recommended for 产品 and UI changes respectively.
 
-### Plan-to-QA flow
+### 计划-to-QA flow
 
 When `/plan-eng-review` finishes the test review section, it writes a test plan artifact to `~/.gstack/projects/`. When you later run `/qa`, it picks up that test plan automatically — your engineering review feeds directly into QA 测试 with no manual 文案-paste.
 
@@ -620,7 +620,7 @@ Once I have decided what to build, nailed the technical plan, and run a serious 
 
 This is where the model should stop behaving like a brainstorm partner and start behaving like a disciplined release engineer: sync with main, run the right tests, make sure the branch state is sane, update changelog or versioning if the repo expects it, push, and create or update the PR.
 
-### Test bootstrap
+### 测试 bootstrap
 
 If your project doesn't have a test framework, `/ship` sets one up — detects your runtime, researches the best framework, installs it, writes 3-5 real tests for your actual code, sets up CI/CD (GitHub Actions), and creates 测试.md. 100% test coverage is the goal — tests make vibe coding safe instead of yolo coding.
 
@@ -628,7 +628,7 @@ If your project doesn't have a test framework, `/ship` sets one up — detects y
 
 Every `/ship` run builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with 质量 stars. Gaps get tests auto-generated. Your PR body shows the coverage: `Tests: 42 → 47 (+5 new)`.
 
-### Review gate
+### 审查 gate
 
 `/ship` checks the [Review Readiness Dashboard](#review-readiness-dashboard) before creating the PR. If the Eng Review is missing, it asks — but won't block you. Decisions are saved per-branch so you're never re-asked.
 

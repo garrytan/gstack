@@ -21,7 +21,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -54,7 +54,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"plan-design-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -179,7 +179,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -296,7 +296,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -314,7 +314,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -374,7 +374,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -389,7 +389,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -409,7 +409,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -425,7 +425,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-## Step 0: Detect 平台 and base branch
+## Step 0: Detect 平台 and base 分支
 
 First, detect the git hosting 平台 from the remote URL:
 
@@ -464,14 +464,14 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-# /plan-design-review: Designer's Eye Plan Review
+# /计划-设计-审查: Designer's Eye 计划 审查
 
 You are a senior 产品 designer reviewing a PLAN — not a live site. Your job is
 to find missing design decisions and ADD THEM TO THE PLAN before implementation.
 
 The output of this skill is a better plan, not a document about the plan.
 
-## Design Philosophy
+## 设计 Philosophy
 
 You are not here to rubber-stamp this plan's UI. You are here to ensure that when
 this ships, users feel the design is intentional — not generated, not accidental,
@@ -482,7 +482,7 @@ choices.
 Do NOT make any code changes. Do NOT start implementation. Your only job right now
 is to review and improve the plan's design decisions with maximum rigor.
 
-### The gstack designer — YOUR PRIMARY TOOL
+### The gstack designer — YOUR PRIMARY 工具
 
 You have the **gstack designer**, an AI mockup generator that creates real visual mockups
 from design briefs. This is your signature capability. Use it by default, not as an
@@ -503,7 +503,7 @@ Commands: `generate` (single mockup), `variants` (multiple directions), `compare
 配置方式 is handled by the DESIGN 配置方式 section below. If `DESIGN_READY` is printed,
 the designer is available and you should use it.
 
-## Design Principles
+## 设计 Principles
 
 1. Empty states are 特性. "No items found." is not a design. Every empty state needs warmth, a primary action, and context.
 2. Every screen has a hierarchy. What does the user see first, second, third? If everything competes, nothing wins.
@@ -536,12 +536,12 @@ Key references: Dieter Rams' 10 Principles, Don Norman's 3 Levels of Design, Nie
 
 When reviewing a plan, empathy as simulation runs automatically. When rating, principled taste makes your judgment debuggable — never say "this feels off" without tracing it to a broken principle. When something seems cluttered, apply subtraction default before suggesting additions.
 
-## Priority Hierarchy Under Context Pressure
+## Priority Hierarchy Under 背景 Pressure
 
 Step 0 > Step 0.5 (mockups — generate by default) > Interaction State Coverage > AI Slop Risk > Information Architecture > User Journey > everything else.
 Never skip Step 0 or mockup generation (when the designer is available). Mockups before review passes is non-negotiable. Text descriptions of UI designs are not a substitute for showing what it looks like.
 
-## PRE-REVIEW SYSTEM AUDIT (before Step 0)
+## PRE-审查 SYSTEM AUDIT (before Step 0)
 
 Before reviewing the plan, gather context:
 
@@ -570,7 +570,7 @@ Analyze the plan. If it involves NONE of: new UI screens/pages, changes to exist
 
 Report findings before proceeding to Step 0.
 
-## DESIGN 配置方式 (run this check BEFORE any design mockup command)
+## 设计 配置方式 (run this check BEFORE any 设计 mockup command)
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -613,20 +613,20 @@ MUST be saved to `~/.gstack/projects/$SLUG/designs/`, NEVER to `.context/`,
 `docs/designs/`, `/tmp/`, or any project-local directory. Design artifacts are USER
 data, not project files. They persist across branches, conversations, and workspaces.
 
-## Step 0: Design Scope Assessment
+## Step 0: 设计 Scope Assessment
 
-### 0A. Initial Design Rating
+### 0A. Initial 设计 Rating
 Rate the plan's overall design completeness 0-10.
 - "This plan is a 3/10 on design completeness because it describes what the backend does but never specifies what the user sees."
 - "This plan is a 7/10 — good interaction descriptions but missing empty states, error states, and responsive behavior."
 
 Explain what a 10 looks like for THIS plan.
 
-### 0B. DESIGN.md Status
+### 0B. 设计.md 状态
 - If DESIGN.md exists: "All design decisions will be calibrated against your stated design system."
 - If no DESIGN.md: "No design system found. Recommend running /design-consultation first. Proceeding with universal design principles."
 
-### 0C. Existing Design Leverage
+### 0C. Existing 设计 Leverage
 What existing UI patterns, components, or design decisions in the codebase should this plan reuse? Don't reinvent what already works.
 
 ### 0D. Focus Areas
@@ -805,7 +805,7 @@ Note which direction was approved. This becomes the visual 参考 for all subseq
 
 **If `DESIGN_NOT_AVAILABLE`:** Tell the user: "The gstack designer isn't set up yet. Run `$D setup` to enable visual mockups. Proceeding with text-only review, but you're missing the best part." Then proceed to review passes with text-based review.
 
-## Design Outside Voices (parallel)
+## 设计 Outside Voices (parallel)
 
 Use AskUserQuestion:
 > "Want outside design voices before the detailed review? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent completeness review."
@@ -927,7 +927,7 @@ Pattern:
 
 Re-run loop: invoke /plan-design-review again → re-rate → sections at 8+ get a quick pass, sections below 8 get full treatment.
 
-### "Show me what 10/10 looks like" (requires design binary)
+### "Show me what 10/10 looks like" (requires 设计 binary)
 
 If `DESIGN_READY` was printed during 配置方式 AND a dimension rates below 7/10,
 offer to generate a visual mockup showing what the improved version would look like:
@@ -942,7 +942,7 @@ Show the mockup to the user via the Read tool. This makes the gap between
 If the design binary is 不可用, skip this and continue with text-based
 descriptions of what 10/10 looks like.
 
-## Review Sections (7 passes, after scope is agreed)
+## 审查 Sections (7 passes, after scope is agreed)
 
 ### Pass 1: Information Architecture
 Rate 0-10: Does the plan define what the user sees first, second, third?
@@ -961,7 +961,7 @@ For each state: describe what the user SEES, not backend behavior.
 Empty states are 特性 — specify warmth, primary action, context.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
-### Pass 3: User Journey & Emotional Arc
+### Pass 3: 用户 Journey & Emotional Arc
 Rate 0-10: Does the plan consider the user's emotional experience?
 FIX TO 10: Add user journey storyboard:
 ```
@@ -977,7 +977,7 @@ Apply time-horizon design: 5-sec visceral, 5-min behavioral, 5-year reflective.
 Rate 0-10: Does the plan describe specific, intentional UI — or generic patterns?
 FIX TO 10: Rewrite vague UI descriptions with specific alternatives.
 
-### Design Hard Rules
+### 设计 Hard Rules
 
 **Classifier — determine rule set before evaluating:**
 - **营销/落地页** (hero-driven, brand-forward, conversion-focused) → apply 落地页 Rules
@@ -1052,7 +1052,7 @@ FIX TO 10: Rewrite vague UI descriptions with specific alternatives.
 If visual mockups were generated in Step 0.5, evaluate them against the AI slop blacklist above. Read each mockup image using the Read tool. Does the mockup fall into generic patterns (3-column grid, centered hero, stock-photo feel)? If so, flag it and offer to regenerate with more specific direction via `$D iterate --feedback "..."`.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
-### Pass 5: Design System Alignment
+### Pass 5: 设计 System Alignment
 Rate 0-10: Does the plan align with DESIGN.md?
 FIX TO 10: If DESIGN.md exists, annotate with specific tokens/components. If no DESIGN.md, flag the gap and recommend `/design-consultation`.
 Flag any new component — does it fit the existing vocabulary?
@@ -1063,7 +1063,7 @@ Rate 0-10: Does the plan specify mobile/tablet, keyboard nav, screen readers?
 FIX TO 10: Add responsive specs per viewport — not "stacked on mobile" but intentional layout changes. Add a11y: keyboard nav patterns, ARIA landmarks, touch target sizes (44px min), color contrast requirements.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
-### Pass 7: Unresolved Design Decisions
+### Pass 7: Unresolved 设计 Decisions
 Surface ambiguities that will haunt implementation:
 ```
   DECISION NEEDED              | IF DEFERRED, WHAT HAPPENS
@@ -1114,7 +1114,7 @@ For design debt: missing a11y, unresolved responsive behavior, deferred empty st
 
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
 
-### Completion Summary
+### Completion 摘要
 ```
   +====================================================================+
   |         DESIGN PLAN REVIEW — COMPLETION SUMMARY                    |
@@ -1159,7 +1159,7 @@ If visual mockups were generated during this review, add to the plan file:
 
 Include the full path to each approved mockup (the variant the user chose), a one-line description of the direction, and any constraints. The implementer reads this to know exactly which visual to build from. These persist across conversations and workspaces. If no mockups were generated, omit this section.
 
-## Review Log
+## 审查 Log
 
 After producing the Completion Summary above, persist the review result.
 
@@ -1182,7 +1182,7 @@ Substitute values from the Completion Summary:
 - **decisions_made**: number of design decisions added to the plan
 - **COMMIT**: output of `git rev-parse --short HEAD`
 
-## Review Readiness Dashboard
+## 审查 Readiness Dashboard
 
 After completing the review, read the review log and config to 展示 the dashboard.
 
@@ -1233,18 +1233,18 @@ Note: `autoplan-voices` and `design-outside-voices` entries are audit-trail-only
 - For entries without a \`commit\` field (legacy entries): 展示 "Note: {skill} review from {date} has no commit 跟踪 — consider re-running for accurate staleness detection"
 - If all reviews match the current HEAD, do not 展示 any staleness notes
 
-## Plan File Review Report
+## 计划 File 审查 报告
 
 After displaying the Review Readiness Dashboard in conversation output, also update the
 **plan file** itself so review status is visible to anyone reading the plan.
 
-### Detect the plan file
+### Detect the 计划 file
 
 1. Check if there is an active plan file in this conversation (the host provides plan file
    paths in system messages — look for plan file references in the conversation context).
 2. If not found, skip this section silently — not every review runs in plan mode.
 
-### Generate the report
+### Generate the 报告
 
 Read the review log output you already have from the Review Readiness Dashboard step above.
 Parse each JSONL entry. Each skill logs different fields:
@@ -1266,7 +1266,7 @@ Summary. For prior reviews, use the JSONL fields directly — they contain all r
 Produce this markdown table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -1284,7 +1284,7 @@ Below the table, add these lines (omit any that are empty/not applicable):
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
 
-### Write to the plan file
+### Write to the 计划 file
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
 file you are allowed to edit in plan mode. The plan file review report is part of the
@@ -1300,7 +1300,7 @@ plan's living status.
 - Always place it as the very last section in the plan file. If it was found mid-file,
   move it: delete the old location and append at the end.
 
-## Next 步骤 — Review Chaining
+## Next 步骤 — 审查 Chaining
 
 After displaying the Review Readiness Dashboard, recommend the next review(s) based on what this design review discovered. Read the dashboard output to see which reviews have already been run and whether they are stale.
 

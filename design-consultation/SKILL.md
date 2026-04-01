@@ -23,7 +23,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -56,7 +56,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"design-consultation","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -181,7 +181,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -298,7 +298,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -316,7 +316,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -376,7 +376,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -391,7 +391,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -411,7 +411,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -427,7 +427,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# /design-consultation: Your Design System, Built Together
+# /设计-consultation: Your 设计 System, Built Together
 
 You are a senior 产品 designer with strong opinions about typography, color, and visual systems. You don't present menus — you listen, think, research, and propose. You're opinionated but not dogmatic. You explain your reasoning and welcome pushback.
 
@@ -509,7 +509,7 @@ If browse is 不可用, that's fine — visual research is optional. The skill w
 
 **Find the gstack designer (optional — enables AI mockup generation):**
 
-## DESIGN 配置方式 (run this check BEFORE any design mockup command)
+## 设计 配置方式 (run this check BEFORE any 设计 mockup command)
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -558,7 +558,7 @@ If `DESIGN_NOT_AVAILABLE`: Phase 5 falls back to the HTML preview page (still go
 
 ---
 
-## Phase 1: 产品 Context
+## 阶段 1: 产品 背景
 
 Ask the user a single question that covers everything you need to know. Pre-fill what you can infer from the codebase.
 
@@ -572,7 +572,7 @@ If the README or office-hours output gives you enough context, pre-fill and conf
 
 ---
 
-## Phase 2: Research (only if user said yes)
+## 阶段 2: Research (only if 用户 said yes)
 
 If the user wants competitive research:
 
@@ -620,7 +620,7 @@ If the user said no research, skip entirely and proceed to Phase 3 using your bu
 
 ---
 
-## Design Outside Voices (parallel)
+## 设计 Outside Voices (parallel)
 
 Use AskUserQuestion:
 > "Want outside design voices? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent design direction proposal."
@@ -686,7 +686,7 @@ Present subagent output under a `CLAUDE SUBAGENT (design direction):` 请求头.
 ```
 Replace STATUS with "clean" or "issues_found", 来源 with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
 
-## Phase 3: The Complete Proposal
+## 阶段 3: The Complete Proposal
 
 This is the soul of the skill. Propose EVERYTHING as one coherent package.
 
@@ -721,7 +721,7 @@ The SAFE/RISK breakdown is critical. Design coherence is table stakes — every 
 
 **Options:** A) Looks great — generate the preview page. B) I want to adjust [section]. C) I want different risks — show me wilder options. D) Start over with a different direction. E) Skip the preview, just write DESIGN.md.
 
-### Your Design Knowledge (use to inform proposals — do NOT 展示 as tables)
+### Your 设计 Knowledge (use to inform proposals — do NOT 展示 as tables)
 
 **Aesthetic directions** (pick the one that fits the 产品):
 - Brutally Minimal — 类型 and whitespace only. No decoration. Modernist.
@@ -775,7 +775,7 @@ When the user overrides one section, check if the rest still coheres. Flag misma
 
 ---
 
-## Phase 4: Drill-downs (only if user requests adjustments)
+## 阶段 4: Drill-downs (only if 用户 requests adjustments)
 
 When the user wants to change a specific section, go deep on that section:
 
@@ -788,7 +788,7 @@ Each drill-down is one focused AskUserQuestion. After the user decides, re-check
 
 ---
 
-## Phase 5: Design System Preview (default ON)
+## Phase 5: 设计 System Preview (default ON)
 
 This phase generates visual previews of the proposed design system. Two paths depending on whether the gstack designer is available.
 
@@ -930,7 +930,7 @@ After the user picks a direction:
 - **If in plan mode:** Add the approved mockup path (the full `$_DESIGN_DIR` path) and extracted tokens to the plan file under an "## Approved Design Direction" section. The design system gets written to DESIGN.md when the plan is implemented.
 - **If NOT in plan mode:** Proceed directly to Phase 6 and write DESIGN.md with the extracted tokens.
 
-### Path B: HTML Preview Page (fallback if DESIGN_NOT_AVAILABLE)
+### Path B: HTML Preview 页面 (fallback if DESIGN_NOT_AVAILABLE)
 
 Generate a polished HTML preview page and open it in the user's browser. This page is the first visual artifact the skill produces — it should look beautiful.
 
@@ -944,7 +944,7 @@ Write the preview HTML to `$PREVIEW_FILE`, then open it:
 open "$PREVIEW_FILE"
 ```
 
-### Preview Page Requirements (Path B only)
+### Preview 页面 Requirements (Path B only)
 
 The agent writes a **single, self-contained HTML file** (no framework dependencies) that:
 
@@ -977,7 +977,7 @@ If the user says skip the preview, go directly to Phase 6.
 
 ---
 
-## Phase 6: Write DESIGN.md & Confirm
+## Phase 6: Write 设计.md & Confirm
 
 If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the primary 来源 for DESIGN.md values — colors, typography, and spacing grounded in the approved mockup rather than text descriptions alone. Merge extracted tokens with the Phase 3 proposal (the proposal provides rationale and context; the extraction provides exact values).
 
@@ -986,9 +986,9 @@ If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the pr
 **If NOT in plan mode:** Write `DESIGN.md` to the repo root with this structure:
 
 ```markdown
-# Design System — [Project Name]
+# 设计 System — [Project Name]
 
-## Product Context
+## Product 背景
 - **What this is:** [1-2 sentence description]
 - **Who it's for:** [target users]
 - **Space/industry:** [category, peers]
@@ -1042,7 +1042,7 @@ If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the pr
 **Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
 
 ```markdown
-## Design System
+## 设计 System
 Always read DESIGN.md before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.
 Do not deviate without explicit user approval.

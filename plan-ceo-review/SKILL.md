@@ -23,7 +23,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -56,7 +56,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"plan-ceo-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -181,7 +181,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -298,7 +298,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -316,7 +316,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -376,7 +376,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -391,7 +391,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -411,7 +411,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -427,7 +427,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-## Step 0: Detect 平台 and base branch
+## Step 0: Detect 平台 and base 分支
 
 First, detect the git hosting 平台 from the remote URL:
 
@@ -466,7 +466,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-# Mega Plan Review Mode
+# Mega 计划 审查 模式
 
 ## Philosophy
 You are not here to rubber-stamp this plan. You are here to make it extraordinary, catch every landmine before it explodes, and ensure that when this ships, it ships at the highest possible standard.
@@ -528,11 +528,11 @@ These are not checklist items. They are thinking instincts — the cognitive mov
 
 When you evaluate architecture, think through the inversion reflex. When you challenge scope, apply focus as subtraction. When you assess timeline, use speed calibration. When you probe whether the plan solves a real 问题, activate proxy skepticism. When you evaluate UI flows, apply hierarchy as service and subtraction default. When you review user-facing 特性, activate design for trust and edge case paranoia.
 
-## Priority Hierarchy Under Context Pressure
+## Priority Hierarchy Under 背景 Pressure
 Step 0 > System audit > Error/rescue map > Test diagram > Failure modes > Opinionated recommendations > Everything else.
 Never skip Step 0, the system audit, the error/rescue map, or the failure modes section. These are the highest-leverage outputs.
 
-## PRE-REVIEW SYSTEM AUDIT (before Step 0)
+## PRE-审查 SYSTEM AUDIT (before Step 0)
 Before doing anything else, run a system audit. This is not the plan review — it is the context you need to review the plan intelligently.
 Run the following commands:
 ```
@@ -571,7 +571,7 @@ the handoff note to inform your analysis and avoid redundant questions.
 Tell the user: "Found a handoff note from your prior CEO review session. I'll use that
 context to pick up where we left off."
 
-## Prerequisite Skill Offer
+## Prerequisite 技能 Offer
 
 When the design doc check above prints "No design doc found," offer the prerequisite
 skill before proceeding.
@@ -740,7 +740,7 @@ matches a past learning, 展示:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-## Step 0: Nuclear Scope Challenge + Mode Selection
+## Step 0: Nuclear Scope Challenge + 模式 Selection
 
 ### 0A. Premise Challenge
 1. Is this the right 问题 to solve? Could a different framing yield a dramatically simpler or more impactful solution?
@@ -758,7 +758,7 @@ Describe the ideal end state of this system 12 months from now. Does this plan m
   [describe]          --->       [describe delta]    --->    [describe target]
 ```
 
-### 0C-bis. Implementation Alternatives (MANDATORY)
+### 0C-bis. 实现 Alternatives (MANDATORY)
 
 Before selecting a mode (0F), produce 2-3 distinct implementation approaches. This is NOT optional — every plan must consider alternatives.
 
@@ -788,7 +788,7 @@ Rules:
 - If only one approach exists, explain concretely why alternatives were eliminated.
 - Do NOT proceed to mode selection (0F) without user approval of the chosen approach.
 
-### 0D. Mode-Specific Analysis
+### 0D. 模式-Specific Analysis
 **For SCOPE EXPANSION** — run all three, then the opt-in ceremony:
 1. 10x check: What's the version that's 10x more ambitious and delivers 10x more value for 2x the effort? Describe it concretely.
 2. Platonic ideal: If the best engineer in the world had unlimited time and perfect taste, what would this system look like? What would the user feel when using it? Start from experience, not architecture.
@@ -812,7 +812,7 @@ Rules:
 1. Ruthless cut: What is the absolute minimum that ships value to a user? Everything else is deferred. 没有例外.
 2. What can be a follow-up PR? Separate "must ship together" from "nice to ship together."
 
-### 0D-POST. Persist CEO Plan (EXPANSION and SELECTIVE EXPANSION only)
+### 0D-POST. Persist CEO 计划 (EXPANSION and SELECTIVE EXPANSION only)
 
 After the opt-in/cherry-pick ceremony, write the plan to disk so the vision and decisions survive beyond this conversation. Only run this step for EXPANSION and SELECTIVE EXPANSION modes.
 
@@ -824,7 +824,7 @@ Before writing, check for existing CEO plans in the ceo-plans/ directory. If any
 
 ```bash
 mkdir -p ~/.gstack/projects/$SLUG/ceo-plans/archive
-# For each stale plan: mv ~/.gstack/projects/$SLUG/ceo-plans/{old-plan}.md ~/.gstack/projects/$SLUG/ceo-plans/archive/
+# For each stale 计划: mv ~/.gstack/projects/$SLUG/ceo-plans/{old-计划}.md ~/.gstack/projects/$SLUG/ceo-plans/archive/
 ```
 
 Write to `~/.gstack/projects/$SLUG/ceo-plans/{date}-{feature-slug}.md` using this format:
@@ -833,7 +833,7 @@ Write to `~/.gstack/projects/$SLUG/ceo-plans/{date}-{feature-slug}.md` using thi
 ---
 status: ACTIVE
 ---
-# CEO Plan: {Feature Name}
+# CEO 计划: {功能 Name}
 Generated by /plan-ceo-review on {date}
 Branch: {branch} | Mode: {EXPANSION / SELECTIVE EXPANSION}
 Repo: {owner/repo}
@@ -852,7 +852,7 @@ Repo: {owner/repo}
 |---|----------|--------|----------|-----------|
 | 1 | {proposal} | S/M/L | ACCEPTED / DEFERRED / SKIPPED | {why} |
 
-## Accepted Scope (added to this plan)
+## Accepted Scope (added to this 计划)
 - {bullet list of what's now in scope}
 
 ## Deferred to TODOS.md
@@ -863,7 +863,7 @@ Derive the feature slug from the plan being reviewed (e.g., "user-dashboard", "a
 
 After writing the CEO plan, run the spec review loop on it:
 
-## Spec Review Loop
+## Spec 审查 Loop
 
 Before presenting the document to the user for approval, run an adversarial review.
 
@@ -940,7 +940,7 @@ both scales when discussing effort.
 
 Surface these as questions for the user NOW, not as "figure it out later."
 
-### 0F. Mode Selection
+### 0F. 模式 Selection
 In every mode, you are 100% in control. No scope is added without your explicit approval.
 
 Present four options:
@@ -963,9 +963,9 @@ After mode is selected, confirm which implementation approach (from 0C-bis) appl
 Once selected, commit fully. Do not silently drift.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-## Review Sections (10 sections, after scope and mode are agreed)
+## 审查 Sections (10 sections, after scope and 模式 are agreed)
 
-### Section 1: Architecture Review
+### Section 1: Architecture 审查
 Evaluate and diagram:
 * Overall system design and component boundaries. Draw the dependency graph.
 * Data flow — all four paths. For every new data flow, ASCII diagram the:
@@ -990,7 +990,7 @@ Evaluate and diagram:
 Required ASCII diagram: full system architecture showing new components and their relationships to existing ones.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-### Section 2: Error & Rescue Map
+### Section 2: 错误 & Rescue Map
 This is the section that catches silent failures. It is not optional.
 For every new method, service, or codepath that can fail, fill in this table:
 ```
@@ -1070,7 +1070,7 @@ For each node: what happens on each shadow path? Is it tested?
 Flag any unhandled edge case as a gap. For each gap, specify the fix.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-### Section 5: Code 质量 Review
+### Section 5: Code 质量 审查
 Evaluate:
 * Code organization and module structure. Does new code fit existing patterns? If it deviates, is there a reason?
 * DRY violations. Be aggressive. If the same logic exists elsewhere, flag it and 参考 the file and line.
@@ -1082,7 +1082,7 @@ Evaluate:
 * Cyclomatic complexity. Flag any new method that branches more than 5 times. Propose a refactor.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-### Section 6: Test Review
+### Section 6: 测试 审查
 Make a complete diagram of every new thing this plan introduces:
 ```
   NEW UX FLOWS:
@@ -1122,7 +1122,7 @@ Load/stress test requirements: For any new codepath called frequently or process
 For LLM/prompt changes: Check CLAUDE.md for the "Prompt/LLM changes" file patterns. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-### Section 7: 表现 Review
+### Section 7: 表现 审查
 Evaluate:
 * N+1 queries. For every new ActiveRecord association traversal: is there an includes/preload?
 * Memory usage. For every new data structure: what's the maximum size in production?
@@ -1133,7 +1133,7 @@ Evaluate:
 * Connection pool pressure. New DB connections, Redis connections, HTTP connections?
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-### Section 8: Observability & Debuggability Review
+### Section 8: Observability & Debuggability 审查
 New systems break. This section ensures you can see why.
 Evaluate:
 * Logging. For every new codepath: structured log lines at entry, exit, and each significant branch?
@@ -1149,7 +1149,7 @@ Evaluate:
 * What observability would make this feature a joy to operate? (For SELECTIVE EXPANSION, include observability for any accepted cherry-picks.)
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-### Section 9: Deployment & Rollout Review
+### Section 9: Deployment & Rollout 审查
 Evaluate:
 * Migration safety. For every new DB migration: backward-compatible? Zero-downtime? Table locks?
 * 功能开关. Should any part be behind a feature flag?
@@ -1164,7 +1164,7 @@ Evaluate:
 * What deploy infrastructure would make shipping this feature routine? (For SELECTIVE EXPANSION, assess whether accepted cherry-picks change the deployment risk profile.)
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-### Section 10: Long-Term Trajectory Review
+### Section 10: Long-Term Trajectory 审查
 Evaluate:
 * Technical debt introduced. Code debt, operational debt, 测试 debt, documentation debt.
 * Path dependency. Does this make future changes harder?
@@ -1179,7 +1179,7 @@ Evaluate:
 * (SELECTIVE EXPANSION only) Retrospective: Were the right cherry-picks accepted? Did any rejected expansions turn out to be load-bearing for the accepted ones?
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-### Section 11: Design & UX Review (skip if no UI scope detected)
+### Section 11: 设计 & UX 审查 (skip if no UI scope detected)
 The CEO calling in the designer. Not a pixel-level audit — that's /plan-design-review and /design-review. This is ensuring the plan has design intentionality.
 
 Evaluate:
@@ -1201,7 +1201,7 @@ Required ASCII diagram: user flow showing screens/states and transitions.
 If this plan has significant UI scope, recommend: "Consider running /plan-design-review for a deep design review of this plan before implementation."
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-## Outside Voice — Independent Plan Challenge (optional, recommended)
+## Outside Voice — Independent 计划 Challenge (optional, recommended)
 
 After all review sections are complete, offer an independent second opinion from a
 different AI system. Two models agreeing on a plan is stronger signal than one model's
@@ -1345,7 +1345,7 @@ finding via AskUserQuestion and getting explicit approval. This applies even whe
 agree with the outside voice. Cross-model consensus is a strong signal — present it as
 such — but the user makes the decision.
 
-## Post-Implementation Design Audit (if UI scope detected)
+## Post-实现 设计 Audit (if UI scope detected)
 After implementation, run `/design-review` on the live site to catch visual issues that can only be evaluated with rendered output.
 
 ## CRITICAL RULE — How to ask questions
@@ -1369,7 +1369,7 @@ List existing code/flows that partially solve sub-problems and whether the plan 
 ### "Dream state delta" section
 Where this plan leaves us relative to the 12-month ideal.
 
-### Error & Rescue Registry (from Section 2)
+### 错误 & Rescue Registry (from Section 2)
 Complete table of every method that can fail, every exception class, rescued status, rescue action, user impact.
 
 ### Failure Modes Registry
@@ -1411,7 +1411,7 @@ For EXPANSION and SELECTIVE EXPANSION modes: expansion opportunities and delight
 ### Stale Diagram Audit
 List every ASCII diagram in files this plan touches. Still accurate?
 
-### Completion Summary
+### Completion 摘要
 ```
   +====================================================================+
   |            MEGA PLAN REVIEW — COMPLETION SUMMARY                   |
@@ -1461,7 +1461,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 rm -f ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null || true
 ```
 
-## Review Log
+## 审查 Log
 
 After producing the Completion Summary above, persist the review result.
 
@@ -1486,7 +1486,7 @@ Before running this command, substitute the placeholder values from the Completi
 - **scope_deferred**: number of items deferred to TODOS.md from scope decisions (0 for HOLD/REDUCTION)
 - **COMMIT**: output of `git rev-parse --short HEAD`
 
-## Review Readiness Dashboard
+## 审查 Readiness Dashboard
 
 After completing the review, read the review log and config to 展示 the dashboard.
 
@@ -1537,18 +1537,18 @@ Note: `autoplan-voices` and `design-outside-voices` entries are audit-trail-only
 - For entries without a \`commit\` field (legacy entries): 展示 "Note: {skill} review from {date} has no commit 跟踪 — consider re-running for accurate staleness detection"
 - If all reviews match the current HEAD, do not 展示 any staleness notes
 
-## Plan File Review Report
+## 计划 File 审查 报告
 
 After displaying the Review Readiness Dashboard in conversation output, also update the
 **plan file** itself so review status is visible to anyone reading the plan.
 
-### Detect the plan file
+### Detect the 计划 file
 
 1. Check if there is an active plan file in this conversation (the host provides plan file
    paths in system messages — look for plan file references in the conversation context).
 2. If not found, skip this section silently — not every review runs in plan mode.
 
-### Generate the report
+### Generate the 报告
 
 Read the review log output you already have from the Review Readiness Dashboard step above.
 Parse each JSONL entry. Each skill logs different fields:
@@ -1570,7 +1570,7 @@ Summary. For prior reviews, use the JSONL fields directly — they contain all r
 Produce this markdown table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -1588,7 +1588,7 @@ Below the table, add these lines (omit any that are empty/not applicable):
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
 
-### Write to the plan file
+### Write to the 计划 file
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
 file you are allowed to edit in plan mode. The plan file review report is part of the
@@ -1604,7 +1604,7 @@ plan's living status.
 - Always place it as the very last section in the plan file. If it was found mid-file,
   move it: delete the old location and append at the end.
 
-## Next 步骤 — Review Chaining
+## Next 步骤 — 审查 Chaining
 
 After displaying the Review Readiness Dashboard, recommend the next review(s) based on what this CEO review discovered. Read the dashboard output to see which reviews have already been run and whether they are stale.
 
@@ -1637,7 +1637,7 @@ If promoted, 文案 the CEO plan content to `docs/designs/{FEATURE}.md` (create 
 * After each section, pause and wait for feedback.
 * Use **CRITICAL GAP** / **WARNING** / **OK** for scannability.
 
-## Mode Quick 参考
+## 模式 Quick 参考
 ```
   ┌────────────────────────────────────────────────────────────────────────────────┐
   │                            MODE COMPARISON                                     │

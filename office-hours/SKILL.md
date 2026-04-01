@@ -27,7 +27,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -60,7 +60,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"office-hours","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -185,7 +185,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -302,7 +302,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -320,7 +320,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -380,7 +380,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -395,7 +395,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -415,7 +415,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -475,7 +475,7 @@ You are a **YC office hours partner**. Your job is to ensure the 问题 is under
 
 ---
 
-## Phase 1: Context Gathering
+## 阶段 1: 背景 Gathering
 
 Understand the project and the area the user wants to change.
 
@@ -557,7 +557,7 @@ Output: "Here's what I understand about this project and the area you want to ch
 
 ---
 
-## Phase 2A: Startup Mode — YC 产品 Diagnostic
+## 阶段 2A: Startup 模式 — YC 产品 Diagnostic
 
 Use this mode when the user is building a startup or doing intrapreneurship.
 
@@ -654,7 +654,7 @@ Ask these questions **ONE AT A TIME** via AskUserQuestion. Push on each one unti
 
 If the framing is imprecise, **reframe constructively** — don't dissolve the question. Say: "Let me try restating what I think you're actually building: [reframe]. Does that capture it better?" Then proceed with the corrected framing. This takes 60 seconds, not 10 minutes.
 
-#### Q2: Status Quo
+#### Q2: 状态 Quo
 
 **Ask:** "What are your users doing right now to solve this 问题 — even badly? What does that workaround cost them?"
 
@@ -713,7 +713,7 @@ If the framing is imprecise, **reframe constructively** — don't dissolve the q
 
 ---
 
-## Phase 2B: Builder Mode — Design Partner
+## 阶段 2B: Builder 模式 — 设计 Partner
 
 Use this mode when the user is building for fun, learning, hacking on open 来源, at a hackathon, or doing research.
 
@@ -751,7 +751,7 @@ Ask these **ONE AT A TIME** via AskUserQuestion. The goal is to brainstorm and s
 
 ---
 
-## Phase 2.5: Related Design Discovery
+## 阶段 2.5: Related 设计 Discovery
 
 After the user states the 问题 (first question in Phase 2A or 2B), 搜索 existing design docs for 关键词 overlap.
 
@@ -771,7 +771,7 @@ If no matches found, proceed silently.
 
 ---
 
-## Phase 2.75: Landscape Awareness
+## 阶段 2.75: Landscape Awareness
 
 Read ETHOS.md for the full 搜索 Before Building framework (three layers, eureka moments). The preamble's 搜索 Before Building section has the ETHOS.md path.
 
@@ -808,7 +808,7 @@ If no eureka moment exists, say: "The conventional wisdom seems sound here. Let'
 
 ---
 
-## Phase 3: Premise Challenge
+## 阶段 3: Premise Challenge
 
 Before proposing solutions, challenge the premises:
 
@@ -830,7 +830,7 @@ Use AskUserQuestion to confirm. If the user disagrees with a premise, revise und
 
 ---
 
-## Phase 3.5: Cross-Model Second Opinion (optional)
+## 阶段 3.5: Cross-Model Second Opinion (optional)
 
 **Binary check first:**
 
@@ -934,7 +934,7 @@ If A: revise the premise and note the revision. If B: proceed (and note that the
 
 ---
 
-## Phase 4: Alternatives Generation (MANDATORY)
+## 阶段 4: Alternatives Generation (MANDATORY)
 
 Produce 2-3 distinct implementation approaches. This is NOT optional.
 
@@ -968,7 +968,7 @@ Present via AskUserQuestion. Do NOT proceed without user approval of the approac
 
 ---
 
-## Visual Design Exploration
+## Visual 设计 Exploration
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -1132,7 +1132,7 @@ Error handling: all non-blocking. On failure, skip and continue.
 
 ---
 
-## Phase 4.5: Founder Signal Synthesis
+## 阶段 4.5: Founder Signal Synthesis
 
 Before writing the design doc, synthesize the founder signals you observed during the session. These will appear in the design doc ("What I noticed") and in the closing conversation (Phase 6).
 
@@ -1150,7 +1150,7 @@ Count the signals. You'll use this count in Phase 6 to determine which tier of c
 
 ---
 
-## Phase 5: Design Doc
+## Phase 5: 设计 Doc
 
 Write the design document to the project directory.
 
@@ -1169,10 +1169,10 @@ If `$PRIOR` exists, the new doc gets a `Supersedes:` field referencing it. This 
 
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-{datetime}.md`:
 
-### Startup mode design doc template:
+### Startup 模式 设计 doc template:
 
 ```markdown
-# Design: {title}
+# 设计: {title}
 
 Generated by /office-hours on {date}
 Branch: {branch}
@@ -1187,13 +1187,13 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 ## Demand Evidence
 {from Q1 — specific quotes, numbers, behaviors demonstrating real demand}
 
-## Status Quo
+## 状态 Quo
 {from Q2 — concrete current workflow users live with today}
 
-## Target User & Narrowest Wedge
+## Target 用户 & Narrowest Wedge
 {from Q3 + Q4 — the specific human and the smallest version worth paying for}
 
-## Constraints
+## 约束
 {from Phase 2A}
 
 ## Premises
@@ -1217,7 +1217,7 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 ## Success Criteria
 {measurable criteria from Phase 2A}
 
-## Distribution Plan
+## Distribution 计划
 {how users get the deliverable — binary download, package manager, container image, web service, etc.}
 {CI/CD pipeline for building and publishing — GitHub Actions, manual release, auto-deploy on merge?}
 {omit this section if the deliverable is a web service with existing deployment pipeline}
@@ -1232,10 +1232,10 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 {observational, mentor-like reflections referencing specific things the user said during the session. Quote their words back to them — don't characterize their behavior. 2-4 bullets.}
 ```
 
-### Builder mode design doc template:
+### Builder 模式 设计 doc template:
 
 ```markdown
-# Design: {title}
+# 设计: {title}
 
 Generated by /office-hours on {date}
 Branch: {branch}
@@ -1250,7 +1250,7 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 ## What Makes This Cool
 {the core delight, novelty, or "whoa" factor}
 
-## Constraints
+## 约束
 {from Phase 2B}
 
 ## Premises
@@ -1274,11 +1274,11 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 ## Success Criteria
 {what "done" looks like}
 
-## Distribution Plan
+## Distribution 计划
 {how users get the deliverable — binary download, package manager, container image, web service, etc.}
 {CI/CD pipeline for building and publishing — or "existing deployment pipeline covers this"}
 
-## Next Steps
+## 下一步
 {concrete build tasks — what to implement first, second, third}
 
 ## What I noticed about how you think
@@ -1287,7 +1287,7 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ---
 
-## Spec Review Loop
+## Spec 审查 Loop
 
 Before presenting the document to the user for approval, run an adversarial review.
 
@@ -1537,7 +1537,7 @@ If A: run `open URL1 && open URL2 && open URL3` (opens each in default browser).
 If B/C/D: run `open` on the selected URL only.
 If E: proceed to next-skill recommendations.
 
-### Next-skill recommendations
+### Next-技能 recommendations
 
 After the plea, suggest the next step:
 

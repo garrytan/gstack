@@ -21,7 +21,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -54,7 +54,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -179,7 +179,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -296,7 +296,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -314,7 +314,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -374,7 +374,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -389,7 +389,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -409,7 +409,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -425,7 +425,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-## Step 0: Detect 平台 and base branch
+## Step 0: Detect 平台 and base 分支
 
 First, detect the git hosting 平台 from the remote URL:
 
@@ -464,13 +464,13 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-# Pre-Landing PR Review
+# Pre-Landing PR 审查
 
 You are running the `/review` 工作流. Analyze the current branch's diff against the base branch for structural issues that tests don't catch.
 
 ---
 
-## Step 1: Check branch
+## 步骤 1: Check 分支
 
 1. Run `git branch --show-current` to get the current branch.
 2. If on the base branch, output: **"Nothing to review — you're on the base branch or have no changes against it."** and stop.
@@ -478,7 +478,7 @@ You are running the `/review` 工作流. Analyze the current branch's diff again
 
 ---
 
-## Step 1.5: Scope Drift Detection
+## 步骤 1.5: Scope Drift Detection
 
 Before reviewing code 质量, check: **did they build what was requested — nothing more, nothing less?**
 
@@ -513,7 +513,7 @@ Before reviewing code 质量, check: **did they build what was requested — not
 
 ---
 
-### Plan File Discovery
+### 计划 File Discovery
 
 1. **Conversation context (primary):** Check if there is an active plan file in this conversation. The host agent's system messages include plan file paths when in plan mode. If found, use it directly — this is the most reliable signal.
 
@@ -526,7 +526,7 @@ REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
 # Compute project slug for ~/.gstack/projects/ lookup
 _PLAN_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-' | tr -cd 'a-zA-Z0-9._-') || true
 _PLAN_SLUG="${_PLAN_SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
-# Search common plan file locations (project designs first, then personal/local)
+# Search common 计划 file locations (project designs first, then personal/local)
 for PLAN_DIR in "$HOME/.gstack/projects/$_PLAN_SLUG" "$HOME/.claude/plans" "$HOME/.codex/plans" ".gstack/plans"; do
   [ -d "$PLAN_DIR" ] || continue
   PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/null | head -1)
@@ -590,13 +590,13 @@ PLAN COMPLETION AUDIT
 ═══════════════════════════════
 Plan: {plan file path}
 
-## Implementation Items
+## 实现 Items
   [DONE]      Create UserService — src/services/user_service.rb (+142 lines)
   [PARTIAL]   Add validation — model validates but missing controller checks
   [NOT DONE]  Add caching layer — no cache-related changes in diff
   [CHANGED]   "Redis queue" → implemented with Sidekiq instead
 
-## Test Items
+## 测试 Items
   [DONE]      Unit tests for UserService — test/services/user_service_test.rb
   [NOT DONE]  E2E test for signup flow
 
@@ -608,7 +608,7 @@ COMPLETION: 4/7 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED
 ─────────────────────────────────
 ```
 
-### Fallback Intent Sources (when no plan file found)
+### Fallback Intent Sources (when no 计划 file found)
 
 When no plan file is detected, use these secondary intent sources:
 
@@ -641,7 +641,7 @@ INVESTIGATION: {likely reason with evidence from git log / code}
 IMPACT: {HIGH|MEDIUM|LOW} — {what breaks or degrades if this stays undelivered}
 ```
 
-### Learnings Logging (plan-file discrepancies only)
+### Learnings Logging (计划-file discrepancies only)
 
 **Only for discrepancies sourced from plan files** (not commit messages or TODOS.md), log a learning so future sessions know this pattern occurred:
 
@@ -686,7 +686,7 @@ Plan items: N DONE, M PARTIAL, K NOT DONE
 
 **No plan file found:** Use commit messages and TODOS.md as fallback sources (see above). If no intent sources at all, skip with: "No intent sources detected — skipping completion audit."
 
-## Step 2: Read the checklist
+## 步骤 2: Read the checklist
 
 Read `.claude/skills/review/checklist.md`.
 
@@ -694,7 +694,7 @@ Read `.claude/skills/review/checklist.md`.
 
 ---
 
-## Step 2.5: Check for Greptile review comments
+## 步骤 2.5: Check for Greptile 审查 comments
 
 Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** 步骤.
 
@@ -704,7 +704,7 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 ---
 
-## Step 3: Get the diff
+## 步骤 3: Get the diff
 
 Fetch the latest base branch to avoid false positives from stale local state:
 
@@ -754,7 +754,7 @@ matches a past learning, 展示:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-## Step 4: Critical pass (core review)
+## 步骤 4: Critical pass (core 审查)
 
 Apply the CRITICAL categories from the checklist against the diff:
 SQL & Data Safety, Race Conditions & Concurrency, LLM Output Trust Boundary, Shell Injection, Enum & Value Completeness.
@@ -799,13 +799,13 @@ higher confidence.
 
 ---
 
-## Step 4.5: Review Army — Specialist Dispatch
+## 步骤 4.5: 审查 Army — Specialist Dispatch
 
 ### Detect stack and scope
 
 ```bash
 source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || true
-# Detect stack for specialist context
+# Detect stack for specialist 背景
 STACK=""
 [ -f Gemfile ] && STACK="${STACK}ruby "
 [ -f package.json ] && STACK="${STACK}node "
@@ -886,7 +886,7 @@ CHECKLIST:
 
 ---
 
-### Step 4.6: Collect and merge findings
+### 步骤 4.6: Collect and merge findings
 
 After all specialist subagents complete, collect their outputs.
 
@@ -963,7 +963,7 @@ If the Red Team subagent fails or times out, skip silently and continue.
 
 ---
 
-## Step 5: Fix-First Review
+## Step 5: Fix-First 审查
 
 **Every finding gets action — not just critical ones.**
 
@@ -1005,7 +1005,7 @@ RECOMMENDATION: Fix both — #1 is a real race condition, #2 prevents silent dat
 
 If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead of batching.
 
-### Step 5d: Apply user-approved fixes
+### Step 5d: Apply 用户-approved fixes
 
 Apply fixes for items where the user chose "Fix." Output what was fixed.
 
@@ -1075,7 +1075,7 @@ If no documentation files exist, skip this step silently.
 
 ---
 
-## Step 5.7: Adversarial review (always-on)
+## Step 5.7: Adversarial 审查 (always-on)
 
 Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
@@ -1139,7 +1139,7 @@ If Codex is 不可用: "Codex CLI not found — running Claude adversarial only.
 
 ---
 
-### Codex structured review (large diffs only, 200+ lines)
+### Codex structured 审查 (large diffs only, 200+ lines)
 
 If `DIFF_TOTAL >= 200` AND Codex is available AND `OLD_CFG` is NOT `disabled`:
 
@@ -1171,7 +1171,7 @@ If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversaria
 
 ---
 
-### Persist the review result
+### Persist the 审查 result
 
 After all passes complete, persist:
 ```bash
@@ -1200,7 +1200,7 @@ High-confidence findings (agreed on by multiple sources) should be prioritized f
 
 ---
 
-## Step 5.8: Persist Eng Review result
+## Step 5.8: Persist Eng 审查 result
 
 After all review passes complete, persist the final `/review` outcome so `/ship` can
 recognize that Eng Review was run on this branch.

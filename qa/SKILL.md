@@ -24,7 +24,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -57,7 +57,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"qa","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -182,7 +182,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -299,7 +299,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -317,7 +317,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -377,7 +377,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -392,7 +392,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -412,7 +412,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -428,7 +428,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-## Step 0: Detect 平台 and base branch
+## Step 0: Detect 平台 and base 分支
 
 First, detect the git hosting 平台 from the remote URL:
 
@@ -467,7 +467,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-# /qa: Test → Fix → Verify
+# /qa: 测试 → Fix → Verify
 
 You are a QA engineer AND a bug-fix engineer. Test web applications like a real user — click everything, fill every form, check every state. When you find bugs, fix them in 来源 code with atomic commits, then re-verify. Produce a structured report with before/after evidence.
 
@@ -555,7 +555,7 @@ If `NEEDS_SETUP`:
 
 **Check test framework (bootstrap if needed):**
 
-## Test Framework Bootstrap
+## 测试 Framework Bootstrap
 
 **Detect existing test framework and project runtime:**
 
@@ -572,7 +572,7 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 # Detect sub-frameworks
 [ -f Gemfile ] && grep -q "rails" Gemfile 2>/dev/null && echo "FRAMEWORK:rails"
 [ -f package.json ] && grep -q '"next"' package.json 2>/dev/null && echo "FRAMEWORK:nextjs"
-# Check for existing test infrastructure
+# Check for existing 测试 infrastructure
 ls jest.config.* vitest.config.* playwright.config.* .rspec pytest.ini pyproject.toml phpunit.xml 2>/dev/null
 ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
 # Check opt-out marker
@@ -649,7 +649,7 @@ Never import secrets, API keys, or credentials in test files. Use environment va
 ### B5. Verify
 
 ```bash
-# Run the full test suite to confirm everything works
+# Run the full 测试 suite to confirm everything works
 {detected test command}
 ```
 
@@ -717,7 +717,7 @@ mkdir -p .gstack/qa-reports/screenshots
 
 ---
 
-## Test Plan Context
+## 测试 计划 背景
 
 Before falling back to git diff heuristics, check for richer test plan sources:
 
@@ -736,7 +736,7 @@ Before falling back to git diff heuristics, check for richer test plan sources:
 
 ## 模式
 
-### Diff-aware (automatic when on a feature branch with no URL)
+### Diff-aware (automatic when on a 功能 分支 with no URL)
 
 This is the **primary mode** for developers verifying their work. When the user says `/qa` without a URL and the repo is on a feature branch, automatically:
 
@@ -795,14 +795,14 @@ Run full mode, then load `baseline.json` from a previous run. Diff: which issues
 
 ## 工作流
 
-### Phase 1: Initialize
+### 阶段 1: Initialize
 
 1. Find browse binary (see 配置方式 above)
 2. Create output directories
 3. 文案 report template from `qa/templates/qa-report-template.md` to output dir
 4. Start timer for duration 跟踪
 
-### Phase 2: Authenticate (if needed)
+### 阶段 2: Authenticate (if needed)
 
 **If the user specified auth credentials:**
 
@@ -826,7 +826,7 @@ $B goto <target-url>
 
 **If CAPTCHA blocks you:** Tell the user: "Please complete the CAPTCHA in the browser, then tell me to continue."
 
-### Phase 3: Orient
+### 阶段 3: Orient
 
 Get a map of the application:
 
@@ -845,7 +845,7 @@ $B console --errors               # any errors on landing?
 
 **For SPAs:** The `links` command may return few results because navigation is client-side. Use `snapshot -i` to find nav elements (buttons, menu items) instead.
 
-### Phase 4: Explore
+### 阶段 4: Explore
 
 Visit pages systematically. At each page:
 
@@ -944,7 +944,7 @@ Compute each category score (0-100), then take the weighted average.
 - 0 broken → 100
 - Each broken link → -15 (minimum 0)
 
-### Per-Category Scoring (Visual, Functional, UX, Content, 表现, Accessibility)
+### Per-Category Scoring (Visual, Functional, UX, 内容, 表现, Accessibility)
 Each category starts at 100. Deduct per finding:
 - Critical issue → -25
 - High issue → -15
@@ -1054,8 +1054,8 @@ For each fixable issue, in severity order:
 ### 8a. Locate 来源
 
 ```bash
-# Grep for error messages, component names, route definitions
-# Glob for file patterns matching the affected page
+# Grep for 错误 messages, component names, route definitions
+# Glob for file patterns matching the affected 页面
 ```
 
 - Find the 来源 file(s) responsible for the bug
@@ -1077,7 +1077,7 @@ git commit -m "fix(qa): ISSUE-NNN — short description"
 - One commit per fix. Never bundle multiple fixes.
 - Message format: `fix(qa): ISSUE-NNN — short description`
 
-### 8d. Re-test
+### 8d. Re-测试
 
 - Navigate back to the affected page
 - Take **before/after screenshot pair**
@@ -1097,7 +1097,7 @@ $B snapshot -D
 - **best-effort**: fix applied but couldn't fully verify (e.g., needs auth state, external service)
 - **reverted**: regression detected → `git revert HEAD` → mark issue as "deferred"
 
-### 8e.5. Regression Test
+### 8e.5. Regression 测试
 
 Skip if: classification is not "verified", OR the fix is purely visual/CSS with no JS behavior, OR no test framework was detected AND user declined bootstrap.
 
@@ -1180,7 +1180,7 @@ After all fixes are applied:
 
 ---
 
-## Phase 10: Report
+## 阶段 10: 报告
 
 Write the report to both local and project-scoped locations:
 
@@ -1209,7 +1209,7 @@ Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 
 ---
 
-## Phase 11: TODOS.md Update
+## 阶段 11: TODOS.md Update
 
 If the repo has a `TODOS.md`:
 

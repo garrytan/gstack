@@ -112,7 +112,7 @@ Design Review: N issues (X auto-fixable, Y need input, Z possible)
 
 - **[LOW]** 可交互元素点击区域小于 44px。检查按钮、链接上的 `min-height` / `min-width` / `padding`。由于需要综合多个属性计算实际尺寸，因此仅属低置信度。
 
-### 5. DESIGN.md 违规项（3 项，条件启用）
+### 5. 设计.md 违规项（3 项，条件启用）
 
 只有在存在 `DESIGN.md` 或 `design-system.md` 时才启用：
 

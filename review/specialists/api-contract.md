@@ -17,13 +17,13 @@
 - 重命名 endpoint 却没有保留旧路径作为 redirect / alias
 - 改变鉴权要求（public → authenticated）
 
-### Versioning Strategy
+### Versioning 策略
 - 存在 breaking changes 却没有 bump version（v1 → v2）
 - 同一个 API 里混用了多种 versioning 方式（URL、header、query param）
 - deprecated endpoints 没有 sunset timeline 或 migration guide
 - version-specific 逻辑分散在各个 controller 中，而不是集中处理
 
-### Error Response Consistency
+### 错误 Response Consistency
 - 新 endpoint 返回的错误格式与现有接口不一致
 - 错误响应缺少标准字段（error code、message、details）
 - HTTP status code 与错误类型不匹配（例如错误却返回 200，验证失败却返回 500）

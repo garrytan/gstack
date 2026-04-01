@@ -16,7 +16,7 @@ PR_NUMBER=$(gh pr view --json number --jq '.number' 2>/dev/null)
 **如果任一命令失败或结果为空：** 静默跳过 Greptile 分诊。这个集成只是增强项，没有它流程也能正常工作。
 
 ```bash
-# 并行抓取行级 review 评论和 PR 顶层评论
+# 并行抓取行级 审查 评论和 PR 顶层评论
 gh api repos/$REPO/pulls/$PR_NUMBER/comments \
   --jq '.[] | select(.user.login == "greptile-apps[bot]") | select(.position != null) | {id: .id, path: .path, line: .line, body: .body, html_url: .html_url, source: "line-level"}' > /tmp/greptile_line.json &
 gh api repos/$REPO/issues/$PR_NUMBER/comments \

@@ -88,7 +88,7 @@ $D generate --brief-file /tmp/brief.json --output /tmp/mockup.png
 # 生成用于用户评审的对比看板 HTML
 $D compare --images /tmp/mockups/variant-*.png --output /tmp/design-board.html
 
-# 引导式 API key 配置 + smoke test
+# 引导式 API key 配置 + smoke 测试
 $D setup
 ```
 
@@ -99,7 +99,7 @@ $D setup
 
 **所有命令都注册在 `commands.ts` 里**，包括 `generate` 上的 `--check` 和 `--retry` 标志位。
 
-### 设计探索工作流（来自 eng review）
+### 设计探索工作流（来自 eng 审查）
 
 这个工作流是串行的，不是并行的。PNG 用于视觉探索，面向人；HTML wireframe 用于实现，面向 agent：
 
@@ -304,7 +304,7 @@ fi
 - 新增 `generateDesignMockup()`，用于 `{{DESIGN_MOCKUP}}`
 - 所有设计 resolver 继续放在一个文件中
 
-### Skill 集成（按优先级）
+### 技能 集成（按优先级）
 
 **1. `/office-hours`，替换 Visual Sketch 部分**
 - 在 approach selection（Phase 4）后生成 hero mockup + 2 个变体
@@ -407,7 +407,7 @@ const check = await openai.chat.completions.create({
 
 **成本：** 每次设计会话约 `$0.10-$0.40`（1 张 hero + 2 个变体 + 1 次质量检查 + 1 次迭代）。和每次 skill 调用本身已经消耗的 LLM 成本相比，这个量级可以接受。
 
-### 鉴权（已通过 smoke test 验证）
+### 鉴权（已通过 smoke 测试 验证）
 
 **Codex OAuth token 不能用于图像生成。** 2026-03-26 测试结果：Images API 和 Responses API 都会拒绝 `~/.codex/auth.json` 的 `access_token`，报错为 `Missing scopes: api.model.images.request`。Codex CLI 也没有原生 `imagegen` 能力。
 
@@ -434,7 +434,7 @@ const check = await openai.chat.completions.create({
 
 ## CEO 扩展范围（通过 `/plan-ceo-review` 接受的 SCOPE EXPANSION）
 
-### 1. Design Memory + Exploration Width Control
+### 1. 设计 Memory + Exploration Width Control
 - 从已批准 mockup 中自动提取视觉语言，写回 `DESIGN.md`
 - 如果已有 `DESIGN.md`，后续 mockup 自动约束到既有设计语言
 - 如果没有 `DESIGN.md`（bootstrap 阶段），就做宽探索
@@ -458,7 +458,7 @@ const check = await openai.chat.completions.create({
 - 直接从现实界面出发，不从空白画布开始
 - 连接 `/design-review` 的批评与“如何修”视觉提案之间的缺口
 
-### 4. Design Intent Verification
+### 4. 设计 Intent Verification
 - 在 `/design-review` 中，把已批准 mockup（`docs/designs/`）叠加到线上截图上
 - 高亮偏差：`你设计的是 X，你实现的是 Y，这里是差距`
 - 把全链路补齐：design → implement → visual verify
@@ -470,7 +470,7 @@ const check = await openai.chat.completions.create({
 - 对比看板展示响应式网格，支持同时审批
 - 让 responsive design 从 mockup 阶段就成为一等公民
 
-### 6. Design-to-Code Prompt
+### 6. 设计-to-Code Prompt
 - 对比看板批准后，自动生成结构化实现 prompt
 - 通过 vision 分析，从已批准 PNG 中提取颜色、字体、布局
 - 再结合 `DESIGN.md` 和 HTML wireframe，组成结构化 spec
@@ -511,7 +511,7 @@ design binary 和 browse binary 一起构建与分发：
 - 如果结果还是“尴尬的 AI UI 图”，立刻停，重评方案
 - 这是验证核心假设最便宜的方式，避免先搭 8 个文件的基础设施再发现方向错了
 
-### Commit 1：Design binary 核心（generate + check + compare）
+### Commit 1：设计 binary 核心（generate + check + compare）
 - `design/src/` 下实现 `cli.ts`、`commands.ts`、`generate.ts`、`check.ts`、`brief.ts`、`session.ts`、`compare.ts`
 - Auth 模块（读 `~/.gstack/openai.json`，回退 env var，引导式 setup）
 - `compare` 命令生成带每个 variant 独立反馈 textarea 的 HTML 对比看板
@@ -542,14 +542,14 @@ design binary 和 browse binary 一起构建与分发：
 - 增加 `{{DESIGN_SETUP}}`
 - 对低分维度生成“10/10 应该长什么样”的 mockup
 
-### Commit 6：Design Memory + Exploration Width Control（CEO 扩展）
+### Commit 6：设计 Memory + Exploration Width Control（CEO 扩展）
 - mockup 确认后，用 GPT-4o vision 提取视觉语言
 - 写入 / 更新 `DESIGN.md`，包括颜色、字体、间距、布局 pattern
 - 若已存在 `DESIGN.md`，把它作为后续 mockup prompt 的约束上下文
 - 对比看板 HTML 增加 REGENERATE 区域（快捷按钮 + 自由文本 + 刷新循环）
 - 在构造 brief 时加入渐进约束逻辑
 
-### Commit 7：Mockup Diffing + Design Intent Verification（CEO 扩展）
+### Commit 7：Mockup Diffing + 设计 Intent Verification（CEO 扩展）
 - `$D diff`：对比两张 PNG，用 GPT-4o vision 识别差异，生成 overlay
 - `$D verify`：通过 `$B` 截线上页面，和 `docs/designs/` 中已批准 mockup 做对比
 - 接入 `/design-review` 模板：当存在确认稿时自动做 verify
@@ -559,7 +559,7 @@ design binary 和 browse binary 一起构建与分发：
 - 把截图作为参考图发给 GPT Image API
 - 接入 `/design-review`，作为“应该怎么改”的视觉提案
 
-### Commit 9：Responsive Variants + Design-to-Code Prompt（CEO 扩展）
+### Commit 9：Responsive Variants + 设计-to-Code Prompt（CEO 扩展）
 - 给 `$D variants` 增加 `--viewports` 标志，用于多尺寸生成
 - 对比看板支持响应式网格布局
 - 在批准后自动生成结构化实现 prompt
@@ -588,7 +588,7 @@ design binary 和 browse binary 一起构建与分发：
 - 你投了 Variant，然后第一反应是“他们应该有 API”。这是投资人兼用户的思路。你不是在评价公司，而是在设计他们的产品如何嵌进你的 workflow。
 - 当 Codex 质疑 opt-in 前提时，你立刻接受了，没有防御 ego。这是最快到达正确答案的方式。
 
-## Spec Review 结果
+## Spec 审查 结果
 
 文档经历了 1 轮对抗式 review，活下来了。抓到并修复了 11 个问题。  
 质量评分：`7/10` → 修复后预计 `8.5/10`
@@ -606,7 +606,7 @@ design binary 和 browse binary 一起构建与分发：
 10. 把多轮迭代标记为未证实，并给出 fallback
 11. 完整定义了 `$D` 发现用的 bash 片段，并说明可回退到 `DESIGN_SKETCH`
 
-## Eng Review 完成摘要
+## Eng 审查 完成摘要
 
 - Step 0：Scope Challenge，范围按原样接受（用户覆盖了缩减建议）
 - Architecture Review：发现 5 个问题（openai 依赖隔离、graceful degrade、输出目录配置、auth 模型、trust boundary）
@@ -619,7 +619,7 @@ design binary 和 browse binary 一起构建与分发：
 - Failure modes：0 个关键缺口（所有已识别 failure mode 都有错误处理和测试计划）
 - Lake Score：`7/7`，所有建议都选择了完整方案
 
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|

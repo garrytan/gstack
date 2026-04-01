@@ -78,7 +78,7 @@ Schema（兼容 Supabase）：
 
 架构：采用 append-only JSONL。重复项在读取时解决（同一 `key+type` 以最新记录为准）。写入阶段不做原地变更，因此没有竞态条件。沿用了现有的 `gstack-review-log` 模式。
 
-### Release 2: “Review Army” (v0.15)
+### Release 2: “审查 Army” (v0.15)
 
 **标题：** 每个 PR 都有 10 个专家 reviewer。
 
@@ -95,7 +95,7 @@ Schema（兼容 Supabase）：
   commit message fallback，以及计划文件的 learnings 记录
 - 重构 checklist：关键类别保留在主流程中，specialist 类别拆到 `review/specialists/` 的聚焦清单中
 
-### Release 2.5: “Review Army Expansions” (v0.15.x)
+### Release 2.5: “审查 Army Expansions” (v0.15.x)
 
 **标题：** 在 R2 证明稳定后再上线。先检查核心循环表现如何。
 
@@ -123,7 +123,7 @@ Schema（兼容 Supabase）：
 - 根据 diff 大小和范围类别跳过不必要 ceremony
 - 基于文件的 todo 生命周期（`/triage` 用于交互式批准，`/resolve` 用并行 agent 批量处理）
 
-### Release 4: “/autoship — One Command, Full Feature” (v0.17)
+### Release 4: “/autoship — One Command, Full 功能” (v0.17)
 
 **标题：** 描述一个功能，批准计划，剩下全部自动完成。
 

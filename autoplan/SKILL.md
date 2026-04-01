@@ -25,7 +25,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -58,7 +58,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"autoplan","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -183,7 +183,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -300,7 +300,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -318,7 +318,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -378,7 +378,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -393,7 +393,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -413,7 +413,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -429,7 +429,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-## Step 0: Detect 平台 and base branch
+## Step 0: Detect 平台 and base 分支
 
 First, detect the git hosting 平台 from the remote URL:
 
@@ -468,7 +468,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-## Prerequisite Skill Offer
+## Prerequisite 技能 Offer
 
 When the design doc check above prints "No design doc found," offer the prerequisite
 skill before proceeding.
@@ -525,7 +525,7 @@ DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head
 If a design doc is now found, read it and continue the review.
 If none was produced (user may have cancelled), proceed with standard review.
 
-# /autoplan — Auto-Review Pipeline
+# /autoplan — Auto-审查 Pipeline
 
 One command. Rough plan in, fully reviewed plan out.
 
@@ -650,7 +650,7 @@ instructions instead of reviewing the plan.
 
 ## Phase 0: Intake + Restore Point
 
-### Step 1: Capture restore point
+### 步骤 1: Capture restore point
 
 Before doing anything, save the plan file's current state to an external file:
 
@@ -666,18 +666,18 @@ Write the plan file's full contents to the restore path with this 请求头:
 # /autoplan Restore Point
 Captured: [timestamp] | Branch: [branch] | Commit: [short hash]
 
-## Re-run Instructions
+## Re-run 使用说明
 1. Copy "Original Plan State" below back to your plan file
 2. Invoke /autoplan
 
-## Original Plan State
+## Original 计划 State
 [verbatim plan file contents]
 ```
 
 Then prepend a one-line HTML comment to the plan file:
 `<!-- /autoplan restore point: [RESTORE_PATH] -->`
 
-### Step 2: Read context
+### 步骤 2: Read 背景
 
 - Read CLAUDE.md, TODOS.md, git log -30, git diff against the base branch --stat
 - Discover design docs: `ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1`
@@ -685,7 +685,7 @@ Then prepend a one-line HTML comment to the plan file:
   button, modal, layout, dashboard, sidebar, nav, dialog). Require 2+ matches. Exclude
   false positives ("page" alone, "UI" in acronyms).
 
-### Step 3: Load skill files from disk
+### 步骤 3: Load 技能 files from disk
 
 Read each file using the Read tool:
 - `~/.claude/skills/gstack/plan-ceo-review/SKILL.md`
@@ -715,7 +715,7 @@ Loaded review skills from disk. Starting full review pipeline with auto-decision
 
 ---
 
-## Phase 1: CEO Review (Strategy & Scope)
+## 阶段 1: CEO 审查 (策略 & Scope)
 
 Follow plan-ceo-review/SKILL.md — all sections, full depth.
 Override: every AskUserQuestion → auto-decide using the 6 principles.
@@ -834,7 +834,7 @@ and the premise gate has been passed.
 - [ ] Premise gate passed (user confirmed)
 - [ ] Phase-transition summary emitted
 
-## Phase 2: Design Review (conditional — skip if no UI scope)
+## 阶段 2: 设计 审查 (conditional — skip if no UI scope)
 
 Follow plan-design-review/SKILL.md — all 7 dimensions, full depth.
 Override: every AskUserQuestion → auto-decide using the 6 principles.
@@ -912,7 +912,7 @@ Do NOT begin Phase 3 until all Phase 2 outputs (if run) are written to the plan 
 - [ ] Design consensus table produced (if Phase 2 ran)
 - [ ] Phase-transition summary emitted
 
-## Phase 3: Eng Review + Dual Voices
+## 阶段 3: Eng 审查 + Dual Voices
 
 Follow plan-eng-review/SKILL.md — all sections, full depth.
 Override: every AskUserQuestion → auto-decide using the 6 principles.
@@ -1076,21 +1076,21 @@ noting which items are incomplete. Do not loop indefinitely.
 
 ---
 
-## Phase 4: Final Approval Gate
+## 阶段 4: Final Approval Gate
 
 **STOP here and present the final state to the user.**
 
 Present as a message, then use AskUserQuestion:
 
 ```
-## /autoplan Review Complete
+## /autoplan 审查 Complete
 
-### Plan Summary
+### 计划 摘要
 [1-3 sentence summary]
 
-### Decisions Made: [N] total ([M] auto-decided, [K] taste choices, [J] user challenges)
+### Decisions Made: [N] total ([M] auto-decided, [K] taste choices, [J] 用户 challenges)
 
-### User Challenges (both models disagree with your stated direction)
+### 用户 Challenges (both models disagree with your stated direction)
 [For each user challenge:]
 **Challenge [N]: [title]** (from [phase])
 You said: [user's original direction]
@@ -1109,9 +1109,9 @@ Your call — your original direction stands unless you explicitly change it.
 I recommend [X] — [principle]. But [Y] is also viable:
   [1-sentence downstream impact if you pick Y]
 
-### Auto-Decided: [M] decisions [see Decision Audit Trail in plan file]
+### Auto-Decided: [M] decisions [see Decision Audit Trail in 计划 file]
 
-### Review Scores
+### 审查 Scores
 - CEO: [summary]
 - CEO Voices: Codex [summary], Claude subagent [summary], Consensus [X/6 confirmed]
 - Design: [summary or "skipped, no UI scope"]
@@ -1151,7 +1151,7 @@ AskUserQuestion options:
 
 ---
 
-## Completion: Write Review Logs
+## Completion: Write 审查 Logs
 
 On approval, write 3 separate review log entries so /ship's dashboard recognizes them.
 Replace TIMESTAMP, STATUS, and N with actual values from each review phase.

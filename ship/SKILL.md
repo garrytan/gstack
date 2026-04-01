@@ -22,7 +22,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -55,7 +55,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"ship","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -180,7 +180,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -297,7 +297,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -315,7 +315,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -375,7 +375,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -390,7 +390,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -410,7 +410,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -426,7 +426,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-## Step 0: Detect 平台 and base branch
+## Step 0: Detect 平台 and base 分支
 
 First, detect the git hosting 平台 from the remote URL:
 
@@ -494,7 +494,7 @@ You are running the `/ship` 工作流. This is a **non-interactive, fully automa
 
 ---
 
-## Step 1: Pre-flight
+## 步骤 1: Pre-flight
 
 1. Check the current branch. If on the base branch or the repo's default branch, **abort**: "You're on the base branch. Ship from a feature branch."
 
@@ -504,7 +504,7 @@ You are running the `/ship` 工作流. This is a **non-interactive, fully automa
 
 4. Check review readiness:
 
-## Review Readiness Dashboard
+## 审查 Readiness Dashboard
 
 After completing the review, read the review log and config to 展示 the dashboard.
 
@@ -569,7 +569,7 @@ Continue to Step 1.5 — do NOT block or ask. Ship runs its own review in Step 3
 
 ---
 
-## Step 1.5: Distribution Pipeline Check
+## 步骤 1.5: Distribution Pipeline Check
 
 If the diff introduces a new standalone artifact (CLI binary, library package, tool) — not a web
 service with existing deployment — verify that a distribution pipeline exists.
@@ -597,7 +597,7 @@ service with existing deployment — verify that a distribution pipeline exists.
 
 ---
 
-## Step 2: Merge the base branch (BEFORE tests)
+## 步骤 2: Merge the base 分支 (BEFORE tests)
 
 Fetch and merge the base branch into the feature branch so tests run against the merged state:
 
@@ -611,9 +611,9 @@ git fetch origin <base> && git merge origin/<base> --no-edit
 
 ---
 
-## Step 2.5: Test Framework Bootstrap
+## 步骤 2.5: 测试 Framework Bootstrap
 
-## Test Framework Bootstrap
+## 测试 Framework Bootstrap
 
 **Detect existing test framework and project runtime:**
 
@@ -630,7 +630,7 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 # Detect sub-frameworks
 [ -f Gemfile ] && grep -q "rails" Gemfile 2>/dev/null && echo "FRAMEWORK:rails"
 [ -f package.json ] && grep -q '"next"' package.json 2>/dev/null && echo "FRAMEWORK:nextjs"
-# Check for existing test infrastructure
+# Check for existing 测试 infrastructure
 ls jest.config.* vitest.config.* playwright.config.* .rspec pytest.ini pyproject.toml phpunit.xml 2>/dev/null
 ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
 # Check opt-out marker
@@ -707,7 +707,7 @@ Never import secrets, API keys, or credentials in test files. Use environment va
 ### B5. Verify
 
 ```bash
-# Run the full test suite to confirm everything works
+# Run the full 测试 suite to confirm everything works
 {detected test command}
 ```
 
@@ -769,7 +769,7 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 ---
 
-## Step 3: Run tests (on merged code)
+## 步骤 3: Run tests (on merged code)
 
 **Do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
 `db:test:prepare` internally, which loads the schema into the correct lane database.
@@ -787,7 +787,7 @@ After both complete, read the output files and check pass/fail.
 
 **If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
 
-## Test Failure Ownership Triage
+## 测试 Failure Ownership Triage
 
 When tests fail, do NOT immediately stop. First, determine ownership:
 
@@ -807,7 +807,7 @@ For each failing test:
 
    This classification is heuristic — use your judgment reading the diff and the test output. You do not have a programmatic dependency graph.
 
-### Step T2: Handle in-branch failures
+### Step T2: Handle in-分支 failures
 
 **STOP.** These are your failures. Show them and do not proceed. The developer must fix their own broken tests before shipping.
 
@@ -897,7 +897,7 @@ Use AskUserQuestion:
 
 ---
 
-## Step 3.25: Eval Suites (conditional)
+## 步骤 3.25: Eval Suites (conditional)
 
 Evals are mandatory when prompt-related files change. Skip this step entirely if no prompt files are in the diff.
 
@@ -959,11 +959,11 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 ---
 
-## Step 3.4: Test Coverage Audit
+## 步骤 3.4: 测试 Coverage Audit
 
 100% coverage is the goal — every untested path is a path where bugs hide and vibe coding becomes yolo coding. Evaluate what was ACTUALLY coded (from the diff), not what was planned.
 
-### Test Framework Detection
+### 测试 Framework Detection
 
 Before analyzing coverage, detect the project's test framework:
 
@@ -978,7 +978,7 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 [ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
 [ -f go.mod ] && echo "RUNTIME:go"
 [ -f Cargo.toml ] && echo "RUNTIME:rust"
-# Check for existing test infrastructure
+# Check for existing 测试 infrastructure
 ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini phpunit.xml 2>/dev/null
 ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
 ```
@@ -988,7 +988,7 @@ ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
 **0. Before/after test count:**
 
 ```bash
-# Count test files before any generation
+# Count 测试 files before any generation
 find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' | grep -v node_modules | wc -l
 ```
 
@@ -1047,7 +1047,7 @@ Go through your diagram branch by branch — both code paths AND user flows. For
 - ★★   Tests correct behavior, happy path only
 - ★    Smoke test / existence check / trivial assertion (e.g., "it renders", "it doesn't throw")
 
-### E2E Test Decision Matrix
+### E2E 测试 Decision Matrix
 
 When checking each branch, also determine whether a unit test or E2E/integration test is the right tool:
 
@@ -1148,7 +1148,7 @@ If no test framework AND user declined bootstrap → diagram only, no generation
 **6. After-count and coverage summary:**
 
 ```bash
-# Count test files after generation
+# Count 测试 files after generation
 find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' | grep -v node_modules | wc -l
 ```
 
@@ -1188,7 +1188,7 @@ Using the coverage percentage from the diagram in substep 4 (the `COVERAGE: X/Y 
 
 **100% coverage:** "Coverage gate: PASS (100%)." Continue.
 
-### Test Plan Artifact
+### 测试 计划 Artifact
 
 After producing the coverage diagram, write a test plan artifact so `/qa` and `/qa-only` can consume it:
 
@@ -1201,12 +1201,12 @@ DATETIME=$(date +%Y%m%d-%H%M%S)
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-ship-test-plan-{datetime}.md`:
 
 ```markdown
-# Test Plan
+# 测试 计划
 Generated by /ship on {date}
 Branch: {branch}
 Repo: {owner/repo}
 
-## Affected Pages/Routes
+## Affected 页面/Routes
 - {URL path} — {what to test and why}
 
 ## Key Interactions to Verify
@@ -1221,9 +1221,9 @@ Repo: {owner/repo}
 
 ---
 
-## Step 3.45: Plan Completion Audit
+## 步骤 3.45: 计划 Completion Audit
 
-### Plan File Discovery
+### 计划 File Discovery
 
 1. **Conversation context (primary):** Check if there is an active plan file in this conversation. The host agent's system messages include plan file paths when in plan mode. If found, use it directly — this is the most reliable signal.
 
@@ -1236,7 +1236,7 @@ REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
 # Compute project slug for ~/.gstack/projects/ lookup
 _PLAN_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-' | tr -cd 'a-zA-Z0-9._-') || true
 _PLAN_SLUG="${_PLAN_SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
-# Search common plan file locations (project designs first, then personal/local)
+# Search common 计划 file locations (project designs first, then personal/local)
 for PLAN_DIR in "$HOME/.gstack/projects/$_PLAN_SLUG" "$HOME/.claude/plans" "$HOME/.codex/plans" ".gstack/plans"; do
   [ -d "$PLAN_DIR" ] || continue
   PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/null | head -1)
@@ -1300,13 +1300,13 @@ PLAN COMPLETION AUDIT
 ═══════════════════════════════
 Plan: {plan file path}
 
-## Implementation Items
+## 实现 Items
   [DONE]      Create UserService — src/services/user_service.rb (+142 lines)
   [PARTIAL]   Add validation — model validates but missing controller checks
   [NOT DONE]  Add caching layer — no cache-related changes in diff
   [CHANGED]   "Redis queue" → implemented with Sidekiq instead
 
-## Test Items
+## 测试 Items
   [DONE]      Unit tests for UserService — test/services/user_service_test.rb
   [NOT DONE]  E2E test for signup flow
 
@@ -1342,7 +1342,7 @@ After producing the completion checklist:
 
 ---
 
-## Step 3.47: Plan 验证
+## 步骤 3.47: 计划 验证
 
 Automatically verify the plan's 测试/验证 步骤 using the `/qa-only` skill.
 
@@ -1438,7 +1438,7 @@ matches a past learning, 展示:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-## Step 3.48: Scope Drift Detection
+## 步骤 3.48: Scope Drift Detection
 
 Before reviewing code 质量, check: **did they build what was requested — nothing more, nothing less?**
 
@@ -1475,7 +1475,7 @@ Before reviewing code 质量, check: **did they build what was requested — not
 
 ---
 
-## Step 3.5: Pre-Landing Review
+## 步骤 3.5: Pre-Landing 审查
 
 Review the diff for structural issues that tests don't catch.
 
@@ -1512,7 +1512,7 @@ confirms it IS a real issue, that is a calibration 事件. Your initial confiden
 too low. Log the corrected pattern as a learning so future reviews catch it with
 higher confidence.
 
-## Design Review (conditional, diff-scoped)
+## 设计 审查 (conditional, diff-scoped)
 
 Check if the diff touches frontend files using `gstack-diff-scope`:
 
@@ -1601,7 +1601,7 @@ Save the review output — it goes into the PR body in Step 8.
 
 ---
 
-## Step 3.75: Address Greptile review comments (if PR exists)
+## 步骤 3.75: Address Greptile 审查 comments (if PR exists)
 
 Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** 步骤.
 
@@ -1640,7 +1640,7 @@ For each classified comment:
 
 ---
 
-## Step 3.8: Adversarial review (always-on)
+## 步骤 3.8: Adversarial 审查 (always-on)
 
 Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
@@ -1704,7 +1704,7 @@ If Codex is 不可用: "Codex CLI not found — running Claude adversarial only.
 
 ---
 
-### Codex structured review (large diffs only, 200+ lines)
+### Codex structured 审查 (large diffs only, 200+ lines)
 
 If `DIFF_TOTAL >= 200` AND Codex is available AND `OLD_CFG` is NOT `disabled`:
 
@@ -1736,7 +1736,7 @@ If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversaria
 
 ---
 
-### Persist the review result
+### Persist the 审查 result
 
 After all passes complete, persist:
 ```bash
@@ -1789,7 +1789,7 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
-## Step 4: Version bump (auto-decide)
+## 步骤 4: Version bump (auto-decide)
 
 **Idempotency check:** Before bumping, compare VERSION against the base branch.
 
@@ -2020,7 +2020,7 @@ If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) usi
 The PR/MR body should contain these sections:
 
 ```
-## Summary
+## 摘要
 <Summarize ALL changes being shipped. Run `git log <base>..HEAD --oneline` to enumerate
 every commit. Exclude the VERSION/CHANGELOG metadata commit (that's this PR's bookkeeping,
 not a substantive change). Group the remaining commits into logical sections (e.g.,
@@ -2028,21 +2028,21 @@ not a substantive change). Group the remaining commits into logical sections (e.
 must appear in at least one section. If a commit's work isn't reflected in the summary,
 you missed it.>
 
-## Test Coverage
+## 测试 Coverage
 <coverage diagram from Step 3.4, or "All new code paths have test coverage.">
 <If Step 3.4 ran: "Tests: {before} → {after} (+{delta} new)">
 
-## Pre-Landing Review
+## Pre-Landing 审查
 <findings from Step 3.5 code review, or "No issues found.">
 
-## Design Review
+## 设计 审查
 <If design review ran: "Design Review (lite): N findings — M auto-fixed, K skipped. AI Slop: clean/N issues.">
 <If no frontend files changed: "No frontend files changed — design review skipped.">
 
 ## Eval Results
 <If evals ran: suite names, pass/fail counts, cost dashboard summary. If skipped: "No prompt-related files changed — evals skipped.">
 
-## Greptile Review
+## Greptile 审查
 <If Greptile comments were found: bullet list with [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED] tag + one-line summary per comment>
 <If no Greptile comments found: "No Greptile comments.">
 <If no PR existed during Step 3.75: omit this section entirely>
@@ -2051,7 +2051,7 @@ you missed it.>
 <If scope drift ran: "Scope Check: CLEAN" or list of drift/creep findings>
 <If no scope drift: omit this section>
 
-## Plan Completion
+## 计划 Completion
 <If plan file found: completion checklist summary from Step 3.45>
 <If no plan file: "No plan file detected.">
 <If plan items deferred: list deferred items>
@@ -2067,7 +2067,7 @@ you missed it.>
 <If TODOS.md created or reorganized: note that>
 <If TODOS.md doesn't exist and user skipped: omit this section>
 
-## Test plan
+## 测试 计划
 - [x] All Rails tests pass (N runs, 0 failures)
 - [x] All Vitest tests pass (N tests)
 

@@ -17,7 +17,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -50,7 +50,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"land-and-deploy","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -175,7 +175,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -292,7 +292,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -310,7 +310,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -370,7 +370,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -385,7 +385,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -405,7 +405,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -457,7 +457,7 @@ If `NEEDS_SETUP`:
    fi
    ```
 
-## Step 0: Detect 平台 and base branch
+## Step 0: Detect 平台 and base 分支
 
 First, detect the git hosting 平台 from the remote URL:
 
@@ -498,13 +498,13 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 **If the 平台 detected above is GitLab or unknown:** STOP with: "GitLab support for /land-and-deploy is not yet implemented. Run `/ship` to create the MR, then merge manually via the GitLab web UI." Do not proceed.
 
-# /land-and-deploy — Merge, Deploy, Verify
+# /land-and-部署 — Merge, 部署, Verify
 
 You are a **Release Engineer** who has deployed to production thousands of times. You know the two worst feelings in software: the merge that breaks prod, and the merge that sits in queue for 45 minutes while you stare at the screen. Your job is to handle both gracefully — merge efficiently, wait intelligently, verify thoroughly, and give the user a clear verdict.
 
 This skill picks up where `/ship` left off. `/ship` creates the PR. You merge it, wait for deploy, and verify production.
 
-## User-invocable
+## 用户-invocable
 When the user types `/land-and-deploy`, run this skill.
 
 ## Arguments
@@ -547,7 +547,7 @@ sitting next to them. The tone is:
 
 ---
 
-## Step 1: Pre-flight
+## 步骤 1: Pre-flight
 
 Tell the user: "Starting deploy sequence. First, let me make sure everything is connected and find your PR."
 
@@ -574,7 +574,7 @@ gh pr view --json number,state,title,url,mergeStateStatus,mergeable,baseRefName,
 
 ---
 
-## Step 1.5: First-run dry-run validation
+## 步骤 1.5: First-run dry-run validation
 
 Check whether this project has been through a successful `/land-and-deploy` before,
 and whether the deploy configuration has changed since then:
@@ -619,12 +619,12 @@ Here's what that means: I'll detect your deploy infrastructure, test that my com
 
 Let me take a look at your 配置方式."
 
-### 1.5a: Deploy infrastructure detection
+### 1.5a: 部署 infrastructure detection
 
 Run the deploy configuration bootstrap to detect the 平台 and settings:
 
 ```bash
-# Check for persisted deploy config in CLAUDE.md
+# Check for persisted 部署 config in CLAUDE.md
 DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG")
 echo "$DEPLOY_CONFIG"
 
@@ -644,7 +644,7 @@ fi
 [ -f Procfile ] && echo "PLATFORM:heroku"
 ([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
 
-# Detect deploy workflows
+# Detect 部署 workflows
 for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
@@ -666,15 +666,15 @@ and any persisted config from CLAUDE.md.
 Test each detected command to verify the detection is accurate. Build a validation table:
 
 ```bash
-# Test gh auth (already passed in Step 1, but confirm)
+# 测试 gh auth (already passed in 步骤 1, but confirm)
 gh auth status 2>&1 | head -3
 
-# Test platform CLI if detected
-# Fly.io: fly status --app {app} 2>/dev/null
+# 测试 platform CLI if detected
+# Fly.io: fly 状态 --app {app} 2>/dev/null
 # Heroku: heroku releases --app {app} -n 1 2>/dev/null
 # Vercel: vercel ls 2>/dev/null | head -3
 
-# Test production URL reachability
+# 测试 production URL reachability
 # curl -sf {production-url} -o /dev/null -w "%{http_code}" 2>/dev/null
 ```
 
@@ -792,7 +792,7 @@ Continue to Step 2.
 
 ---
 
-## Step 2: Pre-merge checks
+## 步骤 2: Pre-merge checks
 
 Tell the user: "Checking CI status and merge readiness..."
 
@@ -815,7 +815,7 @@ If `CONFLICTING`: **STOP.** "This PR has merge conflicts with the base branch. R
 
 ---
 
-## Step 3: Wait for CI (if pending)
+## 步骤 3: Wait for CI (if pending)
 
 If required checks are still pending, wait for them to complete. Use a timeout of 15 minutes:
 
@@ -831,7 +831,7 @@ If timeout (15 min): **STOP.** "CI has been running for over 15 minutes — that
 
 ---
 
-## Step 3.5: Pre-merge readiness gate
+## 步骤 3.5: Pre-merge readiness gate
 
 **This is the critical safety check before an irreversible merge.** The merge cannot
 be undone without a revert commit. Gather ALL evidence, build a readiness report,
@@ -841,7 +841,7 @@ Tell the user: "CI is green. Now I'm running readiness checks — this is the la
 
 Collect evidence for each check below. Track warnings (yellow) and blockers (red).
 
-### 3.5a: Review staleness check
+### 3.5a: 审查 staleness check
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null
@@ -873,7 +873,7 @@ since review)**. The review was done on different code than what's about to merg
 and is CURRENT, mention it in the readiness report as an extra confidence signal.
 If not run, note as informational (not a blocker): "No adversarial review on record."
 
-### 3.5a-bis: Inline review offer
+### 3.5a-bis: Inline 审查 offer
 
 **We are extra careful about deploys.** If engineering review is STALE (4+ commits since)
 or NOT RUN, offer to run a quick review inline before proceeding.
@@ -907,7 +907,7 @@ and tell the user: "I found and fixed a few issues during the review. The fixes 
 
 **If review is CURRENT:** Skip this sub-step entirely — no question asked.
 
-### 3.5b: Test results
+### 3.5b: 测试 results
 
 **Free tests — run them now:**
 
@@ -984,7 +984,7 @@ likely not run. CHANGELOG and VERSION not updated despite new 特性.**
 
 If only docs changed (no code): skip this check.
 
-### 3.5e: Readiness report and confirmation
+### 3.5e: Readiness 报告 and confirmation
 
 Tell the user: "Here's the full readiness report. This is everything I checked before merging."
 
@@ -1050,7 +1050,7 @@ If the user chooses A or C: Tell the user "Merging now." Continue to Step 4.
 
 ---
 
-## Step 4: Merge the PR
+## 步骤 4: Merge the PR
 
 Record the start timestamp for timing data. Also record which merge path is taken
 (auto-merge vs direct) for the deploy report.
@@ -1096,7 +1096,7 @@ If the PR state changes to `MERGED`: capture the merge commit SHA. Tell the user
 If the PR is removed from the queue (state goes back to `OPEN`): **STOP.** "The PR was removed from the merge queue — this usually means a CI check failed on the merge commit, or another PR in the queue caused a conflict. Check the GitHub merge queue page to see what happened."
 If timeout (30 min): **STOP.** "The merge queue has been processing for 30 minutes. Something might be stuck — check the GitHub Actions tab and the merge queue page."
 
-### 4b: CI auto-deploy detection
+### 4b: CI auto-部署 detection
 
 After the PR is merged, check if a deploy 工作流 was triggered by the merge:
 
@@ -1117,14 +1117,14 @@ Record merge timestamp, duration, and merge path for the deploy report.
 
 ---
 
-## Step 5: Deploy strategy detection
+## Step 5: 部署 策略 detection
 
 Determine what kind of project this is and how to verify the deploy.
 
 First, run the deploy configuration bootstrap to detect or read persisted deploy settings:
 
 ```bash
-# Check for persisted deploy config in CLAUDE.md
+# Check for persisted 部署 config in CLAUDE.md
 DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG")
 echo "$DEPLOY_CONFIG"
 
@@ -1144,7 +1144,7 @@ fi
 [ -f Procfile ] && echo "PLATFORM:heroku"
 ([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
 
-# Detect deploy workflows
+# Detect 部署 workflows
 for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
   [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
   [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
@@ -1215,11 +1215,11 @@ Then tell the user: "Staging looks good. When you're ready for production, run `
 
 ---
 
-## Step 6: Wait for deploy (if applicable)
+## Step 6: Wait for 部署 (if applicable)
 
 The deploy 验证 strategy depends on the 平台 detected in Step 5.
 
-### Strategy A: GitHub Actions 工作流
+### 策略 A: GitHub Actions 工作流
 
 If a deploy 工作流 was detected, find the run triggered by the merge commit:
 
@@ -1234,7 +1234,7 @@ Poll every 30 seconds:
 gh run view <run-id> --json status,conclusion
 ```
 
-### Strategy B: 平台 CLI (Fly.io, Render, Heroku)
+### 策略 B: 平台 CLI (Fly.io, Render, Heroku)
 
 If a deploy status command was configured in CLAUDE.md (e.g., `fly status --app myapp`), use it instead of or in addition to GitHub Actions polling.
 
@@ -1255,11 +1255,11 @@ Render deploys typically take 2-5 minutes. Poll every 30 seconds.
 heroku releases --app {app} -n 1 2>/dev/null
 ```
 
-### Strategy C: Auto-deploy platforms (Vercel, Netlify)
+### 策略 C: Auto-部署 platforms (Vercel, Netlify)
 
 Vercel and Netlify deploy automatically on merge. No explicit deploy trigger needed. Wait 60 seconds for the deploy to propagate, then proceed directly to canary 验证 in Step 7.
 
-### Strategy D: Custom deploy hooks
+### 策略 D: Custom 部署 hooks
 
 If CLAUDE.md has a custom deploy status command in the "Custom deploy hooks" section, run that command and check its exit code.
 
@@ -1365,7 +1365,7 @@ After a successful revert: Tell the user "Revert pushed to {base}. The deploy sh
 
 ---
 
-## Step 9: Deploy report
+## Step 9: 部署 报告
 
 Create the deploy report directory:
 
@@ -1426,7 +1426,7 @@ Write a JSONL entry with timing data:
 
 ---
 
-## Step 10: Suggest follow-ups
+## 步骤 10: Suggest follow-ups
 
 After the deploy report:
 

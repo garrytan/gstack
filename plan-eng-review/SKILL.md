@@ -22,7 +22,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -55,7 +55,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"plan-eng-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -180,7 +180,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -297,7 +297,7 @@ Before building anything unfamiliar, **搜索 first.** See `~/.claude/skills/gst
 jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
 ```
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -315,7 +315,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -375,7 +375,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -390,7 +390,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -410,7 +410,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -426,7 +426,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# Plan Review Mode
+# 计划 审查 模式
 
 Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
 
@@ -470,7 +470,7 @@ When evaluating architecture, think "boring by default." When reviewing tests, t
 
 ## BEFORE YOU START:
 
-### Design Doc Check
+### 设计 Doc Check
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
@@ -481,7 +481,7 @@ DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head
 ```
 If a design doc exists, read it. Use it as the 来源 of truth for the 问题 statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design — check the prior version for context on what changed and why.
 
-## Prerequisite Skill Offer
+## Prerequisite 技能 Offer
 
 When the design doc check above prints "No design doc found," offer the prerequisite
 skill before proceeding.
@@ -567,7 +567,7 @@ Always work through the full interactive review: one section at a time (Architec
 
 **Critical: Once the user accepts or rejects a scope reduction recommendation, commit fully.** Do not re-argue for smaller scope during later review sections. Do not silently reduce scope or skip planned components.
 
-## Review Sections (after scope is agreed)
+## 审查 Sections (after scope is agreed)
 
 ## Prior Learnings
 
@@ -607,7 +607,7 @@ matches a past learning, 展示:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-### 1. Architecture review
+### 1. Architecture 审查
 Evaluate:
 * Overall system design and component boundaries.
 * Dependency graph and coupling concerns.
@@ -645,7 +645,7 @@ confirms it IS a real issue, that is a calibration 事件. Your initial confiden
 too low. Log the corrected pattern as a learning so future reviews catch it with
 higher confidence.
 
-### 2. Code 质量 review
+### 2. Code 质量 审查
 Evaluate:
 * Code organization and module structure.
 * DRY violations—be aggressive here.
@@ -656,11 +656,11 @@ Evaluate:
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
 
-### 3. Test review
+### 3. 测试 审查
 
 100% coverage is the goal. Evaluate every codepath in the plan and ensure the plan includes tests for each one. If the plan is missing tests, add them — the plan should be complete enough that implementation includes full test coverage from the start.
 
-### Test Framework Detection
+### 测试 Framework Detection
 
 Before analyzing coverage, detect the project's test framework:
 
@@ -675,7 +675,7 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 [ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
 [ -f go.mod ] && echo "RUNTIME:go"
 [ -f Cargo.toml ] && echo "RUNTIME:rust"
-# Check for existing test infrastructure
+# Check for existing 测试 infrastructure
 ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini phpunit.xml 2>/dev/null
 ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
 ```
@@ -735,7 +735,7 @@ Go through your diagram branch by branch — both code paths AND user flows. For
 - ★★   Tests correct behavior, happy path only
 - ★    Smoke test / existence check / trivial assertion (e.g., "it renders", "it doesn't throw")
 
-### E2E Test Decision Matrix
+### E2E 测试 Decision Matrix
 
 When checking each branch, also determine whether a unit test or E2E/integration test is the right tool:
 
@@ -823,7 +823,7 @@ For each GAP identified in the diagram, add a test requirement to the plan. Be s
 
 The plan should be complete enough that when implementation begins, every test is written alongside the feature code — not deferred to a follow-up.
 
-### Test Plan Artifact
+### 测试 计划 Artifact
 
 After producing the coverage diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input:
 
@@ -836,12 +836,12 @@ DATETIME=$(date +%Y%m%d-%H%M%S)
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-eng-review-test-plan-{datetime}.md`:
 
 ```markdown
-# Test Plan
+# 测试 计划
 Generated by /plan-eng-review on {date}
 Branch: {branch}
 Repo: {owner/repo}
 
-## Affected Pages/Routes
+## Affected 页面/Routes
 - {URL path} — {what to test and why}
 
 ## Key Interactions to Verify
@@ -860,7 +860,7 @@ For LLM/prompt changes: check the "Prompt/LLM changes" file patterns listed in C
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
 
-### 4. 表现 review
+### 4. 表现 审查
 Evaluate:
 * N+1 queries and database access patterns.
 * Memory-usage concerns.
@@ -869,7 +869,7 @@ Evaluate:
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
 
-## Outside Voice — Independent Plan Challenge (optional, recommended)
+## Outside Voice — Independent 计划 Challenge (optional, recommended)
 
 After all review sections are complete, offer an independent second opinion from a
 different AI system. Two models agreeing on a plan is stronger signal than one model's
@@ -1057,7 +1057,7 @@ For each new codepath identified in the test review diagram, list one realistic 
 
 If any failure mode has no test AND no error handling AND would be silent, flag it as a **critical gap**.
 
-### Worktree parallelization strategy
+### Worktree parallelization 策略
 
 Analyze the plan's implementation 步骤 for parallel execution opportunities. This helps the user split work across git worktrees (via Claude Code's Agent tool with `isolation: "worktree"` or parallel workspaces).
 
@@ -1084,7 +1084,7 @@ Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 
 
 4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
 
-### Completion summary
+### Completion 摘要
 At the end of the review, fill in and 展示 this summary so the user can see all findings at a glance:
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
 - Architecture Review: ___ issues found
@@ -1108,7 +1108,7 @@ Check the git log for this branch. If there are prior commits suggesting a previ
 * One sentence max per option. Pick in under 5 seconds.
 * After each review section, pause and ask for feedback before moving on.
 
-## Review Log
+## 审查 Log
 
 After producing the Completion Summary above, persist the review result.
 
@@ -1131,7 +1131,7 @@ Substitute values from the Completion Summary:
 - **MODE**: FULL_REVIEW / SCOPE_REDUCED
 - **COMMIT**: output of `git rev-parse --short HEAD`
 
-## Review Readiness Dashboard
+## 审查 Readiness Dashboard
 
 After completing the review, read the review log and config to 展示 the dashboard.
 
@@ -1182,18 +1182,18 @@ Note: `autoplan-voices` and `design-outside-voices` entries are audit-trail-only
 - For entries without a \`commit\` field (legacy entries): 展示 "Note: {skill} review from {date} has no commit 跟踪 — consider re-running for accurate staleness detection"
 - If all reviews match the current HEAD, do not 展示 any staleness notes
 
-## Plan File Review Report
+## 计划 File 审查 报告
 
 After displaying the Review Readiness Dashboard in conversation output, also update the
 **plan file** itself so review status is visible to anyone reading the plan.
 
-### Detect the plan file
+### Detect the 计划 file
 
 1. Check if there is an active plan file in this conversation (the host provides plan file
    paths in system messages — look for plan file references in the conversation context).
 2. If not found, skip this section silently — not every review runs in plan mode.
 
-### Generate the report
+### Generate the 报告
 
 Read the review log output you already have from the Review Readiness Dashboard step above.
 Parse each JSONL entry. Each skill logs different fields:
@@ -1215,7 +1215,7 @@ Summary. For prior reviews, use the JSONL fields directly — they contain all r
 Produce this markdown table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -1233,7 +1233,7 @@ Below the table, add these lines (omit any that are empty/not applicable):
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
 
-### Write to the plan file
+### Write to the 计划 file
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
 file you are allowed to edit in plan mode. The plan file review report is part of the
@@ -1249,7 +1249,7 @@ plan's living status.
 - Always place it as the very last section in the plan file. If it was found mid-file,
   move it: delete the old location and append at the end.
 
-## Next 步骤 — Review Chaining
+## Next 步骤 — 审查 Chaining
 
 After displaying the Review Readiness Dashboard, check if additional reviews would be valuable. Read the dashboard output to see which reviews have already been run and whether they are stale.
 

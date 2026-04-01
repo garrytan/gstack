@@ -17,7 +17,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble（先运行）
+## 前置步骤（先运行）
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -50,7 +50,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"browse","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -165,7 +165,7 @@ touch ~/.gstack/.proactive-prompted
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -201,7 +201,7 @@ Key routing rules:
 
 用户永远掌握着你没有的上下文。跨模型一致意见只是建议，不是决策，最后拍板的是用户。
 
-## Contributor Mode
+## Contributor 模式
 
 如果 `_CONTRIB` 为 `true`，说明你处在 **contributor mode**。每完成一个主要工作流阶段，都要给 gstack 体验打一个 0-10 分。如果不是 10 分，并且存在一个可执行的 bug 或改进点，就提交一份 field report。
 
@@ -272,7 +272,7 @@ fi
 
 把 `SKILL_NAME` 替换成 frontmatter 中真实的 skill 名，把 `OUTCOME` 替换成 success/error/abort，并根据是否使用 `$B` 把 `USED_BROWSE` 设为 true/false。如果无法确定结果，就用 `"unknown"`。本地 JSONL 和远端 telemetry 都只会在 telemetry 未关闭时运行。远端二进制还要求文件存在。
 
-## Plan Mode 安全操作
+## 计划 模式 安全操作
 
 当处于 plan mode 时，以下操作总是允许的，因为它们产出的是帮助制定计划的工件，而不是代码改动：
 
@@ -285,7 +285,7 @@ fi
 
 这些操作在精神上都是只读的，它们只是检查线上站点、生成视觉工件或获取独立意见，不会修改项目源码。
 
-## Plan 状态页脚
+## 计划 状态页脚
 
 当你处于 plan mode，并准备调用 ExitPlanMode 时：
 
@@ -303,7 +303,7 @@ fi
 - 如果输出是 `NO_REVIEWS` 或为空，就写下面这个占位表格：
 
 ```markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -386,7 +386,7 @@ $B click @e3                     # 执行动作
 $B snapshot -D                   # 统一 diff 精确展示变化
 ```
 
-### 4. 为 bug 报告准备视觉证据
+### 4. 为 缺陷 报告准备视觉证据
 ```bash
 $B snapshot -i -a -o /tmp/annotated.png   # 带标注截图
 $B screenshot /tmp/bug.png                # 普通截图

@@ -366,7 +366,7 @@ accelerate.symbols.cblas_sgemm(...);
 **结果：** Apple Silicon 上约 5-10ms 推理，纯 Bun，无 npm 运行时依赖。  
 **限制：** 仅限 macOS（Linux 还要额外接 OpenBLAS FFI）。不过 gstack 当前本来就只发布 macOS 编译后二进制。
 
-## Codex Review Findings（来自 eng review）
+## Codex 审查 Findings（来自 eng 审查）
 
 Codex（GPT-5.4）审阅这份方案后给出了 15 个问题。和这个 ML classifier PR 直接相关的关键点如下：
 

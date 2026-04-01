@@ -10,7 +10,7 @@
 ```markdown
 # TODOS
 
-## <Skill/Component>     ← 例如：## Browse、## Ship、## Review、## Infrastructure
+## <技能/Component>     ← 例如：## Browse、## Ship、## 审查、## Infrastructure
 <items sorted P0 first, then P1, P2, P3, P4>
 
 ## Completed

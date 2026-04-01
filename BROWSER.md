@@ -383,7 +383,7 @@ bun test browse/test/cookie-import-browser # 只跑 cookie 导入单测
 | `browse/src/activity.ts` | 活动流：`ActivityEntry` 类型、`CircularBuffer`、隐私过滤、SSE subscriber 管理。 |
 | `browse/src/buffers.ts` | `CircularBuffer<T>`（`O(1)` 环形缓冲区）+ console / network / dialog 捕获与异步刷盘。 |
 
-### 部署到当前激活的 skill
+### 部署到当前激活的 技能
 
 当前激活的 skill 位于 `~/.claude/skills/gstack/`。改完之后：
 

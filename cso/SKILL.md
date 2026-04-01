@@ -22,7 +22,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## 前置步骤 (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -55,7 +55,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"cso","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -180,7 +180,7 @@ If A: Append this section to the end of CLAUDE.md:
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -279,7 +279,7 @@ AI makes completeness near-free. Always recommend the complete option over short
 
 Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
 
-## Contributor Mode
+## Contributor 模式
 
 If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major 工作流 step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
@@ -297,7 +297,7 @@ If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each maj
 ```
 Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-## Completion Status Protocol
+## Completion 状态 Protocol
 
 When completing a skill 工作流, report status using one of:
 - **DONE** — All 步骤 completed successfully. Evidence provided for each claim.
@@ -357,7 +357,7 @@ If you cannot determine the outcome, use "unknown". Both local JSONL and remote
 telemetry only run if telemetry is not off. The remote binary additionally requires
 the binary to exist.
 
-## Plan Mode Safe 操作
+## 计划 模式 Safe 操作
 
 When in plan mode, these 操作 are always allowed because they produce
 artifacts that inform the plan, not code changes:
@@ -372,7 +372,7 @@ artifacts that inform the plan, not code changes:
 These are read-only in spirit — they inspect the live site, generate visual artifacts,
 or get independent opinions. They do NOT modify project 来源 files.
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 When you are in plan mode and about to call ExitPlanMode:
 
@@ -392,7 +392,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 - If the output is `NO_REVIEWS` or empty: write this placeholder table:
 
 \`\`\`markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
@@ -416,7 +416,7 @@ The real attack surface isn't your code — it's your dependencies. Most teams a
 
 You do NOT make code changes. You produce a **Security Posture Report** with concrete findings, severity ratings, and remediation plans.
 
-## User-invocable
+## 用户-invocable
 When the user types `/cso`, run this skill.
 
 ## Arguments
@@ -430,7 +430,7 @@ When the user types `/cso`, run this skill.
 - `/cso --owasp` — OWASP Top 10 only (Phases 0, 9, 12-14)
 - `/cso --scope auth` — focused audit on a specific domain
 
-## Mode Resolution
+## 模式 Resolution
 
 1. If no flags → run ALL phases 0-14, daily mode (8/10 confidence gate).
 2. If `--comprehensive` → run ALL phases 0-14, comprehensive mode (2/10 confidence gate). Combinable with scope flags.
@@ -440,11 +440,11 @@ When the user types `/cso`, run this skill.
 6. Phases 0, 1, 12, 13, 14 ALWAYS run regardless of scope flag.
 7. If WebSearch is unavailable, skip checks that require it and note: "WebSearch unavailable — proceeding with local-only analysis."
 
-## Important: Use the Grep tool for all code searches
+## Important: Use the Grep 工具 for all code searches
 
 The bash blocks throughout this skill show WHAT patterns to 搜索 for, not HOW to run them. Use Claude Code's Grep tool (which handles permissions and access correctly) rather than raw bash grep. The bash blocks are illustrative examples — do NOT 文案-paste them into a terminal. Do NOT use `| head` to truncate results.
 
-## Instructions
+## 使用说明
 
 ### Phase 0: Architecture Mental Model + Stack Detection
 
@@ -488,7 +488,7 @@ grep -q "laravel" composer.json 2>/dev/null && echo "FRAMEWORK: Laravel"
 
 This is NOT a checklist — it's a reasoning phase. The output is understanding, not findings.
 
-### Phase 1: Attack Surface Census
+### 阶段 1: Attack Surface Census
 
 Map what an attacker sees — both code surface and infrastructure surface.
 
@@ -526,7 +526,7 @@ INFRASTRUCTURE SURFACE
   Secret management:     [env vars | KMS | vault | unknown]
 ```
 
-### Phase 2: Secrets Archaeology
+### 阶段 2: Secrets Archaeology
 
 Scan git history for leaked credentials, check tracked `.env` files, find CI configs with inline secrets.
 
@@ -558,7 +558,7 @@ done 2>/dev/null
 
 **Diff mode:** Replace `git log -p --all` with `git log -p <base>..HEAD`.
 
-### Phase 3: Dependency Supply Chain
+### 阶段 3: Dependency Supply Chain
 
 Goes beyond `npm audit`. Checks actual supply chain risk.
 
@@ -581,7 +581,7 @@ Goes beyond `npm audit`. Checks actual supply chain risk.
 
 **FP rules:** devDependency CVEs are MEDIUM max. `node-gyp`/`cmake` install scripts expected (MEDIUM not HIGH). No-fix-available advisories without known exploits excluded. Missing lockfile for library repos (not apps) is NOT a finding.
 
-### Phase 4: CI/CD Pipeline Security
+### 阶段 4: CI/CD Pipeline Security
 
 Check who can modify 工作流 and what secrets they can access.
 
@@ -648,7 +648,7 @@ Use Grep to 搜索 for these patterns:
 
 **FP rules:** User content in the user-message position of an AI conversation is NOT prompt injection (precedent #13). Only flag when user content enters system prompts, tool schemas, or function-calling contexts.
 
-### Phase 8: Skill Supply Chain
+### Phase 8: 技能 Supply Chain
 
 Scan installed Claude Code skills for malicious patterns. 36% of published skills have security flaws, 13.4% are outright malicious (Snyk ToxicSkills research).
 
@@ -694,7 +694,7 @@ For each OWASP category, perform targeted analysis. Use the Grep tool for all se
 - Template injection: render with params, eval(), html_safe, raw()
 - LLM prompt injection: see Phase 7 for comprehensive coverage
 
-#### A04: Insecure Design
+#### A04: Insecure 设计
 - 速率限制 on 认证 endpoints?
 - 账户 lockout after failed attempts?
 - Business logic validated server-side?
@@ -729,7 +729,7 @@ See **Phase 4 (CI/CD Pipeline Security)** for pipeline protection analysis.
 - Internal service reachability from user-controlled URLs?
 - Allowlist/blocklist enforcement on outbound requests?
 
-### Phase 10: STRIDE Threat Model
+### 阶段 10: STRIDE Threat Model
 
 For each major component identified in Phase 0, evaluate:
 
@@ -743,7 +743,7 @@ COMPONENT: [Name]
   Elevation of Privilege: Can a user gain unauthorized access?
 ```
 
-### Phase 11: Data Classification
+### 阶段 11: Data Classification
 
 Classify all data handled by the application:
 
@@ -768,7 +768,7 @@ PUBLIC:
   - Marketing content, documentation, public APIs
 ```
 
-### Phase 12: False Positive Filtering + Active 验证
+### 阶段 12: False Positive Filtering + Active 验证
 
 Before producing findings, run every candidate through this filter.
 
@@ -857,7 +857,7 @@ Launch all verifiers in parallel. Discard findings where the verifier scores bel
 
 If the Agent tool is unavailable, self-verify by re-reading code with a skeptic's eye. Note: "Self-verified — independent sub-task unavailable."
 
-### Phase 13: Findings Report + Trend 跟踪 + Remediation
+### 阶段 13: Findings 报告 + Trend 跟踪 + Remediation
 
 **Exploit scenario requirement:** Every finding MUST include a concrete exploit scenario — a step-by-step attack path an attacker would follow. "This pattern is insecure" is not a finding.
 
@@ -865,7 +865,7 @@ If the Agent tool is unavailable, self-verify by re-reading code with a skeptic'
 ```
 SECURITY FINDINGS
 ═════════════════
-#   Sev    Conf   Status      Category         Finding                          Phase   File:Line
+#   Sev    Conf   状态      Category         Finding                          Phase   File:Line
 ──  ────   ────   ──────      ────────         ───────                          ─────   ─────────
 1   CRIT   9/10   VERIFIED    Secrets          AWS key in git history           P2      .env:3
 2   CRIT   9/10   VERIFIED    CI/CD            pull_request_target + checkout   P4      .github/ci.yml:12
@@ -946,7 +946,7 @@ Match findings across reports using the `fingerprint` field (sha256 of category 
    - C) Accept risk — [document why, set review date]
    - D) Defer to TODOS.md with security label
 
-### Phase 14: Save Report
+### 阶段 14: Save 报告
 
 ```bash
 mkdir -p .gstack/security-reports

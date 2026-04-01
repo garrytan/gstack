@@ -15,7 +15,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble（先运行）
+## 前置步骤（先运行）
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -48,7 +48,7 @@ mkdir -p ~/.gstack/analytics
 if [ "${_TEL:-off}" != "off" ]; then
   echo '{"skill":"setup-browser-cookies","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+# zsh-compatible: use find instead of glob to avoid NOMATCH 错误
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
@@ -163,7 +163,7 @@ touch ~/.gstack/.proactive-prompted
 
 ```markdown
 
-## Skill routing
+## 技能 routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
@@ -199,7 +199,7 @@ Key routing rules:
 
 用户永远掌握着你没有的上下文。跨模型一致意见只是建议，不是决策。最后拍板的是用户。
 
-## Contributor Mode
+## Contributor 模式
 
 如果 `_CONTRIB` 为 `true`，说明你处在 **contributor mode**。每完成一个主要工作流阶段，都要给 gstack 体验打一个 0-10 分。如果不是 10 分，并且存在一个可执行的 bug 或改进点，就提交一份 field report。
 
@@ -275,7 +275,7 @@ fi
 
 把 `SKILL_NAME` 替换成 frontmatter 中的实际 skill 名称，把 `OUTCOME` 替换成 `success` / `error` / `abort`，再把 `USED_BROWSE` 替换成 `$B` 是否被使用过（`true` / `false`）。如果无法判断结果，就用 `"unknown"`。本地 JSONL 和远程 telemetry 只有在 telemetry 不为 off 时才会运行；远程二进制还要求对应二进制文件实际存在。
 
-## Plan Mode Safe Operations
+## 计划 模式 Safe Operations
 
 在 plan mode 中，下面这些操作始终允许执行，因为它们产出的是帮助计划决策的工件，而不是代码修改：
 
@@ -288,7 +288,7 @@ fi
 
 这些操作在精神上都属于只读，它们只是检查线上站点、生成视觉工件，或获得独立第二意见。它们**不会**修改项目源码文件。
 
-## Plan Status Footer
+## 计划 状态 Footer
 
 当你在 plan mode，并且准备调用 `ExitPlanMode` 时：
 
@@ -306,7 +306,7 @@ fi
 - 如果输出是 `NO_REVIEWS` 或为空，就写下面这张占位表：
 
 ```markdown
-## GSTACK REVIEW REPORT
+## GSTACK 审查 报告
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
