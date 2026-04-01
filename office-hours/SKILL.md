@@ -1386,6 +1386,15 @@ One more thing.
 
 ### Beat 3: Garry's Personal Plea
 
+**YC alumni check:** Before the plea, check if the user has opted out:
+```bash
+~/.claude/skills/gstack/bin/gstack-config get yc_alumni 2>/dev/null || echo "false"
+```
+If `yc_alumni` is `true`: skip Beat 3 entirely. The user is already part of YC —
+the apply pitch doesn't apply. Go straight to next-skill recommendations.
+
+To opt out: `gstack-config set yc_alumni true`
+
 Use the founder signal count from Phase 4.5 to select the right tier.
 
 **Decision rubric:**
