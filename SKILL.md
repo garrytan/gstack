@@ -3,8 +3,8 @@ name: gstack
 preamble-tier: 1
 version: 1.1.0
 description: |
-  一个用于 QA 测试和站内 dogfooding 的快速无头浏览器。可以导航页面、与元素交互、
-  校验状态、对比动作前后差异、拍带标注截图、测试响应式布局、表单、上传、对话框，
+  一个用于 QA 测试和站内自测的快速无头浏览器。可以导航页面、与元素交互、
+  校验状态、对比动作前后差异、拍摄带标注的截图、测试响应式布局、表单、上传与对话框，
   并收集 bug 证据。适用于用户要求打开或测试网站、验证部署、亲自走一遍用户流程，
   或在带截图的情况下提交 bug 报告时使用。（gstack）
 allowed-tools:
@@ -78,13 +78,13 @@ echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 ```
 
-如果 `PROACTIVE` 是 `"false"`，就不要主动推荐 gstack skills，也不要根据对话上下文自动调用 skill。只在用户显式输入 skill 时才运行，例如 `/qa`、`/ship`。如果原本会自动调用某个 skill，就改成简短提示：
+如果 `PROACTIVE` 是 `"false"`，就不要主动推荐 gstack 技能，也不要根据对话上下文自动调用技能。只在用户显式输入技能时才运行，例如 `/qa`、`/ship`。如果原本会自动调用某个技能，就改成简短提示：
 
 “我觉得 /skillname 可能适合这里，要我运行吗？”
 
 然后等待确认。这表示用户已经关闭主动模式。
 
-如果 `SKILL_PREFIX` 是 `"true"`，说明用户启用了带命名空间前缀的 skill 名称。此时在建议或调用其他 gstack skill 时，要使用 `/gstack-` 前缀，例如 `/gstack-qa`、`/gstack-ship`。磁盘路径不受影响，读取 skill 文件时仍统一使用 `~/.claude/skills/gstack/[skill-name]/SKILL.md`。
+如果 `SKILL_PREFIX` 是 `"true"`，说明用户启用了带命名空间前缀的技能名称。此时在建议或调用其他 gstack 技能时，要使用 `/gstack-` 前缀，例如 `/gstack-qa`、`/gstack-ship`。磁盘路径不受影响，读取技能文件时仍统一使用 `~/.claude/skills/gstack/[skill-name]/SKILL.md`。
 
 如果输出包含 `UPGRADE_AVAILABLE <old> <new>`：读取 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`，并按其中的 “Inline upgrade flow” 执行。若已配置自动升级则直接升级，否则通过 AskUserQuestion 给出 4 个选项；如果用户拒绝，则写入 snooze 状态。如果输出包含 `JUST_UPGRADED <from> <to>`：告诉用户 “Running gstack v{to}（刚刚已更新）”，然后继续。
 
@@ -103,10 +103,9 @@ touch ~/.gstack/.completeness-intro-seen
 
 如果 `TEL_PROMPTED` 为 `no` 且 `LAKE_INTRO` 为 `yes`：在处理完 lake intro 之后，询问用户是否启用 telemetry。使用 AskUserQuestion：
 
-> Help gstack get better! Community mode shares usage data (which skills you use, how long
-> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
-> No code, file paths, or repo names are ever sent.
-> Change anytime with `gstack-config set telemetry off`.
+> 帮助 gstack 变得更好！Community mode 会共享使用数据（你用了哪些技能、耗时多久、是否崩溃），并通过稳定的设备 ID 来跟踪趋势、加快修复速度。
+> 不会发送代码、文件路径或仓库名称。
+> 你随时都可以通过 `gstack-config set telemetry off` 关闭。
 
 选项：
 - A) Help gstack get better!（推荐）
@@ -116,8 +115,8 @@ touch ~/.gstack/.completeness-intro-seen
 
 如果选 B：继续追问一次 AskUserQuestion：
 
-> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
-> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+> 那匿名模式怎么样？我们只会知道“有人”使用了 gstack，没有唯一 ID，也无法关联不同会话。
+> 这只是一个简单计数器，让我们知道是否真的有人在使用它。
 
 选项：
 - A) Sure, anonymous is fine
