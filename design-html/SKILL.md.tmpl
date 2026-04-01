@@ -3,13 +3,14 @@ name: design-html
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Design finalization: takes an approved AI mockup from /design-shotgun and
-  generates production-quality Pretext-native HTML/CSS. Text actually reflows,
-  heights are computed, layouts are dynamic. 30KB overhead, zero deps.
-  Smart API routing: picks the right Pretext patterns for each design type.
-  Use when: "finalize this design", "turn this mockup into HTML", "implement
-  this design", or after /design-shotgun approves a direction.
-  Proactively suggest when user has approved a design in /design-shotgun. (gstack)
+  Design finalization: generates production-quality Pretext-native HTML/CSS.
+  Works with approved mockups from /design-shotgun, CEO plans from /plan-ceo-review,
+  design review context from /plan-design-review, or from scratch with a user
+  description. Text actually reflows, heights are computed, layouts are dynamic.
+  30KB overhead, zero deps. Smart API routing: picks the right Pretext patterns
+  for each design type. Use when: "finalize this design", "turn this into HTML",
+  "build me a page", "implement this design", or after any planning skill.
+  Proactively suggest when user has approved a design or has a plan ready. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -42,37 +43,97 @@ around obstacles.
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ```
 
-1. Find the most recent `approved.json`:
+Detect what design context exists for this project. Run all four checks:
+
 ```bash
 setopt +o nomatch 2>/dev/null || true
-ls -t ~/.gstack/projects/$SLUG/designs/*/approved.json 2>/dev/null | head -1
+_CEO=$(ls -t ~/.gstack/projects/$SLUG/ceo-plans/*.md 2>/dev/null | head -1)
+[ -n "$_CEO" ] && echo "CEO_PLAN: $_CEO" || echo "NO_CEO_PLAN"
 ```
 
-2. If found, read it. Extract: approved variant PNG path, user feedback, screen name.
-
-3. Read `DESIGN.md` if it exists in the repo root. These tokens take priority for
-   system-level values (fonts, brand colors, spacing scale).
-
-4. **Evolve mode:** Check for prior output:
 ```bash
 setopt +o nomatch 2>/dev/null || true
-ls -t ~/.gstack/projects/$SLUG/designs/*/finalized.html 2>/dev/null | head -1
+_APPROVED=$(ls -t ~/.gstack/projects/$SLUG/designs/*/approved.json 2>/dev/null | head -1)
+[ -n "$_APPROVED" ] && echo "APPROVED: $_APPROVED" || echo "NO_APPROVED"
 ```
-If a prior `finalized.html` exists, use AskUserQuestion:
+
+```bash
+setopt +o nomatch 2>/dev/null || true
+_VARIANTS=$(ls -t ~/.gstack/projects/$SLUG/designs/*/variant-*.png 2>/dev/null | head -1)
+[ -n "$_VARIANTS" ] && echo "VARIANTS: $_VARIANTS" || echo "NO_VARIANTS"
+```
+
+```bash
+setopt +o nomatch 2>/dev/null || true
+_FINALIZED=$(ls -t ~/.gstack/projects/$SLUG/designs/*/finalized.html 2>/dev/null | head -1)
+[ -n "$_FINALIZED" ] && echo "FINALIZED: $_FINALIZED" || echo "NO_FINALIZED"
+[ -f DESIGN.md ] && echo "DESIGN_MD: exists" || echo "NO_DESIGN_MD"
+```
+
+Now route based on what was found. Check these cases in order:
+
+### Case A: approved.json exists (design-shotgun ran)
+
+If `APPROVED` was found, read it. Extract: approved variant PNG path, user feedback,
+screen name. Also read the CEO plan if one exists (it adds strategic context).
+
+Read `DESIGN.md` if it exists in the repo root. These tokens take priority for
+system-level values (fonts, brand colors, spacing scale).
+
+Then check for prior finalized.html. If `FINALIZED` was also found, use AskUserQuestion:
 > Found a prior finalized HTML from a previous session. Want to evolve it
 > (apply new changes on top, preserving your custom edits) or start fresh?
 > A) Evolve — iterate on the existing HTML
 > B) Start fresh — regenerate from the approved mockup
 
 If evolve: read the existing HTML. Apply changes on top during Step 3.
-If fresh: proceed normally.
+If fresh or no finalized.html: proceed to Step 1 with the approved PNG as the
+visual reference.
 
-5. If no `approved.json` found, use AskUserQuestion:
-> No approved design found. You need a mockup first.
-> A) Run /design-shotgun — explore design variants and approve one
-> B) I have a PNG — let me provide the path
+### Case B: CEO plan and/or design variants exist, but no approved.json
 
-If B: accept a PNG file path from the user and proceed with that as the reference.
+If `CEO_PLAN` or `VARIANTS` was found but no `APPROVED`:
+
+Read whichever context exists:
+- If CEO plan found: read it and summarize the product vision and design requirements.
+- If variant PNGs found: show them inline using the Read tool.
+- If DESIGN.md found: read it for design tokens and constraints.
+
+Use AskUserQuestion:
+> Found [CEO plan from /plan-ceo-review | design review variants from /plan-design-review | both]
+> but no approved design mockup.
+> A) Run /design-shotgun — explore design variants based on the existing plan context
+> B) Skip mockups — I'll design the HTML directly from the plan context
+> C) I have a PNG — let me provide the path
+
+If A: tell the user to run /design-shotgun, then come back to /design-html.
+If B: proceed to Step 1 in "plan-driven mode." There is no approved PNG, the plan is
+the source of truth. Ask the user for a screen name to use for the output directory
+(e.g., "landing-page", "dashboard", "pricing").
+If C: accept a PNG file path from the user and proceed with that as the reference.
+
+### Case C: Nothing found (clean slate)
+
+If none of the above produced any context:
+
+Use AskUserQuestion:
+> No design context found for this project. How do you want to start?
+> A) Run /plan-ceo-review first — think through the product strategy before designing
+> B) Run /plan-design-review first — design review with visual mockups
+> C) Run /design-shotgun — jump straight to visual design exploration
+> D) Just describe it — tell me what you want and I'll design the HTML live
+
+If A, B, or C: tell the user to run that skill, then come back to /design-html.
+If D: proceed to Step 1 in "freeform mode." Ask the user for a screen name.
+
+### Context summary
+
+After routing, output a brief context summary:
+- **Mode:** approved-mockup | plan-driven | freeform | evolve
+- **Visual reference:** path to approved PNG, or "none (plan-driven)" or "none (freeform)"
+- **CEO plan:** path or "none"
+- **Design tokens:** "DESIGN.md" or "none"
+- **Screen name:** from approved.json, user-provided, or inferred from CEO plan
 
 ---
 
@@ -87,10 +148,22 @@ This returns colors, typography, layout structure, and component inventory via G
 2. If `$D` is not available, read the approved PNG inline using the Read tool.
    Describe the visual layout, colors, typography, and component structure yourself.
 
-3. Read `DESIGN.md` tokens. These override any extracted values for system-level
+3. If in plan-driven or freeform mode (no approved PNG), design from context:
+   - **Plan-driven:** read the CEO plan and/or design review notes. Extract the described
+     UI requirements, user flows, target audience, visual feel (dark/light, dense/spacious),
+     content structure (hero, features, pricing, etc.), and design constraints. Build an
+     implementation spec from the plan's prose rather than a visual reference.
+   - **Freeform:** use AskUserQuestion to gather what the user wants to build. Ask about:
+     purpose/audience, visual feel (dark/light, playful/serious, dense/spacious),
+     content structure (hero, features, pricing, etc.), and any reference sites they like.
+   In both cases, describe the intended visual layout, colors, typography, and
+   component structure as your implementation spec. Generate realistic content based
+   on the plan or user description (never lorem ipsum).
+
+4. Read `DESIGN.md` tokens. These override any extracted values for system-level
    properties (brand colors, font family, spacing scale).
 
-4. Output an "Implementation spec" summary: colors (hex), fonts (family + weights),
+5. Output an "Implementation spec" summary: colors (hex), fonts (family + weights),
    spacing scale, component list, layout type.
 
 ---
@@ -414,13 +487,17 @@ LOOP:
   1. If server is running, tell user to open http://localhost:PORT/finalized.html
      Otherwise: open <path>/finalized.html
 
-  2. Show approved mockup PNG inline (Read tool) for visual comparison
+  2. If an approved mockup PNG exists, show it inline (Read tool) for visual comparison.
+     If in plan-driven or freeform mode, skip this step.
 
-  3. AskUserQuestion:
-     "The HTML is live in your browser. Here's the approved mockup for comparison.
+  3. AskUserQuestion (adjust wording based on mode):
+     With mockup: "The HTML is live in your browser. Here's the approved mockup for comparison.
       Try: resize the window (text should reflow dynamically),
       click any text (it's editable, layout recomputes instantly).
       What needs to change? Say 'done' when satisfied."
+     Without mockup: "The HTML is live in your browser. Try: resize the window
+      (text should reflow dynamically), click any text (it's editable, layout
+      recomputes instantly). What needs to change? Say 'done' when satisfied."
 
   4. If "done" / "ship it" / "looks good" / "perfect" → exit loop, go to Step 5
 
@@ -467,13 +544,15 @@ If A: write `DESIGN.md` to the repo root with the extracted tokens.
 Write `finalized.json` alongside the HTML:
 ```json
 {
-  "source_mockup": "<approved variant PNG path>",
+  "source_mockup": "<approved variant PNG path or null>",
+  "source_plan": "<CEO plan path or null>",
+  "mode": "<approved-mockup|plan-driven|freeform|evolve>",
   "html_file": "<path to finalized.html or component file>",
   "pretext_tier": "<selected tier>",
   "framework": "<vanilla|react|svelte|vue>",
   "iterations": <number of refinement iterations>,
   "date": "<ISO 8601>",
-  "screen": "<screen name from approved.json>",
+  "screen": "<screen name>",
   "branch": "<current branch>"
 }
 ```
@@ -490,9 +569,11 @@ Use AskUserQuestion:
 
 ## Important Rules
 
-- **Mockup fidelity over code elegance.** If pixel-matching the approved mockup requires
-  `width: 312px` instead of a CSS grid class, that's correct. The mockup is the source
-  of truth. Code cleanup happens later during component extraction.
+- **Source of truth fidelity over code elegance.** When an approved mockup exists,
+  pixel-match it. If that requires `width: 312px` instead of a CSS grid class, that's
+  correct. When in plan-driven or freeform mode, the user's feedback during the
+  refinement loop is the source of truth. Code cleanup happens later during
+  component extraction.
 
 - **Always use Pretext for text layout.** Even if the design looks simple, Pretext
   ensures correct height computation on resize. The overhead is 30KB. Every page benefits.
@@ -501,8 +582,9 @@ Use AskUserQuestion:
   not the Write tool to regenerate the entire file. The user may have made manual edits
   via contenteditable that should be preserved.
 
-- **Real content only.** Extract text from the approved mockup. Never use "Lorem ipsum",
-  "Your text here", or placeholder content.
+- **Real content only.** When a mockup exists, extract text from it. In plan-driven mode,
+  use content from the plan. In freeform mode, generate realistic content based on the
+  user's description. Never use "Lorem ipsum", "Your text here", or placeholder content.
 
 - **One page per invocation.** For multi-page designs, run /design-html once per page.
   Each run produces one HTML file.
