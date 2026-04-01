@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync, utimesSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync, utimesSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -495,6 +495,162 @@ describe('gstack-update-check', () => {
   });
 
   // ─── Split TTL tests ─────────────────────────────────────────
+
+  // ─── Auto-upgrade tests ────────────────────────────────────
+
+  /**
+   * Helper: create a mock git install dir with a fake setup script.
+   * The setup script just writes the target version to VERSION.
+   */
+  function createMockInstallDir(version: string, targetVersion: string): string {
+    const installDir = mkdtempSync(join(tmpdir(), 'gstack-install-test-'));
+    // Create a bare-minimum git repo
+    Bun.spawnSync(['git', 'init'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'config', 'user.email', 'test@test.com'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'config', 'user.name', 'Test'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    writeFileSync(join(installDir, 'VERSION'), version + '\n');
+    // Create a mock setup script that writes targetVersion
+    writeFileSync(join(installDir, 'setup'), `#!/bin/bash\necho "${targetVersion}" > "$( cd "$(dirname "$0")" && pwd)/VERSION"\n`);
+    chmodSync(join(installDir, 'setup'), 0o755);
+    // Initial commit + set up fake remote
+    Bun.spawnSync(['git', 'add', '-A'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'commit', '-m', 'init'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    // Create a bare remote and push to it
+    const bareDir = mkdtempSync(join(tmpdir(), 'gstack-bare-test-'));
+    Bun.spawnSync(['git', 'init', '--bare'], { cwd: bareDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'remote', 'add', 'origin', bareDir], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    // Update setup to write target version, commit, push
+    writeFileSync(join(installDir, 'VERSION'), targetVersion + '\n');
+    Bun.spawnSync(['git', 'add', '-A'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'commit', '-m', 'bump'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'push', '-u', 'origin', 'main'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' }) ||
+    Bun.spawnSync(['git', 'push', '-u', 'origin', 'master'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    // Reset local to old version to simulate "behind remote"
+    writeFileSync(join(installDir, 'VERSION'), version + '\n');
+    Bun.spawnSync(['git', 'add', '-A'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'reset', '--hard', 'HEAD~1'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    return installDir;
+  }
+
+  test('auto_upgrade: true on slow path → JUST_UPGRADED', () => {
+    const installDir = createMockInstallDir('0.3.3', '0.4.0');
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeConfig('auto_upgrade: true\n');
+
+    const { exitCode, stdout } = run({ GSTACK_INSTALL_DIR: installDir });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('JUST_UPGRADED 0.3.3 0.4.0');
+    // Cache should say UP_TO_DATE
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE');
+    // Marker should not exist (cleaned by try_auto_upgrade)
+    expect(existsSync(join(stateDir, 'just-upgraded-from'))).toBe(false);
+    rmSync(installDir, { recursive: true, force: true });
+  });
+
+  test('auto_upgrade: true on cached path → JUST_UPGRADED', () => {
+    const installDir = createMockInstallDir('0.3.3', '0.4.0');
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    // Pre-populate cache to test the cache-hit path
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeConfig('auto_upgrade: true\n');
+
+    const { exitCode, stdout } = run({ GSTACK_INSTALL_DIR: installDir });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('JUST_UPGRADED 0.3.3 0.4.0');
+    rmSync(installDir, { recursive: true, force: true });
+  });
+
+  test('auto_upgrade: false still outputs UPGRADE_AVAILABLE', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeConfig('auto_upgrade: false\n');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('auto_upgrade: true without git install dir → UPGRADE_AVAILABLE', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeConfig('auto_upgrade: true\n');
+    // Point GSTACK_INSTALL_DIR at a nonexistent path to prevent finding real install
+    const { exitCode, stdout } = run({ GSTACK_INSTALL_DIR: '/tmp/nonexistent-gstack-dir' });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('auto_upgrade: true but setup fails → UPGRADE_AVAILABLE', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'gstack-fail-test-'));
+    // Git repo but setup script that fails
+    Bun.spawnSync(['git', 'init'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'config', 'user.email', 'test@test.com'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'config', 'user.name', 'Test'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    writeFileSync(join(installDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(installDir, 'setup'), '#!/bin/bash\nexit 1\n');
+    chmodSync(join(installDir, 'setup'), 0o755);
+    Bun.spawnSync(['git', 'add', '-A'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'commit', '-m', 'init'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    // Create bare remote
+    const bareDir = mkdtempSync(join(tmpdir(), 'gstack-bare-fail-'));
+    Bun.spawnSync(['git', 'init', '--bare'], { cwd: bareDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'remote', 'add', 'origin', bareDir], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'push', '-u', 'origin', 'main'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' }) ||
+    Bun.spawnSync(['git', 'push', '-u', 'origin', 'master'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeConfig('auto_upgrade: true\n');
+
+    const { exitCode, stdout } = run({ GSTACK_INSTALL_DIR: installDir });
+    expect(exitCode).toBe(0);
+    // Should fall through to UPGRADE_AVAILABLE since self-upgrade failed
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    rmSync(installDir, { recursive: true, force: true });
+    rmSync(bareDir, { recursive: true, force: true });
+  });
+
+  test('auto_upgrade with snooze: auto-upgrade takes priority', () => {
+    const installDir = createMockInstallDir('0.3.3', '0.4.0');
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    writeConfig('auto_upgrade: true\n');
+    // Snooze is active but auto_upgrade should take priority
+    writeSnooze('0.4.0', 1, nowEpoch() - 60);
+
+    const { exitCode, stdout } = run({ GSTACK_INSTALL_DIR: installDir });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('JUST_UPGRADED 0.3.3 0.4.0');
+    rmSync(installDir, { recursive: true, force: true });
+  });
+
+  test('auto_upgrade: dirty install dir → UPGRADE_AVAILABLE', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'gstack-dirty-test-'));
+    Bun.spawnSync(['git', 'init'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'config', 'user.email', 'test@test.com'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'config', 'user.name', 'Test'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    writeFileSync(join(installDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(installDir, 'setup'), '#!/bin/bash\necho "0.4.0" > VERSION\n');
+    chmodSync(join(installDir, 'setup'), 0o755);
+    Bun.spawnSync(['git', 'add', '-A'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    Bun.spawnSync(['git', 'commit', '-m', 'init'], { cwd: installDir, stdout: 'pipe', stderr: 'pipe' });
+    // Make working tree dirty
+    writeFileSync(join(installDir, 'dirty-file.txt'), 'local change\n');
+
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeConfig('auto_upgrade: true\n');
+
+    const { exitCode, stdout } = run({ GSTACK_INSTALL_DIR: installDir });
+    expect(exitCode).toBe(0);
+    // Should fall through since install dir is dirty
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+    // Dirty file should still exist (not destroyed)
+    expect(existsSync(join(installDir, 'dirty-file.txt'))).toBe(true);
+    rmSync(installDir, { recursive: true, force: true });
+  });
 
   test('UP_TO_DATE cache expires after 60 min (not 720)', () => {
     writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
