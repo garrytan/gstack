@@ -1,0 +1,12 @@
+name: Security Policy
+on: [push, pull_request]
+
+jobs:
+  security-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Run security policy checks
+        run: bun run security:check

@@ -14,6 +14,7 @@
     "stack:health": "bun run scripts/stack-health.ts",
     "stack:health:json": "bun run scripts/stack-health.ts --json",
     "stack:health:strict": "bun run scripts/stack-health.ts --strict-warnings",
+    "security:check": "bun test test/audit-compliance.test.ts && bun run stack:health --only audit-compliance",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
     "test": "bun test browse/test/ test/ --ignore 'test/skill-e2e-*.test.ts' --ignore test/skill-llm-eval.test.ts --ignore test/skill-routing-e2e.test.ts --ignore test/codex-e2e.test.ts --ignore test/gemini-e2e.test.ts",

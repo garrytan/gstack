@@ -2,8 +2,14 @@
 
 ARG BASE_IMAGE=mcr.microsoft.com/playwright:v1.58.2-noble
 ARG BUN_VERSION=1.3.10
+ARG BUN_INSTALL_SHA=bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd
 
 FROM ${BASE_IMAGE} AS base
+
+ARG BUN_VERSION
+ARG BUN_INSTALL_SHA
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/root \
@@ -47,7 +53,18 @@ exec "$@"
 EOF
 RUN chmod +x /usr/local/bin/gstack-container-init
 
-RUN curl -fsSL https://bun.sh/install | BUN_VERSION=${BUN_VERSION} bash
+RUN tmpfile="$(mktemp)" \
+        && curl -fsSL https://bun.sh/install -o "$tmpfile" \
+        && actual_sha="$(sha256sum "$tmpfile" | awk '{print $1}')" \
+        && if [ "$actual_sha" != "$BUN_INSTALL_SHA" ]; then \
+                echo "ERROR: bun install script checksum mismatch" >&2; \
+                echo "  expected: $BUN_INSTALL_SHA" >&2; \
+                echo "  got:      $actual_sha" >&2; \
+                rm -f "$tmpfile"; \
+                exit 1; \
+            fi \
+        && BUN_VERSION="${BUN_VERSION}" bash "$tmpfile" \
+        && rm -f "$tmpfile"
 RUN bun install -g @anthropic-ai/claude-code
 
 WORKDIR /workspace

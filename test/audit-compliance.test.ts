@@ -168,4 +168,48 @@ describe('Audit compliance', () => {
     expect(dockerignore).toContain('.claude');
     expect(dockerignore).toContain('.codex');
   });
+
+  test('dockerfiles use checksum-verified Bun install instead of curl piping into bash', () => {
+    const runtimeDockerfile = readFileSync(join(ROOT, 'Dockerfile'), 'utf-8');
+    const ciDockerfile = readFileSync(join(ROOT, '.github', 'docker', 'Dockerfile.ci'), 'utf-8');
+
+    for (const content of [runtimeDockerfile, ciDockerfile]) {
+      expect(content).toContain('BUN_INSTALL_SHA');
+      expect(content).toContain('sha256sum');
+      expect(content).toContain('curl -fsSL https://bun.sh/install -o "$tmpfile"');
+      expect(content).not.toContain('curl -fsSL https://bun.sh/install |');
+    }
+  });
+
+  test('eval workflows mask provider secrets and keep artifact retention short', () => {
+    const evalsWorkflow = readFileSync(join(ROOT, '.github', 'workflows', 'evals.yml'), 'utf-8');
+    const periodicWorkflow = readFileSync(join(ROOT, '.github', 'workflows', 'evals-periodic.yml'), 'utf-8');
+
+    for (const content of [evalsWorkflow, periodicWorkflow]) {
+      expect(content).toContain('name: Mask provider secrets');
+      expect(content).toContain('::add-mask::');
+      expect(content).toContain('retention-days: 14');
+    }
+  });
+
+  test('readme documents published-image usage without a full repo clone', () => {
+    const readme = readFileSync(join(ROOT, 'README.md'), 'utf-8');
+
+    expect(readme).toContain('Use The Published Image Without Cloning gstack');
+    expect(readme).toContain('You do not need a full checkout of this repo to use the published container.');
+    expect(readme).toContain('Keep local-only state out of git:');
+  });
+
+  test('security check entrypoints exist in package, make, and CI', () => {
+    const packageJson = readFileSync(join(ROOT, 'package.json'), 'utf-8');
+    const makefile = readFileSync(join(ROOT, 'Makefile'), 'utf-8');
+    const workflow = readFileSync(join(ROOT, '.github', 'workflows', 'security-policy.yml'), 'utf-8');
+
+    expect(packageJson).toContain('"security:check"');
+    expect(packageJson).toContain('bun run stack:health --only audit-compliance');
+    expect(makefile).toContain('security_check:');
+    expect(makefile).toContain('bun run security:check');
+    expect(workflow).toContain('name: Security Policy');
+    expect(workflow).toContain('bun run security:check');
+  });
 });

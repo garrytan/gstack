@@ -73,7 +73,8 @@ help:
 	@echo "  3) Explore:        make it_explore"
 	@echo "  4) Claude:         make it_claude"
 	@echo "  5) Health check:   make health_check"
-	@echo "  6) Push to GHCR:   make it_build_multi_arch_push_GHCR"
+	@echo "  6) Security check: make security_check"
+	@echo "  7) Push to GHCR:   make it_build_multi_arch_push_GHCR"
 	@echo ""
 	@echo "Auth runtime:"
 	@echo "  - Uses $(AUTH_ENV_FILE) when present"
@@ -228,6 +229,9 @@ test:
 
 test_fresh:
 	$(CONTAINER_RUNTIME) run $(DOCKER_RUN_BASE_ARGS) $(IMAGE_NAME):$(IMAGE_TAG) bash -lc '$(TEST_COMMAND)'
+
+security_check:
+	bun run security:check
 
 # ---------------------------------------------------------------------------
 # Stack health workflow
@@ -424,7 +428,7 @@ hotfix_and_push_GHCR: hotfix_finish
 	minor_release patch_release major_release hotfix \
 	release_finish hotfix_finish \
 	release_and_push_GHCR hotfix_and_push_GHCR \
-	test test_fresh
+	test test_fresh security_check
 
 # ---------------------------------------------------------------------------
 # Interactive release entrypoint
