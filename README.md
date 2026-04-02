@@ -28,7 +28,7 @@ Originally created by [Garry Tan](https://github.com/garrytan/gstack). This fork
 
 Open Claude Code and paste this. Claude does the rest.
 
-> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/jeffdhooton/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /build, /orch, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn. Then ask the user if they also want to add gstack to the current project so teammates get it.
+> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/jeffdhooton/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /build, /orch, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn, /index, /inbox. Then ask the user if they also want to add gstack to the current project so teammates get it.
 
 ### Step 2: Add to your repo so teammates get it (optional)
 
@@ -167,6 +167,8 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/setup-browser-cookies` | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | `/autoplan` | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
 | `/learn` | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns, pitfalls, and preferences. Learnings compound across sessions so gstack gets smarter on your codebase over time. |
+| `/index` | **Codebase Cartographer** | Generate a compact codebase index that replaces 50K+ tokens of exploration per conversation. Auto-detects any framework (Laravel, Rails, Next.js, Django, Go, Rust, etc.) and maps routes, models, lib exports, pages, components, and config into small `.ai-codex/` reference files. Updates CLAUDE.md so every future session loads the index automatically. Auto-installs a git pre-commit hook to keep the index fresh. |
+| `/inbox` | **Session Coordinator** | Cross-session messaging. Send messages between concurrent Claude Code sessions — completion notifications, work handoffs, questions, status checks. Structured message types (`unblock`, `handoff`, `question`, `info`) tell the receiver what to do. Target specific projects or broadcast to all. Work claims prevent double-booking. |
 
 ### Power tools
 
@@ -196,6 +198,10 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 **Multi-AI second opinion.** `/codex` gets an independent review from OpenAI's Codex CLI. When both `/review` (Claude) and `/codex` (OpenAI) have reviewed the same branch, you get a cross-model analysis showing which findings overlap and which are unique to each.
 
 **Safety guardrails on demand.** `/careful` warns before destructive commands. `/freeze` locks edits to one directory. `/guard` activates both. `/investigate` auto-freezes to the module being investigated.
+
+**Codebase index.** `/index` generates compact reference files (routes, models, pages, components, lib exports, config) that replace 50K+ tokens of AI exploration per conversation. Works with any framework. A standalone `gstack-reindex` script keeps the index fresh via git pre-commit hook — zero cost, ~1s.
+
+**Cross-session messaging.** `/inbox` lets concurrent Claude Code sessions talk to each other. Structured message types (`unblock`, `handoff`, `question`, `info`) with project-level targeting. A PreToolUse hook surfaces new messages inline so sessions never miss a notification. Work claims prevent double-booking.
 
 ## Parallel execution
 
@@ -257,7 +263,7 @@ Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-desig
 /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy,
 /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review,
 /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex,
-/cso, /autoplan, /build, /orch, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn.
+/cso, /autoplan, /build, /orch, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn, /index, /inbox.
 ```
 
 ## License
