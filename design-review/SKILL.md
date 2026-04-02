@@ -1225,6 +1225,26 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 ---
 
+## Phase 7: Cognitive Load (S1/S2)
+
+Rate every audited screen on a System 1 ↔ System 2 scale (0-10). Ground scores in browse data already collected: element counts from `snapshot -i`, link counts from `links`, load times from `perf`.
+
+Every screen should be S1 (0-3). Exceptions: destructive actions (delete account), financial decisions, etc.
+
+Display as ASCII slider. For any screen above 3 that isn't intentional friction, name which UX laws it breaks (Fitts, Hick, Jakob, Miller, Peak-End, Von Restorff, Zeigarnik, Gestalt, Motivation) and the measurement that proves it:
+
+```
+Landing         S1 |--●-------| S2  [2/10]  ✓
+Onboarding      S1 |-●--------| S2  [1/10]  ✓
+Dashboard       S1 |-------●--| S2  [7/10]  ✗ Hick (31 items, no filter), Miller (93 data points), Gestalt (no grouping)
+Settings        S1 |----●-----| S2  [4/10]  ✗ Hick (23 toggles on one page)
+Delete Account  S1 |--------●-| S2  [8/10]  ✓ (intentional friction)
+```
+
+After the slider, list one concise issue per broken screen with the law references in parentheses. Include the slider and issues in the Phase 11 report.
+
+---
+
 ## Output Structure
 
 ```
@@ -1327,7 +1347,7 @@ Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` t
 ```
 Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
 
-## Phase 7: Triage
+## Phase 8: Triage
 
 Sort all discovered findings by impact, then decide which to fix:
 
@@ -1339,11 +1359,11 @@ Mark findings that cannot be fixed from source code (e.g., third-party widget is
 
 ---
 
-## Phase 8: Fix Loop
+## Phase 9: Fix Loop
 
 For each fixable finding, in impact order:
 
-### 8a. Locate source
+### 9a. Locate source
 
 ```bash
 # Search for CSS classes, component names, style files
@@ -1354,7 +1374,7 @@ For each fixable finding, in impact order:
 - ONLY modify files directly related to the finding
 - Prefer CSS/styling changes over structural component changes
 
-### 8a.5. Target Mockup (if DESIGN_READY)
+### 9a.5. Target Mockup (if DESIGN_READY)
 
 If the gstack designer is available and the finding involves visual layout, hierarchy, or spacing (not just a CSS value fix like wrong color or font-size), generate a target mockup showing what the corrected version should look like:
 
@@ -1366,7 +1386,7 @@ Show the user: "Here's the current state (screenshot) and here's what it should 
 
 This step is optional — skip for trivial CSS fixes (wrong hex color, missing padding value). Use it for findings where the intended design isn't obvious from the description alone.
 
-### 8b. Fix
+### 9b. Fix
 
 - Read the source code, understand the context
 - Make the **minimal fix** — smallest change that resolves the design issue
@@ -1374,7 +1394,7 @@ This step is optional — skip for trivial CSS fixes (wrong hex color, missing p
 - CSS-only changes are preferred (safer, more reversible)
 - Do NOT refactor surrounding code, add features, or "improve" unrelated things
 
-### 8c. Commit
+### 9c. Commit
 
 ```bash
 git add <only-changed-files>
@@ -1384,7 +1404,7 @@ git commit -m "style(design): FINDING-NNN — short description"
 - One commit per fix. Never bundle multiple fixes.
 - Message format: `style(design): FINDING-NNN — short description`
 
-### 8d. Re-test
+### 9d. Re-test
 
 Navigate back to the affected page and verify the fix:
 
@@ -1397,13 +1417,13 @@ $B snapshot -D
 
 Take **before/after screenshot pair** for every fix.
 
-### 8e. Classify
+### 9e. Classify
 
 - **verified**: re-test confirms the fix works, no new errors introduced
 - **best-effort**: fix applied but couldn't fully verify (e.g., needs specific browser state)
 - **reverted**: regression detected → `git revert HEAD` → mark finding as "deferred"
 
-### 8e.5. Regression Test (design-review variant)
+### 9e.5. Regression Test (design-review variant)
 
 Design fixes are typically CSS-only. Only generate regression tests for fixes involving
 JavaScript behavior changes — broken dropdowns, animation failures, conditional rendering,
@@ -1411,11 +1431,11 @@ interactive state issues.
 
 For CSS-only fixes: skip entirely. CSS regressions are caught by re-running /design-review.
 
-If the fix involved JS behavior: follow the same procedure as /qa Phase 8e.5 (study existing
+If the fix involved JS behavior: follow the same procedure as /qa Phase 9e.5 (study existing
 test patterns, write a regression test encoding the exact bug condition, run it, commit if
 passes or defer if fails). Commit format: `test(design): regression test for FINDING-NNN`.
 
-### 8f. Self-Regulation (STOP AND EVALUATE)
+### 9f. Self-Regulation (STOP AND EVALUATE)
 
 Every 5 fixes (or after any revert), compute the design-fix risk level:
 
@@ -1435,7 +1455,7 @@ DESIGN-FIX RISK:
 
 ---
 
-## Phase 9: Final Design Audit
+## Phase 10: Final Design Audit
 
 After all fixes are applied:
 
@@ -1446,7 +1466,7 @@ After all fixes are applied:
 
 ---
 
-## Phase 10: Report
+## Phase 11: Report
 
 Write the report to `$REPORT_DIR` (already set up in the setup phase):
 
@@ -1476,7 +1496,7 @@ Write a one-line summary to `~/.gstack/projects/{slug}/{user}-{branch}-design-au
 
 ---
 
-## Phase 11: TODOS.md Update
+## Phase 12: TODOS.md Update
 
 If the repo has a `TODOS.md`:
 
@@ -1514,7 +1534,7 @@ already knows. A good test: would this insight save time in a future session? If
 
 11. **Clean working tree required.** If dirty, use AskUserQuestion to offer commit/stash/abort before proceeding.
 12. **One commit per fix.** Never bundle multiple design fixes into one commit.
-13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
+13. **Only modify tests when generating regression tests in Phase 9e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
 14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
 15. **Self-regulate.** Follow the design-fix risk heuristic. When in doubt, stop and ask.
 16. **CSS-first.** Prefer CSS/styling changes over structural component changes. CSS-only changes are safer and more reversible.
