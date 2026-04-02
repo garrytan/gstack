@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.17.0.0] - 2026-04-02 — Cross-Session Inbox
+
+Your Claude Code sessions can now talk to each other. Run `/inbox` to send messages between concurrent sessions — completion notifications, work handoffs, questions, or general updates. A lightweight PreToolUse hook surfaces new messages inline so you never miss one.
+
+### Added
+
+- **`/inbox` skill.** Send, read, claim, release, status, and clear. Structured message types (`unblock`, `handoff`, `question`, `info`) tell the receiving session exactly what to do. Target specific projects or broadcast to all sessions.
+- **Global inbox.** All sessions share `~/.gstack/inbox/` regardless of which project they're in. Messages include project/branch context so you know where they came from.
+- **PreToolUse hook.** Checks for new messages before each Bash call (~1ms when empty). Shows `[UNBLOCKED]`, `[HANDOFF]`, `[QUESTION]`, or `[INFO]` labels inline.
+- **Work claims.** Lock a task so other sessions know you're on it. Prevents double-booking across concurrent sessions.
+- **Retroactive install.** Run `gstack-inbox-install` from any terminal — no `./setup` needed. Adds the hook to `~/.claude/settings.json` directly.
+- **14 automated tests.** Hook detection, type labels, targeting filters, broadcast, malformed message safety, guaranteed exit 0.
+
 ## [0.16.0.0] - 2026-04-02 — Codebase Index
 
 Your AI assistant now skips the 50K+ token exploration phase. Run `/index` once in any project and it generates compact reference files (routes, models, pages, components, lib exports, config) that every future conversation reads instantly. Works with any framework — Laravel, Rails, Next.js, Django, Go, Rust, and more.
