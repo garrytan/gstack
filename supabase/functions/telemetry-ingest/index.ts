@@ -16,6 +16,8 @@ interface TelemetryEvent {
   duration_s?: number;
   outcome: string;
   error_class?: string;
+  error_message?: string;
+  failed_step?: string;
   used_browse?: boolean;
   sessions?: number;
   installation_id?: string;
@@ -77,6 +79,8 @@ Deno.serve(async (req) => {
         duration_s: typeof event.duration_s === "number" ? event.duration_s : null,
         outcome: String(event.outcome).slice(0, 20),
         error_class: event.error_class ? String(event.error_class).slice(0, 100) : null,
+        error_message: event.error_message ? String(event.error_message).slice(0, 500) : null,
+        failed_step: event.failed_step ? String(event.failed_step).slice(0, 100) : null,
         used_browse: event.used_browse === true,
         concurrent_sessions: typeof event.sessions === "number" ? event.sessions : 1,
         installation_id: event.installation_id ? String(event.installation_id).slice(0, 64) : null,
