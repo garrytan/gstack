@@ -18,11 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     jq \
     python3 \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /root/.claude /root/.codex /workspace
 
 RUN curl -fsSL https://bun.sh/install | BUN_VERSION=${BUN_VERSION} bash
+RUN bun install -g @anthropic-ai/claude-code
 
 WORKDIR /workspace
 

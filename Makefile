@@ -47,6 +47,7 @@ BASE_IMAGE ?= mcr.microsoft.com/playwright:v1.58.2-noble
 BUN_VERSION ?= 1.3.10
 RUN_COMMAND ?= bun run skill:check
 TEST_COMMAND ?= bun test
+EXPLORE_SHELL ?= bash
 AUTH_ENV_FILE ?= .env
 ENV_PASSTHROUGH_VARS ?= ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_BASE_URL GEMINI_BASE_URL
 ENABLE_ACCOUNT_MOUNTS ?= 1
@@ -66,7 +67,7 @@ help:
 	@echo "Usage examples:"
 	@echo "  1) Build:          make it_build"
 	@echo "  2) Run:            make it_run"
-	@echo "  3) Build + Run:    make it_build_n_run"
+	@echo "  3) Explore:        make it_explore"
 	@echo "  4) Health check:   make health_check"
 	@echo "  5) Push to GHCR:   make it_build_multi_arch_push_GHCR"
 	@echo ""
@@ -171,13 +172,15 @@ it_build_n_run_no_cache: it_build_no_cache
 	@make it_run
 
 # Run image with the current checkout bind-mounted for local development
-it_run_dev:
+it_explore:
 	$(CONTAINER_RUNTIME) run $(DOCKER_RUN_BASE_ARGS) -it \
 		-v $$(pwd):/workspace \
 		-w /workspace \
 		--name $(CONTAINER_NAME)-dev \
 		$(IMAGE_NAME):$(IMAGE_TAG) \
-		bash
+		$(EXPLORE_SHELL)
+
+it_run_dev: it_explore
 
 # Build and run tests in a fresh container
 it_build_n_test_fresh: it_build
@@ -223,15 +226,7 @@ health_note_record_hash:
 		exit 1; \
 	fi; \
 	HASH="$${HASH:-$$(git rev-parse HEAD)}"; \
-	python3 - <<PY
-from pathlib import Path
-note = Path('.stack-health/cleanup-note.md')
-content = note.read_text()
-if '- Commit hash: TODO' not in content:
-    raise SystemExit('Cleanup note does not contain the commit hash placeholder')
-note.write_text(content.replace('- Commit hash: TODO', f'- Commit hash: {"$${HASH}"}', 1))
-print(f'Updated {note} with commit hash {"$${HASH}"}')
-PY
+	python3 -c "from pathlib import Path; note = Path('.stack-health/cleanup-note.md'); content = note.read_text(); marker = '- Commit hash: TODO'; assert marker in content, 'Cleanup note does not contain the commit hash placeholder'; note.write_text(content.replace(marker, '- Commit hash: ' + '$$HASH', 1)); print(f'Updated {note} with commit hash ' + '$$HASH')"
 
 # ---------------------------------------------------------------------------
 # GHCR (GitHub Container Registry)
@@ -282,18 +277,7 @@ bump_release_version:
 		exit 1; \
 	fi
 	@echo "Bumping version to $(RELEASE_VERSION)..."
-	@python3 - <<PY
-import json
-from pathlib import Path
-
-version = '$(RELEASE_VERSION)'.lstrip('v')
-Path('VERSION').write_text(version + '\n')
-pkg_path = Path('package.json')
-pkg = json.loads(pkg_path.read_text())
-pkg['version'] = version
-pkg_path.write_text(json.dumps(pkg, indent=2) + '\n')
-print(f'Updated VERSION and package.json to {version}')
-PY
+	@python3 -c "import json; from pathlib import Path; version = '$(RELEASE_VERSION)'.lstrip('v'); Path('VERSION').write_text(version + '\\n'); pkg_path = Path('package.json'); pkg = json.loads(pkg_path.read_text()); pkg['version'] = version; pkg_path.write_text(json.dumps(pkg, indent=2) + '\\n'); print(f'Updated VERSION and package.json to {version}')"
 	@echo "Version bumped to $(RELEASE_VERSION)"
 
 # Initial release (one-time, when no tags exist yet)
@@ -400,6 +384,7 @@ hotfix_and_push_GHCR: hotfix_finish
 
 .PHONY: release help it_stop it_clean it_gone \
 	it_build it_build_no_cache it_run it_run_dev it_run_ghcr \
+	it_explore \
 	it_build_n_run it_build_n_run_no_cache it_build_n_test_fresh \
 	it_deploy ghcr_login ensure_builder it_build_multi_arch_push_GHCR \
 	health_check health_check_json health_check_strict health_note_init health_note_record_hash \
