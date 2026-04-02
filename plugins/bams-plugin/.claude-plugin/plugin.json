@@ -1,7 +1,7 @@
 {
   "name": "bams-plugin",
   "description": "조직도 기반 통합 Claude Code 플러그인 — 총괄/기획/개발/평가/QA 5부서 20에이전트",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "author": {
     "name": "Jungbam"
   },
