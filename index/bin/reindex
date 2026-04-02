@@ -1,0 +1,866 @@
+#!/usr/bin/env bun
+/**
+ * gstack-reindex — Fast, zero-cost codebase indexer.
+ *
+ * Generates compact .ai-codex/ reference files by scanning project structure.
+ * No AI needed — pure static analysis via grep/find/read.
+ *
+ * Usage:
+ *   ./reindex                    # auto-detect framework, output to .ai-codex/
+ *   ./reindex --output .codex    # custom output directory
+ *   ./reindex --hook             # git pre-commit mode (stages .ai-codex/)
+ *   ./reindex --check            # exit 1 if index is stale (CI mode)
+ *
+ * Designed to run in <2s on any project. Install as git pre-commit hook:
+ *   echo '#!/bin/sh\ngstack-reindex --hook' > .git/hooks/pre-commit
+ *   chmod +x .git/hooks/pre-commit
+ */
+
+import * as fs from "fs";
+import * as path from "path";
+import { execSync } from "child_process";
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+const ROOT = process.cwd();
+const TODAY = new Date().toISOString().slice(0, 10);
+const args = process.argv.slice(2);
+
+const FLAG_HOOK = args.includes("--hook");
+const FLAG_CHECK = args.includes("--check");
+const FLAG_QUIET = args.includes("--quiet") || args.includes("-q");
+const outputIdx = args.indexOf("--output");
+const OUTPUT_DIR = outputIdx !== -1 && args[outputIdx + 1]
+  ? path.resolve(ROOT, args[outputIdx + 1])
+  : path.resolve(ROOT, ".ai-codex");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function log(msg: string) {
+  if (!FLAG_QUIET) console.log(msg);
+}
+
+function exec(cmd: string): string {
+  try {
+    return execSync(cmd, { cwd: ROOT, encoding: "utf-8", timeout: 10000, stdio: ["pipe", "pipe", "pipe"] }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function readSafe(filePath: string): string {
+  try {
+    return fs.readFileSync(path.resolve(ROOT, filePath), "utf-8");
+  } catch {
+    return "";
+  }
+}
+
+function exists(filePath: string): boolean {
+  return fs.existsSync(path.resolve(ROOT, filePath));
+}
+
+function findFiles(pattern: string, dir = "."): string[] {
+  const result = exec(`find ${dir} -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/vendor/*" -not -path "*/dist/*" -not -path "*/.next/*" -not -path "*/build/*" ${pattern} 2>/dev/null`);
+  return result ? result.split("\n").filter(Boolean) : [];
+}
+
+function pad(str: string, len: number): string {
+  return str.length >= len ? str : str + " ".repeat(len - str.length);
+}
+
+// ---------------------------------------------------------------------------
+// Framework Detection
+// ---------------------------------------------------------------------------
+
+interface Detection {
+  lang: string;
+  framework: string;
+  schema: string[];
+}
+
+function detect(): Detection {
+  const d: Detection = { lang: "unknown", framework: "generic", schema: [] };
+
+  // Language
+  if (exists("package.json")) d.lang = "node";
+  else if (exists("composer.json")) d.lang = "php";
+  else if (exists("Gemfile")) d.lang = "ruby";
+  else if (exists("requirements.txt") || exists("pyproject.toml")) d.lang = "python";
+  else if (exists("go.mod")) d.lang = "go";
+  else if (exists("Cargo.toml")) d.lang = "rust";
+  else if (exists("mix.exs")) d.lang = "elixir";
+  else if (exists("build.gradle") || exists("pom.xml")) d.lang = "java";
+  else if (exists("pubspec.yaml")) d.lang = "dart";
+
+  // Framework
+  if (exists("artisan")) d.framework = "laravel";
+  else if (exists("config/routes.rb")) d.framework = "rails";
+  else if (exists("manage.py")) d.framework = "django";
+  else if (exists("next.config.js") || exists("next.config.mjs") || exists("next.config.ts")) d.framework = "nextjs";
+  else if (exists("nuxt.config.ts") || exists("nuxt.config.js")) d.framework = "nuxt";
+  else if (exists("svelte.config.js")) d.framework = "sveltekit";
+  else if (exists("astro.config.mjs")) d.framework = "astro";
+  else if (exists("remix.config.js")) d.framework = "remix";
+  else if (exists("angular.json")) d.framework = "angular";
+
+  // Schema
+  if (exists("prisma/schema.prisma")) d.schema.push("prisma");
+  if (findFiles('-path "*/migrations/*.php"', "database").length > 0) d.schema.push("laravel-migrations");
+  if (findFiles('-name "*.rb"', "db/migrate").length > 0) d.schema.push("rails-migrations");
+  if (findFiles('-name "models.py" -not -path "*/migrations/*"').length > 0) d.schema.push("django-models");
+
+  return d;
+}
+
+// ---------------------------------------------------------------------------
+// Routes Generator
+// ---------------------------------------------------------------------------
+
+function generateRoutes(d: Detection): string | null {
+  let lines: string[] = [];
+
+  if (d.framework === "laravel") {
+    // Try artisan route:list first (most accurate)
+    const artisanRoutes = exec("php artisan route:list --json 2>/dev/null");
+    if (artisanRoutes) {
+      try {
+        const routes = JSON.parse(artisanRoutes) as Array<{ method: string; uri: string; middleware: string; name: string }>;
+        const groups = new Map<string, typeof routes>();
+        for (const r of routes) {
+          if (r.uri === "/" || r.uri.startsWith("_")) continue;
+          const seg = r.uri.split("/")[0] || "root";
+          if (!groups.has(seg)) groups.set(seg, []);
+          groups.get(seg)!.push(r);
+        }
+        for (const [group, items] of groups) {
+          lines.push(`## ${group}`);
+          for (const r of items.slice(0, 30)) {
+            const methods = r.method.replace(/\|/g, ",");
+            const mw = r.middleware ? ` [${r.middleware.split(",").slice(0, 3).join(",")}]` : "";
+            lines.push(`${pad(methods, 14)} /${r.uri}${mw}`);
+          }
+          if (items.length > 30) lines.push(`  +${items.length - 30} more`);
+          lines.push("");
+        }
+      } catch { /* fall through to grep */ }
+    }
+
+    // Fallback: grep route files
+    if (lines.length === 0) {
+      for (const routeFile of ["routes/api.php", "routes/web.php", "routes/console.php"]) {
+        const content = readSafe(routeFile);
+        if (!content) continue;
+        const routeMatches = content.matchAll(/Route::(get|post|put|patch|delete|resource|apiResource)\s*\(\s*['"]([^'"]+)['"]/gi);
+        const fileRoutes: string[] = [];
+        for (const m of routeMatches) {
+          const method = m[1].toUpperCase();
+          const uri = m[2];
+          if (method === "RESOURCE" || method === "APIRESOURCE") {
+            fileRoutes.push(`${pad("RESOURCE", 14)} /${uri}`);
+          } else {
+            fileRoutes.push(`${pad(method, 14)} /${uri}`);
+          }
+        }
+        if (fileRoutes.length > 0) {
+          lines.push(`## ${path.basename(routeFile, ".php")}`);
+          lines.push(...fileRoutes.slice(0, 50));
+          if (fileRoutes.length > 50) lines.push(`  +${fileRoutes.length - 50} more`);
+          lines.push("");
+        }
+      }
+    }
+  } else if (d.framework === "rails") {
+    const railsRoutes = exec("rails routes 2>/dev/null | head -100");
+    if (railsRoutes) {
+      lines.push("## routes");
+      for (const line of railsRoutes.split("\n").slice(1)) { // skip header
+        const trimmed = line.trim();
+        if (trimmed) lines.push(trimmed);
+      }
+      lines.push("");
+    } else {
+      const content = readSafe("config/routes.rb");
+      if (content) {
+        lines.push("## routes.rb");
+        const routeMatches = content.matchAll(/\b(get|post|put|patch|delete|resources?)\b\s+['":]/gi);
+        for (const m of routeMatches) {
+          lines.push(`  ${m[0].trim()}`);
+        }
+        lines.push("");
+      }
+    }
+  } else if (d.framework === "nextjs") {
+    const routeFiles = findFiles('-name "route.ts" -o -name "route.js"', "app/api");
+    if (routeFiles.length > 0) {
+      const HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"];
+      const groups = new Map<string, string[]>();
+      for (const file of routeFiles) {
+        const content = readSafe(file);
+        const methods: string[] = [];
+        for (const m of HTTP_METHODS) {
+          if (new RegExp(`export\\s+(async\\s+)?function\\s+${m}\\b`).test(content)) {
+            methods.push(m);
+          }
+        }
+        if (methods.length === 0) continue;
+        let route = path.relative(path.join(ROOT, "app/api"), path.dirname(file));
+        route = "/" + route.replace(/\\/g, "/").replace(/\([^)]+\)\/?/g, "").replace(/\[\[([^\]]+)\]\]/g, ":$1").replace(/\[([^\]]+)\]/g, ":$1");
+        if (route === "/.") route = "/";
+        const seg = route.split("/")[1] || "root";
+        if (!groups.has(seg)) groups.set(seg, []);
+        groups.get(seg)!.push(`${pad(methods.join(","), 14)} /api${route}`);
+      }
+      for (const [group, items] of groups) {
+        lines.push(`## ${group}`);
+        lines.push(...items);
+        lines.push("");
+      }
+    }
+  } else if (d.framework === "django") {
+    const urlFiles = findFiles('-name "urls.py"');
+    for (const file of urlFiles.slice(0, 5)) {
+      const content = readSafe(file);
+      const matches = content.matchAll(/path\s*\(\s*['"]([^'"]*)['"]/g);
+      const routes: string[] = [];
+      for (const m of matches) {
+        routes.push(`  /${m[1]}`);
+      }
+      if (routes.length > 0) {
+        lines.push(`## ${path.relative(ROOT, file)}`);
+        lines.push(...routes);
+        lines.push("");
+      }
+    }
+  } else if (d.lang === "node") {
+    // Express/Fastify/Hono generic
+    const grepResult = exec(`grep -rn "router\\.\\(get\\|post\\|put\\|patch\\|delete\\)\\|app\\.\\(get\\|post\\|put\\|delete\\)" --include="*.ts" --include="*.js" src/ routes/ app/ 2>/dev/null | head -80`);
+    if (grepResult) {
+      lines.push("## routes");
+      for (const line of grepResult.split("\n")) {
+        const match = line.match(/:\s*(router|app)\.(get|post|put|patch|delete)\s*\(\s*['"]([^'"]+)['"]/i);
+        if (match) {
+          lines.push(`${pad(match[2].toUpperCase(), 14)} ${match[3]}`);
+        }
+      }
+      lines.push("");
+    }
+  } else if (d.lang === "go") {
+    const grepResult = exec(`grep -rn "HandleFunc\\|\\.Get(\\|\\.Post(\\|\\.Put(\\|\\.Delete(" --include="*.go" . 2>/dev/null | head -80`);
+    if (grepResult) {
+      lines.push("## routes");
+      for (const line of grepResult.split("\n")) {
+        const match = line.match(/\.(Get|Post|Put|Delete|HandleFunc)\s*\(\s*"([^"]+)"/i);
+        if (match) {
+          const method = match[1] === "HandleFunc" ? "ANY" : match[1].toUpperCase();
+          lines.push(`${pad(method, 14)} ${match[2]}`);
+        }
+      }
+      lines.push("");
+    }
+  } else if (d.lang === "python") {
+    const grepResult = exec(`grep -rn "@app\\.\\(route\\|get\\|post\\|put\\|delete\\)\\|@router\\.\\(get\\|post\\|put\\|delete\\)" --include="*.py" . 2>/dev/null | head -80`);
+    if (grepResult) {
+      lines.push("## routes");
+      for (const line of grepResult.split("\n")) {
+        const match = line.match(/@(?:app|router)\.(get|post|put|delete|route)\s*\(\s*"([^"]+)"/i);
+        if (match) {
+          lines.push(`${pad(match[1].toUpperCase(), 14)} ${match[2]}`);
+        }
+      }
+      lines.push("");
+    }
+  }
+
+  if (lines.length === 0) return null;
+  const count = lines.filter(l => !l.startsWith("##") && !l.startsWith("  +") && l.trim()).length;
+  return `# Routes (generated ${TODAY})\n# ${count} routes\n\n${lines.join("\n")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Models Generator
+// ---------------------------------------------------------------------------
+
+function generateModels(d: Detection): string | null {
+  const lines: string[] = [];
+
+  if (d.framework === "laravel") {
+    const modelFiles = findFiles('-name "*.php"', "app/Models");
+    for (const file of modelFiles) {
+      const content = readSafe(file);
+      const className = path.basename(file, ".php");
+
+      // Extract fillable
+      const fillableMatch = content.match(/\$fillable\s*=\s*\[([\s\S]*?)\]/);
+      const fields: string[] = [];
+      if (fillableMatch) {
+        const fieldMatches = fillableMatch[1].matchAll(/['"](\w+)['"]/g);
+        for (const m of fieldMatches) fields.push(m[1]);
+      }
+
+      // Extract casts (for enum detection)
+      const castsMatch = content.match(/\$casts\s*=\s*\[([\s\S]*?)\]/);
+      const enums: string[] = [];
+      if (castsMatch) {
+        const castEntries = castsMatch[1].matchAll(/['"](\w+)['"]\s*=>\s*['"]?(\w+)/g);
+        for (const m of castEntries) {
+          if (m[2].toLowerCase().includes("enum") || /^[A-Z]/.test(m[2])) {
+            enums.push(`${m[1]}(enum)`);
+          }
+        }
+      }
+
+      // Extract relationships
+      const relations: string[] = [];
+      const relMatches = content.matchAll(/function\s+(\w+)\s*\(\s*\)[\s\S]*?(?:hasMany|hasOne|belongsTo|belongsToMany|morphTo|morphMany|morphOne|hasManyThrough)\s*\(\s*([^,)]+)/g);
+      for (const m of relMatches) {
+        const relType = content.slice(content.indexOf(m[0]), content.indexOf(m[0]) + m[0].length);
+        const isMany = /hasMany|belongsToMany|morphMany|hasManyThrough/.test(relType);
+        const target = m[2].replace(/.*\\/, "").replace(/['":]/g, "").replace(/::class/, "").trim();
+        if (target) relations.push(`${target}${isMany ? "[]" : ""}`);
+      }
+
+      // Format
+      const parts = ["id(PK)"];
+      if (fields.length <= 3) {
+        parts.push(...fields);
+      } else {
+        parts.push(...fields.slice(0, 3), `+${fields.length - 3}`);
+      }
+      parts.push(...enums);
+      const relStr = relations.length > 0 ? ` -> ${relations.join(", ")}` : "";
+
+      if (fields.length > 5 || relations.length > 4) {
+        // Expanded format
+        lines.push(`## ${className}`);
+        lines.push(`  ${pad("id", 22)} PK`);
+        for (const f of fields.slice(0, 10)) {
+          const enumTag = enums.find(e => e.startsWith(f)) ? "  enum" : "";
+          lines.push(`  ${pad(f, 22)}${enumTag}`);
+        }
+        if (fields.length > 10) lines.push(`  +${fields.length - 10} more fields`);
+        if (relations.length > 0) lines.push(`  -> ${relations.join(", ")}`);
+        lines.push("");
+      } else {
+        lines.push(`**${className}** ${parts.join(" | ")}${relStr}`);
+      }
+    }
+  } else if (d.framework === "rails") {
+    const schemaContent = readSafe("db/schema.rb");
+    if (schemaContent) {
+      const tableMatches = schemaContent.matchAll(/create_table\s+"(\w+)"[\s\S]*?end/g);
+      for (const m of tableMatches) {
+        const table = m[1];
+        const block = m[0];
+        const colMatches = block.matchAll(/t\.(\w+)\s+"(\w+)"/g);
+        const cols: string[] = [];
+        for (const c of colMatches) {
+          cols.push(c[2]);
+        }
+        if (cols.length <= 4) {
+          lines.push(`**${table}** id(PK) | ${cols.join(" | ")}`);
+        } else {
+          lines.push(`**${table}** id(PK) | ${cols.slice(0, 3).join(" | ")} | +${cols.length - 3}`);
+        }
+      }
+    } else {
+      const modelFiles = findFiles('-name "*.rb"', "app/models");
+      for (const file of modelFiles) {
+        const content = readSafe(file);
+        const className = path.basename(file, ".rb").replace(/(^|_)(\w)/g, (_, __, c) => c.toUpperCase());
+        const relations: string[] = [];
+        const relMatches = content.matchAll(/(has_many|has_one|belongs_to)\s+:(\w+)/g);
+        for (const m of relMatches) {
+          relations.push(m[1] === "has_many" ? `${m[2]}[]` : m[2]);
+        }
+        const relStr = relations.length > 0 ? ` -> ${relations.join(", ")}` : "";
+        lines.push(`**${className}** id(PK)${relStr}`);
+      }
+    }
+  } else if (d.schema.includes("prisma")) {
+    const content = readSafe("prisma/schema.prisma");
+    const modelMatches = content.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\}/g);
+    for (const m of modelMatches) {
+      const name = m[1];
+      const body = m[2];
+      const fields: string[] = [];
+      const relations: string[] = [];
+
+      for (const line of body.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("@@")) continue;
+        const fieldMatch = trimmed.match(/^(\w+)\s+([\w\[\]?]+)/);
+        if (!fieldMatch) continue;
+        const [, fname, ftype] = fieldMatch;
+        if (["createdAt", "updatedAt", "deletedAt"].includes(fname)) continue;
+        const baseType = ftype.replace("[]", "").replace("?", "");
+        if (/^[A-Z]/.test(baseType) && !["String", "Int", "Float", "Boolean", "DateTime", "Json", "BigInt", "Decimal", "Bytes"].includes(baseType)) {
+          relations.push(`${baseType}${ftype.includes("[]") ? "[]" : ""}`);
+          continue;
+        }
+        if (/@id\b/.test(trimmed)) fields.push(`${fname}(PK)`);
+        else if (/@unique\b/.test(trimmed)) fields.push(`${fname}(UQ)`);
+        else if (/Id$|_id$/i.test(fname) && fname !== "id") fields.push(`${fname}(FK)`);
+      }
+
+      const relStr = relations.length > 0 ? ` -> ${relations.join(", ")}` : "";
+      if (fields.length <= 4) {
+        lines.push(`**${name}** ${fields.join(" | ")}${relStr}`);
+      } else {
+        lines.push(`## ${name}`);
+        for (const f of fields) lines.push(`  ${f}`);
+        if (relations.length > 0) lines.push(`  -> ${relations.join(", ")}`);
+        lines.push("");
+      }
+    }
+  } else if (d.framework === "django") {
+    const modelFiles = findFiles('-name "models.py" -not -path "*/migrations/*"');
+    for (const file of modelFiles) {
+      const content = readSafe(file);
+      const classMatches = content.matchAll(/class\s+(\w+)\s*\([\w.]*Model\)[\s\S]*?(?=\nclass\s|\n[^\s]|\Z)/g);
+      for (const m of classMatches) {
+        const name = m[1];
+        const block = m[0];
+        const fields: string[] = [];
+        const fieldMatches = block.matchAll(/(\w+)\s*=\s*models\.\w+Field/g);
+        for (const f of fieldMatches) fields.push(f[1]);
+        lines.push(`**${name}** ${fields.slice(0, 5).join(" | ")}${fields.length > 5 ? ` +${fields.length - 5}` : ""}`);
+      }
+    }
+  }
+
+  if (lines.length === 0) return null;
+  const count = lines.filter(l => l.startsWith("**") || l.startsWith("##")).length;
+  return `# Models (generated ${TODAY})\n# ${count} models\n\n${lines.join("\n")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Library Exports Generator
+// ---------------------------------------------------------------------------
+
+function generateLib(d: Detection): string | null {
+  const libDirs = ["lib", "src/lib", "utils", "src/utils", "helpers", "src/helpers", "services", "src/services", "support", "app/Services", "app/Actions"];
+  const activeDirs = libDirs.filter(dir => exists(dir));
+
+  if (activeDirs.length === 0 && exists("src")) activeDirs.push("src");
+  if (activeDirs.length === 0) return null;
+
+  const lines: string[] = [];
+
+  for (const dir of activeDirs) {
+    let files: string[];
+    if (d.lang === "node") {
+      files = findFiles('-name "*.ts" -o -name "*.js" -not -name "*.test.*" -not -name "*.spec.*" -not -name "*.d.ts"', dir);
+    } else if (d.lang === "php") {
+      files = findFiles('-name "*.php" -not -name "*Test.php"', dir);
+    } else if (d.lang === "python") {
+      files = findFiles('-name "*.py" -not -name "test_*" -not -name "*_test.py"', dir);
+    } else if (d.lang === "ruby") {
+      files = findFiles('-name "*.rb" -not -name "*_spec.rb" -not -name "*_test.rb"', dir);
+    } else if (d.lang === "go") {
+      files = findFiles('-name "*.go" -not -name "*_test.go"', dir);
+    } else if (d.lang === "rust") {
+      files = findFiles('-name "*.rs"', dir);
+    } else {
+      files = findFiles('-name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.rb" -o -name "*.php" -o -name "*.go"', dir);
+    }
+
+    if (files.length === 0) continue;
+
+    const dirEntries: string[] = [];
+    for (const file of files.slice(0, 30)) {
+      const content = readSafe(file);
+      const relPath = path.relative(ROOT, file);
+      const exports: string[] = [];
+
+      if (d.lang === "node") {
+        for (const line of content.split("\n")) {
+          const fnMatch = line.match(/^export\s+(?:async\s+)?function\s+(\w+)/);
+          if (fnMatch) { exports.push(`fn ${fnMatch[1]}`); continue; }
+          const arrowMatch = line.match(/^export\s+const\s+(\w+)\s*=\s*(?:async\s+)?\(/);
+          if (arrowMatch) { exports.push(`fn ${arrowMatch[1]}`); continue; }
+          const classMatch = line.match(/^export\s+class\s+(\w+)/);
+          if (classMatch) { exports.push(`class ${classMatch[1]}`); continue; }
+        }
+      } else if (d.lang === "php") {
+        const classMatch = content.match(/class\s+(\w+)/);
+        if (classMatch) exports.push(`class ${classMatch[1]}`);
+        const fnMatches = content.matchAll(/public\s+(?:static\s+)?function\s+(\w+)/g);
+        for (const m of fnMatches) {
+          if (!["__construct", "__destruct", "__get", "__set"].includes(m[1])) {
+            exports.push(`fn ${m[1]}`);
+          }
+        }
+      } else if (d.lang === "python") {
+        for (const line of content.split("\n")) {
+          const defMatch = line.match(/^def\s+(\w+)/);
+          if (defMatch && !defMatch[1].startsWith("_")) { exports.push(`fn ${defMatch[1]}`); continue; }
+          const classMatch = line.match(/^class\s+(\w+)/);
+          if (classMatch) { exports.push(`class ${classMatch[1]}`); continue; }
+        }
+      } else if (d.lang === "ruby") {
+        for (const line of content.split("\n")) {
+          const defMatch = line.match(/^\s*def\s+(self\.)?(\w+)/);
+          if (defMatch) { exports.push(`fn ${defMatch[1] || ""}${defMatch[2]}`); continue; }
+          const classMatch = line.match(/^class\s+(\w+)/);
+          if (classMatch) { exports.push(`class ${classMatch[1]}`); continue; }
+        }
+      } else if (d.lang === "go") {
+        for (const line of content.split("\n")) {
+          const fnMatch = line.match(/^func\s+([A-Z]\w*)/);
+          if (fnMatch) { exports.push(`fn ${fnMatch[1]}`); continue; }
+          const typeMatch = line.match(/^type\s+([A-Z]\w*)\s+(struct|interface)/);
+          if (typeMatch) { exports.push(`${typeMatch[2]} ${typeMatch[1]}`); continue; }
+        }
+      } else if (d.lang === "rust") {
+        for (const line of content.split("\n")) {
+          const fnMatch = line.match(/^pub\s+(?:async\s+)?fn\s+(\w+)/);
+          if (fnMatch) { exports.push(`fn ${fnMatch[1]}`); continue; }
+          const structMatch = line.match(/^pub\s+(struct|enum|trait)\s+(\w+)/);
+          if (structMatch) { exports.push(`${structMatch[1]} ${structMatch[2]}`); continue; }
+        }
+      }
+
+      if (exports.length === 0) continue;
+
+      const fileName = path.basename(relPath);
+      if (exports.length === 1) {
+        dirEntries.push(`${fileName}  ${exports[0]}`);
+      } else {
+        dirEntries.push(fileName);
+        for (const e of exports.slice(0, 4)) {
+          dirEntries.push(`  ${e}`);
+        }
+        if (exports.length > 4) dirEntries.push(`  +${exports.length - 4} more`);
+      }
+    }
+
+    if (dirEntries.length > 0) {
+      lines.push(`## ${dir}/`);
+      lines.push(...dirEntries);
+      if (files.length > 30) lines.push(`# +${files.length - 30} more files`);
+      lines.push("");
+    }
+  }
+
+  if (lines.length === 0) return null;
+  return `# Library Exports (generated ${TODAY})\n# fn=function, class=class. Type-only files omitted.\n\n${lines.join("\n")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Pages Generator
+// ---------------------------------------------------------------------------
+
+function generatePages(d: Detection): string | null {
+  const lines: string[] = [];
+
+  if (d.framework === "laravel") {
+    // Blade templates
+    const bladeFiles = findFiles('-name "*.blade.php"', "resources/views");
+    if (bladeFiles.length > 0) {
+      for (const file of bladeFiles.slice(0, 80)) {
+        const rel = path.relative(path.join(ROOT, "resources/views"), file).replace(/\.blade\.php$/, "").replace(/\//g, ".");
+        lines.push(`${pad("[blade]", 12)} ${rel}`);
+      }
+      if (bladeFiles.length > 80) lines.push(`  +${bladeFiles.length - 80} more`);
+    }
+
+    // Inertia pages (Vue/React)
+    const inertiaVue = findFiles('-name "*.vue"', "resources/js/Pages");
+    const inertiaReact = findFiles('-name "*.tsx" -o -name "*.jsx"', "resources/js/Pages");
+    const inertiaFiles = [...inertiaVue, ...inertiaReact];
+    if (inertiaFiles.length > 0) {
+      for (const file of inertiaFiles.slice(0, 80)) {
+        const rel = path.relative(path.join(ROOT, "resources/js/Pages"), file);
+        lines.push(`${pad("[inertia]", 12)} ${rel}`);
+      }
+      if (inertiaFiles.length > 80) lines.push(`  +${inertiaFiles.length - 80} more`);
+    }
+  } else if (d.framework === "nextjs") {
+    const pageFiles = findFiles('-name "page.tsx" -o -name "page.jsx" -o -name "page.ts" -o -name "page.js"', "app");
+    for (const file of pageFiles.slice(0, 80)) {
+      const content = readSafe(file);
+      const isClient = /^['"]use client['"]/.test(content.slice(0, 50).trimStart());
+      const tag = isClient ? "[client]" : "[server]";
+      let route = path.relative(path.join(ROOT, "app"), path.dirname(file));
+      route = "/" + route.replace(/\\/g, "/").replace(/\([^)]+\)\/?/g, "").replace(/\[\[([^\]]+)\]\]/g, ":$1").replace(/\[([^\]]+)\]/g, ":$1");
+      if (route === "/.") route = "/";
+      const exportMatch = content.match(/export\s+default\s+function\s+(\w+)/);
+      const name = exportMatch ? exportMatch[1] : "";
+      lines.push(`${pad(tag, 12)} ${pad(route, 40)} ${name}`);
+    }
+  } else if (d.framework === "nuxt") {
+    const pageFiles = findFiles('-name "*.vue"', "pages");
+    for (const file of pageFiles.slice(0, 80)) {
+      const rel = path.relative(path.join(ROOT, "pages"), file).replace(/\.vue$/, "").replace(/\//g, "/");
+      lines.push(`${pad("[vue]", 12)} /${rel}`);
+    }
+  } else if (d.framework === "sveltekit") {
+    const pageFiles = findFiles('-name "+page.svelte"', "src/routes");
+    for (const file of pageFiles.slice(0, 80)) {
+      let route = path.relative(path.join(ROOT, "src/routes"), path.dirname(file));
+      route = "/" + route.replace(/\\/g, "/").replace(/\([^)]+\)\/?/g, "").replace(/\[([^\]]+)\]/g, ":$1");
+      if (route === "/.") route = "/";
+      lines.push(`${pad("[svelte]", 12)} ${route}`);
+    }
+  } else if (d.framework === "rails") {
+    const viewFiles = findFiles('-name "*.erb" -o -name "*.haml" -o -name "*.slim"', "app/views");
+    for (const file of viewFiles.slice(0, 80)) {
+      const rel = path.relative(path.join(ROOT, "app/views"), file);
+      if (rel.startsWith("layouts/") || rel.startsWith("shared/")) continue;
+      lines.push(`${pad("[erb]", 12)} ${rel}`);
+    }
+  } else if (d.framework === "django") {
+    const templateDirs = ["templates", "*/templates"];
+    for (const tdir of templateDirs) {
+      const files = findFiles('-name "*.html"', tdir);
+      for (const file of files.slice(0, 80)) {
+        lines.push(`${pad("[django]", 12)} ${path.relative(ROOT, file)}`);
+      }
+    }
+  } else if (d.framework === "astro") {
+    const pageFiles = findFiles('-name "*.astro"', "src/pages");
+    for (const file of pageFiles.slice(0, 80)) {
+      const rel = path.relative(path.join(ROOT, "src/pages"), file).replace(/\.astro$/, "");
+      lines.push(`${pad("[astro]", 12)} /${rel}`);
+    }
+  }
+
+  if (lines.length === 0) return null;
+  const count = lines.filter(l => !l.startsWith("  +")).length;
+  return `# Pages (generated ${TODAY})\n# ${count} pages\n\n${lines.join("\n")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Components Generator
+// ---------------------------------------------------------------------------
+
+function generateComponents(d: Detection): string | null {
+  const compDirs = findFiles('-maxdepth 0 -type d', "").length === 0 ? [] :
+    ["components", "src/components", "app/components", "resources/js/Components"]
+      .filter(dir => exists(dir));
+
+  if (compDirs.length === 0) return null;
+
+  const UI_PRIMITIVES = new Set([
+    "accordion", "alert", "alert-dialog", "avatar", "badge", "button", "calendar",
+    "card", "checkbox", "collapsible", "command", "dialog", "drawer",
+    "dropdown-menu", "form", "hover-card", "input", "label", "menubar",
+    "navigation-menu", "popover", "progress", "radio-group", "scroll-area",
+    "select", "separator", "sheet", "skeleton", "slider", "sonner", "switch",
+    "table", "tabs", "textarea", "toast", "toaster", "toggle", "toggle-group",
+    "tooltip", "context-menu", "aspect-ratio", "resizable",
+    "breadcrumb", "carousel", "chart", "input-otp", "pagination", "sidebar",
+  ]);
+
+  const lines: string[] = [];
+
+  for (const dir of compDirs) {
+    const files = findFiles('-name "*.tsx" -o -name "*.jsx" -o -name "*.vue" -o -name "*.svelte"', dir)
+      .filter(f => !f.includes("/ui/"));
+
+    if (files.length === 0) continue;
+
+    const entries: string[] = [];
+    for (const file of files.slice(0, 40)) {
+      const baseName = path.basename(file).replace(/\.[^.]+$/, "").toLowerCase();
+      if (UI_PRIMITIVES.has(baseName)) continue;
+
+      const content = readSafe(file);
+      const isClient = /^['"]use client['"]/.test(content.slice(0, 50).trimStart());
+      const marker = isClient ? "(c) " : "    ";
+
+      // Get component name
+      let name = "";
+      const defaultMatch = content.match(/export\s+default\s+function\s+(\w+)/);
+      if (defaultMatch) name = defaultMatch[1];
+      else name = path.basename(file).replace(/\.[^.]+$/, "");
+
+      // Extract props
+      const propsMatch = content.match(/interface\s+\w*Props\w*\s*\{([^}]*)\}/s);
+      const props: string[] = [];
+      if (propsMatch) {
+        const fieldMatches = propsMatch[1].matchAll(/^\s*(\w+)\s*[?:]/gm);
+        let count = 0;
+        for (const fm of fieldMatches) {
+          if (count >= 5) break;
+          props.push(fm[1]);
+          count++;
+        }
+      }
+
+      const propsStr = props.length > 0 ? `  ${props.join(", ")}` : "";
+      entries.push(`${marker}${name}${propsStr}`);
+    }
+
+    if (entries.length > 0) {
+      lines.push(`## ${dir}/`);
+      lines.push(...entries);
+      if (files.length > 40) lines.push(`  +${files.length - 40} more`);
+      lines.push("");
+    }
+  }
+
+  if (lines.length === 0) return null;
+  const count = lines.filter(l => !l.startsWith("##") && !l.startsWith("  +") && l.trim()).length;
+  return `# Components (generated ${TODAY})\n# ${count} components. (c)=client component. UI primitives omitted.\n\n${lines.join("\n")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Config Generator
+// ---------------------------------------------------------------------------
+
+function generateConfig(d: Detection): string | null {
+  const lines: string[] = [];
+
+  // Env vars from .env.example or .env.sample (NEVER .env)
+  const envFile = exists(".env.example") ? ".env.example" : exists(".env.sample") ? ".env.sample" : null;
+  if (envFile) {
+    const content = readSafe(envFile);
+    const envVars: string[] = [];
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const match = trimmed.match(/^(\w+)=/);
+      if (match) {
+        const comment = trimmed.includes("#") ? trimmed.split("#").pop()!.trim() : "";
+        envVars.push(`${pad(match[1], 28)} ${comment ? `— ${comment}` : ""}`);
+      }
+    }
+    if (envVars.length > 0) {
+      lines.push("## Environment Variables");
+      lines.push(...envVars.slice(0, 40));
+      if (envVars.length > 40) lines.push(`  +${envVars.length - 40} more`);
+      lines.push("");
+    }
+  }
+
+  // Key config files
+  const configDirs = ["config", "src/config", ".config"];
+  const configFiles: string[] = [];
+  for (const dir of configDirs) {
+    if (!exists(dir)) continue;
+    const files = findFiles('-maxdepth 1 -type f', dir);
+    for (const file of files.slice(0, 20)) {
+      configFiles.push(path.relative(ROOT, file));
+    }
+  }
+  if (configFiles.length > 0) {
+    lines.push("## Key Config Files");
+    for (const f of configFiles) {
+      lines.push(f);
+    }
+    lines.push("");
+  }
+
+  if (lines.length === 0) return null;
+  return `# Configuration (generated ${TODAY})\n\n${lines.join("\n")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+function main() {
+  const startTime = Date.now();
+
+  log("\ngstack-reindex — fast codebase indexer\n");
+
+  const d = detect();
+  log(`  Framework:  ${d.framework} (${d.lang})`);
+  log(`  Output:     ${path.relative(ROOT, OUTPUT_DIR)}/`);
+  log("");
+
+  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+  const generators: [string, () => string | null][] = [
+    ["routes.md", () => generateRoutes(d)],
+    ["models.md", () => generateModels(d)],
+    ["lib.md", () => generateLib(d)],
+    ["pages.md", () => generatePages(d)],
+    ["components.md", () => generateComponents(d)],
+    ["config.md", () => generateConfig(d)],
+  ];
+
+  let totalLines = 0;
+  let totalFiles = 0;
+  const results: string[] = [];
+
+  for (const [filename, generator] of generators) {
+    let content: string | null;
+    try {
+      content = generator();
+    } catch (err) {
+      log(`  ${pad(filename, 20)} ERROR: ${(err as Error).message}`);
+      continue;
+    }
+
+    if (content === null) {
+      log(`  ${pad(filename, 20)} skipped`);
+      continue;
+    }
+
+    // Enforce 200-line cap
+    const contentLines = content.split("\n");
+    if (contentLines.length > 200) {
+      content = contentLines.slice(0, 198).join("\n") + `\n\n# ... truncated (${contentLines.length - 198} more lines)`;
+    }
+
+    const lineCount = content.split("\n").length;
+    totalLines += lineCount;
+    totalFiles++;
+
+    const outPath = path.join(OUTPUT_DIR, filename);
+    fs.writeFileSync(outPath, content, "utf-8");
+    results.push(filename);
+    log(`  ${pad(filename, 20)} ${pad(String(lineCount) + " lines", 14)}`);
+  }
+
+  // Write INDEX.md
+  if (totalFiles > 0) {
+    const indexContent = [
+      `# Codebase Index (generated ${TODAY})`,
+      `# Framework: ${d.framework} | Language: ${d.lang}`,
+      "",
+      "| File | Contents |",
+      "|------|----------|",
+      ...results.map(f => `| ${f} | ${readSafe(path.join(OUTPUT_DIR, f)).split("\n")[1]?.replace(/^#\s*/, "") || ""} |`),
+      "",
+      "Re-generate: `gstack-reindex` or run `/index` for full AI-assisted scan.",
+    ].join("\n");
+    fs.writeFileSync(path.join(OUTPUT_DIR, "INDEX.md"), indexContent, "utf-8");
+  }
+
+  const elapsed = Date.now() - startTime;
+
+  log("");
+  log(`  Total: ${totalLines} lines across ${totalFiles} files (${elapsed}ms)`);
+  log("");
+
+  // --hook mode: stage the output
+  if (FLAG_HOOK && totalFiles > 0) {
+    exec(`git add ${OUTPUT_DIR}`);
+    log("  Staged .ai-codex/ for commit.");
+  }
+
+  // --check mode: compare with existing
+  if (FLAG_CHECK) {
+    // Check if any generated file differs from what's on disk
+    // (useful for CI to enforce index freshness)
+    let stale = false;
+    for (const filename of results) {
+      const existing = readSafe(path.join(OUTPUT_DIR, filename));
+      if (!existing) { stale = true; break; }
+    }
+    if (stale) {
+      console.error("Index is stale. Run gstack-reindex to update.");
+      process.exit(1);
+    }
+  }
+}
+
+main();

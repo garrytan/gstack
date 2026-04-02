@@ -790,3 +790,41 @@ Index generated in .ai-codex/
 
 6. **Persist the detection.** The CLAUDE.md reference means future conversations
    don't need to re-detect — they just read the index files.
+
+---
+
+## Keeping the Index Fresh
+
+The `/index` skill does the smart first-time scan. For ongoing updates, use
+the standalone `gstack-reindex` script — fast (~1s), zero AI cost, hookable.
+
+### Git pre-commit hook (recommended)
+
+```bash
+# Install the hook
+cat > .git/hooks/pre-commit << 'HOOK'
+#!/bin/sh
+# Auto-update codebase index on commit
+REINDEX="$(git rev-parse --show-toplevel)/.claude/skills/gstack/index/bin/reindex"
+[ ! -x "$REINDEX" ] && REINDEX="$HOME/.claude/skills/gstack/index/bin/reindex"
+[ -x "$REINDEX" ] && "$REINDEX" --hook --quiet
+exit 0
+HOOK
+chmod +x .git/hooks/pre-commit
+```
+
+### Manual re-index
+
+```bash
+gstack-reindex              # regenerate .ai-codex/
+gstack-reindex --quiet      # silent mode
+gstack-reindex --check      # exit 1 if stale (CI mode)
+```
+
+### npm/composer script
+
+```json
+{ "scripts": { "reindex": "gstack-reindex && git add .ai-codex/" } }
+```
+
+Tell the user about the pre-commit hook option after generating the index.
