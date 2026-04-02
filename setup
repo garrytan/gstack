@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register skills with Claude Code / Codex
+# gstack setup — build browser binary + register skills with Claude Code / Copilot CLI / Codex
 set -e
 
 if ! command -v bun >/dev/null 2>&1; then
@@ -30,22 +30,25 @@ esac
 # ─── Parse flags ──────────────────────────────────────────────
 HOST="claude"
 LOCAL_INSTALL=0
+NO_BROWSER=0
+NO_BROWSER_FLAG=0
 SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, copilot, codex, kiro, factory, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
+    --no-browser|--nobrowser|--nobrowse|--no-browse) NO_BROWSER=1; NO_BROWSER_FLAG=1; shift ;;
     *) shift ;;
   esac
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, or auto)" >&2; exit 1 ;;
+  claude|copilot|codex|kiro|factory|auto) ;;
+  *) echo "Unknown --host value: $HOST (expected claude, copilot, codex, kiro, factory, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -87,20 +90,36 @@ else
   "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
 fi
 
+# ─── Resolve no-browser preference ────────────────────────────
+# Priority: CLI flag > saved config
+if [ "$NO_BROWSER_FLAG" -eq 0 ]; then
+  _saved_no_browser="$("$GSTACK_CONFIG" get no_browser 2>/dev/null || true)"
+  if [ "$_saved_no_browser" = "true" ]; then
+    NO_BROWSER=1
+  fi
+else
+  # Flag was passed explicitly — persist the choice
+  "$GSTACK_CONFIG" set no_browser "$([ "$NO_BROWSER" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
+fi
+
 # --local: install to .claude/skills/ in the current working directory
+# Copilot CLI officially supports .claude/skills and ~/.claude/skills, so it
+# shares the same lowest-friction local layout as Claude Code.
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
-  if [ "$HOST" = "codex" ]; then
-    echo "Error: --local is only supported for Claude Code (not Codex)." >&2
+  if [ "$HOST" = "codex" ] || [ "$HOST" = "kiro" ]; then
+    echo "Error: --local is only supported for Claude Code and Copilot CLI (not Codex or Kiro)." >&2
     exit 1
   fi
   INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
   mkdir -p "$INSTALL_SKILLS_DIR"
-  HOST="claude"
+  [ "$HOST" = "auto" ] && HOST="claude"
   INSTALL_CODEX=0
+  INSTALL_KIRO=0
 fi
 
 # For auto: detect which agents are installed
 INSTALL_CLAUDE=0
+INSTALL_COPILOT=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
@@ -109,12 +128,17 @@ if [ "$HOST" = "auto" ]; then
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
+  if [ "$INSTALL_CLAUDE" -eq 0 ]; then
+    command -v copilot >/dev/null 2>&1 && INSTALL_COPILOT=1
+  fi
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
+elif [ "$HOST" = "copilot" ]; then
+  INSTALL_COPILOT=1
 elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
@@ -168,32 +192,34 @@ ensure_playwright_browser() {
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
-if [ ! -x "$BROWSE_BIN" ]; then
-  NEEDS_BUILD=1
-elif [ -n "$(find "$SOURCE_GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
-  NEEDS_BUILD=1
-elif [ "$SOURCE_GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
-  NEEDS_BUILD=1
-elif [ -f "$SOURCE_GSTACK_DIR/bun.lock" ] && [ "$SOURCE_GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN" ]; then
-  NEEDS_BUILD=1
-fi
-
-if [ "$NEEDS_BUILD" -eq 1 ]; then
-  echo "Building browse binary..."
-  (
-    cd "$SOURCE_GSTACK_DIR"
-    bun install
-    bun run build
-  )
-  # Safety net: write .version if build script didn't (e.g., git not available during build)
-  if [ ! -f "$SOURCE_GSTACK_DIR/browse/dist/.version" ]; then
-    git -C "$SOURCE_GSTACK_DIR" rev-parse HEAD > "$SOURCE_GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
+if [ "$NO_BROWSER" -eq 0 ]; then
+  if [ ! -x "$BROWSE_BIN" ]; then
+    NEEDS_BUILD=1
+  elif [ -n "$(find "$SOURCE_GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
+    NEEDS_BUILD=1
+  elif [ "$SOURCE_GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
+    NEEDS_BUILD=1
+  elif [ -f "$SOURCE_GSTACK_DIR/bun.lock" ] && [ "$SOURCE_GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN" ]; then
+    NEEDS_BUILD=1
   fi
-fi
 
-if [ ! -x "$BROWSE_BIN" ]; then
-  echo "gstack setup failed: browse binary missing at $BROWSE_BIN" >&2
-  exit 1
+  if [ "$NEEDS_BUILD" -eq 1 ]; then
+    echo "Building browse binary..."
+    (
+      cd "$SOURCE_GSTACK_DIR"
+      bun install
+      bun run build
+    )
+    # Safety net: write .version if build script didn't (e.g., git not available during build)
+    if [ ! -f "$SOURCE_GSTACK_DIR/browse/dist/.version" ]; then
+      git -C "$SOURCE_GSTACK_DIR" rev-parse HEAD > "$SOURCE_GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
+    fi
+  fi
+
+  if [ ! -x "$BROWSE_BIN" ]; then
+    echo "gstack setup failed: browse binary missing at $BROWSE_BIN" >&2
+    exit 1
+  fi
 fi
 
 # 1b. Generate .agents/ Codex skill docs — always regenerate to prevent stale descriptions.
@@ -224,39 +250,43 @@ if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
 fi
 
 # 2. Ensure Playwright's Chromium is available
-if ! ensure_playwright_browser; then
-  echo "Installing Playwright Chromium..."
-  (
-    cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
-  )
-
-  if [ "$IS_WINDOWS" -eq 1 ]; then
-    # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).
-    # Ensure playwright is importable by Node from the gstack directory.
-    if ! command -v node >/dev/null 2>&1; then
-      echo "gstack setup failed: Node.js is required on Windows (Bun cannot launch Chromium due to a pipe bug)" >&2
-      echo "  Install Node.js: https://nodejs.org/" >&2
-      exit 1
-    fi
-    echo "Windows detected — verifying Node.js can load Playwright..."
+if [ "$NO_BROWSER" -eq 1 ]; then
+  echo "Skipping browser install (--no-browser)."
+else
+  if ! ensure_playwright_browser; then
+    echo "Installing Playwright Chromium..."
     (
       cd "$SOURCE_GSTACK_DIR"
-      # Bun's node_modules already has playwright; verify Node can require it
-      node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright
+      bunx playwright install chromium
     )
-  fi
-fi
 
-if ! ensure_playwright_browser; then
-  if [ "$IS_WINDOWS" -eq 1 ]; then
-    echo "gstack setup failed: Playwright Chromium could not be launched via Node.js" >&2
-    echo "  This is a known issue with Bun on Windows (oven-sh/bun#4253)." >&2
-    echo "  Ensure Node.js is installed and 'node -e \"require('playwright')\"' works." >&2
-  else
-    echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+      # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).
+      # Ensure playwright is importable by Node from the gstack directory.
+      if ! command -v node >/dev/null 2>&1; then
+        echo "gstack setup failed: Node.js is required on Windows (Bun cannot launch Chromium due to a pipe bug)" >&2
+        echo "  Install Node.js: https://nodejs.org/" >&2
+        exit 1
+      fi
+      echo "Windows detected — verifying Node.js can load Playwright..."
+      (
+        cd "$SOURCE_GSTACK_DIR"
+        # Bun's node_modules already has playwright; verify Node can require it
+        node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright
+      )
+    fi
   fi
-  exit 1
+
+  if ! ensure_playwright_browser; then
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+      echo "gstack setup failed: Playwright Chromium could not be launched via Node.js" >&2
+      echo "  This is a known issue with Bun on Windows (oven-sh/bun#4253)." >&2
+      echo "  Ensure Node.js is installed and 'node -e \"require('playwright')\"' works." >&2
+    else
+      echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+    fi
+    exit 1
+  fi
 fi
 
 # 3. Ensure ~/.gstack global state directory exists
@@ -287,7 +317,15 @@ link_claude_skill_dirs() {
       else
         link_name="$skill_name"
       fi
+
       target="$skills_dir/$link_name"
+
+      # Skip browse skill if --no-browser passed
+      if [ "$NO_BROWSER" -eq 1 ] && [ "$skill_name" = "browse" ]; then
+        [ -L "$target" ] && rm -f "$target"
+        continue
+      fi
+
       # Create or update symlink; skip if a real file/directory exists
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "gstack/$dir_name" "$target"
@@ -363,6 +401,42 @@ cleanup_prefixed_claude_symlinks() {
   fi
 }
 
+install_claude_like() {
+  local host_label="$1"
+  if [ "$SKILLS_BASENAME" = "skills" ]; then
+    # Clean up stale symlinks from the opposite prefix mode
+    if [ "$SKILL_PREFIX" -eq 1 ]; then
+      cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    else
+      cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    fi
+    # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
+    # reads the correct (patched) name: values for symlink naming
+    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
+    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    if [ "$LOCAL_INSTALL" -eq 1 ]; then
+      echo "gstack ready (project-local $host_label)."
+      echo "  skills: $INSTALL_SKILLS_DIR"
+    else
+      echo "gstack ready ($host_label)."
+      [ "$host_label" = "copilot" ] && echo "  skills: $INSTALL_SKILLS_DIR"
+    fi
+    if [ "$NO_BROWSER" -eq 0 ]; then
+      echo "  browse: $BROWSE_BIN"
+    else
+      echo "  browse: skipped (--no-browser)"
+    fi
+  else
+    echo "gstack ready ($host_label)."
+    if [ "$NO_BROWSER" -eq 0 ]; then
+      echo "  browse: $BROWSE_BIN"
+    else
+      echo "  browse: skipped (--no-browser)"
+    fi
+    echo "  (skipped skill symlinks — not inside .claude/skills/)"
+  fi
+}
+
 # ─── Helper: link generated Codex skills into a skills parent directory ──
 # Installs from .agents/skills/gstack-* (the generated Codex-format skills)
 # instead of source dirs (which have Claude paths).
@@ -389,7 +463,15 @@ link_codex_skill_dirs() {
       # browse/), not a skill. Linking it would overwrite the root gstack
       # symlink that Step 5 already pointed at the repo root.
       [ "$skill_name" = "gstack" ] && continue
+
       target="$skills_dir/$skill_name"
+
+      # Skip browse skill if --no-browser passed
+      if [ "$NO_BROWSER" -eq 1 ] && [ "$skill_name" = "gstack-browse" ]; then
+        [ -L "$target" ] && rm -f "$target"
+        continue
+      fi
+
       # Create or update symlink
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "$skill_dir" "$target"
@@ -415,6 +497,13 @@ create_agents_sidecar() {
   for asset in bin browse review qa; do
     local src="$SOURCE_GSTACK_DIR/$asset"
     local dst="$agents_gstack/$asset"
+
+    # Skip browse asset if --no-browser passed
+    if [ "$NO_BROWSER" -eq 1 ] && [ "$asset" = "browse" ]; then
+      rm -f "$dst"
+      continue
+    fi
+
     if [ -d "$src" ] || [ -f "$src" ]; then
       if [ -L "$dst" ] || [ ! -e "$dst" ]; then
         ln -snf "$src" "$dst"
@@ -451,7 +540,12 @@ create_codex_runtime_root() {
     rm -rf "$codex_gstack"
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  mkdir -p "$codex_gstack" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  if [ "$NO_BROWSER" -eq 1 ]; then
+    rm -rf "$codex_gstack/browse"
+  else
+    mkdir -p "$codex_gstack/browse"
+  fi
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     ln -snf "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
@@ -459,11 +553,13 @@ create_codex_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     ln -snf "$gstack_dir/bin" "$codex_gstack/bin"
   fi
-  if [ -d "$gstack_dir/browse/dist" ]; then
-    ln -snf "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
-  fi
-  if [ -d "$gstack_dir/browse/bin" ]; then
-    ln -snf "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+  if [ "$NO_BROWSER" -eq 0 ]; then
+    if [ -d "$gstack_dir/browse/dist" ]; then
+      ln -snf "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
+    fi
+    if [ -d "$gstack_dir/browse/bin" ]; then
+      ln -snf "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+    fi
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
@@ -550,7 +646,7 @@ link_factory_skill_dirs() {
   fi
 }
 
-# 4. Install for Claude (default)
+# 4. Install for Claude / Copilot CLI (same .claude/skills layout)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
 CODEX_REPO_LOCAL=0
@@ -559,29 +655,11 @@ if [ "$SKILLS_BASENAME" = "skills" ] && [ "$SKILLS_PARENT_BASENAME" = ".agents" 
 fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
-  if [ "$SKILLS_BASENAME" = "skills" ]; then
-    # Clean up stale symlinks from the opposite prefix mode
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    else
-      cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    fi
-    # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
-    # reads the correct (patched) name: values for symlink naming
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
-    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    if [ "$LOCAL_INSTALL" -eq 1 ]; then
-      echo "gstack ready (project-local)."
-      echo "  skills: $INSTALL_SKILLS_DIR"
-    else
-      echo "gstack ready (claude)."
-    fi
-    echo "  browse: $BROWSE_BIN"
-  else
-    echo "gstack ready (claude)."
-    echo "  browse: $BROWSE_BIN"
-    echo "  (skipped skill symlinks — not inside .claude/skills/)"
-  fi
+  install_claude_like "claude"
+fi
+
+if [ "$INSTALL_COPILOT" -eq 1 ]; then
+  install_claude_like "copilot"
 fi
 
 # 5. Install for Codex
@@ -601,7 +679,11 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
 
   echo "gstack ready (codex)."
-  echo "  browse: $BROWSE_BIN"
+  if [ "$NO_BROWSER" -eq 0 ]; then
+    echo "  browse: $BROWSE_BIN"
+  else
+    echo "  browse: skipped (--no-browser)"
+  fi
   echo "  codex skills: $CODEX_SKILLS"
 fi
 
@@ -615,10 +697,18 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   KIRO_GSTACK="$KIRO_SKILLS/gstack"
   # Remove old whole-dir symlink from previous installs
   [ -L "$KIRO_GSTACK" ] && rm -f "$KIRO_GSTACK"
-  mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
+  mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
+  if [ "$NO_BROWSER" -eq 1 ]; then
+    rm -rf "$KIRO_GSTACK/browse"
+  else
+    mkdir -p "$KIRO_GSTACK/browse"
+  fi
+
   ln -snf "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"
-  ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
-  ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
+  if [ "$NO_BROWSER" -eq 0 ]; then
+    ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
+    ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
+  fi
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
     ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
@@ -647,6 +737,13 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
       [ -f "$skill_dir/SKILL.md" ] || continue
       skill_name="$(basename "$skill_dir")"
       target_dir="$KIRO_SKILLS/$skill_name"
+
+      # Skip browse skill if --no-browser passed
+      if [ "$NO_BROWSER" -eq 1 ] && [ "$skill_name" = "gstack-browse" ]; then
+        rm -rf "$target_dir"
+        continue
+      fi
+
       mkdir -p "$target_dir"
       # Generated Codex skills use $HOME/.codex (not ~/), plus $GSTACK_ROOT variables.
       # Rewrite the default GSTACK_ROOT value and any remaining literal paths.
@@ -656,7 +753,11 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
           "$skill_dir/SKILL.md" > "$target_dir/SKILL.md"
     done
     echo "gstack ready (kiro)."
-    echo "  browse: $BROWSE_BIN"
+    if [ "$NO_BROWSER" -eq 0 ]; then
+      echo "  browse: $BROWSE_BIN"
+    else
+      echo "  browse: skipped (--no-browser)"
+    fi
     echo "  kiro skills: $KIRO_SKILLS"
   fi
 fi

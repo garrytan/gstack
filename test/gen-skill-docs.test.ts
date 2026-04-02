@@ -1978,15 +1978,22 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('ln -snf "gstack/$dir_name"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports --host auto|claude|copilot|codex|kiro', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|auto');
+    expect(setupContent).toContain('claude|copilot|codex|kiro|factory|auto');
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
+  test('auto mode detects claude, copilot, codex, and kiro binaries', () => {
     expect(setupContent).toContain('command -v claude');
+    expect(setupContent).toContain('command -v copilot');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
+  });
+
+  test('Copilot setup reuses the Claude-compatible .claude/skills layout', () => {
+    expect(setupContent).toContain('INSTALL_COPILOT=');
+    expect(setupContent).toContain('GitHub Copilot CLI officially supports .claude/skills');
+    expect(setupContent).toContain('install_claude_like "copilot"');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill

@@ -40,7 +40,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Install — 30 seconds
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
+**Requirements:** One supported host ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli), or another SKILL.md-compatible agent), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) ([Windows](#windows) only)
 
 ### Step 1: Install on your machine
 
@@ -58,6 +58,23 @@ Real files get committed to your repo (not a submodule), so `git clone` just wor
 > ```bash
 > git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
 > ```
+
+### GitHub Copilot CLI
+
+GitHub Copilot CLI officially supports skills from `.claude/skills` and
+`~/.claude/skills`, so the lowest-friction gstack install reuses the same
+Claude-compatible layout instead of introducing a separate Copilot-only tree.
+
+Install once for your user account:
+
+```bash
+git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+cd ~/.claude/skills/gstack && ./setup --host copilot
+```
+
+For repo-local installs, vendoring gstack into `.claude/skills/gstack` works with
+Copilot CLI too. Put your guidance in `AGENTS.md` or `.github/copilot-instructions.md`,
+then use `/skills reload` if Copilot is already running.
 
 ### Codex, Gemini CLI, or Cursor
 
@@ -102,6 +119,28 @@ cd ~/gstack && ./setup --host factory
 ```
 
 Skills install to `~/.factory/skills/gstack-*/`. Restart `droid` to rescan skills, then type `/qa` to get started.
+
+### Windows
+
+**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to `Node.js`. Make sure both `bun` and `node` are on your PATH.
+
+On Windows, you can use the PowerShell wrapper instead of `./setup`. It auto-installs `Node.js`, `Bun`, and `Git` via `winget` if they're missing, then delegates to `./setup` inside Git Bash. Git Bash has the same home path as Windows (unlike WSL) so the sills install when run outside Git Bash too.
+
+```powershell
+.\setup.ps1 --keep-open --auto
+#              ^          ^ Passed to setup
+#              | Handled by setup.ps1
+```
+
+The window stays open for 20 seconds after setup completes so you can read the output. Control this with flags:
+
+| Flag            | Behavior                                                 |
+| ----------------| -------------------------------------------------------- |
+| *(default)*     | Prompts "Autoclose [Y/n]" — auto-closes after 20s        |
+| `--keep-open`   | Drops to an interactive bash shell after setup completes |
+| `--auto-close`  | Closes the window immediately on completion              |
+
+All other flags (`--no-browser`, `--prefix`, `--no-prefix`, `--host`, etc.) are forwarded to `./setup`.
 
 ## See it work
 
@@ -174,7 +213,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/canary` | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures. |
 | `/benchmark` | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. |
 | `/document-release` | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
-| `/retro` | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. `/retro global` runs across all your projects and AI tools (Claude Code, Codex, Gemini). |
+| `/retro` | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. `/retro global` runs across all your projects and AI tools (Claude Code, Codex, Gemini, Copilot). |
 | `/browse` | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. `$B connect` launches your real Chrome as a headed window — watch every action live. |
 | `/setup-browser-cookies` | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | `/autoplan` | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
@@ -278,9 +317,18 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 **Want namespaced commands?** `cd ~/.claude/skills/gstack && ./setup --prefix` — switches from `/qa` to `/gstack-qa`. Useful if you run other skill packs alongside gstack.
 
+**Don't need browser features?** Pass `--no-browser` to skip building the browse binary and installing Playwright Chromium. Useful on CI, headless servers, or if you only use the non-browser skills. `/browse`, `/qa`, and `/connect-chrome` won't work without it.
+
+```bash
+./setup --no-browser          # Unix / macOS / Git Bash on Windows
+```
+
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/gstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`
 
-**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH.
+**Copilot CLI doesn't see the skills?** Run `/skills list` or `/skills reload`. If you're using the Claude-compatible install path, rerun: `cd ~/.claude/skills/gstack && ./setup --host copilot`
+
+
+**Copilot CLI doesn't see the skills?** Run `/skills list` or `/skills reload`. If you're using the Claude-compatible install path, rerun: `cd ~/.claude/skills/gstack && ./setup --host copilot`
 
 **Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a gstack section. Add this:
 
