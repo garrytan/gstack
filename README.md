@@ -317,10 +317,18 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 **Want namespaced commands?** `cd ~/.claude/skills/gstack && ./setup --prefix` — switches from `/qa` to `/gstack-qa`. Useful if you run other skill packs alongside gstack.
 
+**Don't need browser features?** Pass `--no-browser` to skip building the browse binary and installing Playwright Chromium. Useful on CI, headless servers, or if you only use the non-browser skills. `/browse`, `/qa`, and `/connect-chrome` won't work without it.
+
+```bash
+./setup --no-browser          # Unix / macOS / Git Bash on Windows
+```
+
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/gstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`
 
 **Copilot CLI doesn't see the skills?** Run `/skills list` or `/skills reload`. If you're using the Claude-compatible install path, rerun: `cd ~/.claude/skills/gstack && ./setup --host copilot`
 
+
+**Copilot CLI doesn't see the skills?** Run `/skills list` or `/skills reload`. If you're using the Claude-compatible install path, rerun: `cd ~/.claude/skills/gstack && ./setup --host copilot`
 
 **Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a gstack section. Add this:
 
