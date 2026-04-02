@@ -1,0 +1,463 @@
+---
+name: index
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Generate a compact codebase index that gives AI assistants instant context.
+  Maps routes, models, lib exports, pages/views, and components into small
+  reference files — replacing 50K+ tokens of exploration per conversation.
+  Works with any framework: Node.js, Laravel/PHP, Rails, Django, Go, Rust, etc.
+  Use when asked to "index the codebase", "generate codex", "map the project",
+  "create codebase index", or "build a project map".
+  Proactively suggest when starting work in a new or unfamiliar project,
+  or when CLAUDE.md has no codebase index section. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /index: Codebase Indexer for AI Assistants
+
+Generate compact reference files so AI assistants skip the 50K+ token
+exploration phase. Auto-detects your framework, scans intelligently,
+outputs small markdown files.
+
+---
+
+## Step 0: Check for existing index
+
+```bash
+cat CLAUDE.md 2>/dev/null | grep -A 5 "Codebase Index" || echo "NO_INDEX"
+ls .ai-codex/ 2>/dev/null || echo "NO_INDEX_DIR"
+```
+
+If an index already exists, ask the user:
+
+> Found an existing codebase index. Want me to **regenerate** it (fresh scan) or **update** it (incremental)?
+
+If no index exists, proceed to Step 1.
+
+---
+
+## Step 1: Framework Detection
+
+Detect the project's language and framework. Run these checks in parallel:
+
+```bash
+# Language markers
+[ -f package.json ] && echo "LANG:node" && cat package.json | head -50
+[ -f composer.json ] && echo "LANG:php" && cat composer.json | head -50
+[ -f Gemfile ] && echo "LANG:ruby" && cat Gemfile | head -30
+[ -f requirements.txt ] && echo "LANG:python"
+[ -f pyproject.toml ] && echo "LANG:python" && cat pyproject.toml | head -30
+[ -f go.mod ] && echo "LANG:go" && cat go.mod | head -10
+[ -f Cargo.toml ] && echo "LANG:rust" && cat Cargo.toml | head -20
+[ -f mix.exs ] && echo "LANG:elixir"
+[ -f build.gradle ] || [ -f pom.xml ] && echo "LANG:java"
+find . -maxdepth 1 -name "*.csproj" -print -quit 2>/dev/null | grep -q . && echo "LANG:dotnet"
+[ -f pubspec.yaml ] && echo "LANG:dart"
+echo "---"
+# Framework markers
+[ -f next.config.js ] || [ -f next.config.mjs ] || [ -f next.config.ts ] && echo "FW:nextjs"
+[ -f nuxt.config.ts ] || [ -f nuxt.config.js ] && echo "FW:nuxt"
+[ -f svelte.config.js ] && echo "FW:sveltekit"
+[ -f astro.config.mjs ] && echo "FW:astro"
+[ -f remix.config.js ] && echo "FW:remix"
+[ -f angular.json ] && echo "FW:angular"
+[ -f artisan ] && echo "FW:laravel"
+[ -f config/routes.rb ] && echo "FW:rails"
+[ -f manage.py ] && echo "FW:django"
+[ -f config.exs ] || [ -f mix.exs ] && grep -q "phoenix" mix.exs 2>/dev/null && echo "FW:phoenix"
+echo "---"
+# Schema markers
+[ -f prisma/schema.prisma ] && echo "SCHEMA:prisma"
+find . -path "*/migrations/*.sql" -print -quit 2>/dev/null | grep -q . && echo "SCHEMA:sql-migrations"
+find database/migrations -name "*.php" -print -quit 2>/dev/null | grep -q . && echo "SCHEMA:laravel-migrations"
+find db/migrate -name "*.rb" -print -quit 2>/dev/null | grep -q . && echo "SCHEMA:rails-migrations"
+[ -f schema.graphql ] || find . -name "*.graphql" -print -quit 2>/dev/null | grep -q . && echo "SCHEMA:graphql"
+find . -path "*/models/*.py" -not -path "*/node_modules/*" -print -quit 2>/dev/null | grep -q . && echo "SCHEMA:django-models"
+```
+
+If detection is ambiguous or nothing is found, ask via AskUserQuestion:
+
+> I couldn't auto-detect your framework. What stack is this project?
+> A) Tell me (e.g., "Laravel 11 with Inertia + Vue")
+> B) It's a monorepo — scan subdirectories separately
+> C) It's a custom/non-standard setup — I'll guide you
+
+---
+
+## Step 2: Configure Output
+
+Create the output directory:
+
+```bash
+mkdir -p .ai-codex
+```
+
+---
+
+## Step 3: Generate Index Files
+
+Based on the detected framework, generate **only the files that apply**.
+Skip any file that would be empty. Each file should be under 200 lines —
+compact enough for an AI to read in one shot.
+
+### 3a. Routes (routes.md)
+
+Map every API route with its HTTP method, path, and notable middleware/tags.
+
+**Adapt detection to the framework:**
+
+- **Laravel:** Read `routes/web.php`, `routes/api.php`, `routes/console.php`. Parse `Route::get/post/put/delete/resource/apiResource` calls. For route groups, expand the prefix.
+  ```bash
+  grep -rn "Route::" routes/ 2>/dev/null | head -100
+  # Also check for route:list if artisan is available
+  php artisan route:list --json 2>/dev/null | head -200
+  ```
+
+- **Rails:** Read `config/routes.rb`. Parse `resources`, `get/post/put/delete`, `namespace`, `scope`.
+  ```bash
+  cat config/routes.rb 2>/dev/null
+  rails routes 2>/dev/null | head -100
+  ```
+
+- **Next.js (App Router):** Scan `app/api/**/route.ts` for exported HTTP method handlers.
+  ```bash
+  find app/api -name "route.ts" -o -name "route.js" 2>/dev/null
+  ```
+
+- **Next.js (Pages Router):** Scan `pages/api/**/*.ts`.
+
+- **Express/Fastify/Hono (Node.js):** Grep for `router.get/post`, `app.get/post`, etc.
+  ```bash
+  grep -rn "router\.\(get\|post\|put\|patch\|delete\)\|app\.\(get\|post\|put\|delete\)" --include="*.ts" --include="*.js" src/ routes/ app/ 2>/dev/null | head -100
+  ```
+
+- **Django:** Read `urls.py` files. Parse `path()`, `re_path()`, `urlpatterns`.
+  ```bash
+  find . -name "urls.py" -not -path "*/node_modules/*" 2>/dev/null
+  ```
+
+- **FastAPI/Flask:** Grep for `@app.route`, `@app.get`, `@router.get`, etc.
+  ```bash
+  grep -rn "@app\.\(route\|get\|post\|put\|delete\)\|@router\.\(get\|post\|put\|delete\)" --include="*.py" . 2>/dev/null | head -100
+  ```
+
+- **Go:** Grep for `HandleFunc`, `Handle`, `r.Get`, `r.Post`, etc.
+  ```bash
+  grep -rn "HandleFunc\|\.Get(\|\.Post(\|\.Put(\|\.Delete(" --include="*.go" . 2>/dev/null | head -100
+  ```
+
+- **Phoenix (Elixir):** Read `router.ex`.
+  ```bash
+  find . -name "router.ex" 2>/dev/null
+  ```
+
+**Output format:**
+
+```markdown
+# Routes (generated YYYY-MM-DD)
+# N routes total
+
+## resource-group
+GET,POST     /api/resource [auth,db]
+GET,PUT,DEL  /api/resource/:id [auth,db]
+POST         /api/resource/:id/action [auth]
+```
+
+Group routes by the first path segment after `/api/` (or top-level resource).
+Tag with detected middleware: `auth`, `db`, `cache`, `rate-limit`, `admin`, etc.
+
+### 3b. Models / Schema (models.md)
+
+Map data models with key fields, relationships, and constraints.
+
+**Adapt to the framework:**
+
+- **Laravel (Eloquent):** Read `app/Models/*.php`. Extract `$fillable`, `$casts`, `$table`, relationship methods (`hasMany`, `belongsTo`, `belongsToMany`, `hasOne`, `morphTo`, etc.). Also read migrations for column types.
+  ```bash
+  find app/Models -name "*.php" 2>/dev/null
+  find database/migrations -name "*.php" 2>/dev/null | tail -30
+  ```
+
+- **Rails (ActiveRecord):** Read `app/models/*.rb`. Extract `has_many`, `belongs_to`, `has_one`, validations. Read `db/schema.rb` for column types.
+  ```bash
+  cat db/schema.rb 2>/dev/null | head -200
+  find app/models -name "*.rb" 2>/dev/null
+  ```
+
+- **Prisma:** Parse `prisma/schema.prisma`. Extract models, fields, relations, `@id`, `@unique`.
+  ```bash
+  cat prisma/schema.prisma 2>/dev/null
+  ```
+
+- **Django:** Read `models.py` files. Extract `class Model(models.Model)`, field types, `ForeignKey`, `ManyToManyField`.
+  ```bash
+  find . -name "models.py" -not -path "*/migrations/*" -not -path "*/node_modules/*" 2>/dev/null
+  ```
+
+- **Go (GORM/sqlc/ent):** Grep for struct definitions with `gorm:` tags or sqlc schemas.
+  ```bash
+  grep -rn "type.*struct" --include="*.go" models/ internal/models/ 2>/dev/null | head -50
+  ```
+
+- **TypeORM/Drizzle/Knex:** Read entity/schema definitions.
+  ```bash
+  find . -path "*/entities/*.ts" -o -path "*/schema/*.ts" -o -name "schema.ts" 2>/dev/null | head -20
+  ```
+
+- **SQL migrations (any framework):** If no ORM detected, read migration files for CREATE TABLE statements.
+
+**Output format:**
+
+```markdown
+# Models (generated YYYY-MM-DD)
+# N models
+
+**User** id(PK) | email(UQ) | name | role(enum) -> Post[], Comment[]
+**Post** id(PK) | userId(FK) | title | status(enum) -> User, Comment[], Tag[]
+
+## Order (complex model — expanded)
+  id              String    PK
+  userId          String    FK -> User
+  status          OrderStatus  enum(pending,paid,shipped,delivered)
+  totalCents      Int
+  -> User, OrderItem[], Payment[]
+```
+
+Small models (<=4 key fields) get one-line format.
+Complex models (5+ key fields or many relations) get expanded format.
+Skip audit fields (createdAt, updatedAt, deletedAt) unless they're unique/indexed.
+
+### 3c. Library Exports (lib.md)
+
+Map key functions, classes, and utilities with their signatures.
+
+```bash
+# Find library/utility directories
+find . -maxdepth 3 \( -name "lib" -o -name "utils" -o -name "helpers" -o -name "services" -o -name "support" \) -type d -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/vendor/*" 2>/dev/null
+```
+
+For each library directory, extract exported functions/classes:
+
+- **TypeScript/JavaScript:** Grep for `export function`, `export const`, `export class`, `export default`.
+- **PHP:** Grep for `class `, `function `, `trait `, `interface ` in non-vendor, non-test files.
+- **Python:** Grep for `def `, `class `, and `__all__` exports.
+- **Ruby:** Grep for `def `, `class `, `module `.
+- **Go:** Grep for exported functions (capitalized: `func FunctionName`).
+- **Rust:** Grep for `pub fn`, `pub struct`, `pub enum`, `pub trait`.
+
+**Output format:**
+
+```markdown
+# Library Exports (generated YYYY-MM-DD)
+# fn=function, class=class. Type-only files omitted.
+
+## lib/
+auth.ts
+  fn validateSession
+  fn requireAuth(roles)
+cart-utils.ts
+  fn calculateTotal(items)
+  fn applyDiscount(cart, code)
+  fn formatPrice(cents, currency)
+stripe.ts  fn createPaymentIntent
+```
+
+Group by directory. Single-export files get one-line format.
+Multi-export files list up to 4 exports, then `+N more`.
+Skip type-only files, test files, and generated code.
+
+### 3d. Pages / Views (pages.md)
+
+Map all pages/views with their rendering strategy and route.
+
+- **Next.js:** Scan `app/**/page.tsx` and `pages/**/*.tsx`. Tag as `[client]` or `[server]` based on `'use client'` directive.
+- **Laravel (Blade):** Scan `resources/views/**/*.blade.php`. Group by directory.
+  ```bash
+  find resources/views -name "*.blade.php" 2>/dev/null | head -80
+  ```
+- **Laravel (Inertia):** Scan `resources/js/Pages/**/*.vue` or `resources/js/Pages/**/*.tsx`.
+  ```bash
+  find resources/js/Pages -name "*.vue" -o -name "*.tsx" -o -name "*.jsx" 2>/dev/null | head -80
+  ```
+- **Rails:** Scan `app/views/**/*.erb` or `app/views/**/*.haml`.
+- **Django:** Scan `templates/**/*.html`.
+- **SvelteKit:** Scan `src/routes/**/+page.svelte`.
+- **Nuxt:** Scan `pages/**/*.vue`.
+- **Astro:** Scan `src/pages/**/*.astro`.
+
+**Output format:**
+
+```markdown
+# Pages (generated YYYY-MM-DD)
+# N pages
+
+[server]   /                    HomePage
+[client]   /products            ProductsPage
+[server]   /products/:id        ProductDetailPage
+[blade]    /admin/dashboard     admin.dashboard
+[inertia]  /settings            Settings/Index.vue
+```
+
+### 3e. Components (components.md)
+
+Map UI components with their props/parameters. Skip UI primitives
+(shadcn, radix, headless-ui base components).
+
+```bash
+# Find component directories
+find . -maxdepth 3 -name "components" -type d -not -path "*/node_modules/*" -not -path "*/vendor/*" 2>/dev/null
+```
+
+- **React/Vue/Svelte:** Extract component names and props from interface/type definitions.
+- **Blade:** Map partials and their `@props` or parameters.
+- **ERB/HAML:** Map partials.
+- **Livewire/Alpine:** Extract component classes and their public properties.
+
+**Output format:**
+
+```markdown
+# Components (generated YYYY-MM-DD)
+# (c)=client component. UI primitives omitted.
+
+## components/
+(c) CartDrawer  items, onRemove, onCheckout
+(c) ProductCard  product, onAddToCart
+    PriceDisplay  amount, currency
+(c) SearchBar  onSearch, placeholder
+```
+
+### 3f. Config Summary (config.md)
+
+Map key configuration that AI assistants need to know.
+
+```bash
+# Env vars the app expects
+cat .env.example 2>/dev/null || cat .env.sample 2>/dev/null | head -40
+# Key config files
+ls config/ 2>/dev/null | head -20
+```
+
+**Output format:**
+
+```markdown
+# Configuration (generated YYYY-MM-DD)
+
+## Environment Variables
+DATABASE_URL       — Primary database connection
+REDIS_URL          — Cache/queue backend
+API_KEY            — External service auth
+STRIPE_SECRET_KEY  — Payment processing
+
+## Key Config Files
+config/database.php    — DB connections (mysql, redis, sqlite)
+config/auth.php        — Authentication guards and providers
+config/services.php    — Third-party service credentials
+```
+
+Only include env vars from `.env.example`/`.env.sample` (never `.env` itself).
+Only list config files that exist and are meaningful.
+
+---
+
+## Step 4: Write Summary Index
+
+Create `.ai-codex/INDEX.md` as a table of contents:
+
+```markdown
+# Codebase Index (generated YYYY-MM-DD)
+# Framework: [detected framework]
+# Language: [detected language]
+
+| File | What it contains |
+|------|-----------------|
+| routes.md | N API routes grouped by resource |
+| models.md | N data models with relationships |
+| lib.md | N library exports across M files |
+| pages.md | N pages/views |
+| components.md | N components |
+| config.md | Environment vars and key config |
+
+Re-generate: run `/index` again after structural changes.
+```
+
+---
+
+## Step 5: Update CLAUDE.md
+
+Append an index reference to the project's CLAUDE.md so every future
+conversation loads the index automatically.
+
+**Check if a Codebase Index section already exists in CLAUDE.md.** If so,
+replace it. If not, append it.
+
+The section to add:
+
+```markdown
+## Codebase Index
+
+Pre-built index files are in `.ai-codex/`. Read these FIRST before exploring:
+- `.ai-codex/INDEX.md` — summary and table of contents
+- `.ai-codex/routes.md` — all API routes
+- `.ai-codex/models.md` — data models and relationships
+- `.ai-codex/lib.md` — library exports and function signatures
+- `.ai-codex/pages.md` — page/view tree
+- `.ai-codex/components.md` — component index with props
+- `.ai-codex/config.md` — environment vars and key config
+
+Generated by `/index`. Re-run after structural changes.
+```
+
+Tell the user what was generated and how many lines/tokens it saves.
+
+---
+
+## Step 6: Report
+
+Output a summary:
+
+```
+Index generated in .ai-codex/
+
+  routes.md       42 lines    12 routes
+  models.md       28 lines     8 models
+  lib.md          55 lines    23 exports
+  pages.md        18 lines    15 pages
+  components.md   31 lines    20 components
+  config.md       15 lines    10 env vars
+
+  Total: 189 lines (~1,500 tokens)
+  Estimated savings: ~50K tokens per conversation
+
+  Added reference to CLAUDE.md so all future sessions load the index.
+```
+
+---
+
+## Design Principles
+
+1. **Compact over complete.** Each file should be under 200 lines. If a section
+   would exceed that, collapse groups and add `+N more` indicators.
+
+2. **Framework-agnostic.** Never assume Next.js, Prisma, or React. Detect first,
+   adapt second, ask third.
+
+3. **Skip what doesn't apply.** No empty files. If there are no API routes,
+   don't generate routes.md.
+
+4. **Never read secrets.** Read `.env.example`, never `.env`. Read schema files,
+   never database contents.
+
+5. **Idempotent.** Running `/index` twice produces the same result. Existing
+   `.ai-codex/` contents are overwritten, not appended.
+
+6. **Persist the detection.** The CLAUDE.md reference means future conversations
+   don't need to re-detect — they just read the index files.
