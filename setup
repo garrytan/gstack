@@ -42,6 +42,7 @@ while [ $# -gt 0 ]; do
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
     --no-browser|--nobrowser|--nobrowse|--no-browse) NO_BROWSER=1; NO_BROWSER_FLAG=1; shift ;;
+    --with-browser|--withbrowser) NO_BROWSER=0; NO_BROWSER_FLAG=1; shift ;;
     *) shift ;;
   esac
 done

@@ -295,10 +295,11 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 **Want namespaced commands?** `cd ~/.claude/skills/gstack && ./setup --prefix` — switches from `/qa` to `/gstack-qa`. Useful if you run other skill packs alongside gstack.
 
-**Don't need browser features?** Pass `--no-browser` to skip building the browse binary and installing Playwright Chromium. Useful on CI, headless servers, or if you only use the non-browser skills. `/browse`, `/qa`, and `/connect-chrome` won't work without it.
+**Don't need browser features?** Pass `--no-browser` to skip building the browse binary and installing Playwright Chromium. Useful on CI, headless servers, or if you only use the non-browser skills. `/browse`, `/qa`, and `/connect-chrome` won't work without it. The choice is persisted — subsequent `./setup` runs remember it automatically. To re-enable browser support later, pass `--with-browser`.
 
 ```bash
-./setup --no-browser          # Unix / macOS / Git Bash on Windows
+./setup --no-browser          # skip browser, persisted for future runs
+./setup --with-browser        # re-enable browser after a previous --no-browser
 ```
 
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/gstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`

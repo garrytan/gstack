@@ -19,6 +19,13 @@ describe('setup --no-browser', () => {
     expect(content).toContain('NO_BROWSER=1');
   });
 
+  test('--with-browser flag re-enables browser after --no-browser', () => {
+    const content = fs.readFileSync(SETUP, 'utf-8');
+    expect(content).toContain('--with-browser|--withbrowser');
+    // --with-browser sets NO_BROWSER=0 and NO_BROWSER_FLAG=1 so it persists
+    expect(content).toMatch(/--with-browser\|--withbrowser\) NO_BROWSER=0; NO_BROWSER_FLAG=1/);
+  });
+
   test('NO_BROWSER guards browser build section', () => {
     const content = fs.readFileSync(SETUP, 'utf-8');
     // The browse build is wrapped in NO_BROWSER=0 check
