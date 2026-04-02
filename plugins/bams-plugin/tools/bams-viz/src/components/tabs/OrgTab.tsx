@@ -25,9 +25,9 @@ export function OrgTab() {
         securityLevel: 'strict',
         flowchart: {
           useMaxWidth: false,
-          nodeSpacing: 30,
-          rankSpacing: 60,
-          padding: 20,
+          nodeSpacing: 80,
+          rankSpacing: 100,
+          padding: 40,
           htmlLabels: true,
         },
       })

@@ -133,21 +133,55 @@ export function generateOrgChart(jojikdo: Jojikdo, activeAgents: string[] = []):
   }
 
   // Agent call relationships — only between departments
+  // 지시 (directive) = red solid, 협조 (cooperation) = blue dotted
   const agentCalls = jojikdo.agent_calls || DEFAULT_AGENT_CALLS
   lines.push('  %% Cross-department collaboration')
+  // linkStyle uses global edge index; ROOT-->dept edges come first
+  const rootEdgeCount = departments.length
+  const directiveIndices: number[] = []
+  const cooperationIndices: number[] = []
+  let edgeIdx = 0
   for (const [caller, callees] of Object.entries(agentCalls)) {
     if (Array.isArray(callees)) {
       for (const callee of callees) {
         const calleeId = typeof callee === 'object' ? (callee.agent_id || '') : callee
         const purpose = typeof callee === 'object' ? callee.purpose : ''
-        if (purpose) {
-          const safePurpose = purpose.replace(/["|]/g, ' ')
-          lines.push(`  ${sanitizeId(caller)} -.->|"${safePurpose}"| ${sanitizeId(calleeId)}`)
+        const safePurpose = purpose ? purpose.replace(/["|]/g, ' ') : ''
+        const isDirective = /지시|위임|실행|요청/.test(purpose || '')
+        const globalIdx = rootEdgeCount + edgeIdx
+        edgeIdx++
+
+        if (safePurpose) {
+          if (isDirective) {
+            lines.push(`  ${sanitizeId(caller)} -->|"${safePurpose}"| ${sanitizeId(calleeId)}`)
+          } else {
+            lines.push(`  ${sanitizeId(caller)} -.->|"${safePurpose}"| ${sanitizeId(calleeId)}`)
+          }
         } else {
-          lines.push(`  ${sanitizeId(caller)} -.-> ${sanitizeId(calleeId)}`)
+          if (isDirective) {
+            lines.push(`  ${sanitizeId(caller)} --> ${sanitizeId(calleeId)}`)
+          } else {
+            lines.push(`  ${sanitizeId(caller)} -.-> ${sanitizeId(calleeId)}`)
+          }
+        }
+
+        if (isDirective) {
+          directiveIndices.push(globalIdx)
+        } else {
+          cooperationIndices.push(globalIdx)
         }
       }
     }
+  }
+
+  // Apply linkStyle: directive=red, cooperation=blue
+  lines.push('')
+  lines.push('  %% Edge colors: red=지시(directive), blue=협조(cooperation)')
+  if (directiveIndices.length > 0) {
+    lines.push(`  linkStyle ${directiveIndices.join(',')} stroke:#ef4444,stroke-width:2px`)
+  }
+  if (cooperationIndices.length > 0) {
+    lines.push(`  linkStyle ${cooperationIndices.join(',')} stroke:#3b82f6,stroke-width:1.5px`)
   }
 
   lines.push('')
