@@ -1886,19 +1886,104 @@ describe('Factory generation (--host factory)', () => {
   });
 });
 
+describe('OpenCode generation (--host opencode)', () => {
+  const OPENCODE_DIR = path.join(ROOT, '.opencode', 'skills');
+
+  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'opencode'], {
+    cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+  });
+
+  const OPENCODE_SKILLS = (() => {
+    const skills: Array<{ dir: string; opencodeName: string }> = [];
+    const isSymlinkLoop = (name: string): boolean => {
+      const opencodeSkillDir = path.join(ROOT, '.opencode', 'skills', name);
+      try { return fs.realpathSync(opencodeSkillDir) === fs.realpathSync(ROOT); }
+      catch { return false; }
+    };
+    if (fs.existsSync(path.join(ROOT, 'SKILL.md.tmpl'))) {
+      if (!isSymlinkLoop('gstack')) skills.push({ dir: '.', opencodeName: 'gstack' });
+    }
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (entry.name === 'codex') continue;
+      if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
+      const opencodeName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
+      if (isSymlinkLoop(opencodeName)) continue;
+      skills.push({ dir: entry.name, opencodeName });
+    }
+    return skills;
+  })();
+
+  test('--host opencode generates correct output paths', () => {
+    for (const skill of OPENCODE_SKILLS) {
+      const skillMd = path.join(OPENCODE_DIR, skill.opencodeName, 'SKILL.md');
+      expect(fs.existsSync(skillMd)).toBe(true);
+    }
+  });
+
+  test('OpenCode frontmatter has name + description + compatibility', () => {
+    for (const skill of OPENCODE_SKILLS) {
+      const content = fs.readFileSync(path.join(OPENCODE_DIR, skill.opencodeName, 'SKILL.md'), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = content.slice(4, fmEnd);
+      expect(frontmatter).toContain('name:');
+      expect(frontmatter).toContain('description:');
+      expect(frontmatter).toContain('compatibility: opencode');
+      expect(frontmatter).not.toContain('allowed-tools:');
+      expect(frontmatter).not.toContain('version:');
+      expect(frontmatter).not.toContain('hooks:');
+    }
+  });
+
+  test('OpenCode output strips Claude skill paths and metadata sidecars', () => {
+    for (const skill of OPENCODE_SKILLS) {
+      const content = fs.readFileSync(path.join(OPENCODE_DIR, skill.opencodeName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('.claude/skills');
+      const yamlPath = path.join(OPENCODE_DIR, skill.opencodeName, 'agents', 'openai.yaml');
+      expect(fs.existsSync(yamlPath)).toBe(false);
+    }
+  });
+
+  test('OpenCode preamble uses .opencode local path and ~/.config/opencode global path', () => {
+    const content = fs.readFileSync(path.join(OPENCODE_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('GSTACK_ROOT=');
+    expect(content).toContain('$HOME/.config/opencode/skills/gstack');
+    expect(content).toContain('$_ROOT/.opencode/skills/gstack');
+    expect(content).toContain('$GSTACK_BIN/gstack-config');
+  });
+
+  test('/codex skill excluded from OpenCode output', () => {
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'gstack-codex'))).toBe(false);
+  });
+
+  test('--host opencode --dry-run freshness', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'opencode', '--dry-run'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    for (const skill of OPENCODE_SKILLS) {
+      expect(output).toContain(`FRESH: .opencode/skills/${skill.opencodeName}/SKILL.md`);
+    }
+    expect(output).not.toContain('STALE');
+  });
+});
+
 // ─── --host all tests ────────────────────────────────────────
 
 describe('--host all', () => {
-  test('--host all generates for claude, codex, and factory', () => {
+  test('--host all generates for claude, codex, factory, and opencode', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--dry-run'], {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
-    // All three hosts should appear in output
+    // All four hosts should appear in output
     expect(output).toContain('FRESH: SKILL.md');           // claude
     expect(output).toContain('FRESH: .agents/skills/');     // codex
     expect(output).toContain('FRESH: .factory/skills/');    // factory
+    expect(output).toContain('FRESH: .opencode/skills/');   // opencode
   });
 });
 
@@ -2008,14 +2093,15 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports --host auto|claude|codex|opencode|kiro', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|auto');
+    expect(setupContent).toContain('claude|codex|opencode|kiro|factory|auto');
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
+  test('auto mode detects claude, codex, opencode, and kiro binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
+    expect(setupContent).toContain('command -v opencode');
     expect(setupContent).toContain('command -v kiro-cli');
   });
 
@@ -2042,6 +2128,14 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('kiro-cli');
     expect(setupContent).toContain('KIRO_SKILLS=');
     expect(setupContent).toContain('~/.kiro/skills/gstack');
+  });
+
+  test('setup supports --host opencode with dedicated install section', () => {
+    expect(setupContent).toContain('INSTALL_OPENCODE=');
+    expect(setupContent).toContain('OPENCODE_SKILLS=');
+    expect(setupContent).toContain('create_opencode_runtime_root');
+    expect(setupContent).toContain('link_opencode_skill_dirs');
+    expect(setupContent).toContain('$HOME/.config/opencode/skills');
   });
 
   test('create_agents_sidecar links runtime assets', () => {

@@ -59,9 +59,9 @@ Real files get committed to your repo (not a submodule), so `git clone` just wor
 > git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
 > ```
 
-### Codex, Gemini CLI, or Cursor
+### Codex, OpenCode, Gemini CLI, or Cursor
 
-gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Skills live in `.agents/skills/` and are discovered automatically.
+gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Generated skills live in `.agents/skills/` or `.opencode/skills/` depending on host and are discovered automatically.
 
 Install to one repo:
 
@@ -83,6 +83,28 @@ cd ~/gstack && ./setup --host codex
 links the generated Codex skills at the top level. This avoids duplicate skill
 discovery from the source repo checkout.
 
+### OpenCode
+
+OpenCode has first-class gstack install support.
+
+Project-local install:
+
+```bash
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git .opencode/skills/gstack
+cd .opencode/skills/gstack && ./setup --host opencode
+```
+
+User-global install:
+
+```bash
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/gstack
+cd ~/gstack && ./setup --host opencode
+```
+
+`setup --host opencode` installs generated skills into `.opencode/skills/` for
+repo-local installs or `~/.config/opencode/skills/` for global installs, with the
+runtime root at `.../skills/gstack`.
+
 Or let setup auto-detect which agents you have installed:
 
 ```bash
@@ -90,7 +112,7 @@ git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/gst
 cd ~/gstack && ./setup --host auto
 ```
 
-For Codex-compatible hosts, setup now supports both repo-local installs from `.agents/skills/gstack` and user-global installs from `~/.codex/skills/gstack`. All 31 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
+For Codex-compatible hosts, setup now supports repo-local installs from `.agents/skills/gstack` plus first-class OpenCode installs from `.opencode/skills/gstack` or `~/.config/opencode/skills/gstack`. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
 
 ### Factory Droid
 

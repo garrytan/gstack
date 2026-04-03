@@ -1,4 +1,4 @@
-export type Host = 'claude' | 'codex' | 'factory';
+export type Host = 'claude' | 'codex' | 'factory' | 'opencode';
 
 export interface HostPaths {
   skillRoot: string;
@@ -26,6 +26,13 @@ export const HOST_PATHS: Record<Host, HostPaths> = {
   factory: {
     skillRoot: '$GSTACK_ROOT',
     localSkillRoot: '.factory/skills/gstack',
+    binDir: '$GSTACK_BIN',
+    browseDir: '$GSTACK_BROWSE',
+    designDir: '$GSTACK_DESIGN',
+  },
+  opencode: {
+    skillRoot: '$GSTACK_ROOT',
+    localSkillRoot: '.opencode/skills/gstack',
     binDir: '$GSTACK_BIN',
     browseDir: '$GSTACK_BROWSE',
     designDir: '$GSTACK_DESIGN',
