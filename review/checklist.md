@@ -117,6 +117,18 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 - Internal tools not distributed outside the team
 - Test-only CI changes (adding test steps, not publish steps)
 
+#### MCP Server Packaging
+When the diff adds or modifies an MCP server package (look for `glama.json`, `mcpServers` in package.json, or a `server.ts` entry point):
+
+- **`package.json` exports point to `src/` not `dist/`** — MCP registries (Glama, etc.) run Docker builds that execute the compiled output. If `"exports"` or `"main"` resolves to a `.ts` file or a `src/` path, the server will fail to start in the registry's container. Fix: change to `"./dist/index.js"` (or equivalent compiled output path). This is AUTO-FIX if the dist path is unambiguous.
+- **ESM imports missing `.js` extensions** — If `tsconfig.json` uses `"moduleResolution": "NodeNext"` or `"Node16"`, TypeScript requires all relative imports to include `.js` extensions (e.g., `import { foo } from "./foo.js"` not `"./foo"`). Using `"bundler"` moduleResolution locally can hide this because bundlers resolve extensions automatically, but Node.js ESM does not. Grep for `from "\./` in `.ts` files and flag any import missing `.js`. This is AUTO-FIX.
+- **`moduleResolution: "bundler"` on a Node.js MCP package** — `bundler` mode is correct for frontend/Vite projects but wrong for Node.js packages distributed via npm or Docker. If the package is a standalone Node.js MCP server, `tsconfig.json` should use `"module": "NodeNext"` and `"moduleResolution": "NodeNext"`. Flag if `bundler` is set on a non-frontend package. This is ASK.
+- **`glama.json` missing or malformed** — If the diff adds a Glama MCP server but no `glama.json` exists at the repo root, flag it. Required fields: `$schema` and `maintainers` array. Fix: create `glama.json` with `{"$schema": "https://glama.ai/mcp/schemas/server.json", "maintainers": ["<github-username>"]}`. This is AUTO-FIX if the GitHub username is determinable from git config.
+
+**DO NOT flag:**
+- Frontend packages using `"moduleResolution": "bundler"` — correct for that context
+- MCP packages that are consumed as libraries (not standalone servers) — Docker packaging doesn't apply
+
 ---
 
 ## Severity Classification
