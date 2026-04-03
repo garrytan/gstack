@@ -32,9 +32,10 @@ const HOST_ARG_VAL: HostArg = (() => {
   const val = HOST_ARG.includes('=') ? HOST_ARG.split('=')[1] : process.argv[process.argv.indexOf(HOST_ARG) + 1];
   if (val === 'codex' || val === 'agents') return 'codex';
   if (val === 'factory' || val === 'droid') return 'factory';
+  if (val === 'opencode' || val === 'open-code') return 'opencode';
   if (val === 'claude') return 'claude';
   if (val === 'all') return 'all';
-  throw new Error(`Unknown host: ${val}. Use claude, codex, factory, droid, agents, or all.`);
+  throw new Error(`Unknown host: ${val}. Use claude, codex, agents, factory, droid, opencode, or all.`);
 })();
 
 // For single-host mode, HOST is the host. For --host all, it's set per iteration below.
@@ -242,6 +243,7 @@ interface ExternalHostConfig {
 const EXTERNAL_HOST_CONFIG: Record<string, ExternalHostConfig> = {
   codex:   { hostSubdir: '.agents',  generateMetadata: true,  descriptionLimit: 1024 },
   factory: { hostSubdir: '.factory', generateMetadata: false },
+  opencode:{ hostSubdir: '.opencode', generateMetadata: false },
 };
 
 // ─── Template Processing ────────────────────────────────────
@@ -265,7 +267,10 @@ function processExternalHost(
   if (!config) throw new Error(`No external host config for: ${host}`);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
-  const outputDir = path.join(ROOT, config.hostSubdir, 'skills', name);
+  const externalName = host === 'opencode'
+    ? (skillDir === '.' || skillDir === '' ? 'gstack' : (frontmatterName || skillDir))
+    : name;
+  const outputDir = path.join(ROOT, config.hostSubdir, 'skills', externalName);
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
 
@@ -288,6 +293,14 @@ function processExternalHost(
   // Transform frontmatter (host-aware)
   let result = transformFrontmatter(content, host);
 
+  if (host === 'opencode') {
+    const { description } = extractNameAndDescription(content);
+    const opencodeName = frontmatterName || (skillDir === '.' ? 'gstack' : skillDir);
+    const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
+    const bodyStart = result.indexOf('\n---') + 4;
+    result = `---\nname: ${opencodeName}\ndescription: |\n${indentedDesc}\n---` + result.slice(bodyStart);
+  }
+
   // Insert safety advisory at the top of the body (after frontmatter)
   if (safetyProse) {
     const bodyStart = result.indexOf('\n---') + 4;
@@ -299,6 +312,18 @@ function processExternalHost(
   result = result.replace(/\.claude\/skills\/gstack/g, ctx.paths.localSkillRoot);
   result = result.replace(/\.claude\/skills\/review/g, `${config.hostSubdir}/skills/gstack/review`);
   result = result.replace(/\.claude\/skills/g, `${config.hostSubdir}/skills`);
+
+  if (host === 'opencode') {
+    result = result.replace(/\$GSTACK_ROOT\/([a-z0-9-]+)\/SKILL\.md/g, '$GSTACK_ROOT/$1/SKILL.md');
+    result = result.replace(/\$GSTACK_ROOT\/ETHOS\.md/g, '$GSTACK_ROOT/gstack/ETHOS.md');
+    result = result.replace(/CLAUDE\.md/g, 'AGENTS.md');
+    result = result.replace(/This tells Claude to use specialized workflows/g, 'This tells OpenCode to use specialized workflows');
+    result = result.replace(/project's CLAUDE\.md includes skill routing rules/g, "project's AGENTS.md includes skill routing rules");
+    result = result.replace(/Add routing rules to CLAUDE\.md/g, 'Add routing rules to AGENTS.md');
+    result = result.replace(/Append this section to the end of CLAUDE\.md/g, 'Append this section to the end of AGENTS.md');
+    result = result.replace(/git add CLAUDE\.md && git commit -m "chore: add gstack skill routing rules to CLAUDE\.md"/g, 'git add AGENTS.md && git commit -m "chore: add gstack skill routing rules to AGENTS.md"');
+    result = result.replace(/Check if a CLAUDE\.md file exists in the project root\. If it does not exist, create it\./g, 'Check if an AGENTS.md file exists in the project root. If it does not exist, create it.');
+  }
 
   // Factory-only: translate Claude Code tool names to generic phrasing
   if (host === 'factory') {
@@ -395,7 +420,7 @@ function findTemplates(): string[] {
   return discoverTemplates(ROOT).map(t => path.join(ROOT, t.tmpl));
 }
 
-const ALL_HOSTS: Host[] = ['claude', 'codex', 'factory'];
+const ALL_HOSTS: Host[] = ['claude', 'codex', 'factory', 'opencode'];
 const hostsToRun: Host[] = HOST_ARG_VAL === 'all' ? ALL_HOSTS : [HOST];
 const failures: { host: string; error: Error }[] = [];
 
@@ -453,7 +478,7 @@ for (const currentHost of hostsToRun) {
       console.log(`Token Budget (${currentHost} host)`);
       console.log('═'.repeat(60));
       for (const t of tokenBudget) {
-        const name = t.skill.replace(/\/SKILL\.md$/, '').replace(/^\.(agents|factory)\/skills\//, '');
+        const name = t.skill.replace(/\/SKILL\.md$/, '').replace(/^\.(agents|factory|opencode)\/skills\//, '');
         console.log(`  ${name.padEnd(30)} ${String(t.lines).padStart(5)} lines  ~${String(t.tokens).padStart(6)} tokens`);
       }
       console.log('─'.repeat(60));

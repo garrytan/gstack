@@ -44,6 +44,15 @@ describe('gstack-uninstall', () => {
       // Create mock gstack install layout
       fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'gstack'), { recursive: true });
       fs.writeFileSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'SKILL.md'), 'test');
+      const opencodeSourceRoot = path.join(tmpDir, 'opencode-source', '.opencode', 'skills');
+      fs.mkdirSync(path.join(opencodeSourceRoot, 'gstack'), { recursive: true });
+      fs.mkdirSync(path.join(opencodeSourceRoot, 'review'), { recursive: true });
+      fs.writeFileSync(path.join(opencodeSourceRoot, 'gstack', 'SKILL.md'), 'test');
+      fs.writeFileSync(path.join(opencodeSourceRoot, 'review', 'SKILL.md'), 'test');
+      fs.mkdirSync(path.join(mockHome, '.config', 'opencode', 'skills', 'gstack', 'review'), { recursive: true });
+      fs.symlinkSync(path.join(opencodeSourceRoot, 'gstack', 'SKILL.md'), path.join(mockHome, '.config', 'opencode', 'skills', 'gstack', 'SKILL.md'));
+      fs.symlinkSync(path.join(opencodeSourceRoot, 'review', 'SKILL.md'), path.join(mockHome, '.config', 'opencode', 'skills', 'gstack', 'review', 'SKILL.md'));
+      fs.symlinkSync(path.join(opencodeSourceRoot, 'review'), path.join(mockHome, '.config', 'opencode', 'skills', 'review'));
 
       // Create per-skill symlinks (both old unprefixed and new prefixed)
       fs.symlinkSync('gstack/review', path.join(mockHome, '.claude', 'skills', 'review'));
@@ -83,10 +92,12 @@ describe('gstack-uninstall', () => {
 
       // Global skill dir should be removed
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.config', 'opencode', 'skills', 'gstack'))).toBe(false);
 
       // Per-skill symlinks pointing into gstack/ should be removed
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'review'))).toBe(false);
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack-ship'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.config', 'opencode', 'skills', 'review'))).toBe(false);
 
       // Non-gstack tool should still exist
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);

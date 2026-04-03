@@ -142,6 +142,37 @@ if (fs.existsSync(FACTORY_DIR)) {
   console.log('\n  Factory Skills: .factory/skills/ not found (run: bun run gen:skill-docs --host factory)');
 }
 
+// ─── OpenCode Skills ────────────────────────────────────────
+
+const OPENCODE_DIR = path.join(ROOT, '.opencode', 'skills');
+if (fs.existsSync(OPENCODE_DIR)) {
+  console.log('\n  OpenCode Skills (.opencode/skills/):');
+  const opencodeDirs = fs.readdirSync(OPENCODE_DIR).sort();
+  let opencodeCount = 0;
+  let opencodeMissing = 0;
+  for (const dir of opencodeDirs) {
+    const skillMd = path.join(OPENCODE_DIR, dir, 'SKILL.md');
+    if (fs.existsSync(skillMd)) {
+      opencodeCount++;
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      const hasClaude = content.includes('.claude/skills') || content.includes('CLAUDE.md');
+      if (hasClaude) {
+        hasErrors = true;
+        console.log(`  ❌ ${dir.padEnd(30)} — contains Claude-specific reference`);
+      } else {
+        console.log(`  ✅ ${dir.padEnd(30)} — OK`);
+      }
+    } else {
+      opencodeMissing++;
+      hasErrors = true;
+      console.log(`  ❌ ${dir.padEnd(30)} — SKILL.md missing`);
+    }
+  }
+  console.log(`  Total: ${opencodeCount} skills, ${opencodeMissing} missing`);
+} else {
+  console.log('\n  OpenCode Skills: .opencode/skills/ not found (run: bun run gen:skill-docs --host opencode)');
+}
+
 // ─── Freshness ──────────────────────────────────────────────
 
 console.log('\n  Freshness (Claude):');
@@ -184,6 +215,20 @@ try {
     console.log(`      ${line}`);
   }
   console.log('      Run: bun run gen:skill-docs --host factory');
+}
+
+console.log('\n  Freshness (OpenCode):');
+try {
+  execSync('bun run scripts/gen-skill-docs.ts --host opencode --dry-run', { cwd: ROOT, stdio: 'pipe' });
+  console.log('  ✅ All OpenCode generated files are fresh');
+} catch (err: any) {
+  hasErrors = true;
+  const output = err.stdout?.toString() || '';
+  console.log('  ❌ OpenCode generated files are stale:');
+  for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
+    console.log(`      ${line}`);
+  }
+  console.log('      Run: bun run gen:skill-docs --host opencode');
 }
 
 console.log('');

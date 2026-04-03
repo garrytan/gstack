@@ -129,6 +129,11 @@ export class WorktreeManager {
       copyDirSync(agentsSrc, path.join(worktreePath, '.agents'));
     }
 
+    const opencodeSrc = path.join(this.repoRoot, '.opencode');
+    if (fs.existsSync(opencodeSrc)) {
+      copyDirSync(opencodeSrc, path.join(worktreePath, '.opencode'));
+    }
+
     const browseDist = path.join(this.repoRoot, 'browse', 'dist');
     if (fs.existsSync(browseDist)) {
       copyDirSync(browseDist, path.join(worktreePath, 'browse', 'dist'));

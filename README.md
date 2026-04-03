@@ -40,7 +40,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Install — 30 seconds
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
+**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [OpenCode](https://opencode.ai/), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
 
 ### Step 1: Install on your machine
 
@@ -91,6 +91,28 @@ cd ~/gstack && ./setup --host auto
 ```
 
 For Codex-compatible hosts, setup now supports both repo-local installs from `.agents/skills/gstack` and user-global installs from `~/.codex/skills/gstack`. All 31 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
+
+### OpenCode
+
+OpenCode natively reads `SKILL.md` skills from `.opencode/skills/` in a repo or `~/.config/opencode/skills/` globally. gstack generates a native OpenCode skill layout, keeps `AGENTS.md` references correct, and preserves the runtime root at `.opencode/skills/gstack` for shared assets.
+
+Install to one repo:
+
+```bash
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git .opencode/skills/gstack
+cd .opencode/skills/gstack && ./setup --host opencode
+```
+
+Install once for your user account:
+
+```bash
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/gstack
+cd ~/gstack && ./setup --host opencode
+```
+
+Global installs create the OpenCode runtime root at `~/.config/opencode/skills/gstack` and link each generated skill into `~/.config/opencode/skills/`. Repo-local installs keep everything inside `.opencode/skills/` so teammates get the same setup from git.
+
+If you use project instructions, put gstack routing rules in `AGENTS.md` instead of `CLAUDE.md`.
 
 ### Factory Droid
 

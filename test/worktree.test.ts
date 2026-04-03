@@ -23,10 +23,12 @@ function createTestRepo(): string {
   // Create initial commit so HEAD exists
   fs.writeFileSync(path.join(dir, 'README.md'), '# Test repo\n');
   // Add .gitignore matching real repo (so copied build artifacts don't appear as changes)
-  fs.writeFileSync(path.join(dir, '.gitignore'), '.agents/\nbrowse/dist/\n.gstack-worktrees/\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.agents/\n.opencode/\nbrowse/dist/\n.gstack-worktrees/\n');
   // Create a .agents directory (simulating gitignored build artifacts)
   fs.mkdirSync(path.join(dir, '.agents', 'skills'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.agents', 'skills', 'test-skill.md'), '# Test skill\n');
+  fs.mkdirSync(path.join(dir, '.opencode', 'skills', 'test-skill'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.opencode', 'skills', 'test-skill', 'SKILL.md'), '# Test skill\n');
   // Create browse/dist (simulating build artifacts)
   fs.mkdirSync(path.join(dir, 'browse', 'dist'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'browse', 'dist', 'browse'), '#!/bin/sh\necho browse\n');
@@ -76,7 +78,7 @@ describe('WorktreeManager', () => {
     mgr.cleanup('test-1');
   });
 
-  test('create() worktree has .agents/skills/ (gitignored artifacts copied)', () => {
+  test('create() worktree has .agents/skills/ and .opencode/skills/ (gitignored artifacts copied)', () => {
     const repo = createTestRepo();
     repos.push(repo);
     const mgr = new WorktreeManager(repo);
@@ -84,6 +86,7 @@ describe('WorktreeManager', () => {
     const worktreePath = mgr.create('test-agents');
 
     expect(fs.existsSync(path.join(worktreePath, '.agents', 'skills', 'test-skill.md'))).toBe(true);
+    expect(fs.existsSync(path.join(worktreePath, '.opencode', 'skills', 'test-skill', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(worktreePath, 'browse', 'dist', 'browse'))).toBe(true);
 
     mgr.cleanup('test-agents');

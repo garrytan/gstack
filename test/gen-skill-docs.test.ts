@@ -8,6 +8,26 @@ import * as os from 'os';
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
 
+function ensureGeneratedHost(host: 'codex' | 'factory' | 'opencode'): void {
+  const marker = host === 'codex'
+    ? path.join(ROOT, '.agents', 'skills', 'gstack', 'SKILL.md')
+    : host === 'factory'
+      ? path.join(ROOT, '.factory', 'skills', 'gstack', 'SKILL.md')
+      : path.join(ROOT, '.opencode', 'skills', 'gstack', 'SKILL.md');
+
+  if (fs.existsSync(marker)) return;
+
+  const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', host], {
+    cwd: ROOT,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to generate ${host} skills: ${result.stderr.toString() || result.stdout.toString()}`);
+  }
+}
+
 function extractDescription(content: string): string {
   const fmEnd = content.indexOf('\n---', 4);
   expect(fmEnd).toBeGreaterThan(0);
@@ -1058,6 +1078,8 @@ describe('DESIGN_SKETCH resolver', () => {
 
 describe('CODEX_SECOND_OPINION resolver', () => {
   const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+
+  ensureGeneratedHost('codex');
   const codexContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
 
   test('Phase 3.5 section appears in office-hours SKILL.md', () => {
@@ -1712,26 +1734,23 @@ describe('Codex generation (--host codex)', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('.claude/skills/review/checklist.md');
     expect(content).toContain('~/.claude/skills/gstack');
-    // Must NOT contain Codex paths
-    expect(content).not.toContain('.agents/skills');
+    // Must NOT contain Codex runtime paths or rewritten sidecar paths
     expect(content).not.toContain('~/.codex/');
+    expect(content).not.toContain('.agents/skills/gstack/review');
   });
 
   test('Claude output unchanged: ship skill still uses .claude/skills/ paths', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(content).toContain('~/.claude/skills/gstack');
-    expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
+    expect(content).not.toContain('.agents/skills/gstack/review');
   });
 
   test('Claude output unchanged: all Claude skills have zero Codex paths', () => {
     for (const skill of ALL_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       expect(content).not.toContain('~/.codex/');
-      // gstack-upgrade legitimately references .agents/skills for cross-platform detection
-      if (skill.dir !== 'gstack-upgrade') {
-        expect(content).not.toContain('.agents/skills');
-      }
+      expect(content).not.toContain('.agents/skills/gstack/review');
     }
   });
 
@@ -1886,19 +1905,127 @@ describe('Factory generation (--host factory)', () => {
   });
 });
 
+// ─── OpenCode generation tests ───────────────────────────────
+
+describe('OpenCode generation (--host opencode)', () => {
+  const OPENCODE_DIR = path.join(ROOT, '.opencode', 'skills');
+
+  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'opencode'], {
+    cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+  });
+
+  const OPENCODE_SKILLS = (() => {
+    const skills: Array<{ dir: string; opencodeName: string }> = [];
+    const isSymlinkLoop = (opencodeName: string): boolean => {
+      const opencodeSkillDir = path.join(ROOT, '.opencode', 'skills', opencodeName);
+      try { return fs.realpathSync(opencodeSkillDir) === fs.realpathSync(ROOT); }
+      catch { return false; }
+    };
+    if (fs.existsSync(path.join(ROOT, 'SKILL.md.tmpl'))) {
+      if (!isSymlinkLoop('gstack')) skills.push({ dir: '.', opencodeName: 'gstack' });
+    }
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (entry.name === 'codex') continue;
+      if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
+      if (isSymlinkLoop(entry.name)) continue;
+      skills.push({ dir: entry.name, opencodeName: entry.name });
+    }
+    return skills;
+  })();
+
+  test('--host opencode generates correct output paths', () => {
+    for (const skill of OPENCODE_SKILLS) {
+      const skillMd = path.join(OPENCODE_DIR, skill.opencodeName, 'SKILL.md');
+      expect(fs.existsSync(skillMd)).toBe(true);
+    }
+  });
+
+  test('OpenCode output keeps root as gstack and subdirectories unprefixed', () => {
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'gstack', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'review', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'ship', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'gstack-upgrade', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'gstack-review', 'SKILL.md'))).toBe(false);
+  });
+
+  test('OpenCode frontmatter has name + description only', () => {
+    for (const skill of OPENCODE_SKILLS) {
+      const content = fs.readFileSync(path.join(OPENCODE_DIR, skill.opencodeName, 'SKILL.md'), 'utf-8');
+      expect(content.startsWith('---\n')).toBe(true);
+      const fmEnd = content.indexOf('\n---', 4);
+      expect(fmEnd).toBeGreaterThan(0);
+      const frontmatter = content.slice(4, fmEnd);
+      expect(frontmatter).toContain(`name: ${skill.opencodeName}`);
+      expect(frontmatter).toContain('description:');
+      expect(frontmatter).not.toContain('allowed-tools:');
+      expect(frontmatter).not.toContain('version:');
+      expect(frontmatter).not.toContain('hooks:');
+    }
+  });
+
+  test('no Claude-specific paths remain in OpenCode output', () => {
+    for (const skill of OPENCODE_SKILLS) {
+      const content = fs.readFileSync(path.join(OPENCODE_DIR, skill.opencodeName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('.claude/skills');
+      expect(content).not.toContain('~/.claude/skills');
+    }
+  });
+
+  test('OpenCode output rewrites AGENTS.md references', () => {
+    const content = fs.readFileSync(path.join(OPENCODE_DIR, 'ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('AGENTS.md');
+    expect(content).not.toContain('CLAUDE.md');
+    expect(content).toContain('Add routing rules to AGENTS.md');
+  });
+
+  test('OpenCode preamble resolves runtime assets from repo-local or global gstack roots', () => {
+    const content = fs.readFileSync(path.join(OPENCODE_DIR, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('GSTACK_ROOT');
+    expect(content).toContain('$_ROOT/.opencode/skills/gstack');
+    expect(content).toContain('$GSTACK_BIN/gstack-config');
+    expect(content).toContain('$GSTACK_ROOT/gstack-upgrade/SKILL.md');
+  });
+
+  test('OpenCode sidecar paths point to .opencode/skills/gstack/review/', () => {
+    const content = fs.readFileSync(path.join(OPENCODE_DIR, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('.opencode/skills/gstack/review/checklist.md');
+    expect(content).toContain('.opencode/skills/gstack/review/design-checklist.md');
+    expect(content).not.toContain('.opencode/skills/review/checklist.md');
+  });
+
+  test('/codex skill excluded from OpenCode output', () => {
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'codex', 'SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(OPENCODE_DIR, 'codex'))).toBe(false);
+  });
+
+  test('--host opencode --dry-run freshness', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'opencode', '--dry-run'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout.toString();
+    for (const skill of OPENCODE_SKILLS) {
+      expect(output).toContain(`FRESH: .opencode/skills/${skill.opencodeName}/SKILL.md`);
+    }
+    expect(output).not.toContain('STALE');
+  });
+});
+
 // ─── --host all tests ────────────────────────────────────────
 
 describe('--host all', () => {
-  test('--host all generates for claude, codex, and factory', () => {
+  test('--host all generates for claude, codex, factory, and opencode', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--dry-run'], {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
-    // All three hosts should appear in output
+    // All hosts should appear in output
     expect(output).toContain('FRESH: SKILL.md');           // claude
     expect(output).toContain('FRESH: .agents/skills/');     // codex
     expect(output).toContain('FRESH: .factory/skills/');    // factory
+    expect(output).toContain('FRESH: .opencode/skills/');   // opencode
   });
 });
 
@@ -1921,17 +2048,40 @@ describe('setup script validation', () => {
     // The Claude install section (section 4) should use the Claude function
     const claudeSection = setupContent.slice(
       setupContent.indexOf('# 4. Install for Claude'),
-      setupContent.indexOf('# 5. Install for Codex')
+      setupContent.indexOf('# 4b. Install for OpenCode')
     );
     expect(claudeSection).toContain('link_claude_skill_dirs');
     expect(claudeSection).not.toContain('link_codex_skill_dirs');
+  });
+
+  test('OpenCode install uses OpenCode runtime root and link functions', () => {
+    const opencodeSection = setupContent.slice(
+      setupContent.indexOf('# 4b. Install for OpenCode'),
+      setupContent.indexOf('# 5. Install for Codex')
+    );
+    expect(opencodeSection).toContain('create_opencode_runtime_root');
+    expect(opencodeSection).toContain('link_opencode_skill_dirs');
+    expect(opencodeSection).toContain('OPENCODE_REPO_LOCAL');
+  });
+
+  test('create_opencode_runtime_root exposes required runtime assets', () => {
+    const fnStart = setupContent.indexOf('create_opencode_runtime_root()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('ln -snf "$skill_dir/SKILL.md" "$opencode_gstack/$skill_name/SKILL.md"', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design"');
+    expect(fnBody).toContain('browse/dist');
+    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('design/dist');
+    expect(fnBody).toContain('gstack-upgrade/SKILL.md');
+    expect(fnBody).toContain('checklist.md');
+    expect(fnBody).toContain('design-checklist.md');
   });
 
   test('Codex install uses link_codex_skill_dirs', () => {
     // The Codex install section (section 5) should use the Codex function
     const codexSection = setupContent.slice(
       setupContent.indexOf('# 5. Install for Codex'),
-      setupContent.indexOf('# 6. Create')
+      setupContent.indexOf('# 6. Install for Kiro CLI')
     );
     expect(codexSection).toContain('create_codex_runtime_root');
     expect(codexSection).toContain('link_codex_skill_dirs');
@@ -2008,13 +2158,14 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports --host auto|claude|opencode|codex|kiro|factory', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|auto');
+    expect(setupContent).toContain('claude|opencode|codex|kiro|factory|auto');
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
+  test('auto mode detects claude, opencode, codex, and kiro binaries', () => {
     expect(setupContent).toContain('command -v claude');
+    expect(setupContent).toContain('command -v opencode');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
   });

@@ -9,12 +9,15 @@
 # What gets REMOVED:
 #   ~/.claude/skills/gstack       — global Claude skill install (git clone or vendored)
 #   ~/.claude/skills/{skill}      — per-skill symlinks created by setup
+#   ~/.config/opencode/skills/gstack — global OpenCode runtime root
+#   ~/.config/opencode/skills/{skill} — OpenCode per-skill links created by setup
 #   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
 #   ~/.factory/skills/gstack*     — Factory Droid skill install + per-skill symlinks
 #   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
 #   .claude/skills/gstack*        — project-local skill install (--local installs)
+#   .opencode/skills/gstack*      — project-local OpenCode install (--local installs)
 #   .gstack/                      — per-project browse state (in current git repo)
 #   .gstack-worktrees/            — per-project test worktrees (in current git repo)
 #   .agents/skills/gstack*        — Codex/Gemini/Cursor sidecar (in current git repo)
@@ -39,6 +42,16 @@ fi
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 _GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+_LOCAL_INSTALL_ROOT=""
+case "$GSTACK_DIR" in
+  */.claude/skills/gstack) _LOCAL_INSTALL_ROOT="${GSTACK_DIR%/.claude/skills/gstack}" ;;
+  */.opencode/skills/gstack) _LOCAL_INSTALL_ROOT="${GSTACK_DIR%/.opencode/skills/gstack}" ;;
+  */.agents/skills/gstack) _LOCAL_INSTALL_ROOT="${GSTACK_DIR%/.agents/skills/gstack}" ;;
+  */.factory/skills/gstack) _LOCAL_INSTALL_ROOT="${GSTACK_DIR%/.factory/skills/gstack}" ;;
+esac
+if [ -n "$_LOCAL_INSTALL_ROOT" ] && { [ -d "$_LOCAL_INSTALL_ROOT/.git" ] || [ -f "$_LOCAL_INSTALL_ROOT/.git" ]; }; then
+  _GIT_ROOT="$_LOCAL_INSTALL_ROOT"
+fi
 
 # ─── Parse flags ─────────────────────────────────────────────
 FORCE=0
@@ -63,6 +76,7 @@ done
 if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
   { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
+  { [ -d "$HOME/.config/opencode/skills/gstack" ] || [ -L "$HOME/.config/opencode/skills/gstack" ]; } && echo "  ~/.config/opencode/skills/gstack (+ per-skill links)"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
@@ -70,6 +84,7 @@ if [ "$FORCE" -eq 0 ]; then
 
   if [ -n "$_GIT_ROOT" ]; then
     [ -d "$_GIT_ROOT/.claude/skills/gstack" ] && echo "  $_GIT_ROOT/.claude/skills/gstack (project-local)"
+    [ -d "$_GIT_ROOT/.opencode/skills/gstack" ] && echo "  $_GIT_ROOT/.opencode/skills/gstack (project-local)"
     [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
     [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
@@ -159,6 +174,57 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.claude/skills" ]; then
     rm -rf "$_GIT_ROOT/.claude/skills/gstack"
     REMOVED+=("$_GIT_ROOT/.claude/skills/gstack")
   fi
+fi
+
+# ─── Remove global OpenCode skills ───────────────────────────
+OPENCODE_SKILLS="$HOME/.config/opencode/skills"
+OPENCODE_SOURCE_ROOT=""
+if [ -L "$OPENCODE_SKILLS/gstack/SKILL.md" ]; then
+  _OPENCODE_GSTACK_SKILL="$(readlink "$OPENCODE_SKILLS/gstack/SKILL.md" 2>/dev/null || true)"
+  case "$_OPENCODE_GSTACK_SKILL" in
+    */.opencode/skills/gstack/SKILL.md) OPENCODE_SOURCE_ROOT="${_OPENCODE_GSTACK_SKILL%/gstack/SKILL.md}" ;;
+  esac
+fi
+if [ -z "$OPENCODE_SOURCE_ROOT" ]; then
+  case "$GSTACK_DIR" in
+    */.opencode/skills/gstack) OPENCODE_SOURCE_ROOT="${GSTACK_DIR%/gstack}" ;;
+  esac
+fi
+if [ -d "$OPENCODE_SKILLS" ]; then
+  if [ -n "$OPENCODE_SOURCE_ROOT" ]; then
+    for _LINK in "$OPENCODE_SKILLS"/*; do
+      [ -L "$_LINK" ] || continue
+      _TARGET="$(readlink "$_LINK" 2>/dev/null || true)"
+      case "$_TARGET" in
+        "$OPENCODE_SOURCE_ROOT"/*) rm -f "$_LINK"; REMOVED+=("opencode/$(basename "$_LINK")") ;;
+      esac
+    done
+  fi
+
+  if [ -d "$OPENCODE_SKILLS/gstack" ] || [ -L "$OPENCODE_SKILLS/gstack" ]; then
+    rm -rf "$OPENCODE_SKILLS/gstack"
+    REMOVED+=("~/.config/opencode/skills/gstack")
+  fi
+fi
+
+# ─── Remove project-local OpenCode skills ────────────────────
+if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.opencode/skills" ]; then
+  [ -z "$OPENCODE_SOURCE_ROOT" ] && OPENCODE_SOURCE_ROOT="$_GIT_ROOT/.opencode/skills"
+  if [ -n "$OPENCODE_SOURCE_ROOT" ]; then
+    for _LINK in "$_GIT_ROOT/.opencode/skills"/*; do
+      [ -L "$_LINK" ] || continue
+      _TARGET="$(readlink "$_LINK" 2>/dev/null || true)"
+      case "$_TARGET" in
+        "$OPENCODE_SOURCE_ROOT"/*) rm -f "$_LINK"; REMOVED+=("local opencode/$(basename "$_LINK")") ;;
+      esac
+    done
+  fi
+  if [ -d "$_GIT_ROOT/.opencode/skills/gstack" ] || [ -L "$_GIT_ROOT/.opencode/skills/gstack" ]; then
+    rm -rf "$_GIT_ROOT/.opencode/skills/gstack"
+    REMOVED+=("$_GIT_ROOT/.opencode/skills/gstack")
+  fi
+  rmdir "$_GIT_ROOT/.opencode/skills" 2>/dev/null || true
+  rmdir "$_GIT_ROOT/.opencode" 2>/dev/null || true
 fi
 
 # ─── Remove Codex skills ────────────────────────────────────
