@@ -44,6 +44,12 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ### Step 1: Install on your machine
 
+**Windows — double-click:**
+
+Download this repo and run `install.bat`. It clones gstack, finds Git Bash automatically, runs setup, and installs everything. To remove, run `uninstall.bat`.
+
+**Any platform — via Claude Code:**
+
 Open Claude Code and paste this. Claude does the rest.
 
 > Install gstack: run **`git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn. Then ask the user if they also want to add gstack to the current project so teammates get it.
