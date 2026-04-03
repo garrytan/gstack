@@ -1,11 +1,12 @@
 /**
- * Generate UI mockups via MiniMax Image API (image-01).
- * Falls back to OpenAI if MINIMAX_API_KEY is not available.
+ * Generate UI mockups via OpenAI (gpt-4o) or MiniMax (image-01).
+ * OpenAI is tried first; falls back to MiniMax if OpenAI is unavailable or fails.
+ * Both can be configured via ~/.gstack/
  */
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey, resolveMiniMaxApiKey } from "./auth";
+import { resolveApiKey, resolveMiniMaxApiKey } from "./auth";
 import { parseBrief } from "./brief";
 import { createSession, sessionPath } from "./session";
 import { checkMockup } from "./check";
@@ -27,6 +28,69 @@ export interface GenerateResult {
   sessionFile: string;
   responseId: string;
   checkResult?: { pass: boolean; issues: string };
+}
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+export function normalizeSizeForProvider(
+  size: string | undefined,
+  provider: "openai" | "minimax",
+): string {
+  if (!size) {
+    return provider === "minimax" ? "9:16" : "1536x1024";
+  }
+
+  const normalized = size.trim().toLowerCase();
+
+  if (provider === "minimax") {
+    const dimensions = normalized.match(/^(\d+)x(\d+)$/);
+    if (!dimensions) {
+      return normalized;
+    }
+
+    const width = Number(dimensions[1]);
+    const height = Number(dimensions[2]);
+    const divisor = gcd(width, height);
+    return `${width / divisor}:${height / divisor}`;
+  }
+
+  const ratio = normalized.match(/^(\d+):(\d+)$/);
+  if (!ratio) {
+    return normalized;
+  }
+
+  const width = Number(ratio[1]);
+  const height = Number(ratio[2]);
+
+  if (width === height) {
+    return "1024x1024";
+  }
+
+  return width > height ? "1536x1024" : "1024x1536";
+}
+
+/**
+ * Probe a provider by making a lightweight actual API call to verify the key works.
+ * Returns true if the call succeeds, false otherwise.
+ */
+async function probeProvider(
+  apiKey: string,
+  provider: "openai" | "minimax",
+  size: string,
+): Promise<boolean> {
+  const probePrompt = "A simple red circle on white background";
+  try {
+    if (provider === "openai") {
+      await callOpenAIImageGeneration(apiKey, probePrompt, size, "medium");
+    } else {
+      await callMiniMaxImageGeneration(apiKey, probePrompt, size, "medium");
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -149,19 +213,46 @@ async function callOpenAIImageGeneration(
  * Generate a single mockup from a brief.
  */
 export async function generate(options: GenerateOptions): Promise<GenerateResult> {
-  const miniMaxKey = resolveMiniMaxApiKey();
-  const useMiniMax = !!miniMaxKey;
-  const apiKey = useMiniMax ? miniMaxKey! : requireApiKey();
-
   // Parse the brief
   const prompt = options.briefFile
     ? parseBrief(options.briefFile, true)
     : parseBrief(options.brief!, false);
 
-  // Default size maps to MiniMax aspect ratios; OpenAI uses WxH format
-  const size = options.size || (useMiniMax ? "9:16" : "1536x1024");
   const quality = options.quality || "high";
   const maxRetries = options.retry ?? 0;
+
+  // Probe for available provider: OpenAI first, then MiniMax
+  const openAIKey = resolveApiKey();
+  const miniMaxKey = resolveMiniMaxApiKey();
+
+  let provider: "openai" | "minimax" | null = null;
+  let apiKey: string | null = null;
+
+  if (openAIKey) {
+    const openAISize = normalizeSizeForProvider(options.size, "openai");
+    console.error(`Probing OpenAI...`);
+    if (await probeProvider(openAIKey, "openai", openAISize)) {
+      provider = "openai";
+      apiKey = openAIKey;
+    }
+  }
+
+  if (!provider && miniMaxKey) {
+    const miniMaxSize = normalizeSizeForProvider(options.size, "minimax");
+    console.error(`Probing MiniMax...`);
+    if (await probeProvider(miniMaxKey, "minimax", miniMaxSize)) {
+      provider = "minimax";
+      apiKey = miniMaxKey;
+    }
+  }
+
+  if (!provider) {
+    console.error(`Image generation requires one of the following API keys:`);
+    console.error(`- OpenAI: ~/.gstack/openai.json → { "api_key": "sk-..." }`);
+    console.error(`- MiniMax: ~/.gstack/minimax.json → { "api_key": "sk-cp-..." }`);
+    console.error(`Run $D setup to configure.`);
+    process.exit(1);
+  }
 
   let lastResult: GenerateResult | null = null;
 
@@ -174,13 +265,14 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     const startTime = Date.now();
     let responseId: string;
     let imageData: string;
+    const size = normalizeSizeForProvider(options.size, provider);
 
-    if (useMiniMax) {
-      const result = await callMiniMaxImageGeneration(apiKey, prompt, size, quality);
+    if (provider === "minimax") {
+      const result = await callMiniMaxImageGeneration(apiKey!, prompt, size, quality);
       responseId = result.responseId;
       imageData = result.imageData;
     } else {
-      const result = await callOpenAIImageGeneration(apiKey, prompt, size, quality);
+      const result = await callOpenAIImageGeneration(apiKey!, prompt, size, quality);
       responseId = result.responseId;
       imageData = result.imageData;
     }
@@ -196,7 +288,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     // Create session
     const session = createSession(responseId, prompt, options.output);
 
-    const model = useMiniMax ? "MiniMax-image-01" : "OpenAI-gpt-4o";
+    const model = provider === "minimax" ? "MiniMax-image-01" : "OpenAI-gpt-4o";
     console.error(`Generated via ${model} (${elapsed}s, ${(imageBuffer.length / 1024).toFixed(0)}KB) → ${options.output}`);
 
     lastResult = {
