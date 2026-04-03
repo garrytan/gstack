@@ -113,7 +113,11 @@ git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep=
 # 12. gstack skill usage telemetry (if available)
 cat ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 
-# 12. Test files changed in window
+# 13. Code health history (if available)
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+cat ~/.gstack/projects/${SLUG:-unknown}/health-history.jsonl 2>/dev/null | tail -20 || true
+
+# 14. Test files changed in window
 git log origin/<default> --since="<window>" --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
 ```
 
@@ -136,6 +140,7 @@ Calculate and present these metrics in a summary table:
 | Detected sessions | N |
 | Avg LOC/session-hour | N |
 | Greptile signal | N% (Y catches, Z FPs) |
+| Code Health | X.X/10 (↑/↓ ±Y.Y) · Details if change |
 | Test Health | N total tests · M added this period · K regression tests |
 
 Then show a **per-author leaderboard** immediately below:
@@ -186,6 +191,38 @@ If moments exist, list them:
 ```
 
 If the JSONL file doesn't exist or has no entries in the window, skip the Eureka Moments row.
+
+**Code Health (if history exists):** Read health-history.jsonl (fetched in Step 1, command 13). Filter entries by `ts` field within the retro window. Use `branch` field to match the current branch.
+
+- **If no entries exist in the window or file doesn't exist:** Skip the Code Health metric row.
+- **If 1 entry exists in the window:** Show "Code Health | X.X/10 · First measurement this period"
+- **If 2+ entries exist:**
+  - Current score = last entry in the window
+  - Prior score = last entry BEFORE the retro window (could be from prior period)
+  - Delta = current.score - prior.score
+  - Trend = if delta ≥ 0 then "↑" else "↓"
+  - Status = if delta > 0.5 then "IMPROVING", if delta < -0.5 then "DECLINING", else "STABLE"
+
+Include in the metrics table:
+```
+| Code Health | X.X/10 (↑ +Y.Y) STABLE |
+```
+
+**If regression detected (current.score < prior.score by more than 0.5):**
+Show a second detail line listing which categories declined:
+```
+| | Lint -2 (8→6, 12 new warnings), Tests -1 (10→9) |
+```
+
+For each category that declined, show the previous and current scores and cite the specific issue count if available.
+
+**If data shows improvement (current.score > prior.score by more than 0.5):**
+Show a detail line highlighting which categories improved:
+```
+| | Lint +2 (6→8), Shell clean (+1) |
+```
+
+**Important:** Only show the detail line if the total score changed by >0.5 points. If the score is stable (within ±0.5), omit the detail line. Frame regressions objectively — this is data, not blame.
 
 ### Step 3: Commit Time Distribution
 
