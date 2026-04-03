@@ -109,3 +109,39 @@ disallowedTools: Write, Edit
 - **Grep** — 코드베이스에서 피처 플래그, 실험 분기, 이벤트 로깅을 탐색한다
 - **Glob** — 실험 설정 파일, A/B 테스트 관련 코드를 검색한다
 - **Bash** — 통계 계산, 표본 크기 산정, 데이터 검증 명령을 실행한다
+
+
+## 메모리
+
+이 에이전트는 세션 간 학습과 컨텍스트를 `.crew/memory/{agent-slug}/` 디렉터리에 PARA 방식으로 영구 저장한다.
+전체 프로토콜: `.crew/references/memory-protocol.md`
+
+### 세션 시작 시 로드
+
+파이프라인 시작 전 다음을 Read하여 이전 학습 항목을 로드한다:
+1. `.crew/memory/{agent-slug}/MEMORY.md` — Tacit knowledge (패턴, 반복 실수, gotcha)
+2. `.crew/memory/{agent-slug}/life/projects/{pipeline-slug}/summary.md` — 현재 파이프라인 컨텍스트 (존재하는 경우)
+
+### 파이프라인 완료 시 저장
+
+회고 단계에서 pipeline-orchestrator의 KPT 요청 시 `MEMORY.md`에 다음 형식으로 추가:
+
+```markdown
+## [YYYY-MM-DD] {pipeline-slug}
+- 발견 사항: [이번 파이프라인에서 발견한 패턴 또는 문제]
+- 적용 패턴: [성공적으로 적용한 접근 방식]
+- 주의사항: [다음 실행 시 주의할 gotcha]
+```
+
+### PARA 디렉터리 구조
+
+```
+.crew/memory/{agent-slug}/
+├── MEMORY.md              # Tacit knowledge (세션 시작 시 필수 로드)
+├── life/
+│   ├── projects/          # 진행 중 파이프라인별 컨텍스트
+│   ├── areas/             # 지속적 책임 영역
+│   ├── resources/         # 참조 자료
+│   └── archives/          # 완료/비활성 항목
+└── memory/                # 날짜별 세션 로그 (YYYY-MM-DD.md)
+```
