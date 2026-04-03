@@ -263,9 +263,11 @@ fi
 mkdir -p "$HOME/.gstack/projects"
 
 # ─── Helper: link Claude skill subdirectories into a skills parent directory ──
-# When SKILL_PREFIX=1 (default), symlinks are prefixed with "gstack-" to avoid
-# namespace pollution (e.g., gstack-review instead of review).
-# Use --no-prefix to restore the old flat names.
+# Creates real directories (not symlinks) at the top level with a SKILL.md symlink
+# inside. This ensures Claude discovers them as top-level skills, not nested under
+# gstack/ (which would auto-prefix them as gstack-*).
+# When SKILL_PREFIX=1, directories are prefixed with "gstack-".
+# Use --no-prefix to restore flat names.
 link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -288,9 +290,14 @@ link_claude_skill_dirs() {
         link_name="$skill_name"
       fi
       target="$skills_dir/$link_name"
-      # Create or update symlink; skip if a real file/directory exists
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "gstack/$dir_name" "$target"
+      # Upgrade old directory symlinks to real directories
+      if [ -L "$target" ]; then
+        rm -f "$target"
+      fi
+      # Create real directory with symlinked SKILL.md (absolute path)
+      if [ ! -e "$target" ] || [ -d "$target" ]; then
+        mkdir -p "$target"
+        ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
         linked+=("$link_name")
       fi
     fi
@@ -300,9 +307,9 @@ link_claude_skill_dirs() {
   fi
 }
 
-# ─── Helper: remove old unprefixed Claude skill symlinks ──────────────────────
+# ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
 # Migration: when switching from flat names to gstack- prefixed names,
-# clean up stale symlinks that point into the gstack directory.
+# clean up stale symlinks or directories that point into the gstack directory.
 cleanup_old_claude_symlinks() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -314,7 +321,7 @@ cleanup_old_claude_symlinks() {
       # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
       case "$skill_name" in gstack-*) continue ;; esac
       old_target="$skills_dir/$skill_name"
-      # Only remove if it's a symlink pointing into gstack/
+      # Remove directory symlinks pointing into gstack/
       if [ -L "$old_target" ]; then
         link_dest="$(readlink "$old_target" 2>/dev/null || true)"
         case "$link_dest" in
@@ -323,17 +330,26 @@ cleanup_old_claude_symlinks() {
             removed+=("$skill_name")
             ;;
         esac
+      # Remove real directories with symlinked SKILL.md pointing into gstack/
+      elif [ -d "$old_target" ] && [ -L "$old_target/SKILL.md" ]; then
+        link_dest="$(readlink "$old_target/SKILL.md" 2>/dev/null || true)"
+        case "$link_dest" in
+          *gstack*)
+            rm -rf "$old_target"
+            removed+=("$skill_name")
+            ;;
+        esac
       fi
     fi
   done
   if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up old symlinks: ${removed[*]}"
+    echo "  cleaned up old entries: ${removed[*]}"
   fi
 }
 
-# ─── Helper: remove old prefixed Claude skill symlinks ────────────────────────
+# ─── Helper: remove old prefixed Claude skill entries ─────────────────────────
 # Reverse migration: when switching from gstack- prefixed names to flat names,
-# clean up stale gstack-* symlinks that point into the gstack directory.
+# clean up stale gstack-* symlinks or directories that point into the gstack directory.
 cleanup_prefixed_claude_symlinks() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -342,11 +358,11 @@ cleanup_prefixed_claude_symlinks() {
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "node_modules" ] && continue
-      # Only clean up prefixed symlinks for dirs that AREN'T already prefixed
+      # Only clean up prefixed entries for dirs that AREN'T already prefixed
       # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
       case "$skill_name" in gstack-*) continue ;; esac
       prefixed_target="$skills_dir/gstack-$skill_name"
-      # Only remove if it's a symlink pointing into gstack/
+      # Remove directory symlinks pointing into gstack/
       if [ -L "$prefixed_target" ]; then
         link_dest="$(readlink "$prefixed_target" 2>/dev/null || true)"
         case "$link_dest" in
@@ -355,11 +371,20 @@ cleanup_prefixed_claude_symlinks() {
             removed+=("gstack-$skill_name")
             ;;
         esac
+      # Remove real directories with symlinked SKILL.md pointing into gstack/
+      elif [ -d "$prefixed_target" ] && [ -L "$prefixed_target/SKILL.md" ]; then
+        link_dest="$(readlink "$prefixed_target/SKILL.md" 2>/dev/null || true)"
+        case "$link_dest" in
+          *gstack*)
+            rm -rf "$prefixed_target"
+            removed+=("gstack-$skill_name")
+            ;;
+        esac
       fi
     fi
   done
   if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up prefixed symlinks: ${removed[*]}"
+    echo "  cleaned up prefixed entries: ${removed[*]}"
   fi
 }
 
@@ -678,7 +703,34 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   create_agents_sidecar "$SOURCE_GSTACK_DIR"
 fi
 
-# 8. First-time welcome + legacy cleanup
+# 8. Run pending version migrations
+# Migrations handle state fixes that ./setup alone can't cover (stale config,
+# orphaned files, directory structure changes). Each migration is idempotent.
+MIGRATIONS_DIR="$SOURCE_GSTACK_DIR/gstack-upgrade/migrations"
+CURRENT_VERSION=$(cat "$SOURCE_GSTACK_DIR/VERSION" 2>/dev/null || echo "unknown")
+LAST_SETUP_VERSION=$(cat "$HOME/.gstack/.last-setup-version" 2>/dev/null || echo "0.0.0.0")
+if [ -d "$MIGRATIONS_DIR" ] && [ "$CURRENT_VERSION" != "unknown" ] && [ "$LAST_SETUP_VERSION" != "$CURRENT_VERSION" ]; then
+  # Fresh install (no marker file) — skip migrations, just write marker
+  if [ ! -f "$HOME/.gstack/.last-setup-version" ]; then
+    : # fall through to marker write below
+  else
+    find "$MIGRATIONS_DIR" -maxdepth 1 -name 'v*.sh' -type f 2>/dev/null | sort -V | while IFS= read -r migration; do
+      m_ver="$(basename "$migration" .sh | sed 's/^v//')"
+      # Run if migration is newer than last setup version AND not newer than current version
+      if [ "$(printf '%s\n%s' "$LAST_SETUP_VERSION" "$m_ver" | sort -V | head -1)" = "$LAST_SETUP_VERSION" ] && [ "$LAST_SETUP_VERSION" != "$m_ver" ] \
+         && [ "$(printf '%s\n%s' "$m_ver" "$CURRENT_VERSION" | sort -V | tail -1)" = "$CURRENT_VERSION" ]; then
+        echo "  running migration $m_ver..."
+        bash "$migration" || echo "  warning: migration $m_ver had errors (non-fatal)"
+      fi
+    done
+  fi
+fi
+mkdir -p "$HOME/.gstack"
+if [ "$CURRENT_VERSION" != "unknown" ]; then
+  echo "$CURRENT_VERSION" > "$HOME/.gstack/.last-setup-version"
+fi
+
+# 9. First-time welcome + legacy cleanup
 if [ ! -f "$HOME/.gstack/.welcome-seen" ]; then
   echo "  Welcome! Run /gstack-upgrade anytime to stay current."
   touch "$HOME/.gstack/.welcome-seen"

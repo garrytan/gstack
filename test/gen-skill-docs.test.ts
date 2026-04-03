@@ -1969,13 +1969,43 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
-  test('link_claude_skill_dirs creates relative symlinks', () => {
-    // Claude links should be relative: ln -snf "gstack/$dir_name"
-    // Uses dir_name (not skill_name) because symlink target must point to the physical directory
+  test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
+    // Claude links should be real directories with absolute SKILL.md symlinks
+    // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
     const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('ln -snf "gstack/$dir_name"');
+    expect(fnBody).toContain('mkdir -p "$target"');
+    expect(fnBody).toContain('ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
+  });
+
+  // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
+  test('cleanup functions handle real directories with symlinked SKILL.md', () => {
+    // cleanup_old_claude_symlinks must detect and remove real dirs with SKILL.md symlinks
+    const cleanupOldStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
+    const cleanupOldEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up old', cleanupOldStart));
+    const cleanupOldBody = setupContent.slice(cleanupOldStart, cleanupOldEnd);
+    expect(cleanupOldBody).toContain('-d "$old_target"');
+    expect(cleanupOldBody).toContain('-L "$old_target/SKILL.md"');
+    expect(cleanupOldBody).toContain('rm -rf "$old_target"');
+
+    // cleanup_prefixed_claude_symlinks must also handle the new pattern
+    const cleanupPrefixedStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
+    const cleanupPrefixedEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up prefixed', cleanupPrefixedStart));
+    const cleanupPrefixedBody = setupContent.slice(cleanupPrefixedStart, cleanupPrefixedEnd);
+    expect(cleanupPrefixedBody).toContain('-d "$prefixed_target"');
+    expect(cleanupPrefixedBody).toContain('-L "$prefixed_target/SKILL.md"');
+    expect(cleanupPrefixedBody).toContain('rm -rf "$prefixed_target"');
+  });
+
+  // REGRESSION: link function must upgrade old directory symlinks
+  test('link_claude_skill_dirs removes old directory symlinks before creating real dirs', () => {
+    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    // Must check for and remove old symlinks before mkdir
+    expect(fnBody).toContain('if [ -L "$target" ]');
+    expect(fnBody).toContain('rm -f "$target"');
   });
 
   test('setup supports --host auto|claude|codex|kiro', () => {
@@ -2549,5 +2579,53 @@ describe('gen-skill-docs prefix warning (#620/#578)', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('voice-triggers processing', () => {
+  const { extractVoiceTriggers, processVoiceTriggers } = require('../scripts/gen-skill-docs') as {
+    extractVoiceTriggers: (content: string) => string[];
+    processVoiceTriggers: (content: string) => string;
+  };
+
+  test('extractVoiceTriggers parses valid YAML list', () => {
+    const content = `---\nname: cso\ndescription: |\n  Security audit.\nvoice-triggers:\n  - "see-so"\n  - "security review"\n---\nBody`;
+    const triggers = extractVoiceTriggers(content);
+    expect(triggers).toEqual(['see-so', 'security review']);
+  });
+
+  test('extractVoiceTriggers returns [] when no field present', () => {
+    const content = `---\nname: qa\ndescription: |\n  QA testing.\n---\nBody`;
+    expect(extractVoiceTriggers(content)).toEqual([]);
+  });
+
+  test('processVoiceTriggers appends voice triggers to description', () => {
+    const content = `---\nname: cso\ndescription: |\n  Security audit. (gstack)\nvoice-triggers:\n  - "see-so"\n  - "security review"\n---\nBody`;
+    const result = processVoiceTriggers(content);
+    expect(result).toContain('Voice triggers (speech-to-text aliases): "see-so", "security review".');
+  });
+
+  test('processVoiceTriggers strips voice-triggers field from output', () => {
+    const content = `---\nname: cso\ndescription: |\n  Security audit. (gstack)\nvoice-triggers:\n  - "see-so"\n---\nBody`;
+    const result = processVoiceTriggers(content);
+    expect(result).not.toContain('voice-triggers:');
+  });
+
+  test('processVoiceTriggers returns content unchanged when no voice-triggers', () => {
+    const content = `---\nname: qa\ndescription: |\n  QA testing.\n---\nBody`;
+    expect(processVoiceTriggers(content)).toBe(content);
+  });
+
+  test('generated CSO SKILL.md contains voice triggers in description', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('"see-so"');
+    expect(content).toContain('Voice triggers (speech-to-text aliases):');
+  });
+
+  test('generated CSO SKILL.md does NOT contain raw voice-triggers field', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    const fmEnd = content.indexOf('\n---', 4);
+    const frontmatter = content.slice(0, fmEnd);
+    expect(frontmatter).not.toContain('voice-triggers:');
   });
 });

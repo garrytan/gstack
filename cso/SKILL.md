@@ -9,6 +9,7 @@ description: |
   Two modes: daily (zero-noise, 8/10 confidence gate) and comprehensive (monthly deep
   scan, 2/10 bar). Trend tracking across audit runs.
   Use when: "security audit", "threat model", "pentest review", "OWASP", "CSO review". (gstack)
+  Voice triggers (speech-to-text aliases): "see-so", "see so", "security review", "security check", "vulnerability scan", "run security".
 allowed-tools:
   - Bash
   - Read

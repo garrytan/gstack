@@ -103,6 +103,12 @@ cd ~/gstack && ./setup --host factory
 
 Skills install to `~/.factory/skills/gstack-*/`. Restart `droid` to rescan skills, then type `/qa` to get started.
 
+### Voice input (AquaVoice, Whisper, etc.)
+
+gstack skills have voice-friendly trigger phrases. Say what you want naturally —
+"run a security check", "test the website", "do an engineering review" — and the
+right skill activates. You don't need to remember slash command names or acronyms.
+
 ## See it work
 
 ```

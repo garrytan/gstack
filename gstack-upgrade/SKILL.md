@@ -5,6 +5,7 @@ description: |
   Upgrade gstack to the latest version. Detects global vs vendored install,
   runs the upgrade, and shows what's new. Use when asked to "upgrade gstack",
   "update gstack", or "get latest version".
+  Voice triggers (speech-to-text aliases): "upgrade the tools", "update the tools", "gee stack upgrade", "g stack upgrade".
 allowed-tools:
   - Bash
   - Read
@@ -169,6 +170,32 @@ rm -rf "$LOCAL_GSTACK"
 mv "$LOCAL_GSTACK.bak" "$LOCAL_GSTACK"
 ```
 Tell user: "Sync failed — restored previous version at `$LOCAL_GSTACK`. Run `/gstack-upgrade` manually to retry."
+
+### Step 4.75: Run version migrations
+
+After `./setup` completes, run any migration scripts for versions between the old
+and new version. Migrations handle state fixes that `./setup` alone can't cover
+(stale config, orphaned files, directory structure changes).
+
+```bash
+MIGRATIONS_DIR="$INSTALL_DIR/gstack-upgrade/migrations"
+if [ -d "$MIGRATIONS_DIR" ]; then
+  for migration in $(find "$MIGRATIONS_DIR" -maxdepth 1 -name 'v*.sh' -type f 2>/dev/null | sort -V); do
+    # Extract version from filename: v0.15.2.0.sh → 0.15.2.0
+    m_ver="$(basename "$migration" .sh | sed 's/^v//')"
+    # Run if this migration version is newer than old version
+    # (simple string compare works for dotted versions with same segment count)
+    if [ "$OLD_VERSION" != "unknown" ] && [ "$(printf '%s\n%s' "$OLD_VERSION" "$m_ver" | sort -V | head -1)" = "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$m_ver" ]; then
+      echo "Running migration $m_ver..."
+      bash "$migration" || echo "  Warning: migration $m_ver had errors (non-fatal)"
+    fi
+  done
+fi
+```
+
+Migrations are idempotent bash scripts in `gstack-upgrade/migrations/`. Each is named
+`v{VERSION}.sh` and runs only when upgrading from an older version. See CONTRIBUTING.md
+for how to add new migrations.
 
 ### Step 5: Write marker + clear cache
 

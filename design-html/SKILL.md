@@ -11,6 +11,7 @@ description: |
   for each design type. Use when: "finalize this design", "turn this into HTML",
   "build me a page", "implement this design", or after any planning skill.
   Proactively suggest when user has approved a design or has a plan ready. (gstack)
+  Voice triggers (speech-to-text aliases): "build the design", "code the mockup", "make it real".
 allowed-tools:
   - Bash
   - Read
