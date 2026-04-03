@@ -264,7 +264,79 @@ DB가 활성화되면 이후 파이프라인 커맨드(`/bams:dev`, `/bams:featu
 
 ## Step 11: CLAUDE.md 업데이트
 
-CLAUDE.md가 있으면 Bams 플러그인 섹션을 추가. 없으면 기본 CLAUDE.md를 생성하고 Bams 커맨드 목록을 포함합니다.
+CLAUDE.md에 Bams 조직 운영 규칙을 추가합니다. 이 규칙은 Claude가 모든 `/bams:*` 커맨드에서 최우선으로 읽는 지침입니다.
+
+**처리 순서:**
+
+1. CLAUDE.md가 존재하는지 Glob으로 확인합니다.
+2. **존재하는 경우**: 기존 내용을 Read한 후, `## ★ Bams 조직 운영 규칙 (최우선)` 섹션이 이미 있으면 최신 내용으로 교체합니다. 없으면 파일 최상단(첫 번째 `#` 제목 바로 다음 줄)에 삽입합니다. 기존 내용은 반드시 보존합니다.
+3. **존재하지 않는 경우**: 아래 내용으로 새로 생성합니다.
+
+**CLAUDE.md에 추가/교체할 섹션 내용:**
+
+````markdown
+## ★ Bams 조직 운영 규칙 (최우선)
+
+> 이 규칙은 모든 /bams:* 커맨드에서 최우선으로 적용됩니다.
+> 위반 시 즉시 중단하고 올바른 위임 경로로 전환하세요.
+
+### 1. 위임 원칙 — 커맨드 레벨 직접 수정 절대 금지
+
+**모든 코드 수정은 반드시 `pipeline-orchestrator → 부서장 → 에이전트` 위임 체계를 통해 수행합니다.**
+
+- 허용: Bash/Glob으로 상태 확인, viz 이벤트 emit, 사용자에게 질문
+- 금지: Edit/Write로 소스 코드 직접 변경, 에이전트 역할 대신 수행
+- 위반 감지 시: 즉시 작업을 중단하고 pipeline-orchestrator에게 해당 작업을 위임
+
+위임 구조:
+```
+사용자 커맨드 → pipeline-orchestrator → 부서장 → 에이전트
+```
+
+각 에이전트는 자신의 전문 분야에서만 작업합니다:
+- 기획: product-strategy, business-analysis, ux-research, project-governance
+- 개발: frontend-engineering, backend-engineering, platform-devops, data-integration
+- QA: qa-strategy, automation-qa, defect-triage, release-quality-gate
+- 평가: product-analytics, experimentation, performance-evaluation, business-kpi
+- 경영지원: executive-reporter, cross-department-coordinator, resource-optimizer
+
+### 2. 파이프라인 네이밍 규칙
+
+모든 파이프라인 slug는 다음 형식을 따릅니다:
+```
+{command}_{한글요약}_{상태}
+```
+- command: feature, hotfix, dev, debug
+- 한글요약: 공백 없이 작업 내용 요약
+- 상태: 진행중 | 완료
+
+예: `feature_결제플로우구현_진행중`, `hotfix_빌드에러수정_완료`
+
+이 규칙은 이벤트 파일, PRD, 설계문서, 리뷰, board.md 태스크 ID에 모두 적용됩니다.
+상세: `.crew/references/pipeline-naming-convention.md` 참조
+
+### 3. 데이터 기록 규칙
+
+- 파이프라인 시작/종료 시 반드시 viz 이벤트를 emit합니다
+- 모든 아티팩트는 `.crew/artifacts/` 하위에 네이밍 규칙에 따라 저장합니다
+- board.md 업데이트는 project-governance 에이전트를 통해 수행합니다
+
+### 4. Bams 커맨드 목록
+
+| 커맨드 | 설명 |
+|--------|------|
+| `/bams:init` | 프로젝트 초기화 |
+| `/bams:plan` | PRD + 기술 설계 + 태스크 분해 |
+| `/bams:feature` | 풀 피처 개발 사이클 |
+| `/bams:dev` | 멀티에이전트 풀 개발 파이프라인 |
+| `/bams:hotfix` | 버그 핫픽스 빠른 경로 |
+| `/bams:debug` | 버그 분류 → 수정 → 회귀 테스트 |
+| `/bams:review` | 5관점 병렬 코드 리뷰 |
+| `/bams:ship` | PR 생성 + 머지 |
+| `/bams:status` | 프로젝트 대시보드 현황 |
+| `/bams:sprint` | 스프린트 플래닝 및 관리 |
+| `/bams:viz` | 파이프라인 실행 시각화 |
+````
 
 ## Step 12: 결과 보고
 
