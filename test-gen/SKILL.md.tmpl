@@ -1,0 +1,287 @@
+---
+name: test-gen
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Generate unit tests for uncovered code. Reads your existing tests to learn
+  the project's style (framework, assertions, naming, mocking patterns), then
+  writes new tests that match. Finds functions with no test coverage and
+  prioritizes by complexity and risk.
+  Use when asked to "write tests", "generate tests", "add test coverage",
+  "test this file", "cover untested code", or "test-gen".
+  Proactively suggest before /ship when test coverage is low, or after
+  /build when new code has no tests. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /test-gen: Unit Test Generator
+
+Find untested code, learn your test style, generate tests that match.
+
+---
+
+## Step 0: Learn the test style
+
+Before writing a single test, read the project's existing tests to learn
+conventions. This is the most important step — generated tests that don't
+match the project style are worse than no tests.
+
+### 0a. Detect test framework and runner
+
+```bash
+# Check CLAUDE.md for test commands first
+cat CLAUDE.md 2>/dev/null | grep -i "test" | head -10
+
+# Detect test framework from config files
+[ -f jest.config.js ] || [ -f jest.config.ts ] && echo "FW:jest"
+[ -f vitest.config.js ] || [ -f vitest.config.ts ] && echo "FW:vitest"
+[ -f playwright.config.ts ] && echo "FW:playwright"
+[ -f phpunit.xml ] || [ -f phpunit.xml.dist ] && echo "FW:phpunit"
+[ -f .rspec ] && echo "FW:rspec"
+[ -f pytest.ini ] || [ -f pyproject.toml ] && grep -q "pytest" pyproject.toml 2>/dev/null && echo "FW:pytest"
+[ -f conftest.py ] && echo "FW:pytest"
+grep -q "testing" go.mod 2>/dev/null && echo "FW:go-test"
+[ -f Cargo.toml ] && echo "FW:cargo-test"
+grep -q "ExUnit" mix.exs 2>/dev/null && echo "FW:exunit"
+```
+
+### 0b. Find existing tests
+
+```bash
+# Find test directories and files
+find . -type d \( -name "tests" -o -name "test" -o -name "__tests__" -o -name "spec" \) -not -path "*/node_modules/*" -not -path "*/vendor/*" 2>/dev/null | head -10
+
+# Count existing tests
+find . \( -name "*.test.ts" -o -name "*.test.js" -o -name "*.spec.ts" -o -name "*.spec.js" -o -name "*Test.php" -o -name "*_test.go" -o -name "*_test.py" -o -name "test_*.py" -o -name "*_spec.rb" \) -not -path "*/node_modules/*" -not -path "*/vendor/*" 2>/dev/null | wc -l
+```
+
+### 0c. Read 2-3 existing tests to learn the style
+
+Pick the most representative existing tests — ideally one unit test and one
+that tests a service/model similar to what you'll be generating.
+
+Read each test file and extract:
+- **Import style:** What test utilities, assertion libraries, mocking tools?
+- **Naming convention:** `describe/it`, `test()`, `test_method_name`, camelCase vs snake_case?
+- **Setup pattern:** `beforeEach`, `setUp`, factories, fixtures, or inline?
+- **Assertion style:** `expect().toBe()`, `$this->assert*()`, `assert`, `eq`?
+- **Mocking approach:** Jest mocks, Mockery, factory patterns, dependency injection?
+- **File organization:** One test file per source file? Grouped by feature? Flat?
+- **Test data:** Factories, fixtures, builders, or inline literals?
+
+**Store these observations as "the style guide" for this session.** Every test
+you generate must follow these patterns exactly.
+
+---
+
+## Step 1: Parse the user's request
+
+The user may want:
+
+| Request | Action |
+|---------|--------|
+| "test this file" / "test src/auth.ts" | Generate tests for a specific file |
+| "write tests for the auth module" | Generate tests for a directory/module |
+| "add test coverage" / "cover untested code" | Find all untested files, prioritize, generate |
+| "test this function" | Generate tests for a specific function |
+| "increase coverage to 80%" | Find gaps and fill them systematically |
+
+If the user specifies a file or function, skip to Step 3.
+If they want broad coverage, proceed to Step 2.
+
+---
+
+## Step 2: Find untested code
+
+Identify source files that have no corresponding test file.
+
+**Build a map of source → test pairs:**
+
+For each source file, check if a test file exists using the project's naming
+convention (detected in Step 0):
+
+- `src/auth.ts` → `test/auth.test.ts` or `__tests__/auth.test.ts`
+- `app/Services/AuthService.php` → `tests/Unit/Services/AuthServiceTest.php`
+- `app/models/user.rb` → `spec/models/user_spec.rb`
+- `src/auth.py` → `tests/test_auth.py` or `tests/auth_test.py`
+- `internal/auth/auth.go` → `internal/auth/auth_test.go`
+
+```bash
+# Example for Node.js — adapt to detected framework
+find src/ lib/ -name "*.ts" -not -name "*.test.*" -not -name "*.spec.*" -not -name "*.d.ts" 2>/dev/null | while read f; do
+  BASE=$(basename "$f" .ts)
+  DIR=$(dirname "$f")
+  # Check common test locations
+  TEST_EXISTS=0
+  for pattern in "test/${BASE}.test.ts" "__tests__/${BASE}.test.ts" "${DIR}/${BASE}.test.ts" "${DIR}/__tests__/${BASE}.test.ts"; do
+    [ -f "$pattern" ] && TEST_EXISTS=1 && break
+  done
+  [ "$TEST_EXISTS" -eq 0 ] && echo "UNTESTED: $f"
+done
+```
+
+**Prioritize by risk:**
+
+For each untested file, score it:
+- **Complexity:** How many functions/methods? How many branches/conditionals?
+- **Criticality:** Auth, payments, data mutation = high. Utils, formatters = low.
+- **Change frequency:** Recently modified files are higher priority.
+
+```bash
+# Check recent changes to untested files
+for f in <untested-files>; do
+  COMMITS=$(git log --oneline --since="30 days ago" -- "$f" 2>/dev/null | wc -l | tr -d ' ')
+  echo "$COMMITS changes: $f"
+done
+```
+
+Present the prioritized list:
+
+```
+Untested files (prioritized by risk):
+
+HIGH RISK (auth/payments/data):
+  1. src/services/PaymentService.ts    14 functions, 8 recent commits
+  2. src/middleware/auth.ts              6 functions, 3 recent commits
+  3. app/Models/Order.php               22 methods, 12 recent commits
+
+MEDIUM RISK (business logic):
+  4. src/services/NotificationService.ts  8 functions
+  5. src/utils/pricing.ts                 5 functions
+
+LOW RISK (formatting/display):
+  6. src/utils/formatDate.ts              2 functions
+  7. src/helpers/string.ts                4 functions
+
+Generate tests for which? (1-7, "all", or specify a file)
+```
+
+---
+
+## Step 3: Generate tests
+
+For each file to test:
+
+### 3a. Read the source file
+
+Read the entire source file. Understand:
+- Every public function/method and its signature
+- Input types, return types, side effects
+- Error cases and edge cases (nulls, empty arrays, boundary values)
+- Dependencies that need mocking
+
+### 3b. Plan the test cases
+
+For each function, identify test cases:
+
+| Category | Examples |
+|----------|----------|
+| **Happy path** | Valid input → expected output |
+| **Edge cases** | Empty input, null, zero, max values, Unicode |
+| **Error cases** | Invalid input, missing required fields, network failure |
+| **Boundary values** | Off-by-one, empty array vs single item vs many |
+| **State transitions** | Before/after side effects, database mutations |
+
+Don't test trivial getters/setters. Focus on logic, branching, and
+error handling.
+
+### 3c. Write the test file
+
+Generate the test file following the style guide from Step 0.
+
+**Critical rules:**
+1. **Match the existing style exactly.** If the project uses `describe/it`,
+   don't use `test()`. If they use Mockery, don't use manual mocks.
+2. **Use the project's factories/fixtures.** Don't create test data
+   differently from how existing tests do it.
+3. **Test behavior, not implementation.** Assert on outputs and side effects,
+   not internal method calls (unless the project's existing tests do that).
+4. **One assertion per test** (unless the project's style groups them).
+5. **Descriptive test names.** Follow the naming pattern from existing tests.
+6. **Handle async correctly.** Match the project's async test patterns.
+
+### 3d. Verify the tests run
+
+After writing each test file, run it:
+
+```bash
+# Run just the new test file — adapt command to detected framework
+# Node.js: npx jest path/to/test.test.ts
+# PHP: php artisan test --filter TestClassName
+# Python: pytest path/to/test_file.py -v
+# Ruby: rspec spec/path/to/spec.rb
+# Go: go test ./path/to/package/ -run TestName -v
+```
+
+If tests fail:
+1. Read the error message
+2. Fix the test (not the source code!)
+3. Re-run until green
+4. If a test reveals an actual bug in the source, note it but don't fix it —
+   report it to the user as a finding
+
+---
+
+## Step 4: Report
+
+```
+/test-gen report
+═══════════════════════════════════════════════════════
+
+Generated: 4 test files, 27 test cases
+
+  tests/Unit/Services/PaymentServiceTest.php
+    ✓ 8 tests written, 8 passing
+    Coverage: processPayment, refund, validateCard, webhookHandler
+
+  tests/Unit/Middleware/AuthMiddlewareTest.php
+    ✓ 6 tests written, 6 passing
+    Coverage: authenticate, requireRole, tokenRefresh
+
+  tests/Unit/Models/OrderTest.php
+    ✓ 9 tests written, 8 passing, 1 FOUND BUG
+    Coverage: calculateTotal, applyDiscount, transitionStatus
+    BUG: applyDiscount allows negative totals when discount > subtotal
+
+  tests/Unit/Services/NotificationServiceTest.php
+    ✓ 4 tests written, 4 passing
+    Coverage: sendEmail, sendSms, queueNotification
+
+Findings:
+  - BUG in Order::applyDiscount — no floor on negative totals
+  - PaymentService::webhookHandler has no error handling for
+    malformed Stripe events (test covers it, but source should too)
+
+Run: php artisan test --filter "PaymentServiceTest|AuthMiddlewareTest|OrderTest|NotificationServiceTest"
+```
+
+---
+
+## Design Principles
+
+1. **Learn before writing.** Read 2-3 existing tests before generating anything.
+   Style mismatch is the #1 reason generated tests get deleted.
+
+2. **Test behavior, not implementation.** Unless the project's existing tests
+   test implementation details — then match that style.
+
+3. **Run every test.** Don't submit tests that haven't been verified to pass.
+   A failing generated test is worse than no test.
+
+4. **Report bugs, don't fix them.** If a test reveals a bug in source code,
+   that's a finding. Don't silently fix the source — the user needs to know.
+
+5. **Prioritize by risk.** Auth, payments, and data mutations before formatters
+   and display helpers. Test the code that will hurt most when it breaks.
+
+6. **Conservative scope.** Generate 5-10 well-crafted tests, not 50 shallow ones.
+   Quality over quantity. The user can always ask for more.
