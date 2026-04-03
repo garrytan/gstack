@@ -1,0 +1,10 @@
+{
+  "name": "gstack",
+  "description": "Full-stack AI development workflow skills for Claude Code",
+  "version": "0.9.0",
+  "author": {
+    "name": "Garry Tan"
+  },
+  "repository": "https://github.com/garrytan/gstack",
+  "license": "MIT"
+}

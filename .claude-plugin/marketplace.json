@@ -1,0 +1,40 @@
+{
+  "name": "gstack",
+  "description": "Full-stack AI development workflow: QA, code review, browser automation, shipping, debugging, and 22 specialized skills.",
+  "owner": {
+    "name": "Garry Tan",
+    "email": "garry@garrytan.com"
+  },
+  "plugins": [
+    {
+      "name": "gstack",
+      "source": "./",
+      "description": "22 development workflow skills for Claude Code: QA testing, code review, browser automation, design review, shipping, debugging, retrospectives, and more.",
+      "category": "development",
+      "tags": ["qa", "review", "browser", "ship", "debug", "workflow", "design"],
+      "skills": [
+        "./browse",
+        "./careful",
+        "./codex",
+        "./design-consultation",
+        "./design-review",
+        "./document-release",
+        "./freeze",
+        "./gstack-upgrade",
+        "./guard",
+        "./investigate",
+        "./office-hours",
+        "./plan-ceo-review",
+        "./plan-design-review",
+        "./plan-eng-review",
+        "./qa",
+        "./qa-only",
+        "./retro",
+        "./review",
+        "./setup-browser-cookies",
+        "./ship",
+        "./unfreeze"
+      ]
+    }
+  ]
+}
