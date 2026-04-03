@@ -60,7 +60,14 @@ async function callImageGeneration(
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`API error (${response.status}): ${error}`);
+      if (response.status === 403 && error.includes("organization must be verified")) {
+        throw new Error(
+          "OpenAI organization verification required.\n"
+          + "Go to https://platform.openai.com/settings/organization to verify.\n"
+          + "After verification, wait up to 15 minutes for access to propagate.",
+        );
+      }
+      throw new Error(`API error (${response.status}): ${error.slice(0, 200)}`);
     }
 
     const data = await response.json() as any;
