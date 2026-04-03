@@ -660,13 +660,34 @@ describeIfSelected('Codex Offering E2E', [
     run('git', ['add', '.']);
     run('git', ['commit', '-m', 'init']);
 
-    // Copy all 4 SKILL.md files
+    // Extract codex/outside-voice sections only (not full SKILL.md — avoids context bloat)
     for (const skill of ['office-hours', 'plan-ceo-review', 'plan-design-review', 'plan-eng-review']) {
       fs.mkdirSync(path.join(testDir, skill), { recursive: true });
-      fs.copyFileSync(
-        path.join(ROOT, skill, 'SKILL.md'),
-        path.join(testDir, skill, 'SKILL.md'),
-      );
+      const full = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      // Find the codex/outside-voice section and extract ~200 lines around it
+      const lines = full.split('\n');
+      const codexIdx = lines.findIndex(l => /which codex.*CODEX_AVAILABLE/i.test(l));
+      if (codexIdx >= 0) {
+        // Go back to find the section heading
+        let start = codexIdx;
+        for (let i = codexIdx - 1; i >= Math.max(0, codexIdx - 30); i--) {
+          if (lines[i].startsWith('## ') || lines[i].startsWith('### ') || /outside voice|design outside/i.test(lines[i])) {
+            start = i;
+            break;
+          }
+        }
+        const end = Math.min(lines.length, codexIdx + 150);
+        fs.writeFileSync(
+          path.join(testDir, skill, 'SKILL.md'),
+          lines.slice(start, end).join('\n'),
+        );
+      } else {
+        // Fallback: copy full file if no codex section found
+        fs.copyFileSync(
+          path.join(ROOT, skill, 'SKILL.md'),
+          path.join(testDir, skill, 'SKILL.md'),
+        );
+      }
     }
   });
 

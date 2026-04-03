@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# gstack-screenshot-upload — upload a screenshot to gstack.gg
+#
+# Usage:
+#   gstack-screenshot-upload <file> [--repo-slug X] [--branch X] [--viewport X]
+#
+# Uploads a PNG to gstack.gg and prints the proxy URL (with watermark) to stdout.
+# All diagnostics go to stderr. Exit 0 = success, 1 = error.
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR     — override ~/.gstack state directory
+#   GSTACK_DIR           — override auto-detected gstack root
+#   GSTACK_WEB_URL       — override gstack.gg URL
+set -euo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+
+# Source config
+if [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+WEB_URL="${GSTACK_WEB_URL:-https://gstack.gg}"
+
+# ─── Parse args ───────────────────────────────────────────────────
+FILE=""
+REPO_SLUG=""
+BRANCH=""
+VIEWPORT=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo-slug) REPO_SLUG="$2"; shift 2 ;;
+    --branch)    BRANCH="$2"; shift 2 ;;
+    --viewport)  VIEWPORT="$2"; shift 2 ;;
+    -*)          echo "Unknown option: $1" >&2; exit 1 ;;
+    *)           FILE="$1"; shift ;;
+  esac
+done
+
+if [ -z "$FILE" ]; then
+  echo "Usage: gstack-screenshot-upload <file.png> [--repo-slug X] [--branch X] [--viewport X]" >&2
+  exit 1
+fi
+
+if [ ! -f "$FILE" ]; then
+  echo "Error: file not found: $FILE" >&2
+  exit 1
+fi
+
+# ─── Validate PNG ─────────────────────────────────────────────────
+MIME=$(file --mime-type -b "$FILE" 2>/dev/null || echo "unknown")
+if [ "$MIME" != "image/png" ]; then
+  echo "Error: only PNG files are supported (got $MIME)" >&2
+  exit 1
+fi
+
+# ─── Slugify helper ───────────────────────────────────────────────
+slugify() {
+  echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's|/|-|g; s|[^a-z0-9._-]||g'
+}
+
+[ -n "$REPO_SLUG" ] && REPO_SLUG="$(slugify "$REPO_SLUG")"
+[ -n "$BRANCH" ] && BRANCH="$(slugify "$BRANCH")"
+
+# ─── Pre-upload compression ──────────────────────────────────────
+FILE_SIZE=$(wc -c < "$FILE" | tr -d ' ')
+UPLOAD_FILE="$FILE"
+
+if [ "$FILE_SIZE" -gt 2097152 ]; then  # > 2MB
+  echo "File is $(( FILE_SIZE / 1024 ))KB — compressing..." >&2
+  TMPFILE="$(mktemp /tmp/gstack-compress-XXXXXX.png)"
+
+  if command -v sips >/dev/null 2>&1; then
+    # macOS: sips resize to max 1920px wide
+    cp "$FILE" "$TMPFILE"
+    sips --resampleWidth 1920 "$TMPFILE" >/dev/null 2>&1 && UPLOAD_FILE="$TMPFILE"
+  elif command -v magick >/dev/null 2>&1; then
+    # ImageMagick 7+
+    magick "$FILE" -resize '1920x>' "$TMPFILE" 2>/dev/null && UPLOAD_FILE="$TMPFILE"
+  elif command -v convert >/dev/null 2>&1; then
+    # ImageMagick 6
+    convert "$FILE" -resize '1920x>' "$TMPFILE" 2>/dev/null && UPLOAD_FILE="$TMPFILE"
+  else
+    echo "Warning: no resize tool available (sips/magick/convert), uploading raw" >&2
+  fi
+
+  if [ "$UPLOAD_FILE" = "$TMPFILE" ]; then
+    NEW_SIZE=$(wc -c < "$TMPFILE" | tr -d ' ')
+    echo "Compressed: $(( FILE_SIZE / 1024 ))KB → $(( NEW_SIZE / 1024 ))KB" >&2
+  fi
+fi
+
+# ─── Check file size limit ────────────────────────────────────────
+FINAL_SIZE=$(wc -c < "$UPLOAD_FILE" | tr -d ' ')
+if [ "$FINAL_SIZE" -gt 10485760 ]; then  # 10MB
+  echo "Error: file too large ($(( FINAL_SIZE / 1024 ))KB, max 10MB)" >&2
+  exit 1
+fi
+
+# ─── Get auth token ───────────────────────────────────────────────
+if ! "$GSTACK_DIR/bin/gstack-auth-refresh" --check >/dev/null 2>&1; then
+  echo "Error: not authenticated. Run: gstack-auth" >&2
+  exit 1
+fi
+
+ACCESS_TOKEN="$("$GSTACK_DIR/bin/gstack-auth-refresh" 2>/dev/null)"
+if [ -z "$ACCESS_TOKEN" ]; then
+  echo "Error: failed to get auth token" >&2
+  exit 1
+fi
+
+# ─── Upload ───────────────────────────────────────────────────────
+HTTP_RESPONSE="$(curl -s -w "\n%{http_code}" \
+  --max-time 30 \
+  -X POST "${WEB_URL}/api/images/upload" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -F "file=@${UPLOAD_FILE}" \
+  -F "repo_slug=${REPO_SLUG}" \
+  -F "branch=${BRANCH}" \
+  -F "viewport=${VIEWPORT}" \
+  2>/dev/null || echo -e "\n000")"
+
+HTTP_CODE="$(echo "$HTTP_RESPONSE" | tail -1)"
+HTTP_BODY="$(echo "$HTTP_RESPONSE" | sed '$d')"
+
+# Clean up temp file
+[ "$UPLOAD_FILE" != "$FILE" ] && rm -f "$UPLOAD_FILE" 2>/dev/null
+
+case "$HTTP_CODE" in
+  2*)
+    # Extract proxy URL from response JSON
+    URL="$(echo "$HTTP_BODY" | jq -r '.url' 2>/dev/null || echo "")"
+    if [ -n "$URL" ] && [ "$URL" != "null" ]; then
+      echo "$URL"  # stdout: proxy URL only
+    else
+      echo "Error: upload succeeded but no URL in response" >&2
+      echo "$HTTP_BODY" >&2
+      exit 1
+    fi
+    ;;
+  401)
+    echo "Error: authentication failed (401). Re-run: gstack-auth" >&2
+    exit 1
+    ;;
+  413)
+    echo "Error: file too large (413)" >&2
+    exit 1
+    ;;
+  415)
+    echo "Error: unsupported file type (415). Only PNG supported." >&2
+    exit 1
+    ;;
+  *)
+    echo "Error: upload failed (HTTP ${HTTP_CODE})" >&2
+    [ -n "$HTTP_BODY" ] && echo "$HTTP_BODY" >&2
+    exit 1
+    ;;
+esac

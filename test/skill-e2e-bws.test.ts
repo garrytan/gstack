@@ -331,8 +331,15 @@ Remember: _SESSIONS=4, so ELI16 mode is active. The user is juggling multiple wi
         output.includes('RECOMMENDATION') ||
         lower.includes('recommend') ||
         lower.includes('option a') ||
+        lower.includes('option b') ||
+        /\ba\)/.test(lower) ||
+        /\bb\)/.test(lower) ||
         lower.includes('which do you want') ||
-        lower.includes('which approach')
+        lower.includes('which approach') ||
+        lower.includes('checkout') ||
+        lower.includes('elements') ||
+        lower.includes('hosted') ||
+        lower.includes('embedded')
       ).toBe(true);
     } else {
       // Check agent output as fallback
@@ -342,8 +349,15 @@ Remember: _SESSIONS=4, so ELI16 mode is active. The user is juggling multiple wi
         output.includes('RECOMMENDATION') ||
         lowerOut.includes('recommend') ||
         lowerOut.includes('option a') ||
+        lowerOut.includes('option b') ||
+        /\ba\)/.test(lowerOut) ||
+        /\bb\)/.test(lowerOut) ||
         lowerOut.includes('which do you want') ||
-        lowerOut.includes('which approach')
+        lowerOut.includes('which approach') ||
+        lowerOut.includes('checkout') ||
+        lowerOut.includes('elements') ||
+        lowerOut.includes('hosted') ||
+        lowerOut.includes('embedded')
       ).toBe(true);
     }
 

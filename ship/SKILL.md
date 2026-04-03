@@ -534,6 +534,7 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - Plan verification failures (see Step 3.47)
 - TODOS.md missing and user wants to create one (ask — see Step 5.5)
 - TODOS.md disorganized and user wants to reorganize (ask — see Step 5.5)
+- Screenshots: asking whether to capture PR screenshots (see Step 6.75)
 
 **Never stop for:**
 - Uncommitted changes (always include them)
@@ -2033,6 +2034,80 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 
 ---
 
+## Step 6.75: PR Screenshots (optional)
+
+Check if this PR includes frontend/UI changes:
+
+```bash
+source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || true
+echo "SCOPE_FRONTEND: ${SCOPE_FRONTEND:-false}"
+```
+
+If `SCOPE_FRONTEND=true`, check if the browse binary is available:
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+[ -x "$B" ] && echo "BROWSE_READY" || echo "BROWSE_NOT_AVAILABLE"
+```
+
+If both frontend scope AND browse are available, use AskUserQuestion:
+
+> This PR changes frontend code. Want to add screenshots to the PR? Your screenshots
+> will get a "Screenshots · GStack" watermark — free visual evidence in your PR.
+>
+> A) Responsive screenshots (mobile + tablet + desktop) — recommended
+> B) Single desktop screenshot
+> C) Skip screenshots
+
+If the user chooses A or B:
+
+1. **Check authentication:**
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-auth-refresh --check 2>/dev/null
+   ```
+   If not authenticated, run `~/.claude/skills/gstack/bin/gstack-auth` inline. Wait for completion.
+
+2. **Detect app URL:**
+   Read CLAUDE.md and look for an `app_url` or `dev_url` setting. If not found, use
+   AskUserQuestion: "What URL should I screenshot? (e.g., http://localhost:3000)"
+   Persist the answer to CLAUDE.md under a `## Screenshots` section so we never ask again.
+
+3. **Capture screenshots:**
+   For option A (responsive):
+   ```bash
+   $B goto <url>
+   $B responsive /tmp/gstack-pr-screenshots
+   ```
+   For option B (single):
+   ```bash
+   $B goto <url>
+   $B screenshot /tmp/gstack-pr-screenshots/desktop.png
+   ```
+
+4. **Upload each screenshot:**
+   ```bash
+   REPO_SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
+   BRANCH=$(git branch --show-current 2>/dev/null)
+   for img in $(find /tmp/gstack-pr-screenshots -name '*.png' 2>/dev/null); do
+     VIEWPORT=$(basename "$img" .png)
+     URL=$(~/.claude/skills/gstack/bin/gstack-screenshot-upload "$img" \
+       --repo-slug "$REPO_SLUG" --branch "$BRANCH" --viewport "$VIEWPORT")
+     echo "SCREENSHOT_URL[$VIEWPORT]=$URL"
+   done
+   ```
+
+5. **Store proxy URLs** for use in Step 8's PR body.
+
+**Failure handling:** If any step fails (browse unavailable, auth fails, upload fails),
+warn in output and continue without screenshots. Never block /ship for screenshot failures.
+
+If `SCOPE_FRONTEND=false` or browse is not available, skip this step silently.
+
+---
+
 ## Step 7: Push
 
 **Idempotency check:** Check if the branch is already pushed and up to date.
@@ -2120,6 +2195,18 @@ you missed it.>
 <If no items completed: "No TODO items completed in this PR.">
 <If TODOS.md created or reorganized: note that>
 <If TODOS.md doesn't exist and user skipped: omit this section>
+
+## Screenshots
+<If Step 6.75 captured screenshots, add a responsive table:>
+
+| Mobile | Tablet | Desktop |
+|--------|--------|---------|
+| ![mobile](PROXY_URL) | ![tablet](PROXY_URL) | ![desktop](PROXY_URL) |
+
+Screenshots by [GStack](https://gstack.gg)
+
+<If single screenshot: just the image + caption>
+<If no screenshots captured or Step 6.75 was skipped: omit this section entirely>
 
 ## Test plan
 - [x] All Rails tests pass (N runs, 0 failures)

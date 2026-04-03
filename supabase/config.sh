@@ -6,3 +6,6 @@
 
 GSTACK_SUPABASE_URL="https://frugpmstpnojnhfyimgv.supabase.co"
 GSTACK_SUPABASE_ANON_KEY="sb_publishable_tR4i6cyMIrYTE3s6OyHGHw_ppx2p6WK"
+
+# gstack.gg web app (auth + screenshot upload)
+GSTACK_WEB_URL="https://gstack.gg"

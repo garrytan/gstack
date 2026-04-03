@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# gstack-auth-refresh — silently refresh auth token if expired
+#
+# Usage:
+#   gstack-auth-refresh          — refresh and print access token
+#   gstack-auth-refresh --check  — exit 0 if authenticated, 1 if not
+#
+# Called by gstack-community-backup and other authenticated scripts.
+# If the refresh token is also expired, prints an error and exits 1.
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR           — override ~/.gstack state directory
+#   GSTACK_DIR                 — override auto-detected gstack root
+set -euo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+AUTH_FILE="$STATE_DIR/auth-token.json"
+
+# Source Supabase config
+if [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+SUPABASE_URL="${GSTACK_SUPABASE_URL:-}"
+ANON_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+AUTH_URL="${SUPABASE_URL}/auth/v1"
+
+# ─── Helper: extract JSON field ──────────────────────────────
+json_field() {
+  local json="$1"
+  local field="$2"
+  echo "$json" | jq -r ".${field}" 2>/dev/null | sed 's/null//'
+}
+
+# ─── Check auth file exists ─────────────────────────────────
+if [ ! -f "$AUTH_FILE" ]; then
+  if [ "${1:-}" = "--check" ]; then
+    exit 1
+  fi
+  echo "Not authenticated. Run: gstack auth <email>" >&2
+  exit 1
+fi
+
+AUTH_JSON="$(cat "$AUTH_FILE")"
+ACCESS_TOKEN="$(json_field "$AUTH_JSON" "access_token")"
+REFRESH_TOKEN="$(json_field "$AUTH_JSON" "refresh_token")"
+EXPIRES_AT="$(json_field "$AUTH_JSON" "expires_at")"
+EMAIL="$(json_field "$AUTH_JSON" "email")"
+USER_ID="$(json_field "$AUTH_JSON" "user_id")"
+NOW="$(date +%s)"
+
+# ─── Check-only mode ────────────────────────────────────────
+if [ "${1:-}" = "--check" ]; then
+  [ -n "$ACCESS_TOKEN" ] && exit 0 || exit 1
+fi
+
+# ─── Token still valid? Return it. ───────────────────────────
+# Add 60s buffer to avoid using a token that's about to expire
+BUFFER=60
+if [ -n "$EXPIRES_AT" ] && [ "$NOW" -lt "$(( EXPIRES_AT - BUFFER ))" ] 2>/dev/null; then
+  echo "$ACCESS_TOKEN"
+  exit 0
+fi
+
+# ─── Token expired — refresh it ─────────────────────────────
+if [ -z "$REFRESH_TOKEN" ] || [ "$REFRESH_TOKEN" = "null" ]; then
+  echo "Session expired and no refresh token. Run: gstack auth <email>" >&2
+  exit 1
+fi
+
+if [ -z "$SUPABASE_URL" ] || [ -z "$ANON_KEY" ]; then
+  echo "Error: Supabase not configured" >&2
+  exit 1
+fi
+
+REFRESH_RESPONSE="$(curl -s --max-time 10 \
+  -X POST "${AUTH_URL}/token?grant_type=refresh_token" \
+  -H "Content-Type: application/json" \
+  -H "apikey: ${ANON_KEY}" \
+  -d "{\"refresh_token\":\"${REFRESH_TOKEN}\"}" \
+  2>/dev/null || echo "{}")"
+
+NEW_ACCESS="$(json_field "$REFRESH_RESPONSE" "access_token")"
+NEW_REFRESH="$(json_field "$REFRESH_RESPONSE" "refresh_token")"
+NEW_EXPIRES_IN="$(json_field "$REFRESH_RESPONSE" "expires_in")"
+
+if [ -z "$NEW_ACCESS" ] || [ "$NEW_ACCESS" = "null" ]; then
+  echo "Session expired. Run: gstack auth <email>" >&2
+  rm -f "$AUTH_FILE"
+  exit 1
+fi
+
+# Update token file
+NEW_EXPIRES_AT=$(( NOW + ${NEW_EXPIRES_IN:-3600} ))
+
+cat > "$AUTH_FILE" <<TOKJSON
+{
+  "access_token": "${NEW_ACCESS}",
+  "refresh_token": "${NEW_REFRESH:-$REFRESH_TOKEN}",
+  "expires_at": ${NEW_EXPIRES_AT},
+  "email": "${EMAIL}",
+  "user_id": "${USER_ID}"
+}
+TOKJSON
+chmod 600 "$AUTH_FILE"
+
+echo "$NEW_ACCESS"

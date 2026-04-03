@@ -70,9 +70,9 @@ else
 fi
 echo ""
 
-# ─── Crash clusters ──────────────────────────────────────────
-echo "Top crash clusters"
-echo "──────────────────"
+# ─── Errors (last 7 days) ────────────────────────────────────
+echo "Top errors (last 7 days)"
+echo "────────────────────────"
 
 CRASHES="$(echo "$DATA" | grep -o '"crashes":\[[^]]*\]' || echo "")"
 if [ -n "$CRASHES" ] && [ "$CRASHES" != '"crashes":[]' ]; then
@@ -82,7 +82,7 @@ if [ -n "$CRASHES" ] && [ "$CRASHES" != '"crashes":[]' ]; then
     [ -n "$ERR" ] && printf "  %-30s %s occurrences\n" "$ERR" "${C:-?}"
   done
 else
-  echo "  No crashes reported"
+  echo "  No errors reported"
 fi
 echo ""
 
@@ -103,3 +103,4 @@ fi
 
 echo ""
 echo "For local analytics: gstack-analytics"
+echo "For benchmarks: gstack-community-benchmarks"
