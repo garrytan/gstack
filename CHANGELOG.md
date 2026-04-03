@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.15.0.0] - 2026-03-31 — Scoped Learnings via Named Groups
+## [0.15.0.0] - 2026-04-03 — Scoped Learnings via Named Groups
 
 Learnings are no longer all-or-nothing. You can now organize projects into named groups, and gstack shares knowledge within each group. A contractor working for three clients creates three groups. A solo dev puts personal projects in "Personal" and work repos in "Work". Each group gets its own knowledge boundary.
 
@@ -18,6 +18,49 @@ Learnings are no longer all-or-nothing. You can now organize projects into named
 - **Dedup by insight text, not just key.** Two repos can now independently discover the same pattern key with different insights, and both are preserved. Only exact duplicate insights are collapsed (highest confidence wins).
 - **Search uses env vars for user input.** `--query` values now pass through `Bun.env` instead of shell interpolation, closing a latent injection vector.
 - **Single bun process for search.** Merged 4 bun invocations into 2 on the hot path (~100ms faster per search).
+
+## [0.14.5.0] - 2026-03-31 — Ship Idempotency + Skill Prefix Fix
+
+Re-running `/ship` after a failed push or PR creation no longer double-bumps your version or duplicates your CHANGELOG. And if you use `--prefix` mode, your skill names actually work now.
+
+### Fixed
+
+- **`/ship` is now idempotent (#649).** If push succeeds but PR creation fails (API outage, rate limit), re-running `/ship` detects the already-bumped VERSION, skips the push if already up to date, and updates the existing PR body instead of creating a duplicate. The CHANGELOG step was already idempotent by design ("replace with unified entry"), so no guard needed there.
+- **Skill prefix actually patches `name:` in SKILL.md (#620, #578).** `./setup --prefix` and `gstack-relink` now patch the `name:` field in each skill's SKILL.md frontmatter to match the prefix setting. Previously, symlinks were prefixed but Claude Code read the unprefixed `name:` field and ignored the prefix entirely. Edge cases handled: `gstack-upgrade` not double-prefixed, root `gstack` skill never prefixed, prefix removal restores original names.
+- **`gen-skill-docs` warns when prefix patches need re-applying.** After regenerating SKILL.md files, if `skill_prefix: true` is set in config, a warning reminds you to run `gstack-relink`.
+- **PR idempotency checks open state.** The PR guard now verifies the existing PR is `OPEN`, so closed PRs don't block new PR creation.
+- **`--no-prefix` ordering bug.** `gstack-patch-names` now runs before `link_claude_skill_dirs` so symlink names reflect the correct patched values.
+
+### Added
+
+- **`bin/gstack-patch-names` shared helper.** DRY extraction of the name-patching logic used by both `setup` and `gstack-relink`. Handles all edge cases (no frontmatter, already-prefixed, inherently-prefixed dirs) with portable `mktemp + mv` sed.
+
+### For contributors
+
+- 4 unit tests for name: patching in `relink.test.ts`
+- 2 tests for gen-skill-docs prefix warning
+- 1 E2E test for ship idempotency (periodic tier)
+- Updated `setupMockInstall` to write SKILL.md with proper frontmatter
+
+## [0.14.4.0] - 2026-03-31 — Review Army: Parallel Specialist Reviewers
+
+Every `/review` now dispatches specialist subagents in parallel. Instead of one agent applying one giant checklist, you get focused reviewers for testing gaps, maintainability, security, performance, data migrations, API contracts, and adversarial red-teaming. Each specialist reads the diff independently with fresh context, outputs structured JSON findings, and the main agent merges, deduplicates, and boosts confidence when multiple specialists flag the same issue. Small diffs (<50 lines) skip specialists entirely for speed. Large diffs (200+ lines) activate the Red Team for adversarial analysis on top.
+
+### Added
+
+- **7 specialist reviewers** running in parallel via Agent tool subagents. Always-on: Testing + Maintainability. Conditional: Security (auth scope), Performance (backend/frontend), Data Migration (migration files), API Contract (controllers/routes), Red Team (large diffs or critical findings).
+- **JSON finding schema.** Specialists output structured JSON objects with severity, confidence, path, line, category, fix, and fingerprint fields. Reliable parsing, no more pipe-delimited text.
+- **Fingerprint-based dedup.** When two specialists flag the same file:line:category, the finding gets boosted confidence and a "MULTI-SPECIALIST CONFIRMED" marker.
+- **PR Quality Score.** Every review computes a 0-10 quality score: `10 - (critical * 2 + informational * 0.5)`. Logged to review history for trending via `/retro`.
+- **3 new diff-scope signals.** `gstack-diff-scope` now detects SCOPE_MIGRATIONS, SCOPE_API, and SCOPE_AUTH to activate the right specialists.
+- **Learning-informed specialist prompts.** Each specialist gets past learnings for its domain injected into the prompt, so reviews get smarter over time.
+- **14 new diff-scope tests** covering all 9 scope signals including the 3 new ones.
+- **7 new E2E tests** (5 gate, 2 periodic) covering migration safety, N+1 detection, delivery audit, quality score, JSON schema compliance, red team activation, and multi-specialist consensus.
+
+### Changed
+
+- **Review checklist refactored.** Categories now covered by specialists (test gaps, dead code, magic numbers, performance, crypto) removed from the main checklist. Main agent focuses on CRITICAL pass only.
+- **Delivery Integrity enhanced.** The existing plan completion audit now investigates WHY items are missing (not just that they're missing) and logs plan-file discrepancies as learnings. Commit-message inference is informational only, never persisted.
 
 ## [0.14.3.0] - 2026-03-31 — Always-On Adversarial Review + Scope Drift + Plan Mode Design Tools
 

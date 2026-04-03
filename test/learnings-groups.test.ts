@@ -156,12 +156,13 @@ describe('gstack-group suggest', () => {
   test('returns groups sorted by owner match', () => {
     runGroup('create Work');
     runGroup('create Personal');
-    // Add a project with matching owner to Work
+    // Add a project with matching owner prefix to Work
+    const owner = SLUG.split('-')[0]; // e.g., "Madrox" from "Madrox-gstack"
     const data = readGroupsJson();
-    data.projects['garrytan-other'] = 'Work';
+    data.projects[`${owner}-other`] = 'Work';
     writeGroupsJson(data);
     const result = runGroup('suggest');
-    // Work should appear first because it has a garrytan-* member
+    // Work should appear first because it has a member with matching owner
     const lines = result.stdout.split('\n');
     expect(lines[0]).toContain('Work');
     expect(lines[0]).toContain('matches owner');

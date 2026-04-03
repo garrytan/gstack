@@ -817,16 +817,71 @@ After producing the completion checklist:
 
 **Include in PR body (Step 8):** Add a \`## Plan Completion\` section with the checklist summary.`);
   } else {
-    // review mode
+    // review mode — enhanced Delivery Integrity (Release 2: Review Army)
     sections.push(`
+### Fallback Intent Sources (when no plan file found)
+
+When no plan file is detected, use these secondary intent sources:
+
+1. **Commit messages:** Run \`git log origin/<base>..HEAD --oneline\`. Use judgment to extract real intent:
+   - Commits with actionable verbs ("add", "implement", "fix", "create", "remove", "update") are intent signals
+   - Skip noise: "WIP", "tmp", "squash", "merge", "chore", "typo", "fixup"
+   - Extract the intent behind the commit, not the literal message
+2. **TODOS.md:** If it exists, check for items related to this branch or recent dates
+3. **PR description:** Run \`gh pr view --json body -q .body 2>/dev/null\` for intent context
+
+**With fallback sources:** Apply the same Cross-Reference classification (DONE/PARTIAL/NOT DONE/CHANGED) using best-effort matching. Note that fallback-sourced items are lower confidence than plan-file items.
+
+### Investigation Depth
+
+For each PARTIAL or NOT DONE item, investigate WHY:
+
+1. Check \`git log origin/<base>..HEAD --oneline\` for commits that suggest the work was started, attempted, or reverted
+2. Read the relevant code to understand what was built instead
+3. Determine the likely reason from this list:
+   - **Scope cut** — evidence of intentional removal (revert commit, removed TODO)
+   - **Context exhaustion** — work started but stopped mid-way (partial implementation, no follow-up commits)
+   - **Misunderstood requirement** — something was built but it doesn't match what the plan described
+   - **Blocked by dependency** — plan item depends on something that isn't available
+   - **Genuinely forgotten** — no evidence of any attempt
+
+Output for each discrepancy:
+\`\`\`
+DISCREPANCY: {PARTIAL|NOT_DONE} | {plan item} | {what was actually delivered}
+INVESTIGATION: {likely reason with evidence from git log / code}
+IMPACT: {HIGH|MEDIUM|LOW} — {what breaks or degrades if this stays undelivered}
+\`\`\`
+
+### Learnings Logging (plan-file discrepancies only)
+
+**Only for discrepancies sourced from plan files** (not commit messages or TODOS.md), log a learning so future sessions know this pattern occurred:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{
+  "type": "pitfall",
+  "key": "plan-delivery-gap-KEBAB_SUMMARY",
+  "insight": "Planned X but delivered Y because Z",
+  "confidence": 8,
+  "source": "observed",
+  "files": ["PLAN_FILE_PATH"]
+}'
+\`\`\`
+
+Replace KEBAB_SUMMARY with a kebab-case summary of the gap, and fill in the actual values.
+
+**Do NOT log learnings from commit-message-derived or TODOS.md-derived discrepancies.** These are informational in the review output but too noisy for durable memory.
+
 ### Integration with Scope Drift Detection
 
 The plan completion results augment the existing Scope Drift Detection. If a plan file is found:
 
 - **NOT DONE items** become additional evidence for **MISSING REQUIREMENTS** in the scope drift report.
 - **Items in the diff that don't match any plan item** become evidence for **SCOPE CREEP** detection.
+- **HIGH-impact discrepancies** trigger AskUserQuestion:
+  - Show the investigation findings
+  - Options: A) Stop and implement missing items, B) Ship anyway + create P1 TODOs, C) Intentionally dropped
 
-This is **INFORMATIONAL** — does not block the review (consistent with existing scope drift behavior).
+This is **INFORMATIONAL** unless HIGH-impact discrepancies are found (then it gates via AskUserQuestion).
 
 Update the scope drift output to include plan file context:
 
@@ -836,11 +891,11 @@ Intent: <from plan file — 1-line summary>
 Plan: <plan file path>
 Delivered: <1-line summary of what the diff actually does>
 Plan items: N DONE, M PARTIAL, K NOT DONE
-[If NOT DONE: list each missing item]
+[If NOT DONE: list each missing item with investigation]
 [If scope creep: list each out-of-scope change not in the plan]
 \`\`\`
 
-**No plan file found:** Fall back to existing scope drift behavior (check TODOS.md and PR description only).`);
+**No plan file found:** Use commit messages and TODOS.md as fallback sources (see above). If no intent sources at all, skip with: "No intent sources detected — skipping completion audit."`);
   }
 
   return sections.join('\n');

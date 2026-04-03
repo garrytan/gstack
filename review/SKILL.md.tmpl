@@ -73,12 +73,12 @@ Run `git diff origin/<base>` to get the full diff. This includes both committed 
 
 {{LEARNINGS_SEARCH}}
 
-## Step 4: Two-pass review
+## Step 4: Critical pass (core review)
 
-Apply the checklist against the diff in two passes:
+Apply the CRITICAL categories from the checklist against the diff:
+SQL & Data Safety, Race Conditions & Concurrency, LLM Output Trust Boundary, Shell Injection, Enum & Value Completeness.
 
-1. **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, LLM Output Trust Boundary, Enum & Value Completeness
-2. **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Magic Numbers & String Coupling, Dead Code & Consistency, LLM Prompt Issues, Test Gaps, View/Frontend, Performance & Bundle Impact
+Also apply the remaining INFORMATIONAL categories that are still in the checklist (Async/Sync Mixing, Column/Field Name Safety, LLM Prompt Issues, Type Coercion, View/Frontend, Time Window Safety, Completeness Gaps, Distribution & CI/CD).
 
 **Enum & Value Completeness requires reading code OUTSIDE the diff.** When the diff introduces a new enum value, status, tier, or type constant, use Grep to find all files that reference sibling values, then Read those files to check if the new value is handled. This is the one category where within-diff review is insufficient.
 
@@ -95,19 +95,7 @@ Follow the output format specified in the checklist. Respect the suppressions �
 
 ---
 
-## Step 4.5: Design Review (conditional)
-
-{{DESIGN_REVIEW_LITE}}
-
-Include any design findings alongside the findings from Step 4. They follow the same Fix-First flow in Step 5 — AUTO-FIX for mechanical CSS fixes, ASK for everything else.
-
----
-
-## Step 4.75: Test Coverage Diagram
-
-{{TEST_COVERAGE_AUDIT_REVIEW}}
-
-This step subsumes the "Test Gaps" category from Pass 2 — do not duplicate findings between the checklist Test Gaps item and this coverage diagram. Include any coverage gaps alongside the findings from Step 4 and Step 4.5. They follow the same Fix-First flow — gaps are INFORMATIONAL findings.
+{{REVIEW_ARMY}}
 
 ---
 

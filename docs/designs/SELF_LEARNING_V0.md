@@ -91,11 +91,35 @@ gstack-review-log pattern.
 **Headline:** 10 specialist reviewers on every PR.
 
 What ships:
-- Parallel review agents: always-on (correctness, testing, maintainability) +
-  conditional (security, performance, API, data-migrations, reliability) +
-  stack-specific (Rails, TypeScript, Python, frontend-races)
-- Red team reviewer activated for large diffs and high-risk domains
-- Structured findings with confidence scores + merge/dedup across agents
+- 7 parallel specialist subagents: always-on (testing, maintainability) +
+  conditional (security, performance, data-migration, API contract, design) +
+  red team (large diffs / critical findings)
+- JSON-structured findings with confidence scores + fingerprint dedup across agents
+- PR quality score (0-10) logged per review + /retro trending (E2)
+- Learning-informed specialist prompts — past pitfalls injected per domain (E4)
+- Multi-specialist consensus highlighting — confirmed findings get boosted (E6)
+- Enhanced Delivery Integrity via PLAN_COMPLETION_AUDIT — investigation depth,
+  commit message fallback, plan-file learnings logging
+- Checklist refactored: CRITICAL categories stay in main pass, specialist
+  categories extracted to focused checklists in review/specialists/
+
+### Release 2.5: "Review Army Expansions" (v0.15.x)
+
+**Headline:** Ship after R2 proves stable. Check in on how the core loop is performing.
+
+Pre-check: review R2 quality metrics (PR quality scores, specialist hit rates,
+false positive rates, E2E test stability). If core loop has issues, fix those first.
+
+What ships:
+- E1: Adaptive specialist gating — auto-skip specialists with 0-finding track record.
+  Store per-project hit rates via gstack-learnings-log. User can force with --security etc.
+- E3: Test stub generation — each specialist outputs TEST_STUB alongside findings.
+  Framework detected from project (Jest/Vitest/RSpec/pytest/Go test).
+  Flows into Fix-First: AUTO-FIX applies fix + creates test file.
+- E5: Cross-review finding dedup — read gstack-review-read for prior review entries.
+  Suppress findings matching a prior user-skipped finding.
+- E7: Specialist performance tracking — log per-specialist metrics via gstack-review-log.
+  /retro integration: "Top finding specialist: Performance (7 findings)."
 
 ### Release 3: "Smart Ceremony" (v0.16)
 

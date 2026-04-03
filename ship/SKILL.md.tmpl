@@ -330,6 +330,17 @@ For each classified comment:
 
 ## Step 4: Version bump (auto-decide)
 
+**Idempotency check:** Before bumping, compare VERSION against the base branch.
+
+```bash
+BASE_VERSION=$(git show origin/<base>:VERSION 2>/dev/null || echo "0.0.0.0")
+CURRENT_VERSION=$(cat VERSION 2>/dev/null || echo "0.0.0.0")
+echo "BASE: $BASE_VERSION  HEAD: $CURRENT_VERSION"
+if [ "$CURRENT_VERSION" != "$BASE_VERSION" ]; then echo "ALREADY_BUMPED"; fi
+```
+
+If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (prior `/ship` run). Skip the rest of Step 4 and use the current VERSION. Otherwise proceed with the bump.
+
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
 
 2. **Auto-decide the bump level based on the diff:**
@@ -469,7 +480,17 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 
 ## Step 7: Push
 
-Push to the remote with upstream tracking:
+**Idempotency check:** Check if the branch is already pushed and up to date.
+
+```bash
+git fetch origin <branch-name> 2>/dev/null
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/<branch-name> 2>/dev/null || echo "none")
+echo "LOCAL: $LOCAL  REMOTE: $REMOTE"
+[ "$LOCAL" = "$REMOTE" ] && echo "ALREADY_PUSHED" || echo "PUSH_NEEDED"
+```
+
+If `ALREADY_PUSHED`, skip the push. Otherwise push with upstream tracking:
 
 ```bash
 git push -u origin <branch-name>
@@ -479,7 +500,21 @@ git push -u origin <branch-name>
 
 ## Step 8: Create PR/MR
 
-Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
+**Idempotency check:** Check if a PR/MR already exists for this branch.
+
+**If GitHub:**
+```bash
+gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number): \(.url)" else "NO_PR" end' 2>/dev/null || echo "NO_PR"
+```
+
+**If GitLab:**
+```bash
+glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
+```
+
+If an **open** PR/MR already exists: **update** the PR body with the latest test results, coverage, and review findings using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Print the existing URL and continue to Step 8.5.
+
+If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
 The PR/MR body should contain these sections:
 
