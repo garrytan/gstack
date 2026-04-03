@@ -706,6 +706,27 @@ fi
 # 8. Run pending version migrations
 # Migrations handle state fixes that ./setup alone can't cover (stale config,
 # orphaned files, directory structure changes). Each migration is idempotent.
+
+# Helper: extract base version (strip pre-release suffix like -rc1, -beta, etc.)
+# for reliable semantic version comparison. By comparing base versions, we ensure
+# that development builds (0.15.2.0-rc1) are treated as being in the same release
+# cycle as their final release (0.15.2.0), so migrations run appropriately whether
+# the user is on a dev or released version.
+_base_version() {
+  echo "$1" | cut -d'-' -f1
+}
+
+# Helper: compare two versions, return 0 if v1 <= v2, 1 otherwise.
+# Strips pre-release tags before comparing using sort -V, so that both
+# 0.15.2.0 and 0.15.2.0-rc1 are treated as the same release cycle for migration
+# purposes. This prevents edge cases where migrations might be skipped due to
+# version string variations in dev builds.
+_version_lte() {
+  local v1_base="$(_base_version "$1")"
+  local v2_base="$(_base_version "$2")"
+  [ "$(printf '%s\n%s' "$v1_base" "$v2_base" | sort -V | head -1)" = "$v1_base" ]
+}
+
 MIGRATIONS_DIR="$SOURCE_GSTACK_DIR/gstack-upgrade/migrations"
 CURRENT_VERSION=$(cat "$SOURCE_GSTACK_DIR/VERSION" 2>/dev/null || echo "unknown")
 LAST_SETUP_VERSION=$(cat "$HOME/.gstack/.last-setup-version" 2>/dev/null || echo "0.0.0.0")
@@ -716,9 +737,9 @@ if [ -d "$MIGRATIONS_DIR" ] && [ "$CURRENT_VERSION" != "unknown" ] && [ "$LAST_S
   else
     find "$MIGRATIONS_DIR" -maxdepth 1 -name 'v*.sh' -type f 2>/dev/null | sort -V | while IFS= read -r migration; do
       m_ver="$(basename "$migration" .sh | sed 's/^v//')"
-      # Run if migration is newer than last setup version AND not newer than current version
-      if [ "$(printf '%s\n%s' "$LAST_SETUP_VERSION" "$m_ver" | sort -V | head -1)" = "$LAST_SETUP_VERSION" ] && [ "$LAST_SETUP_VERSION" != "$m_ver" ] \
-         && [ "$(printf '%s\n%s' "$m_ver" "$CURRENT_VERSION" | sort -V | tail -1)" = "$CURRENT_VERSION" ]; then
+      # Run if: LAST_SETUP_VERSION < m_ver <= CURRENT_VERSION
+      if _version_lte "$LAST_SETUP_VERSION" "$m_ver" && [ "$LAST_SETUP_VERSION" != "$m_ver" ] \
+         && _version_lte "$m_ver" "$CURRENT_VERSION"; then
         echo "  running migration $m_ver..."
         bash "$migration" || echo "  warning: migration $m_ver had errors (non-fatal)"
       fi
