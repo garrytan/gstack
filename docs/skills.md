@@ -13,7 +13,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/investigate`](#investigate) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
-| [`/design-html`](#design-html) | **Design Engineer** | Takes an approved mockup from `/design-shotgun` and generates production-quality Pretext-native HTML. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
+| [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
 | [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
@@ -425,7 +425,7 @@ You know the feeling. You have a feature, a page, a landing screen... and you're
 5. You click "Approve" on the one you like, or give feedback for another round
 6. The approved variant saves to `~/.gstack/projects/$SLUG/designs/` with an `approved.json`
 
-That `approved.json` is what `/design-html` reads. The design pipeline chains: shotgun picks the direction, design-html renders it as working code.
+That `approved.json` is one way to feed `/design-html`. The design pipeline chains: shotgun picks the direction, design-html renders it as working code. But `/design-html` also works with CEO plans, design reviews, or just a description.
 
 ### Taste memory
 
@@ -457,7 +457,9 @@ This is my **design-to-code mode**.
 
 Every AI code generation tool produces static CSS. Hardcoded heights. Text that overflows on resize. Breakpoints that snap instead of flowing. The output looks right at exactly one viewport size and breaks at every other.
 
-`/design-html` fixes this. It takes the approved mockup from `/design-shotgun` and generates HTML using [Pretext](https://github.com/chenglou/pretext) by Cheng Lou (ex-React core, Midjourney frontend). Pretext is a 15KB library that computes text layout without DOM measurement. Text reflows. Heights adjust to content. Cards size themselves. Chat bubbles shrinkwrap. All sub-millisecond, all dynamic.
+`/design-html` fixes this. It generates HTML using [Pretext](https://github.com/chenglou/pretext) by Cheng Lou (ex-React core, Midjourney frontend). Pretext is a 15KB library that computes text layout without DOM measurement. Text reflows. Heights adjust to content. Cards size themselves. Chat bubbles shrinkwrap. All sub-millisecond, all dynamic.
+
+It works with multiple input sources: an approved mockup from `/design-shotgun`, a CEO plan from `/plan-ceo-review`, design review context from `/plan-design-review`, a PNG you provide, or just a description of what you want. It detects what context exists and asks how you want to proceed.
 
 ### Smart API routing
 

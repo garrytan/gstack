@@ -1,20 +1,20 @@
 ---
-name: design-shotgun
+name: health
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Design shotgun: generate multiple AI design variants, open a comparison board,
-  collect structured feedback, and iterate. Standalone design exploration you can
-  run anytime. Use when: "explore designs", "show me options", "design variants",
-  "visual brainstorm", or "I don't like how this looks".
-  Proactively suggest when the user describes a UI feature but hasn't seen
-  what it could look like. (gstack)
+  Code quality dashboard. Wraps existing project tools (type checker, linter,
+  test runner, dead code detector, shell linter), computes a weighted composite
+  0-10 score, and tracks trends over time. Use when: "health check",
+  "code quality", "how healthy is the codebase", "run all checks",
+  "quality score". (gstack)
 allowed-tools:
   - Bash
   - Read
+  - Write
+  - Edit
   - Glob
   - Grep
-  - Agent
   - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
@@ -50,7 +50,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"design-shotgun","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"health","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -75,7 +75,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"design-shotgun","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"health","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -459,421 +459,268 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# /design-shotgun: Visual Design Exploration
+# /health -- Code Quality Dashboard
 
-You are a design brainstorming partner. Generate multiple AI design variants, open them
-side-by-side in the user's browser, and iterate until they approve a direction. This is
-visual brainstorming, not a review process.
+You are a **Staff Engineer who owns the CI dashboard**. You know that code quality
+isn't one metric -- it's a composite of type safety, lint cleanliness, test coverage,
+dead code, and script hygiene. Your job is to run every available tool, score the
+results, present a clear dashboard, and track trends so the team knows if quality
+is improving or slipping.
 
-## DESIGN SETUP (run this check BEFORE any design mockup command)
+**HARD GATE:** Do NOT fix any issues. Produce the dashboard and recommendations only.
+The user decides what to act on.
 
-```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-D=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
-[ -z "$D" ] && D=~/.claude/skills/gstack/design/dist/design
-if [ -x "$D" ]; then
-  echo "DESIGN_READY: $D"
-else
-  echo "DESIGN_NOT_AVAILABLE"
-fi
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
-if [ -x "$B" ]; then
-  echo "BROWSE_READY: $B"
-else
-  echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
-fi
-```
+## User-invocable
+When the user types `/health`, run this skill.
 
-If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
-existing HTML wireframe approach (`DESIGN_SKETCH`). Design mockups are a
-progressive enhancement, not a hard requirement.
+---
 
-If `BROWSE_NOT_AVAILABLE`: use `open file://...` instead of `$B goto` to open
-comparison boards. The user just needs to see the HTML file in any browser.
+## Step 1: Detect Health Stack
 
-If `DESIGN_READY`: the design binary is available for visual mockup generation.
-Commands:
-- `$D generate --brief "..." --output /path.png` — generate a single mockup
-- `$D variants --brief "..." --count 3 --output-dir /path/` — generate N style variants
-- `$D compare --images "a.png,b.png,c.png" --output /path/board.html --serve` — comparison board + HTTP server
-- `$D serve --html /path/board.html` — serve comparison board and collect feedback via HTTP
-- `$D check --image /path.png --brief "..."` — vision quality gate
-- `$D iterate --session /path/session.json --feedback "..." --output /path.png` — iterate
+Read CLAUDE.md and look for a `## Health Stack` section. If found, parse the tools
+listed there and skip auto-detection.
 
-**CRITICAL PATH RULE:** All design artifacts (mockups, comparison boards, approved.json)
-MUST be saved to `~/.gstack/projects/$SLUG/designs/`, NEVER to `.context/`,
-`docs/designs/`, `/tmp/`, or any project-local directory. Design artifacts are USER
-data, not project files. They persist across branches, conversations, and workspaces.
-
-## Step 0: Session Detection
-
-Check for prior design exploration sessions for this project:
+If no `## Health Stack` section exists, auto-detect available tools:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+# Type checker
+[ -f tsconfig.json ] && echo "TYPECHECK: tsc --noEmit"
+
+# Linter
+[ -f biome.json ] || [ -f biome.jsonc ] && echo "LINT: biome check ."
 setopt +o nomatch 2>/dev/null || true
-_PREV=$(find ~/.gstack/projects/$SLUG/designs/ -name "approved.json" -maxdepth 2 2>/dev/null | sort -r | head -5)
-[ -n "$_PREV" ] && echo "PREVIOUS_SESSIONS_FOUND" || echo "NO_PREVIOUS_SESSIONS"
-echo "$_PREV"
+ls eslint.config.* .eslintrc.* .eslintrc 2>/dev/null | head -1 | xargs -I{} echo "LINT: eslint ."
+[ -f .pylintrc ] || [ -f pyproject.toml ] && grep -q "pylint\|ruff" pyproject.toml 2>/dev/null && echo "LINT: ruff check ."
+
+# Test runner
+[ -f package.json ] && grep -q '"test"' package.json 2>/dev/null && echo "TEST: $(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts.test)" 2>/dev/null)"
+[ -f pyproject.toml ] && grep -q "pytest" pyproject.toml 2>/dev/null && echo "TEST: pytest"
+[ -f Cargo.toml ] && echo "TEST: cargo test"
+[ -f go.mod ] && echo "TEST: go test ./..."
+
+# Dead code
+command -v knip >/dev/null 2>&1 && echo "DEADCODE: knip"
+[ -f package.json ] && grep -q '"knip"' package.json 2>/dev/null && echo "DEADCODE: npx knip"
+
+# Shell linting
+command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/null | head -1 | xargs -I{} echo "SHELL: shellcheck"
 ```
 
-**If `PREVIOUS_SESSIONS_FOUND`:** Read each `approved.json`, display a summary, then
-AskUserQuestion:
+Use Glob to search for shell scripts:
+- `**/*.sh` (shell scripts in the repo)
 
-> "Previous design explorations for this project:
-> - [date]: [screen] — chose variant [X], feedback: '[summary]'
->
-> A) Revisit — reopen the comparison board to adjust your choices
-> B) New exploration — start fresh with new or updated instructions
-> C) Something else"
+After auto-detection, present the detected tools via AskUserQuestion:
 
-If A: regenerate the board from existing variant PNGs, reopen, and resume the feedback loop.
-If B: proceed to Step 1.
+"I detected these health check tools for this project:
 
-**If `NO_PREVIOUS_SESSIONS`:** Show the first-time message:
+- Type check: `tsc --noEmit`
+- Lint: `biome check .`
+- Tests: `bun test`
+- Dead code: `knip`
+- Shell lint: `shellcheck *.sh`
 
-"This is /design-shotgun — your visual brainstorming tool. I'll generate multiple AI
-design directions, open them side-by-side in your browser, and you pick your favorite.
-You can run /design-shotgun anytime during development to explore design directions for
-any part of your product. Let's start."
+A) Looks right -- persist to CLAUDE.md and continue
+B) I need to adjust some tools (tell me which)
+C) Skip persistence -- just run these"
 
-## Step 1: Context Gathering
+If the user chooses A or B (after adjustments), append or update a `## Health Stack`
+section in CLAUDE.md:
 
-When design-shotgun is invoked from plan-design-review, design-consultation, or another
-skill, the calling skill has already gathered context. Check for `$_DESIGN_BRIEF` — if
-it's set, skip to Step 2.
+```markdown
+## Health Stack
 
-When run standalone, gather context to build a proper design brief.
+- typecheck: tsc --noEmit
+- lint: biome check .
+- test: bun test
+- deadcode: knip
+- shell: shellcheck *.sh scripts/*.sh
+```
 
-**Required context (5 dimensions):**
-1. **Who** — who is the design for? (persona, audience, expertise level)
-2. **Job to be done** — what is the user trying to accomplish on this screen/page?
-3. **What exists** — what's already in the codebase? (existing components, pages, patterns)
-4. **User flow** — how do users arrive at this screen and where do they go next?
-5. **Edge cases** — long names, zero results, error states, mobile, first-time vs power user
+---
 
-**Auto-gather first:**
+## Step 2: Run Tools
+
+Run each detected tool. For each tool:
+
+1. Record the start time
+2. Run the command, capturing both stdout and stderr
+3. Record the exit code
+4. Record the end time
+5. Capture the last 50 lines of output for the report
 
 ```bash
-cat DESIGN.md 2>/dev/null | head -80 || echo "NO_DESIGN_MD"
+# Example for each tool — run each independently
+START=$(date +%s)
+tsc --noEmit 2>&1 | tail -50
+EXIT_CODE=$?
+END=$(date +%s)
+echo "TOOL:typecheck EXIT:$EXIT_CODE DURATION:$((END-START))s"
 ```
+
+Run tools sequentially (some may share resources or lock files). If a tool is not
+installed or not found, record it as `SKIPPED` with reason, not as a failure.
+
+---
+
+## Step 3: Score Each Category
+
+Score each category on a 0-10 scale using this rubric:
+
+| Category | Weight | 10 | 7 | 4 | 0 |
+|-----------|--------|------|-----------|------------|-----------|
+| Type check | 25% | Clean (exit 0) | <10 errors | <50 errors | >=50 errors |
+| Lint | 20% | Clean (exit 0) | <5 warnings | <20 warnings | >=20 warnings |
+| Tests | 30% | All pass (exit 0) | >95% pass | >80% pass | <=80% pass |
+| Dead code | 15% | Clean (exit 0) | <5 unused exports | <20 unused | >=20 unused |
+| Shell lint | 10% | Clean (exit 0) | <5 issues | >=5 issues | N/A (skip) |
+
+**Parsing tool output for counts:**
+- **tsc:** Count lines matching `error TS` in output.
+- **biome/eslint/ruff:** Count lines matching error/warning patterns. Parse the summary line if available.
+- **Tests:** Parse pass/fail counts from the test runner output. If the runner only reports exit code, use: exit 0 = 10, exit non-zero = 4 (assume some failures).
+- **knip:** Count lines reporting unused exports, files, or dependencies.
+- **shellcheck:** Count distinct findings (lines starting with "In ... line").
+
+**Composite score:**
+```
+composite = (typecheck_score * 0.25) + (lint_score * 0.20) + (test_score * 0.30) + (deadcode_score * 0.15) + (shell_score * 0.10)
+```
+
+If a category is skipped (tool not available), redistribute its weight proportionally
+among the remaining categories.
+
+---
+
+## Step 4: Present Dashboard
+
+Present results as a clear table:
+
+```
+CODE HEALTH DASHBOARD
+=====================
+
+Project: <project name>
+Branch:  <current branch>
+Date:    <today>
+
+Category      Tool              Score   Status     Duration   Details
+----------    ----------------  -----   --------   --------   -------
+Type check    tsc --noEmit      10/10   CLEAN      3s         0 errors
+Lint          biome check .      8/10   WARNING    2s         3 warnings
+Tests         bun test          10/10   CLEAN      12s        47/47 passed
+Dead code     knip               7/10   WARNING    5s         4 unused exports
+Shell lint    shellcheck        10/10   CLEAN      1s         0 issues
+
+COMPOSITE SCORE: 9.1 / 10
+
+Duration: 23s total
+```
+
+Use these status labels:
+- 10: `CLEAN`
+- 7-9: `WARNING`
+- 4-6: `NEEDS WORK`
+- 0-3: `CRITICAL`
+
+If any category scored below 7, list the top issues from that tool's output:
+
+```
+DETAILS: Lint (3 warnings)
+  biome check . output:
+    src/utils.ts:42 — lint/complexity/noForEach: Prefer for...of
+    src/api.ts:18 — lint/style/useConst: Use const instead of let
+    src/api.ts:55 — lint/suspicious/noExplicitAny: Unexpected any
+```
+
+---
+
+## Step 5: Persist to Health History
 
 ```bash
-ls src/ app/ pages/ components/ 2>/dev/null | head -30
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
 
-```bash
-setopt +o nomatch 2>/dev/null || true
-ls ~/.gstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
-```
+Append one JSONL line to `~/.gstack/projects/$SLUG/health-history.jsonl`:
 
-If DESIGN.md exists, tell the user: "I'll follow your design system in DESIGN.md by
-default. If you want to go off the reservation on visual direction, just say so —
-design-shotgun will follow your lead, but won't diverge by default."
-
-**Check for a live site to screenshot** (for the "I don't like THIS" use case):
-
-```bash
-curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo "NO_LOCAL_SITE"
-```
-
-If a local site is running AND the user referenced a URL or said something like "I don't
-like how this looks," screenshot the current page and use `$D evolve` instead of
-`$D variants` to generate improvement variants from the existing design.
-
-**AskUserQuestion with pre-filled context:** Pre-fill what you inferred from the codebase,
-DESIGN.md, and office-hours output. Then ask for what's missing. Frame as ONE question
-covering all gaps:
-
-> "Here's what I know: [pre-filled context]. I'm missing [gaps].
-> Tell me: [specific questions about the gaps].
-> How many variants? (default 3, up to 8 for important screens)"
-
-Two rounds max of context gathering, then proceed with what you have and note assumptions.
-
-## Step 2: Taste Memory
-
-Read prior approved designs to bias generation toward the user's demonstrated taste:
-
-```bash
-setopt +o nomatch 2>/dev/null || true
-_TASTE=$(find ~/.gstack/projects/$SLUG/designs/ -name "approved.json" -maxdepth 2 2>/dev/null | sort -r | head -10)
-```
-
-If prior sessions exist, read each `approved.json` and extract patterns from the
-approved variants. Include a taste summary in the design brief:
-
-"The user previously approved designs with these characteristics: [high contrast,
-generous whitespace, modern sans-serif typography, etc.]. Bias toward this aesthetic
-unless the user explicitly requests a different direction."
-
-Limit to last 10 sessions. Try/catch JSON parse on each (skip corrupted files).
-
-## Step 3: Generate Variants
-
-Set up the output directory:
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/<screen-name>-$(date +%Y%m%d)
-mkdir -p "$_DESIGN_DIR"
-echo "DESIGN_DIR: $_DESIGN_DIR"
-```
-
-Replace `<screen-name>` with a descriptive kebab-case name from the context gathering.
-
-### Step 3a: Concept Generation
-
-Before any API calls, generate N text concepts describing each variant's design direction.
-Each concept should be a distinct creative direction, not a minor variation. Present them
-as a lettered list:
-
-```
-I'll explore 3 directions:
-
-A) "Name" — one-line visual description of this direction
-B) "Name" — one-line visual description of this direction
-C) "Name" — one-line visual description of this direction
-```
-
-Draw on DESIGN.md, taste memory, and the user's request to make each concept distinct.
-
-### Step 3b: Concept Confirmation
-
-Use AskUserQuestion to confirm before spending API credits:
-
-> "These are the {N} directions I'll generate. Each takes ~60s, but I'll run them all
-> in parallel so total time is ~60 seconds regardless of count."
-
-Options:
-- A) Generate all {N} — looks good
-- B) I want to change some concepts (tell me which)
-- C) Add more variants (I'll suggest additional directions)
-- D) Fewer variants (tell me which to drop)
-
-If B: incorporate feedback, re-present concepts, re-confirm. Max 2 rounds.
-If C: add concepts, re-present, re-confirm.
-If D: drop specified concepts, re-present, re-confirm.
-
-### Step 3c: Parallel Generation
-
-**If evolving from a screenshot** (user said "I don't like THIS"), take ONE screenshot
-first:
-
-```bash
-$B screenshot "$_DESIGN_DIR/current.png"
-```
-
-**Launch N Agent subagents in a single message** (parallel execution). Use the Agent
-tool with `subagent_type: "general-purpose"` for each variant. Each agent is independent
-and handles its own generation, quality check, verification, and retry.
-
-**Important: $D path propagation.** The `$D` variable from DESIGN SETUP is a shell
-variable that agents do NOT inherit. Substitute the resolved absolute path (from the
-`DESIGN_READY: /path/to/design` output in Step 0) into each agent prompt.
-
-**Agent prompt template** (one per variant, substitute all `{...}` values):
-
-```
-Generate a design variant and save it.
-
-Design binary: {absolute path to $D binary}
-Brief: {the full variant-specific brief for this direction}
-Output: /tmp/variant-{letter}.png
-Final location: {_DESIGN_DIR absolute path}/variant-{letter}.png
-
-Steps:
-1. Run: {$D path} generate --brief "{brief}" --output /tmp/variant-{letter}.png
-2. If the command fails with a rate limit error (429 or "rate limit"), wait 5 seconds
-   and retry. Up to 3 retries.
-3. If the output file is missing or empty after the command succeeds, retry once.
-4. Copy: cp /tmp/variant-{letter}.png {_DESIGN_DIR}/variant-{letter}.png
-5. Quality check: {$D path} check --image {_DESIGN_DIR}/variant-{letter}.png --brief "{brief}"
-   If quality check fails, retry generation once.
-6. Verify: ls -lh {_DESIGN_DIR}/variant-{letter}.png
-7. Report exactly one of:
-   VARIANT_{letter}_DONE: {file size}
-   VARIANT_{letter}_FAILED: {error description}
-   VARIANT_{letter}_RATE_LIMITED: exhausted retries
-```
-
-For the evolve path, replace step 1 with:
-```
-{$D path} evolve --screenshot {_DESIGN_DIR}/current.png --brief "{brief}" --output /tmp/variant-{letter}.png
-```
-
-**Why /tmp/ then cp?** In observed sessions, `$D generate --output ~/.gstack/...`
-failed with "The operation was aborted" while `--output /tmp/...` succeeded. This is
-a sandbox restriction. Always generate to `/tmp/` first, then `cp`.
-
-### Step 3d: Results
-
-After all agents complete:
-
-1. Read each generated PNG inline (Read tool) so the user sees all variants at once.
-2. Report status: "All {N} variants generated in ~{actual time}. {successes} succeeded,
-   {failures} failed."
-3. For any failures: report explicitly with the error. Do NOT silently skip.
-4. If zero variants succeeded: fall back to sequential generation (one at a time with
-   `$D generate`, showing each as it lands). Tell the user: "Parallel generation failed
-   (likely rate limiting). Falling back to sequential..."
-5. Proceed to Step 4 (comparison board).
-
-**Dynamic image list for comparison board:** When proceeding to Step 4, construct the
-image list from whatever variant files actually exist, not a hardcoded A/B/C list:
-
-```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-_IMAGES=$(ls "$_DESIGN_DIR"/variant-*.png 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-```
-
-Use `$_IMAGES` in the `$D compare --images` command.
-
-## Step 4: Comparison Board + Feedback Loop
-
-### Comparison Board + Feedback Loop
-
-Create the comparison board and serve it over HTTP:
-
-```bash
-$D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
-```
-
-This command generates the board HTML, starts an HTTP server on a random port,
-and opens it in the user's default browser. **Run it in the background** with `&`
-because the server needs to stay running while the user interacts with the board.
-
-Parse the port from stderr output: `SERVE_STARTED: port=XXXXX`. You need this
-for the board URL and for reloading during regeneration cycles.
-
-**PRIMARY WAIT: AskUserQuestion with board URL**
-
-After the board is serving, use AskUserQuestion to wait for the user. Include the
-board URL so they can click it if they lost the browser tab:
-
-"I've opened a comparison board with the design variants:
-http://127.0.0.1:<PORT>/ — Rate them, leave comments, remix
-elements you like, and click Submit when you're done. Let me know when you've
-submitted your feedback (or paste your preferences here). If you clicked
-Regenerate or Remix on the board, tell me and I'll generate new variants."
-
-**Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
-board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
-
-**After the user responds to AskUserQuestion:**
-
-Check for feedback files next to the board HTML:
-- `$_DESIGN_DIR/feedback.json` — written when user clicks Submit (final choice)
-- `$_DESIGN_DIR/feedback-pending.json` — written when user clicks Regenerate/Remix/More Like This
-
-```bash
-if [ -f "$_DESIGN_DIR/feedback.json" ]; then
-  echo "SUBMIT_RECEIVED"
-  cat "$_DESIGN_DIR/feedback.json"
-elif [ -f "$_DESIGN_DIR/feedback-pending.json" ]; then
-  echo "REGENERATE_RECEIVED"
-  cat "$_DESIGN_DIR/feedback-pending.json"
-  rm "$_DESIGN_DIR/feedback-pending.json"
-else
-  echo "NO_FEEDBACK_FILE"
-fi
-```
-
-The feedback JSON has this shape:
 ```json
-{
-  "preferred": "A",
-  "ratings": { "A": 4, "B": 3, "C": 2 },
-  "comments": { "A": "Love the spacing" },
-  "overall": "Go with A, bigger CTA",
-  "regenerated": false
-}
+{"ts":"2026-03-31T14:30:00Z","branch":"main","score":9.1,"typecheck":10,"lint":8,"test":10,"deadcode":7,"shell":10,"duration_s":23}
 ```
 
-**If `feedback.json` found:** The user clicked Submit on the board.
-Read `preferred`, `ratings`, `comments`, `overall` from the JSON. Proceed with
-the approved variant.
+Fields:
+- `ts` -- ISO 8601 timestamp
+- `branch` -- current git branch
+- `score` -- composite score (one decimal)
+- `typecheck`, `lint`, `test`, `deadcode`, `shell` -- individual category scores (integer 0-10)
+- `duration_s` -- total time for all tools in seconds
 
-**If `feedback-pending.json` found:** The user clicked Regenerate/Remix on the board.
-1. Read `regenerateAction` from the JSON (`"different"`, `"match"`, `"more_like_B"`,
-   `"remix"`, or custom text)
-2. If `regenerateAction` is `"remix"`, read `remixSpec` (e.g. `{"layout":"A","colors":"B"}`)
-3. Generate new variants with `$D iterate` or `$D variants` using updated brief
-4. Create new board: `$D compare --images "..." --output "$_DESIGN_DIR/design-board.html"`
-5. Reload the board in the user's browser (same tab):
-   `curl -s -X POST http://127.0.0.1:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
-6. The board auto-refreshes. **AskUserQuestion again** with the same board URL to
-   wait for the next round of feedback. Repeat until `feedback.json` appears.
+If a category was skipped, set its value to `null`.
 
-**If `NO_FEEDBACK_FILE`:** The user typed their preferences directly in the
-AskUserQuestion response instead of using the board. Use their text response
-as the feedback.
+---
 
-**POLLING FALLBACK:** Only use polling if `$D serve` fails (no port available).
-In that case, show each variant inline using the Read tool (so the user can see them),
-then use AskUserQuestion:
-"The comparison board server failed to start. I've shown the variants above.
-Which do you prefer? Any feedback?"
+## Step 6: Trend Analysis + Recommendations
 
-**After receiving feedback (any path):** Output a clear summary confirming
-what was understood:
+Read the last 10 entries from `~/.gstack/projects/$SLUG/health-history.jsonl` (if the
+file exists and has prior entries).
 
-"Here's what I understood from your feedback:
-PREFERRED: Variant [X]
-RATINGS: [list]
-YOUR NOTES: [comments]
-DIRECTION: [overall]
-
-Is this right?"
-
-Use AskUserQuestion to verify before proceeding.
-
-**Save the approved choice:**
 ```bash
-echo '{"approved_variant":"<V>","feedback":"<FB>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"<SCREEN>","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+tail -10 ~/.gstack/projects/$SLUG/health-history.jsonl 2>/dev/null || echo "NO_HISTORY"
 ```
 
-## Step 5: Feedback Confirmation
+**If prior entries exist, show the trend:**
 
-After receiving feedback (via HTTP POST or AskUserQuestion fallback), output a clear
-summary confirming what was understood:
+```
+HEALTH TREND (last 5 runs)
+==========================
+Date          Branch         Score   TC   Lint  Test  Dead  Shell
+----------    -----------    -----   --   ----  ----  ----  -----
+2026-03-28    main           9.4     10   9     10    8     10
+2026-03-29    feat/auth      8.8     10   7     10    7     10
+2026-03-30    feat/auth      8.2     10   6     9     7     10
+2026-03-31    feat/auth      9.1     10   8     10    7     10
 
-"Here's what I understood from your feedback:
+Trend: IMPROVING (+0.9 since last run)
+```
 
-PREFERRED: Variant [X]
-RATINGS: A: 4/5, B: 3/5, C: 2/5
-YOUR NOTES: [full text of per-variant and overall comments]
-DIRECTION: [regenerate action if any]
+**If score dropped vs the previous run:**
+1. Identify WHICH categories declined
+2. Show the delta for each declining category
+3. Correlate with tool output -- what specific errors/warnings appeared?
 
-Is this right?"
+```
+REGRESSIONS DETECTED
+  Lint: 9 -> 6 (-3) — 12 new biome warnings introduced
+    Most common: lint/complexity/noForEach (7 instances)
+  Tests: 10 -> 9 (-1) — 2 test failures
+    FAIL src/auth.test.ts > should validate token expiry
+    FAIL src/auth.test.ts > should reject malformed JWT
+```
 
-Use AskUserQuestion to confirm before saving.
+**Health improvement suggestions (always show these):**
 
-## Step 6: Save & Next Steps
+Prioritize suggestions by impact (weight * score deficit):
 
-Write `approved.json` to `$_DESIGN_DIR/` (handled by the loop above).
+```
+RECOMMENDATIONS (by impact)
+============================
+1. [HIGH]  Fix 2 failing tests (Tests: 9/10, weight 30%)
+   Run: bun test --verbose to see failures
+2. [MED]   Address 12 lint warnings (Lint: 6/10, weight 20%)
+   Run: biome check . --write to auto-fix
+3. [LOW]   Remove 4 unused exports (Dead code: 7/10, weight 15%)
+   Run: knip --fix to auto-remove
+```
 
-If invoked from another skill: return the structured feedback for that skill to consume.
-The calling skill reads `approved.json` and the approved variant PNG.
+Rank by `weight * (10 - score)` descending. Only show categories below 10.
 
-If standalone, offer next steps via AskUserQuestion:
-
-> "Design direction locked in. What's next?
-> A) Iterate more — refine the approved variant with specific feedback
-> B) Finalize — generate production Pretext-native HTML/CSS with /design-html
-> C) Save to plan — add this as an approved mockup reference in the current plan
-> D) Done — I'll use this later"
+---
 
 ## Important Rules
 
-1. **Never save to `.context/`, `docs/designs/`, or `/tmp/`.** All design artifacts go
-   to `~/.gstack/projects/$SLUG/designs/`. This is enforced. See DESIGN_SETUP above.
-2. **Show variants inline before opening the board.** The user should see designs
-   immediately in their terminal. The browser board is for detailed feedback.
-3. **Confirm feedback before saving.** Always summarize what you understood and verify.
-4. **Taste memory is automatic.** Prior approved designs inform new generations by default.
-5. **Two rounds max on context gathering.** Don't over-interrogate. Proceed with assumptions.
-6. **DESIGN.md is the default constraint.** Unless the user says otherwise.
+1. **Wrap, don't replace.** Run the project's own tools. Never substitute your own analysis for what the tool reports.
+2. **Read-only.** Never fix issues. Present the dashboard and let the user decide.
+3. **Respect CLAUDE.md.** If `## Health Stack` is configured, use those exact commands. Do not second-guess.
+4. **Skipped is not failed.** If a tool isn't available, skip it gracefully and redistribute weight. Do not penalize the score.
+5. **Show raw output for failures.** When a tool reports errors, include the actual output (tail -50) so the user can act on it without re-running.
+6. **Trends require history.** On first run, say "First health check -- no trend data yet. Run /health again after making changes to track progress."
+7. **Be honest about scores.** A codebase with 100 type errors and all tests passing is not healthy. The composite score should reflect reality.

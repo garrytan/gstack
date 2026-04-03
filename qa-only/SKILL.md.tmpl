@@ -8,6 +8,9 @@ description: |
   fixes anything. Use when asked to "just report bugs", "qa report only", or
   "test but don't fix". For the full test-fix-verify loop, use /qa instead.
   Proactively suggest when the user wants a bug report without any code changes. (gstack)
+voice-triggers:
+  - "bug report"
+  - "just check for bugs"
 allowed-tools:
   - Bash
   - Read
@@ -48,6 +51,8 @@ mkdir -p "$REPORT_DIR/screenshots"
 ```
 
 ---
+
+{{LEARNINGS_SEARCH}}
 
 ## Test Plan Context
 
@@ -96,6 +101,8 @@ Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
 
 ---
+
+{{LEARNINGS_LOG}}
 
 ## Additional Rules (qa-only specific)
 

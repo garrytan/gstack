@@ -36,6 +36,16 @@ SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 # Read prefix setting
 PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 
+# Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
+_cleanup_skill_entry() {
+  local entry="$1"
+  if [ -L "$entry" ]; then
+    rm -f "$entry"
+  elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
+    rm -rf "$entry"
+  fi
+}
+
 # Discover skills (directories with SKILL.md, excluding meta dirs)
 SKILL_COUNT=0
 for skill_dir in "$INSTALL_DIR"/*/; do
@@ -51,18 +61,22 @@ for skill_dir in "$INSTALL_DIR"/*/; do
       gstack-*) link_name="$skill" ;;
       *)        link_name="gstack-$skill" ;;
     esac
-    ln -sfn "$INSTALL_DIR/$skill" "$SKILLS_DIR/$link_name"
-    # Remove old flat symlink if it exists (and isn't the same as the new link)
-    [ "$link_name" != "$skill" ] && [ -L "$SKILLS_DIR/$skill" ] && rm -f "$SKILLS_DIR/$skill"
+    # Remove old flat entry if it exists (and isn't the same as the new link)
+    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill"
   else
-    # Create flat symlink, remove gstack-* if exists
-    ln -sfn "$INSTALL_DIR/$skill" "$SKILLS_DIR/$skill"
+    link_name="$skill"
     # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
     case "$skill" in
       gstack-*) ;; # Already the real name, no old prefixed link to clean
-      *)        [ -L "$SKILLS_DIR/gstack-$skill" ] && rm -f "$SKILLS_DIR/gstack-$skill" ;;
+      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" ;;
     esac
   fi
+  target="$SKILLS_DIR/$link_name"
+  # Upgrade old directory symlinks to real directories
+  [ -L "$target" ] && rm -f "$target"
+  # Create real directory with symlinked SKILL.md (absolute path)
+  mkdir -p "$target"
+  ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 

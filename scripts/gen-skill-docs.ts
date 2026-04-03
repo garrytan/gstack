@@ -132,6 +132,63 @@ function extractNameAndDescription(content: string): { name: string; description
   return { name, description };
 }
 
+// ─── Voice Trigger Processing ────────────────────────────────
+
+/**
+ * Extract voice-triggers YAML list from frontmatter.
+ * Returns an array of trigger strings, or [] if no voice-triggers field.
+ */
+function extractVoiceTriggers(content: string): string[] {
+  const fmStart = content.indexOf('---\n');
+  if (fmStart !== 0) return [];
+  const fmEnd = content.indexOf('\n---', fmStart + 4);
+  if (fmEnd === -1) return [];
+  const frontmatter = content.slice(fmStart + 4, fmEnd);
+
+  const triggers: string[] = [];
+  let inVoice = false;
+  for (const line of frontmatter.split('\n')) {
+    if (/^voice-triggers:/.test(line)) { inVoice = true; continue; }
+    if (inVoice) {
+      const m = line.match(/^\s+-\s+"(.+)"$/);
+      if (m) triggers.push(m[1]);
+      else if (!/^\s/.test(line)) break;
+    }
+  }
+  return triggers;
+}
+
+/**
+ * Preprocess voice triggers: fold voice-triggers YAML field into description,
+ * then strip the field from frontmatter. Must run BEFORE transformFrontmatter
+ * and extractNameAndDescription so all hosts see the updated description.
+ */
+function processVoiceTriggers(content: string): string {
+  const triggers = extractVoiceTriggers(content);
+  if (triggers.length === 0) return content;
+
+  // Strip voice-triggers block from frontmatter
+  content = content.replace(/^voice-triggers:\n(?:\s+-\s+"[^"]*"\n?)*/m, '');
+
+  // Get current description (after stripping voice-triggers, so it's clean)
+  const { description } = extractNameAndDescription(content);
+  if (!description) return content;
+
+  // Build new description with voice triggers appended
+  const voiceLine = `Voice triggers (speech-to-text aliases): ${triggers.map(t => `"${t}"`).join(', ')}.`;
+  const newDescription = description + '\n' + voiceLine;
+
+  // Replace old indented description with new in frontmatter
+  const oldIndented = description.split('\n').map(l => `  ${l}`).join('\n');
+  const newIndented = newDescription.split('\n').map(l => `  ${l}`).join('\n');
+  content = content.replace(oldIndented, newIndented);
+
+  return content;
+}
+
+// Export for testing
+export { extractVoiceTriggers, processVoiceTriggers };
+
 const OPENAI_SHORT_DESCRIPTION_LIMIT = 120;
 
 function condenseOpenAIShortDescription(description: string): string {
@@ -163,8 +220,10 @@ policy:
  */
 function transformFrontmatter(content: string, host: Host): string {
   if (host === 'claude') {
-    // Strip sensitive: field from Claude output (only Factory uses it)
-    return content.replace(/^sensitive:\s*true\n/m, '');
+    // Strip fields not used by Claude: sensitive (Factory-only), voice-triggers (folded into description by preprocessing)
+    content = content.replace(/^sensitive:\s*true\n/m, '');
+    content = content.replace(/^voice-triggers:\n(?:\s+-\s+"[^"]*"\n?)*/m, '');
+    return content;
   }
 
   const fmStart = content.indexOf('---\n');
@@ -364,13 +423,22 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     throw new Error(`Unresolved placeholders in ${relTmplPath}: ${remaining.join(', ')}`);
   }
 
+  // Preprocess voice triggers: fold into description, strip field from frontmatter.
+  // Must run BEFORE transformFrontmatter so all hosts see the updated description,
+  // and BEFORE extractedDescription is used by external host metadata.
+  content = processVoiceTriggers(content);
+
+  // Re-extract description AFTER voice trigger preprocessing so Codex openai.yaml
+  // metadata gets the updated description with voice triggers included.
+  const postProcessDescription = extractNameAndDescription(content).description;
+
   // For Claude: strip sensitive: field (only Factory uses it)
   // For external hosts: route output, transform frontmatter, rewrite paths
   let symlinkLoop = false;
   if (host === 'claude') {
     content = transformFrontmatter(content, host);
   } else {
-    const result = processExternalHost(content, tmplContent, host, skillDir, extractedDescription, ctx, extractedName || undefined);
+    const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
     content = result.content;
     outputPath = result.outputPath;
     symlinkLoop = result.symlinkLoop;

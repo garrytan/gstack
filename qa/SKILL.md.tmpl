@@ -11,6 +11,10 @@ description: |
   or asks "does this work?". Three tiers: Quick (critical/high only),
   Standard (+ medium), Exhaustive (+ cosmetic). Produces before/after health scores,
   fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only. (gstack)
+voice-triggers:
+  - "quality check"
+  - "test the app"
+  - "run QA"
 allowed-tools:
   - Bash
   - Read
@@ -89,6 +93,8 @@ mkdir -p .gstack/qa-reports/screenshots
 ```
 
 ---
+
+{{LEARNINGS_SEARCH}}
 
 ## Test Plan Context
 
@@ -314,6 +320,8 @@ If the repo has a `TODOS.md`:
 2. **Fixed bugs that were in TODOS.md** → annotate with "Fixed by /qa on {branch}, {date}"
 
 ---
+
+{{LEARNINGS_LOG}}
 
 ## Additional Rules (qa-specific)
 

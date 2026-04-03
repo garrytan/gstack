@@ -8,9 +8,8 @@ import type { TemplateContext } from './types';
  * repo mode detection, and telemetry.
  *
  * Telemetry data flow:
- *   1. If _TEL != "off": local JSONL append to ~/.gstack/analytics/ (inline, inspectable)
+ *   1. Always: local JSONL append to ~/.gstack/analytics/ (inline, inspectable)
  *   2. If _TEL != "off" AND binary exists: gstack-telemetry-log for remote reporting
- *   When telemetry is off, nothing is written anywhere. Clean trust contract.
  */
 
 function generatePreambleBash(ctx: TemplateContext): string {
@@ -34,7 +33,6 @@ mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -exec rm {} + 2>/dev/null || true
-_CONTRIB=$(${ctx.paths.binDir}/gstack-config get gstack_contributor 2>/dev/null || true)
 _PROACTIVE=$(${ctx.paths.binDir}/gstack-config get proactive 2>/dev/null || echo "true")
 _PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
@@ -55,8 +53,8 @@ _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: \${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
-if [ "\${_TEL:-off}" != "off" ]; then
-  echo '{"skill":"${ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+if [ "$_TEL" != "off" ]; then
+echo '{"skill":"${ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -74,9 +72,14 @@ _LEARN_FILE="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}/learnings
 if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
+  if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
+    ${ctx.paths.binDir}/gstack-learnings-search --limit 3 2>/dev/null || true
+  fi
 else
   echo "LEARNINGS: 0"
 fi
+# Session timeline: record skill start (local-only, never sent anywhere)
+${ctx.paths.binDir}/gstack-timeline-log '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -210,6 +213,8 @@ Key routing rules:
 - Design system, brand → invoke design-consultation
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
+- Save progress, checkpoint, resume → invoke checkpoint
+- Code quality, health check → invoke health
 \`\`\`
 
 Then commit the change: \`git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"\`
@@ -379,27 +384,7 @@ jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg b
 \`\`\``;
 }
 
-function generateContributorMode(): string {
-  return `## Contributor Mode
-
-If \`_CONTRIB\` is \`true\`: you are in **contributor mode**. At the end of each major workflow step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
-
-**File only:** gstack tooling bugs where the input was reasonable but gstack failed. **Skip:** user app bugs, network errors, auth failures on user's site.
-
-**To file:** write \`~/.gstack/contributor-logs/{slug}.md\`:
-\`\`\`
-# {Title}
-**What I tried:** {action} | **What happened:** {result} | **Rating:** {0-10}
-## Repro
-1. {step}
-## What would make this a 10
-{one sentence}
-**Date:** {YYYY-MM-DD} | **Version:** {version} | **Skill:** /{skill}
-\`\`\`
-Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.`;
-}
-
-function generateCompletionStatus(): string {
+function generateCompletionStatus(ctx: TemplateContext): string {
   return `## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -425,6 +410,24 @@ ATTEMPTED: [what you tried]
 RECOMMENDATION: [what the user should do next]
 \`\`\`
 
+## Operational Self-Improvement
+
+Before completing, reflect on this session:
+- Did any commands fail unexpectedly?
+- Did you take a wrong approach and have to backtrack?
+- Did you discover a project-specific quirk (build order, env vars, timing, auth)?
+- Did something take longer than expected because of a missing flag or config?
+
+If yes, log an operational learning for future sessions:
+
+\`\`\`bash
+${ctx.paths.binDir}/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
+\`\`\`
+
+Replace SKILL_NAME with the current skill name. Only log genuine operational discoveries.
+Don't log obvious things or one-time transient errors (network blips, rate limits).
+A good test: would knowing this save 5+ minutes in a future session? If yes, log it.
+
 ## Telemetry (run last)
 
 After the skill workflow completes (success, error, or abort), log the telemetry event.
@@ -443,22 +446,24 @@ Run this bash:
 _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-# Local + remote telemetry (both gated by _TEL setting)
+# Session timeline: record skill completion (local-only, never sent anywhere)
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+# Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
-  echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
-  if [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-    ~/.claude/skills/gstack/bin/gstack-telemetry-log \\
-      --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
-      --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
-  fi
+echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+fi
+# Remote telemetry (opt-in, requires binary)
+if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.claude/skills/gstack/bin/gstack-telemetry-log \\
+    --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
+    --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
 \`\`\`
 
 Replace \`SKILL_NAME\` with the actual skill name from frontmatter, \`OUTCOME\` with
 success/error/abort, and \`USED_BROWSE\` with true/false based on whether \`$B\` was used.
-If you cannot determine the outcome, use "unknown". Both local JSONL and remote
-telemetry only run if telemetry is not off. The remote binary additionally requires
-the binary to exist.
+If you cannot determine the outcome, use "unknown". The local JSONL always logs. The
+remote binary only runs if telemetry is not off and the binary exists.
 
 ## Plan Mode Safe Operations
 
@@ -570,16 +575,65 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 **Final test:** does this sound like a real cross-functional builder who wants to help someone make something people want, ship it, and make it actually work?`;
 }
 
+function generateContextRecovery(ctx: TemplateContext): string {
+  const binDir = ctx.host === 'codex' ? '$GSTACK_BIN' : ctx.paths.binDir;
+
+  return `## Context Recovery
+
+After compaction or at session start, check for recent project artifacts.
+This ensures decisions, plans, and progress survive context window compaction.
+
+\`\`\`bash
+eval "$(${binDir}/gstack-slug 2>/dev/null)"
+_PROJ="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}"
+if [ -d "$_PROJ" ]; then
+  echo "--- RECENT ARTIFACTS ---"
+  # Last 3 artifacts across ceo-plans/ and checkpoints/
+  find "$_PROJ/ceo-plans" "$_PROJ/checkpoints" -type f -name "*.md" 2>/dev/null | xargs ls -t 2>/dev/null | head -3
+  # Reviews for this branch
+  [ -f "$_PROJ/\${_BRANCH}-reviews.jsonl" ] && echo "REVIEWS: $(wc -l < "$_PROJ/\${_BRANCH}-reviews.jsonl" | tr -d ' ') entries"
+  # Timeline summary (last 5 events)
+  [ -f "$_PROJ/timeline.jsonl" ] && tail -5 "$_PROJ/timeline.jsonl"
+  # Cross-session injection
+  if [ -f "$_PROJ/timeline.jsonl" ]; then
+    _LAST=$(grep "\\"branch\\":\\"\${_BRANCH}\\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -1)
+    [ -n "$_LAST" ] && echo "LAST_SESSION: $_LAST"
+    # Predictive skill suggestion: check last 3 completed skills for patterns
+    _RECENT_SKILLS=$(grep "\\"branch\\":\\"\${_BRANCH}\\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -3 | grep -o '"skill":"[^"]*"' | sed 's/"skill":"//;s/"//' | tr '\\n' ',')
+    [ -n "$_RECENT_SKILLS" ] && echo "RECENT_PATTERN: $_RECENT_SKILLS"
+  fi
+  _LATEST_CP=$(find "$_PROJ/checkpoints" -name "*.md" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
+  [ -n "$_LATEST_CP" ] && echo "LATEST_CHECKPOINT: $_LATEST_CP"
+  echo "--- END ARTIFACTS ---"
+fi
+\`\`\`
+
+If artifacts are listed, read the most recent one to recover context.
+
+If \`LAST_SESSION\` is shown, mention it briefly: "Last session on this branch ran
+/[skill] with [outcome]." If \`LATEST_CHECKPOINT\` exists, read it for full context
+on where work left off.
+
+If \`RECENT_PATTERN\` is shown, look at the skill sequence. If a pattern repeats
+(e.g., review,ship,review), suggest: "Based on your recent pattern, you probably
+want /[next skill]."
+
+**Welcome back message:** If any of LAST_SESSION, LATEST_CHECKPOINT, or RECENT ARTIFACTS
+are shown, synthesize a one-paragraph welcome briefing before proceeding:
+"Welcome back to {branch}. Last session: /{skill} ({outcome}). [Checkpoint summary if
+available]. [Health score if available]." Keep it to 2-3 sentences.`;
+}
+
 // Preamble Composition (tier → sections)
 // ─────────────────────────────────────────────
-// T1: core + upgrade + lake + telemetry + voice(trimmed) + contributor + completion
-// T2: T1 + voice(full) + ask + completeness
+// T1: core + upgrade + lake + telemetry + voice(trimmed) + completion
+// T2: T1 + voice(full) + ask + completeness + context-recovery
 // T3: T2 + repo-mode + search
 // T4: (same as T3 — TEST_FAILURE_TRIAGE is a separate {{}} placeholder, not preamble)
 //
 // Skills by tier:
 //   T1: browse, setup-cookies, benchmark
-//   T2: investigate, cso, retro, doc-release, setup-deploy, canary
+//   T2: investigate, cso, retro, doc-release, setup-deploy, canary, checkpoint, health
 //   T3: autoplan, codex, design-consult, office-hours, ceo/design/eng-review
 //   T4: ship, review, qa, qa-only, design-review, land-deploy
 export function generatePreamble(ctx: TemplateContext): string {
@@ -595,10 +649,9 @@ export function generatePreamble(ctx: TemplateContext): string {
     generateProactivePrompt(ctx),
     generateRoutingInjection(ctx),
     generateVoiceDirective(tier),
-    ...(tier >= 2 ? [generateAskUserFormat(ctx), generateCompletenessSection()] : []),
+    ...(tier >= 2 ? [generateContextRecovery(ctx), generateAskUserFormat(ctx), generateCompletenessSection()] : []),
     ...(tier >= 3 ? [generateRepoModeSection(), generateSearchBeforeBuildingSection(ctx)] : []),
-    generateContributorMode(),
-    generateCompletionStatus(),
+    generateCompletionStatus(ctx),
   ];
   return sections.join('\n\n');
 }
