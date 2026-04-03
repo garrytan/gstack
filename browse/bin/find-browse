@@ -7,7 +7,7 @@ if test -x "$DIR/find-browse"; then
 fi
 # Fallback: basic discovery with priority chain
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-for MARKER in .codex .agents .claude; do
+for MARKER in .gemini .codex .agents .claude; do
   if [ -n "$ROOT" ] && test -x "$ROOT/$MARKER/skills/gstack/browse/dist/browse"; then
     echo "$ROOT/$MARKER/skills/gstack/browse/dist/browse"
     exit 0

@@ -1,4 +1,4 @@
-export type Host = 'claude' | 'codex' | 'factory';
+export type Host = 'claude' | 'codex' | 'factory' | 'gemini';
 
 export interface HostPaths {
   skillRoot: string;
@@ -6,6 +6,7 @@ export interface HostPaths {
   binDir: string;
   browseDir: string;
   designDir: string;
+  configFile: string;
 }
 
 export const HOST_PATHS: Record<Host, HostPaths> = {
@@ -15,6 +16,7 @@ export const HOST_PATHS: Record<Host, HostPaths> = {
     binDir: '~/.claude/skills/gstack/bin',
     browseDir: '~/.claude/skills/gstack/browse/dist',
     designDir: '~/.claude/skills/gstack/design/dist',
+    configFile: 'CLAUDE.md',
   },
   codex: {
     skillRoot: '$GSTACK_ROOT',
@@ -22,6 +24,7 @@ export const HOST_PATHS: Record<Host, HostPaths> = {
     binDir: '$GSTACK_BIN',
     browseDir: '$GSTACK_BROWSE',
     designDir: '$GSTACK_DESIGN',
+    configFile: 'CLAUDE.md',
   },
   factory: {
     skillRoot: '$GSTACK_ROOT',
@@ -29,6 +32,15 @@ export const HOST_PATHS: Record<Host, HostPaths> = {
     binDir: '$GSTACK_BIN',
     browseDir: '$GSTACK_BROWSE',
     designDir: '$GSTACK_DESIGN',
+    configFile: 'CLAUDE.md',
+  },
+  gemini: {
+    skillRoot: '$GSTACK_ROOT',
+    localSkillRoot: '.agents/skills/gstack',
+    binDir: '$GSTACK_BIN',
+    browseDir: '$GSTACK_BROWSE',
+    designDir: '$GSTACK_DESIGN',
+    configFile: 'GEMINI.md',
   },
 };
 

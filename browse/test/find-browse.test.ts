@@ -22,24 +22,23 @@ describe('locateBinary', () => {
     }
   });
 
-  test('priority chain checks .codex, .agents, .claude markers', () => {
+  test('priority chain checks .gemini, .codex, .agents, .claude markers', () => {
     // Verify the source code implements the correct priority order.
     // We read the function source to confirm the markers array order.
     const src = require('fs').readFileSync(require('path').join(__dirname, '../src/find-browse.ts'), 'utf-8');
-    // The markers array should list .codex first, then .agents, then .claude
+    // The markers array should list .gemini first, then .codex, then .agents, then .claude
     const markersMatch = src.match(/const markers = \[([^\]]+)\]/);
     expect(markersMatch).not.toBeNull();
-    const markers = markersMatch![1];
+    const markers = JSON.parse(`[${markersMatch![1]}]`);
+    const geminiIdx = markers.indexOf('.gemini');
     const codexIdx = markers.indexOf('.codex');
     const agentsIdx = markers.indexOf('.agents');
     const claudeIdx = markers.indexOf('.claude');
-    // All three must be present
-    expect(codexIdx).toBeGreaterThanOrEqual(0);
-    expect(agentsIdx).toBeGreaterThanOrEqual(0);
-    expect(claudeIdx).toBeGreaterThanOrEqual(0);
-    // .codex before .agents before .claude
-    expect(codexIdx).toBeLessThan(agentsIdx);
-    expect(agentsIdx).toBeLessThan(claudeIdx);
+    // All four must be present
+    expect(geminiIdx).toBe(0);
+    expect(codexIdx).toBe(1);
+    expect(agentsIdx).toBe(2);
+    expect(claudeIdx).toBe(3);
   });
 
   test('function signature accepts no arguments', () => {

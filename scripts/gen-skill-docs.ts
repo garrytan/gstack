@@ -32,9 +32,10 @@ const HOST_ARG_VAL: HostArg = (() => {
   const val = HOST_ARG.includes('=') ? HOST_ARG.split('=')[1] : process.argv[process.argv.indexOf(HOST_ARG) + 1];
   if (val === 'codex' || val === 'agents') return 'codex';
   if (val === 'factory' || val === 'droid') return 'factory';
+  if (val === 'gemini') return 'gemini';
   if (val === 'claude') return 'claude';
   if (val === 'all') return 'all';
-  throw new Error(`Unknown host: ${val}. Use claude, codex, factory, droid, agents, or all.`);
+  throw new Error(`Unknown host: ${val}. Use claude, codex, factory, gemini, droid, agents, or all.`);
 })();
 
 // For single-host mode, HOST is the host. For --host all, it's set per iteration below.
@@ -301,6 +302,7 @@ interface ExternalHostConfig {
 const EXTERNAL_HOST_CONFIG: Record<string, ExternalHostConfig> = {
   codex:   { hostSubdir: '.agents',  generateMetadata: true,  descriptionLimit: 1024 },
   factory: { hostSubdir: '.factory', generateMetadata: false },
+  gemini:  { hostSubdir: '.agents',  generateMetadata: true,  descriptionLimit: 1024 },
 };
 
 // ─── Template Processing ────────────────────────────────────
@@ -358,6 +360,11 @@ function processExternalHost(
   result = result.replace(/\.claude\/skills\/gstack/g, ctx.paths.localSkillRoot);
   result = result.replace(/\.claude\/skills\/review/g, `${config.hostSubdir}/skills/gstack/review`);
   result = result.replace(/\.claude\/skills/g, `${config.hostSubdir}/skills`);
+
+  // Replace CLAUDE.md with host-specific config file
+  if (ctx.paths.configFile !== 'CLAUDE.md') {
+    result = result.replace(/CLAUDE\.md/g, ctx.paths.configFile);
+  }
 
   // Factory-only: translate Claude Code tool names to generic phrasing
   if (host === 'factory') {
@@ -443,6 +450,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     outputPath = result.outputPath;
     symlinkLoop = result.symlinkLoop;
   }
+  }
 
   // Prepend generated header (after frontmatter)
   const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath));
@@ -475,6 +483,11 @@ for (const currentHost of hostsToRun) {
     const tokenBudget: Array<{ skill: string; lines: number; tokens: number }> = [];
 
     for (const tmplPath of findTemplates()) {
+    // Skip /codex skill for external hosts (self-referential)
+    if (HOST === 'codex' || HOST === 'gemini' || HOST === 'factory') {
+      const dir = path.basename(path.dirname(tmplPath));
+      if (dir === 'codex') continue;
+    }
       // Skip /codex skill for non-Claude hosts (it's a Claude wrapper around codex exec)
       if (currentHost !== 'claude') {
         const dir = path.basename(path.dirname(tmplPath));
