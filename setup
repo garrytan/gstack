@@ -490,8 +490,11 @@ create_codex_runtime_root() {
   if [ -d "$gstack_dir/browse/bin" ]; then
     ln -snf "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
   fi
+  # INLINE.md (not SKILL.md): hosts that scan skills recursively (Cursor/Codex) would
+  # register a second gstack-upgrade next to ~/.codex/skills/gstack-upgrade/SKILL.md.
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
+    ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/INLINE.md"
+    rm -f "$codex_gstack/gstack-upgrade/SKILL.md"
   fi
   # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
@@ -531,7 +534,8 @@ create_factory_runtime_root() {
     ln -snf "$gstack_dir/browse/bin" "$factory_gstack/browse/bin"
   fi
   if [ -f "$factory_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
+    ln -snf "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/INLINE.md"
+    rm -f "$factory_gstack/gstack-upgrade/SKILL.md"
   fi
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
@@ -648,9 +652,9 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
     ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
   fi
-  # gstack-upgrade skill
   if [ -f "$AGENTS_DIR/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$AGENTS_DIR/gstack-upgrade/SKILL.md" "$KIRO_GSTACK/gstack-upgrade/SKILL.md"
+    ln -snf "$AGENTS_DIR/gstack-upgrade/SKILL.md" "$KIRO_GSTACK/gstack-upgrade/INLINE.md"
+    rm -f "$KIRO_GSTACK/gstack-upgrade/SKILL.md"
   fi
   # Review runtime assets (individual files, not whole dir)
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
