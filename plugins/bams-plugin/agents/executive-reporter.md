@@ -198,3 +198,6 @@ Phase: {current}/{total}  |  진행률: {n}%
 │   └── archives/          # 완료/비활성 항목
 └── memory/                # 날짜별 세션 로그 (YYYY-MM-DD.md)
 ```
+
+## Best Practice 참조
+해당 Responsibility 수행 시 참조: `references/best-practices/executive-reporter.md`

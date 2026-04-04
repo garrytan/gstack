@@ -132,3 +132,6 @@ UI 디자이너로서 디자인 브리프와 와이어프레임을 기반으로 
 │   └── archives/          # 완료/비활성 항목
 └── memory/                # 날짜별 세션 로그 (YYYY-MM-DD.md)
 ```
+
+## Best Practice 참조
+해당 Responsibility 수행 시 참조: `references/best-practices/ui-designer.md`
