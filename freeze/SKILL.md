@@ -46,9 +46,9 @@ Ask the user which directory to restrict edits to. Use AskUserQuestion:
 
 Once the user provides a directory path:
 
-1. Resolve it to an absolute path:
+1. Resolve it to an absolute path (including symlinks):
 ```bash
-FREEZE_DIR=$(cd "<user-provided-path>" 2>/dev/null && pwd)
+FREEZE_DIR=$(cd "<user-provided-path>" 2>/dev/null && pwd -P)
 echo "$FREEZE_DIR"
 ```
 
