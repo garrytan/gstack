@@ -33,8 +33,9 @@ const HOST_ARG_VAL: HostArg = (() => {
   if (val === 'codex' || val === 'agents') return 'codex';
   if (val === 'factory' || val === 'droid') return 'factory';
   if (val === 'claude') return 'claude';
+  if (val === 'opencode') return 'opencode';
   if (val === 'all') return 'all';
-  throw new Error(`Unknown host: ${val}. Use claude, codex, factory, droid, agents, or all.`);
+  throw new Error(`Unknown host: ${val}. Use claude, codex, factory, droid, opencode, agents, or all.`);
 })();
 
 // For single-host mode, HOST is the host. For --host all, it's set per iteration below.
@@ -301,6 +302,7 @@ interface ExternalHostConfig {
 const EXTERNAL_HOST_CONFIG: Record<string, ExternalHostConfig> = {
   codex:   { hostSubdir: '.agents',  generateMetadata: true,  descriptionLimit: 1024 },
   factory: { hostSubdir: '.factory', generateMetadata: false },
+  opencode: { hostSubdir: '.opencode', generateMetadata: false },
 };
 
 // ─── Template Processing ────────────────────────────────────
@@ -359,8 +361,8 @@ function processExternalHost(
   result = result.replace(/\.claude\/skills\/review/g, `${config.hostSubdir}/skills/gstack/review`);
   result = result.replace(/\.claude\/skills/g, `${config.hostSubdir}/skills`);
 
-  // Factory-only: translate Claude Code tool names to generic phrasing
-  if (host === 'factory') {
+  // Factory/Opencode: translate Claude Code tool names to generic phrasing
+  if (host === 'factory' || host === 'opencode') {
     result = result.replace(/use the Bash tool/g, 'run this command');
     result = result.replace(/use the Write tool/g, 'create this file');
     result = result.replace(/use the Read tool/g, 'read the file');
@@ -463,7 +465,7 @@ function findTemplates(): string[] {
   return discoverTemplates(ROOT).map(t => path.join(ROOT, t.tmpl));
 }
 
-const ALL_HOSTS: Host[] = ['claude', 'codex', 'factory'];
+const ALL_HOSTS: Host[] = ['claude', 'codex', 'factory', 'opencode'];
 const hostsToRun: Host[] = HOST_ARG_VAL === 'all' ? ALL_HOSTS : [HOST];
 const failures: { host: string; error: Error }[] = [];
 
