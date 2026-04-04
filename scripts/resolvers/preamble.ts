@@ -456,12 +456,16 @@ fi
 if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
   ~/.claude/skills/gstack/bin/gstack-telemetry-log \\
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
-    --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+    --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" \\
+    --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null &
 fi
 \`\`\`
 
 Replace \`SKILL_NAME\` with the actual skill name from frontmatter, \`OUTCOME\` with
 success/error/abort, and \`USED_BROWSE\` with true/false based on whether \`$B\` was used.
+Replace \`ERROR_MESSAGE\` with a short description of the error (if outcome is error,
+otherwise use empty string ""), and \`FAILED_STEP\` with the step name or number where
+the failure occurred (if outcome is error, otherwise use empty string "").
 If you cannot determine the outcome, use "unknown". The local JSONL always logs. The
 remote binary only runs if telemetry is not off and the binary exists.
 
