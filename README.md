@@ -311,6 +311,14 @@ Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-desig
 /cso, /autoplan, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn.
 ```
 
+## Community
+
+Projects built on gstack:
+
+| Project | What it does |
+|---|---|
+| [gstack Studio](https://github.com/habiz/gstack-studio) | Browser UI that guides you through the gstack ideation sprint |
+
 ## License
 
 MIT. Free forever. Go build something.
