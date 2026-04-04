@@ -33,19 +33,21 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { spawn } from "child_process";
 
 export interface ServeOptions {
   html: string;
   port?: number;
+  hostname?: string; // default '127.0.0.1' — localhost only
   timeout?: number; // seconds, default 600 (10 min)
 }
 
 type ServerState = "serving" | "regenerating" | "done";
 
 export async function serve(options: ServeOptions): Promise<void> {
-  const { html, port = 0, timeout = 600 } = options;
+  const { html, port = 0, hostname = '127.0.0.1', timeout = 600 } = options;
 
   // Validate HTML file exists
   if (!fs.existsSync(html)) {
@@ -59,6 +61,7 @@ export async function serve(options: ServeOptions): Promise<void> {
 
   const server = Bun.serve({
     port,
+    hostname,
     fetch(req) {
       const url = new URL(req.url);
 
@@ -179,6 +182,17 @@ export async function serve(options: ServeOptions): Promise<void> {
       return Response.json(
         { error: `HTML file not found: ${newHtmlPath}` },
         { status: 400 }
+      );
+    }
+
+    // Validate path is within cwd or temp directory
+    const resolved = path.resolve(newHtmlPath);
+    const safeDirs = [process.cwd(), os.tmpdir()];
+    const isSafe = safeDirs.some(dir => resolved.startsWith(dir + path.sep) || resolved === dir);
+    if (!isSafe) {
+      return Response.json(
+        { error: `Path must be within working directory or temp` },
+        { status: 403 }
       );
     }
 
