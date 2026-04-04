@@ -129,6 +129,74 @@ describe('EvalCollector', () => {
     expect(data.tests).toHaveLength(0);
     expect(data.tier).toBe('llm-judge');
   });
+
+  test('finalize aggregates per-test costs into result-level costs[]', async () => {
+    const collector = new EvalCollector('e2e', tmpDir);
+    collector.addTest(makeEntry({
+      name: 'test-a',
+      costs: [{ model: 'claude-sonnet-4-6', calls: 1, input_tokens: 100, output_tokens: 50, cost_usd: 0.01 }],
+    }));
+    collector.addTest(makeEntry({
+      name: 'test-b',
+      costs: [{ model: 'claude-sonnet-4-6', calls: 1, input_tokens: 200, output_tokens: 100, cost_usd: 0.02 }],
+    }));
+    collector.addTest(makeEntry({
+      name: 'test-c',
+      costs: [{ model: 'claude-haiku-4-5', calls: 1, input_tokens: 50, output_tokens: 25, cost_usd: 0.005 }],
+    }));
+
+    const filepath = await collector.finalize();
+    const data: EvalResult = JSON.parse(fs.readFileSync(filepath, 'utf-8'));
+
+    expect(data.costs).toBeDefined();
+    expect(data.costs).toHaveLength(2); // two models
+    const sonnet = data.costs!.find(c => c.model === 'claude-sonnet-4-6');
+    const haiku = data.costs!.find(c => c.model === 'claude-haiku-4-5');
+    expect(sonnet).toBeDefined();
+    expect(sonnet!.calls).toBe(2);
+    expect(sonnet!.input_tokens).toBe(300);
+    expect(sonnet!.output_tokens).toBe(150);
+    expect(sonnet!.cost_usd).toBeCloseTo(0.03);
+    expect(haiku).toBeDefined();
+    expect(haiku!.calls).toBe(1);
+    expect(haiku!.cost_usd).toBeCloseTo(0.005);
+  });
+
+  test('finalize omits costs when no tests have cost data', async () => {
+    const collector = new EvalCollector('e2e', tmpDir);
+    collector.addTest(makeEntry({ name: 'no-costs' }));
+    const filepath = await collector.finalize();
+    const data: EvalResult = JSON.parse(fs.readFileSync(filepath, 'utf-8'));
+    expect(data.costs).toBeUndefined();
+  });
+
+  test('finalize aggregates cache token fields', async () => {
+    const collector = new EvalCollector('e2e', tmpDir);
+    collector.addTest(makeEntry({
+      name: 'test-a',
+      costs: [{
+        model: 'claude-sonnet-4-6', calls: 1,
+        input_tokens: 10, output_tokens: 50,
+        cache_read_input_tokens: 5000, cache_creation_input_tokens: 1000,
+        cost_usd: 0.01,
+      }],
+    }));
+    collector.addTest(makeEntry({
+      name: 'test-b',
+      costs: [{
+        model: 'claude-sonnet-4-6', calls: 1,
+        input_tokens: 20, output_tokens: 100,
+        cache_read_input_tokens: 8000, cache_creation_input_tokens: 500,
+        cost_usd: 0.02,
+      }],
+    }));
+
+    const filepath = await collector.finalize();
+    const data: EvalResult = JSON.parse(fs.readFileSync(filepath, 'utf-8'));
+    const sonnet = data.costs!.find(c => c.model === 'claude-sonnet-4-6')!;
+    expect(sonnet.cache_read_input_tokens).toBe(13000);
+    expect(sonnet.cache_creation_input_tokens).toBe(1500);
+  });
 });
 
 // --- judgePassed tests ---

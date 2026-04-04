@@ -93,4 +93,36 @@ describe('parseNDJSON', () => {
     expect(parsed.turnCount).toBe(2);
     expect(parsed.toolCalls).toHaveLength(0);
   });
+
+  test('resultLine preserves modelUsage for cost extraction', () => {
+    const lines = [
+      '{"type":"assistant","message":{"model":"claude-sonnet-4-6","content":[{"type":"text","text":"ok"}]}}',
+      JSON.stringify({
+        type: 'result', subtype: 'success', total_cost_usd: 0.07,
+        num_turns: 1, result: 'Done.',
+        usage: { input_tokens: 8, output_tokens: 802 },
+        modelUsage: {
+          'claude-sonnet-4-6': {
+            inputTokens: 8, outputTokens: 802,
+            cacheReadInputTokens: 88133, cacheCreationInputTokens: 9223,
+            costUSD: 0.07308,
+          },
+        },
+      }),
+    ];
+    const parsed = parseNDJSON(lines);
+    expect(parsed.resultLine).not.toBeNull();
+    expect(parsed.resultLine.modelUsage).toBeDefined();
+    const usage = parsed.resultLine.modelUsage['claude-sonnet-4-6'];
+    expect(usage.inputTokens).toBe(8);
+    expect(usage.outputTokens).toBe(802);
+    expect(usage.cacheReadInputTokens).toBe(88133);
+    expect(usage.costUSD).toBeCloseTo(0.07308);
+  });
+
+  test('resultLine without modelUsage has undefined modelUsage', () => {
+    const parsed = parseNDJSON(FIXTURE_LINES);
+    // Original fixture has no modelUsage on result line
+    expect(parsed.resultLine?.modelUsage).toBeUndefined();
+  });
 });

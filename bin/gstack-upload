@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# gstack-upload — upload a file to Supabase Storage, print public URL
+# Falls back to local path on failure (exit 0 always)
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec bun run "$SCRIPT_DIR/../lib/upload.ts" "$@"

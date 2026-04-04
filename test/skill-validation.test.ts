@@ -282,26 +282,12 @@ describe('Update check preamble', () => {
 // --- Part 7: Cross-skill path consistency (A1) ---
 
 describe('Cross-skill path consistency', () => {
-  test('REMOTE_SLUG derivation pattern is identical across files that use it', () => {
-    const patterns = extractRemoteSlugPatterns(ROOT, ['qa', 'review']);
-    const allPatterns: string[] = [];
-
-    for (const [, filePatterns] of patterns) {
-      allPatterns.push(...filePatterns);
-    }
-
-    // Should find at least 2 occurrences (qa/SKILL.md + review/greptile-triage.md)
-    expect(allPatterns.length).toBeGreaterThanOrEqual(2);
-
-    // All occurrences must be character-for-character identical
-    const unique = new Set(allPatterns);
-    if (unique.size > 1) {
-      const variants = Array.from(unique);
-      throw new Error(
-        `REMOTE_SLUG pattern differs across files:\n` +
-        variants.map((v, i) => `  ${i + 1}: ${v}`).join('\n')
-      );
-    }
+  test('all project-scoped paths use gstack-slug (not REMOTE_SLUG)', () => {
+    // greptile-triage.md was the last file using REMOTE_SLUG — now uses gstack-slug
+    const triageContent = fs.readFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), 'utf-8');
+    expect(triageContent).toContain('gstack-slug');
+    expect(triageContent).not.toContain('REMOTE_SLUG');
+    expect(triageContent).toContain('$PROJECTS_DIR/$SLUG');
   });
 
   test('all greptile-history write references specify both per-project and global paths', () => {
@@ -317,7 +303,7 @@ describe('Cross-skill path consistency', () => {
       const content = fs.readFileSync(filePath, 'utf-8');
 
       const hasBoth = (content.includes('per-project') && content.includes('global')) ||
-        (content.includes('$REMOTE_SLUG/greptile-history') && content.includes('~/.gstack/greptile-history'));
+        (content.includes('$SLUG/greptile-history') && content.includes('~/.gstack/greptile-history'));
 
       expect(hasBoth).toBe(true);
     }
@@ -325,7 +311,7 @@ describe('Cross-skill path consistency', () => {
 
   test('greptile-triage.md contains both project and global history paths', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), 'utf-8');
-    expect(content).toContain('$REMOTE_SLUG/greptile-history.md');
+    expect(content).toContain('$SLUG/greptile-history.md');
     expect(content).toContain('~/.gstack/greptile-history.md');
   });
 
@@ -333,7 +319,7 @@ describe('Cross-skill path consistency', () => {
     const content = fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md'), 'utf-8');
     expect(content).toContain('~/.gstack/greptile-history.md');
     // Should NOT reference per-project path for reads
-    expect(content).not.toContain('$REMOTE_SLUG/greptile-history.md');
+    expect(content).not.toContain('$SLUG/greptile-history.md');
   });
 });
 

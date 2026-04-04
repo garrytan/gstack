@@ -1599,6 +1599,29 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ### Fixed
 - Browser ref staleness — refs collected before page mutation (e.g. SPA navigation) are now detected and re-collected. Eliminates a class of flaky QA failures on dynamic sites.
 
+## 0.3.10 — 2026-03-15
+
+### Added
+- **Team sync via Supabase (optional)** — shared data store for eval results, retro snapshots, QA reports, ship logs, and Greptile triage across team members. All sync operations are non-fatal and non-blocking — skills never wait on network. Offline queue with automatic retry (up to 5 attempts). Zero impact when not configured: without `.gstack-sync.json`, everything works locally as before. See `docs/designs/TEAM_COORDINATION_STORE.md` for architecture and setup.
+- **Supabase migration SQL** — 4 migration files in `supabase/migrations/` for teams, eval_runs, data tables (retros, QA, ships, Greptile), and eval costs. Row-level security policies ensure team members can only access their own team's data.
+- **Sync config + auth** — `.gstack-sync.json` for project-level config (Supabase URL, anon key, team slug). `~/.gstack/auth.json` for user-level tokens (keyed by Supabase URL for multi-team support). `GSTACK_SUPABASE_ACCESS_TOKEN` env var for CI/automation. Token refresh built in.
+- **`gstack sync` CLI** — `status`, `push`, `pull`, `drain`, `login`, `logout` subcommands for managing team sync.
+- **Universal eval format** — `StandardEvalResult` schema with validation, normalization, and bidirectional legacy conversion. Any language can produce JSON matching this format and push via `gstack eval push`.
+- **Unified eval CLI** — `gstack eval list|compare|summary|trend|push|cost|cache|watch` consolidating all eval tools into one entry point.
+- **Per-model cost tracking** — eval results now include `costs[]` with exact per-model token usage (input, output, cache read, cache creation) and API-reported cost. Extracted from `resultLine.modelUsage` in the `claude -p` NDJSON stream. `computeCosts()` prefers exact `cost_usd` over MODEL_PRICING estimates (~4x more accurate with prompt caching).
+- **LLM judge caching** — SHA-based caching for LLM-as-judge eval calls via `eval-cache.ts`. Cache keyed by `model:prompt`, so unchanged SKILL.md content skips API calls entirely. ~$0.18/run savings. Set `EVAL_CACHE=0` to force re-run.
+- **Dynamic model selection** — `EVAL_JUDGE_TIER` env var controls which Claude model runs judge evals (haiku/sonnet/opus, default: sonnet). `EVAL_TIER` pins the E2E test model via `--model` flag to `claude -p`.
+- **`bun run eval:trend`** — per-test pass rate tracking over last N runs. Classifies tests as stable-pass, stable-fail, flaky, improving, or degrading. Sparkline table with `--limit`, `--tier`, `--test` filters.
+- **Shared utilities** — `lib/util.ts` extracted with `atomicWriteJSON`, `readJSON`, `getGitInfo`, `getRemoteSlug`, `listEvalFiles`, `loadEvalResults`, `formatTimestamp`, and path constants.
+- 52+ new tests across eval cache, cost, format, tier, trend, sync config, sync client, and LLM judge integration.
+
+### Changed
+- `callJudge()` and `judge()` now return `{ result, meta }` with `JudgeMeta` (model, tokens, cached flag). `outcomeJudge()` retains simple return type for E2E callers.
+- `EvalCollector.finalize()` aggregates per-test `costs[]` into result-level cost breakdown and attempts team sync (non-blocking).
+- `cli-eval.ts` main block guarded with `import.meta.main` to prevent execution on import.
+- `eval:summary` now hints to run `eval:trend` when flaky tests are detected.
+- All 8 LLM eval test sites updated from hard-coded `cost_usd: 0.02` to real API-reported costs.
+
 ## 0.3.9 — 2026-03-15
 
 ### Added

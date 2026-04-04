@@ -311,6 +311,12 @@ Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-desig
 /cso, /autoplan, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn.
 ```
 
+### Team sync (optional)
+
+For teams, gstack can sync eval results, retro snapshots, QA reports, and ship logs to a shared Supabase store. Without this, everything works locally as before — sync is purely additive.
+
+To set up: copy `.gstack-sync.json.example` to `.gstack-sync.json`, create a Supabase project, run the migrations in `supabase/migrations/`, and fill in your credentials. See `docs/designs/TEAM_COORDINATION_STORE.md` for the full guide.
+
 ## License
 
 MIT. Free forever. Go build something.

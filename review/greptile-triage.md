@@ -34,8 +34,8 @@ The `position != null` filter on line-level comments automatically skips outdate
 
 Derive the project-specific history path:
 ```bash
-REMOTE_SLUG=$(browse/bin/remote-slug 2>/dev/null || ~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-PROJECT_HISTORY="$HOME/.gstack/projects/$REMOTE_SLUG/greptile-history.md"
+eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+PROJECT_HISTORY="$PROJECTS_DIR/$SLUG/greptile-history.md"
 ```
 
 Read `$PROJECT_HISTORY` if it exists (per-project suppressions). Each line records a previous triage outcome:
@@ -183,13 +183,13 @@ When classifying comments, also assess whether Greptile's implied severity match
 
 Before writing, ensure both directories exist:
 ```bash
-REMOTE_SLUG=$(browse/bin/remote-slug 2>/dev/null || ~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-mkdir -p "$HOME/.gstack/projects/$REMOTE_SLUG"
+eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+mkdir -p "$PROJECTS_DIR/$SLUG"
 mkdir -p ~/.gstack
 ```
 
 Append one line per triage outcome to **both** files (per-project for suppressions, global for retro):
-- `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` (per-project)
+- `$PROJECTS_DIR/$SLUG/greptile-history.md` (per-project)
 - `~/.gstack/greptile-history.md` (global aggregate)
 
 Format:
@@ -203,6 +203,25 @@ Example entries:
 2026-03-13 | garrytan/myapp | fix | app/models/user.rb | null-check
 2026-03-13 | garrytan/myapp | already-fixed | lib/payments.rb | error-handling
 ```
+
+## Team Sync (non-fatal)
+
+After appending to both history files, sync each triage entry to the team store. For each triaged comment, write a JSON entry and push:
+
+```bash
+cat > /tmp/gstack-greptile-entry.json << 'GEOF'
+{
+  "date": "<YYYY-MM-DD>",
+  "repo": "<owner/repo from SLUG>",
+  "triage_type": "<fp|fix|already-fixed>",
+  "file_pattern": "<file-pattern>",
+  "category": "<category>"
+}
+GEOF
+~/.claude/skills/gstack/bin/gstack-sync push-greptile /tmp/gstack-greptile-entry.json 2>/dev/null || true
+```
+
+If multiple comments were triaged, push each one individually (overwrite the temp file each time). Non-fatal — failures are queued for retry. Silent if sync is not configured.
 
 ---
 

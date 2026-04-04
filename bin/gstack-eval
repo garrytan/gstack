@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gstack eval — unified eval CLI
+# Delegates to lib/cli-eval.ts via bun
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+exec bun run "$GSTACK_DIR/lib/cli-eval.ts" "$@"

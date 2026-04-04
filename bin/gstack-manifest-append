@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# gstack-manifest-append — append an artifact entry to the project manifest
+# Usage: gstack-manifest-append <type> <path> <skill> <branch>
+# Example: gstack-manifest-append test-plan "plans/2026-03-18-feature-x-test-plan.md" plan-eng-review feature-x
+set -euo pipefail
+
+if [ $# -lt 4 ]; then
+  echo "Usage: gstack-manifest-append <type> <path> <skill> <branch>" >&2
+  exit 1
+fi
+
+TYPE="$1"
+ARTIFACT_PATH="$2"
+SKILL="$3"
+ARTIFACT_BRANCH="$4"
+
+# Resolve project slug and projects dir
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+
+MANIFEST="$PROJECTS_DIR/$SLUG/.manifest.jsonl"
+mkdir -p "$(dirname "$MANIFEST")"
+
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+echo "{\"type\":\"$TYPE\",\"path\":\"$ARTIFACT_PATH\",\"skill\":\"$SKILL\",\"branch\":\"$ARTIFACT_BRANCH\",\"ts\":\"$TS\"}" >> "$MANIFEST"
