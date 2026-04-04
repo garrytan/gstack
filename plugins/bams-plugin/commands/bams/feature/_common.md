@@ -75,6 +75,23 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 - `{call_id}` 형식: `{agent_type}-{step_number}-{timestamp}` (예: `pipeline-orchestrator-1-20260403`)
 - `{status}`: `success` / `error` / `timeout`
 
+### ★ Step 이벤트 필수 규칙 (DAG/Gantt 표시용)
+
+DAG와 Gantt 차트는 `step_start`/`step_end` 이벤트에 의존합니다. 에이전트 호출만으로는 표시되지 않습니다.
+
+**모든 Phase는 반드시 step_start로 시작하고 step_end로 끝나야 합니다:**
+```bash
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1)
+# Phase 시작
+[ -n "$_EMIT" ] && bash "$_EMIT" step_start "{slug}" {step_number} "{step_name}" "{phase_name}"
+# ... 에이전트 호출 ...
+# Phase 종료
+[ -n "$_EMIT" ] && bash "$_EMIT" step_end "{slug}" {step_number} "done" {duration_ms}
+```
+
+step 이벤트 없이 agent 이벤트만 emit하면 DAG/Gantt에 표시되지 않습니다.
+
+
 ---
 
 ## ★ 위임 원칙 — 커맨드 레벨 직접 수정 금지

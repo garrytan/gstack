@@ -63,6 +63,8 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 > - 데이터 관련 -> data-integration(부서장)에게 위임
 > - 겹치는 경우 -> 파일 기준으로 분리하여 병렬 위임, cross-department-coordinator에게 조율 요청
 >
+> ★ UI/UX 태스크가 포함된 배치에서는 반드시 디자인 부서장(design-director)에게 먼저 디자인 산출물을 요청한 후 frontend-engineering에게 구현을 위임합니다. 디자인 없이 프론트엔드 UI/UX를 임의로 구현하지 않습니다.
+>
 > 각 부서장에게 delegation-protocol.md 2-2 형식으로 위임 메시지를 전달합니다:
 > ```
 > task_description: "{태스크 제목과 설명}"
