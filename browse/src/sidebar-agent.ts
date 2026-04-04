@@ -19,10 +19,16 @@ const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const POLL_MS = 200;  // 200ms poll — keeps time-to-first-token low
 const B = process.env.BROWSE_BIN || path.resolve(__dirname, '../../.claude/skills/gstack/browse/dist/browse');
 
+const CANCEL_DIR = path.join(process.env.HOME || '/tmp', '.gstack');
+function cancelFileForTab(tabId: number): string {
+  return path.join(CANCEL_DIR, `sidebar-agent-cancel-${tabId}`);
+}
+
 let lastLine = 0;
 let authToken: string | null = null;
 // Per-tab processing — each tab can run its own agent concurrently
 const processingTabs = new Set<number>();
+let activeProc: ReturnType<typeof spawn> | null = null;
 
 // ─── File drop relay ──────────────────────────────────────────
 
@@ -236,6 +242,10 @@ async function askClaude(queueEntry: any): Promise<void> {
     let effectiveCwd = cwd || process.cwd();
     try { fs.accessSync(effectiveCwd); } catch { effectiveCwd = process.cwd(); }
 
+    // Clear any stale cancel signal for this tab before starting
+    const cancelFile = cancelFileForTab(tid);
+    try { fs.unlinkSync(cancelFile); } catch {}
+
     const proc = spawn('claude', claudeArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: effectiveCwd,
@@ -247,8 +257,22 @@ async function askClaude(queueEntry: any): Promise<void> {
         BROWSE_TAB: String(tid),
       },
     });
+    activeProc = proc;
 
     proc.stdin.end();
+
+    // Poll for per-tab cancel signal from server's killAgent()
+    const cancelCheck = setInterval(() => {
+      try {
+        if (fs.existsSync(cancelFile)) {
+          console.log(`[sidebar-agent] Cancel signal received for tab ${tid} — killing claude subprocess`);
+          try { proc.kill('SIGTERM'); } catch {}
+          setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 3000);
+          fs.unlinkSync(cancelFile);
+          clearInterval(cancelCheck);
+        }
+      } catch {}
+    }, 500);
 
     let buffer = '';
 
@@ -268,6 +292,8 @@ async function askClaude(queueEntry: any): Promise<void> {
     });
 
     proc.on('close', (code) => {
+      clearInterval(cancelCheck);
+      activeProc = null;
       if (buffer.trim()) {
         try { handleStreamEvent(JSON.parse(buffer), tid); } catch {}
       }
@@ -282,6 +308,8 @@ async function askClaude(queueEntry: any): Promise<void> {
     });
 
     proc.on('error', (err) => {
+      clearInterval(cancelCheck);
+      activeProc = null;
       const errorMsg = stderrBuffer.trim()
         ? `${err.message}\nstderr: ${stderrBuffer.trim().slice(-500)}`
         : err.message;

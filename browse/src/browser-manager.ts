@@ -694,7 +694,14 @@ export class BrowserManager {
       this.wirePageEvents(page);
 
       if (saved.url) {
-        await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+        // Validate URL before navigation — state files loaded from disk could
+        // contain file://, chrome://, or cloud metadata URLs
+        try {
+          await validateNavigationUrl(saved.url);
+          await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+        } catch {
+          // Blocked URL — skip navigation for this page
+        }
       }
 
       if (saved.storage) {

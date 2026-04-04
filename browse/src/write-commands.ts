@@ -370,19 +370,30 @@ export async function handleWriteCommand(
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
 
-      // Validate all files exist before upload
+      // Security: resolve and validate all file paths within safe directories before upload.
+      // Use resolved paths for the actual operation to eliminate TOCTOU symlink races.
+      const safeDirs = [TEMP_DIR, process.cwd()];
+      const resolvedPaths: string[] = [];
       for (const fp of filePaths) {
         if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
+        const realFp = fs.realpathSync(path.resolve(fp));
+        const isSafe = safeDirs.some(dir => {
+          try { return isPathWithin(realFp, fs.realpathSync(dir)); } catch { return isPathWithin(realFp, dir); }
+        });
+        if (!isSafe) {
+          throw new Error(`Upload path must be within: ${safeDirs.join(', ')}`);
+        }
+        resolvedPaths.push(realFp);
       }
 
       const resolved = await bm.resolveRef(selector);
       if ('locator' in resolved) {
-        await resolved.locator.setInputFiles(filePaths);
+        await resolved.locator.setInputFiles(resolvedPaths);
       } else {
-        await target.locator(resolved.selector).setInputFiles(filePaths);
+        await target.locator(resolved.selector).setInputFiles(resolvedPaths);
       }
 
-      const fileInfo = filePaths.map(fp => {
+      const fileInfo = resolvedPaths.map(fp => {
         const stat = fs.statSync(fp);
         return `${path.basename(fp)} (${stat.size}B)`;
       }).join(', ');
@@ -407,19 +418,17 @@ export async function handleWriteCommand(
     case 'cookie-import': {
       const filePath = args[0];
       if (!filePath) throw new Error('Usage: browse cookie-import <json-file>');
-      // Path validation — prevent reading arbitrary files
-      if (path.isAbsolute(filePath)) {
-        const safeDirs = [TEMP_DIR, process.cwd()];
-        const resolved = path.resolve(filePath);
-        if (!safeDirs.some(dir => isPathWithin(resolved, dir))) {
-          throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
-        }
-      }
-      if (path.normalize(filePath).includes('..')) {
-        throw new Error('Path traversal sequences (..) are not allowed');
-      }
+      // Path validation — resolve symlinks to prevent reading arbitrary files
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
-      const raw = fs.readFileSync(filePath, 'utf-8');
+      const realFilePath = fs.realpathSync(path.resolve(filePath));
+      const safeDirs = [TEMP_DIR, process.cwd()];
+      const isSafe = safeDirs.some(dir => {
+        try { return isPathWithin(realFilePath, fs.realpathSync(dir)); } catch { return isPathWithin(realFilePath, dir); }
+      });
+      if (!isSafe) {
+        throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+      }
+      const raw = fs.readFileSync(realFilePath, 'utf-8');
       let cookies: any[];
       try { cookies = JSON.parse(raw); } catch { throw new Error(`Invalid JSON in ${filePath}`); }
       if (!Array.isArray(cookies)) throw new Error('Cookie file must contain a JSON array');

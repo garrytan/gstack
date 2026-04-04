@@ -274,6 +274,103 @@ describe('Serve HTTP endpoints', () => {
   });
 });
 
+// ─── Path traversal protection in /api/reload ─────────────────────
+
+describe('Serve /api/reload — path traversal protection', () => {
+  let server: ReturnType<typeof Bun.serve>;
+  let baseUrl: string;
+  let htmlContent: string;
+  let allowedDir: string;
+
+  beforeAll(() => {
+    // Production-equivalent allowedDir anchored to tmpDir
+    allowedDir = fs.realpathSync(tmpDir);
+    htmlContent = fs.readFileSync(boardHtml, 'utf-8');
+
+    // This server mirrors the production serve() with the path validation fix
+    server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+
+        if (req.method === 'GET' && url.pathname === '/') {
+          return new Response(htmlContent, {
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          });
+        }
+
+        if (req.method === 'POST' && url.pathname === '/api/reload') {
+          return (async () => {
+            let body: any;
+            try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+            if (!body.html || !fs.existsSync(body.html)) {
+              return Response.json({ error: `HTML file not found: ${body.html}` }, { status: 400 });
+            }
+            // Production path validation — same as design/src/serve.ts
+            const resolvedReload = fs.realpathSync(path.resolve(body.html));
+            if (!resolvedReload.startsWith(allowedDir + path.sep) && resolvedReload !== allowedDir) {
+              return Response.json({ error: `Path must be within: ${allowedDir}` }, { status: 403 });
+            }
+            htmlContent = fs.readFileSync(resolvedReload, 'utf-8');
+            return Response.json({ reloaded: true });
+          })();
+        }
+
+        return new Response('Not found', { status: 404 });
+      },
+    });
+    baseUrl = `http://localhost:${server.port}`;
+  });
+
+  afterAll(() => {
+    server.stop();
+  });
+
+  test('blocks reload with path outside allowed directory', async () => {
+    const res = await fetch(`${baseUrl}/api/reload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html: '/etc/passwd' }),
+    });
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toContain('Path must be within');
+  });
+
+  test('blocks reload with symlink pointing outside allowed directory', async () => {
+    const linkPath = path.join(tmpDir, 'evil-link.html');
+    try {
+      fs.symlinkSync('/etc/passwd', linkPath);
+      const res = await fetch(`${baseUrl}/api/reload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: linkPath }),
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      try { fs.unlinkSync(linkPath); } catch {}
+    }
+  });
+
+  test('allows reload with file inside allowed directory', async () => {
+    const goodPath = path.join(tmpDir, 'safe-board.html');
+    fs.writeFileSync(goodPath, '<html><body>Safe reload</body></html>');
+
+    const res = await fetch(`${baseUrl}/api/reload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html: goodPath }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.reloaded).toBe(true);
+
+    // Verify the new content is served
+    const page = await fetch(baseUrl);
+    expect(await page.text()).toContain('Safe reload');
+  });
+});
+
 // ─── Full lifecycle: regeneration round-trip ──────────────────────
 
 describe('Full regeneration lifecycle', () => {

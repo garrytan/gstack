@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'bun:test';
 import { validateOutputPath } from '../src/meta-commands';
-import { validateReadPath } from '../src/read-commands';
-import { symlinkSync, unlinkSync, writeFileSync } from 'fs';
+import { validateReadPath, SENSITIVE_COOKIE_NAME, SENSITIVE_COOKIE_VALUE } from '../src/read-commands';
+import { BLOCKED_METADATA_HOSTS } from '../src/url-validation';
+import { symlinkSync, unlinkSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -87,5 +88,90 @@ describe('validateReadPath', () => {
     } finally {
       try { unlinkSync(filePath); } catch {}
     }
+  });
+});
+
+describe('validateOutputPath — symlink resolution', () => {
+  it('blocks symlink inside /tmp pointing outside safe dirs', () => {
+    const linkPath = join(tmpdir(), 'test-output-symlink-' + Date.now() + '.png');
+    try {
+      symlinkSync('/etc/crontab', linkPath);
+      expect(() => validateOutputPath(linkPath)).toThrow(/Path must be within/);
+    } finally {
+      try { unlinkSync(linkPath); } catch {}
+    }
+  });
+
+  it('allows symlink inside /tmp pointing to another /tmp path', () => {
+    const realTmp = realpathSync(tmpdir());
+    const targetPath = join(realTmp, 'test-output-real-' + Date.now() + '.png');
+    const linkPath = join(realTmp, 'test-output-link-' + Date.now() + '.png');
+    try {
+      writeFileSync(targetPath, '');
+      symlinkSync(targetPath, linkPath);
+      expect(() => validateOutputPath(linkPath)).not.toThrow();
+    } finally {
+      try { unlinkSync(linkPath); } catch {}
+      try { unlinkSync(targetPath); } catch {}
+    }
+  });
+
+  it('blocks new file in symlinked directory pointing outside', () => {
+    // A symlinked directory under /tmp pointing to /etc should be caught
+    const linkDir = join(tmpdir(), 'test-dirlink-' + Date.now());
+    try {
+      symlinkSync('/etc', linkDir);
+      expect(() => validateOutputPath(join(linkDir, 'evil.png'))).toThrow(/Path must be within/);
+    } finally {
+      try { unlinkSync(linkDir); } catch {}
+    }
+  });
+});
+
+describe('cookie redaction — production patterns', () => {
+  // Import production regexes directly to prevent drift between tests and implementation
+  it('detects sensitive cookie names', () => {
+    expect(SENSITIVE_COOKIE_NAME.test('session_id')).toBe(true);
+    expect(SENSITIVE_COOKIE_NAME.test('auth_token')).toBe(true);
+    expect(SENSITIVE_COOKIE_NAME.test('csrf-token')).toBe(true);
+    expect(SENSITIVE_COOKIE_NAME.test('api_key')).toBe(true);
+    expect(SENSITIVE_COOKIE_NAME.test('jwt.payload')).toBe(true);
+  });
+
+  it('ignores non-sensitive cookie names', () => {
+    expect(SENSITIVE_COOKIE_NAME.test('theme')).toBe(false);
+    expect(SENSITIVE_COOKIE_NAME.test('locale')).toBe(false);
+    expect(SENSITIVE_COOKIE_NAME.test('_ga')).toBe(false);
+  });
+
+  it('detects sensitive cookie value prefixes', () => {
+    expect(SENSITIVE_COOKIE_VALUE.test('eyJhbGciOiJIUzI1NiJ9')).toBe(true); // JWT
+    expect(SENSITIVE_COOKIE_VALUE.test('sk-ant-abc123')).toBe(true); // Anthropic
+    expect(SENSITIVE_COOKIE_VALUE.test('ghp_xxxxxxxxxxxx')).toBe(true); // GitHub PAT
+    expect(SENSITIVE_COOKIE_VALUE.test('xoxb-token')).toBe(true); // Slack
+  });
+
+  it('ignores non-sensitive values', () => {
+    expect(SENSITIVE_COOKIE_VALUE.test('dark')).toBe(false);
+    expect(SENSITIVE_COOKIE_VALUE.test('en-US')).toBe(false);
+    expect(SENSITIVE_COOKIE_VALUE.test('1234567890')).toBe(false);
+  });
+});
+
+describe('DNS rebinding — production blocklist', () => {
+  // Import production blocklist directly to prevent drift between tests and implementation
+  it('blocks fd00:: IPv6 metadata address via validateNavigationUrl', async () => {
+    // fd00:: is now blocked via prefix matching (isBlockedIpv6), not the exact-match set
+    const { validateNavigationUrl } = await import('../src/url-validation');
+    await expect(validateNavigationUrl('http://[fd00::]/')).rejects.toThrow(/cloud metadata/i);
+  });
+
+  it('blocks AWS/GCP IPv4 metadata address', () => {
+    expect(BLOCKED_METADATA_HOSTS.has('169.254.169.254')).toBe(true);
+  });
+
+  it('does not block normal addresses', () => {
+    expect(BLOCKED_METADATA_HOSTS.has('8.8.8.8')).toBe(false);
+    expect(BLOCKED_METADATA_HOSTS.has('2001:4860:4860::8888')).toBe(false);
   });
 });

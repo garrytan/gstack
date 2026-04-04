@@ -1406,7 +1406,10 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'health') {
     if (msg.data) {
       const url = `http://127.0.0.1:${msg.data.port || 34567}`;
-      updateConnection(url, msg.data.token);
+      // Request token via targeted sendResponse (not broadcast) to limit exposure
+      chrome.runtime.sendMessage({ type: 'getToken' }, (resp) => {
+        updateConnection(url, resp?.token || null);
+      });
       applyChatEnabled(!!msg.data.chatEnabled);
     } else {
       updateConnection(null);

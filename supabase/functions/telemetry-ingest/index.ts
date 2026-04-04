@@ -43,9 +43,18 @@ Deno.serve(async (req) => {
       return new Response(`Batch too large (max ${MAX_BATCH_SIZE})`, { status: 400 });
     }
 
+    // Use the caller's apikey (anon key) instead of the service role key.
+    // RLS policies allow anon INSERT on telemetry_events and INSERT/UPDATE
+    // on installations (for upsert). Column-level GRANT restricts anon
+    // UPDATE to (last_seen, gstack_version, os) only — see migration 003.
+    const callerKey = req.headers.get("apikey");
+    if (!callerKey) {
+      return new Response("Unauthorized — apikey header required", { status: 401 });
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      callerKey
     );
 
     // Validate and transform events
@@ -111,8 +120,9 @@ Deno.serve(async (req) => {
     }
 
     // Upsert installations (update last_seen)
+    const upsertErrors: string[] = [];
     for (const [id, data] of installationUpserts) {
-      await supabase
+      const { error: upsertError } = await supabase
         .from("installations")
         .upsert(
           {
@@ -123,9 +133,16 @@ Deno.serve(async (req) => {
           },
           { onConflict: "installation_id" }
         );
+      if (upsertError) {
+        upsertErrors.push(`${id}: ${upsertError.message}`);
+      }
     }
 
-    return new Response(JSON.stringify({ inserted: rows.length }), {
+    const result: Record<string, any> = { inserted: rows.length };
+    if (upsertErrors.length > 0) {
+      result.upsertErrors = upsertErrors;
+    }
+    return new Response(JSON.stringify(result), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });

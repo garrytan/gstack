@@ -76,8 +76,8 @@ function setConnected(healthData) {
   chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' });
   chrome.action.setBadgeText({ text: ' ' });
 
-  // Broadcast health to popup and side panel (include token for sidepanel auth)
-  chrome.runtime.sendMessage({ type: 'health', data: { ...healthData, token: authToken } }).catch(() => {});
+  // Broadcast health to popup and side panel (token excluded — use getToken message instead)
+  chrome.runtime.sendMessage({ type: 'health', data: healthData }).catch(() => {});
 
   // Notify content scripts on connection change
   if (wasDisconnected) {
@@ -252,7 +252,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   const ALLOWED_TYPES = new Set([
-    'getPort', 'setPort', 'getServerUrl', 'fetchRefs',
+    'getPort', 'setPort', 'getServerUrl', 'getToken', 'fetchRefs',
     'openSidePanel', 'command', 'sidebar-command',
     // Inspector message types
     'startInspector', 'stopInspector', 'elementPicked', 'pickerCancelled',
@@ -282,7 +282,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // getToken handler removed — token distributed via health broadcast
+  // Token delivered via targeted sendResponse, not broadcast — limits exposure.
+  // Only respond to extension pages (sidepanel/popup) — content scripts have
+  // sender.tab set, so reject those to prevent token access from injected contexts.
+  if (msg.type === 'getToken') {
+    if (sender.tab) {
+      console.warn('[gstack] Rejected getToken from content script context');
+      sendResponse({ token: null });
+    } else {
+      sendResponse({ token: authToken });
+    }
+    return true;
+  }
 
   if (msg.type === 'fetchRefs') {
     fetchAndRelayRefs().then(() => sendResponse({ ok: true }));
