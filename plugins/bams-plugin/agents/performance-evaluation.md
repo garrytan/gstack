@@ -147,4 +147,13 @@ disallowedTools: Write, Edit
 ```
 
 ## Best Practice 참조
-해당 Responsibility 수행 시 참조: `references/best-practices/performance-evaluation.md`
+
+**★ 작업 시작 시 반드시 Read:**
+Bash로 best-practice 파일을 찾아 Read합니다:
+```bash
+_BP=$(find ~/.claude/plugins/cache -path "*/bams-plugin/*/references/best-practices/performance-evaluation.md" 2>/dev/null | head -1)
+[ -z "$_BP" ] && _BP=$(find . -path "*/bams-plugin/references/best-practices/performance-evaluation.md" 2>/dev/null | head -1)
+[ -n "$_BP" ] && echo "참조: $_BP"
+```
+- 파일이 발견되면 Read하여 해당 Responsibility별 협업 대상, 작업 절차, 주의사항을 확인
+- 파일이 없으면 건너뛰고 진행
