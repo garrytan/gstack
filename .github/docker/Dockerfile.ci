@@ -58,6 +58,5 @@ RUN mv /workspace/node_modules /opt/node_modules_cache \
 RUN useradd -m -s /bin/bash runner \
     && chmod -R a+rX /opt/node_modules_cache \
     && mkdir -p /home/runner/.gstack && chown -R runner:runner /home/runner/.gstack \
-    && chmod 1777 /tmp \
     && mkdir -p /home/runner/.bun && chown -R runner:runner /home/runner/.bun \
-    && chmod -R 1777 /tmp
+    && chmod 1777 /tmp
