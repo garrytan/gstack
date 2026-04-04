@@ -51,6 +51,8 @@ mkdir -p .gstack/canary-reports/screenshots
 
 Parse the user's arguments. Default duration is 10 minutes. Default pages: auto-discover from the app's navigation.
 
+{{LEARNINGS_SEARCH}}
+
 ### Phase 2: Baseline Capture (--baseline mode)
 
 If the user passed `--baseline`, capture the current state BEFORE deploying.
@@ -209,6 +211,8 @@ If the deploy is healthy, offer to update the baseline:
 - B) Keep old baseline
 
 If the user chooses A, copy the latest screenshots to the baselines directory and update `baseline.json`.
+
+{{LEARNINGS_LOG}}
 
 ## Important Rules
 
