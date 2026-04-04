@@ -139,7 +139,31 @@ cd "$INSTALL_DIR" && ./setup
 rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
 ```
 
-### Step 4.5: Sync local vendored copy
+### Step 4.5: Apply user overlay
+
+After `./setup` completes, check if the user has customizations that should be restored.
+
+```bash
+_OVERLAY_DIR="$HOME/.gstack/user-overlay"
+if [ -d "$_OVERLAY_DIR" ]; then
+  _SKILL_NAME=$(basename "$INSTALL_DIR")
+  if [ -d "$_OVERLAY_DIR/$_SKILL_NAME" ]; then
+    cp -Rf "$_OVERLAY_DIR/$_SKILL_NAME/." "$INSTALL_DIR/"
+    echo "USER_OVERLAY: Applied overlay for $_SKILL_NAME"
+  fi
+fi
+```
+
+If overlay files exist, they are copied over the freshly-upgraded skill directory. This preserves user customizations (edited SKILL.md files, added templates, extra scripts) across gstack updates.
+
+Users create overlays by copying files to `~/.gstack/user-overlay/<skill-name>/`. For example, to persist edits to `plan-eng-review`:
+
+```bash
+mkdir -p ~/.gstack/user-overlay/plan-eng-review
+cp ~/.claude/skills/gstack/plan-eng-review/SKILL.md.tmpl ~/.gstack/user-overlay/plan-eng-review/
+```
+
+### Step 4.6: Sync local vendored copy
 
 Use the install directory from Step 2. Check if there's also a local vendored copy that needs updating:
 

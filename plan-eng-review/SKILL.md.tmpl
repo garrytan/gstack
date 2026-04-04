@@ -264,9 +264,44 @@ Check the git log for this branch. If there are prior commits suggesting a previ
 * One sentence max per option. Pick in under 5 seconds.
 * After each review section, pause and ask for feedback before moving on.
 
+## Review Artifact (persistent findings document)
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to `~/.gstack/` (user config directory), not project source files.
+
+Write the full review findings to a persistent markdown file so future sessions can recover context without re-running the review.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+mkdir -p ~/.gstack/projects/${SLUG:-unknown}/eng-reviews
+```
+
+Write to `~/.gstack/projects/{slug}/eng-reviews/{date}-{branch}-eng-review.md` using the Write tool.
+
+The file MUST contain:
+
+1. **YAML frontmatter** with `status`, `date`, `branch`, `mode`, `commit` fields
+2. **Executive Summary** — one paragraph verdict
+3. **All issues** from every review section, formatted as:
+   ```
+   ### Issue #{N}: {title}
+   - **Severity:** P0/P1/P2/P3
+   - **Confidence:** N/10
+   - **File:** `path/to/file:line`
+   - **Problem:** 2-3 sentence description
+   - **Fix:** 1-2 sentence fix
+   ```
+4. **User decisions** — which option the user chose for each AskUserQuestion
+5. **Test coverage diagram** (from Section 3)
+6. **Architecture diagram** (if any ASCII diagrams were drawn)
+7. **NOT in scope** section
+8. **Implementation order** — prioritized task list
+9. **RAM/performance notes** (if applicable)
+
+This file is the **source of truth** for future sessions. The JSONL review log is metadata for the dashboard; this file is the content for humans and AI.
+
 ## Review Log
 
-After producing the Completion Summary above, persist the review result.
+After producing the Completion Summary and Review Artifact above, persist the review result.
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
 `~/.gstack/` (user config directory, not project files). The skill preamble
