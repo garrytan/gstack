@@ -182,8 +182,20 @@ export async function serve(options: ServeOptions): Promise<void> {
       );
     }
 
+    // Path traversal guard: the reload path must stay within the same directory
+    // as the original HTML file. Arbitrary paths from the POST body would let
+    // any caller read any file on the filesystem via the GET / endpoint.
+    const safeDir = path.resolve(path.dirname(html));
+    const resolvedNew = path.resolve(newHtmlPath);
+    if (!resolvedNew.startsWith(safeDir + path.sep) && resolvedNew !== safeDir) {
+      return Response.json(
+        { error: `Reload path must be within design directory: ${safeDir}` },
+        { status: 403 }
+      );
+    }
+
     // Swap the HTML content
-    htmlContent = fs.readFileSync(newHtmlPath, "utf-8");
+    htmlContent = fs.readFileSync(resolvedNew, "utf-8");
     state = "serving";
 
     console.error(`SERVE_RELOADED: html=${newHtmlPath}`);
