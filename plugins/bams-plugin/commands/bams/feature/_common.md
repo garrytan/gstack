@@ -108,3 +108,20 @@ else
   echo "[bams] Control Plane 서버 이미 실행 중 (http://localhost:3099)"
 fi
 ```
+
+---
+
+## ★ Pipeline 종료 보장 규칙
+
+파이프라인이 어떤 Phase에서 완료되든, 마지막 Phase를 실행하는 pipeline-orchestrator는 반드시 `pipeline_end` 이벤트를 emit해야 합니다.
+
+- Phase 5까지 완주 시: Phase 5에서 pipeline_end emit (기존 동작)
+- 중간 Phase에서 완료 시 (사용자가 "여기까지만" 선택): 해당 Phase의 orchestrator가 pipeline_end emit
+- 에러/중단 시: pipeline_end status="failed" 또는 "paused" emit
+
+```bash
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1)
+[ -n "$_EMIT" ] && bash "$_EMIT" pipeline_end "{slug}" "{status}"
+```
+
+**이 규칙을 위반하면 viz에서 파이프라인이 영원히 "진행 중"으로 표시됩니다.**
