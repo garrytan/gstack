@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.15.4.1] - 2026-04-04 — Community Fixes: Docker, Binary Tracking, Cross-Platform Temp Paths
+
+Three fixes from the open issue tracker. Every clone is now ~58MB smaller, the Docker CI image sets permissions correctly, and cookie import works on any platform.
+
+### Fixed
+
+- **58MB tracked binary removed.** `bin/gstack-global-discover` was committed despite `.gitignore`. `git rm --cached` stops tracking it. The TypeScript source remains, and `./setup` compiles it locally. (#779)
+- **Docker sticky bit on files.** `chmod -R 1777 /tmp` in the CI Dockerfile applied the sticky bit to files (meaningless). Now uses `find -type d` to only chmod directories. (#709)
+- **Hardcoded `/tmp` in cookie import.** `cookie-import-browser.ts` used `/tmp` directly instead of `os.tmpdir()`. Now portable. On macOS this resolves to a per-user temp directory, which is actually more secure. (#708)
+
 ## [0.15.4.0] - 2026-04-03 — Autoplan DX Integration + Docs
 
 `/autoplan` now auto-detects developer-facing plans and runs `/plan-devex-review` as Phase 3.5, with full dual-voice adversarial review (Claude subagent + Codex). If your plan mentions APIs, CLIs, SDKs, agent actions, or anything developers integrate with, the DX review kicks in automatically. No extra commands needed.
