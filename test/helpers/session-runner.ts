@@ -209,6 +209,11 @@ export async function runSkillTest(options: {
         if (!line.trim()) continue;
         collectedLines.push(line);
 
+        // Track time to first NDJSON line (measures latency from spawn to first Claude response)
+        if (firstResponseMs === 0) {
+          firstResponseMs = Date.now() - startTime;
+        }
+
         // Real-time progress to stderr + persistent logs
         try {
           const event = JSON.parse(line);
@@ -220,8 +225,7 @@ export async function runSkillTest(options: {
                 liveToolCount++;
                 const now = Date.now();
                 const elapsed = Math.round((now - startTime) / 1000);
-                // Track timing telemetry
-                if (firstResponseMs === 0) firstResponseMs = now - startTime;
+                // Track inter-turn latency (tool call to tool call)
                 if (lastToolTime > 0) {
                   const interTurn = now - lastToolTime;
                   if (interTurn > maxInterTurnMs) maxInterTurnMs = interTurn;
