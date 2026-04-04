@@ -22,8 +22,8 @@ bun run eval:compare # compare two eval runs (auto-picks most recent)
 bun run eval:summary # aggregate stats across all eval runs
 ```
 
-`test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
-use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
+`test:evals` requires `ANTHROPIC_API_KEY`. Antigravity E2E tests (`test/antigravity-e2e.test.ts`)
+use Antigravity's own auth from `~/.antigravity/` config — no `OPENAI_API_KEY` env var needed.
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
 against the previous run.
@@ -40,7 +40,7 @@ periodic tests run weekly via cron or manually. Use `EVALS_TIER=gate` or
 `EVALS_TIER=periodic` to filter. When adding new E2E tests, classify them:
 1. Safety guardrail or deterministic functional test? -> `gate`
 2. Quality benchmark, Opus model test, or non-deterministic? -> `periodic`
-3. Requires external service (Codex, Gemini)? -> `periodic`
+3. Requires external service (Antigravity, Gemini)? -> `periodic`
 
 ## Testing
 
@@ -51,7 +51,7 @@ bun run test:evals   # run before shipping — paid, diff-based (~$4/run max)
 
 `bun test` runs skill validation, gen-skill-docs quality checks, and browse
 integration tests. `bun run test:evals` runs LLM-judge quality evals and E2E
-tests via `claude -p`. Both must pass before creating a PR.
+tests via `antigravity -p`. Both must pass before creating a PR.
 
 ## Project structure
 
@@ -74,7 +74,7 @@ gstack/
 │   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
 │   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
 │   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
-│   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
+│   └── skill-e2e-*.test.ts       # Tier 2: E2E via antigravity -p (~$3.85/run, split by category)
 ├── qa-only/         # /qa-only skill (report-only QA, no fixes)
 ├── plan-design-review/  # /plan-design-review skill (report-only design audit)
 ├── design-review/    # /design-review skill (design audit + fix loop)
@@ -85,7 +85,7 @@ gstack/
 ├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
 ├── benchmark/       # /benchmark skill (performance regression detection)
 ├── canary/          # /canary skill (post-deploy monitoring loop)
-├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
+├── antigravity/           # /antigravity skill (multi-AI second opinion via OpenAI Antigravity CLI)
 ├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
 ├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
@@ -136,21 +136,21 @@ generated output silently drops the other side's template changes.
 Skills must NEVER hardcode framework-specific commands, file patterns, or directory
 structures. Instead:
 
-1. **Read CLAUDE.md** for project-specific config (test commands, eval commands, etc.)
+1. **Read GEMINI.md** for project-specific config (test commands, eval commands, etc.)
 2. **If missing, AskUserQuestion** — let the user tell you or let gstack search the repo
-3. **Persist the answer to CLAUDE.md** so we never have to ask again
+3. **Persist the answer to GEMINI.md** so we never have to ask again
 
 This applies to test commands, eval commands, deploy commands, and any other
 project-specific behavior. The project owns its config; gstack reads it.
 
 ## Writing SKILL templates
 
-SKILL.md.tmpl files are **prompt templates read by Claude**, not bash scripts.
+SKILL.md.tmpl files are **prompt templates read by Antigravity**, not bash scripts.
 Each bash code block runs in a separate shell — variables do not persist between blocks.
 
 Rules:
 - **Use natural language for logic and state.** Don't use shell variables to pass
-  state between code blocks. Instead, tell Claude what to remember and reference
+  state between code blocks. Instead, tell Antigravity what to remember and reference
   it in prose (e.g., "the base branch detected in Step 0").
 - **Don't hardcode branch names.** Detect `main`/`master`/etc dynamically via
   `gh pr view` or `gh repo view`. Use `{{BASE_BRANCH_DETECT}}` for PR-targeting
@@ -164,26 +164,26 @@ Rules:
 
 When you need to interact with a browser (QA, dogfooding, cookie setup), use the
 `/browse` skill or run the browse binary directly via `$B <command>`. NEVER use
-`mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
+`mcp__antigravity-in-chrome__*` tools — they are slow, unreliable, and not what this
 project uses.
 
 ## Vendored symlink awareness
 
-When developing gstack, `.claude/skills/gstack` may be a symlink back to this
+When developing gstack, `.antigravity/skills/gstack` may be a symlink back to this
 working directory (gitignored). This means skill changes are **live immediately** —
 great for rapid iteration, risky during big refactors where half-written skills
-could break other Claude Code sessions using gstack concurrently.
+could break other Antigravity Code sessions using gstack concurrently.
 
-**Check once per session:** Run `ls -la .claude/skills/gstack` to see if it's a
+**Check once per session:** Run `ls -la .antigravity/skills/gstack` to see if it's a
 symlink or a real copy. If it's a symlink to your working directory, be aware that:
 - Template changes + `bun run gen:skill-docs` immediately affect all gstack invocations
 - Breaking changes to SKILL.md.tmpl files can break concurrent gstack sessions
-- During large refactors, remove the symlink (`rm .claude/skills/gstack`) so the
-  global install at `~/.claude/skills/gstack/` is used instead
+- During large refactors, remove the symlink (`rm .antigravity/skills/gstack`) so the
+  global install at `~/.antigravity/skills/gstack/` is used instead
 
 **Prefix setting:** Setup creates real directories (not symlinks) at the top level
 with a SKILL.md symlink inside (e.g., `qa/SKILL.md -> gstack/qa/SKILL.md`). This
-ensures Claude discovers them as top-level skills, not nested under `gstack/`.
+ensures Antigravity discovers them as top-level skills, not nested under `gstack/`.
 Names are either short (`qa`) or namespaced (`gstack-qa`), controlled by
 `skill_prefix` in `~/.gstack/config.yaml`. When vendoring into a project, run
 `./setup` after symlinking to create the per-skill directories. Pass `--no-prefix`
@@ -361,7 +361,7 @@ you'll check later.
 ## E2E test fixtures: extract, don't copy
 
 **NEVER copy a full SKILL.md file into an E2E test fixture.** SKILL.md files are
-1500-2000 lines. When `claude -p` reads a file that large, context bloat causes
+1500-2000 lines. When `antigravity -p` reads a file that large, context bloat causes
 timeouts, flaky turn limits, and tests that take 5-10x longer than necessary.
 
 Instead, extract only the section the test actually needs:
@@ -384,12 +384,12 @@ Also when running targeted E2E tests to debug failures:
 
 ## Deploying to the active skill
 
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
+The active skill lives at `~/.antigravity/skills/gstack/`. After making changes:
 
 1. Push your branch
-2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
+2. Fetch and reset in the skill directory: `cd ~/.antigravity/skills/gstack && git fetch origin && git reset --hard origin/main`
+3. Rebuild: `cd ~/.antigravity/skills/gstack && bun run build`
 
 Or copy the binaries directly:
-- `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
-- `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
+- `cp browse/dist/browse ~/.antigravity/skills/gstack/browse/dist/browse`
+- `cp design/dist/design ~/.antigravity/skills/gstack/design/dist/design`

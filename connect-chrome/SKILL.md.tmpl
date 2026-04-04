@@ -3,7 +3,7 @@ name: connect-chrome
 version: 0.1.0
 description: |
   Launch real Chrome controlled by gstack with the Side Panel extension auto-loaded.
-  One command: connects Claude to a visible Chrome window where you can watch every
+  One command: connects Antigravity to a visible Chrome window where you can watch every
   action in real time. The extension shows a live activity feed in the Side Panel.
   Use when asked to "connect chrome", "open chrome", "real browser", "launch chrome",
   "side panel", or "control my browser".
@@ -20,7 +20,7 @@ allowed-tools:
 
 # /connect-chrome — Launch Real Chrome with Side Panel
 
-Connect Claude to a visible Chrome window with the gstack extension auto-loaded.
+Connect Antigravity to a visible Chrome window with the gstack extension auto-loaded.
 You see every click, every navigation, every action in real time.
 
 {{BROWSE_SETUP}}
@@ -89,8 +89,8 @@ Also find the extension path so you can help the user if they need to load it ma
 ```bash
 _EXT_PATH=""
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-[ -n "$_ROOT" ] && [ -f "$_ROOT/.claude/skills/gstack/extension/manifest.json" ] && _EXT_PATH="$_ROOT/.claude/skills/gstack/extension"
-[ -z "$_EXT_PATH" ] && [ -f "$HOME/.claude/skills/gstack/extension/manifest.json" ] && _EXT_PATH="$HOME/.claude/skills/gstack/extension"
+[ -n "$_ROOT" ] && [ -f "$_ROOT/.antigravity/skills/gstack/extension/manifest.json" ] && _EXT_PATH="$_ROOT/.antigravity/skills/gstack/extension"
+[ -z "$_EXT_PATH" ] && [ -f "$HOME/.antigravity/skills/gstack/extension/manifest.json" ] && _EXT_PATH="$HOME/.antigravity/skills/gstack/extension"
 echo "EXTENSION_PATH: ${_EXT_PATH:-NOT FOUND}"
 ```
 
@@ -157,7 +157,7 @@ $B snapshot -i
 ```
 
 Tell the user: "Check the Side Panel — you should see the `goto` and `snapshot`
-commands appear in the activity feed. Every command Claude runs shows up here
+commands appear in the activity feed. Every command Antigravity runs shows up here
 in real time."
 
 ## Step 5: Sidebar chat
@@ -165,13 +165,13 @@ in real time."
 After the activity feed demo, tell the user about the sidebar chat:
 
 > The Side Panel also has a **chat tab**. Try typing a message like "take a
-> snapshot and describe this page." A sidebar agent (a child Claude instance)
+> snapshot and describe this page." A sidebar agent (a child Antigravity instance)
 > executes your request in the browser — you'll see the commands appear in
 > the activity feed as they happen.
 >
 > The sidebar agent can navigate pages, click buttons, fill forms, and read
 > content. Each task gets up to 5 minutes. It runs in an isolated session, so
-> it won't interfere with this Claude Code window.
+> it won't interfere with this Antigravity Code window.
 
 ## Step 6: What's next
 
@@ -179,7 +179,7 @@ Tell the user:
 
 > You're all set! Here's what you can do with the connected Chrome:
 >
-> **Watch Claude work in real time:**
+> **Watch Antigravity work in real time:**
 > - Run any gstack skill (`/qa`, `/design-review`, `/benchmark`) and watch
 >   every action happen in the visible Chrome window + Side Panel feed
 > - No cookie import needed — the Playwright browser shares its own session

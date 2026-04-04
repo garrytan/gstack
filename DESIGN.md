@@ -1,7 +1,7 @@
 # Design System — gstack
 
 ## Product Context
-- **What this is:** Community website for gstack — a CLI tool that turns Claude Code into a virtual engineering team
+- **What this is:** Community website for gstack — a CLI tool that turns Antigravity Code into a virtual engineering team
 - **Who it's for:** Developers discovering gstack, existing community members
 - **Space/industry:** Developer tools (peers: Linear, Raycast, Warp, Zed)
 - **Project type:** Community dashboard + marketing site

@@ -12,7 +12,7 @@ This document covers the command reference and internals of gstack's headless br
 | Interact | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport`, `upload` | Use the page |
 | Inspect | `js`, `eval`, `css`, `attrs`, `is`, `console`, `network`, `dialog`, `cookies`, `storage`, `perf`, `inspect [selector] [--all]` | Debug and verify |
 | Style | `style <sel> <prop> <val>`, `style --undo [N]`, `cleanup [--all]`, `prettyscreenshot` | Live CSS editing and page cleanup |
-| Visual | `screenshot [--viewport] [--clip x,y,w,h] [sel\|@ref] [path]`, `pdf`, `responsive` | See what Claude sees |
+| Visual | `screenshot [--viewport] [--clip x,y,w,h] [sel\|@ref] [path]`, `pdf`, `responsive` | See what Antigravity sees |
 | Compare | `diff <url1> <url2>` | Spot differences between environments |
 | Dialogs | `dialog-accept [text]`, `dialog-dismiss` | Control alert/confirm/prompt handling |
 | Tabs | `tabs`, `tab`, `newtab`, `closetab` | Multi-page workflows |
@@ -29,7 +29,7 @@ gstack's browser is a compiled CLI binary that talks to a persistent local Chrom
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Claude Code                                                    │
+│  Antigravity Code                                                    │
 │                                                                 │
 │  "browse goto https://staging.myapp.com"                        │
 │       │                                                         │
@@ -129,7 +129,7 @@ The `console`, `network`, and `dialog` commands read from the in-memory buffers,
 
 ### Real browser mode (`connect`)
 
-Instead of headless Chromium, `connect` launches your real Chrome as a headed window controlled by Playwright. You see everything Claude does in real time.
+Instead of headless Chromium, `connect` launches your real Chrome as a headed window controlled by Playwright. You see everything Antigravity does in real time.
 
 ```bash
 $B connect              # launch real Chrome, headed
@@ -146,8 +146,8 @@ The window has a subtle green shimmer line at the top edge and a floating "gstac
 **How it works:** Playwright's `channel: 'chrome'` launches your system Chrome binary via a native pipe protocol — not CDP WebSocket. All existing browse commands work unchanged because they go through Playwright's abstraction layer.
 
 **When to use it:**
-- QA testing where you want to watch Claude click through your app
-- Design review where you need to see exactly what Claude sees
+- QA testing where you want to watch Antigravity click through your app
+- Design review where you need to see exactly what Antigravity sees
 - Debugging where headless behavior differs from real Chrome
 - Demos where you're sharing your screen
 
@@ -191,7 +191,7 @@ Or do it manually:
 2. **Toggle "Developer mode" ON** (top-right corner)
 3. **Click "Load unpacked"** — a file picker opens
 4. **Navigate to the extension folder:** Press **Cmd+Shift+G** in the file picker to open "Go to folder", then paste one of these paths:
-   - Global install: `~/.claude/skills/gstack/extension`
+   - Global install: `~/.antigravity/skills/gstack/extension`
    - Dev/source: `<gstack-repo>/extension`
 
    Press Enter, then click **Select**.
@@ -220,14 +220,14 @@ Or do it manually:
 
 ### Sidebar agent
 
-The Chrome side panel includes a chat interface. Type a message and a child Claude instance executes it in the browser. The sidebar agent has access to `Bash`, `Read`, `Glob`, and `Grep` tools (same as Claude Code, minus `Edit` and `Write` ... read-only by design).
+The Chrome side panel includes a chat interface. Type a message and a child Antigravity instance executes it in the browser. The sidebar agent has access to `Bash`, `Read`, `Glob`, and `Grep` tools (same as Antigravity Code, minus `Edit` and `Write` ... read-only by design).
 
 **How it works:**
 
 1. You type a message in the side panel chat
 2. The extension POSTs to the local browse server (`/sidebar-command`)
-3. The server queues the message and the sidebar-agent process spawns `claude -p` with your message + the current page context
-4. Claude executes browse commands via Bash (`$B snapshot`, `$B click @e3`, etc.)
+3. The server queues the message and the sidebar-agent process spawns `antigravity -p` with your message + the current page context
+4. Antigravity executes browse commands via Bash (`$B snapshot`, `$B click @e3`, etc.)
 5. Progress streams back to the side panel in real time
 
 **What you can do:**
@@ -241,7 +241,7 @@ The Chrome side panel includes a chat interface. Type a message and a child Clau
 
 **Timeout:** Each task gets up to 5 minutes. Multi-page workflows (navigating a directory, filling forms across pages) work within this window. If a task times out, the side panel shows an error and you can retry or break it into smaller steps.
 
-**Session isolation:** Each sidebar session runs in its own git worktree. The sidebar agent won't interfere with your main Claude Code session.
+**Session isolation:** Each sidebar session runs in its own git worktree. The sidebar agent won't interfere with your main Antigravity Code session.
 
 **Authentication:** The sidebar agent uses the same browser session as headed mode. Two options:
 1. Log in manually in the headed browser ... your session persists for the sidebar agent
@@ -315,7 +315,7 @@ MCP (Model Context Protocol) works well for remote services, but for local brows
 
 - **Context bloat**: every MCP call includes full JSON schemas and protocol framing. A simple "get the page text" costs 10x more context tokens than it should.
 - **Connection fragility**: persistent WebSocket/stdio connections drop and fail to reconnect.
-- **Unnecessary abstraction**: Claude Code already has a Bash tool. A CLI that prints to stdout is the simplest possible interface.
+- **Unnecessary abstraction**: Antigravity Code already has a Bash tool. A CLI that prints to stdout is the simplest possible interface.
 
 gstack skips all of this. Compiled binary. Plain text in, plain text out. No protocol. No schema. No connection management.
 
@@ -382,13 +382,13 @@ Tests spin up a local HTTP server (`browse/test/test-server.ts`) serving HTML fi
 
 ### Deploying to the active skill
 
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
+The active skill lives at `~/.antigravity/skills/gstack/`. After making changes:
 
 1. Push your branch
-2. Pull in the skill directory: `cd ~/.claude/skills/gstack && git pull`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
+2. Pull in the skill directory: `cd ~/.antigravity/skills/gstack && git pull`
+3. Rebuild: `cd ~/.antigravity/skills/gstack && bun run build`
 
-Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+Or copy the binary directly: `cp browse/dist/browse ~/.antigravity/skills/gstack/browse/dist/browse`
 
 ### Adding a new command
 

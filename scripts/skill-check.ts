@@ -79,36 +79,36 @@ for (const file of SKILL_FILES) {
   }
 }
 
-// ─── Codex Skills ───────────────────────────────────────────
+// ─── Antigravity Skills ───────────────────────────────────────────
 
 const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
 if (fs.existsSync(AGENTS_DIR)) {
-  console.log('\n  Codex Skills (.agents/skills/):');
-  const codexDirs = fs.readdirSync(AGENTS_DIR).sort();
-  let codexCount = 0;
-  let codexMissing = 0;
-  for (const dir of codexDirs) {
+  console.log('\n  Antigravity Skills (.agents/skills/):');
+  const antigravityDirs = fs.readdirSync(AGENTS_DIR).sort();
+  let antigravityCount = 0;
+  let antigravityMissing = 0;
+  for (const dir of antigravityDirs) {
     const skillMd = path.join(AGENTS_DIR, dir, 'SKILL.md');
     if (fs.existsSync(skillMd)) {
-      codexCount++;
+      antigravityCount++;
       const content = fs.readFileSync(skillMd, 'utf-8');
       // Quick validation: must have frontmatter with name + description only
-      const hasClaude = content.includes('.claude/skills');
-      if (hasClaude) {
+      const hasAntigravity = content.includes('.antigravity/skills');
+      if (hasAntigravity) {
         hasErrors = true;
-        console.log(`  \u274c ${dir.padEnd(30)} — contains .claude/skills reference`);
+        console.log(`  \u274c ${dir.padEnd(30)} — contains .antigravity/skills reference`);
       } else {
         console.log(`  \u2705 ${dir.padEnd(30)} — OK`);
       }
     } else {
-      codexMissing++;
+      antigravityMissing++;
       hasErrors = true;
       console.log(`  \u274c ${dir.padEnd(30)} — SKILL.md missing`);
     }
   }
-  console.log(`  Total: ${codexCount} skills, ${codexMissing} missing`);
+  console.log(`  Total: ${antigravityCount} skills, ${antigravityMissing} missing`);
 } else {
-  console.log('\n  Codex Skills: .agents/skills/ not found (run: bun run gen:skill-docs --host codex)');
+  console.log('\n  Antigravity Skills: .agents/skills/ not found (run: bun run gen:skill-docs --host antigravity)');
 }
 
 // ─── Factory Skills ─────────────────────────────────────────
@@ -124,10 +124,10 @@ if (fs.existsSync(FACTORY_DIR)) {
     if (fs.existsSync(skillMd)) {
       factoryCount++;
       const content = fs.readFileSync(skillMd, 'utf-8');
-      const hasClaude = content.includes('.claude/skills');
-      if (hasClaude) {
+      const hasAntigravity = content.includes('.antigravity/skills');
+      if (hasAntigravity) {
         hasErrors = true;
-        console.log(`  \u274c ${dir.padEnd(30)} — contains .claude/skills reference`);
+        console.log(`  \u274c ${dir.padEnd(30)} — contains .antigravity/skills reference`);
       } else {
         console.log(`  \u2705 ${dir.padEnd(30)} — OK`);
       }
@@ -144,32 +144,32 @@ if (fs.existsSync(FACTORY_DIR)) {
 
 // ─── Freshness ──────────────────────────────────────────────
 
-console.log('\n  Freshness (Claude):');
+console.log('\n  Freshness (Antigravity):');
 try {
   execSync('bun run scripts/gen-skill-docs.ts --dry-run', { cwd: ROOT, stdio: 'pipe' });
-  console.log('  \u2705 All Claude generated files are fresh');
+  console.log('  \u2705 All Antigravity generated files are fresh');
 } catch (err: any) {
   hasErrors = true;
   const output = err.stdout?.toString() || '';
-  console.log('  \u274c Claude generated files are stale:');
+  console.log('  \u274c Antigravity generated files are stale:');
   for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
     console.log(`      ${line}`);
   }
   console.log('      Run: bun run gen:skill-docs');
 }
 
-console.log('\n  Freshness (Codex):');
+console.log('\n  Freshness (Antigravity):');
 try {
-  execSync('bun run scripts/gen-skill-docs.ts --host codex --dry-run', { cwd: ROOT, stdio: 'pipe' });
-  console.log('  \u2705 All Codex generated files are fresh');
+  execSync('bun run scripts/gen-skill-docs.ts --host antigravity --dry-run', { cwd: ROOT, stdio: 'pipe' });
+  console.log('  \u2705 All Antigravity generated files are fresh');
 } catch (err: any) {
   hasErrors = true;
   const output = err.stdout?.toString() || '';
-  console.log('  \u274c Codex generated files are stale:');
+  console.log('  \u274c Antigravity generated files are stale:');
   for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
     console.log(`      ${line}`);
   }
-  console.log('      Run: bun run gen:skill-docs --host codex');
+  console.log('      Run: bun run gen:skill-docs --host antigravity');
 }
 
 console.log('\n  Freshness (Factory):');

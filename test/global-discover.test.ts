@@ -148,8 +148,8 @@ describe("gstack-global-discover", () => {
         expect(repo).toHaveProperty("sessions");
         expect(Array.isArray(repo.paths)).toBe(true);
         expect(repo.paths.length).toBeGreaterThan(0);
-        expect(repo.sessions).toHaveProperty("claude_code");
-        expect(repo.sessions).toHaveProperty("codex");
+        expect(repo.sessions).toHaveProperty("antigravity_code");
+        expect(repo.sessions).toHaveProperty("antigravity");
         expect(repo.sessions).toHaveProperty("gemini");
       }
     });
@@ -164,8 +164,8 @@ describe("gstack-global-discover", () => {
 
       // Total sessions should equal sum across tools
       const toolTotal =
-        json.tools.claude_code.total_sessions +
-        json.tools.codex.total_sessions +
+        json.tools.antigravity_code.total_sessions +
+        json.tools.antigravity.total_sessions +
         json.tools.gemini.total_sessions;
       expect(json.total_sessions).toBe(toolTotal);
     });

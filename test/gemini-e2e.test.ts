@@ -3,12 +3,12 @@
  *
  * Spawns `gemini -p` with stream-json output in the repo root (where
  * .agents/skills/ already exists), parses JSONL events, and validates
- * structured results. Follows the same pattern as codex-e2e.test.ts.
+ * structured results. Follows the same pattern as antigravity-e2e.test.ts.
  *
  * Prerequisites:
  * - `gemini` binary installed (npm install -g @google/gemini-cli)
  * - Gemini authenticated via ~/.gemini/ config or GEMINI_API_KEY env var
- * - EVALS=1 env var set (same gate as Claude E2E tests)
+ * - EVALS=1 env var set (same gate as Antigravity E2E tests)
  *
  * Skips gracefully when prerequisites are not met.
  */
@@ -41,14 +41,14 @@ const describeGemini = SKIP ? describe.skip : describe;
 
 // Log why we're skipping (helpful for debugging CI)
 if (!evalsEnabled) {
-  // Silent — same as Claude E2E tests, EVALS=1 required
+  // Silent — same as Antigravity E2E tests, EVALS=1 required
 } else if (!GEMINI_AVAILABLE) {
   process.stderr.write('\nGemini E2E: SKIPPED — gemini binary not found (install: npm i -g @google/gemini-cli)\n');
 }
 
 // --- Diff-based test selection ---
 
-// Gemini E2E touchfiles — keyed by test name, same pattern as Codex E2E
+// Gemini E2E touchfiles — keyed by test name, same pattern as Antigravity E2E
 const GEMINI_E2E_TOUCHFILES: Record<string, string[]> = {
   'gemini-discover-skill':  ['.agents/skills/**', 'test/helpers/gemini-session-runner.ts'],
   'gemini-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'test/helpers/gemini-session-runner.ts'],

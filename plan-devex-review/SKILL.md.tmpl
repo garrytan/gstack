@@ -67,7 +67,7 @@ git diff $(git merge-base HEAD main 2>/dev/null || echo HEAD~10) --stat 2>/dev/n
 
 Then read:
 - The plan file (current plan or branch diff)
-- CLAUDE.md for project conventions
+- GEMINI.md for project conventions
 - README.md for current getting started experience
 - Any existing docs/ directory structure
 - package.json or equivalent (what developers will install)
@@ -76,7 +76,7 @@ Then read:
 **Design doc check:**
 ```bash
 setopt +o nomatch 2>/dev/null || true
-SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+SLUG=$(~/.antigravity/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
 [ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
@@ -102,7 +102,7 @@ Before proceeding, read the plan and infer the developer product type from conte
 - Mentions npm install, import, require, library, package → **Library/SDK**
 - Mentions deploy, hosting, infrastructure, provisioning → **Platform**
 - Mentions docs, guides, tutorials, examples → **Documentation**
-- Mentions SKILL.md, skill template, Claude Code, AI agent, MCP → **Claude Code Skill**
+- Mentions SKILL.md, skill template, Antigravity Code, AI agent, MCP → **Antigravity Code Skill**
 
 If NONE of the above: the plan has no developer-facing surface. Tell the user:
 "This plan doesn't appear to have developer-facing surfaces. /plan-devex-review
@@ -197,8 +197,8 @@ Pattern:
 Before starting review passes, check for prior DX reviews on this project:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_DX_REVIEWS"
+eval "$(~/.antigravity/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.antigravity/skills/gstack/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_DX_REVIEWS"
 ```
 
 If prior reviews exist, display the trend:
@@ -213,7 +213,7 @@ DX TREND (prior reviews):
 
 Rate 0-10: Can a developer go from zero to hello world in under 5 minutes?
 
-Load reference: Read the "## Pass 1" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 1" section from `~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Installation**: One command? One click? No prerequisites?
@@ -236,7 +236,7 @@ terminal session without leaving the terminal?
 
 Rate 0-10: Is the interface intuitive, consistent, and complete?
 
-Load reference: Read the "## Pass 2" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 2" section from `~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Naming**: Guessable without docs? Consistent grammar?
@@ -256,7 +256,7 @@ Good API design test: Can a dev use this API correctly after seeing one example?
 Rate 0-10: When something goes wrong, does the developer know what happened, why,
 and how to fix it?
 
-Load reference: Read the "## Pass 3" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 3" section from `~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 For each error path in the plan, evaluate against the formula:
 **What happened** + **Why** + **How to fix** + **Where to learn more** + **Actual values**
@@ -272,7 +272,7 @@ Also evaluate:
 
 Rate 0-10: Can a developer find what they need and learn by doing?
 
-Load reference: Read the "## Pass 4" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 4" section from `~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Information architecture**: Find what they need in under 2 minutes?
@@ -288,7 +288,7 @@ Evaluate:
 
 Rate 0-10: Can developers upgrade without fear?
 
-Load reference: Read the "## Pass 5" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 5" section from `~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Backward compatibility**: What breaks? Blast radius limited?
@@ -303,7 +303,7 @@ Evaluate:
 
 Rate 0-10: Does this integrate into developers' existing workflows?
 
-Load reference: Read the "## Pass 6" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 6" section from `~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Editor integration**: Language server? Autocomplete? Inline docs?
@@ -321,7 +321,7 @@ Evaluate:
 
 Rate 0-10: Is there a community, and does the plan invest in ecosystem health?
 
-Load reference: Read the "## Pass 7" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 7" section from `~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Open source**: Code open? Permissive license?
@@ -337,7 +337,7 @@ Evaluate:
 
 Rate 0-10: Does the plan include ways to measure and improve DX over time?
 
-Load reference: Read the "## Pass 8" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 8" section from `~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **TTHW tracking**: Can you measure getting started time?
@@ -347,14 +347,14 @@ Evaluate:
 
 **STOP.** AskUserQuestion once per issue. Recommend + WHY.
 
-### Appendix: Claude Code Skill DX Checklist
+### Appendix: Antigravity Code Skill DX Checklist
 
-**Conditional: only run when product type includes "Claude Code skill".**
+**Conditional: only run when product type includes "Antigravity Code skill".**
 
 This is NOT a scored pass. It's a checklist of proven patterns from gstack's own DX.
 
-Load reference: Read the "## Claude Code Skill DX Checklist" section from
-`~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Antigravity Code Skill DX Checklist" section from
+`~/.antigravity/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Check each item. For any unchecked item, explain what's missing and suggest the fix.
 
@@ -474,7 +474,7 @@ After producing the DX Scorecard above, persist the review result.
 `~/.gstack/` (user config directory, not project files).
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW_CURRENT","tthw_target":"TTHW_TARGET","pass_scores":{"getting_started":N,"api_design":N,"errors":N,"docs":N,"upgrade":N,"dev_env":N,"community":N,"measurement":N},"unresolved":N,"commit":"COMMIT"}'
+~/.antigravity/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW_CURRENT","tthw_target":"TTHW_TARGET","pass_scores":{"getting_started":N,"api_design":N,"errors":N,"docs":N,"upgrade":N,"dev_env":N,"community":N,"measurement":N},"unresolved":N,"commit":"COMMIT"}'
 ```
 
 Substitute values from the DX Scorecard.

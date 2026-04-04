@@ -1,15 +1,15 @@
 # Architecture
 
-This document explains **why** gstack is built the way it is. For setup and commands, see CLAUDE.md. For contributing, see CONTRIBUTING.md.
+This document explains **why** gstack is built the way it is. For setup and commands, see GEMINI.md. For contributing, see CONTRIBUTING.md.
 
 ## The core idea
 
-gstack gives Claude Code a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.
+gstack gives Antigravity Code a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.
 
 The key insight: an AI agent interacting with a browser needs **sub-second latency** and **persistent state**. If every command cold-starts a browser, you're waiting 3-5 seconds per tool call. If the browser dies between commands, you lose cookies, tabs, and login sessions. So gstack runs a long-lived Chromium daemon that the CLI talks to over localhost HTTP.
 
 ```
-Claude Code                     gstack
+Antigravity Code                     gstack
 ─────────                      ──────
                                ┌──────────────────────┐
   Tool call: $B snapshot -i    │  CLI (compiled binary)│
@@ -39,7 +39,7 @@ First call starts everything (~3s). Every call after: ~100-200ms.
 
 Node.js would work. Bun is better here for three reasons:
 
-1. **Compiled binaries.** `bun build --compile` produces a single ~58MB executable. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs. This matters because gstack installs into `~/.claude/skills/` where users don't expect to manage a Node.js project.
+1. **Compiled binaries.** `bun build --compile` produces a single ~58MB executable. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs. This matters because gstack installs into `~/.antigravity/skills/` where users don't expect to manage a Node.js project.
 
 2. **Native SQLite.** Cookie decryption reads Chromium's SQLite cookie database directly. Bun has `new Database()` built in — no `better-sqlite3`, no native addon compilation, no gyp. One less thing that breaks on different machines.
 
@@ -180,7 +180,7 @@ The `console`, `network`, and `dialog` commands read from the in-memory buffers,
 
 ### The problem
 
-SKILL.md files tell Claude how to use the browse commands. If the docs list a flag that doesn't exist, or miss a command that was added, the agent hits errors. Hand-maintained docs always drift from code.
+SKILL.md files tell Antigravity how to use the browse commands. If the docs list a flag that doesn't exist, or miss a command that was added, the agent hits errors. Hand-maintained docs always drift from code.
 
 ### The solution
 
@@ -205,7 +205,7 @@ Templates contain the workflows, tips, and examples that require human judgment.
 | `{{DESIGN_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared design audit methodology for /plan-design-review and /design-review |
 | `{{REVIEW_DASHBOARD}}` | `gen-skill-docs.ts` | Review Readiness Dashboard for /ship pre-flight |
 | `{{TEST_BOOTSTRAP}}` | `gen-skill-docs.ts` | Test framework detection, bootstrap, CI/CD setup for /qa, /ship, /design-review |
-| `{{CODEX_PLAN_REVIEW}}` | `gen-skill-docs.ts` | Optional cross-model plan review (Codex or Claude subagent fallback) for /plan-ceo-review and /plan-eng-review |
+| `{{CODEX_PLAN_REVIEW}}` | `gen-skill-docs.ts` | Optional cross-model plan review (Antigravity or Antigravity subagent fallback) for /plan-ceo-review and /plan-eng-review |
 | `{{DESIGN_SETUP}}` | `resolvers/design.ts` | Discovery pattern for `$D` design binary, mirrors `{{BROWSE_SETUP}}` |
 | `{{DESIGN_SHOTGUN_LOOP}}` | `resolvers/design.ts` | Shared comparison board feedback loop for /design-shotgun, /plan-design-review, /design-consultation |
 
@@ -225,7 +225,7 @@ Every skill starts with a `{{PREAMBLE}}` block that runs before the skill's own 
 
 Three reasons:
 
-1. **Claude reads SKILL.md at skill load time.** There's no build step when a user invokes `/browse`. The file must already exist and be correct.
+1. **Antigravity reads SKILL.md at skill load time.** There's no build step when a user invokes `/browse`. The file must already exist and be correct.
 2. **CI can validate freshness.** `gen:skill-docs --dry-run` + `git diff --exit-code` catches stale docs before merge.
 3. **Git blame works.** You can see when a command was added and in which commit.
 
@@ -234,7 +234,7 @@ Three reasons:
 | Tier | What | Cost | Speed |
 |------|------|------|-------|
 | 1 — Static validation | Parse every `$B` command in SKILL.md, validate against registry | Free | <2s |
-| 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, check for errors | ~$3.85 | ~20min |
+| 2 — E2E via `antigravity -p` | Spawn real Antigravity session, run each skill, check for errors | ~$3.85 | ~20min |
 | 3 — LLM-as-judge | Sonnet scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
 Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea is: catch 95% of issues for free, use LLMs only for judgment calls.
@@ -275,10 +275,10 @@ The server doesn't try to self-heal. If Chromium crashes (`browser.on('disconnec
 
 ### Session runner (`test/helpers/session-runner.ts`)
 
-E2E tests spawn `claude -p` as a completely independent subprocess — not via the Agent SDK, which can't nest inside Claude Code sessions. The runner:
+E2E tests spawn `antigravity -p` as a completely independent subprocess — not via the Agent SDK, which can't nest inside Antigravity Code sessions. The runner:
 
 1. Writes the prompt to a temp file (avoids shell escaping issues)
-2. Spawns `sh -c 'cat prompt | claude -p --output-format stream-json --verbose'`
+2. Spawns `sh -c 'cat prompt | antigravity -p --output-format stream-json --verbose'`
 3. Streams NDJSON from stdout for real-time progress
 4. Races against a configurable timeout
 5. Parses the full NDJSON transcript into structured results
@@ -348,7 +348,7 @@ The `EvalCollector` accumulates test results and writes them in two ways:
 | Tier | What | Cost | Speed |
 |------|------|------|-------|
 | 1 — Static validation | Parse `$B` commands, validate against registry, observability unit tests | Free | <5s |
-| 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, scan for errors | ~$3.85 | ~20min |
+| 2 — E2E via `antigravity -p` | Spawn real Antigravity session, run each skill, scan for errors | ~$3.85 | ~20min |
 | 3 — LLM-as-judge | Sonnet scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
 Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.

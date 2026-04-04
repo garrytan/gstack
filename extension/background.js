@@ -366,7 +366,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Sidebar → Claude Code (file-based message queue)
+  // Sidebar → Antigravity Code (file-based message queue)
   if (msg.type === 'sidebar-command') {
     const base = getBaseUrl();
     if (!base || !authToken) {

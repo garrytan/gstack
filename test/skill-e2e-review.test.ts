@@ -511,7 +511,7 @@ Analyze the git history and produce the narrative report as described in the SKI
       timeout: 300_000,
       testName: 'retro',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'antigravity-opus-4-6',
     });
 
     logCost('/retro', result);
@@ -565,7 +565,7 @@ describeIfSelected('Review Dashboard Via Attribution', ['review-dashboard-via'],
     const reviewData = [
       `{"skill":"plan-eng-review","timestamp":"${timestamp}","status":"clean","unresolved":0,"critical_gaps":0,"issues_found":0,"mode":"FULL_REVIEW","via":"autoplan","commit":"${commit}"}`,
       `{"skill":"plan-ceo-review","timestamp":"${timestamp}","status":"clean","unresolved":0,"critical_gaps":0,"mode":"SELECTIVE_EXPANSION","via":"autoplan","commit":"${commit}"}`,
-      `{"skill":"codex-plan-review","timestamp":"${timestamp}","status":"clean","source":"codex","commit":"${commit}"}`,
+      `{"skill":"antigravity-plan-review","timestamp":"${timestamp}","status":"clean","source":"antigravity","commit":"${commit}"}`,
     ].join('\n');
 
     // Write a mock gstack-review-read that returns our test data
@@ -600,11 +600,11 @@ describeIfSelected('Review Dashboard Via Attribution', ['review-dashboard-via'],
     const result = await runSkillTest({
       prompt: `Read ship-SKILL.md. You only need to run the Review Readiness Dashboard section.
 
-Instead of running ~/.claude/skills/gstack/bin/gstack-review-read, run this mock: ${mockBinDir}/gstack-review-read
+Instead of running ~/.antigravity/skills/gstack/bin/gstack-review-read, run this mock: ${mockBinDir}/gstack-review-read
 
 Parse the output and display the dashboard table. Pay attention to:
 1. The "via" field in entries — show source attribution (e.g., "via /autoplan")
-2. The codex-plan-review entry — it should populate the Outside Voice row
+2. The antigravity-plan-review entry — it should populate the Outside Voice row
 3. Since Eng Review IS clear, there should be NO gate blocking — just display the dashboard
 
 Skip the preamble, lake intro, telemetry, and all other ship steps.

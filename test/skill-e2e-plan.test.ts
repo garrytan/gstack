@@ -81,7 +81,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       timeout: 360_000,
       testName: 'plan-ceo-review',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'antigravity-opus-4-6',
     });
 
     logCost('/plan-ceo-review', result);
@@ -166,7 +166,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       timeout: 360_000,
       testName: 'plan-ceo-review-selective',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'antigravity-opus-4-6',
     });
 
     logCost('/plan-ceo-review (SELECTIVE)', result);
@@ -259,7 +259,7 @@ Focus on architecture, code quality, tests, and performance sections.`,
       timeout: 360_000,
       testName: 'plan-eng-review',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'antigravity-opus-4-6',
     });
 
     logCost('/plan-eng-review', result);
@@ -385,7 +385,7 @@ Write your review to ${planDir}/review-output.md`,
       timeout: 360_000,
       testName: 'plan-eng-review-artifact',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'antigravity-opus-4-6',
     });
 
     logCost('/plan-eng-review artifact', result);
@@ -597,7 +597,7 @@ Read plan.md — that's the plan to review. This is a standalone plan document, 
 Proceed directly to the full review. Skip any AskUserQuestion calls — this is non-interactive.
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections.
 
-CRITICAL REQUIREMENT: plan.md IS the plan file for this review session. After completing your review, you MUST write a "## GSTACK REVIEW REPORT" section to the END of plan.md, exactly as described in the "Plan File Review Report" section of SKILL.md. If gstack-review-read is not available or returns NO_REVIEWS, write the placeholder table with all four review rows (CEO, Codex, Eng, Design). Use the Edit tool to append to plan.md — do NOT overwrite the existing plan content.
+CRITICAL REQUIREMENT: plan.md IS the plan file for this review session. After completing your review, you MUST write a "## GSTACK REVIEW REPORT" section to the END of plan.md, exactly as described in the "Plan File Review Report" section of SKILL.md. If gstack-review-read is not available or returns NO_REVIEWS, write the placeholder table with all four review rows (CEO, Antigravity, Eng, Design). Use the Edit tool to append to plan.md — do NOT overwrite the existing plan content.
 
 This review report at the bottom of the plan is the MOST IMPORTANT deliverable of this test.`,
       workingDirectory: planDir,
@@ -605,7 +605,7 @@ This review report at the bottom of the plan is the MOST IMPORTANT deliverable o
       timeout: 360_000,
       testName: 'plan-review-report',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'antigravity-opus-4-6',
     });
 
     logCost('/plan-eng-review report', result);
@@ -638,18 +638,18 @@ This review report at the bottom of the plan is the MOST IMPORTANT deliverable o
   }, 420_000);
 });
 
-// --- Codex Offering E2E ---
-// Verifies that Codex is properly offered (with availability check, user prompt,
+// --- Antigravity Offering E2E ---
+// Verifies that Antigravity is properly offered (with availability check, user prompt,
 // and fallback) in office-hours, plan-ceo-review, plan-design-review, plan-eng-review.
 
-describeIfSelected('Codex Offering E2E', [
-  'codex-offered-office-hours', 'codex-offered-ceo-review',
-  'codex-offered-design-review', 'codex-offered-eng-review',
+describeIfSelected('Antigravity Offering E2E', [
+  'antigravity-offered-office-hours', 'antigravity-offered-ceo-review',
+  'antigravity-offered-design-review', 'antigravity-offered-eng-review',
 ], () => {
   let testDir: string;
 
   beforeAll(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-codex-offer-'));
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-antigravity-offer-'));
     const run = (cmd: string, args: string[]) =>
       spawnSync(cmd, args, { cwd: testDir, stdio: 'pipe', timeout: 5000 });
 
@@ -674,16 +674,16 @@ describeIfSelected('Codex Offering E2E', [
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
   });
 
-  async function checkCodexOffering(skill: string, testName: string, featureName: string) {
+  async function checkAntigravityOffering(skill: string, testName: string, featureName: string) {
     const result = await runSkillTest({
-      prompt: `Read ${skill}/SKILL.md. Search for ALL sections related to "codex", "outside voice", or "second opinion".
+      prompt: `Read ${skill}/SKILL.md. Search for ALL sections related to "antigravity", "outside voice", or "second opinion".
 
-Summarize the Codex/${featureName} integration — answer these specific questions:
-1. How is Codex availability checked? (what exact bash command?)
+Summarize the Antigravity/${featureName} integration — answer these specific questions:
+1. How is Antigravity availability checked? (what exact bash command?)
 2. How is the user prompted? (via AskUserQuestion? what are the options?)
-3. What happens when Codex is NOT available? (fallback to subagent? skip entirely?)
+3. What happens when Antigravity is NOT available? (fallback to subagent? skip entirely?)
 4. Is this step blocking (gates the workflow) or optional (can be skipped)?
-5. What prompt/context is sent to Codex?
+5. What prompt/context is sent to Antigravity?
 
 Write your summary to ${testDir}/${testName}-summary.md`,
       workingDirectory: testDir,
@@ -693,38 +693,38 @@ Write your summary to ${testDir}/${testName}-summary.md`,
       runId,
     });
 
-    logCost(`/${skill} codex offering`, result);
-    recordE2E(evalCollector, `/${testName}`, 'Codex Offering E2E', result);
+    logCost(`/${skill} antigravity offering`, result);
+    recordE2E(evalCollector, `/${testName}`, 'Antigravity Offering E2E', result);
     expect(result.exitReason).toBe('success');
 
     const summaryPath = path.join(testDir, `${testName}-summary.md`);
     expect(fs.existsSync(summaryPath)).toBe(true);
 
     const summary = fs.readFileSync(summaryPath, 'utf-8').toLowerCase();
-    // All skills should have codex availability check
-    expect(summary).toMatch(/which codex/);
+    // All skills should have antigravity availability check
+    expect(summary).toMatch(/which antigravity/);
     // All skills should have fallback behavior
     expect(summary).toMatch(/fallback|subagent|unavailable|not available|skip/);
     // All skills should show it's optional/non-blocking
     expect(summary).toMatch(/optional|non.?blocking|skip|not.*required/);
 
-    console.log(`${skill}: Codex offering verified`);
+    console.log(`${skill}: Antigravity offering verified`);
   }
 
-  testConcurrentIfSelected('codex-offered-office-hours', async () => {
-    await checkCodexOffering('office-hours', 'codex-offered-office-hours', 'second opinion');
+  testConcurrentIfSelected('antigravity-offered-office-hours', async () => {
+    await checkAntigravityOffering('office-hours', 'antigravity-offered-office-hours', 'second opinion');
   }, 180_000);
 
-  testConcurrentIfSelected('codex-offered-ceo-review', async () => {
-    await checkCodexOffering('plan-ceo-review', 'codex-offered-ceo-review', 'outside voice');
+  testConcurrentIfSelected('antigravity-offered-ceo-review', async () => {
+    await checkAntigravityOffering('plan-ceo-review', 'antigravity-offered-ceo-review', 'outside voice');
   }, 180_000);
 
-  testConcurrentIfSelected('codex-offered-design-review', async () => {
-    await checkCodexOffering('plan-design-review', 'codex-offered-design-review', 'design outside voices');
+  testConcurrentIfSelected('antigravity-offered-design-review', async () => {
+    await checkAntigravityOffering('plan-design-review', 'antigravity-offered-design-review', 'design outside voices');
   }, 180_000);
 
-  testConcurrentIfSelected('codex-offered-eng-review', async () => {
-    await checkCodexOffering('plan-eng-review', 'codex-offered-eng-review', 'outside voice');
+  testConcurrentIfSelected('antigravity-offered-eng-review', async () => {
+    await checkAntigravityOffering('plan-eng-review', 'antigravity-offered-eng-review', 'outside voice');
   }, 180_000);
 });
 

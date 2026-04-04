@@ -1,10 +1,10 @@
 /**
- * Sidebar Agent — polls agent-queue from server, spawns claude -p for each
+ * Sidebar Agent — polls agent-queue from server, spawns antigravity -p for each
  * message, streams live events back to the server via /sidebar-agent/event.
  *
  * This runs as a NON-COMPILED bun process because compiled bun binaries
  * cannot posix_spawn external executables. The server writes to the queue
- * file, this process reads it and spawns claude.
+ * file, this process reads it and spawns antigravity.
  *
  * Usage: BROWSE_BIN=/path/to/browse bun run browse/src/sidebar-agent.ts
  */
@@ -17,7 +17,7 @@ const QUEUE = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/
 const SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '34567', 10);
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const POLL_MS = 200;  // 200ms poll — keeps time-to-first-token low
-const B = process.env.BROWSE_BIN || path.resolve(__dirname, '../../.claude/skills/gstack/browse/dist/browse');
+const B = process.env.BROWSE_BIN || path.resolve(__dirname, '../../.antigravity/skills/gstack/browse/dist/browse');
 
 let lastLine = 0;
 let authToken: string | null = null;
@@ -99,14 +99,14 @@ async function sendEvent(event: Record<string, any>, tabId?: number): Promise<vo
   }
 }
 
-// ─── Claude subprocess ──────────────────────────────────────────
+// ─── Antigravity subprocess ──────────────────────────────────────────
 
 function shorten(str: string): string {
   return str
     .replace(new RegExp(B.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '$B')
     .replace(/\/Users\/[^/]+/g, '~')
     .replace(/\/conductor\/workspaces\/[^/]+\/[^/]+/g, '')
-    .replace(/\.claude\/skills\/gstack\//g, '')
+    .replace(/\.antigravity\/skills\/gstack\//g, '')
     .replace(/browse\/dist\/browse/g, '$B');
 }
 
@@ -180,8 +180,8 @@ function summarizeToolInput(tool: string, input: any): string {
 
 async function handleStreamEvent(event: any, tabId?: number): Promise<void> {
   if (event.type === 'system' && event.session_id) {
-    // Relay claude session ID for --resume support
-    await sendEvent({ type: 'system', claudeSessionId: event.session_id }, tabId);
+    // Relay antigravity session ID for --resume support
+    await sendEvent({ type: 'system', antigravitySessionId: event.session_id }, tabId);
   }
 
   if (event.type === 'assistant' && event.message?.content) {
@@ -217,7 +217,7 @@ async function handleStreamEvent(event: any, tabId?: number): Promise<void> {
   }
 }
 
-async function askClaude(queueEntry: any): Promise<void> {
+async function askAntigravity(queueEntry: any): Promise<void> {
   const { prompt, args, stateFile, cwd, tabId } = queueEntry;
   const tid = tabId ?? 0;
 
@@ -229,14 +229,14 @@ async function askClaude(queueEntry: any): Promise<void> {
     // Fall back to defaults only if queue entry has no args (backward compat).
     // Write doesn't expand attack surface beyond what Bash already provides.
     // The security boundary is the localhost-only message path, not the tool allowlist.
-    let claudeArgs = args || ['-p', prompt, '--output-format', 'stream-json', '--verbose',
+    let antigravityArgs = args || ['-p', prompt, '--output-format', 'stream-json', '--verbose',
       '--allowedTools', 'Bash,Read,Glob,Grep,Write'];
 
     // Validate cwd exists — queue may reference a stale worktree
     let effectiveCwd = cwd || process.cwd();
     try { fs.accessSync(effectiveCwd); } catch { effectiveCwd = process.cwd(); }
 
-    const proc = spawn('claude', claudeArgs, {
+    const proc = spawn('antigravity', antigravityArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: effectiveCwd,
       env: {
@@ -342,7 +342,7 @@ async function poll() {
     // Write to inbox so workspace agent can pick it up
     writeToInbox(entry.message || entry.prompt, entry.pageUrl, entry.sessionId);
     // Fire and forget — each tab's agent runs concurrently
-    askClaude(entry).catch((err) => {
+    askAntigravity(entry).catch((err) => {
       console.error(`[sidebar-agent] Error on tab ${tid}:`, err);
       sendEvent({ type: 'agent_error', error: String(err) }, tid);
     });

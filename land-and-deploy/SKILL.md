@@ -20,26 +20,26 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.gemini/antigravity/skills/bin/gstack-update-check 2>/dev/null || .gemini/antigravity/skills/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -exec rm {} + 2>/dev/null || true
-_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
+_PROACTIVE=$(~/.gemini/antigravity/skills/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
-_SKILL_PREFIX=$(~/.claude/skills/gstack/bin/gstack-config get skill_prefix 2>/dev/null || echo "false")
+_SKILL_PREFIX=$(~/.gemini/antigravity/skills/bin/gstack-config get skill_prefix 2>/dev/null || echo "false")
 echo "PROACTIVE: $_PROACTIVE"
 echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
-source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+source <(~/.gemini/antigravity/skills/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL=$(~/.gemini/antigravity/skills/bin/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
@@ -52,33 +52,33 @@ fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
-    if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
-      ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
+    if [ "$_TEL" != "off" ] && [ -x "~/.gemini/antigravity/skills/bin/gstack-telemetry-log" ]; then
+      ~/.gemini/antigravity/skills/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
     fi
     rm -f "$_PF" 2>/dev/null || true
   fi
   break
 done
 # Learnings count
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+eval "$(~/.gemini/antigravity/skills/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
 _LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
 if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
   if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
-    ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 3 2>/dev/null || true
+    ~/.gemini/antigravity/skills/bin/gstack-learnings-search --limit 3 2>/dev/null || true
   fi
 else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"land-and-deploy","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
-# Check if CLAUDE.md has routing rules
+~/.gemini/antigravity/skills/bin/gstack-timeline-log '{"skill":"land-and-deploy","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+# Check if GEMINI.md has routing rules
 _HAS_ROUTING="no"
-if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
+if [ -f GEMINI.md ] && grep -q "## Skill routing" GEMINI.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
-_ROUTING_DECLINED=$(~/.claude/skills/gstack/bin/gstack-config get routing_declined 2>/dev/null || echo "false")
+_ROUTING_DECLINED=$(~/.gemini/antigravity/skills/bin/gstack-config get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 ```
@@ -92,9 +92,9 @@ The user opted out of proactive behavior.
 If `SKILL_PREFIX` is `"true"`, the user has namespaced skill names. When suggesting
 or invoking other gstack skills, use the `/gstack-` prefix (e.g., `/gstack-qa` instead
 of `/qa`, `/gstack-ship` instead of `/ship`). Disk paths are unaffected — always use
-`~/.claude/skills/gstack/[skill-name]/SKILL.md` for reading skill files.
+`~/.gemini/antigravity/skills/[skill-name]/SKILL.md` for reading skill files.
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.gemini/antigravity/skills/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -120,7 +120,7 @@ Options:
 - A) Help gstack get better! (recommended)
 - B) No thanks
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+If A: run `~/.gemini/antigravity/skills/bin/gstack-config set telemetry community`
 
 If B: ask a follow-up AskUserQuestion:
 
@@ -131,8 +131,8 @@ Options:
 - A) Sure, anonymous is fine
 - B) No thanks, fully off
 
-If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
-If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+If B→A: run `~/.gemini/antigravity/skills/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.gemini/antigravity/skills/bin/gstack-config set telemetry off`
 
 Always run:
 ```bash
@@ -152,8 +152,8 @@ Options:
 - A) Keep it on (recommended)
 - B) Turn it off — I'll type /commands myself
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set proactive true`
-If B: run `~/.claude/skills/gstack/bin/gstack-config set proactive false`
+If A: run `~/.gemini/antigravity/skills/bin/gstack-config set proactive true`
+If B: run `~/.gemini/antigravity/skills/bin/gstack-config set proactive false`
 
 Always run:
 ```bash
@@ -163,19 +163,19 @@ touch ~/.gstack/.proactive-prompted
 This only happens once. If `PROACTIVE_PROMPTED` is `yes`, skip this entirely.
 
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
-Check if a CLAUDE.md file exists in the project root. If it does not exist, create it.
+Check if a GEMINI.md file exists in the project root. If it does not exist, create it.
 
 Use AskUserQuestion:
 
-> gstack works best when your project's CLAUDE.md includes skill routing rules.
-> This tells Claude to use specialized workflows (like /ship, /investigate, /qa)
+> gstack works best when your project's GEMINI.md includes skill routing rules.
+> This tells Antigravity to use specialized workflows (like /ship, /investigate, /qa)
 > instead of answering directly. It's a one-time addition, about 15 lines.
 
 Options:
-- A) Add routing rules to CLAUDE.md (recommended)
+- A) Add routing rules to GEMINI.md (recommended)
 - B) No thanks, I'll invoke skills manually
 
-If A: Append this section to the end of CLAUDE.md:
+If A: Append this section to the end of GEMINI.md:
 
 ```markdown
 
@@ -200,9 +200,9 @@ Key routing rules:
 - Code quality, health check → invoke health
 ```
 
-Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
+Then commit the change: `git add GEMINI.md && git commit -m "chore: add gstack skill routing rules to GEMINI.md"`
 
-If B: run `~/.claude/skills/gstack/bin/gstack-config set routing_declined true`
+If B: run `~/.gemini/antigravity/skills/bin/gstack-config set routing_declined true`
 Say "No problem. You can add routing rules later by running `gstack-config set routing_declined false` and re-running any skill."
 
 This only happens once per project. If `HAS_ROUTING` is `yes` or `ROUTING_DECLINED` is `true`, skip this entirely.
@@ -259,7 +259,7 @@ After compaction or at session start, check for recent project artifacts.
 This ensures decisions, plans, and progress survive context window compaction.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)"
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -335,7 +335,7 @@ Always flag anything that looks wrong — one sentence, what you noticed and its
 
 ## Search Before Building
 
-Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
+Before building anything unfamiliar, **search first.** See `~/.gemini/antigravity/skills/ETHOS.md`.
 - **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
 
 **Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
@@ -379,7 +379,7 @@ Before completing, reflect on this session:
 If yes, log an operational learning for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
+~/.gemini/antigravity/skills/bin/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
 ```
 
 Replace SKILL_NAME with the current skill name. Only log genuine operational discoveries.
@@ -405,14 +405,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.antigravity/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.claude/skills/gstack/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x ~/.antigravity/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.antigravity/skills/gstack/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -430,7 +430,7 @@ artifacts that inform the plan, not code changes:
 
 - `$B` commands (browse: screenshots, page inspection, navigation, snapshots)
 - `$D` commands (design: generate mockups, variants, comparison boards, iterate)
-- `codex exec` / `codex review` (outside voice, plan review, adversarial challenge)
+- `antigravity exec` / `antigravity review` (outside voice, plan review, adversarial challenge)
 - Writing to `~/.gstack/` (config, analytics, review logs, design artifacts, learnings)
 - Writing to the plan file (already allowed by plan mode)
 - `open` commands for viewing generated artifacts (comparison boards, HTML previews)
@@ -447,7 +447,7 @@ When you are in plan mode and about to call ExitPlanMode:
 3. If it does NOT — run this command:
 
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-read
+~/.antigravity/skills/gstack/bin/gstack-review-read
 \`\`\`
 
 Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
@@ -463,7 +463,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Antigravity Review | \`/antigravity review\` | Independent 2nd opinion | 0 | — | — |
 | Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | 0 | — | — |
@@ -480,8 +480,8 @@ plan's living status.
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.gemini/antigravity/skills/browse/dist/browse" ] && B="$_ROOT/.gemini/antigravity/skills/browse/dist/browse"
+[ -z "$B" ] && B=~/.gemini/antigravity/skills/browse/dist/browse
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -634,13 +634,13 @@ Check whether this project has been through a successful `/land-and-deploy` befo
 and whether the deploy configuration has changed since then:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.gemini/antigravity/skills/bin/gstack-slug 2>/dev/null)"
 if [ ! -f ~/.gstack/projects/$SLUG/land-deploy-confirmed ]; then
   echo "FIRST_RUN"
 else
   # Check if deploy config has changed since confirmation
   SAVED_HASH=$(cat ~/.gstack/projects/$SLUG/land-deploy-confirmed 2>/dev/null)
-  CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+  CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' GEMINI.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
   # Also hash workflow files that affect deploy behavior
   WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
   COMBINED_HASH="${CURRENT_HASH}-${WORKFLOW_HASH}"
@@ -678,8 +678,8 @@ Let me take a look at your setup."
 Run the deploy configuration bootstrap to detect the platform and settings:
 
 ```bash
-# Check for persisted deploy config in CLAUDE.md
-DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG")
+# Check for persisted deploy config in GEMINI.md
+DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" GEMINI.md 2>/dev/null || echo "NO_CONFIG")
 echo "$DEPLOY_CONFIG"
 
 # If config exists, parse it
@@ -705,7 +705,7 @@ for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml'
 done
 ```
 
-If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in CLAUDE.md, use them directly
+If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in GEMINI.md, use them directly
 and skip manual detection. If no persisted config exists, use the auto-detected platform
 to guide deploy verification. If nothing is detected, ask the user via AskUserQuestion
 in the decision tree below.
@@ -713,7 +713,7 @@ in the decision tree below.
 If you want to persist deploy settings for future runs, suggest the user run `/setup-deploy`.
 
 Parse the output and record: the detected platform, production URL, deploy workflow (if any),
-and any persisted config from CLAUDE.md.
+and any persisted config from GEMINI.md.
 
 ### 1.5b: Command validation
 
@@ -778,9 +778,9 @@ CLI to verify the deploy worked."
 
 Check for staging environments in this order:
 
-1. **CLAUDE.md persisted config:** Check for a staging URL in the Deploy Configuration section:
+1. **GEMINI.md persisted config:** Check for a staging URL in the Deploy Configuration section:
 ```bash
-grep -i "staging" CLAUDE.md 2>/dev/null | head -3
+grep -i "staging" GEMINI.md 2>/dev/null | head -3
 ```
 
 2. **GitHub Actions staging workflow:** Check for workflow files with "staging" in the name or content:
@@ -805,7 +805,7 @@ Tell the user: "Before I merge any PR, I run a series of readiness checks — co
 Preview the readiness checks that will run at Step 3.5 (without re-running tests):
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null
+~/.antigravity/skills/gstack/bin/gstack-review-read 2>/dev/null
 ```
 
 Show a summary of review status: which reviews have been run, how stale they are.
@@ -834,7 +834,7 @@ Present the full dry-run results to the user via AskUserQuestion:
 Save the deploy config fingerprint so we can detect future changes:
 ```bash
 mkdir -p ~/.gstack/projects/$SLUG
-CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' GEMINI.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
 WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
 echo "${CURRENT_HASH}-${WORKFLOW_HASH}" > ~/.gstack/projects/$SLUG/land-deploy-confirmed
 ```
@@ -842,7 +842,7 @@ Continue to Step 2.
 
 **If B:** **STOP.** "Tell me what's different about your setup and I'll adjust. You can also run `/setup-deploy` to walk through the full configuration."
 
-**If C:** **STOP.** "Running `/setup-deploy` will walk through your deploy platform, production URL, and health checks in detail. It saves everything to CLAUDE.md so I'll know exactly what to do next time. Run `/land-and-deploy` again when that's done."
+**If C:** **STOP.** "Running `/setup-deploy` will walk through your deploy platform, production URL, and health checks in detail. It saves everything to GEMINI.md so I'll know exactly what to do next time. Run `/land-and-deploy` again when that's done."
 
 ---
 
@@ -898,12 +898,12 @@ Collect evidence for each check below. Track warnings (yellow) and blockers (red
 ### 3.5a: Review staleness check
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null
+~/.antigravity/skills/gstack/bin/gstack-review-read 2>/dev/null
 ```
 
 Parse the output. For each review skill (plan-eng-review, plan-ceo-review,
-plan-design-review, design-review-lite, codex-review, review, adversarial-review,
-codex-plan-review):
+plan-design-review, design-review-lite, antigravity-review, review, adversarial-review,
+antigravity-plan-review):
 
 1. Find the most recent entry within the last 7 days.
 2. Extract its `commit` field.
@@ -923,7 +923,7 @@ If any commits after the review contain words like "fix", "refactor", "rewrite",
 "overhaul", or touch more than 5 files — flag as **STALE (significant changes
 since review)**. The review was done on different code than what's about to merge.
 
-**Also check for adversarial review (`codex-review`).** If codex-review has been run
+**Also check for adversarial review (`antigravity-review`).** If antigravity-review has been run
 and is CURRENT, mention it in the readiness report as an extra confidence signal.
 If not run, note as informational (not a blocker): "No adversarial review on record."
 
@@ -944,7 +944,7 @@ Use AskUserQuestion:
 
 Read the review checklist:
 ```bash
-cat ~/.claude/skills/gstack/review/checklist.md 2>/dev/null || echo "Checklist not found"
+cat ~/.antigravity/skills/gstack/review/checklist.md 2>/dev/null || echo "Checklist not found"
 ```
 Apply each checklist item to the current diff. This is the same quick review that `/ship`
 runs in its Step 3.5. Auto-fix trivial issues (whitespace, imports). For critical findings
@@ -965,7 +965,7 @@ and tell the user: "I found and fixed a few issues during the review. The fixes 
 
 **Free tests — run them now:**
 
-Read CLAUDE.md to find the project's test command. If not specified, use `bun test`.
+Read GEMINI.md to find the project's test command. If not specified, use `bun test`.
 Run the test command and capture the exit code and output.
 
 ```bash
@@ -1029,7 +1029,7 @@ git log --oneline --all-match --grep="docs:" $(gh pr view --json baseRefName -q 
 
 Also check if key doc files were modified:
 ```bash
-git diff --name-only $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)...HEAD -- README.md CHANGELOG.md ARCHITECTURE.md CONTRIBUTING.md CLAUDE.md VERSION
+git diff --name-only $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)...HEAD -- README.md CHANGELOG.md ARCHITECTURE.md CONTRIBUTING.md GEMINI.md VERSION
 ```
 
 If CHANGELOG.md and VERSION were NOT modified on this branch and the diff includes
@@ -1056,7 +1056,7 @@ Build the full readiness report:
 ║  ├─ Eng Review:    CURRENT / STALE (N commits) / —       ║
 ║  ├─ CEO Review:    CURRENT / — (optional)                ║
 ║  ├─ Design Review: CURRENT / — (optional)                ║
-║  └─ Codex Review:  CURRENT / — (optional)                ║
+║  └─ Antigravity Review:  CURRENT / — (optional)                ║
 ║                                                          ║
 ║  TESTS                                                   ║
 ║  ├─ Free tests:    PASS / FAIL (blocker)                 ║
@@ -1178,8 +1178,8 @@ Determine what kind of project this is and how to verify the deploy.
 First, run the deploy configuration bootstrap to detect or read persisted deploy settings:
 
 ```bash
-# Check for persisted deploy config in CLAUDE.md
-DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG")
+# Check for persisted deploy config in GEMINI.md
+DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" GEMINI.md 2>/dev/null || echo "NO_CONFIG")
 echo "$DEPLOY_CONFIG"
 
 # If config exists, parse it
@@ -1205,7 +1205,7 @@ for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml'
 done
 ```
 
-If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in CLAUDE.md, use them directly
+If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in GEMINI.md, use them directly
 and skip manual detection. If no persisted config exists, use the auto-detected platform
 to guide deploy verification. If nothing is detected, ask the user via AskUserQuestion
 in the decision tree below.
@@ -1215,7 +1215,7 @@ If you want to persist deploy settings for future runs, suggest the user run `/s
 Then run `gstack-diff-scope` to classify the changes:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-diff-scope $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main) 2>/dev/null)
+eval $(~/.antigravity/skills/gstack/bin/gstack-diff-scope $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main) 2>/dev/null)
 echo "FRONTEND=$SCOPE_FRONTEND BACKEND=$SCOPE_BACKEND DOCS=$SCOPE_DOCS CONFIG=$SCOPE_CONFIG"
 ```
 
@@ -1239,7 +1239,7 @@ Look for workflow names containing "deploy", "release", "production", or "cd". I
 
 ### 5a: Staging-first option
 
-If staging was detected in Step 1.5c (or from CLAUDE.md deploy config), and the changes
+If staging was detected in Step 1.5c (or from GEMINI.md deploy config), and the changes
 include code (not docs-only), offer the staging-first option:
 
 Use AskUserQuestion:
@@ -1290,7 +1290,7 @@ gh run view <run-id> --json status,conclusion
 
 ### Strategy B: Platform CLI (Fly.io, Render, Heroku)
 
-If a deploy status command was configured in CLAUDE.md (e.g., `fly status --app myapp`), use it instead of or in addition to GitHub Actions polling.
+If a deploy status command was configured in GEMINI.md (e.g., `fly status --app myapp`), use it instead of or in addition to GitHub Actions polling.
 
 **Fly.io:** After merge, Fly deploys via GitHub Actions or `fly deploy`. Check with:
 ```bash
@@ -1315,7 +1315,7 @@ Vercel and Netlify deploy automatically on merge. No explicit deploy trigger nee
 
 ### Strategy D: Custom deploy hooks
 
-If CLAUDE.md has a custom deploy status command in the "Custom deploy hooks" section, run that command and check its exit code.
+If GEMINI.md has a custom deploy status command in the "Custom deploy hooks" section, run that command and check its exit code.
 
 ### Common: Timing and failure handling
 
@@ -1469,7 +1469,7 @@ Save report to `.gstack/deploy-reports/{date}-pr{number}-deploy.md`.
 Log to the review dashboard:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.gemini/antigravity/skills/bin/gstack-slug 2>/dev/null)"
 mkdir -p ~/.gstack/projects/$SLUG
 ```
 

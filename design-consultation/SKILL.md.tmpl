@@ -256,7 +256,7 @@ This phase generates visual previews of the proposed design system. Two paths de
 Generate AI-rendered mockups showing the proposed design system applied to realistic screens for this product. This is far more powerful than an HTML preview — the user sees what their product could actually look like.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.antigravity/skills/gstack/bin/gstack-slug 2>/dev/null)"
 _DESIGN_DIR=~/.gstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
@@ -398,7 +398,7 @@ If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the pr
 | [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
 ```
 
-**Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
+**Update GEMINI.md** (or create it if it doesn't exist) — append this section:
 
 ```markdown
 ## Design System
@@ -411,7 +411,7 @@ In QA mode, flag any code that doesn't match DESIGN.md.
 **AskUserQuestion Q-final — show summary and confirm:**
 
 List all decisions. Flag any that used agent defaults without explicit user confirmation (the user should know what they're shipping). Options:
-- A) Ship it — write DESIGN.md and CLAUDE.md
+- A) Ship it — write DESIGN.md and GEMINI.md
 - B) I want to change something (specify what)
 - C) Start over
 

@@ -13,7 +13,7 @@ import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '..');
 
-// ─── System prompt tests (server.ts spawnClaude) ─────────────────
+// ─── System prompt tests (server.ts spawnAntigravity) ─────────────────
 
 describe('sidebar system prompt (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
@@ -21,7 +21,7 @@ describe('sidebar system prompt (server.ts)', () => {
   test('system prompt does not bake in page URL', () => {
     // The old prompt had: `The user is currently viewing: ${pageUrl}`
     // The new prompt should NOT contain this pattern
-    // Extract the systemPrompt array from spawnClaude
+    // Extract the systemPrompt array from spawnAntigravity
     const promptSection = serverSrc.slice(
       serverSrc.indexOf('const systemPrompt = ['),
       serverSrc.indexOf("].join('\\n');", serverSrc.indexOf('const systemPrompt = [')) + 15,
@@ -50,9 +50,9 @@ describe('sidebar system prompt (server.ts)', () => {
     expect(promptSection).toContain('STOP');
   });
 
-  test('--resume is never used in spawnClaude args', () => {
-    // Extract the spawnClaude function
-    const fnStart = serverSrc.indexOf('function spawnClaude(');
+  test('--resume is never used in spawnAntigravity args', () => {
+    // Extract the spawnAntigravity function
+    const fnStart = serverSrc.indexOf('function spawnAntigravity(');
     const fnEnd = serverSrc.indexOf('\nfunction ', fnStart + 1);
     const fnBody = serverSrc.slice(fnStart, fnEnd);
     // Should not push --resume to args
@@ -99,7 +99,7 @@ describe('sidebar HTML (sidepanel.html)', () => {
 
   test('input placeholder says "Ask about this page"', () => {
     expect(html).toContain('Ask about this page');
-    expect(html).not.toContain('Message Claude Code');
+    expect(html).not.toContain('Message Antigravity Code');
   });
 
   test('stop button exists with id stop-agent-btn', () => {
@@ -515,7 +515,7 @@ describe('processAgentEvent handles sidebar-agent event types', () => {
   const fnEnd = serverSrc.indexOf('\nfunction ', fnStart + 1);
   const fnBody = serverSrc.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 2000);
 
-  test('handles tool_use events directly (not raw Claude stream format)', () => {
+  test('handles tool_use events directly (not raw Antigravity stream format)', () => {
     // Must handle { type: 'tool_use', tool, input } from sidebar-agent
     expect(fnBody).toContain("event.type === 'tool_use'");
     expect(fnBody).toContain('event.tool');
@@ -540,7 +540,7 @@ describe('processAgentEvent handles sidebar-agent event types', () => {
     expect(fnBody).toContain('event.error');
   });
 
-  test('does NOT re-parse raw Claude stream events (no content_block_start)', () => {
+  test('does NOT re-parse raw Antigravity stream events (no content_block_start)', () => {
     // sidebar-agent.ts already transforms these. Server should not duplicate.
     expect(fnBody).not.toContain('content_block_start');
     expect(fnBody).not.toContain('content_block_delta');
@@ -580,17 +580,17 @@ describe('per-tab chat context (server.ts)', () => {
     }
   });
 
-  test('spawnClaude passes active tab ID to queue entry', () => {
+  test('spawnAntigravity passes active tab ID to queue entry', () => {
     const spawnFn = serverSrc.slice(
-      serverSrc.indexOf('function spawnClaude('),
-      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnClaude(') + 1),
+      serverSrc.indexOf('function spawnAntigravity('),
+      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnAntigravity(') + 1),
     );
     expect(spawnFn).toContain('tabId');
   });
 
   test('tab isolation uses BROWSE_TAB env var instead of system prompt hack', () => {
     const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
-    // Agent passes BROWSE_TAB env var to claude (not a system prompt instruction)
+    // Agent passes BROWSE_TAB env var to antigravity (not a system prompt instruction)
     expect(agentSrc).toContain('BROWSE_TAB');
     // Server handleCommand reads tabId from body and pins to that tab
     expect(serverSrc).toContain('savedTabId');
@@ -991,8 +991,8 @@ describe('sidebar agent conciseness + no focus stealing', () => {
 
   test('sidebar agent uses opus (not sonnet) for prompt injection resistance', () => {
     const spawnFn = serverSrc.slice(
-      serverSrc.indexOf('function spawnClaude('),
-      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnClaude(') + 1),
+      serverSrc.indexOf('function spawnAntigravity('),
+      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnAntigravity(') + 1),
     );
     expect(spawnFn).toContain("'opus'");
   });

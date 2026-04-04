@@ -29,7 +29,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
 | | | |
 | **Multi-AI** | | |
-| [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
+| [`/antigravity`](#antigravity) | **Second Opinion** | Independent review from OpenAI Antigravity CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/antigravity` have run. |
 | | | |
 | **Safety & Utility** | | |
 | [`/careful`](#safety--guardrails) | **Safety Guardrails** | Warns before destructive commands (rm -rf, DROP TABLE, force-push, git reset --hard). Override any warning. Common build cleanups whitelisted. |
@@ -249,7 +249,7 @@ Seven passes over the plan: information architecture, interaction state coverage
 ```
 You:   /plan-design-review
 
-Claude: Initial Design Rating: 4/10
+Antigravity: Initial Design Rating: 4/10
 
         "This plan describes a user dashboard but never specifies
          what the user sees first. It says 'cards with icons' —
@@ -297,21 +297,21 @@ If you want, the agent will research what's already out there in your space — 
 
 After you agree on the system, it generates an interactive HTML preview page — not just swatches and font samples, but realistic product pages. If you are building a dashboard, you see a dashboard with a sidebar, data tables, and stat cards. If you are building a marketing site, you see a hero section with real copy and a CTA. Everything rendered in your design system, with your product name, in light and dark mode. You see what your product could feel like before a single line of production code is written.
 
-Then it writes `DESIGN.md` to your repo root — your project's design source of truth — and updates `CLAUDE.md` so every future Claude Code session respects the system. From that point on, `/design-review` can audit against it, and any agent working on your frontend knows the rules.
+Then it writes `DESIGN.md` to your repo root — your project's design source of truth — and updates `GEMINI.md` so every future Antigravity Code session respects the system. From that point on, `/design-review` can audit against it, and any agent working on your frontend knows the rules.
 
 ### Example
 
 ```
 You:   /design-consultation
 
-Claude: From the README, this looks like a developer analytics dashboard
+Antigravity: From the README, this looks like a developer analytics dashboard
         for engineering teams. Sound right? Tell me about the feeling
         you want — and would you like me to look at what's out there
         first so we can see the landscape?
 
 You:    Yes, it's for eng managers. Show me what's out there.
 
-Claude: [browses Linear, Vercel, Datadog, Posthog — takes screenshots]
+Antigravity: [browses Linear, Vercel, Datadog, Posthog — takes screenshots]
 
         Here's the landscape. They all converge on clean sans-serifs
         and muted blue-gray palettes. Linear stands out with dark-first
@@ -346,7 +346,7 @@ Claude: [browses Linear, Vercel, Datadog, Posthog — takes screenshots]
 
 You:    Love the serif risk. Let's see it.
 
-Claude: Preview opened in your browser.
+Antigravity: Preview opened in your browser.
         [/tmp/design-consultation-preview-1710000000.html]
 
         The page shows a realistic dashboard: sidebar nav, header with
@@ -359,8 +359,8 @@ Claude: Preview opened in your browser.
 
 You:    Ship it.
 
-Claude: Wrote DESIGN.md (typography, color, spacing, layout, motion).
-        Updated CLAUDE.md with design system guidelines.
+Antigravity: Wrote DESIGN.md (typography, color, spacing, layout, motion).
+        Updated GEMINI.md with design system guidelines.
         All future sessions will respect these choices.
 ```
 
@@ -381,7 +381,7 @@ The self-regulation heuristic is tuned for design work — CSS-only changes get 
 ```
 You:   /design-review https://myapp.com
 
-Claude: [Runs full 80-item visual audit on the live site]
+Antigravity: [Runs full 80-item visual audit on the live site]
         Design Score: C  |  AI Slop Score: D
         12 findings (4 high, 5 medium, 3 polish)
 
@@ -412,7 +412,7 @@ Nine commits, each touching one concern. The AI Slop score went from D to A beca
 
 This is my **design exploration mode**.
 
-You know the feeling. You have a feature, a page, a landing screen... and you're not sure what it should look like. You could describe it to Claude and get one answer. But one answer means one perspective, and design is a taste game. You need to see options.
+You know the feeling. You have a feature, a page, a landing screen... and you're not sure what it should look like. You could describe it to Antigravity and get one answer. But one answer means one perspective, and design is a taste game. You need to see options.
 
 `/design-shotgun` generates 3 visual design variants using the GPT Image API, opens a comparison board in your browser, and waits for your feedback. You pick a direction, request changes, or ask for entirely new variants. The board supports remix, regenerate, and approval actions.
 
@@ -436,7 +436,7 @@ The skill remembers your preferences across sessions. If you consistently prefer
 ```
 You:   /design-shotgun — hero section for a developer tools landing page
 
-Claude: [Generates 3 variants]
+Antigravity: [Generates 3 variants]
         Variant A: Bold typography, dark background, code snippet hero
         Variant B: Split layout, product screenshot left, copy right
         Variant C: Minimal, centered headline, gradient accent
@@ -445,7 +445,7 @@ Claude: [Generates 3 variants]
 
 You:    [Clicks "Approve" on Variant A in the browser]
 
-Claude: Approved Variant A. Saved to ~/.gstack/projects/myapp/designs/
+Antigravity: Approved Variant A. Saved to ~/.gstack/projects/myapp/designs/
         Next: run /design-html to generate production HTML from this mockup.
 ```
 
@@ -491,7 +491,7 @@ If your project uses React, Svelte, or Vue (detected from `package.json`), the s
 ```
 You:   /design-html
 
-Claude: Found approved mockup: variant-A.png (hero section)
+Antigravity: Found approved mockup: variant-A.png (hero section)
         Design type: simple layout → using prepare() + layout()
 
         [Generates HTML with Pretext, opens live-reload server]
@@ -502,12 +502,12 @@ Claude: Found approved mockup: variant-A.png (hero section)
 
 You:    Make the headline bigger and add more spacing below the CTA
 
-Claude: [Edits font-size and margin, browser auto-reloads]
+Antigravity: [Edits font-size and margin, browser auto-reloads]
         Updated. Two changes applied.
 
 You:    Done
 
-Claude: Saved to ~/.gstack/projects/myapp/designs/hero-20260330/finalized.html
+Antigravity: Saved to ~/.gstack/projects/myapp/designs/hero-20260330/finalized.html
 ```
 
 ---
@@ -596,7 +596,7 @@ When `/qa` fixes a bug and verifies it, it automatically generates a regression 
 ```
 You:   /qa https://staging.myapp.com
 
-Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
+Antigravity: [Explores 12 pages, fills 3 forms, tests 2 flows]
 
         QA Report: staging.myapp.com — Health Score: 72/100
 
@@ -650,14 +650,14 @@ First run on a new project triggers a dry-run walk-through so you can verify the
 
 ### Setup
 
-Run `/setup-deploy` first. It detects your platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, or custom), discovers your production URL and health check endpoints, and writes the config to CLAUDE.md. One-time, 60 seconds.
+Run `/setup-deploy` first. It detects your platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, or custom), discovers your production URL and health check endpoints, and writes the config to GEMINI.md. One-time, 60 seconds.
 
 ### Example
 
 ```
 You:   /land-and-deploy
 
-Claude: Merging PR #42...
+Antigravity: Merging PR #42...
         CI: 3/3 checks passed
         Deploy: Fly.io — deploying v2.1.0...
         Health check: https://myapp.fly.dev/health → 200 OK
@@ -679,7 +679,7 @@ Use it right after `/land-and-deploy`, or schedule it to run periodically after 
 ```
 You:   /canary https://myapp.com
 
-Claude: Monitoring 8 pages every 2 minutes...
+Antigravity: Monitoring 8 pages every 2 minutes...
 
         Cycle 1: ✓ All pages healthy. p95: 340ms. 0 console errors.
         Cycle 2: ✓ All pages healthy. p95: 380ms. 0 console errors.
@@ -703,7 +703,7 @@ It uses the browse daemon for real Chromium measurements, not synthetic estimate
 ```
 You:   /benchmark https://myapp.com
 
-Claude: Benchmarking 5 pages (3 runs each)...
+Antigravity: Benchmarking 5 pages (3 runs each)...
 
         /           load: 1.2s  LCP: 0.9s  CLS: 0.01  resources: 24 (890KB)
         /dashboard  load: 2.1s  LCP: 1.8s  CLS: 0.03  resources: 31 (1.4MB)
@@ -723,7 +723,7 @@ Run `/cso` on any codebase and it performs an OWASP Top 10 + STRIDE threat model
 ```
 You:   /cso
 
-Claude: Running OWASP Top 10 + STRIDE security audit...
+Antigravity: Running OWASP Top 10 + STRIDE security audit...
 
         CRITICAL: SQL injection in user search (app/models/user.rb:47)
         HIGH: Session tokens stored in localStorage (app/frontend/auth.ts:12)
@@ -744,10 +744,10 @@ After `/ship` creates the PR but before it merges, `/document-release` reads eve
 ```
 You:   /document-release
 
-Claude: Analyzing 21 files changed across 3 commits. Found 8 documentation files.
+Antigravity: Analyzing 21 files changed across 3 commits. Found 8 documentation files.
 
         README.md: updated skill count from 9 to 10, added new skill to table
-        CLAUDE.md: added new directory to project structure
+        GEMINI.md: added new directory to project structure
         CONTRIBUTING.md: current — no changes needed
         TODOS.md: marked 2 items complete, added 1 new item
 
@@ -773,7 +773,7 @@ It also tracks test health: total test files, tests added this period, regressio
 ```
 You:   /retro
 
-Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
+Antigravity: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
 
         ## Your Week
         32 commits, +2.4k LOC, 41% tests. Peak hours: 9-11pm.
@@ -812,7 +812,7 @@ It is a compiled binary that talks to a persistent Chromium daemon — built on 
 You:   /browse staging.myapp.com — log in, test the signup flow, and check
        every page I changed in this branch
 
-Claude: [18 tool calls, ~60 seconds]
+Antigravity: [18 tool calls, ~60 seconds]
 
         > browse goto https://staging.myapp.com/signup
         > browse snapshot -i
@@ -845,7 +845,7 @@ Claude: [18 tool calls, ~60 seconds]
 When the headless browser gets stuck — CAPTCHA, MFA, complex auth — hand off to the user:
 
 ```
-Claude: I'm stuck on a CAPTCHA at the login page. Opening a visible
+Antigravity: I'm stuck on a CAPTCHA at the login page. Opening a visible
         Chrome so you can solve it.
 
         > browse handoff "Stuck on CAPTCHA at login page"
@@ -856,7 +856,7 @@ Claude: I'm stuck on a CAPTCHA at the login page. Opening a visible
 
 You:    done
 
-Claude: > browse resume
+Antigravity: > browse resume
 
         Got a fresh snapshot. Logged in successfully. Continuing QA.
 ```
@@ -880,14 +880,14 @@ It auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge), d
 ```
 You:   /setup-browser-cookies
 
-Claude: Cookie picker opened — select the domains you want to import
+Antigravity: Cookie picker opened — select the domains you want to import
         in your browser, then tell me when you're done.
 
         [You pick github.com, myapp.com in the browser UI]
 
 You:    done
 
-Claude: Imported 2 domains (47 cookies). Session is ready.
+Antigravity: Imported 2 domains (47 cookies). Session is ready.
 ```
 
 Or skip the UI entirely:
@@ -895,7 +895,7 @@ Or skip the UI entirely:
 ```
 You:   /setup-browser-cookies github.com
 
-Claude: Imported 12 cookies for github.com from Comet.
+Antigravity: Imported 12 cookies for github.com from Comet.
 ```
 
 ---
@@ -913,19 +913,19 @@ One command, fully reviewed plan out.
 ```
 You:   /autoplan
 
-Claude: Running CEO review... [4 scope decisions auto-resolved]
+Antigravity: Running CEO review... [4 scope decisions auto-resolved]
         Running design review... [3 design dimensions auto-scored]
         Running eng review... [2 architecture decisions auto-resolved]
 
         TASTE DECISIONS (need your input):
-        1. Scope: Codex suggested adding search — borderline expansion. Add?
+        1. Scope: Antigravity suggested adding search — borderline expansion. Add?
         2. Design: Two approaches scored within 1 point. Which feels right?
 
         [Shows both options with context]
 
 You:    1) Yes, add search. 2) Option A.
 
-Claude: Plan complete. 9 decisions auto-resolved, 2 taste decisions approved.
+Antigravity: Plan complete. 9 decisions auto-resolved, 2 taste decisions approved.
 ```
 
 ---
@@ -941,7 +941,7 @@ gstack learns from every session. Patterns, pitfalls, preferences, architectural
 ```
 You:   /learn
 
-Claude: 23 learnings for this project (14 high confidence, 6 medium, 3 low)
+Antigravity: 23 learnings for this project (14 high confidence, 6 medium, 3 low)
 
         Top patterns:
         - [9/10] API responses always wrapped in { data, error } envelope
@@ -961,12 +961,12 @@ This is my **co-presence mode**.
 
 `/browse` runs headless by default. You don't see what the agent sees. `/connect-chrome` changes that. It launches your actual Chrome browser controlled by Playwright, with the gstack Side Panel extension auto-loaded. You watch every action in real time... same screen, same window.
 
-A subtle green shimmer at the top edge tells you which Chrome window gstack controls. All existing browse commands work unchanged. The Side Panel shows a live activity feed of every command and a chat sidebar where you can direct Claude with natural language instructions.
+A subtle green shimmer at the top edge tells you which Chrome window gstack controls. All existing browse commands work unchanged. The Side Panel shows a live activity feed of every command and a chat sidebar where you can direct Antigravity with natural language instructions.
 
 ```
 You:   /connect-chrome
 
-Claude: Launched Chrome with Side Panel extension.
+Antigravity: Launched Chrome with Side Panel extension.
         Green shimmer indicates the controlled window.
         All $B commands now run in headed mode.
         Type in the Side Panel to direct the browser agent.
@@ -978,44 +978,44 @@ Claude: Launched Chrome with Side Panel extension.
 
 One-time deploy configuration. Run this before your first `/land-and-deploy`.
 
-It auto-detects your deploy platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, or custom), discovers your production URL, health check endpoints, and deploy status commands. Writes everything to CLAUDE.md so all future deploys are automatic.
+It auto-detects your deploy platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, or custom), discovers your production URL, health check endpoints, and deploy status commands. Writes everything to GEMINI.md so all future deploys are automatic.
 
 ```
 You:   /setup-deploy
 
-Claude: Detected: Fly.io (fly.toml found)
+Antigravity: Detected: Fly.io (fly.toml found)
         Production URL: https://myapp.fly.dev
         Health check: /health → expects 200
         Deploy command: fly deploy
         Status command: fly status
 
-        Written to CLAUDE.md. Run /land-and-deploy when ready.
+        Written to GEMINI.md. Run /land-and-deploy when ready.
 ```
 
 ---
 
-## `/codex`
+## `/antigravity`
 
 This is my **second opinion mode**.
 
-When `/review` catches bugs from Claude's perspective, `/codex` brings a completely different AI — OpenAI's Codex CLI — to review the same diff. Different training, different blind spots, different strengths. The overlap tells you what's definitely real. The unique findings from each are where you find the bugs neither would catch alone.
+When `/review` catches bugs from Antigravity's perspective, `/antigravity` brings a completely different AI — OpenAI's Antigravity CLI — to review the same diff. Different training, different blind spots, different strengths. The overlap tells you what's definitely real. The unique findings from each are where you find the bugs neither would catch alone.
 
 ### Three modes
 
-**Review** — run `codex review` against the current diff. Codex reads every changed file, classifies findings by severity (P1 critical, P2 high, P3 medium), and returns a PASS/FAIL verdict. Any P1 finding = FAIL. The review is fully independent — Codex doesn't see Claude's review.
+**Review** — run `antigravity review` against the current diff. Antigravity reads every changed file, classifies findings by severity (P1 critical, P2 high, P3 medium), and returns a PASS/FAIL verdict. Any P1 finding = FAIL. The review is fully independent — Antigravity doesn't see Antigravity's review.
 
-**Challenge** — adversarial mode. Codex actively tries to break your code. It looks for edge cases, race conditions, security holes, and assumptions that would fail under load. Uses maximum reasoning effort (`xhigh`). Think of it as a penetration test for your logic.
+**Challenge** — adversarial mode. Antigravity actively tries to break your code. It looks for edge cases, race conditions, security holes, and assumptions that would fail under load. Uses maximum reasoning effort (`xhigh`). Think of it as a penetration test for your logic.
 
-**Consult** — open conversation with session continuity. Ask Codex anything about the codebase. Follow-up questions reuse the same session, so context carries over. Great for "am I thinking about this correctly?" moments.
+**Consult** — open conversation with session continuity. Ask Antigravity anything about the codebase. Follow-up questions reuse the same session, so context carries over. Great for "am I thinking about this correctly?" moments.
 
 ### Cross-model analysis
 
-When both `/review` (Claude) and `/codex` (OpenAI) have reviewed the same branch, you get a cross-model comparison: which findings overlap (high confidence), which are unique to Codex (different perspective), and which are unique to Claude. This is the "two doctors, same patient" approach to code review.
+When both `/review` (Antigravity) and `/antigravity` (OpenAI) have reviewed the same branch, you get a cross-model comparison: which findings overlap (high confidence), which are unique to Antigravity (different perspective), and which are unique to Antigravity. This is the "two doctors, same patient" approach to code review.
 
 ```
-You:   /codex review
+You:   /antigravity review
 
-Claude: Running independent Codex review...
+Antigravity: Running independent Antigravity review...
 
         CODEX REVIEW: PASS (3 findings)
         [P2] Race condition in payment handler — concurrent charges
@@ -1033,7 +1033,7 @@ Claude: Running independent Codex review...
 
 ## Safety & Guardrails
 
-Four skills that add safety rails to any Claude Code session. They work via Claude Code's PreToolUse hooks — transparent, session-scoped, no configuration files.
+Four skills that add safety rails to any Antigravity Code session. They work via Antigravity Code's PreToolUse hooks — transparent, session-scoped, no configuration files.
 
 ### `/careful`
 
@@ -1053,18 +1053,18 @@ You can override any warning. The guardrails are accident prevention, not access
 
 ### `/freeze`
 
-Restrict all file edits to a single directory. When you're debugging a billing bug, you don't want Claude accidentally "fixing" unrelated code in `src/auth/`. `/freeze src/billing` blocks all Edit and Write operations outside that path.
+Restrict all file edits to a single directory. When you're debugging a billing bug, you don't want Antigravity accidentally "fixing" unrelated code in `src/auth/`. `/freeze src/billing` blocks all Edit and Write operations outside that path.
 
 `/investigate` activates this automatically — it detects the module being debugged and freezes edits to that directory.
 
 ```
 You:   /freeze src/billing
 
-Claude: Edits restricted to src/billing/. Run /unfreeze to remove.
+Antigravity: Edits restricted to src/billing/. Run /unfreeze to remove.
 
-        [Later, Claude tries to edit src/auth/middleware.ts]
+        [Later, Antigravity tries to edit src/auth/middleware.ts]
 
-Claude: BLOCKED — Edit outside freeze boundary (src/billing/).
+Antigravity: BLOCKED — Edit outside freeze boundary (src/billing/).
         Skipping this change.
 ```
 
@@ -1082,17 +1082,17 @@ Remove the `/freeze` boundary, allowing edits everywhere again. The hooks stay r
 
 ## `/gstack-upgrade`
 
-Keep gstack current with one command. It detects your install type (global at `~/.claude/skills/gstack` vs vendored in your project at `.claude/skills/gstack`), runs the upgrade, syncs both copies if you have dual installs, and shows you what changed.
+Keep gstack current with one command. It detects your install type (global at `~/.antigravity/skills/gstack` vs vendored in your project at `.antigravity/skills/gstack`), runs the upgrade, syncs both copies if you have dual installs, and shows you what changed.
 
 ```
 You:   /gstack-upgrade
 
-Claude: Current version: 0.7.4
+Antigravity: Current version: 0.7.4
         Latest version: 0.8.2
 
         What's new:
         - Browse handoff for CAPTCHAs and auth walls
-        - /codex multi-AI second opinion
+        - /antigravity multi-AI second opinion
         - /qa always uses browser now
         - Safety skills: /careful, /freeze, /guard
         - Proactive skill suggestions
@@ -1133,7 +1133,7 @@ Every false positive you confirm gets saved to `~/.gstack/greptile-history.md`. 
 ```
 You:   /ship
 
-Claude: [syncs main, runs tests, pre-landing review...]
+Antigravity: [syncs main, runs tests, pre-landing review...]
 
         Greptile found 3 comments on this PR:
 
@@ -1156,7 +1156,7 @@ Claude: [syncs main, runs tests, pre-landing review...]
 
 You:    A
 
-Claude: Replied to Greptile. All tests pass.
+Antigravity: Replied to Greptile. All tests pass.
         PR: github.com/you/app/pull/42
 ```
 

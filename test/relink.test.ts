@@ -98,7 +98,7 @@ describe('gstack-relink (#578)', () => {
   });
 
   // REGRESSION: unprefixed skills must be real directories, not symlinks (#761)
-  // Claude Code auto-prefixes skills nested under a parent dir symlink.
+  // Antigravity Code auto-prefixes skills nested under a parent dir symlink.
   // e.g., `qa -> gstack/qa` gets discovered as "gstack-qa", not "qa".
   // The fix: create real directories with SKILL.md symlinks inside.
   test('unprefixed skills are real directories with SKILL.md symlinks, not dir symlinks', () => {

@@ -60,10 +60,10 @@ if (evalsEnabled && process.env.EVALS_TIER) {
 // --- Helper functions ---
 
 /** Copy all SKILL.md files for auto-discovery.
- *  Install to BOTH project-level (.claude/skills/) AND user-level (~/.claude/skills/)
- *  because Claude Code discovers skills from both locations. In CI containers,
+ *  Install to BOTH project-level (.antigravity/skills/) AND user-level (~/.antigravity/skills/)
+ *  because Antigravity Code discovers skills from both locations. In CI containers,
  *  $HOME may differ from the working directory, so we need both paths to ensure
- *  the Skill tool appears in Claude's available tools list. */
+ *  the Skill tool appears in Antigravity's available tools list. */
 function installSkills(tmpDir: string) {
   const skillDirs = [
     '', // root gstack SKILL.md
@@ -76,8 +76,8 @@ function installSkills(tmpDir: string) {
   // Install to both project-level and user-level skill directories
   const homeDir = process.env.HOME || os.homedir();
   const installTargets = [
-    path.join(tmpDir, '.claude', 'skills'),        // project-level
-    path.join(homeDir, '.claude', 'skills'),        // user-level (~/.claude/skills/)
+    path.join(tmpDir, '.antigravity', 'skills'),        // project-level
+    path.join(homeDir, '.antigravity', 'skills'),        // user-level (~/.antigravity/skills/)
   ];
 
   for (const skill of skillDirs) {
@@ -93,11 +93,11 @@ function installSkills(tmpDir: string) {
     }
   }
 
-  // Write a CLAUDE.md with explicit routing instructions.
+  // Write a GEMINI.md with explicit routing instructions.
   // The skill descriptions in system-reminder aren't strong enough to override
-  // Claude's default behavior of answering directly. A CLAUDE.md instruction
-  // puts routing rules in project context which Claude weighs more heavily.
-  fs.writeFileSync(path.join(tmpDir, 'CLAUDE.md'), `# Project Instructions
+  // Antigravity's default behavior of answering directly. A GEMINI.md instruction
+  // puts routing rules in project context which Antigravity weighs more heavily.
+  fs.writeFileSync(path.join(tmpDir, 'GEMINI.md'), `# Project Instructions
 
 ## Skill routing
 
@@ -130,16 +130,16 @@ function initGitRepo(dir: string) {
 
 /**
  * Create a routing test working directory.
- * Uses the actual repo checkout (ROOT) which has CLAUDE.md, .claude/skills/,
+ * Uses the actual repo checkout (ROOT) which has GEMINI.md, .antigravity/skills/,
  * and full project context. This matches the local environment where routing
  * tests pass reliably. In containerized CI, bare tmpDirs lack the context
- * Claude needs to make correct routing decisions.
+ * Antigravity needs to make correct routing decisions.
  */
 function createRoutingWorkDir(suffix: string): string {
   // Clone the repo checkout into a tmpDir so concurrent tests don't interfere
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `routing-${suffix}-`));
   // Copy essential context files
-  const filesToCopy = ['CLAUDE.md', 'README.md', 'package.json', 'ETHOS.md'];
+  const filesToCopy = ['GEMINI.md', 'README.md', 'package.json', 'ETHOS.md'];
   for (const f of filesToCopy) {
     const src = path.join(ROOT, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(tmpDir, f));
@@ -212,7 +212,7 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       expect([expectedSkill], `Expected skill ${expectedSkill} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -262,7 +262,7 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       expect([expectedSkill], `Expected skill ${expectedSkill} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -270,7 +270,7 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
   }, 150_000);
 
   // Removed: journey-think-bigger
-  // Tested ambiguous routing ("think bigger" → plan-ceo-review) but Claude
+  // Tested ambiguous routing ("think bigger" → plan-ceo-review) but Antigravity
   // legitimately answers directly instead of routing. Never passed reliably.
   // The other 10 journey tests cover routing with clear signals.
 
@@ -324,7 +324,7 @@ export default app;
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       const validSkills = ['investigate', 'qa'];
       expect(validSkills, `Expected one of ${validSkills.join('/')} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
@@ -361,7 +361,7 @@ export default app;
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       expect(acceptable, `Expected skill ${expectedSkill} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -401,7 +401,7 @@ export default app;
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       expect([expectedSkill], `Expected skill ${expectedSkill} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -440,7 +440,7 @@ export default app;
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       expect([expectedSkill], `Expected skill ${expectedSkill} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -477,7 +477,7 @@ export default app;
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       expect([expectedSkill], `Expected skill ${expectedSkill} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -520,7 +520,7 @@ export default app;
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       expect([expectedSkill], `Expected skill ${expectedSkill} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -549,7 +549,7 @@ export default app;
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       expect([expectedSkill], `Expected skill ${expectedSkill} but got ${actualSkill}`).toContain(actualSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -600,7 +600,7 @@ body { font-family: sans-serif; }
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Antigravity may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
       const validSkills = ['design-review', 'qa', 'qa-only', 'browse'];
       expect(validSkills, `Expected one of ${validSkills.join('/')} but got ${actualSkill}`).toContain(actualSkill);
     } finally {

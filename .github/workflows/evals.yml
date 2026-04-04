@@ -90,8 +90,8 @@ jobs:
             file: test/skill-e2e-workflow.test.ts
           - name: e2e-routing
             file: test/skill-routing-e2e.test.ts
-          - name: e2e-codex
-            file: test/codex-e2e.test.ts
+          - name: e2e-antigravity
+            file: test/antigravity-e2e.test.ts
           - name: e2e-gemini
             file: test/gemini-e2e.test.ts
     steps:

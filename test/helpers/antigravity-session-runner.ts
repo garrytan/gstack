@@ -1,15 +1,15 @@
 /**
- * Codex CLI subprocess runner for skill E2E testing.
+ * Antigravity CLI subprocess runner for skill E2E testing.
  *
- * Spawns `codex exec` as a completely independent process, parses its JSONL
+ * Spawns `antigravity exec` as a completely independent process, parses its JSONL
  * output, and returns structured results. Follows the same pattern as
- * session-runner.ts but adapted for the Codex CLI.
+ * session-runner.ts but adapted for the Antigravity CLI.
  *
- * Key differences from Claude session-runner:
- * - Uses `codex exec` instead of `claude -p`
+ * Key differences from Antigravity session-runner:
+ * - Uses `antigravity exec` instead of `antigravity -p`
  * - Output is JSONL with different event types (item.completed, turn.completed, thread.started)
  * - Uses `--json` flag instead of `--output-format stream-json`
- * - Needs temp HOME with skill installed at ~/.codex/skills/{skillName}/SKILL.md
+ * - Needs temp HOME with skill installed at ~/.antigravity/skills/{skillName}/SKILL.md
  */
 
 import * as fs from 'fs';
@@ -18,10 +18,10 @@ import * as os from 'os';
 
 // --- Interfaces ---
 
-export interface CodexResult {
+export interface AntigravityResult {
   output: string;           // Full agent message text
-  reasoning: string[];      // [codex thinking] blocks
-  toolCalls: string[];      // [codex ran] commands
+  reasoning: string[];      // [antigravity thinking] blocks
+  toolCalls: string[];      // [antigravity ran] commands
   tokens: number;           // Total tokens used
   exitCode: number;         // Process exit code
   durationMs: number;       // Wall clock time
@@ -30,9 +30,9 @@ export interface CodexResult {
   stderr: string;           // Stderr output (skill loading errors, auth failures)
 }
 
-// --- JSONL parser (ported from Python in codex/SKILL.md.tmpl) ---
+// --- JSONL parser (ported from Python in antigravity/SKILL.md.tmpl) ---
 
-export interface ParsedCodexJSONL {
+export interface ParsedAntigravityJSONL {
   output: string;
   reasoning: string[];
   toolCalls: string[];
@@ -41,15 +41,15 @@ export interface ParsedCodexJSONL {
 }
 
 /**
- * Parse an array of JSONL lines from `codex exec --json` into structured data.
+ * Parse an array of JSONL lines from `antigravity exec --json` into structured data.
  * Pure function — no I/O, no side effects.
  *
- * Handles these Codex event types:
+ * Handles these Antigravity event types:
  * - thread.started → extract thread_id (session ID)
  * - item.completed → extract reasoning, agent_message, command_execution
  * - turn.completed → extract token usage
  */
-export function parseCodexJSONL(lines: string[]): ParsedCodexJSONL {
+export function parseAntigravityJSONL(lines: string[]): ParsedAntigravityJSONL {
   const outputParts: string[] = [];
   const reasoning: string[] = [];
   const toolCalls: string[] = [];
@@ -98,9 +98,9 @@ export function parseCodexJSONL(lines: string[]): ParsedCodexJSONL {
 // --- Skill installation helper ---
 
 /**
- * Install a SKILL.md into a temp HOME directory for Codex to discover.
- * Creates ~/.codex/skills/{skillName}/SKILL.md in the temp HOME and copies
- * agents/openai.yaml when present so Codex sees the same metadata as a real install.
+ * Install a SKILL.md into a temp HOME directory for Antigravity to discover.
+ * Creates ~/.antigravity/skills/{skillName}/SKILL.md in the temp HOME and copies
+ * agents/openai.yaml when present so Antigravity sees the same metadata as a real install.
  *
  * Returns the temp HOME path. Caller is responsible for cleanup.
  */
@@ -109,8 +109,8 @@ export function installSkillToTempHome(
   skillName: string,
   tempHome?: string,
 ): string {
-  const home = tempHome || fs.mkdtempSync(path.join(os.tmpdir(), 'codex-e2e-'));
-  const destDir = path.join(home, '.codex', 'skills', skillName);
+  const home = tempHome || fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-e2e-'));
+  const destDir = path.join(home, '.antigravity', 'skills', skillName);
   fs.mkdirSync(destDir, { recursive: true });
 
   const srcSkill = path.join(skillDir, 'SKILL.md');
@@ -131,19 +131,19 @@ export function installSkillToTempHome(
 // --- Main runner ---
 
 /**
- * Run a Codex skill via `codex exec` and return structured results.
+ * Run a Antigravity skill via `antigravity exec` and return structured results.
  *
- * Spawns codex in a temp HOME with the skill installed, parses JSONL output,
- * and returns a CodexResult. Skips gracefully if codex binary is not found.
+ * Spawns antigravity in a temp HOME with the skill installed, parses JSONL output,
+ * and returns a AntigravityResult. Skips gracefully if antigravity binary is not found.
  */
-export async function runCodexSkill(opts: {
+export async function runAntigravitySkill(opts: {
   skillDir: string;         // Path to skill directory containing SKILL.md
-  prompt: string;           // What to ask Codex to do with the skill
+  prompt: string;           // What to ask Antigravity to do with the skill
   timeoutMs?: number;       // Default 300000 (5 min)
   cwd?: string;             // Working directory
   skillName?: string;       // Skill name for installation (default: dirname)
   sandbox?: string;         // Sandbox mode (default: 'read-only')
-}): Promise<CodexResult> {
+}): Promise<AntigravityResult> {
   const {
     skillDir,
     prompt,
@@ -156,11 +156,11 @@ export async function runCodexSkill(opts: {
   const startTime = Date.now();
   const name = skillName || path.basename(skillDir) || 'gstack';
 
-  // Check if codex binary exists
-  const whichResult = Bun.spawnSync(['which', 'codex']);
+  // Check if antigravity binary exists
+  const whichResult = Bun.spawnSync(['which', 'antigravity']);
   if (whichResult.exitCode !== 0) {
     return {
-      output: 'SKIP: codex binary not found',
+      output: 'SKIP: antigravity binary not found',
       reasoning: [],
       toolCalls: [],
       tokens: 0,
@@ -173,36 +173,36 @@ export async function runCodexSkill(opts: {
   }
 
   // Set up temp HOME with skill installed
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-e2e-'));
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-e2e-'));
   const realHome = os.homedir();
 
   try {
     installSkillToTempHome(skillDir, name, tempHome);
 
-    // Symlink real Codex auth config so codex can authenticate from temp HOME.
-    // Codex stores auth in ~/.codex/ — we need the config but not the skills
+    // Symlink real Antigravity auth config so antigravity can authenticate from temp HOME.
+    // Antigravity stores auth in ~/.antigravity/ — we need the config but not the skills
     // (we install our own test skills above).
-    const realCodexConfig = path.join(realHome, '.codex');
-    const tempCodexDir = path.join(tempHome, '.codex');
-    if (fs.existsSync(realCodexConfig)) {
-      // Copy auth-related files from real ~/.codex/ into temp ~/.codex/
+    const realAntigravityConfig = path.join(realHome, '.antigravity');
+    const tempAntigravityDir = path.join(tempHome, '.antigravity');
+    if (fs.existsSync(realAntigravityConfig)) {
+      // Copy auth-related files from real ~/.antigravity/ into temp ~/.antigravity/
       // (skills/ is already set up by installSkillToTempHome)
-      const entries = fs.readdirSync(realCodexConfig);
+      const entries = fs.readdirSync(realAntigravityConfig);
       for (const entry of entries) {
         if (entry === 'skills') continue; // don't clobber our test skills
-        const src = path.join(realCodexConfig, entry);
-        const dst = path.join(tempCodexDir, entry);
+        const src = path.join(realAntigravityConfig, entry);
+        const dst = path.join(tempAntigravityDir, entry);
         if (!fs.existsSync(dst)) {
           fs.cpSync(src, dst, { recursive: true });
         }
       }
     }
 
-    // Build codex exec command
+    // Build antigravity exec command
     const args = ['exec', prompt, '--json', '-s', sandbox];
 
-    // Spawn codex with temp HOME so it discovers our installed skill
-    const proc = Bun.spawn(['codex', ...args], {
+    // Spawn antigravity with temp HOME so it discovers our installed skill
+    const proc = Bun.spawn(['antigravity', ...args], {
       cwd: cwd || skillDir,
       stdout: 'pipe',
       stderr: 'pipe',
@@ -245,13 +245,13 @@ export async function runCodexSkill(opts: {
               const item = event.item;
               if (item.type === 'command_execution' && item.command) {
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
-                process.stderr.write(`  [codex ${elapsed}s] ran: ${item.command.slice(0, 100)}\n`);
+                process.stderr.write(`  [antigravity ${elapsed}s] ran: ${item.command.slice(0, 100)}\n`);
               } else if (item.type === 'agent_message' && item.text) {
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
-                process.stderr.write(`  [codex ${elapsed}s] message: ${item.text.slice(0, 100)}\n`);
+                process.stderr.write(`  [antigravity ${elapsed}s] message: ${item.text.slice(0, 100)}\n`);
               }
             }
-          } catch { /* skip — parseCodexJSONL will handle it later */ }
+          } catch { /* skip — parseAntigravityJSONL will handle it later */ }
         }
       }
     } catch { /* stream read error — fall through to exit code handling */ }
@@ -268,11 +268,11 @@ export async function runCodexSkill(opts: {
     const durationMs = Date.now() - startTime;
 
     // Parse all collected JSONL lines
-    const parsed = parseCodexJSONL(collectedLines);
+    const parsed = parseAntigravityJSONL(collectedLines);
 
     // Log stderr if non-empty (may contain auth errors, etc.)
     if (stderr.trim()) {
-      process.stderr.write(`  [codex stderr] ${stderr.trim().slice(0, 200)}\n`);
+      process.stderr.write(`  [antigravity stderr] ${stderr.trim().slice(0, 200)}\n`);
     }
 
     return {

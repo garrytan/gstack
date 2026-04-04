@@ -4,21 +4,21 @@ import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS } from 
 export function generateDesignReviewLite(ctx: TemplateContext): string {
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
   const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join(' ');
-  // Codex block only for Claude host
-  const codexBlock = ctx.host === 'codex' ? '' : `
+  // Antigravity block only for Antigravity host
+  const antigravityBlock = ctx.host === 'antigravity' ? '' : `
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Antigravity design voice** (optional, automatic if available):
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+which antigravity 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
-If Codex is available, run a lightweight design check on the diff:
+If Antigravity is available, run a lightweight design check on the diff:
 
 \`\`\`bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
+TMPERR_DRL=$(mktemp /tmp/antigravity-drl-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+antigravity exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -28,7 +28,7 @@ cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
 
 **Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
 
-Present Codex output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
+Present Antigravity output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
 
   return `## Design Review (conditional, diff-scoped)
 
@@ -44,7 +44,7 @@ source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null)
 
 1. **Check for DESIGN.md.** If \`DESIGN.md\` or \`design-system.md\` exists in the repo root, read it. All design findings are calibrated against it — patterns blessed in DESIGN.md are not flagged. If not found, use universal design principles.
 
-2. **Read \`.claude/skills/review/design-checklist.md\`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
+2. **Read \`.antigravity/skills/review/design-checklist.md\`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
 
 3. **Read each changed frontend file** (full file, not just diff hunks). Frontend files are identified by the patterns listed in the checklist.
 
@@ -61,7 +61,7 @@ source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null)
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
 \`\`\`
 
-Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of \`git rev-parse --short HEAD\`.${codexBlock}`;
+Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of \`git rev-parse --short HEAD\`.${antigravityBlock}`;
 }
 
 // NOTE: design-checklist.md is a subset of this methodology for code-level detection.
@@ -307,7 +307,7 @@ Compare screenshots and observations across pages for:
 
 **Project-scoped:**
 \`\`\`bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.antigravity/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 \`\`\`
 Write to: \`~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md\`
 
@@ -454,35 +454,35 @@ The screenshot file at \`/tmp/gstack-sketch.png\` can be referenced by downstrea
 After the wireframe is approved, offer outside design perspectives:
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+which antigravity 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
-If Codex is available, use AskUserQuestion:
-> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
+If Antigravity is available, use AskUserQuestion:
+> "Want outside design perspectives on the chosen approach? Antigravity proposes a visual thesis, content plan, and interaction ideas. A Antigravity subagent proposes an alternative aesthetic direction."
 >
 > A) Yes — get outside design voices
 > B) No — proceed without
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
+1. **Antigravity** (via Bash, \`model_reasoning_effort="medium"\`):
 \`\`\`bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
+TMPERR_SKETCH=$(mktemp /tmp/antigravity-sketch-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
+antigravity exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
 
-2. **Claude subagent** (via Agent tool):
+2. **Antigravity subagent** (via Agent tool):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
-Present Codex output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
+Present Antigravity output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
 Error handling: all non-blocking. On failure, skip and continue.`;
 }
 
 export function generateDesignOutsideVoices(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
+  // Antigravity host: strip entirely — Antigravity should never invoke itself
+  if (ctx.host === 'antigravity') return '';
 
   const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join('\n');
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join('\n');
@@ -496,12 +496,12 @@ export function generateDesignOutsideVoices(ctx: TemplateContext): string {
   const isAutomatic = isDesignReview; // design-review runs automatically
   const reasoningEffort = isDesignConsultation ? 'medium' : 'high'; // creative vs analytical
 
-  // Build skill-specific Codex prompt
-  let codexPrompt: string;
+  // Build skill-specific Antigravity prompt
+  let antigravityPrompt: string;
   let subagentPrompt: string;
 
   if (isPlanDesignReview) {
-    codexPrompt = `Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
+    antigravityPrompt = `Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
 
 HARD REJECTION — flag if ANY apply:
 ${rejectionList}
@@ -526,7 +526,7 @@ For each finding: what's wrong, what will happen if it ships unresolved, and the
 
 For each finding: what's wrong, severity (critical/high/medium), and the fix.`;
   } else if (isDesignReview) {
-    codexPrompt = `Review the frontend source code in this repo. Evaluate against these design hard rules:
+    antigravityPrompt = `Review the frontend source code in this repo. Evaluate against these design hard rules:
 - Spacing: systematic (design tokens / CSS variables) or magic numbers?
 - Typography: expressive purposeful fonts or default stacks?
 - Color: CSS variables with defined system, or hardcoded hex scattered?
@@ -553,7 +553,7 @@ Be specific. Reference file:line for every finding.`;
 
 For each finding: what's wrong, severity (critical/high/medium), and the file:line.`;
   } else if (isDesignConsultation) {
-    codexPrompt = `Given this product context, propose a complete design direction:
+    antigravityPrompt = `Given this product context, propose a complete design direction:
 - Visual thesis: one sentence describing mood, material, and energy
 - Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
 - Color system: CSS variables for background, surface, primary text, muted text, accent
@@ -576,9 +576,9 @@ Be bold. Be specific. No hedging.`;
 
   // Build the opt-in section
   const optInSection = isAutomatic ? `
-**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.` : `
+**Automatic:** Outside voices run automatically when Antigravity is available. No opt-in needed.` : `
 Use AskUserQuestion:
-> "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
+> "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? Antigravity evaluates against OpenAI's design hard rules + litmus checks; Antigravity subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
 >
 > A) Yes — run outside design voices
 > B) No — proceed without
@@ -592,7 +592,7 @@ If user chooses B, skip this step and continue.`;
 \`\`\`
 DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
 ═══════════════════════════════════════════════════════════════
-  Check                                    Claude  Codex  Consensus
+  Check                                    Antigravity  Antigravity  Consensus
   ─────────────────────────────────────── ─────── ─────── ─────────
   1. Brand unmistakable in first screen?   —       —      —
   2. One strong visual anchor?             —       —      —
@@ -606,7 +606,7 @@ DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
 ═══════════════════════════════════════════════════════════════
 \`\`\`
 
-Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
+Fill in each cell from the Antigravity and subagent outputs. CONFIRMED = both agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
 
 **Pass integration (respects existing 7-pass contract):**
 - Hard rejections → raised as the FIRST items in Pass 1, tagged \`[HARD REJECTION]\`
@@ -614,50 +614,50 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 - Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
 - Passes can skip discovery and go straight to fixing for pre-identified issues` :
     isDesignConsultation ? `
-**Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
-- Areas of agreement between all three voices (Claude main + Codex + subagent)
+**Synthesis:** Antigravity main references both Antigravity and subagent proposals in the Phase 3 proposal. Present:
+- Areas of agreement between all three voices (Antigravity main + Antigravity + subagent)
 - Genuine divergences as creative alternatives for the user to choose from
-- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."` : `
+- "Antigravity and I agree on X. Antigravity suggested Y where I'm proposing Z — here's why..."` : `
 **Synthesis — Litmus scorecard:**
 
 Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
-Merge findings into the triage with \`[codex]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
+Merge findings into the triage with \`[antigravity]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
 
-  const escapedCodexPrompt = codexPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$');
+  const escapedAntigravityPrompt = antigravityPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$');
 
   return `## Design Outside Voices (parallel)
 ${optInSection}
 
-**Check Codex availability:**
+**Check Antigravity availability:**
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+which antigravity 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
-**If Codex is available**, launch both voices simultaneously:
+**If Antigravity is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
+1. **Antigravity design voice** (via Bash):
 \`\`\`bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+TMPERR_DESIGN=$(mktemp /tmp/antigravity-design-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "${escapedCodexPrompt}" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+antigravity exec "${escapedAntigravityPrompt}" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
 \`\`\`
 
-2. **Claude design subagent** (via Agent tool):
+2. **Antigravity design subagent** (via Agent tool):
 Dispatch a subagent with this prompt:
 "${subagentPrompt}"
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged \`[single-model]\`.
-- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Antigravity authentication failed. Run \`antigravity login\` to authenticate."
+- **Timeout:** "Antigravity timed out after 5 minutes."
+- **Empty response:** "Antigravity returned no response."
+- On any Antigravity error: proceed with Antigravity subagent output only, tagged \`[single-model]\`.
+- If Antigravity subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a \`CODEX SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
+Present Antigravity output under a \`CODEX SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
 Present subagent output under a \`CLAUDE SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\` header.
 ${synthesisSection}
 
@@ -665,7 +665,7 @@ ${synthesisSection}
 \`\`\`bash
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".`;
+Replace STATUS with "clean" or "issues_found", SOURCE with "antigravity+subagent", "antigravity-only", "subagent-only", or "unavailable".`;
 }
 
 // ─── Design Hard Rules (OpenAI framework + gstack slop blacklist) ───
@@ -789,7 +789,7 @@ Generating visual mockups of the proposed design... (say "skip" if you don't nee
 **Step 1: Set up the design directory**
 
 \`\`\`bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.antigravity/skills/gstack/bin/gstack-slug 2>/dev/null)"
 _DESIGN_DIR=~/.gstack/projects/$SLUG/designs/mockup-$(date +%Y%m%d)
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"

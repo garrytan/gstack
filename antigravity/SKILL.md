@@ -1,13 +1,13 @@
 ---
-name: codex
+name: antigravity
 preamble-tier: 3
 version: 1.0.0
 description: |
-  OpenAI Codex CLI wrapper — three modes. Code review: independent diff review via
-  codex review with pass/fail gate. Challenge: adversarial mode that tries to break
-  your code. Consult: ask codex anything with session continuity for follow-ups.
-  The "200 IQ autistic developer" second opinion. Use when asked to "codex review",
-  "codex challenge", "ask codex", "second opinion", or "consult codex". (gstack)
+  OpenAI Antigravity CLI wrapper — three modes. Code review: independent diff review via
+  antigravity review with pass/fail gate. Challenge: adversarial mode that tries to break
+  your code. Consult: ask antigravity anything with session continuity for follow-ups.
+  The "200 IQ autistic developer" second opinion. Use when asked to "antigravity review",
+  "antigravity challenge", "ask antigravity", "second opinion", or "consult antigravity". (gstack)
   Voice triggers (speech-to-text aliases): "code x", "code ex", "get another opinion".
 allowed-tools:
   - Bash
@@ -23,26 +23,26 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$(~/.gemini/antigravity/skills/bin/gstack-update-check 2>/dev/null || .gemini/antigravity/skills/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -exec rm {} + 2>/dev/null || true
-_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
+_PROACTIVE=$(~/.gemini/antigravity/skills/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
-_SKILL_PREFIX=$(~/.claude/skills/gstack/bin/gstack-config get skill_prefix 2>/dev/null || echo "false")
+_SKILL_PREFIX=$(~/.gemini/antigravity/skills/bin/gstack-config get skill_prefix 2>/dev/null || echo "false")
 echo "PROACTIVE: $_PROACTIVE"
 echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
-source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+source <(~/.gemini/antigravity/skills/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL=$(~/.gemini/antigravity/skills/bin/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
@@ -50,38 +50,38 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"codex","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"antigravity","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
-    if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
-      ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
+    if [ "$_TEL" != "off" ] && [ -x "~/.gemini/antigravity/skills/bin/gstack-telemetry-log" ]; then
+      ~/.gemini/antigravity/skills/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
     fi
     rm -f "$_PF" 2>/dev/null || true
   fi
   break
 done
 # Learnings count
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+eval "$(~/.gemini/antigravity/skills/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
 _LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
 if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
   if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
-    ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 3 2>/dev/null || true
+    ~/.gemini/antigravity/skills/bin/gstack-learnings-search --limit 3 2>/dev/null || true
   fi
 else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"codex","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
-# Check if CLAUDE.md has routing rules
+~/.gemini/antigravity/skills/bin/gstack-timeline-log '{"skill":"antigravity","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+# Check if GEMINI.md has routing rules
 _HAS_ROUTING="no"
-if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
+if [ -f GEMINI.md ] && grep -q "## Skill routing" GEMINI.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
-_ROUTING_DECLINED=$(~/.claude/skills/gstack/bin/gstack-config get routing_declined 2>/dev/null || echo "false")
+_ROUTING_DECLINED=$(~/.gemini/antigravity/skills/bin/gstack-config get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 ```
@@ -95,9 +95,9 @@ The user opted out of proactive behavior.
 If `SKILL_PREFIX` is `"true"`, the user has namespaced skill names. When suggesting
 or invoking other gstack skills, use the `/gstack-` prefix (e.g., `/gstack-qa` instead
 of `/qa`, `/gstack-ship` instead of `/ship`). Disk paths are unaffected — always use
-`~/.claude/skills/gstack/[skill-name]/SKILL.md` for reading skill files.
+`~/.gemini/antigravity/skills/[skill-name]/SKILL.md` for reading skill files.
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.gemini/antigravity/skills/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -123,7 +123,7 @@ Options:
 - A) Help gstack get better! (recommended)
 - B) No thanks
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+If A: run `~/.gemini/antigravity/skills/bin/gstack-config set telemetry community`
 
 If B: ask a follow-up AskUserQuestion:
 
@@ -134,8 +134,8 @@ Options:
 - A) Sure, anonymous is fine
 - B) No thanks, fully off
 
-If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
-If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+If B→A: run `~/.gemini/antigravity/skills/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.gemini/antigravity/skills/bin/gstack-config set telemetry off`
 
 Always run:
 ```bash
@@ -155,8 +155,8 @@ Options:
 - A) Keep it on (recommended)
 - B) Turn it off — I'll type /commands myself
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set proactive true`
-If B: run `~/.claude/skills/gstack/bin/gstack-config set proactive false`
+If A: run `~/.gemini/antigravity/skills/bin/gstack-config set proactive true`
+If B: run `~/.gemini/antigravity/skills/bin/gstack-config set proactive false`
 
 Always run:
 ```bash
@@ -166,19 +166,19 @@ touch ~/.gstack/.proactive-prompted
 This only happens once. If `PROACTIVE_PROMPTED` is `yes`, skip this entirely.
 
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
-Check if a CLAUDE.md file exists in the project root. If it does not exist, create it.
+Check if a GEMINI.md file exists in the project root. If it does not exist, create it.
 
 Use AskUserQuestion:
 
-> gstack works best when your project's CLAUDE.md includes skill routing rules.
-> This tells Claude to use specialized workflows (like /ship, /investigate, /qa)
+> gstack works best when your project's GEMINI.md includes skill routing rules.
+> This tells Antigravity to use specialized workflows (like /ship, /investigate, /qa)
 > instead of answering directly. It's a one-time addition, about 15 lines.
 
 Options:
-- A) Add routing rules to CLAUDE.md (recommended)
+- A) Add routing rules to GEMINI.md (recommended)
 - B) No thanks, I'll invoke skills manually
 
-If A: Append this section to the end of CLAUDE.md:
+If A: Append this section to the end of GEMINI.md:
 
 ```markdown
 
@@ -203,9 +203,9 @@ Key routing rules:
 - Code quality, health check → invoke health
 ```
 
-Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
+Then commit the change: `git add GEMINI.md && git commit -m "chore: add gstack skill routing rules to GEMINI.md"`
 
-If B: run `~/.claude/skills/gstack/bin/gstack-config set routing_declined true`
+If B: run `~/.gemini/antigravity/skills/bin/gstack-config set routing_declined true`
 Say "No problem. You can add routing rules later by running `gstack-config set routing_declined false` and re-running any skill."
 
 This only happens once per project. If `HAS_ROUTING` is `yes` or `ROUTING_DECLINED` is `true`, skip this entirely.
@@ -262,7 +262,7 @@ After compaction or at session start, check for recent project artifacts.
 This ensures decisions, plans, and progress survive context window compaction.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)"
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -338,7 +338,7 @@ Always flag anything that looks wrong — one sentence, what you noticed and its
 
 ## Search Before Building
 
-Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
+Before building anything unfamiliar, **search first.** See `~/.gemini/antigravity/skills/ETHOS.md`.
 - **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
 
 **Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
@@ -382,7 +382,7 @@ Before completing, reflect on this session:
 If yes, log an operational learning for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
+~/.gemini/antigravity/skills/bin/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
 ```
 
 Replace SKILL_NAME with the current skill name. Only log genuine operational discoveries.
@@ -408,14 +408,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.antigravity/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.claude/skills/gstack/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x ~/.antigravity/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.antigravity/skills/gstack/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -433,7 +433,7 @@ artifacts that inform the plan, not code changes:
 
 - `$B` commands (browse: screenshots, page inspection, navigation, snapshots)
 - `$D` commands (design: generate mockups, variants, comparison boards, iterate)
-- `codex exec` / `codex review` (outside voice, plan review, adversarial challenge)
+- `antigravity exec` / `antigravity review` (outside voice, plan review, adversarial challenge)
 - Writing to `~/.gstack/` (config, analytics, review logs, design artifacts, learnings)
 - Writing to the plan file (already allowed by plan mode)
 - `open` commands for viewing generated artifacts (comparison boards, HTML previews)
@@ -450,7 +450,7 @@ When you are in plan mode and about to call ExitPlanMode:
 3. If it does NOT — run this command:
 
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-read
+~/.antigravity/skills/gstack/bin/gstack-review-read
 \`\`\`
 
 Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
@@ -466,7 +466,7 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Antigravity Review | \`/antigravity review\` | Independent 2nd opinion | 0 | — | — |
 | Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | 0 | — | — |
@@ -517,25 +517,25 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-# /codex — Multi-AI Second Opinion
+# /antigravity — Multi-AI Second Opinion
 
-You are running the `/codex` skill. This wraps the OpenAI Codex CLI to get an independent,
+You are running the `/antigravity` skill. This wraps the OpenAI Antigravity CLI to get an independent,
 brutally honest second opinion from a different AI system.
 
-Codex is the "200 IQ autistic developer" — direct, terse, technically precise, challenges
+Antigravity is the "200 IQ autistic developer" — direct, terse, technically precise, challenges
 assumptions, catches things you might miss. Present its output faithfully, not summarized.
 
 ---
 
-## Step 0: Check codex binary
+## Step 0: Check antigravity binary
 
 ```bash
-CODEX_BIN=$(which codex 2>/dev/null || echo "")
+CODEX_BIN=$(which antigravity 2>/dev/null || echo "")
 [ -z "$CODEX_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CODEX_BIN"
 ```
 
 If `NOT_FOUND`: stop and tell the user:
-"Codex CLI not found. Install it: `npm install -g @openai/codex` or see https://github.com/openai/codex"
+"Antigravity CLI not found. Install it: `npm install -g @openai/antigravity` or see https://github.com/openai/antigravity"
 
 ---
 
@@ -543,28 +543,28 @@ If `NOT_FOUND`: stop and tell the user:
 
 Parse the user's input to determine which mode to run:
 
-1. `/codex review` or `/codex review <instructions>` — **Review mode** (Step 2A)
-2. `/codex challenge` or `/codex challenge <focus>` — **Challenge mode** (Step 2B)
-3. `/codex` with no arguments — **Auto-detect:**
+1. `/antigravity review` or `/antigravity review <instructions>` — **Review mode** (Step 2A)
+2. `/antigravity challenge` or `/antigravity challenge <focus>` — **Challenge mode** (Step 2B)
+3. `/antigravity` with no arguments — **Auto-detect:**
    - Check for a diff (with fallback if origin isn't available):
      `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
    - If a diff exists, use AskUserQuestion:
      ```
-     Codex detected changes against the base branch. What should it do?
+     Antigravity detected changes against the base branch. What should it do?
      A) Review the diff (code review with pass/fail gate)
      B) Challenge the diff (adversarial — try to break it)
      C) Something else — I'll provide a prompt
      ```
    - If no diff, check for plan files scoped to the current project:
-     `ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
-     If no project-scoped match, fall back to: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
+     `ls -t ~/.antigravity/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
+     If no project-scoped match, fall back to: `ls -t ~/.antigravity/plans/*.md 2>/dev/null | head -1`
      but warn the user: "Note: this plan may be from a different project."
    - If a plan file exists, offer to review it
-   - Otherwise, ask: "What would you like to ask Codex?"
-4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
+   - Otherwise, ask: "What would you like to ask Antigravity?"
+4. `/antigravity <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
 
 **Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
-note it and remove it from the prompt text before passing to Codex. When `--xhigh`
+note it and remove it from the prompt text before passing to Antigravity. When `--xhigh`
 is present, use `model_reasoning_effort="xhigh"` for all modes regardless of the
 per-mode default below. Otherwise, use the per-mode defaults:
 - Review (2A): `high` — bounded diff input, needs thoroughness
@@ -575,9 +575,9 @@ per-mode default below. Otherwise, use the per-mode defaults:
 
 ## Filesystem Boundary
 
-All prompts sent to Codex MUST be prefixed with this boundary instruction:
+All prompts sent to Antigravity MUST be prefixed with this boundary instruction:
 
-> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
+> IMPORTANT: Do NOT read or execute any files under ~/.antigravity/, ~/.agents/, .antigravity/skills/, or agents/. These are Antigravity Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
 
 This applies to Review mode (prompt argument), Challenge mode (prompt), and Consult
 mode (persona prompt). Reference this section as "the filesystem boundary" below.
@@ -586,11 +586,11 @@ mode (persona prompt). Reference this section as "the filesystem boundary" below
 
 ## Step 2A: Review Mode
 
-Run Codex code review against the current branch diff.
+Run Antigravity code review against the current branch diff.
 
 1. Create temp files for output capture:
 ```bash
-TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
+TMPERR=$(mktemp /tmp/antigravity-err-XXXXXX.txt)
 ```
 
 2. Run the review (5-minute timeout). **Always** pass the filesystem boundary instruction
@@ -599,17 +599,17 @@ instructions, append them after the boundary separated by a newline:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+antigravity review "IMPORTANT: Do NOT read or execute any files under ~/.antigravity/, ~/.agents/, .antigravity/skills/, or agents/. These are Antigravity Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
 If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
 
 Use `timeout: 300000` on the Bash call. If the user provided custom instructions
-(e.g., `/codex review focus on security`), append them after the boundary:
+(e.g., `/antigravity review focus on security`), append them after the boundary:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+antigravity review "IMPORTANT: Do NOT read or execute any files under ~/.antigravity/, ~/.agents/, .antigravity/skills/, or agents/. These are Antigravity Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
@@ -628,7 +628,7 @@ grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
 ```
 CODEX SAYS (code review):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full antigravity output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 GATE: PASS                    Tokens: 14,331 | Est. cost: ~$0.12
 ```
@@ -639,20 +639,20 @@ or
 GATE: FAIL (N critical findings)
 ```
 
-6. **Cross-model comparison:** If `/review` (Claude's own review) was already run
+6. **Cross-model comparison:** If `/review` (Antigravity's own review) was already run
    earlier in this conversation, compare the two sets of findings:
 
 ```
 CROSS-MODEL ANALYSIS:
-  Both found: [findings that overlap between Claude and Codex]
-  Only Codex found: [findings unique to Codex]
-  Only Claude found: [findings unique to Claude's /review]
+  Both found: [findings that overlap between Antigravity and Antigravity]
+  Only Antigravity found: [findings unique to Antigravity]
+  Only Antigravity found: [findings unique to Antigravity's /review]
   Agreement rate: X% (N/M total unique findings overlap)
 ```
 
 7. Persist the review result:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.antigravity/skills/gstack/bin/gstack-review-log '{"skill":"antigravity-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 
 Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
@@ -691,7 +691,7 @@ Parse each JSONL entry. Each skill logs different fields:
   → Findings: "score: {initial_score}/10 → {overall_score}/10, TTHW: {tthw_current} → {tthw_target}"
 - **devex-review**: \`status\`, \`overall_score\`, \`product_type\`, \`tthw_measured\`, \`dimensions_tested\`, \`dimensions_inferred\`, \`boomerang\`, \`commit\`
   → Findings: "score: {overall_score}/10, TTHW: {tthw_measured}, {dimensions_tested} tested/{dimensions_inferred} inferred"
-- **codex-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
+- **antigravity-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
   → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
 
 All fields needed for the Findings column are now present in the JSONL entries.
@@ -706,7 +706,7 @@ Produce this markdown table:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
+| Antigravity Review | \`/antigravity review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
 | Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
@@ -714,8 +714,8 @@ Produce this markdown table:
 
 Below the table, add these lines (omit any that are empty/not applicable):
 
-- **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
+- **CODEX:** (only if antigravity-review ran) — one-line summary of antigravity fixes
+- **CROSS-MODEL:** (only if both Antigravity and Antigravity reviews exist) — overlap analysis
 - **UNRESOLVED:** total unresolved decisions across all reviews
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
@@ -740,30 +740,30 @@ plan's living status.
 
 ## Step 2B: Challenge (Adversarial) Mode
 
-Codex tries to break your code — finding edge cases, race conditions, security holes,
+Antigravity tries to break your code — finding edge cases, race conditions, security holes,
 and failure modes that a normal review would miss.
 
 1. Construct the adversarial prompt. **Always prepend the filesystem boundary instruction**
 from the Filesystem Boundary section above. If the user provided a focus area
-(e.g., `/codex challenge security`), include it after the boundary:
+(e.g., `/antigravity challenge security`), include it after the boundary:
 
 Default prompt (no focus):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.antigravity/, ~/.agents/, .antigravity/skills/, or agents/. These are Antigravity Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
 
 With focus (e.g., "security"):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.antigravity/, ~/.agents/, .antigravity/skills/, or agents/. These are Antigravity Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
 
-2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls (5-minute timeout):
+2. Run antigravity exec with **JSONL output** to capture reasoning traces and tool calls (5-minute timeout):
 
 If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json 2>/dev/null | PYTHONUNBUFFERED=1 python3 -u -c "
+antigravity exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json 2>/dev/null | PYTHONUNBUFFERED=1 python3 -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -776,13 +776,13 @@ for line in sys.stdin:
             itype = item.get('type','')
             text = item.get('text','')
             if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}', flush=True)
+                print(f'[antigravity thinking] {text}', flush=True)
                 print(flush=True)
             elif itype == 'agent_message' and text:
                 print(text, flush=True)
             elif itype == 'command_execution':
                 cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}', flush=True)
+                if cmd: print(f'[antigravity ran] {cmd}', flush=True)
         elif t == 'turn.completed':
             usage = obj.get('usage',{})
             tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
@@ -791,8 +791,8 @@ for line in sys.stdin:
 "
 ```
 
-This parses codex's JSONL events to extract reasoning traces, tool calls, and the final
-response. The `[codex thinking]` lines show what codex reasoned through before its answer.
+This parses antigravity's JSONL events to extract reasoning traces, tool calls, and the final
+response. The `[antigravity thinking]` lines show what antigravity reasoned through before its answer.
 
 3. Present the full streamed output:
 
@@ -808,51 +808,51 @@ Tokens: N | Est. cost: ~$X.XX
 
 ## Step 2C: Consult Mode
 
-Ask Codex anything about the codebase. Supports session continuity for follow-ups.
+Ask Antigravity anything about the codebase. Supports session continuity for follow-ups.
 
 1. **Check for existing session:**
 ```bash
-cat .context/codex-session-id 2>/dev/null || echo "NO_SESSION"
+cat .context/antigravity-session-id 2>/dev/null || echo "NO_SESSION"
 ```
 
 If a session file exists (not `NO_SESSION`), use AskUserQuestion:
 ```
-You have an active Codex conversation from earlier. Continue it or start fresh?
-A) Continue the conversation (Codex remembers the prior context)
+You have an active Antigravity conversation from earlier. Continue it or start fresh?
+A) Continue the conversation (Antigravity remembers the prior context)
 B) Start a new conversation
 ```
 
 2. Create temp files:
 ```bash
-TMPRESP=$(mktemp /tmp/codex-resp-XXXXXX.txt)
-TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
+TMPRESP=$(mktemp /tmp/antigravity-resp-XXXXXX.txt)
+TMPERR=$(mktemp /tmp/antigravity-err-XXXXXX.txt)
 ```
 
 3. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
-or if plan files exist and the user said `/codex` with no arguments:
+or if plan files exist and the user said `/antigravity` with no arguments:
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
+ls -t ~/.antigravity/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
 ```
-If no project-scoped match, fall back to `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-but warn: "Note: this plan may be from a different project — verify before sending to Codex."
+If no project-scoped match, fall back to `ls -t ~/.antigravity/plans/*.md 2>/dev/null | head -1`
+but warn: "Note: this plan may be from a different project — verify before sending to Antigravity."
 
-**IMPORTANT — embed content, don't reference path:** Codex runs sandboxed to the repo
-root (`-C`) and cannot access `~/.claude/plans/` or any files outside the repo. You MUST
+**IMPORTANT — embed content, don't reference path:** Antigravity runs sandboxed to the repo
+root (`-C`) and cannot access `~/.antigravity/plans/` or any files outside the repo. You MUST
 read the plan file yourself and embed its FULL CONTENT in the prompt below. Do NOT tell
-Codex the file path or ask it to read the plan file — it will waste 10+ tool calls
+Antigravity the file path or ask it to read the plan file — it will waste 10+ tool calls
 searching and fail.
 
 Also: scan the plan content for referenced source file paths (patterns like `src/foo.ts`,
 `lib/bar.py`, paths containing `/` that exist in the repo). If found, list them in the
-prompt so Codex reads them directly instead of discovering them via rg/find.
+prompt so Antigravity reads them directly instead of discovering them via rg/find.
 
 **Always prepend the filesystem boundary instruction** from the Filesystem Boundary
-section above to every prompt sent to Codex, including plan reviews and free-form
+section above to every prompt sent to Antigravity, including plan reviews and free-form
 consult questions.
 
 Prepend the boundary and persona to the user's prompt:
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.antigravity/, ~/.agents/, .antigravity/skills/, or agents/. These are Antigravity Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 You are a brutally honest technical reviewer. Review this plan for: logical gaps and
 unstated assumptions, missing error handling or edge cases, overcomplexity (is there a
@@ -863,19 +863,19 @@ Also review these source files referenced in the plan: <list of referenced files
 THE PLAN:
 <full plan content, embedded verbatim>"
 
-For non-plan consult prompts (user typed `/codex <question>`), still prepend the boundary:
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+For non-plan consult prompts (user typed `/antigravity <question>`), still prepend the boundary:
+"IMPORTANT: Do NOT read or execute any files under ~/.antigravity/, ~/.agents/, .antigravity/skills/, or agents/. These are Antigravity Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 <user's question>"
 
-4. Run codex exec with **JSONL output** to capture reasoning traces (5-minute timeout):
+4. Run antigravity exec with **JSONL output** to capture reasoning traces (5-minute timeout):
 
 If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
 
 For a **new session:**
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
+antigravity exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -891,13 +891,13 @@ for line in sys.stdin:
             itype = item.get('type','')
             text = item.get('text','')
             if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}', flush=True)
+                print(f'[antigravity thinking] {text}', flush=True)
                 print(flush=True)
             elif itype == 'agent_message' and text:
                 print(text, flush=True)
             elif itype == 'command_execution':
                 cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}', flush=True)
+                if cmd: print(f'[antigravity ran] {cmd}', flush=True)
         elif t == 'turn.completed':
             usage = obj.get('usage',{})
             tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
@@ -909,7 +909,7 @@ for line in sys.stdin:
 For a **resumed session** (user chose "Continue"):
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
+antigravity exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
 <same python streaming parser as above, with flush=True on all print() calls>
 "
 ```
@@ -920,30 +920,30 @@ codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'mode
 mkdir -p .context
 ```
 Save the session ID printed by the parser (the line starting with `SESSION_ID:`)
-to `.context/codex-session-id`.
+to `.context/antigravity-session-id`.
 
 6. Present the full streamed output:
 
 ```
 CODEX SAYS (consult):
 ════════════════════════════════════════════════════════════
-<full output, verbatim — includes [codex thinking] traces>
+<full output, verbatim — includes [antigravity thinking] traces>
 ════════════════════════════════════════════════════════════
 Tokens: N | Est. cost: ~$X.XX
-Session saved — run /codex again to continue this conversation.
+Session saved — run /antigravity again to continue this conversation.
 ```
 
-7. After presenting, note any points where Codex's analysis differs from your own
+7. After presenting, note any points where Antigravity's analysis differs from your own
    understanding. If there is a disagreement, flag it:
-   "Note: Claude Code disagrees on X because Y."
+   "Note: Antigravity Code disagrees on X because Y."
 
 ---
 
 ## Model & Reasoning
 
-**Model:** No model is hardcoded — codex uses whatever its current default is (the frontier
-agentic coding model). This means as OpenAI ships newer models, /codex automatically
-uses them. If the user wants a specific model, pass `-m` through to codex.
+**Model:** No model is hardcoded — antigravity uses whatever its current default is (the frontier
+agentic coding model). This means as OpenAI ships newer models, /antigravity automatically
+uses them. If the user wants a specific model, pass `-m` through to antigravity.
 
 **Reasoning effort (per-mode defaults):**
 - **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
@@ -952,19 +952,19 @@ uses them. If the user wants a specific model, pass `-m` through to codex.
 
 `xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
 tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
-(e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
+(e.g., `/antigravity review --xhigh`) when they want maximum reasoning and are willing to wait.
 
-**Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
+**Web search:** All antigravity commands use `--enable web_search_cached` so Antigravity can look up
 docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
 
-If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
-or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
+If the user specifies a model (e.g., `/antigravity review -m gpt-5.1-antigravity-max`
+or `/antigravity challenge -m gpt-5.2`), pass the `-m` flag through to antigravity.
 
 ---
 
 ## Cost Estimation
 
-Parse token count from stderr. Codex prints `tokens used\nN` to stderr.
+Parse token count from stderr. Antigravity prints `tokens used\nN` to stderr.
 
 Display as: `Tokens: N`
 
@@ -975,27 +975,27 @@ If token count is not available, display: `Tokens: unknown`
 ## Error Handling
 
 - **Binary not found:** Detected in Step 0. Stop with install instructions.
-- **Auth error:** Codex prints an auth error to stderr. Surface the error:
-  "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
+- **Auth error:** Antigravity prints an auth error to stderr. Surface the error:
+  "Antigravity authentication failed. Run `antigravity login` in your terminal to authenticate via ChatGPT."
 - **Timeout:** If the Bash call times out (5 min), tell the user:
-  "Codex timed out after 5 minutes. The diff may be too large or the API may be slow. Try again or use a smaller scope."
+  "Antigravity timed out after 5 minutes. The diff may be too large or the API may be slow. Try again or use a smaller scope."
 - **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
-  "Codex returned no response. Check stderr for errors."
+  "Antigravity returned no response. Check stderr for errors."
 - **Session resume failure:** If resume fails, delete the session file and start fresh.
 
 ---
 
 ## Important Rules
 
-- **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode.
-- **Present output verbatim.** Do not truncate, summarize, or editorialize Codex's output
+- **Never modify files.** This skill is read-only. Antigravity runs in read-only sandbox mode.
+- **Present output verbatim.** Do not truncate, summarize, or editorialize Antigravity's output
   before showing it. Show it in full inside the CODEX SAYS block.
-- **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
-- **5-minute timeout** on all Bash calls to codex (`timeout: 300000`).
-- **No double-reviewing.** If the user already ran `/review`, Codex provides a second
-  independent opinion. Do not re-run Claude Code's own review.
-- **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
-  that Codex got distracted by skill files: `gstack-config`, `gstack-update-check`,
+- **Add synthesis after, not instead of.** Any Antigravity commentary comes after the full output.
+- **5-minute timeout** on all Bash calls to antigravity (`timeout: 300000`).
+- **No double-reviewing.** If the user already ran `/review`, Antigravity provides a second
+  independent opinion. Do not re-run Antigravity Code's own review.
+- **Detect skill-file rabbit holes.** After receiving Antigravity output, scan for signs
+  that Antigravity got distracted by skill files: `gstack-config`, `gstack-update-check`,
   `SKILL.md`, or `skills/gstack`. If any of these appear in the output, append a
-  warning: "Codex appears to have read gstack skill files instead of reviewing your
+  warning: "Antigravity appears to have read gstack skill files instead of reviewing your
   code. Consider retrying."

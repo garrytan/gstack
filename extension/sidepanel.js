@@ -1,7 +1,7 @@
 /**
  * gstack browse — Side Panel
  *
- * Chat tab: two-way messaging with Claude Code via file queue.
+ * Chat tab: two-way messaging with Antigravity Code via file queue.
  * Debug tabs: activity feed (SSE) + refs (REST).
  * Polls /sidebar-chat for new messages every 1s.
  */
@@ -338,7 +338,7 @@ async function sendMessage() {
     commandInput.placeholder = result?.error || 'Failed to send';
     setTimeout(() => {
       commandInput.classList.remove('error');
-      commandInput.placeholder = 'Message Claude Code...';
+      commandInput.placeholder = 'Message Antigravity Code...';
     }, 2000);
   }
 }
@@ -594,7 +594,7 @@ document.getElementById('clear-chat').addEventListener('click', async () => {
   chatMessages.innerHTML = `
     <div class="chat-welcome" id="chat-welcome">
       <div class="chat-welcome-icon">G</div>
-      <p>Send a message to Claude Code.</p>
+      <p>Send a message to Antigravity Code.</p>
       <p class="muted">Your agent will see it and act on it.</p>
     </div>`;
 });

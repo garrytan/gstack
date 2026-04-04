@@ -26,14 +26,14 @@ export interface OutcomeJudgeResult {
 }
 
 /**
- * Call claude-sonnet-4-6 with a prompt, extract JSON response.
+ * Call antigravity-sonnet-4-6 with a prompt, extract JSON response.
  * Retries once on 429 rate limit errors.
  */
 export async function callJudge<T>(prompt: string): Promise<T> {
   const client = new Anthropic();
 
   const makeRequest = () => client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: 'antigravity-sonnet-4-6',
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }],
   });

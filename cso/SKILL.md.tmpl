@@ -63,7 +63,7 @@ When the user types `/cso`, run this skill.
 
 ## Important: Use the Grep tool for all code searches
 
-The bash blocks throughout this skill show WHAT patterns to search for, not HOW to run them. Use Claude Code's Grep tool (which handles permissions and access correctly) rather than raw bash grep. The bash blocks are illustrative examples — do NOT copy-paste them into a terminal. Do NOT use `| head` to truncate results.
+The bash blocks throughout this skill show WHAT patterns to search for, not HOW to run them. Use Antigravity Code's Grep tool (which handles permissions and access correctly) rather than raw bash grep. The bash blocks are illustrative examples — do NOT copy-paste them into a terminal. Do NOT use `| head` to truncate results.
 
 ## Instructions
 
@@ -101,7 +101,7 @@ grep -q "laravel" composer.json 2>/dev/null && echo "FRAMEWORK: Laravel"
 **Soft gate, not hard gate:** Stack detection determines scan PRIORITY, not scan SCOPE. In subsequent phases, PRIORITIZE scanning for detected languages/frameworks first and most thoroughly. However, do NOT skip undetected languages entirely — after the targeted scan, run a brief catch-all pass with high-signal patterns (SQL injection, command injection, hardcoded secrets, SSRF) across ALL file types. A Python service nested in `ml/` that wasn't detected at root still gets basic coverage.
 
 **Mental model:**
-- Read CLAUDE.md, README, key config files
+- Read GEMINI.md, README, key config files
 - Map the application architecture: what components exist, how they connect, where trust boundaries are
 - Identify the data flow: where does user input enter? Where does it exit? What transformations happen?
 - Document invariants and assumptions the code relies on
@@ -273,12 +273,12 @@ Use Grep to search for these patterns:
 
 ### Phase 8: Skill Supply Chain
 
-Scan installed Claude Code skills for malicious patterns. 36% of published skills have security flaws, 13.4% are outright malicious (Snyk ToxicSkills research).
+Scan installed Antigravity Code skills for malicious patterns. 36% of published skills have security flaws, 13.4% are outright malicious (Snyk ToxicSkills research).
 
 **Tier 1 — repo-local (automatic):** Scan the repo's local skills directory for suspicious patterns:
 
 ```bash
-ls -la .claude/skills/ 2>/dev/null
+ls -la .antigravity/skills/ 2>/dev/null
 ```
 
 Use Grep to search all local skill SKILL.md files for suspicious patterns:

@@ -18,7 +18,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // BLAME PROTOCOL: When an eval fails, do NOT claim "pre-existing" or "not related
 // to our changes" without proof. Run the same eval on main to verify. These tests
 // have invisible couplings — preamble text, SKILL.md content, and timing all affect
-// agent behavior. See CLAUDE.md "E2E eval failure blame protocol" for details.
+// agent behavior. See GEMINI.md "E2E eval failure blame protocol" for details.
 const evalsEnabled = !!process.env.EVALS;
 const describeE2E = evalsEnabled ? describe : describe.skip;
 
@@ -160,7 +160,7 @@ function dumpOutcomeDiagnostic(dir: string, label: string, report: string, judge
 
 // Fail fast if Anthropic API is unreachable — don't burn through 13 tests getting ConnectionRefused
 if (evalsEnabled) {
-  const check = spawnSync('sh', ['-c', 'echo "ping" | claude -p --max-turns 1 --output-format stream-json --verbose --dangerously-skip-permissions'], {
+  const check = spawnSync('sh', ['-c', 'echo "ping" | antigravity -p --max-turns 1 --output-format stream-json --verbose --dangerously-skip-permissions'], {
     stdio: 'pipe', timeout: 30_000,
   });
   const output = check.stdout?.toString() || '';
@@ -260,7 +260,7 @@ Report whether it worked.`,
   }, 90_000);
 
   testIfSelected('skillmd-no-local-binary', async () => {
-    // Create a tmpdir with no browse binary — no local .claude/skills/gstack/browse/dist/browse
+    // Create a tmpdir with no browse binary — no local .antigravity/skills/gstack/browse/dist/browse
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-empty-'));
 
     const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -283,7 +283,7 @@ Report the exact output. Do NOT try to fix or install anything — just report w
 
     // Setup block should either find the global binary (READY) or show NEEDS_SETUP.
     // On dev machines with gstack installed globally, the fallback path
-    // ~/.claude/skills/gstack/browse/dist/browse exists, so we get READY.
+    // ~/.antigravity/skills/gstack/browse/dist/browse exists, so we get READY.
     // The important thing is it doesn't crash or give a confusing error.
     const allText = result.output || '';
     recordE2E('SKILL.md setup block (no local binary)', 'Skill E2E tests', result);
@@ -1841,7 +1841,7 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
     run('git', ['config', 'user.name', 'Test'], upgradeDir);
 
     // Create mock gstack install directory (local-git type)
-    const mockGstack = path.join(upgradeDir, '.claude', 'skills', 'gstack');
+    const mockGstack = path.join(upgradeDir, '.antigravity', 'skills', 'gstack');
     fs.mkdirSync(mockGstack, { recursive: true });
 
     // Init as a git repo
@@ -1894,11 +1894,11 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
   });
 
   testIfSelected('gstack-upgrade-happy-path', async () => {
-    const mockGstack = path.join(upgradeDir, '.claude', 'skills', 'gstack');
+    const mockGstack = path.join(upgradeDir, '.antigravity', 'skills', 'gstack');
     const result = await runSkillTest({
       prompt: `Read gstack-upgrade/SKILL.md for the upgrade workflow.
 
-You are running /gstack-upgrade standalone. The gstack installation is at ./.claude/skills/gstack (local-git type — it has a .git directory with an origin remote).
+You are running /gstack-upgrade standalone. The gstack installation is at ./.antigravity/skills/gstack (local-git type — it has a .git directory with an origin remote).
 
 Current version: 0.5.0. A new version 0.6.0 is available on origin/main.
 
@@ -1910,7 +1910,7 @@ Follow the standalone upgrade flow:
 
 Skip any AskUserQuestion calls — auto-approve the upgrade. Write a summary of what you did to stdout.
 
-IMPORTANT: The install directory is at ./.claude/skills/gstack — use that exact path.`,
+IMPORTANT: The install directory is at ./.antigravity/skills/gstack — use that exact path.`,
       workingDirectory: upgradeDir,
       maxTurns: 20,
       timeout: 180_000,
@@ -2017,7 +2017,7 @@ This is a civic tech data platform called CivicPulse for government employees wh
 
 Skip research — work from your design knowledge. Skip the font preview page. Skip any AskUserQuestion calls — this is non-interactive. Accept your first design system proposal.
 
-Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
+Write DESIGN.md and GEMINI.md (or update it) in the working directory.`,
       workingDirectory: designDir,
       maxTurns: 20,
       timeout: 360_000,
@@ -2028,9 +2028,9 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
     logCost('/design-consultation core', result);
 
     const designPath = path.join(designDir, 'DESIGN.md');
-    const claudePath = path.join(designDir, 'CLAUDE.md');
+    const antigravityPath = path.join(designDir, 'GEMINI.md');
     const designExists = fs.existsSync(designPath);
-    const claudeExists = fs.existsSync(claudePath);
+    const antigravityExists = fs.existsSync(antigravityPath);
     let designContent = '';
 
     if (designExists) {
@@ -2053,7 +2053,7 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
       }
     }
 
-    const structuralPass = designExists && claudeExists && missingSections.length === 0;
+    const structuralPass = designExists && antigravityExists && missingSections.length === 0;
     recordE2E('/design-consultation core', 'Design Consultation E2E', result, {
       passed: structuralPass && judgeResult.passed && ['success', 'error_max_turns'].includes(result.exitReason),
     });
@@ -2063,16 +2063,16 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
     if (designExists) {
       expect(missingSections).toHaveLength(0);
     }
-    if (claudeExists) {
-      const claude = fs.readFileSync(claudePath, 'utf-8');
-      expect(claude.toLowerCase()).toContain('design.md');
+    if (antigravityExists) {
+      const antigravity = fs.readFileSync(antigravityPath, 'utf-8');
+      expect(antigravity.toLowerCase()).toContain('design.md');
     }
   }, 420_000);
 
   testIfSelected('design-consultation-research', async () => {
     // Clean up from previous test
     try { fs.unlinkSync(path.join(designDir, 'DESIGN.md')); } catch {}
-    try { fs.unlinkSync(path.join(designDir, 'CLAUDE.md')); } catch {}
+    try { fs.unlinkSync(path.join(designDir, 'GEMINI.md')); } catch {}
 
     const result = await runSkillTest({
       prompt: `Read design-consultation/SKILL.md for the design consultation workflow.
@@ -3065,72 +3065,72 @@ This is a solo repo (REPO_MODE=solo). For pre-existing failures, recommend fixin
   }, 240_000);
 });
 
-// --- Codex skill E2E ---
+// --- Antigravity skill E2E ---
 
-describeIfSelected('Codex skill E2E', ['codex-review'], () => {
-  let codexDir: string;
+describeIfSelected('Antigravity skill E2E', ['antigravity-review'], () => {
+  let antigravityDir: string;
 
   beforeAll(() => {
-    codexDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-codex-'));
+    antigravityDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-antigravity-'));
 
     const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: codexDir, stdio: 'pipe', timeout: 5000 });
+      spawnSync(cmd, args, { cwd: antigravityDir, stdio: 'pipe', timeout: 5000 });
 
     run('git', ['init', '-b', 'main']);
     run('git', ['config', 'user.email', 'test@test.com']);
     run('git', ['config', 'user.name', 'Test']);
 
     // Commit a clean base on main
-    fs.writeFileSync(path.join(codexDir, 'app.rb'), '# clean base\nclass App\nend\n');
+    fs.writeFileSync(path.join(antigravityDir, 'app.rb'), '# clean base\nclass App\nend\n');
     run('git', ['add', 'app.rb']);
     run('git', ['commit', '-m', 'initial commit']);
 
     // Create feature branch with vulnerable code (reuse review fixture)
     run('git', ['checkout', '-b', 'feature/add-vuln']);
     const vulnContent = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'review-eval-vuln.rb'), 'utf-8');
-    fs.writeFileSync(path.join(codexDir, 'user_controller.rb'), vulnContent);
+    fs.writeFileSync(path.join(antigravityDir, 'user_controller.rb'), vulnContent);
     run('git', ['add', 'user_controller.rb']);
     run('git', ['commit', '-m', 'add vulnerable controller']);
 
-    // Copy the codex skill file
-    fs.copyFileSync(path.join(ROOT, 'codex', 'SKILL.md'), path.join(codexDir, 'codex-SKILL.md'));
+    // Copy the antigravity skill file
+    fs.copyFileSync(path.join(ROOT, 'antigravity', 'SKILL.md'), path.join(antigravityDir, 'antigravity-SKILL.md'));
   });
 
   afterAll(() => {
-    try { fs.rmSync(codexDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(antigravityDir, { recursive: true, force: true }); } catch {}
   });
 
-  test('/codex review produces findings and GATE verdict', async () => {
-    // Check codex is available — skip if not installed
-    const codexCheck = spawnSync('which', ['codex'], { stdio: 'pipe', timeout: 3000 });
-    if (codexCheck.status !== 0) {
-      console.warn('codex CLI not installed — skipping E2E test');
+  test('/antigravity review produces findings and GATE verdict', async () => {
+    // Check antigravity is available — skip if not installed
+    const antigravityCheck = spawnSync('which', ['antigravity'], { stdio: 'pipe', timeout: 3000 });
+    if (antigravityCheck.status !== 0) {
+      console.warn('antigravity CLI not installed — skipping E2E test');
       return;
     }
 
     const result = await runSkillTest({
       prompt: `You are in a git repo on branch feature/add-vuln with changes against main.
-Read codex-SKILL.md for the /codex skill instructions.
-Run /codex review to review the current diff against main.
-Write the full output (including the GATE verdict) to ${codexDir}/codex-output.md`,
-      workingDirectory: codexDir,
+Read antigravity-SKILL.md for the /antigravity skill instructions.
+Run /antigravity review to review the current diff against main.
+Write the full output (including the GATE verdict) to ${antigravityDir}/antigravity-output.md`,
+      workingDirectory: antigravityDir,
       maxTurns: 10,
       timeout: 300_000,
-      testName: 'codex-review',
+      testName: 'antigravity-review',
       runId,
     });
 
-    logCost('/codex review', result);
-    recordE2E('/codex review', 'Codex skill E2E', result);
+    logCost('/antigravity review', result);
+    recordE2E('/antigravity review', 'Antigravity skill E2E', result);
     expect(result.exitReason).toBe('success');
 
     // Check that output file was created with review content
-    const outputPath = path.join(codexDir, 'codex-output.md');
+    const outputPath = path.join(antigravityDir, 'antigravity-output.md');
     if (fs.existsSync(outputPath)) {
       const output = fs.readFileSync(outputPath, 'utf-8');
       // Should contain the CODEX SAYS header or GATE verdict
-      const hasCodexOutput = output.includes('CODEX') || output.includes('GATE') || output.includes('codex');
-      expect(hasCodexOutput).toBe(true);
+      const hasAntigravityOutput = output.includes('CODEX') || output.includes('GATE') || output.includes('antigravity');
+      expect(hasAntigravityOutput).toBe(true);
     }
   }, 360_000);
 });

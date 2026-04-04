@@ -219,7 +219,7 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
     run('git', ['config', 'user.name', 'Test'], upgradeDir);
 
     // Create mock gstack install directory (local-git type)
-    const mockGstack = path.join(upgradeDir, '.claude', 'skills', 'gstack');
+    const mockGstack = path.join(upgradeDir, '.antigravity', 'skills', 'gstack');
     fs.mkdirSync(mockGstack, { recursive: true });
 
     // Init as a git repo
@@ -272,11 +272,11 @@ describeIfSelected('gstack-upgrade E2E', ['gstack-upgrade-happy-path'], () => {
   });
 
   testConcurrentIfSelected('gstack-upgrade-happy-path', async () => {
-    const mockGstack = path.join(upgradeDir, '.claude', 'skills', 'gstack');
+    const mockGstack = path.join(upgradeDir, '.antigravity', 'skills', 'gstack');
     const result = await runSkillTest({
       prompt: `Read gstack-upgrade/SKILL.md for the upgrade workflow.
 
-You are running /gstack-upgrade standalone. The gstack installation is at ./.claude/skills/gstack (local-git type — it has a .git directory with an origin remote).
+You are running /gstack-upgrade standalone. The gstack installation is at ./.antigravity/skills/gstack (local-git type — it has a .git directory with an origin remote).
 
 Current version: 0.5.0. A new version 0.6.0 is available on origin/main.
 
@@ -288,7 +288,7 @@ Follow the standalone upgrade flow:
 
 Skip any AskUserQuestion calls — auto-approve the upgrade. Write a summary of what you did to stdout.
 
-IMPORTANT: The install directory is at ./.claude/skills/gstack — use that exact path.`,
+IMPORTANT: The install directory is at ./.antigravity/skills/gstack — use that exact path.`,
       workingDirectory: upgradeDir,
       maxTurns: 20,
       timeout: 180_000,
@@ -440,73 +440,73 @@ Output the diagram directly.`,
   }, 180_000);
 });
 
-// --- Codex skill E2E ---
+// --- Antigravity skill E2E ---
 
-describeIfSelected('Codex skill E2E', ['codex-review'], () => {
-  let codexDir: string;
+describeIfSelected('Antigravity skill E2E', ['antigravity-review'], () => {
+  let antigravityDir: string;
 
   beforeAll(() => {
-    codexDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-codex-'));
+    antigravityDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-antigravity-'));
 
     const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: codexDir, stdio: 'pipe', timeout: 5000 });
+      spawnSync(cmd, args, { cwd: antigravityDir, stdio: 'pipe', timeout: 5000 });
 
     run('git', ['init', '-b', 'main']);
     run('git', ['config', 'user.email', 'test@test.com']);
     run('git', ['config', 'user.name', 'Test']);
 
     // Commit a clean base on main
-    fs.writeFileSync(path.join(codexDir, 'app.rb'), '# clean base\nclass App\nend\n');
+    fs.writeFileSync(path.join(antigravityDir, 'app.rb'), '# clean base\nclass App\nend\n');
     run('git', ['add', 'app.rb']);
     run('git', ['commit', '-m', 'initial commit']);
 
     // Create feature branch with vulnerable code (reuse review fixture)
     run('git', ['checkout', '-b', 'feature/add-vuln']);
     const vulnContent = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'review-eval-vuln.rb'), 'utf-8');
-    fs.writeFileSync(path.join(codexDir, 'user_controller.rb'), vulnContent);
+    fs.writeFileSync(path.join(antigravityDir, 'user_controller.rb'), vulnContent);
     run('git', ['add', 'user_controller.rb']);
     run('git', ['commit', '-m', 'add vulnerable controller']);
 
-    // Copy the codex skill file
-    fs.copyFileSync(path.join(ROOT, 'codex', 'SKILL.md'), path.join(codexDir, 'codex-SKILL.md'));
+    // Copy the antigravity skill file
+    fs.copyFileSync(path.join(ROOT, 'antigravity', 'SKILL.md'), path.join(antigravityDir, 'antigravity-SKILL.md'));
   });
 
   afterAll(() => {
-    try { fs.rmSync(codexDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(antigravityDir, { recursive: true, force: true }); } catch {}
   });
 
-  testConcurrentIfSelected('codex-review', async () => {
-    // Check codex is available — skip if not installed
-    const codexCheck = spawnSync('which', ['codex'], { stdio: 'pipe', timeout: 3000 });
-    if (codexCheck.status !== 0) {
-      console.warn('codex CLI not installed — skipping E2E test');
+  testConcurrentIfSelected('antigravity-review', async () => {
+    // Check antigravity is available — skip if not installed
+    const antigravityCheck = spawnSync('which', ['antigravity'], { stdio: 'pipe', timeout: 3000 });
+    if (antigravityCheck.status !== 0) {
+      console.warn('antigravity CLI not installed — skipping E2E test');
       return;
     }
 
     const result = await runSkillTest({
       prompt: `You are in a git repo on branch feature/add-vuln with changes against main.
-Read codex-SKILL.md for the /codex skill instructions.
-Run /codex review to review the current diff against main.
-Write the full output (including the GATE verdict) to ${codexDir}/codex-output.md`,
-      workingDirectory: codexDir,
+Read antigravity-SKILL.md for the /antigravity skill instructions.
+Run /antigravity review to review the current diff against main.
+Write the full output (including the GATE verdict) to ${antigravityDir}/antigravity-output.md`,
+      workingDirectory: antigravityDir,
       maxTurns: 15,
       timeout: 300_000,
-      testName: 'codex-review',
+      testName: 'antigravity-review',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'antigravity-opus-4-6',
     });
 
-    logCost('/codex review', result);
-    recordE2E(evalCollector, '/codex review', 'Codex skill E2E', result);
+    logCost('/antigravity review', result);
+    recordE2E(evalCollector, '/antigravity review', 'Antigravity skill E2E', result);
     expect(result.exitReason).toBe('success');
 
     // Check that output file was created with review content
-    const outputPath = path.join(codexDir, 'codex-output.md');
+    const outputPath = path.join(antigravityDir, 'antigravity-output.md');
     if (fs.existsSync(outputPath)) {
       const output = fs.readFileSync(outputPath, 'utf-8');
       // Should contain the CODEX SAYS header or GATE verdict
-      const hasCodexOutput = output.includes('CODEX') || output.includes('GATE') || output.includes('codex');
-      expect(hasCodexOutput).toBe(true);
+      const hasAntigravityOutput = output.includes('CODEX') || output.includes('GATE') || output.includes('antigravity');
+      expect(hasAntigravityOutput).toBe(true);
     }
   }, 360_000);
 });

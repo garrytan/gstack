@@ -140,7 +140,7 @@ describe('gen-skill-docs', () => {
     }
   });
 
-  test(`every Codex SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
+  test(`every Antigravity SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
     const agentsDir = path.join(ROOT, '.agents', 'skills');
     if (!fs.existsSync(agentsDir)) return; // skip if not generated
     for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
@@ -153,7 +153,7 @@ describe('gen-skill-docs', () => {
     }
   });
 
-  test('every Codex SKILL.md description stays under 900-char warning threshold', () => {
+  test('every Antigravity SKILL.md description stays under 900-char warning threshold', () => {
     const WARN_THRESHOLD = 900;
     const agentsDir = path.join(ROOT, '.agents', 'skills');
     if (!fs.existsSync(agentsDir)) return;
@@ -249,7 +249,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('tier 1 skills do NOT contain AskUserQuestion format', () => {
-    // Use benchmark (tier 1) instead of root — root SKILL.md gets overwritten by Codex test setup
+    // Use benchmark (tier 1) instead of root — root SKILL.md gets overwritten by Antigravity test setup
     const content = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md'), 'utf-8');
     expect(content).not.toContain('## AskUserQuestion Format');
     expect(content).not.toContain('## Completeness Principle');
@@ -664,7 +664,7 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     // Review mode delegates to Testing specialist
     for (const skill of [planSkill, shipSkill]) {
       expect(skill).toContain('Test Framework Detection');
-      expect(skill).toContain('CLAUDE.md');
+      expect(skill).toContain('GEMINI.md');
     }
   });
 
@@ -794,7 +794,7 @@ describe('TEST_FAILURE_TRIAGE resolver', () => {
 // --- {{PLAN_FILE_REVIEW_REPORT}} resolver tests ---
 
 describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
-  const REVIEW_SKILLS = ['plan-ceo-review', 'plan-eng-review', 'plan-design-review', 'codex'];
+  const REVIEW_SKILLS = ['plan-ceo-review', 'plan-eng-review', 'plan-design-review', 'antigravity'];
 
   for (const skill of REVIEW_SKILLS) {
     test(`plan file review report appears in ${skill} generated file`, () => {
@@ -811,7 +811,7 @@ describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
     expect(content).toContain('/plan-ceo-review');
     expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-design-review');
-    expect(content).toContain('/codex review');
+    expect(content).toContain('/antigravity review');
   });
 });
 
@@ -907,7 +907,7 @@ describe('Coverage gate in ship', () => {
     expect(shipSkill).toContain('< minimum');
   });
 
-  test('ship SKILL.md supports configurable thresholds via CLAUDE.md', () => {
+  test('ship SKILL.md supports configurable thresholds via GEMINI.md', () => {
     expect(shipSkill).toContain('## Test Coverage');
     expect(shipSkill).toContain('Minimum:');
     expect(shipSkill).toContain('Target:');
@@ -1058,14 +1058,14 @@ describe('DESIGN_SKETCH resolver', () => {
 
 describe('CODEX_SECOND_OPINION resolver', () => {
   const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
-  const codexContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
+  const antigravityContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
 
   test('Phase 3.5 section appears in office-hours SKILL.md', () => {
     expect(content).toContain('Phase 3.5: Cross-Model Second Opinion');
   });
 
-  test('contains codex exec invocation', () => {
-    expect(content).toContain('codex exec');
+  test('contains antigravity exec invocation', () => {
+    expect(content).toContain('antigravity exec');
   });
 
   test('contains opt-in AskUserQuestion text', () => {
@@ -1074,17 +1074,17 @@ describe('CODEX_SECOND_OPINION resolver', () => {
 
   test('contains cross-model synthesis instructions', () => {
     expect(content).toMatch(/[Ss]ynthesis/);
-    expect(content).toContain('Where Claude agrees with the second opinion');
+    expect(content).toContain('Where Antigravity agrees with the second opinion');
   });
 
-  test('contains Claude subagent fallback', () => {
+  test('contains Antigravity subagent fallback', () => {
     expect(content).toContain('CODEX_NOT_AVAILABLE');
     expect(content).toContain('Agent tool');
-    expect(content).toContain('SECOND OPINION (Claude subagent)');
+    expect(content).toContain('SECOND OPINION (Antigravity subagent)');
   });
 
   test('contains premise revision check', () => {
-    expect(content).toContain('Codex challenged premise');
+    expect(content).toContain('Antigravity challenged premise');
   });
 
   test('contains error handling for auth, timeout, and empty', () => {
@@ -1093,23 +1093,23 @@ describe('CODEX_SECOND_OPINION resolver', () => {
     expect(content).toMatch(/[Ee]mpty response/);
   });
 
-  test('Codex host variant does NOT contain the Phase 3.5 resolver output', () => {
-    // The resolver returns '' for codex host, so the interactive section is stripped.
+  test('Antigravity host variant does NOT contain the Phase 3.5 resolver output', () => {
+    // The resolver returns '' for antigravity host, so the interactive section is stripped.
     // Static template references to "Phase 3.5" in prose/conditionals are fine.
     // Other resolvers (design review lite) may contain CODEX_NOT_AVAILABLE, so we
     // check for Phase 3.5-specific markers only.
-    expect(codexContent).not.toContain('Phase 3.5: Cross-Model Second Opinion');
-    expect(codexContent).not.toContain('TMPERR_OH');
-    expect(codexContent).not.toContain('gstack-codex-oh-');
+    expect(antigravityContent).not.toContain('Phase 3.5: Cross-Model Second Opinion');
+    expect(antigravityContent).not.toContain('TMPERR_OH');
+    expect(antigravityContent).not.toContain('gstack-antigravity-oh-');
   });
 });
 
-// --- Codex filesystem boundary tests ---
+// --- Antigravity filesystem boundary tests ---
 
-describe('Codex filesystem boundary', () => {
-  // Skills that call codex exec/review and should contain boundary text
+describe('Antigravity filesystem boundary', () => {
+  // Skills that call antigravity exec/review and should contain boundary text
   const CODEX_CALLING_SKILLS = [
-    'codex',         // /codex skill — 3 modes
+    'antigravity',         // /antigravity skill — 3 modes
     'autoplan',      // /autoplan — CEO/design/eng voices
     'review',        // /review — adversarial step resolver
     'ship',          // /ship — adversarial step resolver
@@ -1120,45 +1120,45 @@ describe('Codex filesystem boundary', () => {
 
   const BOUNDARY_MARKER = 'Do NOT read or execute any';
 
-  test('boundary instruction appears in all skills that call codex', () => {
+  test('boundary instruction appears in all skills that call antigravity', () => {
     for (const skill of CODEX_CALLING_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       expect(content).toContain(BOUNDARY_MARKER);
     }
   });
 
-  test('codex skill has Filesystem Boundary section', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+  test('antigravity skill has Filesystem Boundary section', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'antigravity', 'SKILL.md'), 'utf-8');
     expect(content).toContain('## Filesystem Boundary');
     expect(content).toContain('skill definitions meant for a different AI system');
   });
 
-  test('codex skill has rabbit-hole detection rule', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+  test('antigravity skill has rabbit-hole detection rule', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'antigravity', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Detect skill-file rabbit holes');
     expect(content).toContain('gstack-update-check');
     expect(content).toContain('Consider retrying');
   });
 
   test('review.ts CODEX_BOUNDARY constant is interpolated into resolver output', () => {
-    // The adversarial step resolver should include boundary text in codex exec prompts
+    // The adversarial step resolver should include boundary text in antigravity exec prompts
     const reviewContent = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    // Boundary should appear near codex exec invocations
+    // Boundary should appear near antigravity exec invocations
     const boundaryIdx = reviewContent.indexOf(BOUNDARY_MARKER);
-    const codexExecIdx = reviewContent.indexOf('codex exec');
-    // Both must exist and boundary must come before a codex exec call
+    const antigravityExecIdx = reviewContent.indexOf('antigravity exec');
+    // Both must exist and boundary must come before a antigravity exec call
     expect(boundaryIdx).toBeGreaterThan(-1);
-    expect(codexExecIdx).toBeGreaterThan(-1);
+    expect(antigravityExecIdx).toBeGreaterThan(-1);
   });
 
   test('autoplan boundary text avoids host-specific paths for cross-host compatibility', () => {
     const content = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf-8');
     // autoplan template uses generic 'skills/gstack' pattern instead of host-specific
-    // paths like ~/.claude/ or .agents/skills (which break Codex/Claude output tests)
+    // paths like ~/.antigravity/ or .agents/skills (which break Antigravity/Antigravity output tests)
     const boundaryStart = content.indexOf('Filesystem Boundary');
     const boundaryEnd = content.indexOf('---', boundaryStart + 1);
     const boundarySection = content.slice(boundaryStart, boundaryEnd);
-    expect(boundarySection).not.toContain('~/.claude/');
+    expect(boundarySection).not.toContain('~/.antigravity/');
     expect(boundarySection).not.toContain('.agents/skills');
     expect(boundarySection).toContain('skills/gstack');
     expect(boundarySection).toContain(BOUNDARY_MARKER);
@@ -1298,8 +1298,8 @@ describe('parameterized resolver support', () => {
 describe('preamble routing injection', () => {
   const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 
-  test('preamble bash checks for routing section in CLAUDE.md', () => {
-    expect(shipContent).toContain('grep -q "## Skill routing" CLAUDE.md');
+  test('preamble bash checks for routing section in GEMINI.md', () => {
+    expect(shipContent).toContain('grep -q "## Skill routing" GEMINI.md');
     expect(shipContent).toContain('HAS_ROUTING');
   });
 
@@ -1309,7 +1309,7 @@ describe('preamble routing injection', () => {
   });
 
   test('preamble includes routing injection AskUserQuestion', () => {
-    expect(shipContent).toContain('Add routing rules to CLAUDE.md');
+    expect(shipContent).toContain('Add routing rules to GEMINI.md');
     expect(shipContent).toContain("I'll invoke skills manually");
   });
 
@@ -1428,11 +1428,11 @@ describe('DESIGN_SKETCH extended with outside voices', () => {
 
 // --- Extended DESIGN_REVIEW_LITE resolver tests ---
 
-describe('DESIGN_REVIEW_LITE extended with Codex', () => {
+describe('DESIGN_REVIEW_LITE extended with Antigravity', () => {
   const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 
-  test('contains Codex design voice block', () => {
-    expect(content).toContain('Codex design voice');
+  test('contains Antigravity design voice block', () => {
+    expect(content).toContain('Antigravity design voice');
     expect(content).toContain('CODEX (design)');
   });
 
@@ -1443,51 +1443,51 @@ describe('DESIGN_REVIEW_LITE extended with Codex', () => {
 
 });
 
-// ─── Codex Generation Tests ─────────────────────────────────
+// ─── Antigravity Generation Tests ─────────────────────────────────
 
-describe('Codex generation (--host codex)', () => {
+describe('Antigravity generation (--host antigravity)', () => {
   const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
 
   // .agents/ is gitignored (v0.11.2.0) — generate on demand for tests
-  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'antigravity'], {
     cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
   });
 
-  // Dynamic discovery of expected Codex skills: all templates except /codex
+  // Dynamic discovery of expected Antigravity skills: all templates except /antigravity
   // Also excludes skills where .agents/skills/{name} is a symlink back to the repo root
-  // (vendored dev mode — gen-skill-docs skips these to avoid overwriting Claude SKILL.md)
+  // (vendored dev mode — gen-skill-docs skips these to avoid overwriting Antigravity SKILL.md)
   const CODEX_SKILLS = (() => {
-    const skills: Array<{ dir: string; codexName: string }> = [];
-    const isSymlinkLoop = (codexName: string): boolean => {
-      const agentSkillDir = path.join(ROOT, '.agents', 'skills', codexName);
+    const skills: Array<{ dir: string; antigravityName: string }> = [];
+    const isSymlinkLoop = (antigravityName: string): boolean => {
+      const agentSkillDir = path.join(ROOT, '.agents', 'skills', antigravityName);
       try {
         return fs.realpathSync(agentSkillDir) === fs.realpathSync(ROOT);
       } catch { return false; }
     };
     if (fs.existsSync(path.join(ROOT, 'SKILL.md.tmpl'))) {
       if (!isSymlinkLoop('gstack')) {
-        skills.push({ dir: '.', codexName: 'gstack' });
+        skills.push({ dir: '.', antigravityName: 'gstack' });
       }
     }
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      if (entry.name === 'codex') continue; // /codex is excluded from Codex output
+      if (entry.name === 'antigravity') continue; // /antigravity is excluded from Antigravity output
       if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
-      const codexName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
-      if (isSymlinkLoop(codexName)) continue;
-      skills.push({ dir: entry.name, codexName });
+      const antigravityName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
+      if (isSymlinkLoop(antigravityName)) continue;
+      skills.push({ dir: entry.name, antigravityName });
     }
     return skills;
   })();
 
-  test('--host codex generates correct output paths', () => {
+  test('--host antigravity generates correct output paths', () => {
     for (const skill of CODEX_SKILLS) {
-      const skillMd = path.join(AGENTS_DIR, skill.codexName, 'SKILL.md');
+      const skillMd = path.join(AGENTS_DIR, skill.antigravityName, 'SKILL.md');
       expect(fs.existsSync(skillMd)).toBe(true);
     }
   });
 
-  test('root gstack bundle has OpenAI metadata for Codex skill browsing', () => {
+  test('root gstack bundle has OpenAI metadata for Antigravity skill browsing', () => {
     const rootMetadata = path.join(ROOT, 'agents', 'openai.yaml');
     expect(fs.existsSync(rootMetadata)).toBe(true);
     const content = fs.readFileSync(rootMetadata, 'utf-8');
@@ -1508,9 +1508,9 @@ describe('Codex generation (--host codex)', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-gstack-upgrade', 'SKILL.md'))).toBe(false);
   });
 
-  test('Codex frontmatter has ONLY name + description', () => {
+  test('Antigravity frontmatter has ONLY name + description', () => {
     for (const skill of CODEX_SKILLS) {
-      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
+      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.antigravityName, 'SKILL.md'), 'utf-8');
       expect(content.startsWith('---\n')).toBe(true);
       const fmEnd = content.indexOf('\n---', 4);
       expect(fmEnd).toBeGreaterThan(0);
@@ -1525,63 +1525,63 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  test('all Codex skills have agents/openai.yaml metadata', () => {
+  test('all Antigravity skills have agents/openai.yaml metadata', () => {
     for (const skill of CODEX_SKILLS) {
-      const metadata = path.join(AGENTS_DIR, skill.codexName, 'agents', 'openai.yaml');
+      const metadata = path.join(AGENTS_DIR, skill.antigravityName, 'agents', 'openai.yaml');
       expect(fs.existsSync(metadata)).toBe(true);
       const content = fs.readFileSync(metadata, 'utf-8');
-      expect(content).toContain(`display_name: "${skill.codexName}"`);
+      expect(content).toContain(`display_name: "${skill.antigravityName}"`);
       expect(content).toContain('short_description:');
       expect(content).toContain('allow_implicit_invocation: true');
     }
   });
 
-  test('no .claude/skills/ in Codex output', () => {
+  test('no .antigravity/skills/ in Antigravity output', () => {
     for (const skill of CODEX_SKILLS) {
-      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
-      expect(content).not.toContain('.claude/skills');
+      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.antigravityName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('.antigravity/skills');
     }
   });
 
-  test('no ~/.claude/ paths in Codex output', () => {
+  test('no ~/.antigravity/ paths in Antigravity output', () => {
     for (const skill of CODEX_SKILLS) {
-      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
-      expect(content).not.toContain('~/.claude/');
+      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.antigravityName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('~/.antigravity/');
     }
   });
 
-  test('/codex skill excluded from Codex output', () => {
-    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
-    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex'))).toBe(false);
+  test('/antigravity skill excluded from Antigravity output', () => {
+    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-antigravity', 'SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-antigravity'))).toBe(false);
   });
 
-  test('Codex review step stripped from Codex-host ship and review', () => {
+  test('Antigravity review step stripped from Antigravity-host ship and review', () => {
     const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
-    expect(shipContent).not.toContain('codex review --base');
+    expect(shipContent).not.toContain('antigravity review --base');
     expect(shipContent).not.toContain('CODEX_REVIEWS');
 
     const reviewContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
-    expect(reviewContent).not.toContain('codex review --base');
+    expect(reviewContent).not.toContain('antigravity review --base');
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
-  test('--host codex --dry-run freshness', () => {
-    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
+  test('--host antigravity --dry-run freshness', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'antigravity', '--dry-run'], {
       cwd: ROOT,
       stdout: 'pipe',
       stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
-    // Every Codex skill should be FRESH
+    // Every Antigravity skill should be FRESH
     for (const skill of CODEX_SKILLS) {
-      expect(output).toContain(`FRESH: .agents/skills/${skill.codexName}/SKILL.md`);
+      expect(output).toContain(`FRESH: .agents/skills/${skill.antigravityName}/SKILL.md`);
     }
     expect(output).not.toContain('STALE');
   });
 
-  test('--host agents alias produces same output as --host codex', () => {
-    const codexResult = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
+  test('--host agents alias produces same output as --host antigravity', () => {
+    const antigravityResult = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'antigravity', '--dry-run'], {
       cwd: ROOT,
       stdout: 'pipe',
       stderr: 'pipe',
@@ -1591,13 +1591,13 @@ describe('Codex generation (--host codex)', () => {
       stdout: 'pipe',
       stderr: 'pipe',
     });
-    expect(codexResult.exitCode).toBe(0);
+    expect(antigravityResult.exitCode).toBe(0);
     expect(agentsResult.exitCode).toBe(0);
     // Both should produce the same output (same FRESH lines)
-    expect(codexResult.stdout.toString()).toBe(agentsResult.stdout.toString());
+    expect(antigravityResult.stdout.toString()).toBe(agentsResult.stdout.toString());
   });
 
-  test('multiline descriptions preserved in Codex output', () => {
+  test('multiline descriptions preserved in Antigravity output', () => {
     // office-hours has a multiline description — verify it survives the frontmatter transform
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-office-hours', 'SKILL.md'), 'utf-8');
     const fmEnd = content.indexOf('\n---', 4);
@@ -1622,33 +1622,33 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  test('all Codex SKILL.md files have auto-generated header', () => {
+  test('all Antigravity SKILL.md files have auto-generated header', () => {
     for (const skill of CODEX_SKILLS) {
-      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
+      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.antigravityName, 'SKILL.md'), 'utf-8');
       expect(content).toContain('AUTO-GENERATED from SKILL.md.tmpl');
       expect(content).toContain('Regenerate: bun run gen:skill-docs');
     }
   });
 
-  test('Codex preamble resolves runtime assets from repo-local or global gstack roots', () => {
+  test('Antigravity preamble resolves runtime assets from repo-local or global gstack roots', () => {
     // Check a skill that has a preamble (review is a good candidate)
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('GSTACK_ROOT');
     expect(content).toContain('$_ROOT/.agents/skills/gstack');
     expect(content).toContain('$GSTACK_BIN/gstack-config');
     expect(content).toContain('$GSTACK_ROOT/gstack-upgrade/SKILL.md');
-    expect(content).not.toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
+    expect(content).not.toContain('~/.antigravity/skills/gstack/bin/gstack-config get telemetry');
   });
 
   // ─── Path rewriting regression tests ─────────────────────────
 
   test('sidecar paths point to .agents/skills/gstack/review/ (not gstack-review/)', () => {
-    // Regression: gen-skill-docs rewrote .claude/skills/review → .agents/skills/gstack-review
+    // Regression: gen-skill-docs rewrote .antigravity/skills/review → .agents/skills/gstack-review
     // but setup puts sidecars under .agents/skills/gstack/review/. Must match setup layout.
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     // Correct: references to sidecar files use gstack/review/ path
     expect(content).toContain('.agents/skills/gstack/review/checklist.md');
-    // design-checklist.md is now referenced via Review Army specialist (Claude only, stripped for Codex)
+    // design-checklist.md is now referenced via Review Army specialist (Antigravity only, stripped for Antigravity)
     // Wrong: must NOT reference gstack-review/checklist.md (file doesn't exist there)
     expect(content).not.toContain('.agents/skills/gstack-review/checklist.md');
   });
@@ -1674,27 +1674,27 @@ describe('Codex generation (--host codex)', () => {
     // Test each of the 4 path rewrite rules individually
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
 
-    // Rule 1: ~/.claude/skills/gstack → $GSTACK_ROOT
-    expect(content).not.toContain('~/.claude/skills/gstack');
+    // Rule 1: ~/.antigravity/skills/gstack → $GSTACK_ROOT
+    expect(content).not.toContain('~/.antigravity/skills/gstack');
     expect(content).toContain('$GSTACK_ROOT');
 
-    // Rule 2: .claude/skills/gstack → .agents/skills/gstack
-    expect(content).not.toContain('.claude/skills/gstack');
+    // Rule 2: .antigravity/skills/gstack → .agents/skills/gstack
+    expect(content).not.toContain('.antigravity/skills/gstack');
 
-    // Rule 3: .claude/skills/review → .agents/skills/gstack/review
-    expect(content).not.toContain('.claude/skills/review');
+    // Rule 3: .antigravity/skills/review → .agents/skills/gstack/review
+    expect(content).not.toContain('.antigravity/skills/review');
 
-    // Rule 4: .claude/skills → .agents/skills (catch-all)
-    expect(content).not.toContain('.claude/skills');
+    // Rule 4: .antigravity/skills → .agents/skills (catch-all)
+    expect(content).not.toContain('.antigravity/skills');
   });
 
-  test('path rewrite rules apply to all Codex skills with sidecar references', () => {
+  test('path rewrite rules apply to all Antigravity skills with sidecar references', () => {
     // Verify across ALL generated skills, not just review
     for (const skill of CODEX_SKILLS) {
-      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
-      // No skill should reference Claude paths
-      expect(content).not.toContain('~/.claude/skills');
-      expect(content).not.toContain('.claude/skills');
+      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.antigravityName, 'SKILL.md'), 'utf-8');
+      // No skill should reference Antigravity paths
+      expect(content).not.toContain('~/.antigravity/skills');
+      expect(content).not.toContain('.antigravity/skills');
       if (content.includes('gstack-config') || content.includes('gstack-update-check') || content.includes('gstack-telemetry-log')) {
         expect(content).toContain('$GSTACK_ROOT');
       }
@@ -1705,29 +1705,29 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  // ─── Claude output regression guard ─────────────────────────
+  // ─── Antigravity output regression guard ─────────────────────────
 
-  test('Claude output unchanged: review skill still uses .claude/skills/ paths', () => {
-    // Codex changes must NOT affect Claude output
+  test('Antigravity output unchanged: review skill still uses .antigravity/skills/ paths', () => {
+    // Antigravity changes must NOT affect Antigravity output
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('.claude/skills/review/checklist.md');
-    expect(content).toContain('~/.claude/skills/gstack');
-    // Must NOT contain Codex paths
+    expect(content).toContain('.antigravity/skills/review/checklist.md');
+    expect(content).toContain('~/.antigravity/skills/gstack');
+    // Must NOT contain Antigravity paths
     expect(content).not.toContain('.agents/skills');
-    expect(content).not.toContain('~/.codex/');
+    expect(content).not.toContain('~/.antigravity/');
   });
 
-  test('Claude output unchanged: ship skill still uses .claude/skills/ paths', () => {
+  test('Antigravity output unchanged: ship skill still uses .antigravity/skills/ paths', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('~/.claude/skills/gstack');
+    expect(content).toContain('~/.antigravity/skills/gstack');
     expect(content).not.toContain('.agents/skills');
-    expect(content).not.toContain('~/.codex/');
+    expect(content).not.toContain('~/.antigravity/');
   });
 
-  test('Claude output unchanged: all Claude skills have zero Codex paths', () => {
+  test('Antigravity output unchanged: all Antigravity skills have zero Antigravity paths', () => {
     for (const skill of ALL_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
-      expect(content).not.toContain('~/.codex/');
+      expect(content).not.toContain('~/.antigravity/');
       // gstack-upgrade legitimately references .agents/skills for cross-platform detection
       if (skill.dir !== 'gstack-upgrade') {
         expect(content).not.toContain('.agents/skills');
@@ -1735,16 +1735,16 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  // ─── Design outside voices: Codex host guard ─────────────────
+  // ─── Design outside voices: Antigravity host guard ─────────────────
 
-  test('codex host produces empty outside voices in design-review', () => {
-    const codexContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-design-review', 'SKILL.md'), 'utf-8');
-    expect(codexContent).not.toContain('Design Outside Voices');
+  test('antigravity host produces empty outside voices in design-review', () => {
+    const antigravityContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-design-review', 'SKILL.md'), 'utf-8');
+    expect(antigravityContent).not.toContain('Design Outside Voices');
   });
 
-  test('codex host does not include Codex design block in ship', () => {
-    const codexContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
-    expect(codexContent).not.toContain('Codex design voice');
+  test('antigravity host does not include Antigravity design block in ship', () => {
+    const antigravityContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(antigravityContent).not.toContain('Antigravity design voice');
   });
 });
 
@@ -1770,7 +1770,7 @@ describe('Factory generation (--host factory)', () => {
     }
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      if (entry.name === 'codex') continue;
+      if (entry.name === 'antigravity') continue;
       if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
       const factoryName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
       if (isSymlinkLoop(factoryName)) continue;
@@ -1820,31 +1820,31 @@ describe('Factory generation (--host factory)', () => {
     }
   });
 
-  test('no .claude/skills/ in Factory output', () => {
+  test('no .antigravity/skills/ in Factory output', () => {
     for (const skill of FACTORY_SKILLS) {
       const content = fs.readFileSync(path.join(FACTORY_DIR, skill.factoryName, 'SKILL.md'), 'utf-8');
-      expect(content).not.toContain('.claude/skills');
+      expect(content).not.toContain('.antigravity/skills');
     }
   });
 
-  test('no ~/.claude/skills/ paths in Factory output', () => {
+  test('no ~/.antigravity/skills/ paths in Factory output', () => {
     for (const skill of FACTORY_SKILLS) {
       const content = fs.readFileSync(path.join(FACTORY_DIR, skill.factoryName, 'SKILL.md'), 'utf-8');
-      // ~/.claude/skills should be rewritten, but ~/.claude/plans is legitimate
-      // (plan directory lookup) and ~/.claude/ in codex prompts is intentional
-      expect(content).not.toContain('~/.claude/skills');
+      // ~/.antigravity/skills should be rewritten, but ~/.antigravity/plans is legitimate
+      // (plan directory lookup) and ~/.antigravity/ in antigravity prompts is intentional
+      expect(content).not.toContain('~/.antigravity/skills');
     }
   });
 
-  test('/codex skill excluded from Factory output', () => {
-    expect(fs.existsSync(path.join(FACTORY_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
-    expect(fs.existsSync(path.join(FACTORY_DIR, 'gstack-codex'))).toBe(false);
+  test('/antigravity skill excluded from Factory output', () => {
+    expect(fs.existsSync(path.join(FACTORY_DIR, 'gstack-antigravity', 'SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(FACTORY_DIR, 'gstack-antigravity'))).toBe(false);
   });
 
-  test('Factory keeps Codex integration blocks', () => {
-    // Factory users CAN use Codex second opinions (codex exec is a standalone binary)
+  test('Factory keeps Antigravity integration blocks', () => {
+    // Factory users CAN use Antigravity second opinions (antigravity exec is a standalone binary)
     const shipContent = fs.readFileSync(path.join(FACTORY_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
-    expect(shipContent).toContain('codex');
+    expect(shipContent).toContain('antigravity');
   });
 
   test('no agents/openai.yaml in Factory output', () => {
@@ -1889,15 +1889,15 @@ describe('Factory generation (--host factory)', () => {
 // ─── --host all tests ────────────────────────────────────────
 
 describe('--host all', () => {
-  test('--host all generates for claude, codex, and factory', () => {
+  test('--host all generates for antigravity, antigravity, and factory', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--dry-run'], {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     // All three hosts should appear in output
-    expect(output).toContain('FRESH: SKILL.md');           // claude
-    expect(output).toContain('FRESH: .agents/skills/');     // codex
+    expect(output).toContain('FRESH: SKILL.md');           // antigravity
+    expect(output).toContain('FRESH: .agents/skills/');     // antigravity
     expect(output).toContain('FRESH: .factory/skills/');    // factory
   });
 });
@@ -1905,41 +1905,41 @@ describe('--host all', () => {
 // ─── Setup script validation ─────────────────────────────────
 // These tests verify the setup script's install layout matches
 // what the generator produces — catching the bug where setup
-// installed Claude-format source dirs for Codex users.
+// installed Antigravity-format source dirs for Antigravity users.
 
 describe('setup script validation', () => {
   const setupContent = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
 
-  test('setup has separate link functions for Claude and Codex', () => {
-    expect(setupContent).toContain('link_claude_skill_dirs');
-    expect(setupContent).toContain('link_codex_skill_dirs');
+  test('setup has separate link functions for Antigravity and Antigravity', () => {
+    expect(setupContent).toContain('link_antigravity_skill_dirs');
+    expect(setupContent).toContain('link_antigravity_skill_dirs');
     // Old unified function must not exist
     expect(setupContent).not.toMatch(/^link_skill_dirs\(\)/m);
   });
 
-  test('Claude install uses link_claude_skill_dirs', () => {
-    // The Claude install section (section 4) should use the Claude function
-    const claudeSection = setupContent.slice(
-      setupContent.indexOf('# 4. Install for Claude'),
-      setupContent.indexOf('# 5. Install for Codex')
+  test('Antigravity install uses link_antigravity_skill_dirs', () => {
+    // The Antigravity install section (section 4) should use the Antigravity function
+    const antigravitySection = setupContent.slice(
+      setupContent.indexOf('# 4. Install for Antigravity'),
+      setupContent.indexOf('# 5. Install for Antigravity')
     );
-    expect(claudeSection).toContain('link_claude_skill_dirs');
-    expect(claudeSection).not.toContain('link_codex_skill_dirs');
+    expect(antigravitySection).toContain('link_antigravity_skill_dirs');
+    expect(antigravitySection).not.toContain('link_antigravity_skill_dirs');
   });
 
-  test('Codex install uses link_codex_skill_dirs', () => {
-    // The Codex install section (section 5) should use the Codex function
-    const codexSection = setupContent.slice(
-      setupContent.indexOf('# 5. Install for Codex'),
+  test('Antigravity install uses link_antigravity_skill_dirs', () => {
+    // The Antigravity install section (section 5) should use the Antigravity function
+    const antigravitySection = setupContent.slice(
+      setupContent.indexOf('# 5. Install for Antigravity'),
       setupContent.indexOf('# 6. Create')
     );
-    expect(codexSection).toContain('create_codex_runtime_root');
-    expect(codexSection).toContain('link_codex_skill_dirs');
-    expect(codexSection).not.toContain('link_claude_skill_dirs');
-    expect(codexSection).not.toContain('ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"');
+    expect(antigravitySection).toContain('create_antigravity_runtime_root');
+    expect(antigravitySection).toContain('link_antigravity_skill_dirs');
+    expect(antigravitySection).not.toContain('link_antigravity_skill_dirs');
+    expect(antigravitySection).not.toContain('ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"');
   });
 
-  test('Codex install prefers repo-local .agents/skills when setup runs from there', () => {
+  test('Antigravity install prefers repo-local .agents/skills when setup runs from there', () => {
     expect(setupContent).toContain('SKILLS_PARENT_BASENAME');
     expect(setupContent).toContain('CODEX_REPO_LOCAL=0');
     expect(setupContent).toContain('[ "$SKILLS_PARENT_BASENAME" = ".agents" ]');
@@ -1952,27 +1952,27 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('SOURCE_GSTACK_DIR=');
     expect(setupContent).toContain('INSTALL_SKILLS_DIR=');
     expect(setupContent).toContain('CODEX_GSTACK="$INSTALL_GSTACK_DIR"');
-    expect(setupContent).toContain('link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"');
+    expect(setupContent).toContain('link_antigravity_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"');
   });
 
-  test('Codex installs always create sidecar runtime assets for the real skill target', () => {
+  test('Antigravity installs always create sidecar runtime assets for the real skill target', () => {
     expect(setupContent).toContain('if [ "$INSTALL_CODEX" -eq 1 ]; then');
     expect(setupContent).toContain('create_agents_sidecar "$SOURCE_GSTACK_DIR"');
   });
 
-  test('link_codex_skill_dirs reads from .agents/skills/', () => {
-    // The Codex link function must reference .agents/skills for generated Codex skills
-    const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
+  test('link_antigravity_skill_dirs reads from .agents/skills/', () => {
+    // The Antigravity link function must reference .agents/skills for generated Antigravity skills
+    const fnStart = setupContent.indexOf('link_antigravity_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('.agents/skills');
     expect(fnBody).toContain('gstack*');
   });
 
-  test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
-    // Claude links should be real directories with absolute SKILL.md symlinks
-    // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
+  test('link_antigravity_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
+    // Antigravity links should be real directories with absolute SKILL.md symlinks
+    // to ensure Antigravity Code discovers them as top-level skills (not nested under gstack/)
+    const fnStart = setupContent.indexOf('link_antigravity_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('mkdir -p "$target"');
@@ -1981,16 +1981,16 @@ describe('setup script validation', () => {
 
   // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
   test('cleanup functions handle real directories with symlinked SKILL.md', () => {
-    // cleanup_old_claude_symlinks must detect and remove real dirs with SKILL.md symlinks
-    const cleanupOldStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
+    // cleanup_old_antigravity_symlinks must detect and remove real dirs with SKILL.md symlinks
+    const cleanupOldStart = setupContent.indexOf('cleanup_old_antigravity_symlinks()');
     const cleanupOldEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up old', cleanupOldStart));
     const cleanupOldBody = setupContent.slice(cleanupOldStart, cleanupOldEnd);
     expect(cleanupOldBody).toContain('-d "$old_target"');
     expect(cleanupOldBody).toContain('-L "$old_target/SKILL.md"');
     expect(cleanupOldBody).toContain('rm -rf "$old_target"');
 
-    // cleanup_prefixed_claude_symlinks must also handle the new pattern
-    const cleanupPrefixedStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
+    // cleanup_prefixed_antigravity_symlinks must also handle the new pattern
+    const cleanupPrefixedStart = setupContent.indexOf('cleanup_prefixed_antigravity_symlinks()');
     const cleanupPrefixedEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up prefixed', cleanupPrefixedStart));
     const cleanupPrefixedBody = setupContent.slice(cleanupPrefixedStart, cleanupPrefixedEnd);
     expect(cleanupPrefixedBody).toContain('-d "$prefixed_target"');
@@ -1999,8 +1999,8 @@ describe('setup script validation', () => {
   });
 
   // REGRESSION: link function must upgrade old directory symlinks
-  test('link_claude_skill_dirs removes old directory symlinks before creating real dirs', () => {
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
+  test('link_antigravity_skill_dirs removes old directory symlinks before creating real dirs', () => {
+    const fnStart = setupContent.indexOf('link_antigravity_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     // Must check for and remove old symlinks before mkdir
@@ -2008,30 +2008,30 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports --host auto|antigravity|antigravity|kiro', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|auto');
+    expect(setupContent).toContain('antigravity|antigravity|kiro|factory|auto');
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
-    expect(setupContent).toContain('command -v claude');
-    expect(setupContent).toContain('command -v codex');
+  test('auto mode detects antigravity, antigravity, and kiro binaries', () => {
+    expect(setupContent).toContain('command -v antigravity');
+    expect(setupContent).toContain('command -v antigravity');
     expect(setupContent).toContain('command -v kiro-cli');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
-  test('link_codex_skill_dirs skips the gstack sidecar directory', () => {
-    const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
+  test('link_antigravity_skill_dirs skips the gstack sidecar directory', () => {
+    const fnStart = setupContent.indexOf('link_antigravity_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('[ "$skill_name" = "gstack" ] && continue');
   });
 
-  // T2: Dynamic $GSTACK_ROOT paths in generated Codex preambles
-  test('generated Codex preambles use dynamic GSTACK_ROOT paths', () => {
-    const codexSkillDir = path.join(ROOT, '.agents', 'skills', 'gstack-ship');
-    if (!fs.existsSync(codexSkillDir)) return; // skip if .agents/ not generated
-    const content = fs.readFileSync(path.join(codexSkillDir, 'SKILL.md'), 'utf-8');
+  // T2: Dynamic $GSTACK_ROOT paths in generated Antigravity preambles
+  test('generated Antigravity preambles use dynamic GSTACK_ROOT paths', () => {
+    const antigravitySkillDir = path.join(ROOT, '.agents', 'skills', 'gstack-ship');
+    if (!fs.existsSync(antigravitySkillDir)) return; // skip if .agents/ not generated
+    const content = fs.readFileSync(path.join(antigravitySkillDir, 'SKILL.md'), 'utf-8');
     expect(content).toContain('GSTACK_ROOT=');
     expect(content).toContain('$GSTACK_BIN/');
   });
@@ -2055,8 +2055,8 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('qa');
   });
 
-  test('create_codex_runtime_root exposes only runtime assets', () => {
-    const fnStart = setupContent.indexOf('create_codex_runtime_root()');
+  test('create_antigravity_runtime_root exposes only runtime assets', () => {
+    const fnStart = setupContent.indexOf('create_antigravity_runtime_root()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
@@ -2068,27 +2068,27 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('design-checklist.md');
     expect(fnBody).toContain('greptile-triage.md');
     expect(fnBody).toContain('TODOS-format.md');
-    expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$codex_gstack"');
+    expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$antigravity_gstack"');
   });
 
-  test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {
-    expect(setupContent).toContain('migrate_direct_codex_install');
+  test('direct Antigravity installs are migrated out of ~/.antigravity/skills/gstack', () => {
+    expect(setupContent).toContain('migrate_direct_antigravity_install');
     expect(setupContent).toContain('$HOME/.gstack/repos/gstack');
     expect(setupContent).toContain('avoid duplicate skill discovery');
   });
 
   // --- Symlink prefix tests (PR #503) ---
 
-  test('link_claude_skill_dirs applies gstack- prefix by default', () => {
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
+  test('link_antigravity_skill_dirs applies gstack- prefix by default', () => {
+    const fnStart = setupContent.indexOf('link_antigravity_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('SKILL_PREFIX');
     expect(fnBody).toContain('link_name="gstack-$skill_name"');
   });
 
-  test('link_claude_skill_dirs preserves already-prefixed dirs', () => {
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
+  test('link_antigravity_skill_dirs preserves already-prefixed dirs', () => {
+    const fnStart = setupContent.indexOf('link_antigravity_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     // gstack-* dirs should keep their name (e.g., gstack-upgrade stays gstack-upgrade)
@@ -2100,9 +2100,9 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('SKILL_PREFIX=0');
   });
 
-  test('cleanup_old_claude_symlinks removes only gstack-pointing symlinks', () => {
-    expect(setupContent).toContain('cleanup_old_claude_symlinks');
-    const fnStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
+  test('cleanup_old_antigravity_symlinks removes only gstack-pointing symlinks', () => {
+    expect(setupContent).toContain('cleanup_old_antigravity_symlinks');
+    const fnStart = setupContent.indexOf('cleanup_old_antigravity_symlinks()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     // Should check readlink before removing
@@ -2113,12 +2113,12 @@ describe('setup script validation', () => {
   });
 
   test('cleanup runs before link when prefix is enabled', () => {
-    // In the Claude install section, cleanup should happen before linking
-    const claudeInstallSection = setupContent.slice(
+    // In the Antigravity install section, cleanup should happen before linking
+    const antigravityInstallSection = setupContent.slice(
       setupContent.indexOf('INSTALL_CLAUDE'),
-      setupContent.lastIndexOf('link_claude_skill_dirs')
+      setupContent.lastIndexOf('link_antigravity_skill_dirs')
     );
-    expect(claudeInstallSection).toContain('cleanup_old_claude_symlinks');
+    expect(antigravityInstallSection).toContain('cleanup_old_antigravity_symlinks');
   });
 
   // --- Persistent config + interactive prompt tests ---
@@ -2148,9 +2148,9 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('-t 0');
   });
 
-  test('cleanup_prefixed_claude_symlinks exists and uses readlink', () => {
-    expect(setupContent).toContain('cleanup_prefixed_claude_symlinks');
-    const fnStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
+  test('cleanup_prefixed_antigravity_symlinks exists and uses readlink', () => {
+    expect(setupContent).toContain('cleanup_prefixed_antigravity_symlinks');
+    const fnStart = setupContent.indexOf('cleanup_prefixed_antigravity_symlinks()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('readlink');
@@ -2158,11 +2158,11 @@ describe('setup script validation', () => {
   });
 
   test('reverse cleanup runs before link when prefix is disabled', () => {
-    const claudeInstallSection = setupContent.slice(
+    const antigravityInstallSection = setupContent.slice(
       setupContent.indexOf('INSTALL_CLAUDE'),
-      setupContent.lastIndexOf('link_claude_skill_dirs')
+      setupContent.lastIndexOf('link_antigravity_skill_dirs')
     );
-    expect(claudeInstallSection).toContain('cleanup_prefixed_claude_symlinks');
+    expect(antigravityInstallSection).toContain('cleanup_prefixed_antigravity_symlinks');
   });
 
   test('welcome message references SKILL_PREFIX', () => {
@@ -2338,14 +2338,14 @@ describe('community fixes wave', () => {
   });
 });
 
-describe('codex commands must not use inline $(git rev-parse --show-toplevel) for cwd', () => {
-  // Regression test: inline $(git rev-parse --show-toplevel) in codex exec -C
-  // or codex review without cd evaluates in whatever cwd the background shell
+describe('antigravity commands must not use inline $(git rev-parse --show-toplevel) for cwd', () => {
+  // Regression test: inline $(git rev-parse --show-toplevel) in antigravity exec -C
+  // or antigravity review without cd evaluates in whatever cwd the background shell
   // inherits, which may be a different project in Conductor workspaces.
   // The fix is to resolve _REPO_ROOT eagerly at the top of each bash block.
 
-  // Scan all source files that could contain codex commands
-  // Use Bun.Glob to avoid ELOOP from .claude/skills/gstack symlink back to ROOT
+  // Scan all source files that could contain antigravity commands
+  // Use Bun.Glob to avoid ELOOP from .antigravity/skills/gstack symlink back to ROOT
   const tmplGlob = new Bun.Glob('**/*.tmpl');
   const sourceFiles = [
     ...Array.from(tmplGlob.scanSync({ cwd: ROOT, followSymlinks: false })),
@@ -2355,7 +2355,7 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
     'scripts/gen-skill-docs.ts',
   ];
 
-  test('no codex exec command uses inline $(git rev-parse --show-toplevel) in -C flag', () => {
+  test('no antigravity exec command uses inline $(git rev-parse --show-toplevel) in -C flag', () => {
     const violations: string[] = [];
     for (const rel of sourceFiles) {
       const abs = path.join(ROOT, rel);
@@ -2364,7 +2364,7 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        if (line.includes('codex exec') && line.includes('-C') && line.includes('$(git rev-parse --show-toplevel)')) {
+        if (line.includes('antigravity exec') && line.includes('-C') && line.includes('$(git rev-parse --show-toplevel)')) {
           violations.push(`${rel}:${i + 1}`);
         }
       }
@@ -2372,7 +2372,7 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
     expect(violations).toEqual([]);
   });
 
-  test('no generated SKILL.md has codex exec with inline $(git rev-parse --show-toplevel) in -C flag', () => {
+  test('no generated SKILL.md has antigravity exec with inline $(git rev-parse --show-toplevel) in -C flag', () => {
     const violations: string[] = [];
     const skillMdGlob = new Bun.Glob('**/SKILL.md');
     const skillMdFiles = Array.from(skillMdGlob.scanSync({ cwd: ROOT, followSymlinks: false }));
@@ -2383,7 +2383,7 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        if (line.includes('codex exec') && line.includes('-C') && line.includes('$(git rev-parse --show-toplevel)')) {
+        if (line.includes('antigravity exec') && line.includes('-C') && line.includes('$(git rev-parse --show-toplevel)')) {
           violations.push(`${rel}:${i + 1}`);
         }
       }
@@ -2391,12 +2391,12 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
     expect(violations).toEqual([]);
   });
 
-  test('codex review commands must be preceded by cd "$_REPO_ROOT" (no -C support)', () => {
-    // codex review does not support -C, so the pattern must be:
+  test('antigravity review commands must be preceded by cd "$_REPO_ROOT" (no -C support)', () => {
+    // antigravity review does not support -C, so the pattern must be:
     //   _REPO_ROOT=$(git rev-parse --show-toplevel) || { ... }
     //   cd "$_REPO_ROOT"
-    //   codex review ...
-    // NOT: codex review ... with inline $(git rev-parse --show-toplevel)
+    //   antigravity review ...
+    // NOT: antigravity review ... with inline $(git rev-parse --show-toplevel)
     const allFiles = [
       ...Array.from(tmplGlob.scanSync({ cwd: ROOT, followSymlinks: false })),
       ...Array.from(new Bun.Glob('**/SKILL.md').scanSync({ cwd: ROOT, followSymlinks: false })),
@@ -2414,11 +2414,11 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         // Skip non-executable lines (markdown table cells, prose references)
-        if (line.includes('|') && line.includes('`/codex review`')) continue;
-        if (line.includes('`codex review`')) continue;
-        // Check for codex review with inline $(git rev-parse)
-        if (line.includes('codex review') && line.includes('$(git rev-parse --show-toplevel)')) {
-          violations.push(`${rel}:${i + 1} — inline git rev-parse in codex review`);
+        if (line.includes('|') && line.includes('`/antigravity review`')) continue;
+        if (line.includes('`antigravity review`')) continue;
+        // Check for antigravity review with inline $(git rev-parse)
+        if (line.includes('antigravity review') && line.includes('$(git rev-parse --show-toplevel)')) {
+          violations.push(`${rel}:${i + 1} — inline git rev-parse in antigravity review`);
         }
       }
     }

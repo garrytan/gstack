@@ -3,7 +3,7 @@ import type { TemplateContext } from './types';
 /**
  * Preamble architecture — why every skill needs this
  *
- * Each skill runs independently via `claude -p`. There is no shared loader.
+ * Each skill runs independently via `antigravity -p`. There is no shared loader.
  * The preamble provides: update checks, session tracking, user preferences,
  * repo mode detection, and telemetry.
  *
@@ -13,8 +13,8 @@ import type { TemplateContext } from './types';
  */
 
 function generatePreambleBash(ctx: TemplateContext): string {
-  const hostConfigDir: Record<string, string> = { codex: '.codex', factory: '.factory' };
-  const runtimeRoot = (ctx.host !== 'claude')
+  const hostConfigDir: Record<string, string> = { antigravity: '.antigravity', factory: '.factory' };
+  const runtimeRoot = (ctx.host !== 'antigravity')
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/${hostConfigDir[ctx.host]}/skills/gstack"
 [ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
@@ -80,9 +80,9 @@ else
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
 ${ctx.paths.binDir}/gstack-timeline-log '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
-# Check if CLAUDE.md has routing rules
+# Check if GEMINI.md has routing rules
 _HAS_ROUTING="no"
-if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
+if [ -f GEMINI.md ] && grep -q "## Skill routing" GEMINI.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
 _ROUTING_DECLINED=$(${ctx.paths.binDir}/gstack-config get routing_declined 2>/dev/null || echo "false")
@@ -180,19 +180,19 @@ This only happens once. If \`PROACTIVE_PROMPTED\` is \`yes\`, skip this entirely
 
 function generateRoutingInjection(ctx: TemplateContext): string {
   return `If \`HAS_ROUTING\` is \`no\` AND \`ROUTING_DECLINED\` is \`false\` AND \`PROACTIVE_PROMPTED\` is \`yes\`:
-Check if a CLAUDE.md file exists in the project root. If it does not exist, create it.
+Check if a GEMINI.md file exists in the project root. If it does not exist, create it.
 
 Use AskUserQuestion:
 
-> gstack works best when your project's CLAUDE.md includes skill routing rules.
-> This tells Claude to use specialized workflows (like /ship, /investigate, /qa)
+> gstack works best when your project's GEMINI.md includes skill routing rules.
+> This tells Antigravity to use specialized workflows (like /ship, /investigate, /qa)
 > instead of answering directly. It's a one-time addition, about 15 lines.
 
 Options:
-- A) Add routing rules to CLAUDE.md (recommended)
+- A) Add routing rules to GEMINI.md (recommended)
 - B) No thanks, I'll invoke skills manually
 
-If A: Append this section to the end of CLAUDE.md:
+If A: Append this section to the end of GEMINI.md:
 
 \`\`\`markdown
 
@@ -217,7 +217,7 @@ Key routing rules:
 - Code quality, health check → invoke health
 \`\`\`
 
-Then commit the change: \`git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"\`
+Then commit the change: \`git add GEMINI.md && git commit -m "chore: add gstack skill routing rules to GEMINI.md"\`
 
 If B: run \`${ctx.paths.binDir}/gstack-config set routing_declined true\`
 Say "No problem. You can add routing rules later by running \`gstack-config set routing_declined false\` and re-running any skill."
@@ -335,7 +335,7 @@ Use AskUserQuestion:
 - Continue with the workflow.
 
 **If "Add as P0 TODO":**
-- If \`TODOS.md\` exists, add the entry following the format in \`review/TODOS-format.md\` (or \`.claude/skills/review/TODOS-format.md\`).
+- If \`TODOS.md\` exists, add the entry following the format in \`review/TODOS-format.md\` (or \`.antigravity/skills/review/TODOS-format.md\`).
 - If \`TODOS.md\` does not exist, create it with the standard header and add the entry.
 - Entry should include: title, the error output, which branch it was noticed on, and priority P0.
 - Continue with the workflow — treat the pre-existing failure as non-blocking.
@@ -447,14 +447,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.antigravity/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.claude/skills/gstack/bin/gstack-telemetry-log \\
+if [ "$_TEL" != "off" ] && [ -x ~/.antigravity/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.antigravity/skills/gstack/bin/gstack-telemetry-log \\
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -472,7 +472,7 @@ artifacts that inform the plan, not code changes:
 
 - \`$B\` commands (browse: screenshots, page inspection, navigation, snapshots)
 - \`$D\` commands (design: generate mockups, variants, comparison boards, iterate)
-- \`codex exec\` / \`codex review\` (outside voice, plan review, adversarial challenge)
+- \`antigravity exec\` / \`antigravity review\` (outside voice, plan review, adversarial challenge)
 - Writing to \`~/.gstack/\` (config, analytics, review logs, design artifacts, learnings)
 - Writing to the plan file (already allowed by plan mode)
 - \`open\` commands for viewing generated artifacts (comparison boards, HTML previews)
@@ -489,7 +489,7 @@ When you are in plan mode and about to call ExitPlanMode:
 3. If it does NOT — run this command:
 
 \\\`\\\`\\\`bash
-~/.claude/skills/gstack/bin/gstack-review-read
+~/.antigravity/skills/gstack/bin/gstack-review-read
 \\\`\\\`\\\`
 
 Then write a \`## GSTACK REVIEW REPORT\` section to the end of the plan file:
@@ -505,7 +505,7 @@ Then write a \`## GSTACK REVIEW REPORT\` section to the end of the plan file:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \\\`/plan-ceo-review\\\` | Scope & strategy | 0 | — | — |
-| Codex Review | \\\`/codex review\\\` | Independent 2nd opinion | 0 | — | — |
+| Antigravity Review | \\\`/antigravity review\\\` | Independent 2nd opinion | 0 | — | — |
 | Eng Review | \\\`/plan-eng-review\\\` | Architecture & tests (required) | 0 | — | — |
 | Design Review | \\\`/plan-design-review\\\` | UI/UX gaps | 0 | — | — |
 | DX Review | \\\`/plan-devex-review\\\` | Developer experience gaps | 0 | — | — |
@@ -577,7 +577,7 @@ Avoid filler, throat-clearing, generic optimism, founder cosplay, and unsupporte
 }
 
 function generateContextRecovery(ctx: TemplateContext): string {
-  const binDir = ctx.host === 'codex' ? '$GSTACK_BIN' : ctx.paths.binDir;
+  const binDir = ctx.host === 'antigravity' ? '$GSTACK_BIN' : ctx.paths.binDir;
 
   return `## Context Recovery
 
@@ -635,7 +635,7 @@ available]. [Health score if available]." Keep it to 2-3 sentences.`;
 // Skills by tier:
 //   T1: browse, setup-cookies, benchmark
 //   T2: investigate, cso, retro, doc-release, setup-deploy, canary, checkpoint, health
-//   T3: autoplan, codex, design-consult, office-hours, ceo/design/eng-review
+//   T3: autoplan, antigravity, design-consult, office-hours, ceo/design/eng-review
 //   T4: ship, review, qa, qa-only, design-review, land-deploy
 export function generatePreamble(ctx: TemplateContext): string {
   const tier = ctx.preambleTier ?? 4;

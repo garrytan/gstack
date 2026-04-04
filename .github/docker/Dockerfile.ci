@@ -17,7 +17,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js 22 LTS (needed for claude CLI)
+# Node.js 22 LTS (needed for antigravity CLI)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -26,8 +26,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 ENV BUN_INSTALL="/usr/local"
 RUN curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.10 bash
 
-# Claude CLI
-RUN npm i -g @anthropic-ai/claude-code
+# Antigravity CLI
+RUN npm i -g @anthropic-ai/antigravity-code
 
 # Playwright system deps (Chromium) — needed for browse E2E tests
 RUN npx playwright install-deps chromium
@@ -43,7 +43,7 @@ RUN npx playwright install chromium \
     && chmod -R a+rX /opt/playwright-browsers
 
 # Verify everything works
-RUN bun --version && node --version && claude --version && jq --version && gh --version \
+RUN bun --version && node --version && antigravity --version && jq --version && gh --version \
     && npx playwright --version
 
 # At runtime: checkout overwrites /workspace, but node_modules persists
@@ -52,7 +52,7 @@ RUN bun --version && node --version && claude --version && jq --version && gh --
 RUN mv /workspace/node_modules /opt/node_modules_cache \
     && cp /workspace/package.json /opt/node_modules_cache/.package.json
 
-# Claude CLI refuses --dangerously-skip-permissions as root.
+# Antigravity CLI refuses --dangerously-skip-permissions as root.
 # Create a non-root user for eval runs (GH Actions overrides USER, so
 # the workflow must set options.user or use gosu/su-exec at runtime).
 RUN useradd -m -s /bin/bash runner \

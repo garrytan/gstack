@@ -5,7 +5,7 @@
  * harvests any changes the test agent makes as patches, and provides
  * deduplication across runs.
  *
- * Reusable platform module — future /batch or /codex challenge skills
+ * Reusable platform module — future /batch or /antigravity challenge skills
  * can import this directly.
  */
 
@@ -39,7 +39,7 @@ export interface HarvestResult {
 function copyDirSync(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    // Skip symlinks to avoid infinite recursion (e.g., .claude/skills/gstack → repo root)
+    // Skip symlinks to avoid infinite recursion (e.g., .antigravity/skills/gstack → repo root)
     if (entry.isSymbolicLink()) continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);

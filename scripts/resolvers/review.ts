@@ -1,7 +1,7 @@
 /**
  * Cross-model review resolver
  *
- * Data sent to external review services (via Codex CLI):
+ * Data sent to external review services (via Antigravity CLI):
  *   - Plan markdown content, repository name, branch name, review type
  * Data NOT sent:
  *   - Source code files, credentials, environment variables, git history
@@ -10,12 +10,12 @@
  * or /plan-design-review. No data is sent without user invocation.
  *
  * Review logs are stored locally at ~/.gstack/reviews/review-log.jsonl.
- * Codex CLI prompts are written to temp files to prevent shell injection.
+ * Antigravity CLI prompts are written to temp files to prevent shell injection.
  */
 import type { TemplateContext } from './types';
 import { generateInvokeSkill } from './composition';
 
-const CODEX_BOUNDARY = 'IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\\n\\n';
+const CODEX_BOUNDARY = 'IMPORTANT: Do NOT read or execute any files under ~/.antigravity/, ~/.agents/, .antigravity/skills/, or agents/. These are Antigravity Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\\n\\n';
 
 export function generateReviewDashboard(_ctx: TemplateContext): string {
   return `## Review Readiness Dashboard
@@ -23,10 +23,10 @@ export function generateReviewDashboard(_ctx: TemplateContext): string {
 After completing the review, read the review log and config to display the dashboard.
 
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-read
+~/.antigravity/skills/gstack/bin/gstack-review-read
 \`\`\`
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between \`review\` (diff-scoped pre-landing review) and \`plan-eng-review\` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between \`adversarial-review\` (new auto-scaled) and \`codex-review\` (legacy). For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent \`codex-plan-review\` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, antigravity-review, antigravity-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between \`review\` (diff-scoped pre-landing review) and \`plan-eng-review\` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between \`adversarial-review\` (new auto-scaled) and \`antigravity-review\` (legacy). For Design Review, show whichever is more recent between \`plan-design-review\` (full visual audit) and \`design-review-lite\` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent \`antigravity-plan-review\` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
 
 **Source attribution:** If the most recent entry for a skill has a \\\`"via"\\\` field, append it to the status label in parentheses. Examples: \`plan-eng-review\` with \`via:"autoplan"\` shows as "CLEAR (PLAN via /autoplan)". \`review\` with \`via:"ship"\` shows as "CLEAR (DIFF via /ship)". Entries without a \`via\` field show as "CLEAR (PLAN)" or "CLEAR (DIFF)" as before.
 
@@ -54,13 +54,13 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \\\`gstack-config set skip_eng_review true\\\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
-- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
+- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Antigravity adversarial subagent and Antigravity adversarial challenge. Large diffs (200+ lines) additionally get Antigravity structured review with P1 gate. No configuration needed.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Antigravity subagent if Antigravity is unavailable. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days from either \\\`review\\\` or \\\`plan-eng-review\\\` with status "clean" (or \\\`skip_eng_review\\\` is \\\`true\\\`)
 - **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
-- CEO, Design, and Codex reviews are shown for context but never block shipping
+- CEO, Design, and Antigravity reviews are shown for context but never block shipping
 - If \\\`skip_eng_review\\\` config is \\\`true\\\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
 **Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
@@ -98,7 +98,7 @@ Parse each JSONL entry. Each skill logs different fields:
   → Findings: "score: {initial_score}/10 → {overall_score}/10, TTHW: {tthw_current} → {tthw_target}"
 - **devex-review**: \\\`status\\\`, \\\`overall_score\\\`, \\\`product_type\\\`, \\\`tthw_measured\\\`, \\\`dimensions_tested\\\`, \\\`dimensions_inferred\\\`, \\\`boomerang\\\`, \\\`commit\\\`
   → Findings: "score: {overall_score}/10, TTHW: {tthw_measured}, {dimensions_tested} tested/{dimensions_inferred} inferred"
-- **codex-review**: \\\`status\\\`, \\\`gate\\\`, \\\`findings\\\`, \\\`findings_fixed\\\`
+- **antigravity-review**: \\\`status\\\`, \\\`gate\\\`, \\\`findings\\\`, \\\`findings_fixed\\\`
   → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
 
 All fields needed for the Findings column are now present in the JSONL entries.
@@ -113,7 +113,7 @@ Produce this markdown table:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \\\`/plan-ceo-review\\\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \\\`/codex review\\\` | Independent 2nd opinion | {runs} | {status} | {findings} |
+| Antigravity Review | \\\`/antigravity review\\\` | Independent 2nd opinion | {runs} | {status} | {findings} |
 | Eng Review | \\\`/plan-eng-review\\\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \\\`/plan-design-review\\\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \\\`/plan-devex-review\\\` | Developer experience gaps | {runs} | {status} | {findings} |
@@ -121,8 +121,8 @@ Produce this markdown table:
 
 Below the table, add these lines (omit any that are empty/not applicable):
 
-- **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
+- **CODEX:** (only if antigravity-review ran) — one-line summary of antigravity fixes
+- **CROSS-MODEL:** (only if both Antigravity and Antigravity reviews exist) — overlap analysis
 - **UNRESOLVED:** total unresolved decisions across all reviews
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
@@ -246,7 +246,7 @@ ${invokeBlock}
 After /${first} completes, re-run the design doc check:
 \`\`\`bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+SLUG=$(~/.antigravity/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
 [ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
@@ -257,19 +257,19 @@ If a design doc is now found, read it and continue the review.
 If none was produced (user may have cancelled), proceed with standard review.`;
 }
 
-export function generateCodexSecondOpinion(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
+export function generateAntigravitySecondOpinion(ctx: TemplateContext): string {
+  // Antigravity host: strip entirely — Antigravity should never invoke itself
+  if (ctx.host === 'antigravity') return '';
 
   return `## Phase 3.5: Cross-Model Second Opinion (optional)
 
 **Binary check first:**
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+which antigravity 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
-Use AskUserQuestion (regardless of codex availability):
+Use AskUserQuestion (regardless of antigravity availability):
 
 > Want a second opinion from an independent AI perspective? It will review your problem statement, key answers, premises, and any landscape findings from this session without having seen this conversation — it gets a structured summary. Usually takes 2-5 minutes.
 > A) Yes, get a second opinion
@@ -277,7 +277,7 @@ Use AskUserQuestion (regardless of codex availability):
 
 If B: skip Phase 3.5 entirely. Remember that the second opinion did NOT run (affects design doc, founder signals, and Phase 4 below).
 
-**If A: Run the Codex cold read.**
+**If A: Run the Antigravity cold read.**
 
 1. Assemble a structured context block from Phases 1-3:
    - Mode (Startup or Builder)
@@ -290,7 +290,7 @@ If B: skip Phase 3.5 entirely. Remember that the second opinion did NOT run (aff
 2. **Write the assembled prompt to a temp file** (prevents shell injection from user-derived content):
 
 \`\`\`bash
-CODEX_PROMPT_FILE=$(mktemp /tmp/gstack-codex-oh-XXXXXXXX.txt)
+CODEX_PROMPT_FILE=$(mktemp /tmp/gstack-antigravity-oh-XXXXXXXX.txt)
 \`\`\`
 
 Write the full prompt to this file. **Always start with the filesystem boundary:**
@@ -301,12 +301,12 @@ Then add the context block and mode-appropriate instructions:
 
 **Builder mode instructions:** "You are an independent technical advisor reading a transcript of a builder brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the COOLEST version of this they haven't considered? 2) What's the ONE thing from their answers that reveals what excites them most? Quote it. 3) What existing open source project or tool gets them 50% of the way there — and what's the 50% they'd need to build? 4) If you had a weekend to build this, what would you build first? Be specific. Be direct. No preamble."
 
-3. Run Codex:
+3. Run Antigravity:
 
 \`\`\`bash
-TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
+TMPERR_OH=$(mktemp /tmp/antigravity-oh-err-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+antigravity exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -316,49 +316,49 @@ rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
 \`\`\`
 
 **Error handling:** All errors are non-blocking — second opinion is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate." Fall back to Claude subagent.
-- **Timeout:** "Codex timed out after 5 minutes." Fall back to Claude subagent.
-- **Empty response:** "Codex returned no response." Fall back to Claude subagent.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Antigravity authentication failed. Run \\\`antigravity login\\\` to authenticate." Fall back to Antigravity subagent.
+- **Timeout:** "Antigravity timed out after 5 minutes." Fall back to Antigravity subagent.
+- **Empty response:** "Antigravity returned no response." Fall back to Antigravity subagent.
 
-On any Codex error, fall back to the Claude subagent below.
+On any Antigravity error, fall back to the Antigravity subagent below.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If CODEX_NOT_AVAILABLE (or Antigravity errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
 Subagent prompt: same mode-appropriate prompt as above (Startup or Builder variant).
 
-Present findings under a \`SECOND OPINION (Claude subagent):\` header.
+Present findings under a \`SECOND OPINION (Antigravity subagent):\` header.
 
 If the subagent fails or times out: "Second opinion unavailable. Continuing to Phase 4."
 
 4. **Presentation:**
 
-If Codex ran:
+If Antigravity ran:
 \`\`\`
-SECOND OPINION (Codex):
+SECOND OPINION (Antigravity):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full antigravity output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 \`\`\`
 
-If Claude subagent ran:
+If Antigravity subagent ran:
 \`\`\`
-SECOND OPINION (Claude subagent):
+SECOND OPINION (Antigravity subagent):
 ════════════════════════════════════════════════════════════
 <full subagent output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 \`\`\`
 
 5. **Cross-model synthesis:** After presenting the second opinion output, provide 3-5 bullet synthesis:
-   - Where Claude agrees with the second opinion
-   - Where Claude disagrees and why
-   - Whether the challenged premise changes Claude's recommendation
+   - Where Antigravity agrees with the second opinion
+   - Where Antigravity disagrees and why
+   - Whether the challenged premise changes Antigravity's recommendation
 
-6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
+6. **Premise revision check:** If Antigravity challenged an agreed premise, use AskUserQuestion:
 
-> Codex challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
-> A) Revise this premise based on Codex's input
+> Antigravity challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
+> A) Revise this premise based on Antigravity's input
 > B) Keep the original premise — proceed to alternatives
 
 If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).`;
@@ -409,15 +409,15 @@ Before reviewing code quality, check: **did they build what was requested — no
 // ─── Adversarial Review (always-on) ──────────────────────────────────
 
 export function generateAdversarialStep(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
+  // Antigravity host: strip entirely — Antigravity should never invoke itself
+  if (ctx.host === 'antigravity') return '';
 
   const isShip = ctx.skillName === 'ship';
   const stepNum = isShip ? '3.8' : '5.7';
 
   return `## Step ${stepNum}: Adversarial review (always-on)
 
-Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
+Every diff gets adversarial review from both Antigravity and Antigravity. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
 **Detect diff size and tool availability:**
 
@@ -425,40 +425,40 @@ Every diff gets adversarial review from both Claude and Codex. LOC is not a prox
 DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-# Legacy opt-out — only gates Codex passes, Claude always runs
-OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
+which antigravity 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+# Legacy opt-out — only gates Antigravity passes, Antigravity always runs
+OLD_CFG=$(~/.antigravity/skills/gstack/bin/gstack-config get antigravity_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
 echo "OLD_CFG: \${OLD_CFG:-not_set}"
 \`\`\`
 
-If \`OLD_CFG\` is \`disabled\`: skip Codex passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
+If \`OLD_CFG\` is \`disabled\`: skip Antigravity passes only. Antigravity adversarial subagent still runs (it's free and fast). Jump to the "Antigravity adversarial subagent" section.
 
-**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size.
+**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Antigravity structured review regardless of diff size.
 
 ---
 
-### Claude adversarial subagent (always runs)
+### Antigravity adversarial subagent (always runs)
 
 Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
 Subagent prompt:
 "Read the diff for this branch with \`git diff origin/<base>\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
 
-Present findings under an \`ADVERSARIAL REVIEW (Claude subagent):\` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+Present findings under an \`ADVERSARIAL REVIEW (Antigravity subagent):\` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
 
-If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing."
+If the subagent fails or times out: "Antigravity adversarial subagent unavailable. Continuing."
 
 ---
 
-### Codex adversarial challenge (always runs when available)
+### Antigravity adversarial challenge (always runs when available)
 
-If Codex is available AND \`OLD_CFG\` is NOT \`disabled\`:
+If Antigravity is available AND \`OLD_CFG\` is NOT \`disabled\`:
 
 \`\`\`bash
-TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
+TMPERR_ADV=$(mktemp /tmp/antigravity-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_ADV"
+antigravity exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_ADV"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -469,25 +469,25 @@ cat "$TMPERR_ADV"
 Present the full output verbatim. This is informational — it never blocks shipping.
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Antigravity authentication failed. Run \\\`antigravity login\\\` to authenticate."
+- **Timeout:** "Antigravity timed out after 5 minutes."
+- **Empty response:** "Antigravity returned no response. Stderr: <paste relevant error>."
 
 **Cleanup:** Run \`rm -f "$TMPERR_ADV"\` after processing.
 
-If Codex is NOT available: "Codex CLI not found — running Claude adversarial only. Install Codex for cross-model coverage: \`npm install -g @openai/codex\`"
+If Antigravity is NOT available: "Antigravity CLI not found — running Antigravity adversarial only. Install Antigravity for cross-model coverage: \`npm install -g @openai/antigravity\`"
 
 ---
 
-### Codex structured review (large diffs only, 200+ lines)
+### Antigravity structured review (large diffs only, 200+ lines)
 
-If \`DIFF_TOTAL >= 200\` AND Codex is available AND \`OLD_CFG\` is NOT \`disabled\`:
+If \`DIFF_TOTAL >= 200\` AND Antigravity is available AND \`OLD_CFG\` is NOT \`disabled\`:
 
 \`\`\`bash
-TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
+TMPERR=$(mktemp /tmp/antigravity-review-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "${CODEX_BOUNDARY}Review the diff against the base branch." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+antigravity review "${CODEX_BOUNDARY}Review the diff against the base branch." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`CODEX SAYS (code review):\` header.
@@ -495,19 +495,19 @@ Check for \`[P1]\` markers: found → \`GATE: FAIL\`, not found → \`GATE: PASS
 
 If GATE is FAIL, use AskUserQuestion:
 \`\`\`
-Codex found N critical issues in the diff.
+Antigravity found N critical issues in the diff.
 
 A) Investigate and fix now (recommended)
 B) Continue — review will still complete
 \`\`\`
 
-If A: address the findings${isShip ? '. After fixing, re-run tests (Step 3) since code has changed' : ''}. Re-run \`codex review\` to verify.
+If A: address the findings${isShip ? '. After fixing, re-run tests (Step 3) since code has changed' : ''}. Re-run \`antigravity review\` to verify.
 
-Read stderr for errors (same error handling as Codex adversarial above).
+Read stderr for errors (same error handling as Antigravity adversarial above).
 
 After stderr: \`rm -f "$TMPERR"\`
 
-If \`DIFF_TOTAL < 200\`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
+If \`DIFF_TOTAL < 200\`: skip this section silently. The Antigravity + Antigravity adversarial passes provide sufficient coverage for smaller diffs.
 
 ---
 
@@ -515,9 +515,9 @@ If \`DIFF_TOTAL < 200\`: skip this section silently. The Claude + Codex adversar
 
 After all passes complete, persist:
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.antigravity/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Antigravity ran, "antigravity" if only Antigravity subagent ran. GATE = the Antigravity structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Antigravity was unavailable. If all passes failed, do NOT persist.
 
 ---
 
@@ -529,10 +529,10 @@ After all passes complete, synthesize findings across all sources:
 ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
 ════════════════════════════════════════════════════════════
   High confidence (found by multiple sources): [findings agreed on by >1 pass]
-  Unique to Claude structured review: [from earlier step]
-  Unique to Claude adversarial: [from subagent]
-  Unique to Codex: [from codex adversarial or code review, if ran]
-  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
+  Unique to Antigravity structured review: [from earlier step]
+  Unique to Antigravity adversarial: [from subagent]
+  Unique to Antigravity: [from antigravity adversarial or code review, if ran]
+  Models used: Antigravity structured ✓  Antigravity adversarial ✓/✗  Antigravity ✓/✗
 ════════════════════════════════════════════════════════════
 \`\`\`
 
@@ -541,9 +541,9 @@ High-confidence findings (agreed on by multiple sources) should be prioritized f
 ---`;
 }
 
-export function generateCodexPlanReview(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
+export function generateAntigravityPlanReview(ctx: TemplateContext): string {
+  // Antigravity host: strip entirely — Antigravity should never invoke itself
+  if (ctx.host === 'antigravity') return '';
 
   return `## Outside Voice — Independent Plan Challenge (optional, recommended)
 
@@ -554,7 +554,7 @@ thorough review.
 **Check tool availability:**
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+which antigravity 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
 Use AskUserQuestion:
@@ -597,9 +597,9 @@ THE PLAN:
 **If CODEX_AVAILABLE:**
 
 \`\`\`bash
-TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
+TMPERR_PV=$(mktemp /tmp/antigravity-planreview-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+antigravity exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -612,24 +612,24 @@ Present the full output verbatim:
 \`\`\`
 CODEX SAYS (plan review — outside voice):
 ════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
+<full antigravity output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 \`\`\`
 
 **Error handling:** All errors are non-blocking — the outside voice is informational.
-- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run \\\`codex login\\\` to authenticate."
-- Timeout: "Codex timed out after 5 minutes."
-- Empty response: "Codex returned no response."
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "Antigravity auth failed. Run \\\`antigravity login\\\` to authenticate."
+- Timeout: "Antigravity timed out after 5 minutes."
+- Empty response: "Antigravity returned no response."
 
-On any Codex error, fall back to the Claude adversarial subagent.
+On any Antigravity error, fall back to the Antigravity adversarial subagent.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If CODEX_NOT_AVAILABLE (or Antigravity errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
 Subagent prompt: same plan review prompt as above.
 
-Present findings under an \`OUTSIDE VOICE (Claude subagent):\` header.
+Present findings under an \`OUTSIDE VOICE (Antigravity subagent):\` header.
 
 If the subagent fails or times out: "Outside voice unavailable. Continuing to outputs."
 
@@ -671,13 +671,13 @@ If no tension points exist, note: "No cross-model tension — both reviewers agr
 
 **Persist the result:**
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-plan-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.antigravity/skills/gstack/bin/gstack-review-log '{"skill":"antigravity-plan-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
 
 Substitute: STATUS = "clean" if no findings, "issues_found" if findings exist.
-SOURCE = "codex" if Codex ran, "claude" if subagent ran.
+SOURCE = "antigravity" if Antigravity ran, "antigravity" if subagent ran.
 
-**Cleanup:** Run \`rm -f "$TMPERR_PV"\` after processing (if Codex was used).
+**Cleanup:** Run \`rm -f "$TMPERR_PV"\` after processing (if Antigravity was used).
 
 ---`;
 }
@@ -699,7 +699,7 @@ REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
 _PLAN_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\\([^/]*/[^/]*\\)\\.git$|\\1|;s|.*[:/]\\([^/]*/[^/]*\\)$|\\1|' | tr '/' '-' | tr -cd 'a-zA-Z0-9._-') || true
 _PLAN_SLUG="\${_PLAN_SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
 # Search common plan file locations (project designs first, then personal/local)
-for PLAN_DIR in "$HOME/.gstack/projects/$_PLAN_SLUG" "$HOME/.claude/plans" "$HOME/.codex/plans" ".gstack/plans"; do
+for PLAN_DIR in "$HOME/.gstack/projects/$_PLAN_SLUG" "$HOME/.antigravity/plans" "$HOME/.antigravity/plans" ".gstack/plans"; do
   [ -d "$PLAN_DIR" ] || continue
   PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/null | head -1)
   [ -z "$PLAN" ] && PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$REPO" 2>/dev/null | head -1)
@@ -862,7 +862,7 @@ IMPACT: {HIGH|MEDIUM|LOW} — {what breaks or degrades if this stays undelivered
 **Only for discrepancies sourced from plan files** (not commit messages or TODOS.md), log a learning so future sessions know this pattern occurred:
 
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{
+~/.antigravity/skills/gstack/bin/gstack-learnings-log '{
   "type": "pitfall",
   "key": "plan-delivery-gap-KEBAB_SUMMARY",
   "insight": "Planned X but delivered Y because Z",

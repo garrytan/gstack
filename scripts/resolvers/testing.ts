@@ -129,9 +129,9 @@ Write TESTING.md with:
 - Test layers: Unit tests (what, where, when), Integration tests, Smoke tests, E2E tests
 - Conventions: file naming, assertion style, setup/teardown patterns
 
-### B7. Update CLAUDE.md
+### B7. Update GEMINI.md
 
-First check: If CLAUDE.md already has a \`## Testing\` section → skip. Don't duplicate.
+First check: If GEMINI.md already has a \`## Testing\` section → skip. Don't duplicate.
 
 Append a \`## Testing\` section:
 - Run command and test directory
@@ -150,7 +150,7 @@ Append a \`## Testing\` section:
 git status --porcelain
 \`\`\`
 
-Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, GEMINI.md, .github/workflows/test.yml if created):
 \`git commit -m "chore: bootstrap test framework ({framework name})"\`
 
 ---`;
@@ -197,8 +197,8 @@ function generateTestCoverageAuditInner(mode: CoverageAuditMode): string {
 
 Before analyzing coverage, detect the project's test framework:
 
-1. **Read CLAUDE.md** — look for a \`## Testing\` section with test command and framework name. If found, use that as the authoritative source.
-2. **If CLAUDE.md has no testing section, auto-detect:**
+1. **Read GEMINI.md** — look for a \`## Testing\` section with test command and framework name. If found, use that as the authoritative source.
+2. **If GEMINI.md has no testing section, auto-detect:**
 
 \`\`\`bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
@@ -401,7 +401,7 @@ The plan should be complete enough that when implementation begins, every test i
 After producing the coverage diagram, write a test plan artifact to the project directory so \`/qa\` and \`/qa-only\` can consume it as primary test input:
 
 \`\`\`bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.antigravity/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 \`\`\`
@@ -460,7 +460,7 @@ Coverage line: \`Test Coverage Audit: N new code paths. M covered (X%). K tests 
 
 **7. Coverage gate:**
 
-Before proceeding, check CLAUDE.md for a \`## Test Coverage\` section with \`Minimum:\` and \`Target:\` fields. If found, use those percentages. Otherwise use defaults: Minimum = 60%, Target = 80%.
+Before proceeding, check GEMINI.md for a \`## Test Coverage\` section with \`Minimum:\` and \`Target:\` fields. If found, use those percentages. Otherwise use defaults: Minimum = 60%, Target = 80%.
 
 Using the coverage percentage from the diagram in substep 4 (the \`COVERAGE: X/Y (Z%)\` line):
 
@@ -498,7 +498,7 @@ Using the coverage percentage from the diagram in substep 4 (the \`COVERAGE: X/Y
 After producing the coverage diagram, write a test plan artifact so \`/qa\` and \`/qa-only\` can consume it:
 
 \`\`\`bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.antigravity/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 \`\`\`
@@ -543,7 +543,7 @@ If no test framework detected → include gaps as INFORMATIONAL findings only, n
 
 ### Coverage Warning
 
-After producing the coverage diagram, check the coverage percentage. Read CLAUDE.md for a \`## Test Coverage\` section with a \`Minimum:\` field. If not found, use default: 60%.
+After producing the coverage diagram, check the coverage percentage. Read GEMINI.md for a \`## Test Coverage\` section with a \`Minimum:\` field. If not found, use default: 60%.
 
 If coverage is below the minimum threshold, output a prominent warning **before** the regular review findings:
 

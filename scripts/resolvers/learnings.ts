@@ -14,8 +14,8 @@
 import type { TemplateContext } from './types';
 
 export function generateLearningsSearch(ctx: TemplateContext): string {
-  if (ctx.host === 'codex') {
-    // Codex: simpler version, no cross-project, uses $GSTACK_BIN
+  if (ctx.host === 'antigravity') {
+    // Antigravity: simpler version, no cross-project, uses $GSTACK_BIN
     return `## Prior Learnings
 
 Search for relevant learnings from previous sessions on this project:
@@ -68,7 +68,7 @@ smarter on their codebase over time.`;
 }
 
 export function generateLearningsLog(ctx: TemplateContext): string {
-  const binDir = ctx.host === 'codex' ? '$GSTACK_BIN' : ctx.paths.binDir;
+  const binDir = ctx.host === 'antigravity' ? '$GSTACK_BIN' : ctx.paths.binDir;
 
   return `## Capture Learnings
 
@@ -84,7 +84,7 @@ ${binDir}/gstack-learnings-log '{"skill":"${ctx.skillName}","type":"TYPE","key":
 \`operational\` (project environment/CLI/workflow knowledge).
 
 **Sources:** \`observed\` (you found this in the code), \`user-stated\` (user told you),
-\`inferred\` (AI deduction), \`cross-model\` (both Claude and Codex agree).
+\`inferred\` (AI deduction), \`cross-model\` (both Antigravity and Antigravity agree).
 
 **Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
 An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.

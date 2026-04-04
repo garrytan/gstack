@@ -1,8 +1,8 @@
 /**
- * Claude CLI subprocess runner for skill E2E testing.
+ * Antigravity CLI subprocess runner for skill E2E testing.
  *
- * Spawns `claude -p` as a completely independent process (not via Agent SDK),
- * so it works inside Claude Code sessions. Pipes prompt via stdin, streams
+ * Spawns `antigravity -p` as a completely independent process (not via Agent SDK),
+ * so it works inside Antigravity Code sessions. Pipes prompt via stdin, streams
  * NDJSON output for real-time progress, scans for browse errors.
  */
 
@@ -124,7 +124,7 @@ export async function runSkillTest(options: {
   timeout?: number;
   testName?: string;
   runId?: string;
-  /** Model to use. Defaults to claude-sonnet-4-6 (overridable via EVALS_MODEL env). */
+  /** Model to use. Defaults to antigravity-sonnet-4-6 (overridable via EVALS_MODEL env). */
   model?: string;
 }): Promise<SkillTestResult> {
   const {
@@ -136,7 +136,7 @@ export async function runSkillTest(options: {
     testName,
     runId,
   } = options;
-  const model = options.model ?? process.env.EVALS_MODEL ?? 'claude-sonnet-4-6';
+  const model = options.model ?? process.env.EVALS_MODEL ?? 'antigravity-sonnet-4-6';
 
   const startTime = Date.now();
   const startedAt = new Date().toISOString();
@@ -151,7 +151,7 @@ export async function runSkillTest(options: {
     } catch { /* non-fatal */ }
   }
 
-  // Spawn claude -p with streaming NDJSON output. Prompt piped via stdin to
+  // Spawn antigravity -p with streaming NDJSON output. Prompt piped via stdin to
   // avoid shell escaping issues. --verbose is required for stream-json mode.
   const args = [
     '-p',
@@ -169,7 +169,7 @@ export async function runSkillTest(options: {
   const promptFile = path.join(os.tmpdir(), `.prompt-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   fs.writeFileSync(promptFile, prompt);
 
-  const proc = Bun.spawn(['sh', '-c', `cat "${promptFile}" | claude ${args.map(a => `"${a}"`).join(' ')}`], {
+  const proc = Bun.spawn(['sh', '-c', `cat "${promptFile}" | antigravity ${args.map(a => `"${a}"`).join(' ')}`], {
     cwd: workingDirectory,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -304,7 +304,7 @@ export async function runSkillTest(options: {
   // Use resultLine for structured result data
   if (resultLine) {
     if (resultLine.is_error) {
-      // claude -p can return subtype=success with is_error=true (e.g. API connection failure)
+      // antigravity -p can return subtype=success with is_error=true (e.g. API connection failure)
       exitReason = 'error_api';
     } else if (resultLine.subtype === 'success') {
       exitReason = 'success';

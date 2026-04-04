@@ -110,13 +110,13 @@ export class BrowserManager {
       // Relative to this source file (dev mode: browse/src/ -> ../../extension)
       path.resolve(__dirname, '..', '..', 'extension'),
       // Global gstack install
-      path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'extension'),
+      path.join(process.env.HOME || '', '.antigravity', 'skills', 'gstack', 'extension'),
       // Git repo root (detected via BROWSE_STATE_FILE location)
       (() => {
         const stateFile = process.env.BROWSE_STATE_FILE || '';
         if (stateFile) {
           const repoRoot = path.resolve(path.dirname(stateFile), '..');
-          return path.join(repoRoot, '.claude', 'skills', 'gstack', 'extension');
+          return path.join(repoRoot, '.antigravity', 'skills', 'gstack', 'extension');
         }
         return '';
       })(),
@@ -209,7 +209,7 @@ export class BrowserManager {
    * load extensions).
    *
    * The browser launches headed with a visible window — the user sees
-   * every action Claude takes in real time.
+   * every action Antigravity takes in real time.
    */
   async launchHeaded(authToken?: string): Promise<void> {
     // Clear old state before repopulating

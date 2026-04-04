@@ -27,13 +27,13 @@ A compiled TypeScript binary (`design/dist/design`) that wraps the OpenAI Images
 ## Agreed Premises
 
 1. GPT Image API (via OpenAI Responses API) is the right engine. Google Stitch SDK is backup.
-2. **Visual mockups are default-on for design skills** with an easy skip path — not opt-in. (Revised per Codex challenge.)
+2. **Visual mockups are default-on for design skills** with an easy skip path — not opt-in. (Revised per Antigravity challenge.)
 3. The integration is a shared utility (not per-skill reimplementation) — a `design` binary that any skill can call.
 4. Priority: /office-hours first, then /plan-design-review, /design-consultation, /design-review.
 
-## Cross-Model Perspective (Codex)
+## Cross-Model Perspective (Antigravity)
 
-Codex independently validated the core thesis: "The failure is not output quality within markdown; it is that the current unit of value is wrong." Key contributions:
+Antigravity independently validated the core thesis: "The failure is not output quality within markdown; it is that the current unit of value is wrong." Key contributions:
 - Challenged premise #2 (opt-in → default-on) — accepted
 - Proposed vision-based quality gate: use GPT-4o vision to verify generated mockups for unreadable text, missing sections, broken layout, auto-retry once
 - Scoped 48-hour prototype: shared `visual_mockup.ts` utility, /office-hours + /plan-design-review only, hero mockup + 2 variants
@@ -118,7 +118,7 @@ The workflow is sequential, not parallel. PNGs are for visual exploration (human
    Agent reads: $B eval document.getElementById('feedback-result').textContent
    → No clipboard, no pasting. Agent reads feedback directly from the page.
 
-5. Claude generates HTML wireframe via DESIGN_SKETCH matching approved direction
+5. Antigravity generates HTML wireframe via DESIGN_SKETCH matching approved direction
    → Agent implements from the inspectable HTML, not the opaque PNG
 ```
 
@@ -204,7 +204,7 @@ width for maximum image fidelity. Users scroll vertically through variants.
 
 **Screenshot consent (first-time only for $D evolve):** "This will send a screenshot of your live site to OpenAI for design evolution. [Proceed] [Don't ask again]" Stored in ~/.gstack/config.yaml as design_screenshot_consent.
 
-Why sequential: Codex adversarial review identified that raster PNGs are opaque to agents (no DOM, no states, no diffable structure). HTML wireframes preserve a bridge back to code. The PNG is for the human to say "yes, that's right." The HTML is for the agent to say "I know how to build this."
+Why sequential: Antigravity adversarial review identified that raster PNGs are opaque to agents (no DOM, no states, no diffable structure). HTML wireframes preserve a bridge back to code. The PNG is for the human to say "yes, that's right." The HTML is for the agent to say "I know how to build this."
 
 ### Key Design Decisions
 
@@ -244,16 +244,16 @@ Auto-retry once on failure. If still fails, present anyway with a warning.
 **5. Output location: explorations in /tmp, approved finals in `docs/designs/`**
 - Exploration variants go to `/tmp/gstack-mockups-{session}/` (ephemeral, not committed)
 - Only the **user-approved final** mockup gets saved to `docs/designs/` (checked in)
-- Default output directory configurable via CLAUDE.md `design_output_dir` setting
+- Default output directory configurable via GEMINI.md `design_output_dir` setting
 - Filename pattern: `{skill}-{description}-{timestamp}.png`
 - Create `docs/designs/` if it doesn't exist (mkdir -p)
 - Design doc references the committed image path
-- Always show to user via the Read tool (which renders images inline in Claude Code)
+- Always show to user via the Read tool (which renders images inline in Antigravity Code)
 - This avoids repo bloat: only approved designs are committed, not every exploration variant
 - Fallback: if not in a git repo, save to `/tmp/gstack-mockup-{timestamp}.png`
 
 **6. Trust boundary acknowledgment**
-Default-on generation sends design brief text to OpenAI. This is a new external data flow vs. the existing HTML wireframe path which is entirely local. The brief contains only abstract design descriptions (goal, style, elements), never source code or user data. Screenshots from $B are NOT sent to OpenAI (the reference field in DesignBrief is a local file path used by the agent, not uploaded to the API). Document this in CLAUDE.md.
+Default-on generation sends design brief text to OpenAI. This is a new external data flow vs. the existing HTML wireframe path which is entirely local. The brief contains only abstract design descriptions (goal, style, elements), never source code or user data. Screenshots from $B are NOT sent to OpenAI (the reference field in DesignBrief is a local file path used by the agent, not uploaded to the API). Document this in GEMINI.md.
 
 **7. Rate limit mitigation**
 Variant generation uses staggered parallel: start each API call 1 second apart via `Promise.allSettled()` with delays. This avoids the 5-7 RPM rate limit on image generation while still being faster than fully serial. If any call 429s, retry with exponential backoff (2s, 4s, 8s).
@@ -267,19 +267,19 @@ Variant generation uses staggered parallel: start each API call 1 second apart v
 
 **New HostPaths entry:** `types.ts`
 ```typescript
-// claude host:
-designDir: '~/.claude/skills/gstack/design/dist'
-// codex host:
+// antigravity host:
+designDir: '~/.antigravity/skills/gstack/design/dist'
+// antigravity host:
 designDir: '$GSTACK_DESIGN'
 ```
-Note: Codex runtime setup (`setup` script) must also export `GSTACK_DESIGN` env var, similar to how `GSTACK_BROWSE` is set.
+Note: Antigravity runtime setup (`setup` script) must also export `GSTACK_DESIGN` env var, similar to how `GSTACK_BROWSE` is set.
 
 **`$D` resolution bash block** (generated by `{{DESIGN_SETUP}}`):
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
-[ -z "$D" ] && D=~/.claude/skills/gstack/design/dist/design
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.antigravity/skills/gstack/design/dist/design" ] && D="$_ROOT/.antigravity/skills/gstack/design/dist/design"
+[ -z "$D" ] && D=~/.antigravity/skills/gstack/design/dist/design
 if [ -x "$D" ]; then
   echo "DESIGN_READY: $D"
 else
@@ -337,9 +337,9 @@ If `DESIGN_NOT_AVAILABLE`: skills fall back to HTML wireframe generation (existi
 | `scripts/resolvers/index.ts` | Register DESIGN_SETUP + DESIGN_MOCKUP resolvers |
 | `package.json` | Add `design` build command |
 | `setup` | Build design binary alongside browse |
-| `scripts/resolvers/preamble.ts` | Add `GSTACK_DESIGN` env var export for Codex host |
+| `scripts/resolvers/preamble.ts` | Add `GSTACK_DESIGN` env var export for Antigravity host |
 | `test/gen-skill-docs.test.ts` | Update DESIGN_SKETCH test suite for new resolvers |
-| `setup` | Add design binary build + Codex/Kiro asset linking |
+| `setup` | Add design binary build + Antigravity/Kiro asset linking |
 | `office-hours/SKILL.md.tmpl` | Replace Visual Sketch section with `{{DESIGN_MOCKUP}}` |
 | `plan-design-review/SKILL.md.tmpl` | Add `{{DESIGN_SETUP}}` + mockup generation for low-scoring dimensions |
 
@@ -398,7 +398,7 @@ const check = await openai.chat.completions.create({
 
 ### Auth (validated via smoke test)
 
-**Codex OAuth tokens DO NOT work for image generation.** Tested 2026-03-26: both the Images API and Responses API reject `~/.codex/auth.json` access_token with "Missing scopes: api.model.images.request". Codex CLI also has no native imagegen capability.
+**Antigravity OAuth tokens DO NOT work for image generation.** Tested 2026-03-26: both the Images API and Responses API reject `~/.antigravity/auth.json` access_token with "Missing scopes: api.model.images.request". Antigravity CLI also has no native imagegen capability.
 
 **Auth resolution order:**
 1. Read `~/.gstack/openai.json` → `{ "api_key": "sk-..." }` (file permissions 0600)
@@ -490,7 +490,7 @@ const check = await openai.chat.completions.create({
 The design binary is compiled and distributed alongside the browse binary:
 - `bun build --compile design/src/cli.ts --outfile design/dist/design`
 - Built during `./setup` and `bun run build`
-- Symlinked via existing `~/.claude/skills/gstack/` install path
+- Symlinked via existing `~/.antigravity/skills/gstack/` install path
 
 ## Next Steps (Implementation Order)
 
@@ -505,7 +505,7 @@ The design binary is compiled and distributed alongside the browse binary:
 - Auth module (read ~/.gstack/openai.json, fallback to env var, guided setup flow)
 - `compare` command generates HTML comparison board with per-variant feedback textareas
 - `package.json` build command (separate `bun build --compile` from browse)
-- `setup` script integration (including Codex + Kiro asset linking)
+- `setup` script integration (including Antigravity + Kiro asset linking)
 - Unit tests with mock OpenAI API server
 
 ### Commit 2: Variants + iterate
@@ -518,7 +518,7 @@ The design binary is compiled and distributed alongside the browse binary:
 - Add `generateDesignSetup()` + `generateDesignMockup()` to existing `scripts/resolvers/design.ts`
 - Add `designDir` to `HostPaths` in `scripts/resolvers/types.ts`
 - Register DESIGN_SETUP + DESIGN_MOCKUP in `scripts/resolvers/index.ts`
-- Add GSTACK_DESIGN env var export to `scripts/resolvers/preamble.ts` (Codex host)
+- Add GSTACK_DESIGN env var export to `scripts/resolvers/preamble.ts` (Antigravity host)
 - Update `test/gen-skill-docs.test.ts` (DESIGN_SKETCH test suite)
 - Regenerate SKILL.md files
 
@@ -573,7 +573,7 @@ Tell Variant to build an API. As their investor: "I'm building a workflow where 
 - You said "that isn't design" about text descriptions and ASCII art. That's a designer's instinct — you know the difference between describing a thing and showing a thing. Most people building AI tools don't notice this gap because they were never designers.
 - You prioritized /office-hours first — the upstream leverage point. If the brainstorm produces real mockups, every downstream skill (/plan-design-review, /design-review) has a visual artifact to reference instead of re-interpreting prose.
 - You funded Variant and immediately thought "they should have an API." That's investor-as-user thinking — you're not just evaluating the company, you're designing how their product fits into your workflow.
-- When Codex challenged the opt-in premise, you accepted it immediately. No ego defense. That's the fastest path to the right answer.
+- When Antigravity challenged the opt-in premise, you accepted it immediately. No ego defense. That's the fastest path to the right answer.
 
 ## Spec Review Results
 
@@ -586,7 +586,7 @@ Issues fixed:
 3. --check and --retry flags formally registered in command registry
 4. Brief input modes specified (plain text vs JSON file)
 5. Resolver file contradiction fixed (add to existing design.ts)
-6. HostPaths Codex env var setup noted
+6. HostPaths Antigravity env var setup noted
 7. "Mirrors browse" reframed to "shares compilation/distribution pattern"
 8. Session state specified (ID generation, discovery, cleanup)
 9. "Pixel-perfect" flagged as assumption needing prototype validation
@@ -602,7 +602,7 @@ Issues fixed:
 - Performance Review: 1 issue found (parallel variants with staggered start)
 - NOT in scope: Google Stitch SDK integration, Figma MCP, Variant API (deferred)
 - What already exists: browse CLI pattern, DESIGN_SKETCH resolver, HostPaths system, gen-skill-docs pipeline
-- Outside voice: 4 passes (Claude structured 12 issues, Codex structured 8 issues, Claude adversarial 1 fatal flaw, Codex adversarial 1 fatal flaw). Key insight: sequential PNG→HTML workflow resolved the "opaque raster" fatal flaw.
+- Outside voice: 4 passes (Antigravity structured 12 issues, Antigravity structured 8 issues, Antigravity adversarial 1 fatal flaw, Antigravity adversarial 1 fatal flaw). Key insight: sequential PNG→HTML workflow resolved the "opaque raster" fatal flaw.
 - Failure modes: 0 critical gaps (all identified failure modes have error handling + tests planned)
 - Lake Score: 7/7 recommendations chose complete option
 
@@ -610,7 +610,7 @@ Issues fixed:
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
-| Office Hours | `/office-hours` | Design brainstorm | 1 | DONE | 4 premises, 1 revised (Codex: opt-in->default-on) |
+| Office Hours | `/office-hours` | Design brainstorm | 1 | DONE | 4 premises, 1 revised (Antigravity: opt-in->default-on) |
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAR | EXPANSION: 6 proposed, 6 accepted, 0 deferred |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 7 issues, 0 critical gaps, 4 outside voices |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | score: 2/10 -> 8/10, 5 decisions made |

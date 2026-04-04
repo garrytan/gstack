@@ -1,4 +1,4 @@
-export type Host = 'claude' | 'codex' | 'factory';
+export type Host = 'antigravity' | 'antigravity' | 'factory' | 'antigravity';
 
 export interface HostPaths {
   skillRoot: string;
@@ -9,14 +9,14 @@ export interface HostPaths {
 }
 
 export const HOST_PATHS: Record<Host, HostPaths> = {
-  claude: {
-    skillRoot: '~/.claude/skills/gstack',
-    localSkillRoot: '.claude/skills/gstack',
-    binDir: '~/.claude/skills/gstack/bin',
-    browseDir: '~/.claude/skills/gstack/browse/dist',
-    designDir: '~/.claude/skills/gstack/design/dist',
+  antigravity: {
+    skillRoot: '~/.antigravity/skills/gstack',
+    localSkillRoot: '.antigravity/skills/gstack',
+    binDir: '~/.antigravity/skills/gstack/bin',
+    browseDir: '~/.antigravity/skills/gstack/browse/dist',
+    designDir: '~/.antigravity/skills/gstack/design/dist',
   },
-  codex: {
+  antigravity: {
     skillRoot: '$GSTACK_ROOT',
     localSkillRoot: '.agents/skills/gstack',
     binDir: '$GSTACK_BIN',
@@ -29,6 +29,13 @@ export const HOST_PATHS: Record<Host, HostPaths> = {
     binDir: '$GSTACK_BIN',
     browseDir: '$GSTACK_BROWSE',
     designDir: '$GSTACK_DESIGN',
+  },
+  antigravity: {
+    skillRoot: '~/.gemini/antigravity/skills',
+    localSkillRoot: '.gemini/antigravity/skills',
+    binDir: '~/.gemini/antigravity/skills/bin',
+    browseDir: '~/.gemini/antigravity/skills/browse/dist',
+    designDir: '~/.gemini/antigravity/skills/design/dist',
   },
 };
 

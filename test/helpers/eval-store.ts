@@ -23,7 +23,7 @@ const LEGACY_EVAL_DIR = path.join(os.homedir(), '.gstack-dev', 'evals');
 export function getProjectEvalDir(): string {
   try {
     // Try repo-local gstack-slug first, then global install
-    const localSlug = spawnSync('bash', ['-c', '.claude/skills/gstack/bin/gstack-slug 2>/dev/null || ~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null'], {
+    const localSlug = spawnSync('bash', ['-c', '.antigravity/skills/gstack/bin/gstack-slug 2>/dev/null || ~/.antigravity/skills/gstack/bin/gstack-slug 2>/dev/null'], {
       stdio: 'pipe', timeout: 3000,
     });
     const output = localSlug.stdout?.toString().trim();
@@ -68,7 +68,7 @@ export interface EvalTestEntry {
   last_tool_call?: string;    // e.g. "Write(review-output.md)"
 
   // Model + timing diagnostics (added for Sonnet/Opus split)
-  model?: string;                // e.g. 'claude-sonnet-4-6' or 'claude-opus-4-6'
+  model?: string;                // e.g. 'antigravity-sonnet-4-6' or 'antigravity-opus-4-6'
   first_response_ms?: number;    // time from spawn to first NDJSON line
   max_inter_turn_ms?: number;    // peak latency between consecutive tool calls
 

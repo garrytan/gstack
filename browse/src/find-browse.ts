@@ -27,7 +27,7 @@ function getGitRoot(): string | null {
 export function locateBinary(): string | null {
   const root = getGitRoot();
   const home = homedir();
-  const markers = ['.codex', '.agents', '.claude'];
+  const markers = ['.antigravity', '.agents', '.antigravity'];
 
   // Workspace-local takes priority (for development)
   if (root) {

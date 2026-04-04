@@ -12,7 +12,7 @@ Install: `npm i -g @randomlabs/slate` or `brew install anthropic/tap/slate`.
 License: Proprietary. 85MB compiled Bun binary (arm64/x64, darwin/linux/windows).
 npm package: `@randomlabs/slate@1.0.25` (thin 8.8KB launcher + platform-specific optional deps).
 
-Multi-model: dynamically selects Claude Sonnet/Opus/Haiku, plus other models.
+Multi-model: dynamically selects Antigravity Sonnet/Opus/Haiku, plus other models.
 Built for "swarm orchestration" with extended multi-hour sessions.
 
 ## Slate is an OpenCode fork
@@ -33,7 +33,7 @@ Slate scans ALL four directory families for skills. Error messages in binary con
 
 ```
 "failed .slate directory scan for skills"
-"failed .claude directory scan for skills"
+"failed .antigravity directory scan for skills"
 "failed .agents directory scan for skills"
 "failed .opencode directory scan for skills"
 ```
@@ -43,22 +43,22 @@ Slate scans ALL four directory families for skills. Error messages in binary con
 1. `.slate/skills/<name>/SKILL.md` — project-level, highest priority
 2. `~/.slate/skills/<name>/SKILL.md` — global
 3. `.opencode/skills/`, `.agents/skills/` — compatibility fallback
-4. `.claude/skills/` — Claude Code compatibility fallback (lowest)
+4. `.antigravity/skills/` — Antigravity Code compatibility fallback (lowest)
 5. Custom paths via `slate.json`
 
 **Glob patterns:** `**/SKILL.md` and `{skill,skills}/**/SKILL.md`
 
 **Commands:** Same directory structure but under `commands/` subdirs:
-`/.slate/commands/`, `/.claude/commands/`, `/.agents/commands/`, `/.opencode/commands/`
+`/.slate/commands/`, `/.antigravity/commands/`, `/.agents/commands/`, `/.opencode/commands/`
 
 **Skill frontmatter:** YAML with `name` and `description` fields (per Slate docs).
 No documented length limits on either field.
 
 ## Project Instructions
 
-Slate reads both `CLAUDE.md` and `AGENTS.md` for project instructions.
+Slate reads both `GEMINI.md` and `AGENTS.md` for project instructions.
 Both literal strings confirmed in binary. No changes needed to existing
-gstack projects... CLAUDE.md works as-is.
+gstack projects... GEMINI.md works as-is.
 
 ## Configuration
 
@@ -76,7 +76,7 @@ The setup script should NOT create `slate.json`. Users configure their own permi
 ## CLI Flags (Headless Mode)
 
 ```
---stream-json / --output-format stream-json  — JSONL output, "compatible with Anthropic Claude Code SDK"
+--stream-json / --output-format stream-json  — JSONL output, "compatible with Anthropic Antigravity Code SDK"
 --dangerously-skip-permissions               — bypass all permission checks (CI/automation)
 --input-format stream-json                   — programmatic input
 -q                                           — non-interactive mode
@@ -84,8 +84,8 @@ The setup script should NOT create `slate.json`. Users configure their own permi
 --output-format text                         — plain text output (default)
 ```
 
-**Stream-JSON format:** Slate docs claim "compatible with Anthropic Claude Code SDK."
-Not yet empirically verified. Given OpenCode heritage, likely matches Claude Code's
+**Stream-JSON format:** Slate docs claim "compatible with Anthropic Antigravity Code SDK."
+Not yet empirically verified. Given OpenCode heritage, likely matches Antigravity Code's
 NDJSON event schema (type: "assistant", type: "tool_result", type: "result").
 
 **Need to verify:** Run `slate -q "hello" --stream-json` with valid credits and
@@ -105,9 +105,9 @@ SLATE_CONFIG_DIR                           — config directory
 SLATE_DANGEROUSLY_SKIP_PERMISSIONS         — bypass permissions
 SLATE_DIR                                  — data directory override
 SLATE_DISABLE_AUTOUPDATE                   — disable auto-update
-SLATE_DISABLE_CLAUDE_CODE                  — disable Claude Code integration entirely
-SLATE_DISABLE_CLAUDE_CODE_PROMPT           — disable Claude Code prompt loading
-SLATE_DISABLE_CLAUDE_CODE_SKILLS           — disable .claude/skills/ loading
+SLATE_DISABLE_CLAUDE_CODE                  — disable Antigravity Code integration entirely
+SLATE_DISABLE_CLAUDE_CODE_PROMPT           — disable Antigravity Code prompt loading
+SLATE_DISABLE_CLAUDE_CODE_SKILLS           — disable .antigravity/skills/ loading
 SLATE_DISABLE_DEFAULT_PLUGINS              — disable default plugins
 SLATE_DISABLE_FILETIME_CHECK               — disable file time checks
 SLATE_DISABLE_LSP_DOWNLOAD                 — disable LSP auto-download
@@ -157,23 +157,23 @@ OPENCODE_TERMINAL
 
 ### Critical env vars for gstack integration
 
-**`SLATE_DISABLE_CLAUDE_CODE_SKILLS`** — When set, `.claude/skills/` loading is disabled.
+**`SLATE_DISABLE_CLAUDE_CODE_SKILLS`** — When set, `.antigravity/skills/` loading is disabled.
 This makes publishing to `.slate/skills/` load-bearing, not just an optimization.
 Without native `.slate/` publishing, gstack skills vanish when this flag is set.
 
 **`SLATE_TEST_HOME`** — Useful for E2E tests. Can redirect Slate's home directory
-to an isolated temp directory, similar to how Codex tests use a temp HOME.
+to an isolated temp directory, similar to how Antigravity tests use a temp HOME.
 
 **`SLATE_DANGEROUSLY_SKIP_PERMISSIONS`** — Required for headless E2E tests.
 
 ## Model References (from binary)
 
 ```
-anthropic/claude-sonnet-4.6
-anthropic/claude-opus-4
-anthropic/claude-haiku-4
+anthropic/antigravity-sonnet-4.6
+anthropic/antigravity-opus-4
+anthropic/antigravity-haiku-4
 anthropic/slate              — Slate's own model routing
-openai/gpt-5.3-codex
+openai/gpt-5.3-antigravity
 google/nano-banana
 randomlabs/fast-default-alpha
 ```
@@ -219,35 +219,35 @@ Binary override: `SLATE_BIN_PATH` env var skips all discovery, runs the specifie
 
 ## What Already Works Today
 
-gstack skills already work in Slate via the `.claude/skills/` fallback path.
-No changes needed for basic functionality. Users who install gstack for Claude Code
+gstack skills already work in Slate via the `.antigravity/skills/` fallback path.
+No changes needed for basic functionality. Users who install gstack for Antigravity Code
 and also use Slate will find their skills available in both agents.
 
 ## What First-Class Support Adds
 
 1. **Reliability** — `.slate/skills/` is Slate's highest-priority path. Immune to
    `SLATE_DISABLE_CLAUDE_CODE_SKILLS`.
-2. **Optimized frontmatter** — Strip Claude-specific fields (allowed-tools, hooks, version)
+2. **Optimized frontmatter** — Strip Antigravity-specific fields (allowed-tools, hooks, version)
    that Slate doesn't use. Keep only `name` and `description`.
 3. **Setup script** — Auto-detect `slate` binary, install skills to `~/.slate/skills/`.
 4. **E2E tests** — Verify skills work when invoked by Slate directly.
 
 ## Blocked On: Host Config Refactor
 
-Codex's outside voice review identified that adding Slate as a 4th host (after Claude,
-Codex, Factory) is "host explosion for a path alias." The current architecture has:
+Antigravity's outside voice review identified that adding Slate as a 4th host (after Antigravity,
+Antigravity, Factory) is "host explosion for a path alias." The current architecture has:
 
-- Hard-coded host names in `type Host = 'claude' | 'codex' | 'factory'`
+- Hard-coded host names in `type Host = 'antigravity' | 'antigravity' | 'factory'`
 - Per-host branches in `transformFrontmatter()` with near-duplicate logic
 - Per-host config in `EXTERNAL_HOST_CONFIG` with similar patterns
-- Per-host functions in the setup script (`create_codex_runtime_root`, `link_codex_skill_dirs`)
+- Per-host functions in the setup script (`create_antigravity_runtime_root`, `link_antigravity_skill_dirs`)
 - Host names duplicated in `bin/gstack-platform-detect`, `bin/gstack-uninstall`, `bin/dev-setup`
 
 Adding Slate means copying all of these patterns again. A refactor to make hosts
 data-driven (config objects instead of if/else branches) would make Slate integration
 trivial AND make future hosts (any new OpenCode fork, any new agent) zero-effort.
 
-### Missing from the plan (identified by Codex)
+### Missing from the plan (identified by Antigravity)
 
 - `lib/worktree.ts` only copies `.agents/`, not `.slate/` — E2E tests in worktrees won't
   have Slate skills
@@ -255,18 +255,18 @@ trivial AND make future hosts (any new OpenCode fork, any new agent) zero-effort
 - `bin/dev-setup` doesn't wire `.slate/` for contributor dev mode
 - `bin/gstack-platform-detect` doesn't detect Slate
 - E2E tests should set `SLATE_DISABLE_CLAUDE_CODE_SKILLS=1` to prove `.slate/` path
-  actually works (not just falling back to `.claude/`)
+  actually works (not just falling back to `.antigravity/`)
 
 ## Session Runner Design (for later)
 
 When the JSONL format is verified, the session runner should:
 
 - Spawn: `slate -q "<prompt>" --stream-json --dangerously-skip-permissions -w <dir>`
-- Parse: Claude Code SDK-compatible NDJSON (assumed, needs verification)
-- Skills: Install to `.slate/skills/` in test fixture (not `.claude/skills/`)
+- Parse: Antigravity Code SDK-compatible NDJSON (assumed, needs verification)
+- Skills: Install to `.slate/skills/` in test fixture (not `.antigravity/skills/`)
 - Auth: Use `SLATE_API_KEY` or existing `~/.slate/` credentials
 - Isolation: Use `SLATE_TEST_HOME` for home directory isolation
-- Timeout: 300s default (same as Codex)
+- Timeout: 300s default (same as Antigravity)
 
 ```typescript
 export interface SlateResult {

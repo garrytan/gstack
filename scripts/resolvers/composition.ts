@@ -1,7 +1,7 @@
 import type { TemplateContext } from './types';
 
 /**
- * {{INVOKE_SKILL:skill-name}} — emits prose instructing Claude to read
+ * {{INVOKE_SKILL:skill-name}} — emits prose instructing Antigravity to read
  * another skill's SKILL.md and follow it, skipping preamble sections.
  *
  * Supports optional skip= parameter for additional sections to skip:

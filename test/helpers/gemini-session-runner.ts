@@ -3,10 +3,10 @@
  *
  * Spawns `gemini -p` as an independent process, parses its stream-json
  * output, and returns structured results. Follows the same pattern as
- * codex-session-runner.ts but adapted for the Gemini CLI.
+ * antigravity-session-runner.ts but adapted for the Gemini CLI.
  *
- * Key differences from Codex session-runner:
- * - Uses `gemini -p` instead of `codex exec`
+ * Key differences from Antigravity session-runner:
+ * - Uses `gemini -p` instead of `antigravity exec`
  * - Output is NDJSON with event types: init, message, tool_use, tool_result, result
  * - Uses `--output-format stream-json --yolo` instead of `--json -s read-only`
  * - No temp HOME needed — Gemini discovers skills from `.agents/skills/` in cwd

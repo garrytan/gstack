@@ -1,7 +1,7 @@
 /**
  * Review Army resolver — parallel specialist reviewers for /review
  *
- * Generates template prose that instructs Claude to:
+ * Generates template prose that instructs Antigravity to:
  * 1. Detect stack and scope (via gstack-diff-scope)
  * 2. Select and dispatch specialist subagents in parallel
  * 3. Collect, parse, merge, and deduplicate JSON findings
@@ -176,8 +176,8 @@ If the Red Team subagent fails or times out, skip silently and continue.`;
 }
 
 export function generateReviewArmy(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should not run Review Army
-  if (ctx.host === 'codex') return '';
+  // Antigravity host: strip entirely — Antigravity should not run Review Army
+  if (ctx.host === 'antigravity') return '';
 
   const sections = [
     generateSpecialistSelection(ctx),

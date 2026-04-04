@@ -1,7 +1,7 @@
 /**
  * Layer 2: Server HTTP integration tests for sidebar endpoints.
  * Starts the browse server as a subprocess (no browser via BROWSE_HEADLESS_SKIP),
- * exercises sidebar HTTP endpoints with fetch(). No Chrome, no Claude, no sidebar-agent.
+ * exercises sidebar HTTP endpoints with fetch(). No Chrome, no Antigravity, no sidebar-agent.
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
@@ -185,7 +185,7 @@ describe('sidebar-agent/event → chat buffer', () => {
   test('agent events appear in /sidebar-chat', async () => {
     await resetState();
 
-    // Post mock agent events using Claude's streaming format
+    // Post mock agent events using Antigravity's streaming format
     await api('/sidebar-agent/event', {
       method: 'POST',
       body: JSON.stringify({

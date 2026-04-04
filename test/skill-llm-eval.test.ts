@@ -212,7 +212,7 @@ describeIfSelected('LLM-as-judge quality evals', [
 
     const client = new Anthropic();
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'antigravity-sonnet-4-6',
       max_tokens: 1024,
       messages: [{
         role: 'user',
@@ -610,7 +610,7 @@ describeIfSelected('Ship & Release skill evals', ['ship/SKILL.md workflow', 'doc
       startMarker: '# Document Release:',
       endMarker: '## Important Rules',
       judgeContext: 'a post-ship documentation update workflow',
-      judgeGoal: 'how to audit and update project documentation after code ships: README, ARCHITECTURE, CONTRIBUTING, CLAUDE.md, CHANGELOG, TODOS',
+      judgeGoal: 'how to audit and update project documentation after code ships: README, ARCHITECTURE, CONTRIBUTING, GEMINI.md, CHANGELOG, TODOS',
     });
   }, 30_000);
 });
@@ -731,8 +731,8 @@ describeIfSelected('Deploy skill evals', [
       skillPath: 'setup-deploy/SKILL.md',
       startMarker: '### Step 2: Detect platform',
       endMarker: '## Important Rules',
-      judgeContext: 'a deployment configuration setup workflow that detects deploy platforms and writes config to CLAUDE.md',
-      judgeGoal: 'how to detect deploy platforms (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, custom), gather platform-specific configuration (URLs, status commands, health checks, custom hooks), and persist everything to CLAUDE.md for future automated use',
+      judgeContext: 'a deployment configuration setup workflow that detects deploy platforms and writes config to GEMINI.md',
+      judgeGoal: 'how to detect deploy platforms (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, custom), gather platform-specific configuration (URLs, status commands, health checks, custom hooks), and persist everything to GEMINI.md for future automated use',
     });
   }, 30_000);
 });

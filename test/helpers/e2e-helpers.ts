@@ -24,7 +24,7 @@ export const ROOT = path.resolve(import.meta.dir, '..', '..');
 // BLAME PROTOCOL: When an eval fails, do NOT claim "pre-existing" or "not related
 // to our changes" without proof. Run the same eval on main to verify. These tests
 // have invisible couplings — preamble text, SKILL.md content, and timing all affect
-// agent behavior. See CLAUDE.md "E2E eval failure blame protocol" for details.
+// agent behavior. See GEMINI.md "E2E eval failure blame protocol" for details.
 export const evalsEnabled = !!process.env.EVALS;
 
 // --- Diff-based test selection ---
@@ -215,7 +215,7 @@ if (evalsEnabled) {
 
 // Fail fast if Anthropic API is unreachable — don't burn through tests getting ConnectionRefused
 if (evalsEnabled) {
-  const check = spawnSync('sh', ['-c', 'echo "ping" | claude -p --max-turns 1 --output-format stream-json --verbose --dangerously-skip-permissions'], {
+  const check = spawnSync('sh', ['-c', 'echo "ping" | antigravity -p --max-turns 1 --output-format stream-json --verbose --dangerously-skip-permissions'], {
     stdio: 'pipe', timeout: 30_000,
   });
   const output = check.stdout?.toString() || '';

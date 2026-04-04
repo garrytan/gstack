@@ -6,9 +6,9 @@
 
 **What:** Add DeBERTa-v3-base-prompt-injection-v2 via @huggingface/transformers v4 (WASM backend) as an ML defense layer for the Chrome sidebar. Reusable `browse/src/security.ts` module with `checkInjection()` API. Includes canary tokens, attack logging, shield icon, special telemetry (AskUserQuestion on detection even when telemetry off), and BrowseSafe-bench red team test harness (3,680 adversarial cases from Perplexity).
 
-**Why:** PR 1 fixes the architecture (command allowlist, XML framing, Opus default). But attackers can still trick Claude into navigating to phishing sites or exfiltrating visible page data via allowed browse commands. The ML classifier catches prompt injection patterns that architectural controls can't see. 94.8% accuracy, 99.6% recall, ~50-100ms inference via WASM. Defense-in-depth.
+**Why:** PR 1 fixes the architecture (command allowlist, XML framing, Opus default). But attackers can still trick Antigravity into navigating to phishing sites or exfiltrating visible page data via allowed browse commands. The ML classifier catches prompt injection patterns that architectural controls can't see. 94.8% accuracy, 99.6% recall, ~50-100ms inference via WASM. Defense-in-depth.
 
-**Context:** Full design doc with industry research, open source tool landscape, Codex review findings, and ambitious Bun-native vision (5ms inference via FFI + Apple Accelerate): [`docs/designs/ML_PROMPT_INJECTION_KILLER.md`](docs/designs/ML_PROMPT_INJECTION_KILLER.md). CEO plan with scope decisions: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-28-sidebar-prompt-injection-defense.md`.
+**Context:** Full design doc with industry research, open source tool landscape, Antigravity review findings, and ambitious Bun-native vision (5ms inference via FFI + Apple Accelerate): [`docs/designs/ML_PROMPT_INJECTION_KILLER.md`](docs/designs/ML_PROMPT_INJECTION_KILLER.md). CEO plan with scope decisions: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-28-sidebar-prompt-injection-defense.md`.
 
 **Effort:** L (human: ~2 weeks / CC: ~3-4 hours)
 **Priority:** P0
@@ -181,7 +181,7 @@ May replace `/setup-browser-cookies` for most use cases since the user's real co
 
 ### `$B watch` — SHIPPED
 
-Claude observes user browsing in passive read-only mode with periodic snapshots. `$B watch stop` exits with summary. Mutation commands blocked during watch.
+Antigravity observes user browsing in passive read-only mode with periodic snapshots. `$B watch stop` exits with summary. Mutation commands blocked during watch.
 
 ### Sidebar scout / file drop relay — SHIPPED
 
@@ -189,7 +189,7 @@ Sidebar agent writes structured messages to `.context/sidebar-inbox/`. Workspace
 
 ### Multi-agent tab isolation
 
-**What:** Two Claude sessions connect to the same browser, each operating on different tabs. No cross-contamination.
+**What:** Two Antigravity sessions connect to the same browser, each operating on different tabs. No cross-contamination.
 
 **Why:** Enables parallel /qa + /design-review on different tabs in the same browser.
 
@@ -201,11 +201,11 @@ Sidebar agent writes structured messages to `.context/sidebar-inbox/`. Workspace
 
 ### Sidebar agent needs Write tool + better error visibility
 
-**What:** Two issues with the sidebar agent (`sidebar-agent.ts`): (1) `--allowedTools` is hardcoded to `Bash,Read,Glob,Grep`, missing `Write`. Claude can't create files (like CSVs) when asked. (2) When Claude errors or returns empty, the sidebar UI shows nothing, just a green dot. No error message, no "I tried but failed", nothing.
+**What:** Two issues with the sidebar agent (`sidebar-agent.ts`): (1) `--allowedTools` is hardcoded to `Bash,Read,Glob,Grep`, missing `Write`. Antigravity can't create files (like CSVs) when asked. (2) When Antigravity errors or returns empty, the sidebar UI shows nothing, just a green dot. No error message, no "I tried but failed", nothing.
 
-**Why:** Users ask "write this to a CSV" and the sidebar silently can't. Then they think it's broken. The UI needs to surface errors visibly, and Claude needs the tools to actually do what's asked.
+**Why:** Users ask "write this to a CSV" and the sidebar silently can't. Then they think it's broken. The UI needs to surface errors visibly, and Antigravity needs the tools to actually do what's asked.
 
-**Context:** `sidebar-agent.ts:163` hardcodes `--allowedTools`. The event relay (`handleStreamEvent`) handles `agent_done` and `agent_error` but the extension's sidepanel.js may not be rendering error states. The sidebar should show "Error: ..." or "Claude finished but produced no output" instead of staying on the green dot forever.
+**Context:** `sidebar-agent.ts:163` hardcodes `--allowedTools`. The event relay (`handleStreamEvent`) handles `agent_done` and `agent_error` but the extension's sidepanel.js may not be rendering error states. The sidebar should show "Error: ..." or "Antigravity finished but produced no output" instead of staying on the green dot forever.
 
 **Effort:** S (human: ~2h / CC: ~10min)
 **Priority:** P1
@@ -253,7 +253,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 **Why:** The bug fixed in v0.11.22 (garrytan/ship-full-commit-coverage) showed that /ship's CHANGELOG generation biased toward recent commits on long branches. The prompt fix adds a cross-check, but no test exercises the multi-commit failure mode. The existing `ship-local-workflow` E2E only uses a single-commit branch.
 
-**Context:** Would be a `periodic` tier test (~$4/run, non-deterministic since it tests LLM instruction-following). Setup: create bare remote, clone, add 5+ commits across different themes on a feature branch, run Step 5 via `claude -p`, verify CHANGELOG output covers all themes. Pattern: `ship-local-workflow` in `test/skill-e2e-workflow.test.ts`.
+**Context:** Would be a `periodic` tier test (~$4/run, non-deterministic since it tests LLM instruction-following). Setup: create bare remote, clone, add 5+ commits across different themes on a feature branch, run Step 5 via `antigravity -p`, verify CHANGELOG output covers all themes. Pattern: `ship-local-workflow` in `test/skill-e2e-workflow.test.ts`.
 
 **Effort:** M
 **Priority:** P3
@@ -290,7 +290,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 **What:** /ship and /review post inline review comments at specific file:line locations using `gh api` to create pull request review comments.
 
-**Why:** Line-level annotations are more actionable than top-level comments. The PR thread becomes a line-by-line conversation between Greptile, Claude, and human reviewers.
+**Why:** Line-level annotations are more actionable than top-level comments. The PR thread becomes a line-by-line conversation between Greptile, Antigravity, and human reviewers.
 
 **Context:** GitHub supports inline review comments via `gh api repos/$REPO/pulls/$PR/reviews`. Pairs naturally with Phase 3.6 visual annotations.
 
@@ -433,13 +433,13 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 
 
-### Extend worktree isolation to Claude E2E tests
+### Extend worktree isolation to Antigravity E2E tests
 
-**What:** Add `useWorktree?: boolean` option to `runSkillTest()` so any Claude E2E test can opt into worktree mode for full repo context instead of tmpdir fixtures.
+**What:** Add `useWorktree?: boolean` option to `runSkillTest()` so any Antigravity E2E test can opt into worktree mode for full repo context instead of tmpdir fixtures.
 
-**Why:** Some Claude E2E tests (CSO audit, review-sql-injection) create minimal fake repos but would produce more realistic results with full repo context. The infrastructure exists (`describeWithWorktree()` in e2e-helpers.ts) — this extends it to the session-runner level.
+**Why:** Some Antigravity E2E tests (CSO audit, review-sql-injection) create minimal fake repos but would produce more realistic results with full repo context. The infrastructure exists (`describeWithWorktree()` in e2e-helpers.ts) — this extends it to the session-runner level.
 
-**Context:** WorktreeManager shipped in v0.11.12.0. Currently only Gemini/Codex tests use worktrees. Claude tests use planted-bug fixture repos which are correct for their purpose, but new tests that want real repo context can use `describeWithWorktree()` today. This TODO is about making it even easier via a flag on `runSkillTest()`.
+**Context:** WorktreeManager shipped in v0.11.12.0. Currently only Gemini/Antigravity tests use worktrees. Antigravity tests use planted-bug fixture repos which are correct for their purpose, but new tests that want real repo context can use `describeWithWorktree()` today. This TODO is about making it even easier via a flag on `runSkillTest()`.
 
 **Effort:** M (human: ~2 days / CC: ~20 min)
 **Priority:** P3
@@ -447,7 +447,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ### E2E model pinning — SHIPPED
 
-~~**What:** Pin E2E tests to claude-sonnet-4-6 for cost efficiency, add retry:2 for flaky LLM responses.~~
+~~**What:** Pin E2E tests to antigravity-sonnet-4-6 for cost efficiency, add retry:2 for flaky LLM responses.~~
 
 Shipped: Default model changed to Sonnet for structure tests (~30), Opus retained for quality tests (~10). `--retry 2` added. `EVALS_MODEL` env var for override. `test:e2e:fast` tier added. Rate-limit telemetry (first_response_ms, max_inter_turn_ms) and wall_clock_ms tracking added to eval-store.
 
@@ -469,7 +469,7 @@ Shipped: Default model changed to Sonnet for structure tests (~30), Opus retaine
 
 **Why:** Automated quality gate catches regressions before merge. Currently QA is manual — CI integration makes it part of the standard workflow.
 
-**Context:** Requires headless browse binary available in CI. The `/qa` skill already produces `baseline.json` with health scores — CI step would compare against the main branch baseline and fail if score drops. Would need `ANTHROPIC_API_KEY` in CI secrets since `/qa` uses Claude.
+**Context:** Requires headless browse binary available in CI. The `/qa` skill already produces `baseline.json` with health scores — CI step would compare against the main branch baseline and fail if score drops. Would need `ANTHROPIC_API_KEY` in CI secrets since `/qa` uses Antigravity.
 
 **Effort:** M
 **Priority:** P2
@@ -529,7 +529,7 @@ Shipped as v0.5.0 on main. Includes `/plan-design-review` (report-only design au
 
 ### Design outside voices in /plan-eng-review
 
-**What:** Extend the parallel dual-voice pattern (Codex + Claude subagent) to /plan-eng-review's architecture review section.
+**What:** Extend the parallel dual-voice pattern (Antigravity + Antigravity subagent) to /plan-eng-review's architecture review section.
 
 **Why:** The design beachhead (v0.11.3.0) proves cross-model consensus works for subjective reviews. Architecture reviews have similar subjectivity in tradeoff decisions.
 
@@ -541,9 +541,9 @@ Shipped as v0.5.0 on main. Includes `/plan-design-review` (report-only design au
 
 ### Outside voices in /qa visual regression detection
 
-**What:** Add Codex design voice to /qa for detecting visual regressions during bug-fix verification.
+**What:** Add Antigravity design voice to /qa for detecting visual regressions during bug-fix verification.
 
-**Why:** When fixing bugs, the fix can introduce visual regressions that code-level checks miss. Codex could flag "the fix broke the responsive layout" during re-test.
+**Why:** When fixing bugs, the fix can introduce visual regressions that code-level checks miss. Antigravity could flag "the fix broke the responsive layout" during re-test.
 
 **Context:** Depends on /qa having design awareness. Currently /qa focuses on functional testing.
 
@@ -559,9 +559,9 @@ Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` 
 
 ### `{{DOC_VOICE}}` shared resolver
 
-**What:** Create a placeholder resolver in gen-skill-docs.ts encoding the gstack voice guide (friendly, user-forward, lead with benefits). Inject into /ship Step 5, /document-release Step 5, and reference from CLAUDE.md.
+**What:** Create a placeholder resolver in gen-skill-docs.ts encoding the gstack voice guide (friendly, user-forward, lead with benefits). Inject into /ship Step 5, /document-release Step 5, and reference from GEMINI.md.
 
-**Why:** DRY — voice rules currently live inline in 3 places (CLAUDE.md CHANGELOG style section, /ship Step 5, /document-release Step 5). When the voice evolves, all three drift.
+**Why:** DRY — voice rules currently live inline in 3 places (GEMINI.md CHANGELOG style section, /ship Step 5, /document-release Step 5). When the voice evolves, all three drift.
 
 **Context:** Same pattern as `{{QA_METHODOLOGY}}` — shared block injected into multiple templates to prevent drift. ~20 lines in gen-skill-docs.ts.
 
@@ -584,15 +584,15 @@ Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` 
 **Depends on:** gstack-diff-scope (shipped)
 
 
-## Codex
+## Antigravity
 
-### Codex→Claude reverse buddy check skill
+### Antigravity→Antigravity reverse buddy check skill
 
-**What:** A Codex-native skill (`.agents/skills/gstack-claude/SKILL.md`) that runs `claude -p` to get an independent second opinion from Claude — the reverse of what `/codex` does today from Claude Code.
+**What:** A Antigravity-native skill (`.agents/skills/gstack-antigravity/SKILL.md`) that runs `antigravity -p` to get an independent second opinion from Antigravity — the reverse of what `/antigravity` does today from Antigravity Code.
 
-**Why:** Codex users deserve the same cross-model challenge that Claude users get via `/codex`. Currently the flow is one-way (Claude→Codex). Codex users have no way to get a Claude second opinion.
+**Why:** Antigravity users deserve the same cross-model challenge that Antigravity users get via `/antigravity`. Currently the flow is one-way (Antigravity→Antigravity). Antigravity users have no way to get a Antigravity second opinion.
 
-**Context:** The `/codex` skill template (`codex/SKILL.md.tmpl`) shows the pattern — it wraps `codex exec` with JSONL parsing, timeout handling, and structured output. The reverse skill would wrap `claude -p` with similar infrastructure. Would be generated into `.agents/skills/gstack-claude/` by `gen-skill-docs --host codex`.
+**Context:** The `/antigravity` skill template (`antigravity/SKILL.md.tmpl`) shows the pattern — it wraps `antigravity exec` with JSONL parsing, timeout handling, and structured output. The reverse skill would wrap `antigravity -p` with similar infrastructure. Would be generated into `.agents/skills/gstack-antigravity/` by `gen-skill-docs --host antigravity`.
 
 **Effort:** M (human: ~2 weeks / CC: ~30 min)
 **Priority:** P1
@@ -602,7 +602,7 @@ Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` 
 
 ### Completeness metrics dashboard
 
-**What:** Track how often Claude chooses the complete option vs shortcut across gstack sessions. Aggregate into a dashboard showing completeness trend over time.
+**What:** Track how often Antigravity chooses the complete option vs shortcut across gstack sessions. Aggregate into a dashboard showing completeness trend over time.
 
 **Why:** Without measurement, we can't know if the Completeness Principle is working. Could surface patterns (e.g., certain skills still bias toward shortcuts).
 
@@ -616,7 +616,7 @@ Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` 
 
 ### On-demand hook skills (/careful, /freeze, /guard) — SHIPPED
 
-~~**What:** Three new skills that use Claude Code's session-scoped PreToolUse hooks to add safety guardrails on demand.~~
+~~**What:** Three new skills that use Antigravity Code's session-scoped PreToolUse hooks to add safety guardrails on demand.~~
 
 Shipped as `/careful`, `/freeze`, `/guard`, and `/unfreeze` in v0.6.5. Includes hook fire-rate telemetry (pattern name only, no command content) and inline skill activation telemetry.
 
@@ -652,9 +652,9 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **What:** Add ~10 lines of prose to the preamble telling the agent to re-read gstack artifacts (CEO plans, design reviews, eng reviews, checkpoints) after compaction or context degradation.
 
-**Why:** gstack skills produce valuable artifacts stored at `~/.gstack/projects/$SLUG/`. When Claude's auto-compaction fires, it preserves a generic summary but doesn't know these artifacts exist. The plans and reviews that shaped the current work silently vanish from context, even though they're still on disk. This is the thing nobody else in the Claude Code ecosystem is solving, because nobody else has gstack's artifact architecture.
+**Why:** gstack skills produce valuable artifacts stored at `~/.gstack/projects/$SLUG/`. When Antigravity's auto-compaction fires, it preserves a generic summary but doesn't know these artifacts exist. The plans and reviews that shaped the current work silently vanish from context, even though they're still on disk. This is the thing nobody else in the Antigravity Code ecosystem is solving, because nobody else has gstack's artifact architecture.
 
-**Context:** Inspired by Anthropic's `claude-progress.txt` pattern for long-running agents. Also informed by claude-mem's "progressive disclosure" approach. See `docs/designs/SESSION_INTELLIGENCE.md` for the broader vision. CEO plan: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-31-session-intelligence-layer.md`.
+**Context:** Inspired by Anthropic's `antigravity-progress.txt` pattern for long-running agents. Also informed by antigravity-mem's "progressive disclosure" approach. See `docs/designs/SESSION_INTELLIGENCE.md` for the broader vision. CEO plan: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-31-session-intelligence-layer.md`.
 
 **Effort:** S (human: ~30 min / CC: ~5 min)
 **Priority:** P1
@@ -676,7 +676,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **What:** When a new gstack session starts on a branch with recent checkpoints or plans, the preamble prints a one-line summary: "Last session: implemented JWT auth, 3/5 tasks done." Agent knows where you left off before reading any files.
 
-**Why:** Claude starts every session fresh. This one-liner orients the agent immediately. Similar to claude-mem's SessionStart hook pattern but simpler and integrated.
+**Why:** Antigravity starts every session fresh. This one-liner orients the agent immediately. Similar to antigravity-mem's SessionStart hook pattern but simpler and integrated.
 
 **Effort:** S (human: ~2h / CC: ~10 min)
 **Priority:** P2
@@ -695,7 +695,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 ### Session Intelligence Layer design doc
 
-**What:** Write `docs/designs/SESSION_INTELLIGENCE.md` describing the architectural vision: gstack as the persistent brain that survives Claude's ephemeral context. Every skill writes to `~/.gstack/projects/$SLUG/`, preamble re-reads, `/retro` rolls up.
+**What:** Write `docs/designs/SESSION_INTELLIGENCE.md` describing the architectural vision: gstack as the persistent brain that survives Antigravity's ephemeral context. Every skill writes to `~/.gstack/projects/$SLUG/`, preamble re-reads, `/retro` rolls up.
 
 **Why:** Connects context recovery, health, checkpoint, and timeline features into a coherent architecture. Nobody else in the ecosystem is building this.
 
@@ -711,7 +711,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **Why:** No quick way to get "state of the codebase" before starting work. CodeScene peer-reviewed research shows AI-generated code increases static analysis warnings by 30%, code complexity by 41%, and change failure rates by 30%. Users need guardrails. Like `/qa` but for code quality rather than browser behavior.
 
-**Context:** Reads CLAUDE.md for project-specific commands (platform-agnostic principle). Runs checks in parallel. `/retro` can pull from health history for trend sparklines.
+**Context:** Reads GEMINI.md for project-specific commands (platform-agnostic principle). Runs checks in parallel. `/retro` can pull from health history for trend sparklines.
 
 **Effort:** M (human: ~1 week / CC: ~30 min)
 **Priority:** P1
@@ -734,7 +734,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **What:** Extract Review Army's dispatch pattern into a reusable resolver (`scripts/resolvers/swarm.ts`). Wire into `/ship` for parallel pre-ship checks (type-check + lint + test in parallel sub-agents). Make available to `/qa`, `/investigate`, `/health`.
 
-**Why:** Review Army proved parallel sub-agents work brilliantly (5 agents = 835K tokens of working memory vs. 167K for one). The pattern is locked inside `review-army.ts`. Other skills need it too. Claude Code Agent Teams (official, Feb 2026) validates the team-lead-delegates-to-specialists pattern. Gartner: multi-agent inquiries surged 1,445% in one year.
+**Why:** Review Army proved parallel sub-agents work brilliantly (5 agents = 835K tokens of working memory vs. 167K for one). The pattern is locked inside `review-army.ts`. Other skills need it too. Antigravity Code Agent Teams (official, Feb 2026) validates the team-lead-delegates-to-specialists pattern. Gartner: multi-agent inquiries surged 1,445% in one year.
 
 **Context:** Start with the specific `/ship` use case. Extract shared parts only after 2+ consumers reveal what config parameters are actually needed. Avoid premature abstraction. Can leverage existing WorktreeManager for isolation.
 

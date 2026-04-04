@@ -79,16 +79,16 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
   'plan-review-report':        ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
 
-  // Codex offering verification
-  'codex-offered-office-hours':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
-  'codex-offered-ceo-review':    ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
-  'codex-offered-design-review': ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
-  'codex-offered-eng-review':    ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
+  // Antigravity offering verification
+  'antigravity-offered-office-hours':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
+  'antigravity-offered-ceo-review':    ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
+  'antigravity-offered-design-review': ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
+  'antigravity-offered-eng-review':    ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
 
   // Ship
   'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode'],
   'ship-local-workflow': ['ship/**', 'scripts/gen-skill-docs.ts'],
-  'review-dashboard-via': ['ship/**', 'scripts/resolvers/review.ts', 'codex/**', 'autoplan/**', 'land-and-deploy/**'],
+  'review-dashboard-via': ['ship/**', 'scripts/resolvers/review.ts', 'antigravity/**', 'autoplan/**', 'land-and-deploy/**'],
   'ship-plan-completion': ['ship/**', 'scripts/gen-skill-docs.ts'],
   'ship-plan-verification': ['ship/**', 'scripts/gen-skill-docs.ts'],
 
@@ -115,12 +115,12 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Document-release
   'document-release': ['document-release/**'],
 
-  // Codex (Claude E2E — tests /codex skill via Claude)
-  'codex-review': ['codex/**'],
+  // Antigravity (Antigravity E2E — tests /antigravity skill via Antigravity)
+  'antigravity-review': ['antigravity/**'],
 
-  // Codex E2E (tests skills via Codex CLI + worktree)
-  'codex-discover-skill':  ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts', 'lib/worktree.ts'],
-  'codex-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts', 'lib/worktree.ts'],
+  // Antigravity E2E (tests skills via Antigravity CLI + worktree)
+  'antigravity-discover-skill':  ['antigravity/**', '.agents/skills/**', 'test/helpers/antigravity-session-runner.ts', 'lib/worktree.ts'],
+  'antigravity-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'antigravity/**', 'test/helpers/antigravity-session-runner.ts', 'lib/worktree.ts'],
 
   // Gemini E2E (tests skills via Gemini CLI + worktree)
   'gemini-discover-skill':  ['.agents/skills/**', 'test/helpers/gemini-session-runner.ts', 'lib/worktree.ts'],
@@ -240,11 +240,11 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-eng-coverage-audit': 'gate',
   'plan-review-report': 'gate',
 
-  // Codex offering verification
-  'codex-offered-office-hours': 'gate',
-  'codex-offered-ceo-review': 'gate',
-  'codex-offered-design-review': 'gate',
-  'codex-offered-eng-review': 'gate',
+  // Antigravity offering verification
+  'antigravity-offered-office-hours': 'gate',
+  'antigravity-offered-ceo-review': 'gate',
+  'antigravity-offered-design-review': 'gate',
+  'antigravity-offered-eng-review': 'gate',
 
   // Session Intelligence — gate for data flow, periodic for agent integration
   'timeline-event-flow': 'gate',            // Binary data flow (no LLM needed)
@@ -278,12 +278,12 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Document-release — gate (CHANGELOG guardrail)
   'document-release': 'gate',
 
-  // Codex — periodic (Opus, requires codex CLI)
-  'codex-review': 'periodic',
+  // Antigravity — periodic (Opus, requires antigravity CLI)
+  'antigravity-review': 'periodic',
 
   // Multi-AI — periodic (require external CLIs)
-  'codex-discover-skill': 'periodic',
-  'codex-review-findings': 'periodic',
+  'antigravity-discover-skill': 'periodic',
+  'antigravity-review-findings': 'periodic',
   'gemini-discover-skill': 'periodic',
   'gemini-review-findings': 'periodic',
 
@@ -383,7 +383,7 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
  *
  * Keep this list minimal — only files that genuinely affect every test.
  * Scoped dependencies (gen-skill-docs, llm-judge, test-server, worktree,
- * codex/gemini session runners) belong in individual test entries instead.
+ * antigravity/gemini session runners) belong in individual test entries instead.
  */
 export const GLOBAL_TOUCHFILES = [
   'test/helpers/session-runner.ts',  // All E2E tests use this runner

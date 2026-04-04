@@ -20,7 +20,7 @@ The board is the feedback mechanism.
 ```
   ┌─────────────────────┐          ┌──────────────────────┐
   │   USER'S BROWSER    │          │   CODING AGENT       │
-  │   (real Chrome)     │          │   (Claude Code /     │
+  │   (real Chrome)     │          │   (Antigravity Code /     │
   │                     │          │    Conductor)         │
   │  Comparison board   │          │                      │
   │  with buttons:      │   ???    │  Needs to know:      │

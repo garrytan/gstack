@@ -113,7 +113,7 @@ Report whether it worked.`,
   }, 90_000);
 
   testConcurrentIfSelected('skillmd-no-local-binary', async () => {
-    // Create a tmpdir with no browse binary — no local .claude/skills/gstack/browse/dist/browse
+    // Create a tmpdir with no browse binary — no local .antigravity/skills/gstack/browse/dist/browse
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-empty-'));
 
     const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -136,7 +136,7 @@ Report the exact output. Do NOT try to fix or install anything — just report w
 
     // Setup block should either find the global binary (READY) or show NEEDS_SETUP.
     // On dev machines with gstack installed globally, the fallback path
-    // ~/.claude/skills/gstack/browse/dist/browse exists, so we get READY.
+    // ~/.antigravity/skills/gstack/browse/dist/browse exists, so we get READY.
     // The important thing is it doesn't crash or give a confusing error.
     const allText = result.output || '';
     recordE2E(evalCollector, 'SKILL.md setup block (no local binary)', 'Skill E2E tests', result);

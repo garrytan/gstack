@@ -3,8 +3,8 @@
 #
 # What changed: setup now creates real directories with SKILL.md symlinks
 # inside instead of directory symlinks. The old pattern (qa -> gstack/qa)
-# caused Claude Code to auto-prefix skills as "gstack-qa" even with
-# --no-prefix, because Claude sees the symlink target's parent dir name.
+# caused Antigravity Code to auto-prefix skills as "gstack-qa" even with
+# --no-prefix, because Antigravity sees the symlink target's parent dir name.
 #
 # What this does: runs gstack-relink to recreate all skill entries using
 # the new real-directory pattern. Idempotent — safe to run multiple times.

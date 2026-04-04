@@ -17,7 +17,7 @@ import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
 import { HOST_PATHS } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
-import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/codex-helpers';
+import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/antigravity-helpers';
 import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -28,17 +28,18 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const HOST_ARG = process.argv.find(a => a.startsWith('--host'));
 type HostArg = Host | 'all';
 const HOST_ARG_VAL: HostArg = (() => {
-  if (!HOST_ARG) return 'claude';
+  if (!HOST_ARG) return 'antigravity';
   const val = HOST_ARG.includes('=') ? HOST_ARG.split('=')[1] : process.argv[process.argv.indexOf(HOST_ARG) + 1];
-  if (val === 'codex' || val === 'agents') return 'codex';
+  if (val === 'antigravity' || val === 'agents') return 'antigravity';
   if (val === 'factory' || val === 'droid') return 'factory';
-  if (val === 'claude') return 'claude';
+  if (val === 'antigravity') return 'antigravity';
+  if (val === 'antigravity') return 'antigravity';
   if (val === 'all') return 'all';
-  throw new Error(`Unknown host: ${val}. Use claude, codex, factory, droid, agents, or all.`);
+  throw new Error(`Unknown host: ${val}. Use antigravity, antigravity, factory, droid, agents, antigravity, or all.`);
 })();
 
 // For single-host mode, HOST is the host. For --host all, it's set per iteration below.
-let HOST: Host = HOST_ARG_VAL === 'all' ? 'claude' : HOST_ARG_VAL;
+let HOST: Host = HOST_ARG_VAL === 'all' ? 'antigravity' : HOST_ARG_VAL;
 
 // HostPaths, HOST_PATHS, and TemplateContext imported from ./resolvers/types (line 7-8)
 
@@ -82,7 +83,7 @@ const OPENAI_LITMUS_CHECKS = [
 
 // ─── External Host Helpers ───────────────────────────────────
 
-// Re-export local copy for use in this file (matches codex-helpers.ts)
+// Re-export local copy for use in this file (matches antigravity-helpers.ts)
 // Accepts optional frontmatter name to support directory/invocation name divergence
 function externalSkillName(skillDir: string, frontmatterName?: string): string {
   // Root skill (skillDir === '' or '.') always maps to 'gstack' regardless of frontmatter
@@ -214,13 +215,13 @@ policy:
 
 /**
  * Transform frontmatter for external hosts.
- * Claude: strips `sensitive:` field (only Factory uses it).
- * Codex: keeps name + description only, enforces 1024-char limit.
+ * Antigravity: strips `sensitive:` field (only Factory uses it).
+ * Antigravity: keeps name + description only, enforces 1024-char limit.
  * Factory: keeps name + description + user-invocable, conditionally adds disable-model-invocation.
  */
 function transformFrontmatter(content: string, host: Host): string {
-  if (host === 'claude') {
-    // Strip fields not used by Claude: sensitive (Factory-only), voice-triggers (folded into description by preprocessing)
+  if (host === 'antigravity') {
+    // Strip fields not used by Antigravity: sensitive (Factory-only), voice-triggers (folded into description by preprocessing)
     content = content.replace(/^sensitive:\s*true\n/m, '');
     content = content.replace(/^voice-triggers:\n(?:\s+-\s+"[^"]*"\n?)*/m, '');
     return content;
@@ -234,12 +235,12 @@ function transformFrontmatter(content: string, host: Host): string {
   const body = content.slice(fmEnd + 4); // includes the leading \n after ---
   const { name, description } = extractNameAndDescription(content);
 
-  if (host === 'codex') {
-    // Codex 1024-char description limit — fail build, don't ship broken skills
+  if (host === 'antigravity') {
+    // Antigravity 1024-char description limit — fail build, don't ship broken skills
     const MAX_DESC = 1024;
     if (description.length > MAX_DESC) {
       throw new Error(
-        `Codex description for "${name}" is ${description.length} chars (max ${MAX_DESC}). ` +
+        `Antigravity description for "${name}" is ${description.length} chars (max ${MAX_DESC}). ` +
         `Compress the description in the .tmpl file.`
       );
     }
@@ -294,13 +295,14 @@ function extractHookSafetyProse(tmplContent: string): string | null {
 
 interface ExternalHostConfig {
   hostSubdir: string;          // '.agents' | '.factory'
-  generateMetadata: boolean;   // true for codex (openai.yaml), false for factory
-  descriptionLimit?: number;   // 1024 for codex, undefined for factory
+  generateMetadata: boolean;   // true for antigravity (openai.yaml), false for factory
+  descriptionLimit?: number;   // 1024 for antigravity, undefined for factory
 }
 
 const EXTERNAL_HOST_CONFIG: Record<string, ExternalHostConfig> = {
-  codex:   { hostSubdir: '.agents',  generateMetadata: true,  descriptionLimit: 1024 },
+  antigravity:   { hostSubdir: '.agents',  generateMetadata: true,  descriptionLimit: 1024 },
   factory: { hostSubdir: '.factory', generateMetadata: false },
+  antigravity: { hostSubdir: '.gemini/antigravity', generateMetadata: false },
 };
 
 // ─── Template Processing ────────────────────────────────────
@@ -309,7 +311,7 @@ const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit di
 
 /**
  * Process external host output: routing, frontmatter, path rewrites, metadata.
- * Shared between Codex and Factory (and future external hosts).
+ * Shared between Antigravity and Factory (and future external hosts).
  */
 function processExternalHost(
   content: string,
@@ -330,11 +332,11 @@ function processExternalHost(
 
   // Guard against symlink loops
   let symlinkLoop = false;
-  const claudePath = ctx.tmplPath.replace(/\.tmpl$/, '');
+  const antigravityPath = ctx.tmplPath.replace(/\.tmpl$/, '');
   try {
-    const resolvedClaude = fs.realpathSync(claudePath);
+    const resolvedAntigravity = fs.realpathSync(antigravityPath);
     const resolvedExternal = fs.realpathSync(path.dirname(outputPath)) + '/' + path.basename(outputPath);
-    if (resolvedClaude === resolvedExternal) {
+    if (resolvedAntigravity === resolvedExternal) {
       symlinkLoop = true;
     }
   } catch {
@@ -353,13 +355,13 @@ function processExternalHost(
     result = result.slice(0, bodyStart) + '\n' + safetyProse + '\n' + result.slice(bodyStart);
   }
 
-  // Replace hardcoded Claude paths with host-appropriate paths
-  result = result.replace(/~\/\.claude\/skills\/gstack/g, ctx.paths.skillRoot);
-  result = result.replace(/\.claude\/skills\/gstack/g, ctx.paths.localSkillRoot);
-  result = result.replace(/\.claude\/skills\/review/g, `${config.hostSubdir}/skills/gstack/review`);
-  result = result.replace(/\.claude\/skills/g, `${config.hostSubdir}/skills`);
+  // Replace hardcoded Antigravity paths with host-appropriate paths
+  result = result.replace(/~\/\.antigravity\/skills\/gstack/g, ctx.paths.skillRoot);
+  result = result.replace(/\.antigravity\/skills\/gstack/g, ctx.paths.localSkillRoot);
+  result = result.replace(/\.antigravity\/skills\/review/g, `${config.hostSubdir}/skills/gstack/review`);
+  result = result.replace(/\.antigravity\/skills/g, `${config.hostSubdir}/skills`);
 
-  // Factory-only: translate Claude Code tool names to generic phrasing
+  // Factory-only: translate Antigravity Code tool names to generic phrasing
   if (host === 'factory') {
     result = result.replace(/use the Bash tool/g, 'run this command');
     result = result.replace(/use the Write tool/g, 'create this file');
@@ -369,7 +371,7 @@ function processExternalHost(
     result = result.replace(/use the Glob tool/g, 'find files matching');
   }
 
-  // Codex-only: generate openai.yaml metadata
+  // Antigravity-only: generate openai.yaml metadata
   if (config.generateMetadata && !symlinkLoop) {
     const agentsDir = path.join(outputDir, 'agents');
     fs.mkdirSync(agentsDir, { recursive: true });
@@ -380,7 +382,7 @@ function processExternalHost(
   return { content: result, outputPath, outputDir, symlinkLoop };
 }
 
-function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath: string; content: string; symlinkLoop?: boolean } {
+function processTemplate(tmplPath: string, host: Host = 'antigravity'): { outputPath: string; content: string; symlinkLoop?: boolean } {
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
   const relTmplPath = path.relative(ROOT, tmplPath);
   let outputPath = tmplPath.replace(/\.tmpl$/, '');
@@ -428,14 +430,14 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   // and BEFORE extractedDescription is used by external host metadata.
   content = processVoiceTriggers(content);
 
-  // Re-extract description AFTER voice trigger preprocessing so Codex openai.yaml
+  // Re-extract description AFTER voice trigger preprocessing so Antigravity openai.yaml
   // metadata gets the updated description with voice triggers included.
   const postProcessDescription = extractNameAndDescription(content).description;
 
-  // For Claude: strip sensitive: field (only Factory uses it)
+  // For Antigravity: strip sensitive: field (only Factory uses it)
   // For external hosts: route output, transform frontmatter, rewrite paths
   let symlinkLoop = false;
-  if (host === 'claude') {
+  if (host === 'antigravity') {
     content = transformFrontmatter(content, host);
   } else {
     const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
@@ -463,7 +465,7 @@ function findTemplates(): string[] {
   return discoverTemplates(ROOT).map(t => path.join(ROOT, t.tmpl));
 }
 
-const ALL_HOSTS: Host[] = ['claude', 'codex', 'factory'];
+const ALL_HOSTS: Host[] = ['antigravity', 'antigravity', 'factory', 'antigravity'];
 const hostsToRun: Host[] = HOST_ARG_VAL === 'all' ? ALL_HOSTS : [HOST];
 const failures: { host: string; error: Error }[] = [];
 
@@ -475,10 +477,10 @@ for (const currentHost of hostsToRun) {
     const tokenBudget: Array<{ skill: string; lines: number; tokens: number }> = [];
 
     for (const tmplPath of findTemplates()) {
-      // Skip /codex skill for non-Claude hosts (it's a Claude wrapper around codex exec)
-      if (currentHost !== 'claude') {
+      // Skip /antigravity skill for non-Antigravity hosts (it's a Antigravity wrapper around antigravity exec)
+      if (currentHost !== 'antigravity') {
         const dir = path.basename(path.dirname(tmplPath));
-        if (dir === 'codex') continue;
+        if (dir === 'antigravity') continue;
       }
 
       const { outputPath, content, symlinkLoop } = processTemplate(tmplPath, currentHost);
@@ -534,10 +536,10 @@ for (const currentHost of hostsToRun) {
   }
 }
 
-// --host all: report failures. Only exit(1) if claude failed.
+// --host all: report failures. Only exit(1) if antigravity failed.
 if (failures.length > 0 && HOST_ARG_VAL === 'all') {
   console.error(`\n${failures.length} host(s) failed: ${failures.map(f => f.host).join(', ')}`);
-  if (failures.some(f => f.host === 'claude')) process.exit(1);
+  if (failures.some(f => f.host === 'antigravity')) process.exit(1);
 }
 // Single host dry-run failure already handled above
 

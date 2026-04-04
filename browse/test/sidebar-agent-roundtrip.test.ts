@@ -1,8 +1,8 @@
 /**
  * Layer 3: Sidebar agent round-trip tests.
- * Starts server + sidebar-agent together. Mocks the `claude` binary with a shell
+ * Starts server + sidebar-agent together. Mocks the `antigravity` binary with a shell
  * script that outputs canned stream-json. Verifies events flow end-to-end:
- * POST /sidebar-command → queue → sidebar-agent → mock claude → events → /sidebar-chat
+ * POST /sidebar-command → queue → sidebar-agent → mock antigravity → events → /sidebar-chat
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -52,8 +52,8 @@ async function pollChatUntil(
   return (await resp.json()).entries;
 }
 
-function writeMockClaude(script: string) {
-  const mockPath = path.join(mockBinDir, 'claude');
+function writeMockAntigravity(script: string) {
+  const mockPath = path.join(mockBinDir, 'antigravity');
   fs.writeFileSync(mockPath, script, { mode: 0o755 });
 }
 
@@ -65,8 +65,8 @@ beforeAll(async () => {
   fs.mkdirSync(mockBinDir, { recursive: true });
   fs.mkdirSync(path.dirname(queueFile), { recursive: true });
 
-  // Write default mock claude that outputs canned events
-  writeMockClaude(`#!/bin/bash
+  // Write default mock antigravity that outputs canned events
+  writeMockAntigravity(`#!/bin/bash
 echo '{"type":"system","session_id":"mock-session-123"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"I can see the page. It looks like a test fixture."}]}}'
 echo '{"type":"result","result":"Done."}'
@@ -103,7 +103,7 @@ echo '{"type":"result","result":"Done."}'
   }
   if (!serverPort) throw new Error('Server did not start in time');
 
-  // Start sidebar-agent with mock claude on PATH
+  // Start sidebar-agent with mock antigravity on PATH
   const agentScript = path.resolve(__dirname, '..', 'src', 'sidebar-agent.ts');
   agentProc = spawn(['bun', 'run', agentScript], {
     env: {
@@ -113,7 +113,7 @@ echo '{"type":"result","result":"Done."}'
       BROWSE_STATE_FILE: stateFile,
       SIDEBAR_QUEUE_PATH: queueFile,
       SIDEBAR_AGENT_TIMEOUT: '10000',
-      BROWSE_BIN: 'browse',  // doesn't matter, mock claude doesn't use it
+      BROWSE_BIN: 'browse',  // doesn't matter, mock antigravity doesn't use it
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -129,7 +129,7 @@ afterAll(() => {
 });
 
 describe('sidebar-agent round-trip', () => {
-  test('full message round-trip with mock claude', async () => {
+  test('full message round-trip with mock antigravity', async () => {
     await resetState();
 
     // Send a command
@@ -142,7 +142,7 @@ describe('sidebar-agent round-trip', () => {
     });
     expect(resp.status).toBe(200);
 
-    // Wait for mock claude to process and events to arrive
+    // Wait for mock antigravity to process and events to arrive
     const entries = await pollChatUntil(
       (entries) => entries.some((e: any) => e.type === 'agent_done'),
       15000,
@@ -153,7 +153,7 @@ describe('sidebar-agent round-trip', () => {
     expect(userEntry).toBeDefined();
     expect(userEntry.message).toBe('what is on this page?');
 
-    // The mock claude outputs text — check for any agent text entry
+    // The mock antigravity outputs text — check for any agent text entry
     const textEntries = entries.filter((e: any) => e.role === 'agent' && (e.type === 'text' || e.type === 'result'));
     expect(textEntries.length).toBeGreaterThan(0);
 
@@ -165,11 +165,11 @@ describe('sidebar-agent round-trip', () => {
     expect(session.agent.status).toBe('idle');
   }, 20000);
 
-  test('claude crash produces agent_error', async () => {
+  test('antigravity crash produces agent_error', async () => {
     await resetState();
 
-    // Replace mock claude with one that crashes
-    writeMockClaude(`#!/bin/bash
+    // Replace mock antigravity with one that crashes
+    writeMockAntigravity(`#!/bin/bash
 echo '{"type":"system","session_id":"crash-test"}' >&2
 exit 1
 `);
@@ -190,7 +190,7 @@ exit 1
     expect(session.agent.status).toBe('idle');
 
     // Restore working mock
-    writeMockClaude(`#!/bin/bash
+    writeMockAntigravity(`#!/bin/bash
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"recovered"}]}}'
 `);
   }, 20000);
@@ -199,7 +199,7 @@ echo '{"type":"assistant","message":{"content":[{"type":"text","text":"recovered
     await resetState();
 
     // Restore working mock
-    writeMockClaude(`#!/bin/bash
+    writeMockAntigravity(`#!/bin/bash
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"response to: '"'"'$*'"'"'"}]}}'
 `);
 

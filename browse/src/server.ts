@@ -112,7 +112,7 @@ interface ChatEntry {
 interface SidebarSession {
   id: string;
   name: string;
-  claudeSessionId: string | null;
+  antigravitySessionId: string | null;
   worktreePath: string | null;
   createdAt: string;
   lastActiveAt: string;
@@ -162,12 +162,12 @@ function getChatBuffer(tabId?: number): ChatEntry[] {
 // Legacy single-buffer alias for session load/clear
 let chatBuffer: ChatEntry[] = [];
 
-// Find the browse binary for the claude subprocess system prompt
+// Find the browse binary for the antigravity subprocess system prompt
 function findBrowseBin(): string {
   const candidates = [
     path.resolve(__dirname, '..', 'dist', 'browse'),
-    path.resolve(__dirname, '..', '..', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
-    path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
+    path.resolve(__dirname, '..', '..', '.antigravity', 'skills', 'gstack', 'browse', 'dist', 'browse'),
+    path.join(process.env.HOME || '', '.antigravity', 'skills', 'gstack', 'browse', 'dist', 'browse'),
   ];
   for (const c of candidates) {
     try { if (fs.existsSync(c)) return c; } catch {}
@@ -177,27 +177,27 @@ function findBrowseBin(): string {
 
 const BROWSE_BIN = findBrowseBin();
 
-function findClaudeBin(): string | null {
+function findAntigravityBin(): string | null {
   const home = process.env.HOME || '';
   const candidates = [
     // Conductor app bundled binary (not a symlink — works reliably)
-    path.join(home, 'Library', 'Application Support', 'com.conductor.app', 'bin', 'claude'),
+    path.join(home, 'Library', 'Application Support', 'com.conductor.app', 'bin', 'antigravity'),
     // Direct versioned binary (not a symlink)
     ...(() => {
       try {
-        const versionsDir = path.join(home, '.local', 'share', 'claude', 'versions');
+        const versionsDir = path.join(home, '.local', 'share', 'antigravity', 'versions');
         const entries = fs.readdirSync(versionsDir).filter(e => /^\d/.test(e)).sort().reverse();
         return entries.map(e => path.join(versionsDir, e));
       } catch { return []; }
     })(),
     // Standard install (symlink — resolve it)
-    path.join(home, '.local', 'bin', 'claude'),
-    '/usr/local/bin/claude',
-    '/opt/homebrew/bin/claude',
+    path.join(home, '.local', 'bin', 'antigravity'),
+    '/usr/local/bin/antigravity',
+    '/opt/homebrew/bin/antigravity',
   ];
-  // Also check if 'claude' is in current PATH
+  // Also check if 'antigravity' is in current PATH
   try {
-    const proc = Bun.spawnSync(['which', 'claude'], { stdout: 'pipe', stderr: 'pipe', timeout: 2000 });
+    const proc = Bun.spawnSync(['which', 'antigravity'], { stdout: 'pipe', stderr: 'pipe', timeout: 2000 });
     if (proc.exitCode === 0) {
       const p = proc.stdout.toString().trim();
       if (p) candidates.unshift(p);
@@ -218,7 +218,7 @@ function shortenPath(str: string): string {
     .replace(new RegExp(BROWSE_BIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '$B')
     .replace(/\/Users\/[^/]+/g, '~')
     .replace(/\/conductor\/workspaces\/[^/]+\/[^/]+/g, '')
-    .replace(/\.claude\/skills\/gstack\//g, '')
+    .replace(/\.antigravity\/skills\/gstack\//g, '')
     .replace(/browse\/dist\/browse/g, '$B');
 }
 
@@ -262,10 +262,10 @@ function loadSession(): SidebarSession | null {
       console.log(`[browse] Stale worktree path: ${session.worktreePath} — clearing`);
       session.worktreePath = null;
     }
-    // Clear stale claude session ID — can't resume across server restarts
-    if (session.claudeSessionId) {
-      console.log(`[browse] Clearing stale claude session: ${session.claudeSessionId}`);
-      session.claudeSessionId = null;
+    // Clear stale antigravity session ID — can't resume across server restarts
+    if (session.antigravitySessionId) {
+      console.log(`[browse] Clearing stale antigravity session: ${session.antigravitySessionId}`);
+      session.antigravitySessionId = null;
     }
     // Load chat history
     const chatFile = path.join(SESSIONS_DIR, session.id, 'chat.jsonl');
@@ -353,7 +353,7 @@ function createSession(): SidebarSession {
   const session: SidebarSession = {
     id,
     name: 'Chrome sidebar',
-    claudeSessionId: null,
+    antigravitySessionId: null,
     worktreePath,
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
@@ -391,14 +391,14 @@ function listSessions(): Array<SidebarSession & { chatLines: number }> {
 
 function processAgentEvent(event: any): void {
   if (event.type === 'system') {
-    if (event.claudeSessionId && sidebarSession && !sidebarSession.claudeSessionId) {
-      sidebarSession.claudeSessionId = event.claudeSessionId;
+    if (event.antigravitySessionId && sidebarSession && !sidebarSession.antigravitySessionId) {
+      sidebarSession.antigravitySessionId = event.antigravitySessionId;
       saveSession();
     }
     return;
   }
 
-  // The sidebar-agent.ts pre-processes Claude stream events into simplified
+  // The sidebar-agent.ts pre-processes Antigravity stream events into simplified
   // types: tool_use, text, text_delta, result, agent_start, agent_done,
   // agent_error. Handle these directly.
   const ts = new Date().toISOString();
@@ -431,7 +431,7 @@ function processAgentEvent(event: any): void {
   // agent_start and agent_done are handled by the caller in the endpoint handler
 }
 
-function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId?: number | null): void {
+function spawnAntigravity(userMessage: string, extensionUrl?: string | null, forTabId?: number | null): void {
   // Lock agent to the tab the user is currently on
   agentTabId = forTabId ?? browserManager?.getActiveTabId?.() ?? null;
   const tabState = getTabAgent(agentTabId ?? 0);
@@ -490,7 +490,7 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
   // Compiled bun binaries CANNOT spawn external processes (posix_spawn
   // fails with ENOENT on everything, including /bin/bash). Instead,
   // write the command to a queue file that the sidebar-agent process
-  // (running as non-compiled bun) picks up and spawns claude.
+  // (running as non-compiled bun) picks up and spawns antigravity.
   const agentQueue = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
   const gstackDir = path.dirname(agentQueue);
   const entry = JSON.stringify({
@@ -500,7 +500,7 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
     args,
     stateFile: config.stateFile,
     cwd: (sidebarSession as any)?.worktreePath || process.cwd(),
-    sessionId: sidebarSession?.claudeSessionId || null,
+    sessionId: sidebarSession?.antigravitySessionId || null,
     pageUrl: pageUrl,
     tabId: agentTabId,
   });
@@ -514,7 +514,7 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
     currentMessage = null;
     return;
   }
-  // The sidebar-agent.ts process polls this file and spawns claude.
+  // The sidebar-agent.ts process polls this file and spawns antigravity.
   // It POST events back via /sidebar-event which processAgentEvent handles.
   // Agent status transitions happen when we receive agent_done/agent_error events.
 }
@@ -1164,7 +1164,7 @@ async function start() {
         // Per-tab agent: each tab can run its own agent concurrently
         const tabState = getTabAgent(msgTabId);
         if (tabState.status === 'idle') {
-          spawnClaude(msg, extensionUrl, msgTabId);
+          spawnAntigravity(msg, extensionUrl, msgTabId);
           return new Response(JSON.stringify({ ok: true, processing: true }), {
             status: 200, headers: { 'Content-Type': 'application/json' },
           });
@@ -1203,7 +1203,7 @@ async function start() {
         // Process next in queue
         if (messageQueue.length > 0) {
           const next = messageQueue.shift()!;
-          spawnClaude(next.message, next.extensionUrl);
+          spawnAntigravity(next.message, next.extensionUrl);
         }
         return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -1296,7 +1296,7 @@ async function start() {
           // Process next queued message for THIS tab
           if (tabState.queue.length > 0) {
             const next = tabState.queue.shift()!;
-            spawnClaude(next.message, next.extensionUrl, eventTabId);
+            spawnAntigravity(next.message, next.extensionUrl, eventTabId);
           }
           agentTabId = null; // Release tab lock
           // Legacy: update global status (idle if no tab has an active agent)
@@ -1305,9 +1305,9 @@ async function start() {
             agentStatus = 'idle';
           }
         }
-        // Capture claude session ID for --resume
-        if (body.claudeSessionId && sidebarSession && !sidebarSession.claudeSessionId) {
-          sidebarSession.claudeSessionId = body.claudeSessionId;
+        // Capture antigravity session ID for --resume
+        if (body.antigravitySessionId && sidebarSession && !sidebarSession.antigravitySessionId) {
+          sidebarSession.antigravitySessionId = body.antigravitySessionId;
           saveSession();
         }
         return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });

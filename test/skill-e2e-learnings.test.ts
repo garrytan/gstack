@@ -94,9 +94,9 @@ Run the /learn command (no arguments — show recent learnings).
 
 IMPORTANT:
 - Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
-- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
-  Replace any references to ~/.claude/skills/gstack/bin/ with ./bin/ when running commands.
-- Replace any references to ~/.claude/skills/gstack/bin/gstack-slug with ./bin/gstack-slug.
+- The bin scripts are at ./bin/ (relative to this directory), not at ~/.antigravity/skills/gstack/bin/.
+  Replace any references to ~/.antigravity/skills/gstack/bin/ with ./bin/ when running commands.
+- Replace any references to ~/.antigravity/skills/gstack/bin/gstack-slug with ./bin/gstack-slug.
 - Do NOT use AskUserQuestion.
 - Do NOT implement code changes.
 - Just show the learnings and summarize what you found.`,

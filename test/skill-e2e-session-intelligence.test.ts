@@ -157,8 +157,8 @@ Run the context recovery check — the preamble should show recent artifacts.
 
 IMPORTANT:
 - Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
-- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
-  Replace any references to ~/.claude/skills/gstack/bin/ with ./bin/ when running commands.
+- The bin scripts are at ./bin/ (relative to this directory), not at ~/.antigravity/skills/gstack/bin/.
+  Replace any references to ~/.antigravity/skills/gstack/bin/ with ./bin/ when running commands.
 - Do NOT use AskUserQuestion.
 - Just run the preamble bash block and report what you see.
 - Look for "RECENT ARTIFACTS" and "LAST_SESSION" in the output.`,
@@ -195,7 +195,7 @@ IMPORTANT:
   }, 180_000);
 
   // --- Test 3: Checkpoint save and resume ---
-  // Run /checkpoint save via claude -p, verify file created. Then run /checkpoint resume
+  // Run /checkpoint save via antigravity -p, verify file created. Then run /checkpoint resume
   // and verify it reads the checkpoint back.
   testConcurrentIfSelected('checkpoint-save-resume', async () => {
     const projectDir = path.join(gstackHome, 'projects', slug);
@@ -221,8 +221,8 @@ ${saveSection.slice(0, 2000)}
 
 IMPORTANT:
 - Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
-- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
-  Replace any references to ~/.claude/skills/gstack/bin/ with ./bin/ when running commands.
+- The bin scripts are at ./bin/ (relative to this directory), not at ~/.antigravity/skills/gstack/bin/.
+  Replace any references to ~/.antigravity/skills/gstack/bin/ with ./bin/ when running commands.
 - Save the checkpoint to ${projectDir}/checkpoints/ with a filename like "20260401-test-checkpoint.md".
 - Include YAML frontmatter with status, branch, and timestamp.
 - Include a summary of what's being worked on (you can see from git status).

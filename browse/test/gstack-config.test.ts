@@ -147,7 +147,7 @@ describe('gstack-config', () => {
     expect(content).toContain('auto_upgrade:');
     expect(content).toContain('skill_prefix:');
     expect(content).toContain('routing_declined:');
-    expect(content).toContain('codex_reviews:');
+    expect(content).toContain('antigravity_reviews:');
     expect(content).toContain('skip_eng_review:');
   });
 

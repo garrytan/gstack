@@ -37,11 +37,11 @@ export const OPENAI_LITMUS_CHECKS = [
 ];
 
 /**
- * Shared Codex error handling block for resolver output.
+ * Shared Antigravity error handling block for resolver output.
  * Used by ADVERSARIAL_STEP, CODEX_PLAN_REVIEW, CODEX_SECOND_OPINION,
  * DESIGN_OUTSIDE_VOICES, DESIGN_REVIEW_LITE, DESIGN_SKETCH.
  */
-export function codexErrorHandling(feature: string): string {
+export function antigravityErrorHandling(feature: string): string {
   return `**Error handling:** All errors are non-blocking — the ${feature} is informational.
 - Auth failure (stderr contains "auth", "login", "unauthorized"): note and skip
 - Timeout: note timeout duration and skip

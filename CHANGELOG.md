@@ -2,11 +2,11 @@
 
 ## [0.15.4.0] - 2026-04-03 — Autoplan DX Integration + Docs
 
-`/autoplan` now auto-detects developer-facing plans and runs `/plan-devex-review` as Phase 3.5, with full dual-voice adversarial review (Claude subagent + Codex). If your plan mentions APIs, CLIs, SDKs, agent actions, or anything developers integrate with, the DX review kicks in automatically. No extra commands needed.
+`/autoplan` now auto-detects developer-facing plans and runs `/plan-devex-review` as Phase 3.5, with full dual-voice adversarial review (Antigravity subagent + Antigravity). If your plan mentions APIs, CLIs, SDKs, agent actions, or anything developers integrate with, the DX review kicks in automatically. No extra commands needed.
 
 ### Added
 
-- **DX review in /autoplan.** Phase 3.5 runs after Eng review when developer-facing scope is detected. Includes DX-specific dual voices, consensus table, and full 8-dimension scorecard. Triggers on APIs, CLIs, SDKs, shell commands, Claude Code skills, OpenClaw actions, MCP servers, and anything devs implement or debug.
+- **DX review in /autoplan.** Phase 3.5 runs after Eng review when developer-facing scope is detected. Includes DX-specific dual voices, consensus table, and full 8-dimension scorecard. Triggers on APIs, CLIs, SDKs, shell commands, Antigravity Code skills, OpenClaw actions, MCP servers, and anything devs implement or debug.
 - **"Which review?" comparison table in README.** Quick reference showing which review to use for end users vs developers vs architecture, and when `/autoplan` covers all three.
 - **`/plan-devex-review` and `/devex-review` in install instructions.** Both skills now listed in the copy-paste install prompt so new users discover them immediately.
 
@@ -20,7 +20,7 @@ You can now review plans for DX quality before writing code. `/plan-devex-review
 
 ### Added
 
-- **/plan-devex-review skill.** Plan-stage DX review based on Addy Osmani's framework. Auto-detects product type (API, CLI, SDK, library, platform, docs, Claude Code skill). Includes developer empathy simulation, DX scorecard with trends, and a conditional Claude Code Skill DX checklist for reviewing skills themselves.
+- **/plan-devex-review skill.** Plan-stage DX review based on Addy Osmani's framework. Auto-detects product type (API, CLI, SDK, library, platform, docs, Antigravity Code skill). Includes developer empathy simulation, DX scorecard with trends, and a conditional Antigravity Code Skill DX checklist for reviewing skills themselves.
 - **/devex-review skill.** Live DX audit using the browse tool. Tests docs, getting started flows, error messages, and CLI help. Each dimension scored as TESTED, INFERRED, or N/A with screenshot evidence. Boomerang comparison: plan said TTHW would be 3 minutes, reality says 8.
 - **DX Hall of Fame reference.** On-demand examples from Stripe, Vercel, Elm, Rust, htmx, Tailwind, and more, loaded per review pass to avoid prompt bloat.
 - **`{{DX_FRAMEWORK}}` resolver.** Shared DX principles, characteristics, and scoring rubric for both skills. Compact (~150 lines) so it doesn't eat context.
@@ -60,7 +60,7 @@ You can now run `/design-html` without having to run `/design-shotgun` first. Th
 
 ### Fixed
 
-- **Skills now discovered as top-level names.** Setup creates real directories with SKILL.md symlinks inside instead of directory symlinks. This fixes Claude auto-prefixing skill names with `gstack-` when using `--no-prefix` mode. `/qa` is now just `/qa`, not `/gstack-qa`.
+- **Skills now discovered as top-level names.** Setup creates real directories with SKILL.md symlinks inside instead of directory symlinks. This fixes Antigravity auto-prefixing skill names with `gstack-` when using `--no-prefix` mode. `/qa` is now just `/qa`, not `/gstack-qa`.
 
 ## [0.15.0.0] - 2026-04-01 — Session Intelligence
 
@@ -103,10 +103,10 @@ Re-running `/ship` after a failed push or PR creation no longer double-bumps you
 ### Fixed
 
 - **`/ship` is now idempotent (#649).** If push succeeds but PR creation fails (API outage, rate limit), re-running `/ship` detects the already-bumped VERSION, skips the push if already up to date, and updates the existing PR body instead of creating a duplicate. The CHANGELOG step was already idempotent by design ("replace with unified entry"), so no guard needed there.
-- **Skill prefix actually patches `name:` in SKILL.md (#620, #578).** `./setup --prefix` and `gstack-relink` now patch the `name:` field in each skill's SKILL.md frontmatter to match the prefix setting. Previously, symlinks were prefixed but Claude Code read the unprefixed `name:` field and ignored the prefix entirely. Edge cases handled: `gstack-upgrade` not double-prefixed, root `gstack` skill never prefixed, prefix removal restores original names.
+- **Skill prefix actually patches `name:` in SKILL.md (#620, #578).** `./setup --prefix` and `gstack-relink` now patch the `name:` field in each skill's SKILL.md frontmatter to match the prefix setting. Previously, symlinks were prefixed but Antigravity Code read the unprefixed `name:` field and ignored the prefix entirely. Edge cases handled: `gstack-upgrade` not double-prefixed, root `gstack` skill never prefixed, prefix removal restores original names.
 - **`gen-skill-docs` warns when prefix patches need re-applying.** After regenerating SKILL.md files, if `skill_prefix: true` is set in config, a warning reminds you to run `gstack-relink`.
 - **PR idempotency checks open state.** The PR guard now verifies the existing PR is `OPEN`, so closed PRs don't block new PR creation.
-- **`--no-prefix` ordering bug.** `gstack-patch-names` now runs before `link_claude_skill_dirs` so symlink names reflect the correct patched values.
+- **`--no-prefix` ordering bug.** `gstack-patch-names` now runs before `link_antigravity_skill_dirs` so symlink names reflect the correct patched values.
 
 ### Added
 
@@ -141,17 +141,17 @@ Every `/review` now dispatches specialist subagents in parallel. Instead of one 
 
 ## [0.14.3.0] - 2026-03-31 — Always-On Adversarial Review + Scope Drift + Plan Mode Design Tools
 
-Every code review now runs adversarial analysis from both Claude and Codex, regardless of diff size. A 5-line auth change gets the same cross-model scrutiny as a 500-line feature. The old "skip adversarial for small diffs" heuristic is gone... diff size was never a good proxy for risk.
+Every code review now runs adversarial analysis from both Antigravity and Antigravity, regardless of diff size. A 5-line auth change gets the same cross-model scrutiny as a 500-line feature. The old "skip adversarial for small diffs" heuristic is gone... diff size was never a good proxy for risk.
 
 ### Added
 
-- **Always-on adversarial review.** Every `/review` and `/ship` run now dispatches both a Claude adversarial subagent and a Codex adversarial challenge. No more tier-based skipping. The Codex structured review (formal P1 pass/fail gate) still runs on large diffs (200+ lines) where the formal gate adds value.
+- **Always-on adversarial review.** Every `/review` and `/ship` run now dispatches both a Antigravity adversarial subagent and a Antigravity adversarial challenge. No more tier-based skipping. The Antigravity structured review (formal P1 pass/fail gate) still runs on large diffs (200+ lines) where the formal gate adds value.
 - **Scope drift detection in `/ship`.** Before shipping, `/ship` now checks whether you built what you said you'd build, nothing more, nothing less. Catches scope creep ("while I was in there..." changes) and missing requirements. Results appear in the PR body.
-- **Plan Mode Safe Operations.** Browse screenshots, design mockups, Codex outside voices, and writing to `~/.gstack/` are now explicitly allowed in plan mode. Design-related skills (`/design-consultation`, `/design-shotgun`, `/design-html`, `/plan-design-review`) can generate visual artifacts during planning without fighting plan mode restrictions.
+- **Plan Mode Safe Operations.** Browse screenshots, design mockups, Antigravity outside voices, and writing to `~/.gstack/` are now explicitly allowed in plan mode. Design-related skills (`/design-consultation`, `/design-shotgun`, `/design-html`, `/plan-design-review`) can generate visual artifacts during planning without fighting plan mode restrictions.
 
 ### Changed
 
-- **Adversarial opt-out split.** The legacy `codex_reviews=disabled` config now only gates Codex passes. Claude adversarial subagent always runs since it's free and fast. Previously the kill switch disabled everything.
+- **Adversarial opt-out split.** The legacy `antigravity_reviews=disabled` config now only gates Antigravity passes. Antigravity adversarial subagent always runs since it's free and fast. Previously the kill switch disabled everything.
 - **Cross-model tension format.** Outside voice disagreements now include `RECOMMENDATION` and `Completeness` scores, matching the standard AskUserQuestion format used everywhere else in gstack.
 - **Scope drift is now a shared resolver.** Extracted from `/review` into `generateScopeDrift()` so both `/review` and `/ship` use the same logic. DRY.
 
@@ -163,7 +163,7 @@ The sidebar is now a visual design tool. Pick any element on the page and see th
 
 - **CSS Inspector in the sidebar.** Click "Pick Element", hover over anything, click it, and the sidebar shows the full CSS rule cascade with specificity badges, source file:line, box model visualization (gstack palette colors), and computed styles. Like Chrome DevTools, but inside the sidebar.
 - **Live style editing.** `$B style .selector property value` modifies CSS rules in real time via CDP. Changes show instantly on the page. Undo with `$B style --undo`.
-- **Per-tab agents.** Each browser tab gets its own Claude agent process via `BROWSE_TAB` env var. Switch tabs in the browser and the sidebar swaps to that tab's chat history. Ask questions about different pages in parallel without agents fighting over which tab is active.
+- **Per-tab agents.** Each browser tab gets its own Antigravity agent process via `BROWSE_TAB` env var. Switch tabs in the browser and the sidebar swaps to that tab's chat history. Ask questions about different pages in parallel without agents fighting over which tab is active.
 - **Tab tracking.** User-created tabs (Cmd+T, right-click "Open in new tab") are automatically tracked via `context.on('page')`. The sidebar tab bar updates in real time. Click a tab in the sidebar to switch the browser. Close a tab and it disappears.
 - **LLM-powered page cleanup.** The cleanup button sends a prompt to the sidebar agent (which IS an LLM). The agent runs a deterministic first pass, snapshots the page, analyzes what's left, and removes clutter intelligently while preserving site branding. Works on any site without brittle CSS selectors.
 - **Pretty screenshots.** `$B prettyscreenshot --cleanup --scroll-to ".pricing" ~/Desktop/hero.png` combines cleanup, scroll positioning, and screenshot in one command.
@@ -173,7 +173,7 @@ The sidebar is now a visual design tool. Pick any element on the page and see th
 
 ### Fixed
 
-- **Inspector message allowlist.** The background.js allowlist was missing all inspector message types, silently rejecting them. The inspector was broken for all pages, not just CSP-restricted ones. (Found by Codex review.)
+- **Inspector message allowlist.** The background.js allowlist was missing all inspector message types, silently rejecting them. The inspector was broken for all pages, not just CSP-restricted ones. (Found by Antigravity review.)
 - **Sticky nav preservation.** Cleanup no longer removes the site's top nav bar. Sorts sticky elements by position and preserves the first full-width element near the top.
 - **Agent won't stop.** System prompt now tells the agent to be concise and stop when done. No more endless screenshot-and-highlight loops.
 - **Focus stealing.** Agent commands no longer pull Chrome to the foreground. Internal tab pinning uses `bringToFront: false`.
@@ -219,7 +219,7 @@ Repeat /office-hours users now get fresh, curated resources every session instea
 
 ### Added
 
-- **Rotating founder resources in /office-hours closing.** 34 curated resources across 5 categories (Garry Tan videos, YC Backstory, Lightcone Podcast, YC Startup School, Paul Graham essays). Claude picks 2-3 per session based on session context, not randomly.
+- **Rotating founder resources in /office-hours closing.** 34 curated resources across 5 categories (Garry Tan videos, YC Backstory, Lightcone Podcast, YC Startup School, Paul Graham essays). Antigravity picks 2-3 per session based on session context, not randomly.
 - **Resource dedup log.** Tracks which resources were shown in `~/.gstack/projects/$SLUG/resources-shown.jsonl` so repeat users always see fresh content.
 - **Resource selection analytics.** Logs which resources get picked to `skill-usage.jsonl` so you can see patterns over time.
 - **Browser-open offer.** After showing resources, offers to open them in your browser so you can check them out later.
@@ -234,11 +234,11 @@ Skills can now load other skills inline. Write `{{INVOKE_SKILL:office-hours}}` i
 
 ### Added
 
-- **`{{INVOKE_SKILL:skill-name}}` resolver.** Composable skill loading as a first-class resolver. Emits host-aware prose that tells Claude or Codex to read another skill's SKILL.md and follow it inline, skipping preamble sections. Supports optional `skip=` parameter for additional sections to skip.
+- **`{{INVOKE_SKILL:skill-name}}` resolver.** Composable skill loading as a first-class resolver. Emits host-aware prose that tells Antigravity or Antigravity to read another skill's SKILL.md and follow it inline, skipping preamble sections. Supports optional `skip=` parameter for additional sections to skip.
 - **Parameterized resolver support.** The placeholder regex now handles `{{NAME:arg1:arg2}}`, enabling resolvers that take arguments at generation time. Fully backward compatible with existing `{{NAME}}` patterns.
 - **`{{CHANGELOG_WORKFLOW}}` resolver.** Changelog generation logic extracted from /ship into a reusable resolver. Includes voice guidance ("lead with what the user can now do") inline.
 - **Frontmatter `name:` for skill registration.** Setup script and gen-skill-docs now read `name:` from SKILL.md frontmatter for symlink naming. Enables directory names that differ from invocation names (e.g., `run-tests/` directory registered as `/test`).
-- **Proactive skill routing.** Skills now ask once to add routing rules to your project's CLAUDE.md. This makes Claude invoke the right skill automatically instead of answering directly. Your choice is remembered in `~/.gstack/config.yaml`.
+- **Proactive skill routing.** Skills now ask once to add routing rules to your project's GEMINI.md. This makes Antigravity invoke the right skill automatically instead of answering directly. Your choice is remembered in `~/.gstack/config.yaml`.
 - **Annotated config file.** `~/.gstack/config.yaml` now gets a documented header on first creation explaining every setting. Edit it anytime.
 
 ### Changed
@@ -284,7 +284,7 @@ Six community fixes with 16 new tests. Telemetry off now means off everywhere. S
 
 ### Added
 
-- **Skill discoverability.** Every skill description now contains "(gstack)" so you can find gstack skills by searching in Claude Code's command palette.
+- **Skill discoverability.** Every skill description now contains "(gstack)" so you can find gstack skills by searching in Antigravity Code's command palette.
 - **Feature signal detection in `/ship`.** Version bump now checks for new routes, migrations, test+source pairs, and `feat/` branches. Catches MINOR-worthy changes that line count alone misses.
 - **Sidebar Write tool.** Both the sidebar agent and headed-mode server now include Write in allowedTools. Write doesn't expand the attack surface beyond what Bash already provides.
 - **Sidebar stderr capture.** The sidebar agent now buffers stderr and includes it in error and timeout messages instead of silently discarding it.
@@ -310,26 +310,26 @@ Every session now makes the next one smarter. gstack remembers patterns, pitfall
 
 ### Changed
 
-- **Stop tracking `.factory/` directory.** Generated Factory Droid skill files are now gitignored, same as `.claude/skills/` and `.agents/`. Removes 29 generated SKILL.md files from the repo. The `setup` script and `bun run build` regenerate these on demand.
+- **Stop tracking `.factory/` directory.** Generated Factory Droid skill files are now gitignored, same as `.antigravity/skills/` and `.agents/`. Removes 29 generated SKILL.md files from the repo. The `setup` script and `bun run build` regenerate these on demand.
 
 ## [0.13.5.0] - 2026-03-29 — Factory Droid Compatibility
 
-gstack now works with Factory Droid. Type `/qa` in Droid and get the same 29 skills you use in Claude Code. This makes gstack the first skill library that works across Claude Code, Codex, and Factory Droid.
+gstack now works with Factory Droid. Type `/qa` in Droid and get the same 29 skills you use in Antigravity Code. This makes gstack the first skill library that works across Antigravity Code, Antigravity, and Factory Droid.
 
 ### Added
 
 - **Factory Droid support (`--host factory`).** Generate Factory-native skills with `bun run gen:skill-docs --host factory`. Skills install to `.factory/skills/` with proper frontmatter (`user-invocable: true`, `disable-model-invocation: true` for sensitive skills like /ship and /land-and-deploy).
-- **`--host all` flag.** One command generates skills for all 3 hosts. Fault-tolerant: catches per-host errors, only fails if Claude generation fails.
+- **`--host all` flag.** One command generates skills for all 3 hosts. Fault-tolerant: catches per-host errors, only fails if Antigravity generation fails.
 - **`gstack-platform-detect` binary.** Prints a table of installed AI coding agents with versions, skill paths, and gstack status. Useful for debugging multi-host setups.
-- **Sensitive skill safety.** Six skills with side effects (ship, land-and-deploy, guard, careful, freeze, unfreeze) now declare `sensitive: true` in their templates. Factory Droids won't auto-invoke them. Claude and Codex output strips the field.
+- **Sensitive skill safety.** Six skills with side effects (ship, land-and-deploy, guard, careful, freeze, unfreeze) now declare `sensitive: true` in their templates. Factory Droids won't auto-invoke them. Antigravity and Antigravity output strips the field.
 - **Factory CI freshness check.** The skill-docs workflow now verifies Factory output is fresh on every PR.
 - **Factory awareness across operational tooling.** skill-check dashboard, gstack-uninstall, and setup script all know about Factory.
 
 ### Changed
 
-- **Refactored multi-host generation.** Extracted `processExternalHost()` shared helper from the Codex-specific code block. Both Codex and Factory use the same function for output routing, symlink loop detection, frontmatter transformation, and path rewrites. Codex output is byte-identical after refactor.
+- **Refactored multi-host generation.** Extracted `processExternalHost()` shared helper from the Antigravity-specific code block. Both Antigravity and Factory use the same function for output routing, symlink loop detection, frontmatter transformation, and path rewrites. Antigravity output is byte-identical after refactor.
 - **Build script uses `--host all`.** Replaces chained `gen:skill-docs` calls with a single `--host all` invocation.
-- **Tool name translation for Factory.** Claude Code tool names ("use the Bash tool") are translated to generic phrasing ("run this command") in Factory output, matching Factory's tool naming conventions.
+- **Tool name translation for Factory.** Antigravity Code tool names ("use the Bash tool") are translated to generic phrasing ("run this command") in Factory output, matching Factory's tool naming conventions.
 
 ## [0.13.4.0] - 2026-03-29 — Sidebar Defense
 
@@ -337,13 +337,13 @@ The Chrome sidebar now defends against prompt injection attacks. Three layers: X
 
 ### Fixed
 
-- **Sidebar agent now respects server-side args.** The sidebar-agent process was silently rebuilding its own Claude args from scratch, ignoring `--model`, `--allowedTools`, and other flags set by the server. Every server-side configuration change was silently dropped. Now uses the queued args.
+- **Sidebar agent now respects server-side args.** The sidebar-agent process was silently rebuilding its own Antigravity args from scratch, ignoring `--model`, `--allowedTools`, and other flags set by the server. Every server-side configuration change was silently dropped. Now uses the queued args.
 
 ### Added
 
 - **XML prompt framing with trust boundaries.** User messages are wrapped in `<user-message>` tags with explicit instructions to treat content as data, not instructions. XML special characters (`< > &`) are escaped to prevent tag injection attacks.
-- **Bash command allowlist.** The sidebar's system prompt now restricts Claude to browse binary commands only (`$B goto`, `$B click`, `$B snapshot`, etc.). All other bash commands (`curl`, `rm`, `cat`, etc.) are forbidden. This prevents prompt injection from escalating to arbitrary code execution.
-- **Opus default for sidebar.** The sidebar now uses Opus (the most injection-resistant model) by default, instead of whatever model Claude Code happens to be running.
+- **Bash command allowlist.** The sidebar's system prompt now restricts Antigravity to browse binary commands only (`$B goto`, `$B click`, `$B snapshot`, etc.). All other bash commands (`curl`, `rm`, `cat`, etc.) are forbidden. This prevents prompt injection from escalating to arbitrary code execution.
+- **Opus default for sidebar.** The sidebar now uses Opus (the most injection-resistant model) by default, instead of whatever model Antigravity Code happens to be running.
 - **ML prompt injection defense design doc.** Full design doc at `docs/designs/ML_PROMPT_INJECTION_KILLER.md` covering the follow-up ML classifier (DeBERTa, BrowseSafe-bench, Bun-native 5ms vision). P0 TODO for the next PR.
 
 ## [0.13.3.0] - 2026-03-28 — Lock It Down
@@ -357,15 +357,15 @@ Six fixes from community PRs and bug reports. The big one: your dependency tree 
 - **`./setup` no longer hangs in CI.** The skill-prefix prompt now auto-selects short names after 10 seconds. Conductor workspaces, Docker builds, and unattended installs proceed without human input.
 - **Browse CLI works on Windows.** The server lockfile now uses `'wx'` string flag instead of numeric `fs.constants` that Bun compiled binaries don't handle on Windows.
 - **`/ship` and `/review` find your design docs.** Plan search now checks `~/.gstack/projects/` first, where `/office-hours` writes design documents. Previously, plan validation silently skipped because it was looking in the wrong directories.
-- **`/autoplan` dual-voice actually works.** Background subagents can't read files (Claude Code limitation), so the Claude voice was silently failing on every run. Now runs sequentially in foreground. Both voices complete before the consensus table.
+- **`/autoplan` dual-voice actually works.** Background subagents can't read files (Antigravity Code limitation), so the Antigravity voice was silently failing on every run. Now runs sequentially in foreground. Both voices complete before the consensus table.
 
 ### Added
 
-- **Community PR guardrails in CLAUDE.md.** ETHOS.md, promotional material, and Garry's voice are explicitly protected from modification without user approval.
+- **Community PR guardrails in GEMINI.md.** ETHOS.md, promotional material, and Garry's voice are explicitly protected from modification without user approval.
 
 ## [0.13.2.0] - 2026-03-28 — User Sovereignty
 
-AI models now recommend instead of override. When Claude and Codex agree on a scope change, they present it to you instead of just doing it. Your direction is the default, not the models' consensus.
+AI models now recommend instead of override. When Antigravity and Antigravity agree on a scope change, they present it to you instead of just doing it. Your direction is the default, not the models' consensus.
 
 ### Added
 
@@ -460,7 +460,7 @@ You can now choose how gstack skills appear: short names (`/qa`, `/ship`, `/revi
 
 - **Interactive prefix choice on first setup.** New installs get a prompt: short names (`/qa`, `/ship`) or namespaced (`/gstack-qa`, `/gstack-ship`). Short names are recommended. Your choice is saved to `~/.gstack/config.yaml` and remembered across upgrades.
 - **`--prefix` flag.** Complement to `--no-prefix`. Both flags persist your choice so you only decide once.
-- **Reverse symlink cleanup.** Switching from namespaced to flat (or vice versa) now cleans up the old symlinks. No more duplicate commands showing up in Claude Code.
+- **Reverse symlink cleanup.** Switching from namespaced to flat (or vice versa) now cleans up the old symlinks. No more duplicate commands showing up in Antigravity Code.
 - **Namespace-aware skill suggestions.** All 28 skill templates now check your prefix setting. When one skill suggests another (like `/ship` suggesting `/qa`), it uses the right name for your install.
 
 ### Fixed
@@ -472,15 +472,15 @@ You can now choose how gstack skills appear: short names (`/qa`, `/ship`, `/revi
 
 - 8 new structural tests for the prefix config system (223 total in gen-skill-docs).
 
-## [0.12.10.0] - 2026-03-27 — Codex Filesystem Boundary
+## [0.12.10.0] - 2026-03-27 — Antigravity Filesystem Boundary
 
-Codex was wandering into `~/.claude/skills/` and following gstack's own instructions instead of reviewing your code. Now every codex prompt includes a boundary instruction that keeps it focused on the repository. Covers all 11 callsites across /codex, /autoplan, /review, /ship, /plan-eng-review, /plan-ceo-review, and /office-hours.
+Antigravity was wandering into `~/.antigravity/skills/` and following gstack's own instructions instead of reviewing your code. Now every antigravity prompt includes a boundary instruction that keeps it focused on the repository. Covers all 11 callsites across /antigravity, /autoplan, /review, /ship, /plan-eng-review, /plan-ceo-review, and /office-hours.
 
 ### Fixed
 
-- **Codex stays in the repo.** All `codex exec` and `codex review` calls now prepend a filesystem boundary instruction telling Codex to ignore skill definition files. Prevents Codex from reading SKILL.md preamble scripts and wasting 8+ minutes on session tracking and upgrade checks.
-- **Rabbit-hole detection.** If Codex output contains signs it got distracted by skill files (`gstack-config`, `gstack-update-check`, `SKILL.md`, `skills/gstack`), the /codex skill now warns and suggests a retry.
-- **5 regression tests.** New test suite validates boundary text appears in all 7 codex-calling skills, the Filesystem Boundary section exists, the rabbit-hole detection rule exists, and autoplan uses cross-host-compatible path patterns.
+- **Antigravity stays in the repo.** All `antigravity exec` and `antigravity review` calls now prepend a filesystem boundary instruction telling Antigravity to ignore skill definition files. Prevents Antigravity from reading SKILL.md preamble scripts and wasting 8+ minutes on session tracking and upgrade checks.
+- **Rabbit-hole detection.** If Antigravity output contains signs it got distracted by skill files (`gstack-config`, `gstack-update-check`, `SKILL.md`, `skills/gstack`), the /antigravity skill now warns and suggests a retry.
+- **5 regression tests.** New test suite validates boundary text appears in all 7 antigravity-calling skills, the Filesystem Boundary section exists, the rabbit-hole detection rule exists, and autoplan uses cross-host-compatible path patterns.
 
 ## [0.12.9.0] - 2026-03-27 — Community PRs: Faster Install, Skill Namespacing, Uninstall
 
@@ -488,9 +488,9 @@ Six community PRs landed in one batch. Install is faster, skills no longer colli
 
 ### Added
 
-- **Uninstall script.** `bin/gstack-uninstall` cleanly removes gstack from your system: stops browse daemons, removes all skill installs (Claude/Codex/Kiro), cleans up state. Supports `--force` (skip confirmation) and `--keep-state` (preserve config). (#323)
+- **Uninstall script.** `bin/gstack-uninstall` cleanly removes gstack from your system: stops browse daemons, removes all skill installs (Antigravity/Antigravity/Kiro), cleans up state. Supports `--force` (skip confirmation) and `--keep-state` (preserve config). (#323)
 - **Python security patterns in /review.** Shell injection (`subprocess.run(shell=True)`), SSRF via LLM-generated URLs, stored prompt injection, async/sync mixing, and column name safety checks now fire automatically on Python projects. (#531)
-- **Office-hours works without Codex.** The "second opinion" step now falls back to a Claude subagent when Codex CLI is unavailable, so every user gets the cross-model perspective. (#464)
+- **Office-hours works without Antigravity.** The "second opinion" step now falls back to a Antigravity subagent when Antigravity CLI is unavailable, so every user gets the cross-model perspective. (#464)
 
 ### Changed
 
@@ -509,17 +509,17 @@ Skill scripts now work correctly in zsh. Previously, bash code blocks in skill t
 ### Fixed
 
 - **`.github/workflows/` globs replaced with `find`.** `cat .github/workflows/*deploy*`, `for f in .github/workflows/*.yml`, and `ls .github/workflows/*.yaml` patterns in `/land-and-deploy`, `/setup-deploy`, `/cso`, and the deploy bootstrap resolver now use `find ... -name` instead of raw globs.
-- **`~/.gstack/` and `~/.claude/` globs guarded with `setopt`.** Design doc lookups, eval result listings, test plan discovery, and retro history checks across 10 skills now prepend `setopt +o nomatch 2>/dev/null || true` (no-op in bash, disables NOMATCH in zsh).
+- **`~/.gstack/` and `~/.antigravity/` globs guarded with `setopt`.** Design doc lookups, eval result listings, test plan discovery, and retro history checks across 10 skills now prepend `setopt +o nomatch 2>/dev/null || true` (no-op in bash, disables NOMATCH in zsh).
 - **Test framework detection globs guarded.** `ls jest.config.* vitest.config.*` in the testing resolver now has a setopt guard.
 
-## [0.12.8.0] - 2026-03-27 — Codex No Longer Reviews the Wrong Project
+## [0.12.8.0] - 2026-03-27 — Antigravity No Longer Reviews the Wrong Project
 
-When you run gstack in Conductor with multiple workspaces open, Codex could silently review the wrong project. The `codex exec -C` flag resolved the repo root inline via `$(git rev-parse --show-toplevel)`, which evaluates in whatever cwd the background shell inherits. In multi-workspace environments, that cwd might be a different project entirely.
+When you run gstack in Conductor with multiple workspaces open, Antigravity could silently review the wrong project. The `antigravity exec -C` flag resolved the repo root inline via `$(git rev-parse --show-toplevel)`, which evaluates in whatever cwd the background shell inherits. In multi-workspace environments, that cwd might be a different project entirely.
 
 ### Fixed
 
-- **Codex exec resolves repo root eagerly.** All 12 `codex exec` commands across `/codex`, `/autoplan`, and 4 resolver functions now resolve `_REPO_ROOT` at the top of each bash block and reference the stored value in `-C`. No more inline evaluation that races with other workspaces.
-- **`codex review` also gets cwd protection.** `codex review` doesn't support `-C`, so it now gets `cd "$_REPO_ROOT"` before invocation. Same class of bug, different command.
+- **Antigravity exec resolves repo root eagerly.** All 12 `antigravity exec` commands across `/antigravity`, `/autoplan`, and 4 resolver functions now resolve `_REPO_ROOT` at the top of each bash block and reference the stored value in `-C`. No more inline evaluation that races with other workspaces.
+- **`antigravity review` also gets cwd protection.** `antigravity review` doesn't support `-C`, so it now gets `cd "$_REPO_ROOT"` before invocation. Same class of bug, different command.
 - **Silent fallback replaced with hard fail.** The `|| pwd` fallback silently used whatever random cwd was available. Now it errors out with a clear message if not in a git repo.
 
 ### Removed
@@ -528,7 +528,7 @@ When you run gstack in Conductor with multiple workspaces open, Codex could sile
 
 ### Added
 
-- **Regression test** that scans all `.tmpl`, resolver `.ts`, and generated `SKILL.md` files for codex commands using inline `$(git rev-parse --show-toplevel)`. Prevents reintroduction.
+- **Regression test** that scans all `.tmpl`, resolver `.ts`, and generated `SKILL.md` files for antigravity commands using inline `$(git rev-parse --show-toplevel)`. Prevents reintroduction.
 
 ## [0.12.7.0] - 2026-03-27 — Community PRs + Security Hardening
 
@@ -539,7 +539,7 @@ Seven community contributions merged, reviewed, and tested. Plus security harden
 - **Dotfile filtering in skill discovery.** Hidden directories (`.git`, `.vscode`, etc.) are no longer picked up as skill templates.
 - **JSON validation gate in review-log.** Malformed input is rejected instead of appended to the JSONL file.
 - **Telemetry input sanitization.** All string fields are stripped of quotes, backslashes, and control characters before being written to JSONL.
-- **Host-specific co-author trailers.** `/ship` and `/document-release` now use the correct co-author line for Codex vs Claude.
+- **Host-specific co-author trailers.** `/ship` and `/document-release` now use the correct co-author line for Antigravity vs Antigravity.
 - **10 new security tests** covering telemetry injection, review-log validation, and dotfile filtering.
 
 ### Fixed
@@ -552,7 +552,7 @@ Seven community contributions merged, reviewed, and tested. Plus security harden
 
 ### For contributors
 
-- New CLAUDE.md rule: never copy full SKILL.md files into E2E test fixtures. Extract the relevant section only.
+- New GEMINI.md rule: never copy full SKILL.md files into E2E test fixtures. Extract the relevant section only.
 
 ## [0.12.6.0] - 2026-03-27 — Sidebar Knows What Page You're On
 
@@ -561,13 +561,13 @@ The Chrome sidebar agent used to navigate to the wrong page when you asked it to
 ### Fixed
 
 - **Sidebar uses the real tab URL.** The Chrome extension now captures the actual page URL via `chrome.tabs.query()` and sends it to the server. Previously the sidebar agent used Playwright's stale `page.url()`, which didn't update when you navigated manually in headed mode.
-- **URL sanitization.** The extension-provided URL is validated (http/https only, control characters stripped, 2048 char limit) before being used in the Claude system prompt. Prevents prompt injection via crafted URLs.
+- **URL sanitization.** The extension-provided URL is validated (http/https only, control characters stripped, 2048 char limit) before being used in the Antigravity system prompt. Prevents prompt injection via crafted URLs.
 - **Stale sidebar agents killed on reconnect.** Each `/connect-chrome` now kills leftover sidebar-agent processes before starting a new one. Old agents had stale auth tokens and would silently fail, causing the sidebar to freeze.
 
 ### Added
 
 - **Pre-flight cleanup for `/connect-chrome`.** Kills stale browse servers and cleans Chromium profile locks before connecting. Prevents "already connected" false positives after crashes.
-- **Sidebar agent test suite (36 tests).** Four layers: unit tests for URL sanitization, integration tests for server HTTP endpoints, mock-Claude round-trip tests, and E2E tests with real Claude. All free except layer 4.
+- **Sidebar agent test suite (36 tests).** Four layers: unit tests for URL sanitization, integration tests for server HTTP endpoints, mock-Antigravity round-trip tests, and E2E tests with real Antigravity. All free except layer 4.
 
 ## [0.12.5.1] - 2026-03-27 — Eng Review Now Tells You What to Parallelize
 
@@ -577,14 +577,14 @@ The Chrome sidebar agent used to navigate to the wrong page when you asked it to
 
 - **Worktree parallelization strategy** in `/plan-eng-review` required outputs. Extracts a structured table of plan steps with module-level dependencies, computes parallel lanes, and flags merge conflict risks. Skips automatically for single-module or single-track plans.
 
-## [0.12.5.0] - 2026-03-26 — Fix Codex Hangs: 30-Minute Waits Are Gone
+## [0.12.5.0] - 2026-03-26 — Fix Antigravity Hangs: 30-Minute Waits Are Gone
 
-Three bugs in `/codex` caused 30+ minute hangs with zero output during plan reviews and adversarial checks. All three are fixed.
+Three bugs in `/antigravity` caused 30+ minute hangs with zero output during plan reviews and adversarial checks. All three are fixed.
 
 ### Fixed
 
-- **Plan files now visible to Codex sandbox.** Codex runs sandboxed to the repo root and couldn't see plan files at `~/.claude/plans/`. It would waste 10+ tool calls searching before giving up. Now the plan content is embedded directly in the prompt, and referenced source files are listed so Codex reads them immediately.
-- **Streaming output actually streams.** Python's stdout buffering meant zero output visible until the process exited. Added `PYTHONUNBUFFERED=1`, `python3 -u`, and `flush=True` on every print call across all three Codex modes.
+- **Plan files now visible to Antigravity sandbox.** Antigravity runs sandboxed to the repo root and couldn't see plan files at `~/.antigravity/plans/`. It would waste 10+ tool calls searching before giving up. Now the plan content is embedded directly in the prompt, and referenced source files are listed so Antigravity reads them immediately.
+- **Streaming output actually streams.** Python's stdout buffering meant zero output visible until the process exited. Added `PYTHONUNBUFFERED=1`, `python3 -u`, and `flush=True` on every print call across all three Antigravity modes.
 - **Sane reasoning effort defaults.** Replaced hardcoded `xhigh` (23x more tokens, known 50+ min hangs per OpenAI issues #8545, #8402, #6931) with per-mode defaults: `high` for review and challenge, `medium` for consult. Users can override with `--xhigh` flag when they want maximum reasoning.
 - **`--xhigh` override works in all modes.** The override reminder was missing from challenge and consult mode instructions. Found by adversarial review.
 
@@ -599,7 +599,7 @@ When you ship a branch with 12 commits spanning performance work, dead code remo
 
 ## [0.12.3.0] - 2026-03-26 — Voice Directive: Every Skill Sounds Like a Builder
 
-Every gstack skill now has a voice. Not a personality, not a persona, but a consistent set of instructions that make Claude sound like someone who shipped code today and cares whether the thing works for real users. Direct, concrete, sharp. Names the file, the function, the command. Connects technical work to what the user actually experiences.
+Every gstack skill now has a voice. Not a personality, not a persona, but a consistent set of instructions that make Antigravity sound like someone who shipped code today and cares whether the thing works for real users. Direct, concrete, sharp. Names the file, the function, the command. Connects technical work to what the user actually experiences.
 
 Two tiers: lightweight skills get a trimmed version (tone + writing rules). Full skills get the complete directive with context-dependent tone (YC partner energy for strategy, senior eng for code review, blog-post clarity for debugging), concreteness standards, humor calibration, and user-outcome guidance.
 
@@ -620,8 +620,8 @@ If your deploy config changes later (new platform, different workflow, updated U
 ### Added
 
 - **First-run dry run.** Shows your deploy infrastructure in a validation table: platform, CLI status, production URL reachability, staging detection, merge method, merge queue status. You confirm before anything irreversible happens.
-- **Staging-first option.** If staging is detected (CLAUDE.md config, GitHub Actions workflow, or Vercel/Netlify preview), you can deploy there first, verify it works, then proceed to production.
-- **Config decay detection.** The dry-run confirmation stores a fingerprint of your deploy config. If CLAUDE.md's deploy section or your deploy workflows change, the dry run re-triggers automatically.
+- **Staging-first option.** If staging is detected (GEMINI.md config, GitHub Actions workflow, or Vercel/Netlify preview), you can deploy there first, verify it works, then proceed to production.
+- **Config decay detection.** The dry-run confirmation stores a fingerprint of your deploy config. If GEMINI.md's deploy section or your deploy workflows change, the dry run re-triggers automatically.
 - **Inline review gate.** If no recent code review exists, offers a quick safety check on the diff before merging. Catches SQL safety, race conditions, and security issues at deploy time.
 - **Merge queue awareness.** Detects when your repo uses merge queues and explains what's happening while it waits.
 - **CI auto-deploy detection.** Identifies deploy workflows triggered by the merge and monitors them.
@@ -659,11 +659,11 @@ Every click, fill, and select now waits for the page to settle before returning.
 
 ## [0.12.0.0] - 2026-03-26 — Headed Mode + Sidebar Agent
 
-You can now watch Claude work in a real Chrome window and direct it from a sidebar chat.
+You can now watch Antigravity work in a real Chrome window and direct it from a sidebar chat.
 
 ### Added
 
-- **Headed mode with sidebar agent.** `$B connect` launches a visible Chrome window with the gstack extension. The Side Panel shows a live activity feed of every command AND a chat interface where you type natural language instructions. A child Claude instance executes your requests in the browser ... navigate pages, click buttons, fill forms, extract data. Each task gets up to 5 minutes.
+- **Headed mode with sidebar agent.** `$B connect` launches a visible Chrome window with the gstack extension. The Side Panel shows a live activity feed of every command AND a chat interface where you type natural language instructions. A child Antigravity instance executes your requests in the browser ... navigate pages, click buttons, fill forms, extract data. Each task gets up to 5 minutes.
 
 - **Personal automation.** The sidebar agent handles repetitive browser tasks beyond dev workflows. Browse your kid's school parent portal and add parent contact info to Google Contacts. Fill out vendor onboarding forms. Extract data from dashboards. Log in once in the headed browser or import cookies from your real Chrome with `/setup-browser-cookies`.
 
@@ -673,7 +673,7 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 ### Changed
 
-- **Sidebar agent ungated.** Previously required `--chat` flag. Now always available in headed mode. The sidebar agent has the same security model as Claude Code itself (Bash, Read, Glob, Grep on localhost).
+- **Sidebar agent ungated.** Previously required `--chat` flag. Now always available in headed mode. The sidebar agent has the same security model as Antigravity Code itself (Bash, Read, Glob, Grep on localhost).
 
 - **Agent timeout raised to 5 minutes.** Multi-page tasks (navigating directories, filling forms across pages) need more than the previous 2-minute limit.
 
@@ -683,10 +683,10 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 - **`/autoplan` reviews now count toward the ship readiness gate.** When `/autoplan` ran full CEO + Design + Eng reviews, `/ship` still showed "0 runs" for Eng Review because autoplan-logged entries weren't being read correctly. Now the dashboard shows source attribution (e.g., "CLEAR (PLAN via /autoplan)") so you can see exactly which tool satisfied each review.
 - **`/ship` no longer tells you to "run /review first."** Ship runs its own pre-landing review in Step 3.5 — asking you to run the same review separately was redundant. The gate is removed; ship just does it.
-- **`/land-and-deploy` now checks all 8 review types.** Previously missed `review`, `adversarial-review`, and `codex-plan-review` — if you only ran `/review` (not `/plan-eng-review`), land-and-deploy wouldn't see it.
-- **Dashboard Outside Voice row now works.** Was showing "0 runs" even after outside voices ran in `/plan-ceo-review` or `/plan-eng-review`. Now correctly maps to `codex-plan-review` entries.
-- **`/codex review` now tracks staleness.** Added the `commit` field to codex review log entries so the dashboard can detect when a codex review is outdated.
-- **`/autoplan` no longer hardcodes "clean" status.** Review log entries from autoplan used to always record `status:"clean"` even when issues were found. Now uses proper placeholder tokens that Claude substitutes with real values.
+- **`/land-and-deploy` now checks all 8 review types.** Previously missed `review`, `adversarial-review`, and `antigravity-plan-review` — if you only ran `/review` (not `/plan-eng-review`), land-and-deploy wouldn't see it.
+- **Dashboard Outside Voice row now works.** Was showing "0 runs" even after outside voices ran in `/plan-ceo-review` or `/plan-eng-review`. Now correctly maps to `antigravity-plan-review` entries.
+- **`/antigravity review` now tracks staleness.** Added the `commit` field to antigravity review log entries so the dashboard can detect when a antigravity review is outdated.
+- **`/autoplan` no longer hardcodes "clean" status.** Review log entries from autoplan used to always record `status:"clean"` even when issues were found. Now uses proper placeholder tokens that Antigravity substitutes with real values.
 
 ## [0.11.20.0] - 2026-03-26
 
@@ -705,12 +705,12 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 ### Fixed
 
-- **Auto-upgrade no longer breaks.** The root gstack skill description was 7 characters from the Codex 1024-char limit. Every new skill addition pushed it closer. Moved the skill routing table from the description (bounded) to the body (unlimited), dropping from 1017 to 409 chars with 615 chars of headroom.
-- **Codex reviews now run in the correct repo.** In multi-workspace setups (like Conductor), Codex could pick up the wrong project directory. All `codex exec` calls now explicitly set `-C` to the git root.
+- **Auto-upgrade no longer breaks.** The root gstack skill description was 7 characters from the Antigravity 1024-char limit. Every new skill addition pushed it closer. Moved the skill routing table from the description (bounded) to the body (unlimited), dropping from 1017 to 409 chars with 615 chars of headroom.
+- **Antigravity reviews now run in the correct repo.** In multi-workspace setups (like Conductor), Antigravity could pick up the wrong project directory. All `antigravity exec` calls now explicitly set `-C` to the git root.
 
 ### Added
 
-- **900-char early warning test.** A new test fails if any Codex skill description exceeds 900 chars, catching description bloat before it breaks builds.
+- **900-char early warning test.** A new test fails if any Antigravity skill description exceeds 900 chars, catching description bloat before it breaks builds.
 
 ## [0.11.18.2] - 2026-03-24
 
@@ -730,7 +730,7 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 ### Added
 
-- **Test coverage gate in /ship.** AI-assessed coverage below 60% is a hard stop. 60-79% gets a prompt. 80%+ passes. Thresholds are configurable per-project via `## Test Coverage` in CLAUDE.md.
+- **Test coverage gate in /ship.** AI-assessed coverage below 60% is a hard stop. 60-79% gets a prompt. 80%+ passes. Thresholds are configurable per-project via `## Test Coverage` in GEMINI.md.
 - **Coverage warning in /review.** Low coverage is now flagged prominently before you reach the /ship gate, so you can write tests early.
 - **Plan completion audit.** /ship reads your plan file, extracts every actionable item, cross-references against the diff, and shows you a DONE/NOT DONE/PARTIAL/CHANGED checklist. Missing items are a shipping blocker (with override).
 - **Plan-aware scope drift detection.** /review's scope drift check now reads the plan file too — not just TODOS.md and PR description.
@@ -743,7 +743,7 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 ### Changed
 
-- **Skill descriptions are now clean and readable.** Removed the ugly "MANUAL TRIGGER ONLY" prefix from every skill description that was wasting 58 characters and causing build errors for Codex integration.
+- **Skill descriptions are now clean and readable.** Removed the ugly "MANUAL TRIGGER ONLY" prefix from every skill description that was wasting 58 characters and causing build errors for Antigravity integration.
 - **You can now opt out of proactive skill suggestions.** The first time you run any gstack skill, you'll be asked whether you want gstack to suggest skills during your workflow. If you prefer to invoke skills manually, just say no — it's saved as a global setting. You can change your mind anytime with `gstack-config set proactive true/false`.
 
 ### Fixed
@@ -761,8 +761,8 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 ### Changed
 
-- **CI runs only gate tests by default — periodic tests run weekly.** Every E2E test is now classified as `gate` (blocks PRs) or `periodic` (weekly cron + on-demand). Gate tests cover functional correctness and safety guardrails. Periodic tests cover expensive Opus quality benchmarks, non-deterministic routing tests, and tests requiring external services (Codex, Gemini). CI feedback is faster and cheaper while quality benchmarks still run weekly.
-- **Global touchfiles are now granular.** Previously, changing `gen-skill-docs.ts` triggered all 56 E2E tests. Now only the ~27 tests that actually depend on it run. Same for `llm-judge.ts`, `test-server.ts`, `worktree.ts`, and the Codex/Gemini session runners. The truly global list is down to 3 files (session-runner, eval-store, touchfiles.ts itself).
+- **CI runs only gate tests by default — periodic tests run weekly.** Every E2E test is now classified as `gate` (blocks PRs) or `periodic` (weekly cron + on-demand). Gate tests cover functional correctness and safety guardrails. Periodic tests cover expensive Opus quality benchmarks, non-deterministic routing tests, and tests requiring external services (Antigravity, Gemini). CI feedback is faster and cheaper while quality benchmarks still run weekly.
+- **Global touchfiles are now granular.** Previously, changing `gen-skill-docs.ts` triggered all 56 E2E tests. Now only the ~27 tests that actually depend on it run. Same for `llm-judge.ts`, `test-server.ts`, `worktree.ts`, and the Antigravity/Gemini session runners. The truly global list is down to 3 files (session-runner, eval-store, touchfiles.ts itself).
 - **New `test:gate` and `test:periodic` scripts** replace `test:e2e:fast`. Use `EVALS_TIER=gate` or `EVALS_TIER=periodic` to filter tests by tier.
 - **Telemetry sync uses `GSTACK_SUPABASE_URL` instead of `GSTACK_TELEMETRY_ENDPOINT`.** Edge functions need the base URL, not the REST API path. The old variable is removed from `config.sh`.
 - **Cursor advancement is now safe.** The sync script checks the edge function's `inserted` count before advancing — if zero events were inserted, the cursor holds and retries next run.
@@ -783,18 +783,18 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 - Extended `test/telemetry.test.ts` with field name verification
 - Untracked `browse/dist/` binaries from git (arm64-only, rebuilt by `./setup`)
 
-## [0.11.15.0] - 2026-03-24 — E2E Test Coverage for Plan Reviews & Codex
+## [0.11.15.0] - 2026-03-24 — E2E Test Coverage for Plan Reviews & Antigravity
 
 ### Added
 
 - **E2E tests verify plan review reports appear at the bottom of plans.** The `/plan-eng-review` review report is now tested end-to-end — if it stops writing `## GSTACK REVIEW REPORT` to the plan file, the test catches it.
-- **E2E tests verify Codex is offered in every plan skill.** Four new lightweight tests confirm that `/office-hours`, `/plan-ceo-review`, `/plan-design-review`, and `/plan-eng-review` all check for Codex availability, prompt the user, and handle the fallback when Codex is unavailable.
+- **E2E tests verify Antigravity is offered in every plan skill.** Four new lightweight tests confirm that `/office-hours`, `/plan-ceo-review`, `/plan-design-review`, and `/plan-eng-review` all check for Antigravity availability, prompt the user, and handle the fallback when Antigravity is unavailable.
 
 ### For contributors
 
-- New E2E tests in `test/skill-e2e-plan.test.ts`: `plan-review-report`, `codex-offered-eng-review`, `codex-offered-ceo-review`, `codex-offered-office-hours`, `codex-offered-design-review`
+- New E2E tests in `test/skill-e2e-plan.test.ts`: `plan-review-report`, `antigravity-offered-eng-review`, `antigravity-offered-ceo-review`, `antigravity-offered-office-hours`, `antigravity-offered-design-review`
 - Updated touchfile mappings and selection count assertions
-- Added `touchfiles` to the documented global touchfile list in CLAUDE.md
+- Added `touchfiles` to the documented global touchfile list in GEMINI.md
 
 ## [0.11.14.0] - 2026-03-24 — Windows Browse Fix
 
@@ -813,13 +813,13 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 ### Added
 
-- **E2E tests now run in git worktrees.** Gemini and Codex tests no longer pollute your working tree. Each test suite gets an isolated worktree, and useful changes the AI agent makes are automatically harvested as patches you can cherry-pick. Run `git apply ~/.gstack-dev/harvests/<id>/gemini.patch` to grab improvements.
+- **E2E tests now run in git worktrees.** Gemini and Antigravity tests no longer pollute your working tree. Each test suite gets an isolated worktree, and useful changes the AI agent makes are automatically harvested as patches you can cherry-pick. Run `git apply ~/.gstack-dev/harvests/<id>/gemini.patch` to grab improvements.
 - **Harvest deduplication.** If a test keeps producing the same improvement across runs, it's detected via SHA-256 hash and skipped — no duplicate patches piling up.
 - **`describeWithWorktree()` helper.** Any E2E test can now opt into worktree isolation with a one-line wrapper. Future tests that need real repo context (git history, real diff) can use this instead of tmpdirs.
 
 ### Changed
 
-- **Gen-skill-docs is now a modular resolver pipeline.** The monolithic 1700-line generator is split into 8 focused resolver modules (browse, preamble, design, review, testing, utility, constants, codex-helpers). Adding a new placeholder resolver is now a single file instead of editing a megafunction.
+- **Gen-skill-docs is now a modular resolver pipeline.** The monolithic 1700-line generator is split into 8 focused resolver modules (browse, preamble, design, review, testing, utility, constants, antigravity-helpers). Adding a new placeholder resolver is now a single file instead of editing a megafunction.
 - **Eval results are project-scoped.** Results now live in `~/.gstack/projects/$SLUG/evals/` instead of the global `~/.gstack-dev/evals/`. Multi-project users no longer get eval results mixed together.
 
 ### For contributors
@@ -830,17 +830,17 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 ## [0.11.12.0] - 2026-03-24 — Triple-Voice Autoplan
 
-Every `/autoplan` phase now gets two independent second opinions — one from Codex (OpenAI's frontier model) and one from a fresh Claude subagent. Three AI reviewers looking at your plan from different angles, each phase building on the last.
+Every `/autoplan` phase now gets two independent second opinions — one from Antigravity (OpenAI's frontier model) and one from a fresh Antigravity subagent. Three AI reviewers looking at your plan from different angles, each phase building on the last.
 
 ### Added
 
-- **Dual voices in every autoplan phase.** CEO review, Design review, and Eng review each run both a Codex challenge and an independent Claude subagent simultaneously. You get a consensus table showing where the models agree and disagree — disagreements surface as taste decisions at the final gate.
-- **Phase-cascading context.** Codex gets prior-phase findings as context (CEO concerns inform Design review, CEO+Design inform Eng). Claude subagent stays truly independent for genuine cross-model validation.
+- **Dual voices in every autoplan phase.** CEO review, Design review, and Eng review each run both a Antigravity challenge and an independent Antigravity subagent simultaneously. You get a consensus table showing where the models agree and disagree — disagreements surface as taste decisions at the final gate.
+- **Phase-cascading context.** Antigravity gets prior-phase findings as context (CEO concerns inform Design review, CEO+Design inform Eng). Antigravity subagent stays truly independent for genuine cross-model validation.
 - **Structured consensus tables.** CEO phase scores 6 strategic dimensions, Design uses the litmus scorecard, Eng scores 6 architecture dimensions. CONFIRMED/DISAGREE for each.
 - **Cross-phase synthesis.** Phase 4 gate highlights themes that appeared independently in multiple phases — high-confidence signals when different reviewers catch the same issue.
 - **Sequential enforcement.** STOP markers between phases + pre-phase checklists prevent autoplan from accidentally parallelizing CEO/Design/Eng (each phase depends on the previous).
 - **Phase-transition summaries.** Brief status at each phase boundary so you can track progress without waiting for the full pipeline.
-- **Degradation matrix.** When Codex or the Claude subagent fails, autoplan gracefully degrades with clear labels (`[codex-only]`, `[subagent-only]`, `[single-reviewer mode]`).
+- **Degradation matrix.** When Antigravity or the Antigravity subagent fails, autoplan gracefully degrades with clear labels (`[antigravity-only]`, `[subagent-only]`, `[single-reviewer mode]`).
 
 ## [0.11.11.0] - 2026-03-23 — Community Wave 3
 
@@ -851,10 +851,10 @@ Every `/autoplan` phase now gets two independent second opinions — one from Co
 - **Chrome multi-profile cookie import.** You can now import cookies from any Chrome profile, not just Default. Profile picker shows account email for easy identification. Batch import across all visible domains.
 - **Linux Chromium cookie import.** Cookie import now works on Linux for Chrome, Chromium, Brave, and Edge. Supports both GNOME Keyring (libsecret) and the "peanuts" fallback for headless environments.
 - **Chrome extensions in browse sessions.** Set `BROWSE_EXTENSIONS_DIR` to load Chrome extensions (ad blockers, accessibility tools, custom headers) into your browse testing sessions.
-- **Project-scoped gstack install.** `setup --local` installs gstack into `.claude/skills/` in your current project instead of globally. Useful for per-project version pinning.
+- **Project-scoped gstack install.** `setup --local` installs gstack into `.antigravity/skills/` in your current project instead of globally. Useful for per-project version pinning.
 - **Distribution pipeline checks.** `/office-hours`, `/plan-eng-review`, `/ship`, and `/review` now check whether new CLI tools or libraries have a build/publish pipeline. No more shipping artifacts nobody can download.
 - **Dynamic skill discovery.** Adding a new skill directory no longer requires editing a hardcoded list. `skill-check` and `gen-skill-docs` automatically discover skills from the filesystem.
-- **Auto-trigger guard.** Skills now include explicit trigger criteria in their descriptions to prevent Claude Code from auto-firing them based on semantic similarity. The existing proactive suggestion system is preserved.
+- **Auto-trigger guard.** Skills now include explicit trigger criteria in their descriptions to prevent Antigravity Code from auto-firing them based on semantic similarity. The existing proactive suggestion system is preserved.
 
 ### Fixed
 
@@ -872,13 +872,13 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 ### Added
 
-- **E2E evals now run in CI on every PR.** 12 parallel GitHub Actions runners on Ubicloud spin up per PR, each running one test suite. Docker image pre-bakes bun, node, Claude CLI, and deps so setup is near-instant. Results posted as a PR comment with pass/fail + cost breakdown.
+- **E2E evals now run in CI on every PR.** 12 parallel GitHub Actions runners on Ubicloud spin up per PR, each running one test suite. Docker image pre-bakes bun, node, Antigravity CLI, and deps so setup is near-instant. Results posted as a PR comment with pass/fail + cost breakdown.
 - **3x faster eval runs.** All E2E tests run concurrently within files via `testConcurrentIfSelected`. Wall clock drops from ~18min to ~6min — limited by the slowest individual test, not sequential sum.
 - **Docker CI image** (`Dockerfile.ci`) with pre-installed toolchain. Rebuilds automatically when Dockerfile or package.json changes, cached by content hash in GHCR.
 
 ### Fixed
 
-- **Routing tests now work in CI.** Skills are installed at top-level `.claude/skills/` instead of nested under `.claude/skills/gstack/` — project-level skill discovery doesn't recurse into subdirectories.
+- **Routing tests now work in CI.** Skills are installed at top-level `.antigravity/skills/` instead of nested under `.antigravity/skills/gstack/` — project-level skill discovery doesn't recurse into subdirectories.
 
 ### For contributors
 
@@ -886,23 +886,23 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 - Ubicloud runners at ~$0.006/run (10x cheaper than GitHub standard runners)
 - `workflow_dispatch` trigger for manual re-runs
 
-## [0.11.9.0] - 2026-03-23 — Codex Skill Loading Fix
+## [0.11.9.0] - 2026-03-23 — Antigravity Skill Loading Fix
 
 ### Fixed
 
-- **Codex no longer rejects gstack skills with "invalid SKILL.md".** Existing installs had oversized description fields (>1024 chars) that Codex silently rejected. The build now errors if any Codex description exceeds 1024 chars, setup always regenerates `.agents/` to prevent stale files, and a one-time migration auto-cleans oversized descriptions on existing installs.
+- **Antigravity no longer rejects gstack skills with "invalid SKILL.md".** Existing installs had oversized description fields (>1024 chars) that Antigravity silently rejected. The build now errors if any Antigravity description exceeds 1024 chars, setup always regenerates `.agents/` to prevent stale files, and a one-time migration auto-cleans oversized descriptions on existing installs.
 - **`package.json` version now stays in sync with `VERSION`.** Was 6 minor versions behind. A new CI test catches future drift.
 
 ### Added
 
-- **Codex E2E tests now assert no skill loading errors.** The exact "Skipped loading skill(s)" error that prompted this fix is now a regression test — `stderr` is captured and checked.
-- **Codex troubleshooting entry in README.** Manual fix instructions for users who hit the loading error before the auto-migration runs.
+- **Antigravity E2E tests now assert no skill loading errors.** The exact "Skipped loading skill(s)" error that prompted this fix is now a regression test — `stderr` is captured and checked.
+- **Antigravity troubleshooting entry in README.** Manual fix instructions for users who hit the loading error before the auto-migration runs.
 
 ### For contributors
 
 - `test/gen-skill-docs.test.ts` validates all `.agents/` descriptions stay within 1024 chars
-- `gstack-update-check` includes a one-time migration that deletes oversized Codex SKILL.md files
-- P1 TODO added: Codex→Claude reverse buddy check skill
+- `gstack-update-check` includes a one-time migration that deletes oversized Antigravity SKILL.md files
+- P1 TODO added: Antigravity→Antigravity reverse buddy check skill
 
 ## [0.11.8.0] - 2026-03-23 — zsh Compatibility Fix
 
@@ -940,19 +940,19 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 ### Changed
 
 - **Stack detection before scanning.** v1 ran Ruby/Java/PHP/C# patterns on every project without checking the stack. v2 detects your framework first and prioritizes relevant checks.
-- **Proper tool usage.** v1 used raw `grep` in Bash; v2 uses Claude Code's native `Grep` tool for reliable results without truncation.
+- **Proper tool usage.** v1 used raw `grep` in Bash; v2 uses Antigravity Code's native `Grep` tool for reliable results without truncation.
 
 ## [0.11.5.2] - 2026-03-22 — Outside Voice
 
 ### Added
 
-- **Plan reviews now offer an independent second opinion.** After all review sections complete in `/plan-ceo-review` or `/plan-eng-review`, you can get a "brutally honest outside voice" from a different AI model (Codex CLI, or a fresh Claude subagent if Codex isn't installed). It reads your plan, finds what the review missed — logical gaps, unstated assumptions, feasibility risks — and presents findings verbatim. Optional, recommended, never blocks shipping.
+- **Plan reviews now offer an independent second opinion.** After all review sections complete in `/plan-ceo-review` or `/plan-eng-review`, you can get a "brutally honest outside voice" from a different AI model (Antigravity CLI, or a fresh Antigravity subagent if Antigravity isn't installed). It reads your plan, finds what the review missed — logical gaps, unstated assumptions, feasibility risks — and presents findings verbatim. Optional, recommended, never blocks shipping.
 - **Cross-model tension detection.** When the outside voice disagrees with the review findings, the disagreements are surfaced automatically and offered as TODOs so nothing gets lost.
 - **Outside Voice in the Review Readiness Dashboard.** `/ship` now shows whether an outside voice ran on the plan, alongside the existing CEO/Eng/Design/Adversarial review rows.
 
 ### Changed
 
-- **`/plan-eng-review` Codex integration upgraded.** The old hardcoded Step 0.5 is replaced with a richer resolver that adds Claude subagent fallback, review log persistence, dashboard visibility, and higher reasoning effort (`xhigh`).
+- **`/plan-eng-review` Antigravity integration upgraded.** The old hardcoded Step 0.5 is replaced with a richer resolver that adds Antigravity subagent fallback, review log persistence, dashboard visibility, and higher reasoning effort (`xhigh`).
 
 ## [0.11.5.1] - 2026-03-23 — Inline Office Hours
 
@@ -969,62 +969,62 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 - **All SKILL.md templates updated.** Every template that instructed agents to run `source <(gstack-slug)` now uses `eval "$(gstack-slug)"` for cross-shell compatibility. Regenerated all SKILL.md files from templates.
 - **Regression tests added.** New tests verify `eval "$(gstack-slug)"` works under bash strict mode, and guard against `source <(.*gstack-slug` patterns reappearing in templates or bin scripts.
 
-## [0.11.4.0] - 2026-03-22 — Codex in Office Hours
+## [0.11.4.0] - 2026-03-22 — Antigravity in Office Hours
 
 ### Added
 
-- **Your brainstorming now gets a second opinion.** After premise challenge in `/office-hours`, you can opt in to a Codex cold read — a completely independent AI that hasn't seen the conversation reviews your problem, answers, and premises. It steelmans your idea, identifies the most revealing thing you said, challenges one premise, and proposes a 48-hour prototype. Two different AI models seeing different things catches blind spots neither would find alone.
-- **Cross-Model Perspective in design docs.** When you use the second opinion, the design doc automatically includes a `## Cross-Model Perspective` section capturing what Codex said — so the independent view is preserved for downstream reviews.
-- **New founder signal: defended premise with reasoning.** When Codex challenges one of your premises and you keep it with articulated reasoning (not just dismissal), that's tracked as a positive signal of conviction.
+- **Your brainstorming now gets a second opinion.** After premise challenge in `/office-hours`, you can opt in to a Antigravity cold read — a completely independent AI that hasn't seen the conversation reviews your problem, answers, and premises. It steelmans your idea, identifies the most revealing thing you said, challenges one premise, and proposes a 48-hour prototype. Two different AI models seeing different things catches blind spots neither would find alone.
+- **Cross-Model Perspective in design docs.** When you use the second opinion, the design doc automatically includes a `## Cross-Model Perspective` section capturing what Antigravity said — so the independent view is preserved for downstream reviews.
+- **New founder signal: defended premise with reasoning.** When Antigravity challenges one of your premises and you keep it with articulated reasoning (not just dismissal), that's tracked as a positive signal of conviction.
 
 ## [0.11.3.0] - 2026-03-23 — Design Outside Voices
 
 ### Added
 
-- **Every design review now gets a second opinion.** `/plan-design-review`, `/design-review`, and `/design-consultation` dispatch both Codex (OpenAI) and a fresh Claude subagent in parallel to independently evaluate your design — then synthesize findings with a litmus scorecard showing where they agree and disagree. Cross-model agreement = high confidence; disagreement = investigate.
+- **Every design review now gets a second opinion.** `/plan-design-review`, `/design-review`, and `/design-consultation` dispatch both Antigravity (OpenAI) and a fresh Antigravity subagent in parallel to independently evaluate your design — then synthesize findings with a litmus scorecard showing where they agree and disagree. Cross-model agreement = high confidence; disagreement = investigate.
 - **OpenAI's design hard rules baked in.** 7 hard rejection criteria, 7 litmus checks, and a landing-page vs app-UI classifier from OpenAI's "Designing Delightful Frontends" framework — merged with gstack's existing 10-item AI slop blacklist. Your design gets evaluated against the same rules OpenAI recommends for their own models.
-- **Codex design voice in every PR.** The lightweight design review that runs in `/ship` and `/review` now includes a Codex design check when frontend files change — automatic, no opt-in needed.
-- **Outside voices in /office-hours brainstorming.** After wireframe sketches, you can now get Codex + Claude subagent design perspectives on your approaches before committing to a direction.
+- **Antigravity design voice in every PR.** The lightweight design review that runs in `/ship` and `/review` now includes a Antigravity design check when frontend files change — automatic, no opt-in needed.
+- **Outside voices in /office-hours brainstorming.** After wireframe sketches, you can now get Antigravity + Antigravity subagent design perspectives on your approaches before committing to a direction.
 - **AI slop blacklist extracted as shared constant.** The 10 anti-patterns (purple gradients, 3-column icon grids, centered everything, etc.) are now defined once and shared across all design skills. Easier to maintain, impossible to drift.
 
-## [0.11.2.0] - 2026-03-22 — Codex Just Works
+## [0.11.2.0] - 2026-03-22 — Antigravity Just Works
 
 ### Fixed
 
-- **Codex no longer shows "exceeds maximum length of 1024 characters" on startup.** Skill descriptions compressed from ~1,200 words to ~280 words — well under the limit. Every skill now has a test enforcing the cap.
-- **No more duplicate skill discovery.** Codex used to find both source SKILL.md files and generated Codex skills, showing every skill twice. Setup now creates a minimal runtime root at `~/.codex/skills/gstack` with only the assets Codex needs — no source files exposed.
-- **Old direct installs auto-migrate.** If you previously cloned gstack into `~/.codex/skills/gstack`, setup detects this and moves it to `~/.gstack/repos/gstack` so skills aren't discovered from the source checkout.
+- **Antigravity no longer shows "exceeds maximum length of 1024 characters" on startup.** Skill descriptions compressed from ~1,200 words to ~280 words — well under the limit. Every skill now has a test enforcing the cap.
+- **No more duplicate skill discovery.** Antigravity used to find both source SKILL.md files and generated Antigravity skills, showing every skill twice. Setup now creates a minimal runtime root at `~/.antigravity/skills/gstack` with only the assets Antigravity needs — no source files exposed.
+- **Old direct installs auto-migrate.** If you previously cloned gstack into `~/.antigravity/skills/gstack`, setup detects this and moves it to `~/.gstack/repos/gstack` so skills aren't discovered from the source checkout.
 - **Sidecar directory no longer linked as a skill.** The `.agents/skills/gstack` runtime asset directory was incorrectly symlinked alongside real skills — now skipped.
 
 ### Added
 
-- **Repo-local Codex installs.** Clone gstack into `.agents/skills/gstack` inside any repo and run `./setup --host codex` — skills install next to the checkout, no global `~/.codex/` needed. Generated preambles auto-detect whether to use repo-local or global paths at runtime.
+- **Repo-local Antigravity installs.** Clone gstack into `.agents/skills/gstack` inside any repo and run `./setup --host antigravity` — skills install next to the checkout, no global `~/.antigravity/` needed. Generated preambles auto-detect whether to use repo-local or global paths at runtime.
 - **Kiro CLI support.** `./setup --host kiro` installs skills for the Kiro agent platform, rewriting paths and symlinking runtime assets. Auto-detected by `--host auto` if `kiro-cli` is installed.
-- **`.agents/` is now gitignored.** Generated Codex skill files are no longer committed — they're created at setup time from templates. Removes 14,000+ lines of generated output from the repo.
+- **`.agents/` is now gitignored.** Generated Antigravity skill files are no longer committed — they're created at setup time from templates. Removes 14,000+ lines of generated output from the repo.
 
 ### Changed
 
 - **`GSTACK_DIR` renamed to `SOURCE_GSTACK_DIR` / `INSTALL_GSTACK_DIR`** throughout the setup script for clarity about which path points to the source repo vs the install location.
-- **CI validates Codex generation succeeds** instead of checking committed file freshness (since `.agents/` is no longer committed).
+- **CI validates Antigravity generation succeeds** instead of checking committed file freshness (since `.agents/` is no longer committed).
 
 ## [0.11.1.1] - 2026-03-22 — Plan Files Always Show Review Status
 
 ### Added
 
-- **Every plan file now shows review status.** When you exit plan mode, the plan file automatically gets a `GSTACK REVIEW REPORT` section — even if you haven't run any formal reviews yet. Previously, this section only appeared after running `/plan-eng-review`, `/plan-ceo-review`, `/plan-design-review`, or `/codex review`. Now you always know where you stand: which reviews have run, which haven't, and what to do next.
+- **Every plan file now shows review status.** When you exit plan mode, the plan file automatically gets a `GSTACK REVIEW REPORT` section — even if you haven't run any formal reviews yet. Previously, this section only appeared after running `/plan-eng-review`, `/plan-ceo-review`, `/plan-design-review`, or `/antigravity review`. Now you always know where you stand: which reviews have run, which haven't, and what to do next.
 
 ## [0.11.1.0] - 2026-03-22 — Global Retro: Cross-Project AI Coding Retrospective
 
 ### Added
 
-- **`/retro global` — see everything you shipped across every project in one report.** Scans your Claude Code, Codex CLI, and Gemini CLI sessions, traces each back to its git repo, deduplicates by remote, then runs a full retro across all of them. Global shipping streak, context-switching metrics, per-project breakdowns with personal contributions, and cross-tool usage patterns. Run `/retro global 14d` for a two-week view.
+- **`/retro global` — see everything you shipped across every project in one report.** Scans your Antigravity Code, Antigravity CLI, and Gemini CLI sessions, traces each back to its git repo, deduplicates by remote, then runs a full retro across all of them. Global shipping streak, context-switching metrics, per-project breakdowns with personal contributions, and cross-tool usage patterns. Run `/retro global 14d` for a two-week view.
 - **Per-project personal contributions in global retro.** Each project in the global retro now shows YOUR commits, LOC, key work, commit type mix, and biggest ship — separate from team totals. Solo projects say "Solo project — all commits are yours." Team projects you didn't touch show session count only.
 - **`gstack-global-discover` — the engine behind global retro.** Standalone discovery script that finds all AI coding sessions on your machine, resolves working directories to git repos, normalizes SSH/HTTPS remotes for dedup, and outputs structured JSON. Compiled binary ships with gstack — no `bun` runtime needed.
 
 ### Fixed
 
 - **Discovery script reads only the first few KB of session files** instead of loading entire multi-MB JSONL transcripts into memory. Prevents OOM on machines with extensive coding history.
-- **Claude Code session counts are now accurate.** Previously counted all JSONL files in a project directory; now only counts files modified within the time window.
+- **Antigravity Code session counts are now accurate.** Previously counted all JSONL files in a project directory; now only counts files modified within the time window.
 - **Week windows (`1w`, `2w`) are now midnight-aligned** like day windows, so `/retro global 1w` and `/retro global 7d` produce consistent results.
 
 ## [0.11.0.0] - 2026-03-22 — /cso: Zero-Noise Security Audits
@@ -1068,7 +1068,7 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 - **E2E test recommendations built in.** The coverage audit knows when to recommend E2E tests (common user flows, tricky integrations where unit tests can't cover it) vs unit tests, and flags LLM prompt changes that need eval coverage. No more guessing whether something needs an integration test.
 - **Regression detection iron rule.** When a code change modifies existing behavior, gstack always writes a regression test — no asking, no skipping. If you changed it, you test it.
 - **`/ship` failure triage.** When tests fail during ship, the coverage audit classifies each failure and recommends next steps instead of just dumping the error output.
-- **Test framework auto-detection.** Reads your CLAUDE.md for test commands first, then auto-detects from project files (package.json, Gemfile, pyproject.toml, etc.). Works with any framework.
+- **Test framework auto-detection.** Reads your GEMINI.md for test commands first, then auto-detects from project files (package.json, Gemfile, pyproject.toml, etc.). Works with any framework.
 
 ### Fixed
 
@@ -1079,7 +1079,7 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 ### Added
 
-- **`/autoplan` — one command, fully reviewed plan.** Hand it a rough plan and it runs the full CEO → design → eng review pipeline automatically. Reads the actual review skill files from disk (same depth, same rigor as running each review manually) and makes intermediate decisions using 6 encoded principles: completeness, boil lakes, pragmatic, DRY, explicit over clever, bias toward action. Taste decisions (close approaches, borderline scope, codex disagreements) surface at a final approval gate. You approve, override, interrogate, or revise. Saves a restore point so you can re-run from scratch. Writes review logs compatible with `/ship`'s dashboard.
+- **`/autoplan` — one command, fully reviewed plan.** Hand it a rough plan and it runs the full CEO → design → eng review pipeline automatically. Reads the actual review skill files from disk (same depth, same rigor as running each review manually) and makes intermediate decisions using 6 encoded principles: completeness, boil lakes, pragmatic, DRY, explicit over clever, bias toward action. Taste decisions (close approaches, borderline scope, antigravity disagreements) surface at a final approval gate. You approve, override, interrogate, or revise. Saves a restore point so you can re-run from scratch. Writes review logs compatible with `/ship`'s dashboard.
 
 ## [0.9.8.0] - 2026-03-21 — Deploy Pipeline + E2E Performance
 
@@ -1088,7 +1088,7 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 - **`/land-and-deploy` — merge, deploy, and verify in one command.** Takes over where `/ship` left off. Merges the PR, waits for CI and deploy workflows, then runs canary verification on your production URL. Auto-detects your deploy platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions). Offers revert at every failure point. One command from "PR approved" to "verified in production."
 - **`/canary` — post-deploy monitoring loop.** Watches your live app for console errors, performance regressions, and page failures using the browse daemon. Takes periodic screenshots, compares against pre-deploy baselines, and alerts on anomalies. Run `/canary https://myapp.com --duration 10m` after any deploy.
 - **`/benchmark` — performance regression detection.** Establishes baselines for page load times, Core Web Vitals, and resource sizes. Compares before/after on every PR. Tracks performance trends over time. Catches the bundle size regressions that code review misses.
-- **`/setup-deploy` — one-time deploy configuration.** Detects your deploy platform, production URL, health check endpoints, and deploy status commands. Writes the config to CLAUDE.md so all future `/land-and-deploy` runs are fully automatic.
+- **`/setup-deploy` — one-time deploy configuration.** Detects your deploy platform, production URL, health check endpoints, and deploy status commands. Writes the config to GEMINI.md so all future `/land-and-deploy` runs are fully automatic.
 - **`/review` now includes Performance & Bundle Impact analysis.** The informational review pass checks for heavy dependencies, missing lazy loading, synchronous script tags, and bundle size regressions. Catches moment.js-instead-of-date-fns before it ships.
 
 ### Changed
@@ -1108,16 +1108,16 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 ### Added
 
-- **Every plan file now shows which reviews have run.** After any review skill finishes (`/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/codex review`), a markdown table is appended to the plan file itself — showing each review's trigger command, purpose, run count, status, and findings summary. Anyone reading the plan can see review status at a glance without checking conversation history.
-- **Review logs now capture richer data.** CEO reviews log scope proposal counts (proposed/accepted/deferred), eng reviews log total issues found, design reviews log before→after scores, and codex reviews log how many findings were fixed. The plan file report uses these fields directly — no more guessing from partial metadata.
+- **Every plan file now shows which reviews have run.** After any review skill finishes (`/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/antigravity review`), a markdown table is appended to the plan file itself — showing each review's trigger command, purpose, run count, status, and findings summary. Anyone reading the plan can see review status at a glance without checking conversation history.
+- **Review logs now capture richer data.** CEO reviews log scope proposal counts (proposed/accepted/deferred), eng reviews log total issues found, design reviews log before→after scores, and antigravity reviews log how many findings were fixed. The plan file report uses these fields directly — no more guessing from partial metadata.
 
 ## [0.9.6.0] - 2026-03-21 — Auto-Scaled Adversarial Review
 
 ### Changed
 
-- **Review thoroughness now scales automatically with diff size.** Small diffs (<50 lines) skip adversarial review entirely — no wasted time on typo fixes. Medium diffs (50–199 lines) get a cross-model adversarial challenge from Codex (or a Claude adversarial subagent if Codex isn't installed). Large diffs (200+ lines) get all four passes: Claude structured, Codex structured review with pass/fail gate, Claude adversarial subagent, and Codex adversarial challenge. No configuration needed — it just works.
-- **Claude now has an adversarial mode.** A fresh Claude subagent with no checklist bias reviews your code like an attacker — finding edge cases, race conditions, security holes, and silent data corruption that the structured review might miss. Findings are classified as FIXABLE (auto-fixed) or INVESTIGATE (your call).
-- **Review dashboard shows "Adversarial" instead of "Codex Review."** The dashboard row reflects the new multi-model reality — it tracks whichever adversarial passes actually ran, not just Codex.
+- **Review thoroughness now scales automatically with diff size.** Small diffs (<50 lines) skip adversarial review entirely — no wasted time on typo fixes. Medium diffs (50–199 lines) get a cross-model adversarial challenge from Antigravity (or a Antigravity adversarial subagent if Antigravity isn't installed). Large diffs (200+ lines) get all four passes: Antigravity structured, Antigravity structured review with pass/fail gate, Antigravity adversarial subagent, and Antigravity adversarial challenge. No configuration needed — it just works.
+- **Antigravity now has an adversarial mode.** A fresh Antigravity subagent with no checklist bias reviews your code like an attacker — finding edge cases, race conditions, security holes, and silent data corruption that the structured review might miss. Findings are classified as FIXABLE (auto-fixed) or INVESTIGATE (your call).
+- **Review dashboard shows "Adversarial" instead of "Antigravity Review."** The dashboard row reflects the new multi-model reality — it tracks whichever adversarial passes actually ran, not just Antigravity.
 
 ## [0.9.5.0] - 2026-03-21 — Builder Ethos
 
@@ -1138,18 +1138,18 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 - **`/retro` no longer nags about PR size.** The retro still reports PR size distribution (Small/Medium/Large/XL) as neutral data, but no longer flags XL PRs as problems or recommends splitting them. AI reviews don't fatigue — the unit of work is the feature, not the diff.
 
-## [0.9.4.0] - 2026-03-20 — Codex Reviews On By Default
+## [0.9.4.0] - 2026-03-20 — Antigravity Reviews On By Default
 
 ### Changed
 
-- **Codex code reviews now run automatically in `/ship` and `/review`.** No more "want a second opinion?" prompt every time — Codex reviews both your code (with a pass/fail gate) and runs an adversarial challenge by default. First-time users get a one-time opt-in prompt; after that, it's hands-free. Configure with `gstack-config set codex_reviews enabled|disabled`.
-- **All Codex operations use maximum reasoning power.** Review, adversarial, and consult modes all use `xhigh` reasoning effort — when an AI is reviewing your code, you want it thinking as hard as possible.
-- **Codex review errors can't corrupt the dashboard.** Auth failures, timeouts, and empty responses are now detected before logging results, so the Review Readiness Dashboard never shows a false "passed" entry. Adversarial stderr is captured separately.
-- **Codex review log includes commit hash.** Staleness detection now works correctly for Codex reviews, matching the same commit-tracking behavior as eng/CEO/design reviews.
+- **Antigravity code reviews now run automatically in `/ship` and `/review`.** No more "want a second opinion?" prompt every time — Antigravity reviews both your code (with a pass/fail gate) and runs an adversarial challenge by default. First-time users get a one-time opt-in prompt; after that, it's hands-free. Configure with `gstack-config set antigravity_reviews enabled|disabled`.
+- **All Antigravity operations use maximum reasoning power.** Review, adversarial, and consult modes all use `xhigh` reasoning effort — when an AI is reviewing your code, you want it thinking as hard as possible.
+- **Antigravity review errors can't corrupt the dashboard.** Auth failures, timeouts, and empty responses are now detected before logging results, so the Review Readiness Dashboard never shows a false "passed" entry. Adversarial stderr is captured separately.
+- **Antigravity review log includes commit hash.** Staleness detection now works correctly for Antigravity reviews, matching the same commit-tracking behavior as eng/CEO/design reviews.
 
 ### Fixed
 
-- **Codex-for-Codex recursion prevented.** When gstack runs inside Codex CLI (`.agents/skills/`), the Codex review step is completely stripped — no accidental infinite loops.
+- **Antigravity-for-Antigravity recursion prevented.** When gstack runs inside Antigravity CLI (`.agents/skills/`), the Antigravity review step is completely stripped — no accidental infinite loops.
 
 ## [0.9.3.0] - 2026-03-20 — Windows Support
 
@@ -1190,14 +1190,14 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 - **Review logs and telemetry now persist during plan mode.** When you ran `/plan-ceo-review`, `/plan-eng-review`, or `/plan-design-review` in plan mode, the review result wasn't saved to disk — so the dashboard showed stale or missing entries even though you just completed a review. Same issue affected telemetry logging at the end of every skill. Both now work reliably in plan mode.
 
-## [0.9.0] - 2026-03-19 — Works on Codex, Gemini CLI, and Cursor
+## [0.9.0] - 2026-03-19 — Works on Antigravity, Gemini CLI, and Cursor
 
-**gstack now works on any AI agent that supports the open SKILL.md standard.** Install once, use from Claude Code, OpenAI Codex CLI, Google Gemini CLI, or Cursor. All 21 skills are available in `.agents/skills/` -- just run `./setup --host codex` or `./setup --host auto` and your agent discovers them automatically.
+**gstack now works on any AI agent that supports the open SKILL.md standard.** Install once, use from Antigravity Code, OpenAI Antigravity CLI, Google Gemini CLI, or Cursor. All 21 skills are available in `.agents/skills/` -- just run `./setup --host antigravity` or `./setup --host auto` and your agent discovers them automatically.
 
-- **One install, four agents.** Claude Code reads from `.claude/skills/`, everything else reads from `.agents/skills/`. Same skills, same prompts, adapted for each host. Hook-based safety skills (careful, freeze, guard) get inline safety advisory prose instead of hooks -- they work everywhere.
-- **Auto-detection.** `./setup --host auto` detects which agents you have installed and sets up both. Already have Claude Code? It still works exactly the same.
-- **Codex-adapted output.** Frontmatter is stripped to just name + description (Codex doesn't need allowed-tools or hooks). Paths are rewritten from `~/.claude/` to `~/.codex/`. The `/codex` skill itself is excluded from Codex output -- it's a Claude wrapper around `codex exec`, which would be self-referential.
-- **CI checks both hosts.** The freshness check now validates Claude and Codex output independently. Stale Codex docs break the build just like stale Claude docs.
+- **One install, four agents.** Antigravity Code reads from `.antigravity/skills/`, everything else reads from `.agents/skills/`. Same skills, same prompts, adapted for each host. Hook-based safety skills (careful, freeze, guard) get inline safety advisory prose instead of hooks -- they work everywhere.
+- **Auto-detection.** `./setup --host auto` detects which agents you have installed and sets up both. Already have Antigravity Code? It still works exactly the same.
+- **Antigravity-adapted output.** Frontmatter is stripped to just name + description (Antigravity doesn't need allowed-tools or hooks). Paths are rewritten from `~/.antigravity/` to `~/.antigravity/`. The `/antigravity` skill itself is excluded from Antigravity output -- it's a Antigravity wrapper around `antigravity exec`, which would be self-referential.
+- **CI checks both hosts.** The freshness check now validates Antigravity and Antigravity output independently. Stale Antigravity docs break the build just like stale Antigravity docs.
 
 ## [0.8.6] - 2026-03-19
 
@@ -1217,23 +1217,23 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 ### Fixed
 
 - **`/retro` now counts full calendar days.** Running a retro late at night no longer silently misses commits from earlier in the day. Git treats bare dates like `--since="2026-03-11"` as "11pm on March 11" if you run it at 11pm — now we pass `--since="2026-03-11T00:00:00"` so it always starts from midnight. Compare mode windows get the same fix.
-- **Review log no longer breaks on branch names with `/`.** Branch names like `garrytan/design-system` caused review log writes to fail because Claude Code runs multi-line bash blocks as separate shell invocations, losing variables between commands. New `gstack-review-log` and `gstack-review-read` atomic helpers encapsulate the entire operation in a single command.
+- **Review log no longer breaks on branch names with `/`.** Branch names like `garrytan/design-system` caused review log writes to fail because Antigravity Code runs multi-line bash blocks as separate shell invocations, losing variables between commands. New `gstack-review-log` and `gstack-review-read` atomic helpers encapsulate the entire operation in a single command.
 - **All skill templates are now platform-agnostic.** Removed Rails-specific patterns (`bin/test-lane`, `RAILS_ENV`, `.includes()`, `rescue StandardError`, etc.) from `/ship`, `/review`, `/plan-ceo-review`, and `/plan-eng-review`. The review checklist now shows examples for Rails, Node, Python, and Django side-by-side.
-- **`/ship` reads CLAUDE.md to discover test commands** instead of hardcoding `bin/test-lane` and `npm run test`. If no test commands are found, it asks the user and persists the answer to CLAUDE.md.
+- **`/ship` reads GEMINI.md to discover test commands** instead of hardcoding `bin/test-lane` and `npm run test`. If no test commands are found, it asks the user and persists the answer to GEMINI.md.
 
 ### Added
 
-- **Platform-agnostic design principle** codified in CLAUDE.md — skills must read project config, never hardcode framework commands.
-- **`## Testing` section** in CLAUDE.md for `/ship` test command discovery.
+- **Platform-agnostic design principle** codified in GEMINI.md — skills must read project config, never hardcode framework commands.
+- **`## Testing` section** in GEMINI.md for `/ship` test command discovery.
 
 ## [0.8.4] - 2026-03-19
 
 ### Added
 
-- **`/ship` now automatically syncs your docs.** After creating the PR, `/ship` runs `/document-release` as Step 8.5 — README, ARCHITECTURE, CONTRIBUTING, and CLAUDE.md all stay current without an extra command. No more stale docs after shipping.
-- **Six new skills in the docs.** README, docs/skills.md, and BROWSER.md now cover `/codex` (multi-AI second opinion), `/careful` (destructive command warnings), `/freeze` (directory-scoped edit lock), `/guard` (full safety mode), `/unfreeze`, and `/gstack-upgrade`. The sprint skill table keeps its 15 specialists; a new "Power tools" section covers the rest.
+- **`/ship` now automatically syncs your docs.** After creating the PR, `/ship` runs `/document-release` as Step 8.5 — README, ARCHITECTURE, CONTRIBUTING, and GEMINI.md all stay current without an extra command. No more stale docs after shipping.
+- **Six new skills in the docs.** README, docs/skills.md, and BROWSER.md now cover `/antigravity` (multi-AI second opinion), `/careful` (destructive command warnings), `/freeze` (directory-scoped edit lock), `/guard` (full safety mode), `/unfreeze`, and `/gstack-upgrade`. The sprint skill table keeps its 15 specialists; a new "Power tools" section covers the rest.
 - **Browse handoff documented everywhere.** BROWSER.md command table, docs/skills.md deep-dive, and README "What's new" all explain `$B handoff` and `$B resume` for CAPTCHA/MFA/auth walls.
-- **Proactive suggestions know about all skills.** Root SKILL.md.tmpl now suggests `/codex`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, and `/gstack-upgrade` at the right workflow stages.
+- **Proactive suggestions know about all skills.** Root SKILL.md.tmpl now suggests `/antigravity`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, and `/gstack-upgrade` at the right workflow stages.
 
 ## [0.8.3] - 2026-03-19
 
@@ -1248,7 +1248,7 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 - **Browse no longer navigates to dangerous URLs.** `goto`, `diff`, and `newtab` now block `file://`, `javascript:`, `data:` schemes and cloud metadata endpoints (`169.254.169.254`, `metadata.google.internal`). Localhost and private IPs are still allowed for local QA testing. (Closes #17)
 - **Setup script tells you what's missing.** Running `./setup` without `bun` installed now shows a clear error with install instructions instead of a cryptic "command not found." (Closes #147)
-- **`/debug` renamed to `/investigate`.** Claude Code has a built-in `/debug` command that shadowed the gstack skill. The systematic root-cause debugging workflow now lives at `/investigate`. (Closes #190)
+- **`/debug` renamed to `/investigate`.** Antigravity Code has a built-in `/debug` command that shadowed the gstack skill. The systematic root-cause debugging workflow now lives at `/investigate`. (Closes #190)
 - **Shell injection surface reduced.** gstack-slug output is now sanitized to `[a-zA-Z0-9._-]` only, making both `eval` and `source` callers safe. (Closes #133)
 - **25 new security tests.** URL validation (16 tests) and path traversal validation (14 tests) now have dedicated unit test suites covering scheme blocking, metadata IP blocking, directory escapes, and prefix collision edge cases.
 
@@ -1256,7 +1256,7 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 ### Added
 
-- **Hand off to a real Chrome when the headless browser gets stuck.** Hit a CAPTCHA, auth wall, or MFA prompt? Run `$B handoff "reason"` and a visible Chrome opens at the exact same page with all your cookies and tabs intact. Solve the problem, tell Claude you're done, and `$B resume` picks up right where you left off with a fresh snapshot.
+- **Hand off to a real Chrome when the headless browser gets stuck.** Hit a CAPTCHA, auth wall, or MFA prompt? Run `$B handoff "reason"` and a visible Chrome opens at the exact same page with all your cookies and tabs intact. Solve the problem, tell Antigravity you're done, and `$B resume` picks up right where you left off with a fresh snapshot.
 - **Auto-handoff hint after 3 consecutive failures.** If the browse tool fails 3 times in a row, it suggests using `handoff` — so you don't waste time watching the AI retry a CAPTCHA.
 - **15 new tests for the handoff feature.** Unit tests for state save/restore, failure tracking, edge cases, plus integration tests for the full headless-to-headed flow with cookie and tab preservation.
 
@@ -1273,13 +1273,13 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 ## [0.8.0] - 2026-03-19 — Multi-AI Second Opinion
 
-**`/codex` — get an independent second opinion from a completely different AI.**
+**`/antigravity` — get an independent second opinion from a completely different AI.**
 
-Three modes. `/codex review` runs OpenAI's Codex CLI against your diff and gives a pass/fail gate — if Codex finds critical issues (`[P1]`), it fails. `/codex challenge` goes adversarial: it tries to find ways your code will fail in production, thinking like an attacker and a chaos engineer. `/codex <anything>` opens a conversation with Codex about your codebase, with session continuity so follow-ups remember context.
+Three modes. `/antigravity review` runs OpenAI's Antigravity CLI against your diff and gives a pass/fail gate — if Antigravity finds critical issues (`[P1]`), it fails. `/antigravity challenge` goes adversarial: it tries to find ways your code will fail in production, thinking like an attacker and a chaos engineer. `/antigravity <anything>` opens a conversation with Antigravity about your codebase, with session continuity so follow-ups remember context.
 
-When both `/review` (Claude) and `/codex review` have run, you get a cross-model analysis showing which findings overlap and which are unique to each AI — building intuition for when to trust which system.
+When both `/review` (Antigravity) and `/antigravity review` have run, you get a cross-model analysis showing which findings overlap and which are unique to each AI — building intuition for when to trust which system.
 
-**Integrated everywhere.** After `/review` finishes, it offers a Codex second opinion. During `/ship`, you can run Codex review as an optional gate before pushing. In `/plan-eng-review`, Codex can independently critique your plan before the engineering review begins. All Codex results show up in the Review Readiness Dashboard.
+**Integrated everywhere.** After `/review` finishes, it offers a Antigravity second opinion. During `/ship`, you can run Antigravity review as an optional gate before pushing. In `/plan-eng-review`, Antigravity can independently critique your plan before the engineering review begins. All Antigravity results show up in the Review Readiness Dashboard.
 
 **Also in this release:** Proactive skill suggestions — gstack now notices what stage of development you're in and suggests the right skill. Don't like it? Say "stop suggesting" and it remembers across sessions.
 
@@ -1294,7 +1294,7 @@ When both `/review` (Claude) and `/codex review` have run, you get a cross-model
 ### Added
 
 - **Safety guardrails you can turn on with one command.** Say "be careful" or "safety mode" and `/careful` will warn you before any destructive command — `rm -rf`, `DROP TABLE`, force-push, `kubectl delete`, and more. You can override every warning. Common build artifact cleanups (`rm -rf node_modules`, `dist`, `.next`) are whitelisted.
-- **Lock edits to one folder with `/freeze`.** Debugging something and don't want Claude to "fix" unrelated code? `/freeze` blocks all file edits outside a directory you choose. Hard block, not just a warning. Run `/unfreeze` to remove the restriction without ending your session.
+- **Lock edits to one folder with `/freeze`.** Debugging something and don't want Antigravity to "fix" unrelated code? `/freeze` blocks all file edits outside a directory you choose. Hard block, not just a warning. Run `/unfreeze` to remove the restriction without ending your session.
 - **`/guard` activates both at once.** One command for maximum safety when touching prod or live systems — destructive command warnings plus directory-scoped edit restrictions.
 - **`/debug` now auto-freezes edits to the module being debugged.** After forming a root cause hypothesis, `/debug` locks edits to the narrowest affected directory. No more accidental "fixes" to unrelated code during debugging.
 - **You can now see which skills you use and how often.** Every skill invocation is logged locally to `~/.gstack/analytics/skill-usage.jsonl`. Run `bun run analytics` to see your top skills, per-repo breakdown, and how often safety hooks actually catch something. Data stays on your machine.
@@ -1312,7 +1312,7 @@ When both `/review` (Claude) and `/codex review` have run, you get a cross-model
 ### Added
 
 - **gstack now suggests skills at natural moments.** You don't need to know slash commands — just talk about what you're doing. Brainstorming an idea? gstack suggests `/office-hours`. Something's broken? It suggests `/debug`. Ready to deploy? It suggests `/ship`. Every workflow skill now has proactive triggers that fire when the moment is right.
-- **Lifecycle map.** gstack's root skill description now includes a developer workflow guide mapping 12 stages (brainstorm → plan → review → code → debug → test → ship → docs → retro) to the right skill. Claude sees this in every session.
+- **Lifecycle map.** gstack's root skill description now includes a developer workflow guide mapping 12 stages (brainstorm → plan → review → code → debug → test → ship → docs → retro) to the right skill. Antigravity sees this in every session.
 - **Opt-out with natural language.** If proactive suggestions feel too aggressive, just say "stop suggesting things" — gstack remembers across sessions. Say "be proactive again" to re-enable.
 - **11 journey-stage E2E tests.** Each test simulates a real moment in the developer lifecycle with realistic project context (plan.md, error logs, git history, code) and verifies the right skill fires from natural language alone. 11/11 pass.
 - **Trigger phrase validation.** Static tests verify every workflow skill has "Use when" and "Proactively suggest" phrases — catches regressions for free.
@@ -1337,7 +1337,7 @@ When something is broken and you don't know why, `/debug` is your systematic deb
 
 ### Added
 
-- **Skills now discoverable via natural language.** All 12 skills that were missing explicit trigger phrases now have them — say "deploy this" and Claude finds `/ship`, say "check my diff" and it finds `/review`. Following Anthropic's best practice: "the description field is not a summary — it's when to trigger."
+- **Skills now discoverable via natural language.** All 12 skills that were missing explicit trigger phrases now have them — say "deploy this" and Antigravity finds `/ship`, say "check my diff" and it finds `/review`. Following Anthropic's best practice: "the description field is not a summary — it's when to trigger."
 
 ## [0.6.4.0] - 2026-03-17
 
@@ -1346,7 +1346,7 @@ When something is broken and you don't know why, `/debug` is your systematic deb
 - **`/plan-design-review` is now interactive — rates 0-10, fixes the plan.** Instead of producing a report with letter grades, the designer now works like CEO and Eng review: rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. One AskUserQuestion per design choice. The output is a better plan, not a document about the plan.
 - **CEO review now calls in the designer.** When `/plan-ceo-review` detects UI scope in a plan, it activates a Design & UX section (Section 11) covering information architecture, interaction state coverage, AI slop risk, and responsive intention. For deep design work, it recommends `/plan-design-review`.
 - **14 of 15 skills now have full test coverage (E2E + LLM-judge + validation).** Added LLM-judge quality evals for 10 skills that were missing them: ship, retro, qa-only, plan-ceo-review, plan-eng-review, plan-design-review, design-review, design-consultation, document-release, gstack-upgrade. Added real E2E test for gstack-upgrade (was a `.todo`). Added design-consultation to command validation.
-- **Bisect commit style.** CLAUDE.md now requires every commit to be a single logical change — renames separate from rewrites, test infrastructure separate from test implementations.
+- **Bisect commit style.** GEMINI.md now requires every commit to be a single logical change — renames separate from rewrites, test infrastructure separate from test implementations.
 
 ### Changed
 
@@ -1416,7 +1416,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
 ## 0.6.0 — 2026-03-17
 
-- **100% test coverage is the key to great vibe coding.** gstack now bootstraps test frameworks from scratch when your project doesn't have one. Detects your runtime, researches the best framework, asks you to pick, installs it, writes 3-5 real tests for your actual code, sets up CI/CD (GitHub Actions), creates TESTING.md, and adds test culture instructions to CLAUDE.md. Every Claude Code session after that writes tests naturally.
+- **100% test coverage is the key to great vibe coding.** gstack now bootstraps test frameworks from scratch when your project doesn't have one. Detects your runtime, researches the best framework, asks you to pick, installs it, writes 3-5 real tests for your actual code, sets up CI/CD (GitHub Actions), creates TESTING.md, and adds test culture instructions to GEMINI.md. Every Antigravity Code session after that writes tests naturally.
 - **Every bug fix now gets a regression test.** When `/qa` fixes a bug and verifies it, Phase 8e.5 automatically generates a regression test that catches the exact scenario that broke. Tests include full attribution tracing back to the QA report. Auto-incrementing filenames prevent collisions across sessions.
 - **Ship with confidence — coverage audit shows what's tested and what's not.** `/ship` Step 3.4 builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with quality stars (★★★ = edge cases + errors, ★★ = happy path, ★ = smoke test). Gaps get tests auto-generated. PR body shows "Tests: 42 → 47 (+5 new)".
 - **Your retro tracks test health.** `/retro` now shows total test files, tests added this period, regression test commits, and trend deltas. If test ratio drops below 20%, it flags it as a growth area.
@@ -1494,7 +1494,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ### For contributors
 
 - Added `{{DESIGN_METHODOLOGY}}` resolver to `gen-skill-docs.ts` — shared design audit methodology injected into both `/plan-design-review` and `/qa-design-review` templates, following the `{{QA_METHODOLOGY}}` pattern.
-- Added `~/.gstack-dev/plans/` as a local plans directory for long-range vision docs (not checked in). CLAUDE.md and TODOS.md updated.
+- Added `~/.gstack-dev/plans/` as a local plans directory for long-range vision docs (not checked in). GEMINI.md and TODOS.md updated.
 - Added `/setup-design-md` to TODOS.md (P2) for interactive DESIGN.md creation from scratch.
 
 ## 0.4.5 — 2026-03-16
@@ -1556,7 +1556,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - Smart eval wrapping: single-line → expression `(...)`, multi-line → block `{...}` with explicit `return`.
 - 6 new async wrapping unit tests, 40 new contributor mode preamble validation tests.
 - Calibration example framed as historical ("used to fail") to avoid implying a live bug post-fix.
-- Added "Writing SKILL templates" section to CLAUDE.md — rules for natural language over bash-isms, dynamic branch detection, self-contained code blocks.
+- Added "Writing SKILL templates" section to GEMINI.md — rules for natural language over bash-isms, dynamic branch detection, self-contained code blocks.
 - Hardcoded-main regression test scans all `.tmpl` files for git commands with hardcoded `main`.
 - QA template cleaned up: removed `REPORT_DIR` shell variable, simplified port detection to prose.
 - gstack-upgrade template: explicit cross-step prose for variable references between bash blocks.
@@ -1572,7 +1572,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
 - Renamed `{{UPDATE_CHECK}}` to `{{PREAMBLE}}` across all 11 skill templates — one startup block now handles update check, session tracking, contributor mode, and question formatting.
 - DRY'd plan-ceo-review and plan-eng-review question formatting to reference the preamble baseline instead of duplicating rules.
-- Added CHANGELOG style guide and vendored symlink awareness docs to CLAUDE.md.
+- Added CHANGELOG style guide and vendored symlink awareness docs to GEMINI.md.
 
 ## 0.4.0 — 2026-03-16
 
@@ -1650,12 +1650,12 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - **Incremental eval saves** — `savePartial()` writes `_partial-e2e.json` after each test completes. Crash-resilient: partial results survive killed runs. Never cleaned up.
 - **Machine-readable diagnostics** — `exit_reason`, `timeout_at_turn`, `last_tool_call` fields in eval JSON. Enables `jq` queries for automated fix loops.
 - **API connectivity pre-check** — E2E suite throws immediately on ConnectionRefused before burning test budget.
-- **`is_error` detection** — `claude -p` can return `subtype: "success"` with `is_error: true` on API failures. Now correctly classified as `error_api`.
-- **Stream-json NDJSON parser** — `parseNDJSON()` pure function for real-time E2E progress from `claude -p --output-format stream-json --verbose`.
+- **`is_error` detection** — `antigravity -p` can return `subtype: "success"` with `is_error: true` on API failures. Now correctly classified as `error_api`.
+- **Stream-json NDJSON parser** — `parseNDJSON()` pure function for real-time E2E progress from `antigravity -p --output-format stream-json --verbose`.
 - **Eval persistence** — results saved to `~/.gstack-dev/evals/` with auto-comparison against previous run.
 - **Eval CLI tools** — `eval:list`, `eval:compare`, `eval:summary` for inspecting eval history.
 - **All 9 skills converted to `.tmpl` templates** — plan-ceo-review, plan-eng-review, retro, review, ship now use `{{UPDATE_CHECK}}` placeholder. Single source of truth for update check preamble.
-- **3-tier eval suite** — Tier 1: static validation (free), Tier 2: E2E via `claude -p` (~$3.85/run), Tier 3: LLM-as-judge (~$0.15/run). Gated by `EVALS=1`.
+- **3-tier eval suite** — Tier 1: static validation (free), Tier 2: E2E via `antigravity -p` (~$3.85/run), Tier 3: LLM-as-judge (~$0.15/run). Gated by `EVALS=1`.
 - **Planted-bug outcome testing** — eval fixtures with known bugs, LLM judge scores detection.
 - 15 observability unit tests covering heartbeat schema, progress.log format, NDJSON naming, savePartial, finalize, watcher rendering, stale detection, non-fatal I/O.
 - E2E tests for plan-ceo-review, plan-eng-review, retro skills.
@@ -1683,7 +1683,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - **Command registry** (`browse/src/commands.ts`) — single source of truth for all browse commands with categories and enriched descriptions. Zero side effects, safe to import from build scripts and tests.
 - **Snapshot flags metadata** (`SNAPSHOT_FLAGS` array in `browse/src/snapshot.ts`) — metadata-driven parser replaces hand-coded switch/case. Adding a flag in one place updates the parser, docs, and tests.
 - **Tier 1 static validation** — 43 tests: parses `$B` commands from SKILL.md code blocks, validates against command registry and snapshot flag metadata
-- **Tier 2 E2E tests** via Agent SDK — spawns real Claude sessions, runs skills, scans for browse errors. Gated by `SKILL_E2E=1` env var (~$0.50/run)
+- **Tier 2 E2E tests** via Agent SDK — spawns real Antigravity sessions, runs skills, scans for browse errors. Gated by `SKILL_E2E=1` env var (~$0.50/run)
 - **Tier 3 LLM-as-judge evals** — Haiku scores generated docs on clarity/completeness/actionability (threshold ≥4/5), plus regression test vs hand-maintained baseline. Gated by `ANTHROPIC_API_KEY`
 - **`bun run skill:check`** — health dashboard showing all skills, command counts, validation status, template freshness
 - **`bun run dev:skill`** — watch mode that regenerates and validates SKILL.md on every template or source file change
@@ -1708,7 +1708,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ### Fixed
 - Cookie import picker now returns JSON instead of HTML — `jsonResponse()` referenced `url` out of scope, crashing every API call
 - `help` command routed correctly (was unreachable due to META_COMMANDS dispatch ordering)
-- Stale servers from global install no longer shadow local changes — removed legacy `~/.claude/skills/gstack` fallback from `resolveServerScript()`
+- Stale servers from global install no longer shadow local changes — removed legacy `~/.antigravity/skills/gstack` fallback from `resolveServerScript()`
 - Crash log path references updated from `/tmp/` to `.gstack/`
 
 ### Added
@@ -1726,7 +1726,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - `.version` file written at build time for binary version tracking
 - Route-level tests for cookie picker (13 tests) and find-browse version check (10 tests)
 - Config resolution tests (14 tests) covering git root detection, BROWSE_STATE_FILE override, ensureStateDir, readVersionHash, resolveServerScript, and version mismatch detection
-- Browser interaction guidance in CLAUDE.md — prevents Claude from using mcp\_\_claude-in-chrome\_\_\* tools
+- Browser interaction guidance in GEMINI.md — prevents Antigravity from using mcp\_\_antigravity-in-chrome\_\_\* tools
 - CONTRIBUTING.md with quick start, dev mode explanation, and instructions for testing branches in other repos
 
 ### Changed
@@ -1743,7 +1743,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ### Removed
 - `CONDUCTOR_PORT` magic offset (`browse_port = CONDUCTOR_PORT - 45600`)
 - Port scan range 9400-9409
-- Legacy fallback to `~/.claude/skills/gstack/browse/src/server.ts`
+- Legacy fallback to `~/.antigravity/skills/gstack/browse/src/server.ts`
 - `DEVELOPING_GSTACK.md` (renamed to CONTRIBUTING.md)
 
 ## 0.3.1 — 2026-03-12
@@ -1753,7 +1753,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - `cookie-import-browser` command — decrypt and import cookies from real Chromium browsers (Comet, Chrome, Arc, Brave, Edge)
 - Interactive cookie picker web UI served from the browse server (dark theme, two-panel layout, domain search, import/remove)
 - Direct CLI import with `--domain` flag for non-interactive use
-- `/setup-browser-cookies` skill for Claude Code integration
+- `/setup-browser-cookies` skill for Antigravity Code integration
 - macOS Keychain access with async 10s timeout (no event loop blocking)
 - Per-browser AES key caching (one Keychain prompt per browser per session)
 - DB lock fallback: copies locked cookie DB to /tmp for safe reads
@@ -1809,5 +1809,5 @@ Initial release.
 
 - Five skills: `/plan-ceo-review`, `/plan-eng-review`, `/review`, `/ship`, `/browse`
 - Headless browser CLI with 40+ commands, ref-based interaction, persistent Chromium daemon
-- One-command install as Claude Code skills (submodule or global clone)
+- One-command install as Antigravity Code skills (submodule or global clone)
 - `setup` script for binary compilation and skill symlinking

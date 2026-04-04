@@ -2,19 +2,19 @@
 
 ## The Problem
 
-Claude Code's context window is ephemeral. Every session starts fresh. When
+Antigravity Code's context window is ephemeral. Every session starts fresh. When
 auto-compaction fires at ~167K tokens, it preserves a generic summary but
 destroys file reads, reasoning chains, and intermediate decisions.
 
 gstack already produces valuable artifacts that survive on disk: CEO plans,
 eng reviews, design reviews, QA reports, learnings. These files contain
-decisions, constraints, and context that shaped the current work. But Claude
+decisions, constraints, and context that shaped the current work. But Antigravity
 doesn't know they exist. After compaction, the plans and reviews that
 informed every decision silently vanish from context.
 
-The ecosystem is working on this. claude-mem (9K+ stars) captures tool usage
-and injects context into future sessions. Claude HUD shows real-time agent
-status. Anthropic's own `claude-progress.txt` pattern uses a progress file
+The ecosystem is working on this. antigravity-mem (9K+ stars) captures tool usage
+and injects context into future sessions. Antigravity HUD shows real-time agent
+status. Anthropic's own `antigravity-progress.txt` pattern uses a progress file
 that agents read at the start of each session.
 
 Nobody is solving the specific problem of making **skill-produced artifacts**
@@ -37,7 +37,7 @@ After compaction, re-read them."
 
 ```
                    ┌─────────────────────────────────────┐
-                   │        Claude Context Window         │
+                   │        Antigravity Context Window         │
                    │   (ephemeral, ~167K token limit)     │
                    │                                      │
                    │   Compaction fires ──► summary only   │
@@ -119,9 +119,9 @@ layer.
 
 ## What This Is Not
 
-- Not a replacement for Claude's built-in compaction (that handles session
+- Not a replacement for Antigravity's built-in compaction (that handles session
   state; we handle gstack artifacts)
-- Not a full memory system like claude-mem (that handles cross-session
+- Not a full memory system like antigravity-mem (that handles cross-session
   memory via SQLite; we handle structured skill artifacts)
 - Not a database or service (just markdown files on disk)
 
@@ -129,7 +129,7 @@ layer.
 
 - [Anthropic: Effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
 - [Anthropic: Effective context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
-- [claude-mem](https://github.com/thedotmack/claude-mem)
-- [Claude HUD](https://github.com/jarrodwatts/claude-hud)
+- [antigravity-mem](https://github.com/thedotmack/antigravity-mem)
+- [Antigravity HUD](https://github.com/jarrodwatts/antigravity-hud)
 - [CodeScene: Agentic AI coding best practices](https://codescene.com/blog/agentic-ai-coding-best-practice-patterns-for-speed-with-quality)
 - [Post-compaction recovery via git-persisted state (Beads)](https://dev.to/jeremy_longshore/building-post-compaction-recovery-for-ai-agent-workflows-with-beads-207l)

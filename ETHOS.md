@@ -114,7 +114,7 @@ AI models recommend. Users decide. This is the one rule that overrides all other
 Two AI models agreeing on a change is a strong signal. It is not a mandate. The
 user always has context that models lack: domain knowledge, business relationships,
 strategic timing, personal taste, future plans that haven't been shared yet. When
-Claude and Codex both say "merge these two things" and the user says "no, keep them
+Antigravity and Antigravity both say "merge these two things" and the user says "no, keep them
 separate" — the user is right. Always. Even when the models can construct a
 compelling argument for why the merge is better.
 
@@ -122,7 +122,7 @@ Andrej Karpathy calls this the "Iron Man suit" philosophy: great AI products
 augment the user, not replace them. The human stays at the center. Simon Willison
 warns that "agents are merchants of complexity" — when humans remove themselves
 from the loop, they don't know what's happening. Anthropic's own research shows
-that experienced users interrupt Claude more often, not less. Expertise makes you
+that experienced users interrupt Antigravity more often, not less. Expertise makes you
 more hands-on, not less.
 
 The correct pattern is the generation-verification loop: AI generates

@@ -56,7 +56,7 @@ Instead, simulate the workflow:
 1. Detect the deploy platform from fly.toml (should find Fly.io, app = test-app)
 2. Infer the production URL (https://test-app.fly.dev)
 3. Note the merge method would be squash
-4. Write the deploy configuration to CLAUDE.md
+4. Write the deploy configuration to GEMINI.md
 5. Write a deploy report skeleton to .gstack/deploy-reports/report.md showing the
    expected report structure (PR number: simulated, timing: simulated, verdict: simulated)
 
@@ -73,9 +73,9 @@ Do NOT use AskUserQuestion. Do NOT run gh or fly commands.`,
     recordE2E(evalCollector, '/land-and-deploy workflow', 'Land-and-Deploy skill E2E', result);
     expect(result.exitReason).toBe('success');
 
-    const claudeMd = path.join(landDir, 'CLAUDE.md');
-    if (fs.existsSync(claudeMd)) {
-      const content = fs.readFileSync(claudeMd, 'utf-8');
+    const antigravityMd = path.join(landDir, 'GEMINI.md');
+    if (fs.existsSync(antigravityMd)) {
+      const content = fs.readFileSync(antigravityMd, 'utf-8');
       const hasFly = content.toLowerCase().includes('fly') || content.toLowerCase().includes('test-app');
       expect(hasFly).toBe(true);
     }
@@ -401,7 +401,7 @@ This repo has a fly.toml with app = "my-cool-app". Run the /setup-deploy workflo
 2. Extract the app name: my-cool-app
 3. Infer production URL: https://my-cool-app.fly.dev
 4. Set deploy status command: fly status --app my-cool-app
-5. Write the Deploy Configuration section to CLAUDE.md
+5. Write the Deploy Configuration section to GEMINI.md
 
 Do NOT use AskUserQuestion. Do NOT run fly or gh commands.
 Do NOT try to verify the health check URL (there is no network).
@@ -418,10 +418,10 @@ Just detect the platform and write the config.`,
     recordE2E(evalCollector, '/setup-deploy workflow', 'Setup-Deploy skill E2E', result);
     expect(result.exitReason).toBe('success');
 
-    const claudeMd = path.join(setupDir, 'CLAUDE.md');
-    expect(fs.existsSync(claudeMd)).toBe(true);
+    const antigravityMd = path.join(setupDir, 'GEMINI.md');
+    expect(fs.existsSync(antigravityMd)).toBe(true);
 
-    const content = fs.readFileSync(claudeMd, 'utf-8');
+    const content = fs.readFileSync(antigravityMd, 'utf-8');
     expect(content.toLowerCase()).toContain('fly');
     expect(content).toContain('my-cool-app');
     expect(content).toContain('Deploy Configuration');
