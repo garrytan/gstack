@@ -63,4 +63,28 @@ describe('Server auth security', () => {
     // Should not have wildcard CORS for the SSE stream
     expect(streamBlock).not.toContain("Access-Control-Allow-Origin': '*'");
   });
+
+  // Test 7: /sidebar-tabs has no wildcard CORS header
+  test('/sidebar-tabs has no wildcard CORS header', () => {
+    const block = sliceBetween(SERVER_SRC, "url.pathname === '/sidebar-tabs'", "url.pathname === '/sidebar-tabs/switch'");
+    expect(block).not.toContain("'*'");
+  });
+
+  // Test 8: /sidebar-tabs/switch has no wildcard CORS header
+  test('/sidebar-tabs/switch has no wildcard CORS header', () => {
+    const block = sliceBetween(SERVER_SRC, "url.pathname === '/sidebar-tabs/switch'", "url.pathname === '/sidebar-chat'");
+    expect(block).not.toContain("'*'");
+  });
+
+  // Test 9: /sidebar-chat has no wildcard CORS header
+  test('/sidebar-chat has no wildcard CORS header', () => {
+    const block = sliceBetween(SERVER_SRC, "url.pathname === '/sidebar-chat'", "url.pathname === '/sidebar-command'");
+    expect(block).not.toContain("'*'");
+  });
+
+  // Test 10: no wildcard CORS anywhere in server.ts
+  test('no wildcard Access-Control-Allow-Origin in entire server source', () => {
+    expect(SERVER_SRC).not.toContain("Access-Control-Allow-Origin': '*'");
+    expect(SERVER_SRC).not.toContain('Access-Control-Allow-Origin": "*"');
+  });
 });

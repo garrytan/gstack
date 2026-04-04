@@ -1222,12 +1222,12 @@ async function start() {
           const tabs = await browserManager.getTabListWithTitles();
           return new Response(JSON.stringify({ tabs }), {
             status: 200,
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': `http://127.0.0.1:${port}` },
           });
         } catch (err: any) {
           return new Response(JSON.stringify({ tabs: [], error: err.message }), {
             status: 200,
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': `http://127.0.0.1:${port}` },
           });
         }
       }
@@ -1246,7 +1246,7 @@ async function start() {
           browserManager.switchTab(tabId);
           return new Response(JSON.stringify({ ok: true, activeTab: tabId }), {
             status: 200,
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': `http://127.0.0.1:${port}` },
           });
         } catch (err: any) {
           return new Response(JSON.stringify({ error: err.message }), { status: 400, headers: { 'Content-Type': 'application/json' } });
@@ -1268,7 +1268,7 @@ async function start() {
         const tabAgentStatus = tabId !== null ? getTabAgentStatus(tabId) : agentStatus;
         return new Response(JSON.stringify({ entries, total: chatNextId, agentStatus: tabAgentStatus, activeTabId: activeTab }), {
           status: 200,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': `http://127.0.0.1:${port}` },
         });
       }
 
