@@ -2150,14 +2150,21 @@ describe('setup script validation', () => {
   });
 
   test('interactive prompt shows when no config', () => {
-    expect(setupContent).toContain('Short names');
     expect(setupContent).toContain('Namespaced');
+    expect(setupContent).toContain('Short names');
     expect(setupContent).toContain('Choice [1/2]');
+    expect(setupContent).toContain('Avoids collisions with host commands like /autoplan vs Claude Plan mode.');
   });
 
-  test('non-TTY defaults to flat names', () => {
-    // Should check if stdin is a TTY before prompting
-    expect(setupContent).toContain('-t 0');
+  test('no-config install defaults to namespaced commands', () => {
+    const promptStart = setupContent.indexOf('# No saved preference');
+    const promptEnd = setupContent.indexOf('# Save the choice', promptStart);
+    const promptBlock = setupContent.slice(promptStart, promptEnd);
+    expect(promptBlock).toContain('1) Namespaced');
+    expect(promptBlock).toContain('2) Short names');
+    expect(promptBlock).toContain('2) SKILL_PREFIX=0 ;;');
+    expect(promptBlock).toContain('*) SKILL_PREFIX=1 ;;');
+    expect(promptBlock).toMatch(/else\s+SKILL_PREFIX=1\s+fi/);
   });
 
   test('cleanup_prefixed_claude_symlinks exists and uses readlink', () => {

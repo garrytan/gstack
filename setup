@@ -49,7 +49,7 @@ case "$HOST" in
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
-# Priority: CLI flag > saved config > interactive prompt (or flat default for non-TTY)
+# Priority: CLI flag > saved config > interactive prompt (or namespaced default for non-TTY)
 GSTACK_CONFIG="$SOURCE_GSTACK_DIR/bin/gstack-config"
 export GSTACK_SETUP_RUNNING=1  # Prevent gstack-config post-set hook from triggering relink mid-setup
 if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
@@ -59,25 +59,25 @@ if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
   elif [ "$_saved_prefix" = "false" ]; then
     SKILL_PREFIX=0
   else
-    # No saved preference — prompt interactively (or default flat for non-TTY)
+    # No saved preference — prompt interactively (or default namespaced for non-TTY)
     if [ -t 0 ]; then
       echo ""
       echo "Skill naming: how should gstack skills appear?"
       echo ""
-      echo "  1) Short names: /qa, /ship, /review"
-      echo "     Recommended. Clean and fast to type."
+      echo "  1) Namespaced: /gstack-qa, /gstack-ship, /gstack-review"
+      echo "     Recommended. Avoids collisions with host commands like /autoplan vs Claude Plan mode."
       echo ""
-      echo "  2) Namespaced: /gstack-qa, /gstack-ship, /gstack-review"
-      echo "     Use this if you run other skill packs alongside gstack to avoid conflicts."
+      echo "  2) Short names: /qa, /ship, /review"
+      echo "     Shorter to type, but more likely to collide with other skill packs or host commands."
       echo ""
       printf "Choice [1/2] (default: 1, auto-selects in 10s): "
       read -t 10 -r _prefix_choice </dev/tty 2>/dev/null || _prefix_choice=""
       case "$_prefix_choice" in
-        2) SKILL_PREFIX=1 ;;
-        *) SKILL_PREFIX=0 ;;
+        2) SKILL_PREFIX=0 ;;
+        *) SKILL_PREFIX=1 ;;
       esac
     else
-      SKILL_PREFIX=0
+      SKILL_PREFIX=1
     fi
     # Save the choice for future runs
     "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
