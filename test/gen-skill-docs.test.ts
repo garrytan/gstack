@@ -1218,6 +1218,18 @@ describe('BENEFITS_FROM resolver', () => {
     expect(engContent).toContain('skipping these sections');
     expect(ceoContent).toContain('Follow its instructions from top to bottom');
   });
+
+  test('plan reviews prefer repo-local design docs before ~/.gstack history', () => {
+    expect(ceoContent).toContain('if [ -f DESIGN.md ]; then');
+    expect(ceoContent).toContain('DESIGN="$PWD/DESIGN.md"');
+    expect(ceoContent).toContain('design-system.md');
+    expect(ceoContent).toContain('~/.gstack/projects/$SLUG');
+
+    expect(engContent).toContain('if [ -f DESIGN.md ]; then');
+    expect(engContent).toContain('DESIGN="$PWD/DESIGN.md"');
+    expect(engContent).toContain('design-system.md');
+    expect(engContent).toContain('~/.gstack/projects/$SLUG');
+  });
 });
 
 // --- {{INVOKE_SKILL}} resolver tests ---
