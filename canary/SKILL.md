@@ -46,6 +46,15 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+# Detect remote control mode (Anthropic app remote control)
+# TTY detection is unreliable (Claude Code's Bash tool never has a real TTY).
+# Use explicit env var or check if gstack-config has it enabled.
+_REMOTE_CONTROL="${GSTACK_REMOTE_CONTROL:-}"
+if [ -z "$_REMOTE_CONTROL" ]; then
+  _REMOTE_CONTROL=$(~/.claude/skills/gstack/bin/gstack-config get remote_control 2>/dev/null || echo "")
+fi
+[ -z "$_REMOTE_CONTROL" ] && _REMOTE_CONTROL=0
+echo "REMOTE_CONTROL: $_REMOTE_CONTROL"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"canary","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
@@ -300,6 +309,24 @@ are shown, synthesize a one-paragraph welcome briefing before proceeding:
 available]. [Health score if available]." Keep it to 2-3 sentences.
 
 ## AskUserQuestion Format
+
+**REMOTE CONTROL DETECTION:** Check if remote control is active by looking at BOTH:
+1. The `REMOTE_CONTROL` value from the preamble output above
+2. The conversation history — if you can see `Remote Control connecting…` WITHOUT a
+   subsequent `Remote Control disconnected.`, remote control is currently active
+
+If EITHER indicates remote control is active, do NOT use the AskUserQuestion tool.
+Instead:
+- Present the question and options as plain text in your response
+- Format options as a numbered list (1, 2, 3...) so the user can reply with a number
+- Include your recommendation inline: "I'd recommend option X because..."
+- Wait for the user to reply with their choice before proceeding
+- For yes/no questions, just ask directly in plain text
+
+This applies to ALL AskUserQuestion calls throughout the entire skill workflow,
+including telemetry prompts, lake intro, upgrade checks, and skill-specific questions.
+
+**When remote control is NOT active (normal terminal mode), use AskUserQuestion as usual:**
 
 **ALWAYS follow this structure for every AskUserQuestion call:**
 1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
