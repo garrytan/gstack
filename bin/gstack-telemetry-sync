@@ -69,6 +69,37 @@ UNSENT="$(tail -n "+$SKIP" "$JSONL_FILE" 2>/dev/null || true)"
 # ─── Strip local-only fields and build batch ─────────────────
 # Edge function expects raw JSONL field names (v, ts, sessions) —
 # no column renaming needed (the function maps them internally).
+#
+# Use jq for JSON field removal — sed regex (pattern [^"]*) breaks on
+# field values containing escaped quotes (\") or other special chars,
+# producing corrupt JSON that the edge function silently rejects.
+# jq is available in the Dockerfile.ci toolchain and most dev environments.
+# Fall back to sed only if jq is unavailable (older installs).
+HAS_JQ=false
+command -v jq >/dev/null 2>&1 && HAS_JQ=true
+
+strip_fields() {
+  local line="$1"
+  if [ "$HAS_JQ" = "true" ]; then
+    if [ "$TIER" = "anonymous" ]; then
+      echo "$line" | jq -c 'del(._repo_slug, ._branch, .repo, .installation_id)' 2>/dev/null || echo "$line"
+    else
+      echo "$line" | jq -c 'del(._repo_slug, ._branch, .repo)' 2>/dev/null || echo "$line"
+    fi
+  else
+    # Legacy sed fallback — works for simple string values without escaped quotes
+    local clean="$line"
+    clean="$(echo "$clean" | sed \
+      -e 's/,"_repo_slug":"[^"]*"//g' \
+      -e 's/,"_branch":"[^"]*"//g' \
+      -e 's/,"repo":"[^"]*"//g')"
+    if [ "$TIER" = "anonymous" ]; then
+      clean="$(echo "$clean" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
+    fi
+    echo "$clean"
+  fi
+}
+
 BATCH="["
 FIRST=true
 COUNT=0
@@ -78,16 +109,7 @@ while IFS= read -r LINE; do
   [ -z "$LINE" ] && continue
   echo "$LINE" | grep -q '^{' || continue
 
-  # Strip local-only fields (keep v, ts, sessions as-is for edge function)
-  CLEAN="$(echo "$LINE" | sed \
-    -e 's/,"_repo_slug":"[^"]*"//g' \
-    -e 's/,"_branch":"[^"]*"//g' \
-    -e 's/,"repo":"[^"]*"//g')"
-
-  # If anonymous tier, strip installation_id
-  if [ "$TIER" = "anonymous" ]; then
-    CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
-  fi
+  CLEAN="$(strip_fields "$LINE")"
 
   if [ "$FIRST" = "true" ]; then
     FIRST=false
