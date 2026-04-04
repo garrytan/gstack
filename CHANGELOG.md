@@ -1,24 +1,53 @@
 # Changelog
 
-## [0.15.2.0] - 2026-04-01 — GStack Browser: AI-Controlled Chromium
+## [0.15.4.0] - 2026-04-03 — Autoplan DX Integration + Docs
 
-GStack Browser is an AI-controlled Chromium with the sidebar baked in, anti-bot stealth, and custom branding. Sites like Google and NYTimes work without captchas. The menu bar says "GStack Browser" instead of "Chrome for Testing." Run `/open-gstack-browser` from Claude Code and you're in.
+`/autoplan` now auto-detects developer-facing plans and runs `/plan-devex-review` as Phase 3.5, with full dual-voice adversarial review (Claude subagent + Codex). If your plan mentions APIs, CLIs, SDKs, agent actions, or anything developers integrate with, the DX review kicks in automatically. No extra commands needed.
 
 ### Added
 
-- **Anti-bot stealth.** `navigator.webdriver` is now `false`. Fake plugins array (3 entries, like real Chrome). Proper `navigator.languages`. CDP artifact cleanup. Permissions API returns `prompt` not `denied`. Sites that blocked "Chrome for Testing" now work normally.
-- **Custom user agent.** `Chrome/<version> Safari/537.36 GStackBrowser`. Auto-detects Chrome version from the binary. No more "Chrome for Testing" in the UA string.
-- **Chromium rebranding.** Menu bar, Dock, and Cmd+Tab all show "GStack Browser" instead of "Google Chrome for Testing". Patched at launch time.
-- **Auth via /health.** Extension reads auth token from the browse server's `/health` endpoint instead of `.auth.json` file. Fixes codesigning and read-only bundle issues.
-- **`/open-gstack-browser` skill.** Replaces `/connect-chrome`. Same functionality, better name. `/connect-chrome` still works as a backwards-compatible alias.
-- **Welcome page.** GStack Browser opens with a "Welcome to GStack Browser" page explaining what the sidebar can do. Auto-hides when the extension is detected.
-- **Left-aligned sidebar UI.** All sidebar text (chat welcome, loading, empty states, inspector) is now left-aligned instead of centered.
-- **GStack Browser V0 design doc.** `docs/designs/GSTACK_BROWSER_V0.md` covers the full 5-phase roadmap from app wrapper through Chromium fork.
+- **DX review in /autoplan.** Phase 3.5 runs after Eng review when developer-facing scope is detected. Includes DX-specific dual voices, consensus table, and full 8-dimension scorecard. Triggers on APIs, CLIs, SDKs, shell commands, Claude Code skills, OpenClaw actions, MCP servers, and anything devs implement or debug.
+- **"Which review?" comparison table in README.** Quick reference showing which review to use for end users vs developers vs architecture, and when `/autoplan` covers all three.
+- **`/plan-devex-review` and `/devex-review` in install instructions.** Both skills now listed in the copy-paste install prompt so new users discover them immediately.
 
 ### Changed
 
-- **Extension auth bootstrap.** `background.js` now reads token from `/health` instead of `chrome.runtime.getURL('.auth.json')`. Simpler, works everywhere.
-- **Renamed `/connect-chrome` to `/open-gstack-browser`.** All references updated across README, docs, extension UI. Symlink preserved for backwards compatibility.
+- **Autoplan pipeline order.** Now CEO → Design → Eng → DX (was CEO → Design → Eng). DX runs last because it benefits from knowing the architecture.
+
+## [0.15.3.0] - 2026-04-03 — Developer Experience Review
+
+You can now review plans for DX quality before writing code. `/plan-devex-review` rates 8 dimensions (getting started, API design, error messages, docs, upgrade path, dev environment, community, measurement) on a 0-10 scale with trend tracking across reviews. After shipping, `/devex-review` uses the browse tool to actually test the live experience and compare against plan-stage scores.
+
+### Added
+
+- **/plan-devex-review skill.** Plan-stage DX review based on Addy Osmani's framework. Auto-detects product type (API, CLI, SDK, library, platform, docs, Claude Code skill). Includes developer empathy simulation, DX scorecard with trends, and a conditional Claude Code Skill DX checklist for reviewing skills themselves.
+- **/devex-review skill.** Live DX audit using the browse tool. Tests docs, getting started flows, error messages, and CLI help. Each dimension scored as TESTED, INFERRED, or N/A with screenshot evidence. Boomerang comparison: plan said TTHW would be 3 minutes, reality says 8.
+- **DX Hall of Fame reference.** On-demand examples from Stripe, Vercel, Elm, Rust, htmx, Tailwind, and more, loaded per review pass to avoid prompt bloat.
+- **`{{DX_FRAMEWORK}}` resolver.** Shared DX principles, characteristics, and scoring rubric for both skills. Compact (~150 lines) so it doesn't eat context.
+- **DX Review in the dashboard.** Both skills write to the review log and show up in the Review Readiness Dashboard alongside CEO, Eng, and Design reviews.
+
+## [0.15.2.1] - 2026-04-02 — Setup Runs Migrations
+
+`git pull && ./setup` now applies version migrations automatically. Previously, migrations only ran during `/gstack-upgrade`, so users who updated via git pull never got state fixes (like the skill directory restructure from v0.15.1.0). Now `./setup` tracks the last version it ran at and applies any pending migrations on every run.
+
+### Fixed
+
+- **Setup runs pending migrations.** `./setup` now checks `~/.gstack/.last-setup-version` and runs any migration scripts newer than that version. No more broken skill directories after `git pull`.
+- **Space-safe migration loop.** Uses `while read` instead of `for` loop to handle paths with spaces correctly.
+- **Fresh installs skip migrations.** New installs write the version marker without running historical migrations that don't apply to them.
+- **Future migration guard.** Migrations for versions newer than the current VERSION are skipped, preventing premature execution from development branches.
+- **Missing VERSION guard.** If the VERSION file is absent, the version marker isn't written, preventing permanent migration poisoning.
+
+## [0.15.2.0] - 2026-04-02 — Voice-Friendly Skill Triggers
+
+Say "run a security check" instead of remembering `/cso`. Skills now have voice-friendly trigger phrases that work with AquaVoice, Whisper, and other speech-to-text tools. No more fighting with acronyms that get transcribed wrong ("CSO" -> "CEO" -> wrong skill).
+
+### Added
+
+- **Voice triggers for 10 skills.** Each skill gets natural-language aliases baked into its description. "see-so", "security review", "tech review", "code x", "speed test" and more. The right skill activates even when speech-to-text mangles the command name.
+- **`voice-triggers:` YAML field in templates.** Structured authoring: add aliases to any `.tmpl` frontmatter, `gen-skill-docs` folds them into the description during generation. Clean source, clean output.
+- **Voice input section in README.** New users know skills work with voice from day one.
+- **`voice-triggers` documented in CONTRIBUTING.md.** Frontmatter contract updated so contributors know the field exists.
 
 ## [0.15.1.0] - 2026-04-01 — Design Without Shotgun
 

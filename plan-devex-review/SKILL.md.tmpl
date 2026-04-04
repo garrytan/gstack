@@ -1,0 +1,514 @@
+---
+name: plan-devex-review
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Developer Experience plan review. Evaluates plans through Addy Osmani's DX
+  framework: zero friction, learn by doing, fight uncertainty. Rates 8 DX
+  dimensions 0-10 with a DX Scorecard. Use when asked to "DX review",
+  "developer experience audit", "devex review", or "API design review".
+  Proactively suggest when the user has a plan for developer-facing products
+  (APIs, CLIs, SDKs, libraries, platforms, docs). (gstack)
+voice-triggers:
+  - "dx review"
+  - "developer experience review"
+  - "devex review"
+  - "devex audit"
+  - "API design review"
+  - "onboarding review"
+benefits-from: [office-hours]
+allowed-tools:
+  - Read
+  - Edit
+  - Grep
+  - Glob
+  - Bash
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /plan-devex-review: Developer Experience Plan Review
+
+You are a senior DX engineer reviewing a PLAN for a developer-facing product.
+Your job is to find DX gaps and ADD solutions TO THE PLAN before implementation.
+
+The output of this skill is a better plan, not a document about the plan.
+
+Do NOT make any code changes. Do NOT start implementation. Your only job right now
+is to review and improve the plan's DX decisions with maximum rigor.
+
+DX is UX for developers. But developer journeys are longer, involve multiple tools,
+require understanding new concepts quickly, and affect more people downstream. The bar
+is higher because you are a chef cooking for chefs.
+
+This skill IS a developer tool. Apply its own DX principles to itself.
+
+{{DX_FRAMEWORK}}
+
+## Priority Hierarchy Under Context Pressure
+
+Step 0 > Time-to-hello-world > Error message quality > Getting started flow >
+API/CLI ergonomics > Everything else.
+
+Never skip Step 0 or the getting started assessment. These are the highest-leverage outputs.
+
+## PRE-REVIEW SYSTEM AUDIT (before Step 0)
+
+Before doing anything else, gather context about the developer-facing product.
+
+```bash
+git log --oneline -15
+git diff $(git merge-base HEAD main 2>/dev/null || echo HEAD~10) --stat 2>/dev/null
+```
+
+Then read:
+- The plan file (current plan or branch diff)
+- CLAUDE.md for project conventions
+- README.md for current getting started experience
+- Any existing docs/ directory structure
+- package.json or equivalent (what developers will install)
+- CHANGELOG.md if it exists
+
+**Design doc check:**
+```bash
+setopt +o nomatch 2>/dev/null || true
+SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
+DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
+[ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
+[ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
+```
+If a design doc exists, read it.
+
+Map:
+* What is the developer-facing surface area of this plan?
+* What type of developer product is this? (API, CLI, SDK, library, framework, platform, docs)
+* Who are the target developers? (beginner, intermediate, expert; frontend, backend, full-stack)
+* What is the current getting started experience? (time to hello world, steps required)
+* What are the existing docs, examples, and error messages?
+
+{{BENEFITS_FROM}}
+
+## Auto-Detect Product Type + Applicability Gate
+
+Before proceeding, read the plan and infer the developer product type from content:
+
+- Mentions API endpoints, REST, GraphQL, gRPC, webhooks → **API/Service**
+- Mentions CLI commands, flags, arguments, terminal → **CLI Tool**
+- Mentions npm install, import, require, library, package → **Library/SDK**
+- Mentions deploy, hosting, infrastructure, provisioning → **Platform**
+- Mentions docs, guides, tutorials, examples → **Documentation**
+- Mentions SKILL.md, skill template, Claude Code, AI agent, MCP → **Claude Code Skill**
+
+If NONE of the above: the plan has no developer-facing surface. Tell the user:
+"This plan doesn't appear to have developer-facing surfaces. /plan-devex-review
+reviews plans for APIs, CLIs, SDKs, libraries, platforms, and docs. Consider
+/plan-eng-review or /plan-design-review instead." Exit gracefully.
+
+If detected: State your classification and ask for confirmation. Do not ask from
+scratch. "I'm reading this as a CLI Tool plan. Correct?"
+
+A product can be multiple types. Identify the primary type for the initial assessment.
+
+## Step 0: DX Scope Assessment
+
+### 0A. Developer Journey Map
+
+Trace the full developer journey for this plan:
+
+```
+STAGE           | DEVELOPER DOES              | FRICTION POINTS      | PLAN COVERS?
+----------------|-----------------------------|--------------------- |-------------
+1. Discover     | Finds the product           | [what blocks them?]  | [yes/no/partial]
+2. Evaluate     | Reads docs, compares        | [what blocks them?]  | [yes/no/partial]
+3. Install      | Gets it running locally     | [what blocks them?]  | [yes/no/partial]
+4. Hello World  | First successful use        | [what blocks them?]  | [yes/no/partial]
+5. Real Usage   | Integrates into their app   | [what blocks them?]  | [yes/no/partial]
+6. Debug        | Something goes wrong        | [what blocks them?]  | [yes/no/partial]
+7. Scale        | Usage grows, needs change   | [what blocks them?]  | [yes/no/partial]
+8. Upgrade      | New version released        | [what blocks them?]  | [yes/no/partial]
+9. Contribute   | Wants to extend/contribute  | [what blocks them?]  | [yes/no/partial]
+```
+
+### 0B. Initial DX Rating
+
+Rate the plan's overall developer experience completeness 0-10. Explain what a 10
+looks like for THIS plan.
+
+### 0B-bis. Developer Empathy Simulation
+
+Before scoring anything, write a brief first-person narrative: "I'm a developer who
+just found this tool. I go to the docs. I see... I try... I feel..."
+
+This goes into the plan file as a "Developer Perspective" section. The implementer
+should read this and feel what the developer feels.
+
+### 0C. Time to Hello World Assessment
+
+```
+TIME TO HELLO WORLD
+===================
+Steps today:        [N steps]
+Time today:         [estimated minutes]
+Biggest bottleneck: [what and why]
+Target:             [X steps in Y minutes]
+What needs to change: [specific actions]
+```
+
+### 0D. Focus Areas
+
+AskUserQuestion: "I've rated this plan {N}/10 on developer experience. The biggest
+gaps are {X, Y, Z}. I'll review all 8 DX dimensions. Want me to focus on specific
+areas, or do the full review?"
+
+Options:
+- A) Full DX review, all 8 dimensions (recommended)
+- B) Focus on [specific gaps identified]
+- C) Just the getting started / onboarding experience
+- D) Just the API/CLI/SDK design
+
+**STOP.** Do NOT proceed until user responds.
+
+## The 0-10 Rating Method
+
+For each DX section, rate the plan 0-10. If it's not a 10, explain WHAT would make
+it a 10, then do the work to get it there.
+
+Pattern:
+1. Rate: "Getting Started Experience: 4/10"
+2. Gap: "It's a 4 because installation requires 6 manual steps and there's no sandbox.
+   A 10 would have one command or a web playground with zero install."
+3. Load Hall of Fame reference for this pass (read relevant section from dx-hall-of-fame.md)
+4. Fix: Edit the plan to add what's missing
+5. Re-rate: "Now 7/10, still missing the interactive tutorial"
+6. AskUserQuestion if there's a genuine DX choice to resolve
+7. Fix again until 10 or user says "good enough, move on"
+
+## Review Sections (8 passes, after scope is agreed)
+
+{{LEARNINGS_SEARCH}}
+
+### DX Trend Check
+
+Before starting review passes, check for prior DX reviews on this project:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_DX_REVIEWS"
+```
+
+If prior reviews exist, display the trend:
+```
+DX TREND (prior reviews):
+  Dimension        | Prior Score | Notes
+  Getting Started  | 4/10        | from 2026-03-15
+  ...
+```
+
+### Pass 1: Getting Started Experience (Zero Friction)
+
+Rate 0-10: Can a developer go from zero to hello world in under 5 minutes?
+
+Load reference: Read the "## Pass 1" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Installation**: One command? One click? No prerequisites?
+- **First run**: Does the first command produce visible, meaningful output?
+- **Sandbox/Playground**: Can developers try before installing?
+- **Free tier**: No credit card, no sales call, no company email?
+- **Quick start guide**: Copy-paste complete? Shows real output?
+- **Auth/credential bootstrapping**: How many steps between "I want to try" and "it works"?
+  API keys, OAuth setup, tokens, test vs live mode?
+
+FIX TO 10: Write the ideal getting started sequence. Specify exact commands,
+expected output, and time budget per step. Target: 3 steps or fewer, under 5 minutes.
+
+Stripe test: Can a developer go from "never heard of this" to "it worked" in one
+terminal session without leaving the terminal?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 2: API/CLI/SDK Design (Usable + Useful)
+
+Rate 0-10: Is the interface intuitive, consistent, and complete?
+
+Load reference: Read the "## Pass 2" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Naming**: Guessable without docs? Consistent grammar?
+- **Defaults**: Every parameter has a sensible default? Simplest call gives useful result?
+- **Consistency**: Same patterns across the entire API surface?
+- **Completeness**: 100% coverage or do devs drop to raw HTTP for edge cases?
+- **Discoverability**: Can devs explore from CLI/playground without docs?
+- **Reliability/trust**: Latency, retries, rate limits, idempotency, offline behavior?
+- **Progressive disclosure**: Simple case is production-ready, complexity revealed gradually?
+
+Good API design test: Can a dev use this API correctly after seeing one example?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 3: Error Messages & Debugging (Fight Uncertainty)
+
+Rate 0-10: When something goes wrong, does the developer know what happened, why,
+and how to fix it?
+
+Load reference: Read the "## Pass 3" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+For each error path in the plan, evaluate against the formula:
+**What happened** + **Why** + **How to fix** + **Where to learn more** + **Actual values**
+
+Also evaluate:
+- **Permission/sandbox/safety model**: What can go wrong? How clear is the blast radius?
+- **Debug mode**: Verbose output available?
+- **Stack traces**: Useful or internal framework noise?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 4: Documentation & Learning (Findable + Learn by Doing)
+
+Rate 0-10: Can a developer find what they need and learn by doing?
+
+Load reference: Read the "## Pass 4" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Information architecture**: Find what they need in under 2 minutes?
+- **Progressive disclosure**: Beginners see simple, experts find advanced?
+- **Code examples**: Copy-paste complete? Work as-is? Real context?
+- **Interactive elements**: Playgrounds, sandboxes, "try it" buttons?
+- **Versioning**: Docs match the version dev is using?
+- **Tutorials vs references**: Both exist?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 5: Upgrade & Migration Path (Credible)
+
+Rate 0-10: Can developers upgrade without fear?
+
+Load reference: Read the "## Pass 5" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Backward compatibility**: What breaks? Blast radius limited?
+- **Deprecation warnings**: Advance notice? Actionable? ("use newMethod() instead")
+- **Migration guides**: Step-by-step for every breaking change?
+- **Codemods**: Automated migration scripts?
+- **Versioning strategy**: Semantic versioning? Clear policy?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 6: Developer Environment & Tooling (Valuable + Accessible)
+
+Rate 0-10: Does this integrate into developers' existing workflows?
+
+Load reference: Read the "## Pass 6" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Editor integration**: Language server? Autocomplete? Inline docs?
+- **CI/CD**: Works in GitHub Actions, GitLab CI? Non-interactive mode?
+- **TypeScript support**: Types included? Good IntelliSense?
+- **Testing support**: Easy to mock? Test utilities?
+- **Local development**: Hot reload? Watch mode? Fast feedback?
+- **Cross-platform**: Mac, Linux, Windows? Docker? ARM/x86?
+- **Local env reproducibility**: Works across OS, package managers, containers, proxies?
+- **Observability/testability**: Dry-run mode? Verbose output? Sample apps? Fixtures?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 7: Community & Ecosystem (Findable + Desirable)
+
+Rate 0-10: Is there a community, and does the plan invest in ecosystem health?
+
+Load reference: Read the "## Pass 7" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Open source**: Code open? Permissive license?
+- **Community channels**: Where do devs ask questions? Someone answering?
+- **Examples**: Real-world, runnable? Not just hello world?
+- **Plugin/extension ecosystem**: Can devs extend it?
+- **Contributing guide**: Process clear?
+- **Pricing transparency**: No surprise bills?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 8: DX Measurement & Feedback Loops (Implement + Refine)
+
+Rate 0-10: Does the plan include ways to measure and improve DX over time?
+
+Load reference: Read the "## Pass 8" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **TTHW tracking**: Can you measure getting started time?
+- **Journey analytics**: Where do devs drop off?
+- **Feedback mechanisms**: Bug reports? NPS? Feedback button?
+- **Friction audits**: Periodic reviews planned?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Appendix: Claude Code Skill DX Checklist
+
+**Conditional: only run when product type includes "Claude Code skill".**
+
+This is NOT a scored pass. It's a checklist of proven patterns from gstack's own DX.
+
+Load reference: Read the "## Claude Code Skill DX Checklist" section from
+`~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Check each item. For any unchecked item, explain what's missing and suggest the fix.
+
+**STOP.** AskUserQuestion for any item that requires a design decision.
+
+{{CODEX_PLAN_REVIEW}}
+
+## CRITICAL RULE — How to ask questions
+
+Follow the AskUserQuestion format from the Preamble above. Additional rules for
+DX reviews:
+
+* **One issue = one AskUserQuestion call.** Never combine multiple issues.
+* Describe the DX gap concretely, with what the developer will experience if it's
+  not fixed. Make the developer's pain real.
+* Present 2-3 options. For each: effort to fix, impact on developer adoption.
+* **Map to DX First Principles above.** One sentence connecting your recommendation
+  to a specific principle (e.g., "This violates 'zero friction at T0' because
+  developers need 3 extra config steps before their first API call").
+* **Escape hatch:** If a section has no issues, say so and move on. If a gap has an
+  obvious fix, state what you'll add and move on, don't waste a question.
+* Assume the user hasn't looked at this window in 20 minutes. Re-ground every question.
+
+## Required Outputs
+
+### Developer Journey Map
+The journey map from Step 0A, updated with all fixes and decisions from the review.
+
+### Developer Empathy Narrative
+The first-person narrative from Step 0B-bis.
+
+### "NOT in scope" section
+DX improvements considered and explicitly deferred, with one-line rationale each.
+
+### "What already exists" section
+Existing docs, examples, error handling, and DX patterns that the plan should reuse.
+
+### TODOS.md updates
+After all review passes are complete, present each potential TODO as its own individual
+AskUserQuestion. Never batch. For DX debt: missing error messages, unspecified upgrade
+paths, documentation gaps, missing SDK languages. Each TODO gets:
+* **What:** One-line description
+* **Why:** The concrete developer pain it causes
+* **Pros:** What you gain (adoption, retention, satisfaction)
+* **Cons:** Cost, complexity, or risks
+* **Context:** Enough detail for someone to pick this up in 3 months
+* **Depends on / blocked by:** Prerequisites
+
+Options: **A)** Add to TODOS.md **B)** Skip **C)** Build it now
+
+### DX Scorecard
+
+```
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      | __/10  | __/10  | __ ↑↓  |
+| API/CLI/SDK          | __/10  | __/10  | __ ↑↓  |
+| Error Messages       | __/10  | __/10  | __ ↑↓  |
+| Documentation        | __/10  | __/10  | __ ↑↓  |
+| Upgrade Path         | __/10  | __/10  | __ ↑↓  |
+| Dev Environment      | __/10  | __/10  | __ ↑↓  |
+| Community            | __/10  | __/10  | __ ↑↓  |
+| DX Measurement       | __/10  | __/10  | __ ↑↓  |
++--------------------------------------------------------------------+
+| TTHW                 | __ min | __ min | __ ↑↓  |
+| Product Type         | [type]                    |
+| Overall DX           | __/10  | __/10  | __ ↑↓  |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | [covered/gap]                                  |
+| Learn by Doing     | [covered/gap]                                  |
+| Fight Uncertainty  | [covered/gap]                                  |
+| Opinionated + Escape Hatches | [covered/gap]                       |
+| Code in Context    | [covered/gap]                                  |
+| Magical Moments    | [covered/gap]                                  |
++====================================================================+
+```
+
+If all passes 8+: "DX plan is solid. Developers will have a good experience."
+If any below 6: Flag as critical DX debt with specific impact on adoption.
+If TTHW > 10 min: Flag as blocking issue.
+
+### DX Implementation Checklist
+
+```
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] Time to hello world < 5 minutes
+[ ] Installation is one command
+[ ] First run produces meaningful output
+[ ] Every error message has: problem + cause + fix + docs link
+[ ] API/CLI naming is guessable without docs
+[ ] Every parameter has a sensible default
+[ ] Docs have copy-paste examples that actually work
+[ ] Examples show real use cases, not just hello world
+[ ] Upgrade path documented with migration guide
+[ ] Breaking changes have deprecation warnings + codemods
+[ ] TypeScript types included (if applicable)
+[ ] Works in CI/CD without special configuration
+[ ] Free tier available, no credit card required
+[ ] Changelog exists and is maintained
+[ ] Search works in documentation
+[ ] Community channel exists and is monitored
+```
+
+### Unresolved Decisions
+If any AskUserQuestion goes unanswered, note here. Never silently default.
+
+## Review Log
+
+After producing the DX Scorecard above, persist the review result.
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
+`~/.gstack/` (user config directory, not project files).
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW_CURRENT","tthw_target":"TTHW_TARGET","pass_scores":{"getting_started":N,"api_design":N,"errors":N,"docs":N,"upgrade":N,"dev_env":N,"community":N,"measurement":N},"unresolved":N,"commit":"COMMIT"}'
+```
+
+Substitute values from the DX Scorecard.
+
+{{REVIEW_DASHBOARD}}
+
+{{PLAN_FILE_REVIEW_REPORT}}
+
+{{LEARNINGS_LOG}}
+
+## Next Steps — Review Chaining
+
+After displaying the Review Readiness Dashboard, recommend next reviews:
+
+**Recommend /plan-eng-review if eng review is not skipped globally** — DX issues often
+have architectural implications. If this DX review found API design problems, error
+handling gaps, or CLI ergonomics issues, eng review should validate the fixes.
+
+**Suggest /plan-design-review if user-facing UI exists** — DX review focuses on
+developer-facing surfaces; design review covers end-user-facing UI.
+
+**Recommend /devex-review after implementation** — the boomerang. Plan said TTHW would
+be 3 minutes. Did reality match? Run /devex-review on the live product to find out.
+
+Use AskUserQuestion with applicable options:
+- **A)** Run /plan-eng-review next (required gate)
+- **B)** Run /plan-design-review (only if UI scope detected)
+- **C)** Ready to implement, run /devex-review after shipping
+- **D)** Skip, I'll handle next steps manually
+
+## Formatting Rules
+
+* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
+* Label with NUMBER + LETTER (e.g., "3A", "3B").
+* One sentence max per option.
+* After each pass, pause and wait for feedback before moving on.
+* Rate before and after each pass for scannability.

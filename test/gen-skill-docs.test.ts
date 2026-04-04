@@ -2581,3 +2581,51 @@ describe('gen-skill-docs prefix warning (#620/#578)', () => {
     }
   });
 });
+
+describe('voice-triggers processing', () => {
+  const { extractVoiceTriggers, processVoiceTriggers } = require('../scripts/gen-skill-docs') as {
+    extractVoiceTriggers: (content: string) => string[];
+    processVoiceTriggers: (content: string) => string;
+  };
+
+  test('extractVoiceTriggers parses valid YAML list', () => {
+    const content = `---\nname: cso\ndescription: |\n  Security audit.\nvoice-triggers:\n  - "see-so"\n  - "security review"\n---\nBody`;
+    const triggers = extractVoiceTriggers(content);
+    expect(triggers).toEqual(['see-so', 'security review']);
+  });
+
+  test('extractVoiceTriggers returns [] when no field present', () => {
+    const content = `---\nname: qa\ndescription: |\n  QA testing.\n---\nBody`;
+    expect(extractVoiceTriggers(content)).toEqual([]);
+  });
+
+  test('processVoiceTriggers appends voice triggers to description', () => {
+    const content = `---\nname: cso\ndescription: |\n  Security audit. (gstack)\nvoice-triggers:\n  - "see-so"\n  - "security review"\n---\nBody`;
+    const result = processVoiceTriggers(content);
+    expect(result).toContain('Voice triggers (speech-to-text aliases): "see-so", "security review".');
+  });
+
+  test('processVoiceTriggers strips voice-triggers field from output', () => {
+    const content = `---\nname: cso\ndescription: |\n  Security audit. (gstack)\nvoice-triggers:\n  - "see-so"\n---\nBody`;
+    const result = processVoiceTriggers(content);
+    expect(result).not.toContain('voice-triggers:');
+  });
+
+  test('processVoiceTriggers returns content unchanged when no voice-triggers', () => {
+    const content = `---\nname: qa\ndescription: |\n  QA testing.\n---\nBody`;
+    expect(processVoiceTriggers(content)).toBe(content);
+  });
+
+  test('generated CSO SKILL.md contains voice triggers in description', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('"see-so"');
+    expect(content).toContain('Voice triggers (speech-to-text aliases):');
+  });
+
+  test('generated CSO SKILL.md does NOT contain raw voice-triggers field', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    const fmEnd = content.indexOf('\n---', 4);
+    const frontmatter = content.slice(0, fmEnd);
+    expect(frontmatter).not.toContain('voice-triggers:');
+  });
+});

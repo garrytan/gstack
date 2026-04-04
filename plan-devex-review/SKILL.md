@@ -1,23 +1,23 @@
 ---
-name: plan-eng-review
+name: plan-devex-review
 preamble-tier: 3
 version: 1.0.0
 description: |
-  Eng manager-mode plan review. Lock in the execution plan — architecture,
-  data flow, diagrams, edge cases, test coverage, performance. Walks through
-  issues interactively with opinionated recommendations. Use when asked to
-  "review the architecture", "engineering review", or "lock in the plan".
-  Proactively suggest when the user has a plan or design doc and is about to
-  start coding — to catch architecture issues before implementation. (gstack)
-  Voice triggers (speech-to-text aliases): "tech review", "technical review", "plan engineering review".
+  Developer Experience plan review. Evaluates plans through Addy Osmani's DX
+  framework: zero friction, learn by doing, fight uncertainty. Rates 8 DX
+  dimensions 0-10 with a DX Scorecard. Use when asked to "DX review",
+  "developer experience audit", "devex review", or "API design review".
+  Proactively suggest when the user has a plan for developer-facing products
+  (APIs, CLIs, SDKs, libraries, platforms, docs). (gstack)
+  Voice triggers (speech-to-text aliases): "dx review", "developer experience review", "devex review", "devex audit", "API design review", "onboarding review".
 benefits-from: [office-hours]
 allowed-tools:
   - Read
-  - Write
+  - Edit
   - Grep
   - Glob
-  - AskUserQuestion
   - Bash
+  - AskUserQuestion
   - WebSearch
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
@@ -53,7 +53,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"plan-eng-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"plan-devex-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -78,7 +78,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"plan-eng-review","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"plan-devex-review","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -481,60 +481,172 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# Plan Review Mode
+## Step 0: Detect platform and base branch
 
-Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
+First, detect the git hosting platform from the remote URL:
 
-## Priority hierarchy
-If the user asks you to compress or the system triggers context compaction: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram. Do not preemptively warn about context limits -- the system handles compaction automatically.
-
-## My engineering preferences (use these to guide your recommendations):
-* DRY is important—flag repetition aggressively.
-* Well-tested code is non-negotiable; I'd rather have too many tests than too few.
-* I want code that's "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
-* I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
-* Bias toward explicit over clever.
-* Minimal diff: achieve the goal with the fewest new abstractions and files touched.
-
-## Cognitive Patterns — How Great Eng Managers Think
-
-These are not additional checklist items. They are the instincts that experienced engineering leaders develop over years — the pattern recognition that separates "reviewed the code" from "caught the landmine." Apply them throughout your review.
-
-1. **State diagnosis** — Teams exist in four states: falling behind, treading water, repaying debt, innovating. Each demands a different intervention (Larson, An Elegant Puzzle).
-2. **Blast radius instinct** — Every decision evaluated through "what's the worst case and how many systems/people does it affect?"
-3. **Boring by default** — "Every company gets about three innovation tokens." Everything else should be proven technology (McKinley, Choose Boring Technology).
-4. **Incremental over revolutionary** — Strangler fig, not big bang. Canary, not global rollout. Refactor, not rewrite (Fowler).
-5. **Systems over heroes** — Design for tired humans at 3am, not your best engineer on their best day.
-6. **Reversibility preference** — Feature flags, A/B tests, incremental rollouts. Make the cost of being wrong low.
-7. **Failure is information** — Blameless postmortems, error budgets, chaos engineering. Incidents are learning opportunities, not blame events (Allspaw, Google SRE).
-8. **Org structure IS architecture** — Conway's Law in practice. Design both intentionally (Skelton/Pais, Team Topologies).
-9. **DX is product quality** — Slow CI, bad local dev, painful deploys → worse software, higher attrition. Developer experience is a leading indicator.
-10. **Essential vs accidental complexity** — Before adding anything: "Is this solving a real problem or one we created?" (Brooks, No Silver Bullet).
-11. **Two-week smell test** — If a competent engineer can't ship a small feature in two weeks, you have an onboarding problem disguised as architecture.
-12. **Glue work awareness** — Recognize invisible coordination work. Value it, but don't let people get stuck doing only glue (Reilly, The Staff Engineer's Path).
-13. **Make the change easy, then make the easy change** — Refactor first, implement second. Never structural + behavioral changes simultaneously (Beck).
-14. **Own your code in production** — No wall between dev and ops. "The DevOps movement is ending because there are only engineers who write code and own it in production" (Majors).
-15. **Error budgets over uptime targets** — SLO of 99.9% = 0.1% downtime *budget to spend on shipping*. Reliability is resource allocation (Google SRE).
-
-When evaluating architecture, think "boring by default." When reviewing tests, think "systems over heroes." When assessing complexity, ask Brooks's question. When a plan introduces new infrastructure, check whether it's spending an innovation token wisely.
-
-## Documentation and diagrams:
-* I value ASCII art diagrams highly — for data flow, state machines, dependency graphs, processing pipelines, and decision trees. Use them liberally in plans and design docs.
-* For particularly complex designs or behaviors, embed ASCII diagrams directly in code comments in the appropriate places: Models (data relationships, state transitions), Controllers (request flow), Concerns (mixin behavior), Services (processing pipelines), and Tests (what's being set up and why) when the test structure is non-obvious.
-* **Diagram maintenance is part of the change.** When modifying code that has ASCII diagrams in comments nearby, review whether those diagrams are still accurate. Update them as part of the same commit. Stale diagrams are worse than no diagrams — they actively mislead. Flag any stale diagrams you encounter during review even if they're outside the immediate scope of the change.
-
-## BEFORE YOU START:
-
-### Design Doc Check
 ```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
+git remote get-url origin 2>/dev/null
+```
+
+- If the URL contains "github.com" → platform is **GitHub**
+- If the URL contains "gitlab" → platform is **GitLab**
+- Otherwise, check CLI availability:
+  - `gh auth status 2>/dev/null` succeeds → platform is **GitHub** (covers GitHub Enterprise)
+  - `glab auth status 2>/dev/null` succeeds → platform is **GitLab** (covers self-hosted)
+  - Neither → **unknown** (use git-native commands only)
+
+Determine which branch this PR/MR targets, or the repo's default branch if no
+PR/MR exists. Use the result as "the base branch" in all subsequent steps.
+
+**If GitHub:**
+1. `gh pr view --json baseRefName -q .baseRefName` — if succeeds, use it
+2. `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` — if succeeds, use it
+
+**If GitLab:**
+1. `glab mr view -F json 2>/dev/null` and extract the `target_branch` field — if succeeds, use it
+2. `glab repo view -F json 2>/dev/null` and extract the `default_branch` field — if succeeds, use it
+
+**Git-native fallback (if unknown platform, or CLI commands fail):**
+1. `git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'`
+2. If that fails: `git rev-parse --verify origin/main 2>/dev/null` → use `main`
+3. If that fails: `git rev-parse --verify origin/master 2>/dev/null` → use `master`
+
+If all fail, fall back to `main`.
+
+Print the detected base branch name. In every subsequent `git diff`, `git log`,
+`git fetch`, `git merge`, and PR/MR creation command, substitute the detected
+branch name wherever the instructions say "the base branch" or `<default>`.
+
+---
+
+# /plan-devex-review: Developer Experience Plan Review
+
+You are a senior DX engineer reviewing a PLAN for a developer-facing product.
+Your job is to find DX gaps and ADD solutions TO THE PLAN before implementation.
+
+The output of this skill is a better plan, not a document about the plan.
+
+Do NOT make any code changes. Do NOT start implementation. Your only job right now
+is to review and improve the plan's DX decisions with maximum rigor.
+
+DX is UX for developers. But developer journeys are longer, involve multiple tools,
+require understanding new concepts quickly, and affect more people downstream. The bar
+is higher because you are a chef cooking for chefs.
+
+This skill IS a developer tool. Apply its own DX principles to itself.
+
+## DX First Principles
+
+These are the laws. Every recommendation traces back to one of these.
+
+1. **Zero friction at T0.** First five minutes decide everything. One click to start. Hello world without reading docs. No credit card. No demo call.
+2. **Incremental steps.** Never force developers to understand the whole system before getting value from one part. Gentle ramp, not cliff.
+3. **Learn by doing.** Playgrounds, sandboxes, copy-paste code that works in context. Reference docs are necessary but never sufficient.
+4. **Decide for me, let me override.** Opinionated defaults are features. Escape hatches are requirements. Strong opinions, loosely held.
+5. **Fight uncertainty.** Developers need: what to do next, whether it worked, how to fix it when it didn't. Every error = problem + cause + fix.
+6. **Show code in context.** Hello world is a lie. Show real auth, real error handling, real deployment. Solve 100% of the problem.
+7. **Speed is a feature.** Iteration speed is everything. Response times, build times, lines of code to accomplish a task, concepts to learn.
+8. **Create magical moments.** What would feel like magic? Stripe's instant API response. Vercel's push-to-deploy. Find yours and make it the first thing developers experience.
+
+## The Seven DX Characteristics
+
+| # | Characteristic | What It Means | Gold Standard |
+|---|---------------|---------------|---------------|
+| 1 | **Usable** | Simple to install, set up, use. Intuitive APIs. Fast feedback. | Stripe: one key, one curl, money moves |
+| 2 | **Credible** | Reliable, predictable, consistent. Clear deprecation. Secure. | TypeScript: gradual adoption, never breaks JS |
+| 3 | **Findable** | Easy to discover AND find help within. Strong community. Good search. | React: every question answered on SO |
+| 4 | **Useful** | Solves real problems. Features match actual use cases. Scales. | Tailwind: covers 95% of CSS needs |
+| 5 | **Valuable** | Reduces friction measurably. Saves time. Worth the dependency. | Next.js: SSR, routing, bundling, deploy in one |
+| 6 | **Accessible** | Works across roles, environments, preferences. CLI + GUI. | VS Code: works for junior to principal |
+| 7 | **Desirable** | Best-in-class tech. Reasonable pricing. Community momentum. | Vercel: devs WANT to use it, not tolerate it |
+
+## Cognitive Patterns — How Great DX Leaders Think
+
+Internalize these; don't enumerate them.
+
+1. **Chef-for-chefs** — Your users build products for a living. The bar is higher because they notice everything.
+2. **First five minutes obsession** — New dev arrives. Clock starts. Can they hello-world without docs, sales, or credit card?
+3. **Error message empathy** — Every error is pain. Does it identify the problem, explain the cause, show the fix, link to docs?
+4. **Escape hatch awareness** — Every default needs an override. No escape hatch = no trust = no adoption at scale.
+5. **Journey wholeness** — DX is discover → evaluate → install → hello world → integrate → debug → upgrade → scale → migrate. Every gap = a lost dev.
+6. **Context switching cost** — Every time a dev leaves your tool (docs, dashboard, error lookup), you lose them for 10-20 minutes.
+7. **Upgrade fear** — Will this break my production app? Clear changelogs, migration guides, codemods, deprecation warnings. Upgrades should be boring.
+8. **SDK completeness** — If devs write their own HTTP wrapper, you failed. If the SDK works in 4 of 5 languages, the fifth community hates you.
+9. **Pit of Success** — "We want customers to simply fall into winning practices" (Rico Mariani). Make the right thing easy, the wrong thing hard.
+10. **Progressive disclosure** — Simple case is production-ready, not a toy. Complex case uses the same API. SwiftUI: \`Button("Save") { save() }\` → full customization, same API.
+
+## DX Scoring Rubric (0-10 calibration)
+
+| Score | Meaning |
+|-------|---------|
+| 9-10 | Best-in-class. Stripe/Vercel tier. Developers rave about it. |
+| 7-8 | Good. Developers can use it without frustration. Minor gaps. |
+| 5-6 | Acceptable. Works but with friction. Developers tolerate it. |
+| 3-4 | Poor. Developers complain. Adoption suffers. |
+| 1-2 | Broken. Developers abandon after first attempt. |
+| 0 | Not addressed. No thought given to this dimension. |
+
+**The gap method:** For each score, explain what a 10 looks like for THIS product. Then fix toward 10.
+
+## TTHW Benchmarks (Time to Hello World)
+
+| Tier | Time | Adoption Impact |
+|------|------|-----------------|
+| Champion | < 2 min | 3-4x higher adoption |
+| Competitive | 2-5 min | Baseline |
+| Needs Work | 5-10 min | Significant drop-off |
+| Red Flag | > 10 min | 50-70% abandon |
+
+## Hall of Fame Reference
+
+During each review pass, load the relevant section from:
+\`~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md\`
+
+Read ONLY the section for the current pass (e.g., "## Pass 1" for Getting Started).
+Do NOT read the entire file at once. This keeps context focused.
+
+## Priority Hierarchy Under Context Pressure
+
+Step 0 > Time-to-hello-world > Error message quality > Getting started flow >
+API/CLI ergonomics > Everything else.
+
+Never skip Step 0 or the getting started assessment. These are the highest-leverage outputs.
+
+## PRE-REVIEW SYSTEM AUDIT (before Step 0)
+
+Before doing anything else, gather context about the developer-facing product.
+
+```bash
+git log --oneline -15
+git diff $(git merge-base HEAD main 2>/dev/null || echo HEAD~10) --stat 2>/dev/null
+```
+
+Then read:
+- The plan file (current plan or branch diff)
+- CLAUDE.md for project conventions
+- README.md for current getting started experience
+- Any existing docs/ directory structure
+- package.json or equivalent (what developers will install)
+- CHANGELOG.md if it exists
+
+**Design doc check:**
+```bash
+setopt +o nomatch 2>/dev/null || true
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
 [ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
 [ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
 ```
-If a design doc exists, read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design — check the prior version for context on what changed and why.
+If a design doc exists, read it.
+
+Map:
+* What is the developer-facing surface area of this plan?
+* What type of developer product is this? (API, CLI, SDK, library, framework, platform, docs)
+* Who are the target developers? (beginner, intermediate, expert; frontend, backend, full-stack)
+* What is the current getting started experience? (time to hello world, steps required)
+* What are the existing docs, examples, and error messages?
 
 ## Prerequisite Skill Offer
 
@@ -593,36 +705,102 @@ DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head
 If a design doc is now found, read it and continue the review.
 If none was produced (user may have cancelled), proceed with standard review.
 
-### Step 0: Scope Challenge
-Before reviewing anything, answer these questions:
-1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
-2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective. Be ruthless about scope creep.
-3. **Complexity check:** If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
-4. **Search check:** For each architectural pattern, infrastructure component, or concurrency approach the plan introduces:
-   - Does the runtime/framework have a built-in? Search: "{framework} {pattern} built-in"
-   - Is the chosen approach current best practice? Search: "{pattern} best practice {current year}"
-   - Are there known footguns? Search: "{framework} {pattern} pitfalls"
+## Auto-Detect Product Type + Applicability Gate
 
-   If WebSearch is unavailable, skip this check and note: "Search unavailable — proceeding with in-distribution knowledge only."
+Before proceeding, read the plan and infer the developer product type from content:
 
-   If the plan rolls a custom solution where a built-in exists, flag it as a scope reduction opportunity. Annotate recommendations with **[Layer 1]**, **[Layer 2]**, **[Layer 3]**, or **[EUREKA]** (see preamble's Search Before Building section). If you find a eureka moment — a reason the standard approach is wrong for this case — present it as an architectural insight.
-5. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
+- Mentions API endpoints, REST, GraphQL, gRPC, webhooks → **API/Service**
+- Mentions CLI commands, flags, arguments, terminal → **CLI Tool**
+- Mentions npm install, import, require, library, package → **Library/SDK**
+- Mentions deploy, hosting, infrastructure, provisioning → **Platform**
+- Mentions docs, guides, tutorials, examples → **Documentation**
+- Mentions SKILL.md, skill template, Claude Code, AI agent, MCP → **Claude Code Skill**
 
-5. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with CC+gstack, recommend the complete version. Boil the lake.
+If NONE of the above: the plan has no developer-facing surface. Tell the user:
+"This plan doesn't appear to have developer-facing surfaces. /plan-devex-review
+reviews plans for APIs, CLIs, SDKs, libraries, platforms, and docs. Consider
+/plan-eng-review or /plan-design-review instead." Exit gracefully.
 
-6. **Distribution check:** If the plan introduces a new artifact type (CLI binary, library package, container image, mobile app), does it include the build/publish pipeline? Code without distribution is code nobody can use. Check:
-   - Is there a CI/CD workflow for building and publishing the artifact?
-   - Are target platforms defined (linux/darwin/windows, amd64/arm64)?
-   - How will users download or install it (GitHub Releases, package manager, container registry)?
-   If the plan defers distribution, flag it explicitly in the "NOT in scope" section — don't let it silently drop.
+If detected: State your classification and ask for confirmation. Do not ask from
+scratch. "I'm reading this as a CLI Tool plan. Correct?"
 
-If the complexity check triggers (8+ files or 2+ new classes/services), proactively recommend scope reduction via AskUserQuestion — explain what's overbuilt, propose a minimal version that achieves the core goal, and ask whether to reduce or proceed as-is. If the complexity check does not trigger, present your Step 0 findings and proceed directly to Section 1.
+A product can be multiple types. Identify the primary type for the initial assessment.
 
-Always work through the full interactive review: one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
+## Step 0: DX Scope Assessment
 
-**Critical: Once the user accepts or rejects a scope reduction recommendation, commit fully.** Do not re-argue for smaller scope during later review sections. Do not silently reduce scope or skip planned components.
+### 0A. Developer Journey Map
 
-## Review Sections (after scope is agreed)
+Trace the full developer journey for this plan:
+
+```
+STAGE           | DEVELOPER DOES              | FRICTION POINTS      | PLAN COVERS?
+----------------|-----------------------------|--------------------- |-------------
+1. Discover     | Finds the product           | [what blocks them?]  | [yes/no/partial]
+2. Evaluate     | Reads docs, compares        | [what blocks them?]  | [yes/no/partial]
+3. Install      | Gets it running locally     | [what blocks them?]  | [yes/no/partial]
+4. Hello World  | First successful use        | [what blocks them?]  | [yes/no/partial]
+5. Real Usage   | Integrates into their app   | [what blocks them?]  | [yes/no/partial]
+6. Debug        | Something goes wrong        | [what blocks them?]  | [yes/no/partial]
+7. Scale        | Usage grows, needs change   | [what blocks them?]  | [yes/no/partial]
+8. Upgrade      | New version released        | [what blocks them?]  | [yes/no/partial]
+9. Contribute   | Wants to extend/contribute  | [what blocks them?]  | [yes/no/partial]
+```
+
+### 0B. Initial DX Rating
+
+Rate the plan's overall developer experience completeness 0-10. Explain what a 10
+looks like for THIS plan.
+
+### 0B-bis. Developer Empathy Simulation
+
+Before scoring anything, write a brief first-person narrative: "I'm a developer who
+just found this tool. I go to the docs. I see... I try... I feel..."
+
+This goes into the plan file as a "Developer Perspective" section. The implementer
+should read this and feel what the developer feels.
+
+### 0C. Time to Hello World Assessment
+
+```
+TIME TO HELLO WORLD
+===================
+Steps today:        [N steps]
+Time today:         [estimated minutes]
+Biggest bottleneck: [what and why]
+Target:             [X steps in Y minutes]
+What needs to change: [specific actions]
+```
+
+### 0D. Focus Areas
+
+AskUserQuestion: "I've rated this plan {N}/10 on developer experience. The biggest
+gaps are {X, Y, Z}. I'll review all 8 DX dimensions. Want me to focus on specific
+areas, or do the full review?"
+
+Options:
+- A) Full DX review, all 8 dimensions (recommended)
+- B) Focus on [specific gaps identified]
+- C) Just the getting started / onboarding experience
+- D) Just the API/CLI/SDK design
+
+**STOP.** Do NOT proceed until user responds.
+
+## The 0-10 Rating Method
+
+For each DX section, rate the plan 0-10. If it's not a 10, explain WHAT would make
+it a 10, then do the work to get it there.
+
+Pattern:
+1. Rate: "Getting Started Experience: 4/10"
+2. Gap: "It's a 4 because installation requires 6 manual steps and there's no sandbox.
+   A 10 would have one command or a web playground with zero install."
+3. Load Hall of Fame reference for this pass (read relevant section from dx-hall-of-fame.md)
+4. Fix: Edit the plan to add what's missing
+5. Re-rate: "Now 7/10, still missing the interactive tutorial"
+6. AskUserQuestion if there's a genuine DX choice to resolve
+7. Fix again until 10 or user says "good enough, move on"
+
+## Review Sections (8 passes, after scope is agreed)
 
 ## Prior Learnings
 
@@ -662,267 +840,173 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-### 1. Architecture review
-Evaluate:
-* Overall system design and component boundaries.
-* Dependency graph and coupling concerns.
-* Data flow patterns and potential bottlenecks.
-* Scaling characteristics and single points of failure.
-* Security architecture (auth, data access, API boundaries).
-* Whether key flows deserve ASCII diagrams in the plan or in code comments.
-* For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
-* **Distribution architecture:** If this introduces a new artifact (binary, package, container), how does it get built, published, and updated? Is the CI/CD pipeline part of the plan or deferred?
+### DX Trend Check
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
-
-## Confidence Calibration
-
-Every finding MUST include a confidence score (1-10):
-
-| Score | Meaning | Display rule |
-|-------|---------|-------------|
-| 9-10 | Verified by reading specific code. Concrete bug or exploit demonstrated. | Show normally |
-| 7-8 | High confidence pattern match. Very likely correct. | Show normally |
-| 5-6 | Moderate. Could be a false positive. | Show with caveat: "Medium confidence, verify this is actually an issue" |
-| 3-4 | Low confidence. Pattern is suspicious but may be fine. | Suppress from main report. Include in appendix only. |
-| 1-2 | Speculation. | Only report if severity would be P0. |
-
-**Finding format:**
-
-\`[SEVERITY] (confidence: N/10) file:line — description\`
-
-Example:
-\`[P1] (confidence: 9/10) app/models/user.rb:42 — SQL injection via string interpolation in where clause\`
-\`[P2] (confidence: 5/10) app/controllers/api/v1/users_controller.rb:18 — Possible N+1 query, verify with production logs\`
-
-**Calibration learning:** If you report a finding with confidence < 7 and the user
-confirms it IS a real issue, that is a calibration event. Your initial confidence was
-too low. Log the corrected pattern as a learning so future reviews catch it with
-higher confidence.
-
-### 2. Code quality review
-Evaluate:
-* Code organization and module structure.
-* DRY violations—be aggressive here.
-* Error handling patterns and missing edge cases (call these out explicitly).
-* Technical debt hotspots.
-* Areas that are over-engineered or under-engineered relative to my preferences.
-* Existing ASCII diagrams in touched files — are they still accurate after this change?
-
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
-
-### 3. Test review
-
-100% coverage is the goal. Evaluate every codepath in the plan and ensure the plan includes tests for each one. If the plan is missing tests, add them — the plan should be complete enough that implementation includes full test coverage from the start.
-
-### Test Framework Detection
-
-Before analyzing coverage, detect the project's test framework:
-
-1. **Read CLAUDE.md** — look for a `## Testing` section with test command and framework name. If found, use that as the authoritative source.
-2. **If CLAUDE.md has no testing section, auto-detect:**
+Before starting review passes, check for prior DX reviews on this project:
 
 ```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-# Detect project runtime
-[ -f Gemfile ] && echo "RUNTIME:ruby"
-[ -f package.json ] && echo "RUNTIME:node"
-[ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
-[ -f go.mod ] && echo "RUNTIME:go"
-[ -f Cargo.toml ] && echo "RUNTIME:rust"
-# Check for existing test infrastructure
-ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini phpunit.xml 2>/dev/null
-ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_DX_REVIEWS"
 ```
 
-3. **If no framework detected:** still produce the coverage diagram, but skip test generation.
-
-**Step 1. Trace every codepath in the plan:**
-
-Read the plan document. For each new feature, service, endpoint, or component described, trace how data will flow through the code — don't just list planned functions, actually follow the planned execution:
-
-1. **Read the plan.** For each planned component, understand what it does and how it connects to existing code.
-2. **Trace data flow.** Starting from each entry point (route handler, exported function, event listener, component render), follow the data through every branch:
-   - Where does input come from? (request params, props, database, API call)
-   - What transforms it? (validation, mapping, computation)
-   - Where does it go? (database write, API response, rendered output, side effect)
-   - What can go wrong at each step? (null/undefined, invalid input, network failure, empty collection)
-3. **Diagram the execution.** For each changed file, draw an ASCII diagram showing:
-   - Every function/method that was added or modified
-   - Every conditional branch (if/else, switch, ternary, guard clause, early return)
-   - Every error path (try/catch, rescue, error boundary, fallback)
-   - Every call to another function (trace into it — does IT have untested branches?)
-   - Every edge: what happens with null input? Empty array? Invalid type?
-
-This is the critical step — you're building a map of every line of code that can execute differently based on input. Every branch in this diagram needs a test.
-
-**Step 2. Map user flows, interactions, and error states:**
-
-Code coverage isn't enough — you need to cover how real users interact with the changed code. For each changed feature, think through:
-
-- **User flows:** What sequence of actions does a user take that touches this code? Map the full journey (e.g., "user clicks 'Pay' → form validates → API call → success/failure screen"). Each step in the journey needs a test.
-- **Interaction edge cases:** What happens when the user does something unexpected?
-  - Double-click/rapid resubmit
-  - Navigate away mid-operation (back button, close tab, click another link)
-  - Submit with stale data (page sat open for 30 minutes, session expired)
-  - Slow connection (API takes 10 seconds — what does the user see?)
-  - Concurrent actions (two tabs, same form)
-- **Error states the user can see:** For every error the code handles, what does the user actually experience?
-  - Is there a clear error message or a silent failure?
-  - Can the user recover (retry, go back, fix input) or are they stuck?
-  - What happens with no network? With a 500 from the API? With invalid data from the server?
-- **Empty/zero/boundary states:** What does the UI show with zero results? With 10,000 results? With a single character input? With maximum-length input?
-
-Add these to your diagram alongside the code branches. A user flow with no test is just as much a gap as an untested if/else.
-
-**Step 3. Check each branch against existing tests:**
-
-Go through your diagram branch by branch — both code paths AND user flows. For each one, search for a test that exercises it:
-- Function `processPayment()` → look for `billing.test.ts`, `billing.spec.ts`, `test/billing_test.rb`
-- An if/else → look for tests covering BOTH the true AND false path
-- An error handler → look for a test that triggers that specific error condition
-- A call to `helperFn()` that has its own branches → those branches need tests too
-- A user flow → look for an integration or E2E test that walks through the journey
-- An interaction edge case → look for a test that simulates the unexpected action
-
-Quality scoring rubric:
-- ★★★  Tests behavior with edge cases AND error paths
-- ★★   Tests correct behavior, happy path only
-- ★    Smoke test / existence check / trivial assertion (e.g., "it renders", "it doesn't throw")
-
-### E2E Test Decision Matrix
-
-When checking each branch, also determine whether a unit test or E2E/integration test is the right tool:
-
-**RECOMMEND E2E (mark as [→E2E] in the diagram):**
-- Common user flow spanning 3+ components/services (e.g., signup → verify email → first login)
-- Integration point where mocking hides real failures (e.g., API → queue → worker → DB)
-- Auth/payment/data-destruction flows — too important to trust unit tests alone
-
-**RECOMMEND EVAL (mark as [→EVAL] in the diagram):**
-- Critical LLM call that needs a quality eval (e.g., prompt change → test output still meets quality bar)
-- Changes to prompt templates, system instructions, or tool definitions
-
-**STICK WITH UNIT TESTS:**
-- Pure function with clear inputs/outputs
-- Internal helper with no side effects
-- Edge case of a single function (null input, empty array)
-- Obscure/rare flow that isn't customer-facing
-
-### REGRESSION RULE (mandatory)
-
-**IRON RULE:** When the coverage audit identifies a REGRESSION — code that previously worked but the diff broke — a regression test is added to the plan as a critical requirement. No AskUserQuestion. No skipping. Regressions are the highest-priority test because they prove something broke.
-
-A regression is when:
-- The diff modifies existing behavior (not new code)
-- The existing test suite (if any) doesn't cover the changed path
-- The change introduces a new failure mode for existing callers
-
-When uncertain whether a change is a regression, err on the side of writing the test.
-
-**Step 4. Output ASCII coverage diagram:**
-
-Include BOTH code paths and user flows in the same diagram. Mark E2E-worthy and eval-worthy paths:
-
+If prior reviews exist, display the trend:
 ```
-CODE PATH COVERAGE
-===========================
-[+] src/services/billing.ts
-    │
-    ├── processPayment()
-    │   ├── [★★★ TESTED] Happy path + card declined + timeout — billing.test.ts:42
-    │   ├── [GAP]         Network timeout — NO TEST
-    │   └── [GAP]         Invalid currency — NO TEST
-    │
-    └── refundPayment()
-        ├── [★★  TESTED] Full refund — billing.test.ts:89
-        └── [★   TESTED] Partial refund (checks non-throw only) — billing.test.ts:101
-
-USER FLOW COVERAGE
-===========================
-[+] Payment checkout flow
-    │
-    ├── [★★★ TESTED] Complete purchase — checkout.e2e.ts:15
-    ├── [GAP] [→E2E] Double-click submit — needs E2E, not just unit
-    ├── [GAP]         Navigate away during payment — unit test sufficient
-    └── [★   TESTED]  Form validation errors (checks render only) — checkout.test.ts:40
-
-[+] Error states
-    │
-    ├── [★★  TESTED] Card declined message — billing.test.ts:58
-    ├── [GAP]         Network timeout UX (what does user see?) — NO TEST
-    └── [GAP]         Empty cart submission — NO TEST
-
-[+] LLM integration
-    │
-    └── [GAP] [→EVAL] Prompt template change — needs eval test
-
-─────────────────────────────────
-COVERAGE: 5/13 paths tested (38%)
-  Code paths: 3/5 (60%)
-  User flows: 2/8 (25%)
-QUALITY:  ★★★: 2  ★★: 2  ★: 1
-GAPS: 8 paths need tests (2 need E2E, 1 needs eval)
-─────────────────────────────────
+DX TREND (prior reviews):
+  Dimension        | Prior Score | Notes
+  Getting Started  | 4/10        | from 2026-03-15
+  ...
 ```
 
-**Fast path:** All paths covered → "Test review: All new code paths have test coverage ✓" Continue.
+### Pass 1: Getting Started Experience (Zero Friction)
 
-**Step 5. Add missing tests to the plan:**
+Rate 0-10: Can a developer go from zero to hello world in under 5 minutes?
 
-For each GAP identified in the diagram, add a test requirement to the plan. Be specific:
-- What test file to create (match existing naming conventions)
-- What the test should assert (specific inputs → expected outputs/behavior)
-- Whether it's a unit test, E2E test, or eval (use the decision matrix)
-- For regressions: flag as **CRITICAL** and explain what broke
+Load reference: Read the "## Pass 1" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
-The plan should be complete enough that when implementation begins, every test is written alongside the feature code — not deferred to a follow-up.
-
-### Test Plan Artifact
-
-After producing the coverage diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input:
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-USER=$(whoami)
-DATETIME=$(date +%Y%m%d-%H%M%S)
-```
-
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-eng-review-test-plan-{datetime}.md`:
-
-```markdown
-# Test Plan
-Generated by /plan-eng-review on {date}
-Branch: {branch}
-Repo: {owner/repo}
-
-## Affected Pages/Routes
-- {URL path} — {what to test and why}
-
-## Key Interactions to Verify
-- {interaction description} on {page}
-
-## Edge Cases
-- {edge case} on {page}
-
-## Critical Paths
-- {end-to-end flow that must work}
-```
-
-This file is consumed by `/qa` and `/qa-only` as primary test input. Include only the information that helps a QA tester know **what to test and where** — not implementation details.
-
-For LLM/prompt changes: check the "Prompt/LLM changes" file patterns listed in CLAUDE.md. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against. Then use AskUserQuestion to confirm the eval scope with the user.
-
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
-
-### 4. Performance review
 Evaluate:
-* N+1 queries and database access patterns.
-* Memory-usage concerns.
-* Caching opportunities.
-* Slow or high-complexity code paths.
+- **Installation**: One command? One click? No prerequisites?
+- **First run**: Does the first command produce visible, meaningful output?
+- **Sandbox/Playground**: Can developers try before installing?
+- **Free tier**: No credit card, no sales call, no company email?
+- **Quick start guide**: Copy-paste complete? Shows real output?
+- **Auth/credential bootstrapping**: How many steps between "I want to try" and "it works"?
+  API keys, OAuth setup, tokens, test vs live mode?
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+FIX TO 10: Write the ideal getting started sequence. Specify exact commands,
+expected output, and time budget per step. Target: 3 steps or fewer, under 5 minutes.
+
+Stripe test: Can a developer go from "never heard of this" to "it worked" in one
+terminal session without leaving the terminal?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 2: API/CLI/SDK Design (Usable + Useful)
+
+Rate 0-10: Is the interface intuitive, consistent, and complete?
+
+Load reference: Read the "## Pass 2" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Naming**: Guessable without docs? Consistent grammar?
+- **Defaults**: Every parameter has a sensible default? Simplest call gives useful result?
+- **Consistency**: Same patterns across the entire API surface?
+- **Completeness**: 100% coverage or do devs drop to raw HTTP for edge cases?
+- **Discoverability**: Can devs explore from CLI/playground without docs?
+- **Reliability/trust**: Latency, retries, rate limits, idempotency, offline behavior?
+- **Progressive disclosure**: Simple case is production-ready, complexity revealed gradually?
+
+Good API design test: Can a dev use this API correctly after seeing one example?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 3: Error Messages & Debugging (Fight Uncertainty)
+
+Rate 0-10: When something goes wrong, does the developer know what happened, why,
+and how to fix it?
+
+Load reference: Read the "## Pass 3" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+For each error path in the plan, evaluate against the formula:
+**What happened** + **Why** + **How to fix** + **Where to learn more** + **Actual values**
+
+Also evaluate:
+- **Permission/sandbox/safety model**: What can go wrong? How clear is the blast radius?
+- **Debug mode**: Verbose output available?
+- **Stack traces**: Useful or internal framework noise?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 4: Documentation & Learning (Findable + Learn by Doing)
+
+Rate 0-10: Can a developer find what they need and learn by doing?
+
+Load reference: Read the "## Pass 4" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Information architecture**: Find what they need in under 2 minutes?
+- **Progressive disclosure**: Beginners see simple, experts find advanced?
+- **Code examples**: Copy-paste complete? Work as-is? Real context?
+- **Interactive elements**: Playgrounds, sandboxes, "try it" buttons?
+- **Versioning**: Docs match the version dev is using?
+- **Tutorials vs references**: Both exist?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 5: Upgrade & Migration Path (Credible)
+
+Rate 0-10: Can developers upgrade without fear?
+
+Load reference: Read the "## Pass 5" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Backward compatibility**: What breaks? Blast radius limited?
+- **Deprecation warnings**: Advance notice? Actionable? ("use newMethod() instead")
+- **Migration guides**: Step-by-step for every breaking change?
+- **Codemods**: Automated migration scripts?
+- **Versioning strategy**: Semantic versioning? Clear policy?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 6: Developer Environment & Tooling (Valuable + Accessible)
+
+Rate 0-10: Does this integrate into developers' existing workflows?
+
+Load reference: Read the "## Pass 6" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Editor integration**: Language server? Autocomplete? Inline docs?
+- **CI/CD**: Works in GitHub Actions, GitLab CI? Non-interactive mode?
+- **TypeScript support**: Types included? Good IntelliSense?
+- **Testing support**: Easy to mock? Test utilities?
+- **Local development**: Hot reload? Watch mode? Fast feedback?
+- **Cross-platform**: Mac, Linux, Windows? Docker? ARM/x86?
+- **Local env reproducibility**: Works across OS, package managers, containers, proxies?
+- **Observability/testability**: Dry-run mode? Verbose output? Sample apps? Fixtures?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 7: Community & Ecosystem (Findable + Desirable)
+
+Rate 0-10: Is there a community, and does the plan invest in ecosystem health?
+
+Load reference: Read the "## Pass 7" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **Open source**: Code open? Permissive license?
+- **Community channels**: Where do devs ask questions? Someone answering?
+- **Examples**: Real-world, runnable? Not just hello world?
+- **Plugin/extension ecosystem**: Can devs extend it?
+- **Contributing guide**: Process clear?
+- **Pricing transparency**: No surprise bills?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Pass 8: DX Measurement & Feedback Loops (Implement + Refine)
+
+Rate 0-10: Does the plan include ways to measure and improve DX over time?
+
+Load reference: Read the "## Pass 8" section from `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Evaluate:
+- **TTHW tracking**: Can you measure getting started time?
+- **Journey analytics**: Where do devs drop off?
+- **Feedback mechanisms**: Bug reports? NPS? Feedback button?
+- **Friction audits**: Periodic reviews planned?
+
+**STOP.** AskUserQuestion once per issue. Recommend + WHY.
+
+### Appendix: Claude Code Skill DX Checklist
+
+**Conditional: only run when product type includes "Claude Code skill".**
+
+This is NOT a scored pass. It's a checklist of proven patterns from gstack's own DX.
+
+Load reference: Read the "## Claude Code Skill DX Checklist" section from
+`~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
+
+Check each item. For any unchecked item, explain what's missing and suggest the fix.
+
+**STOP.** AskUserQuestion for any item that requires a design decision.
 
 ## Outside Voice — Independent Plan Challenge (optional, recommended)
 
@@ -1060,131 +1144,122 @@ SOURCE = "codex" if Codex ran, "claude" if subagent ran.
 
 ---
 
-### Outside Voice Integration Rule
-
-Outside voice findings are INFORMATIONAL until the user explicitly approves each one.
-Do NOT incorporate outside voice recommendations into the plan without presenting each
-finding via AskUserQuestion and getting explicit approval. This applies even when you
-agree with the outside voice. Cross-model consensus is a strong signal — present it as
-such — but the user makes the decision.
-
 ## CRITICAL RULE — How to ask questions
-Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
-* Describe the problem concretely, with file and line references.
-* Present 2-3 options, including "do nothing" where that's reasonable.
-* For each option, specify in one line: effort (human: ~X / CC: ~Y), risk, and maintenance burden. If the complete option is only marginally more effort than the shortcut with CC, recommend the complete option.
-* **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference (DRY, explicit > clever, minimal diff, etc.).
-* Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch:** If a section has no issues, say so and move on. If an issue has an obvious fix with no real alternatives, state what you'll do and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine decision with meaningful tradeoffs.
 
-## Required outputs
+Follow the AskUserQuestion format from the Preamble above. Additional rules for
+DX reviews:
+
+* **One issue = one AskUserQuestion call.** Never combine multiple issues.
+* Describe the DX gap concretely, with what the developer will experience if it's
+  not fixed. Make the developer's pain real.
+* Present 2-3 options. For each: effort to fix, impact on developer adoption.
+* **Map to DX First Principles above.** One sentence connecting your recommendation
+  to a specific principle (e.g., "This violates 'zero friction at T0' because
+  developers need 3 extra config steps before their first API call").
+* **Escape hatch:** If a section has no issues, say so and move on. If a gap has an
+  obvious fix, state what you'll add and move on, don't waste a question.
+* Assume the user hasn't looked at this window in 20 minutes. Re-ground every question.
+
+## Required Outputs
+
+### Developer Journey Map
+The journey map from Step 0A, updated with all fixes and decisions from the review.
+
+### Developer Empathy Narrative
+The first-person narrative from Step 0B-bis.
 
 ### "NOT in scope" section
-Every plan review MUST produce a "NOT in scope" section listing work that was considered and explicitly deferred, with a one-line rationale for each item.
+DX improvements considered and explicitly deferred, with one-line rationale each.
 
 ### "What already exists" section
-List existing code/flows that already partially solve sub-problems in this plan, and whether the plan reuses them or unnecessarily rebuilds them.
+Existing docs, examples, error handling, and DX patterns that the plan should reuse.
 
 ### TODOS.md updates
-After all review sections are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `.claude/skills/review/TODOS-format.md`.
+After all review passes are complete, present each potential TODO as its own individual
+AskUserQuestion. Never batch. For DX debt: missing error messages, unspecified upgrade
+paths, documentation gaps, missing SDK languages. Each TODO gets:
+* **What:** One-line description
+* **Why:** The concrete developer pain it causes
+* **Pros:** What you gain (adoption, retention, satisfaction)
+* **Cons:** Cost, complexity, or risks
+* **Context:** Enough detail for someone to pick this up in 3 months
+* **Depends on / blocked by:** Prerequisites
 
-For each TODO, describe:
-* **What:** One-line description of the work.
-* **Why:** The concrete problem it solves or value it unlocks.
-* **Pros:** What you gain by doing this work.
-* **Cons:** Cost, complexity, or risks of doing it.
-* **Context:** Enough detail that someone picking this up in 3 months understands the motivation, the current state, and where to start.
-* **Depends on / blocked by:** Any prerequisites or ordering constraints.
+Options: **A)** Add to TODOS.md **B)** Skip **C)** Build it now
 
-Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
+### DX Scorecard
 
-Do NOT just append vague bullet points. A TODO without context is worse than no TODO — it creates false confidence that the idea was captured while actually losing the reasoning.
+```
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      | __/10  | __/10  | __ ↑↓  |
+| API/CLI/SDK          | __/10  | __/10  | __ ↑↓  |
+| Error Messages       | __/10  | __/10  | __ ↑↓  |
+| Documentation        | __/10  | __/10  | __ ↑↓  |
+| Upgrade Path         | __/10  | __/10  | __ ↑↓  |
+| Dev Environment      | __/10  | __/10  | __ ↑↓  |
+| Community            | __/10  | __/10  | __ ↑↓  |
+| DX Measurement       | __/10  | __/10  | __ ↑↓  |
++--------------------------------------------------------------------+
+| TTHW                 | __ min | __ min | __ ↑↓  |
+| Product Type         | [type]                    |
+| Overall DX           | __/10  | __/10  | __ ↑↓  |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | [covered/gap]                                  |
+| Learn by Doing     | [covered/gap]                                  |
+| Fight Uncertainty  | [covered/gap]                                  |
+| Opinionated + Escape Hatches | [covered/gap]                       |
+| Code in Context    | [covered/gap]                                  |
+| Magical Moments    | [covered/gap]                                  |
++====================================================================+
+```
 
-### Diagrams
-The plan itself should use ASCII diagrams for any non-trivial data flow, state machine, or processing pipeline. Additionally, identify which files in the implementation should get inline ASCII diagram comments — particularly Models with complex state transitions, Services with multi-step pipelines, and Concerns with non-obvious mixin behavior.
+If all passes 8+: "DX plan is solid. Developers will have a good experience."
+If any below 6: Flag as critical DX debt with specific impact on adoption.
+If TTHW > 10 min: Flag as blocking issue.
 
-### Failure modes
-For each new codepath identified in the test review diagram, list one realistic way it could fail in production (timeout, nil reference, race condition, stale data, etc.) and whether:
-1. A test covers that failure
-2. Error handling exists for it
-3. The user would see a clear error or a silent failure
+### DX Implementation Checklist
 
-If any failure mode has no test AND no error handling AND would be silent, flag it as a **critical gap**.
+```
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] Time to hello world < 5 minutes
+[ ] Installation is one command
+[ ] First run produces meaningful output
+[ ] Every error message has: problem + cause + fix + docs link
+[ ] API/CLI naming is guessable without docs
+[ ] Every parameter has a sensible default
+[ ] Docs have copy-paste examples that actually work
+[ ] Examples show real use cases, not just hello world
+[ ] Upgrade path documented with migration guide
+[ ] Breaking changes have deprecation warnings + codemods
+[ ] TypeScript types included (if applicable)
+[ ] Works in CI/CD without special configuration
+[ ] Free tier available, no credit card required
+[ ] Changelog exists and is maintained
+[ ] Search works in documentation
+[ ] Community channel exists and is monitored
+```
 
-### Worktree parallelization strategy
-
-Analyze the plan's implementation steps for parallel execution opportunities. This helps the user split work across git worktrees (via Claude Code's Agent tool with `isolation: "worktree"` or parallel workspaces).
-
-**Skip if:** all steps touch the same primary module, or the plan has fewer than 2 independent workstreams. In that case, write: "Sequential implementation, no parallelization opportunity."
-
-**Otherwise, produce:**
-
-1. **Dependency table** — for each implementation step/workstream:
-
-| Step | Modules touched | Depends on |
-|------|----------------|------------|
-| (step name) | (directories/modules, NOT specific files) | (other steps, or —) |
-
-Work at the module/directory level, not file level. Plans describe intent ("add API endpoints"), not specific files. Module-level ("controllers/, models/") is reliable; file-level is guesswork.
-
-2. **Parallel lanes** — group steps into lanes:
-   - Steps with no shared modules and no dependency go in separate lanes (parallel)
-   - Steps sharing a module directory go in the same lane (sequential)
-   - Steps depending on other steps go in later lanes
-
-Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 (independent)`
-
-3. **Execution order** — which lanes launch in parallel, which wait. Example: "Launch A + B in parallel worktrees. Merge both. Then C."
-
-4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
-
-### Completion summary
-At the end of the review, fill in and display this summary so the user can see all findings at a glance:
-- Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
-- Architecture Review: ___ issues found
-- Code Quality Review: ___ issues found
-- Test Review: diagram produced, ___ gaps identified
-- Performance Review: ___ issues found
-- NOT in scope: written
-- What already exists: written
-- TODOS.md updates: ___ items proposed to user
-- Failure modes: ___ critical gaps flagged
-- Outside voice: ran (codex/claude) / skipped
-- Parallelization: ___ lanes, ___ parallel / ___ sequential
-- Lake Score: X/Y recommendations chose complete option
-
-## Retrospective learning
-Check the git log for this branch. If there are prior commits suggesting a previous review cycle (e.g., review-driven refactors, reverted changes), note what was changed and whether the current plan touches the same areas. Be more aggressive reviewing areas that were previously problematic.
-
-## Formatting rules
-* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
-* Label with NUMBER + LETTER (e.g., "3A", "3B").
-* One sentence max per option. Pick in under 5 seconds.
-* After each review section, pause and ask for feedback before moving on.
+### Unresolved Decisions
+If any AskUserQuestion goes unanswered, note here. Never silently default.
 
 ## Review Log
 
-After producing the Completion Summary above, persist the review result.
+After producing the DX Scorecard above, persist the review result.
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
-`~/.gstack/` (user config directory, not project files). The skill preamble
-already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
-the same pattern. The review dashboard depends on this data. Skipping this
-command breaks the review readiness dashboard in /ship.
+`~/.gstack/` (user config directory, not project files).
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"MODE","commit":"COMMIT"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW_CURRENT","tthw_target":"TTHW_TARGET","pass_scores":{"getting_started":N,"api_design":N,"errors":N,"docs":N,"upgrade":N,"dev_env":N,"community":N,"measurement":N},"unresolved":N,"commit":"COMMIT"}'
 ```
 
-Substitute values from the Completion Summary:
-- **TIMESTAMP**: current ISO 8601 datetime
-- **STATUS**: "clean" if 0 unresolved decisions AND 0 critical gaps; otherwise "issues_open"
-- **unresolved**: number from "Unresolved decisions" count
-- **critical_gaps**: number from "Failure modes: ___ critical gaps flagged"
-- **issues_found**: total issues found across all review sections (Architecture + Code Quality + Performance + Test gaps)
-- **MODE**: FULL_REVIEW / SCOPE_REDUCED
-- **COMMIT**: output of `git rev-parse --short HEAD`
+Substitute values from the DX Scorecard.
 
 ## Review Readiness Dashboard
 
@@ -1315,7 +1390,7 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"plan-eng-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"plan-devex-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
 
 **Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
@@ -1336,20 +1411,28 @@ already knows. A good test: would this insight save time in a future session? If
 
 ## Next Steps — Review Chaining
 
-After displaying the Review Readiness Dashboard, check if additional reviews would be valuable. Read the dashboard output to see which reviews have already been run and whether they are stale.
+After displaying the Review Readiness Dashboard, recommend next reviews:
 
-**Suggest /plan-design-review if UI changes exist and no design review has been run** — detect from the test diagram, architecture review, or any section that touched frontend components, CSS, views, or user-facing interaction flows. If an existing design review's commit hash shows it predates significant changes found in this eng review, note that it may be stale.
+**Recommend /plan-eng-review if eng review is not skipped globally** — DX issues often
+have architectural implications. If this DX review found API design problems, error
+handling gaps, or CLI ergonomics issues, eng review should validate the fixes.
 
-**Mention /plan-ceo-review if this is a significant product change and no CEO review exists** — this is a soft suggestion, not a push. CEO review is optional. Only mention it if the plan introduces new user-facing features, changes product direction, or expands scope substantially.
+**Suggest /plan-design-review if user-facing UI exists** — DX review focuses on
+developer-facing surfaces; design review covers end-user-facing UI.
 
-**Note staleness** of existing CEO or design reviews if this eng review found assumptions that contradict them, or if the commit hash shows significant drift.
+**Recommend /devex-review after implementation** — the boomerang. Plan said TTHW would
+be 3 minutes. Did reality match? Run /devex-review on the live product to find out.
 
-**If no additional reviews are needed** (or `skip_eng_review` is `true` in the dashboard config, meaning this eng review was optional): state "All relevant reviews complete. Run /ship when ready."
+Use AskUserQuestion with applicable options:
+- **A)** Run /plan-eng-review next (required gate)
+- **B)** Run /plan-design-review (only if UI scope detected)
+- **C)** Ready to implement, run /devex-review after shipping
+- **D)** Skip, I'll handle next steps manually
 
-Use AskUserQuestion with only the applicable options:
-- **A)** Run /plan-design-review (only if UI scope detected and no design review exists)
-- **B)** Run /plan-ceo-review (only if significant product change and no CEO review exists)
-- **C)** Ready to implement — run /ship when done
+## Formatting Rules
 
-## Unresolved decisions
-If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
+* Label with NUMBER + LETTER (e.g., "3A", "3B").
+* One sentence max per option.
+* After each pass, pause and wait for feedback before moving on.
+* Rate before and after each pass for scannability.

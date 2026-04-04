@@ -1,21 +1,24 @@
 ---
-name: codex
+name: devex-review
 preamble-tier: 3
 version: 1.0.0
 description: |
-  OpenAI Codex CLI wrapper — three modes. Code review: independent diff review via
-  codex review with pass/fail gate. Challenge: adversarial mode that tries to break
-  your code. Consult: ask codex anything with session continuity for follow-ups.
-  The "200 IQ autistic developer" second opinion. Use when asked to "codex review",
-  "codex challenge", "ask codex", "second opinion", or "consult codex". (gstack)
-  Voice triggers (speech-to-text aliases): "code x", "code ex", "get another opinion".
+  Live developer experience audit. Uses the browse tool to actually TEST the
+  developer experience: navigates docs, tries the getting started flow, times
+  TTHW, screenshots error messages, evaluates CLI help text. Produces a DX
+  scorecard with evidence. Compares against /plan-devex-review scores if they
+  exist (the boomerang: plan said 3 minutes, reality says 8). Use when asked to
+  "test the DX", "DX audit", "developer experience test", or "try the
+  onboarding". Proactively suggest after shipping a developer-facing feature. (gstack)
+  Voice triggers (speech-to-text aliases): "dx audit", "test the developer experience", "try the onboarding", "developer experience test".
 allowed-tools:
-  - Bash
   - Read
-  - Write
-  - Glob
+  - Edit
   - Grep
+  - Glob
+  - Bash
   - AskUserQuestion
+  - WebSearch
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -50,7 +53,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"codex","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"devex-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -75,7 +78,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"codex","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"devex-review","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -517,152 +520,334 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-# /codex — Multi-AI Second Opinion
-
-You are running the `/codex` skill. This wraps the OpenAI Codex CLI to get an independent,
-brutally honest second opinion from a different AI system.
-
-Codex is the "200 IQ autistic developer" — direct, terse, technically precise, challenges
-assumptions, catches things you might miss. Present its output faithfully, not summarized.
-
----
-
-## Step 0: Check codex binary
+## SETUP (run this check BEFORE any browse command)
 
 ```bash
-CODEX_BIN=$(which codex 2>/dev/null || echo "")
-[ -z "$CODEX_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CODEX_BIN"
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
+fi
 ```
 
-If `NOT_FOUND`: stop and tell the user:
-"Codex CLI not found. Install it: `npm install -g @openai/codex` or see https://github.com/openai/codex"
+If `NEEDS_SETUP`:
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+2. Run: `cd <SKILL_DIR> && ./setup`
+3. If `bun` is not installed:
+   ```bash
+   if ! command -v bun >/dev/null 2>&1; then
+     BUN_VERSION="1.3.10"
+     BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
+     tmpfile=$(mktemp)
+     curl -fsSL "https://bun.sh/install" -o "$tmpfile"
+     actual_sha=$(shasum -a 256 "$tmpfile" | awk '{print $1}')
+     if [ "$actual_sha" != "$BUN_INSTALL_SHA" ]; then
+       echo "ERROR: bun install script checksum mismatch" >&2
+       echo "  expected: $BUN_INSTALL_SHA" >&2
+       echo "  got:      $actual_sha" >&2
+       rm "$tmpfile"; exit 1
+     fi
+     BUN_VERSION="$BUN_VERSION" bash "$tmpfile"
+     rm "$tmpfile"
+   fi
+   ```
 
----
+# /devex-review: Live Developer Experience Audit
 
-## Step 1: Detect mode
+You are a DX engineer dogfooding a live developer product. Not reviewing a plan.
+Not reading about the experience. TESTING it.
 
-Parse the user's input to determine which mode to run:
+Use the browse tool to navigate docs, try the getting started flow, and screenshot
+what developers actually see. Use bash to try CLI commands. Measure, don't guess.
 
-1. `/codex review` or `/codex review <instructions>` — **Review mode** (Step 2A)
-2. `/codex challenge` or `/codex challenge <focus>` — **Challenge mode** (Step 2B)
-3. `/codex` with no arguments — **Auto-detect:**
-   - Check for a diff (with fallback if origin isn't available):
-     `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
-   - If a diff exists, use AskUserQuestion:
-     ```
-     Codex detected changes against the base branch. What should it do?
-     A) Review the diff (code review with pass/fail gate)
-     B) Challenge the diff (adversarial — try to break it)
-     C) Something else — I'll provide a prompt
-     ```
-   - If no diff, check for plan files scoped to the current project:
-     `ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
-     If no project-scoped match, fall back to: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-     but warn the user: "Note: this plan may be from a different project."
-   - If a plan file exists, offer to review it
-   - Otherwise, ask: "What would you like to ask Codex?"
-4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
+## DX First Principles
 
-**Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
-note it and remove it from the prompt text before passing to Codex. When `--xhigh`
-is present, use `model_reasoning_effort="xhigh"` for all modes regardless of the
-per-mode default below. Otherwise, use the per-mode defaults:
-- Review (2A): `high` — bounded diff input, needs thoroughness
-- Challenge (2B): `high` — adversarial but bounded by diff
-- Consult (2C): `medium` — large context, interactive, needs speed
+These are the laws. Every recommendation traces back to one of these.
 
----
+1. **Zero friction at T0.** First five minutes decide everything. One click to start. Hello world without reading docs. No credit card. No demo call.
+2. **Incremental steps.** Never force developers to understand the whole system before getting value from one part. Gentle ramp, not cliff.
+3. **Learn by doing.** Playgrounds, sandboxes, copy-paste code that works in context. Reference docs are necessary but never sufficient.
+4. **Decide for me, let me override.** Opinionated defaults are features. Escape hatches are requirements. Strong opinions, loosely held.
+5. **Fight uncertainty.** Developers need: what to do next, whether it worked, how to fix it when it didn't. Every error = problem + cause + fix.
+6. **Show code in context.** Hello world is a lie. Show real auth, real error handling, real deployment. Solve 100% of the problem.
+7. **Speed is a feature.** Iteration speed is everything. Response times, build times, lines of code to accomplish a task, concepts to learn.
+8. **Create magical moments.** What would feel like magic? Stripe's instant API response. Vercel's push-to-deploy. Find yours and make it the first thing developers experience.
 
-## Filesystem Boundary
+## The Seven DX Characteristics
 
-All prompts sent to Codex MUST be prefixed with this boundary instruction:
+| # | Characteristic | What It Means | Gold Standard |
+|---|---------------|---------------|---------------|
+| 1 | **Usable** | Simple to install, set up, use. Intuitive APIs. Fast feedback. | Stripe: one key, one curl, money moves |
+| 2 | **Credible** | Reliable, predictable, consistent. Clear deprecation. Secure. | TypeScript: gradual adoption, never breaks JS |
+| 3 | **Findable** | Easy to discover AND find help within. Strong community. Good search. | React: every question answered on SO |
+| 4 | **Useful** | Solves real problems. Features match actual use cases. Scales. | Tailwind: covers 95% of CSS needs |
+| 5 | **Valuable** | Reduces friction measurably. Saves time. Worth the dependency. | Next.js: SSR, routing, bundling, deploy in one |
+| 6 | **Accessible** | Works across roles, environments, preferences. CLI + GUI. | VS Code: works for junior to principal |
+| 7 | **Desirable** | Best-in-class tech. Reasonable pricing. Community momentum. | Vercel: devs WANT to use it, not tolerate it |
 
-> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
+## Cognitive Patterns — How Great DX Leaders Think
 
-This applies to Review mode (prompt argument), Challenge mode (prompt), and Consult
-mode (persona prompt). Reference this section as "the filesystem boundary" below.
+Internalize these; don't enumerate them.
 
----
+1. **Chef-for-chefs** — Your users build products for a living. The bar is higher because they notice everything.
+2. **First five minutes obsession** — New dev arrives. Clock starts. Can they hello-world without docs, sales, or credit card?
+3. **Error message empathy** — Every error is pain. Does it identify the problem, explain the cause, show the fix, link to docs?
+4. **Escape hatch awareness** — Every default needs an override. No escape hatch = no trust = no adoption at scale.
+5. **Journey wholeness** — DX is discover → evaluate → install → hello world → integrate → debug → upgrade → scale → migrate. Every gap = a lost dev.
+6. **Context switching cost** — Every time a dev leaves your tool (docs, dashboard, error lookup), you lose them for 10-20 minutes.
+7. **Upgrade fear** — Will this break my production app? Clear changelogs, migration guides, codemods, deprecation warnings. Upgrades should be boring.
+8. **SDK completeness** — If devs write their own HTTP wrapper, you failed. If the SDK works in 4 of 5 languages, the fifth community hates you.
+9. **Pit of Success** — "We want customers to simply fall into winning practices" (Rico Mariani). Make the right thing easy, the wrong thing hard.
+10. **Progressive disclosure** — Simple case is production-ready, not a toy. Complex case uses the same API. SwiftUI: \`Button("Save") { save() }\` → full customization, same API.
 
-## Step 2A: Review Mode
+## DX Scoring Rubric (0-10 calibration)
 
-Run Codex code review against the current branch diff.
+| Score | Meaning |
+|-------|---------|
+| 9-10 | Best-in-class. Stripe/Vercel tier. Developers rave about it. |
+| 7-8 | Good. Developers can use it without frustration. Minor gaps. |
+| 5-6 | Acceptable. Works but with friction. Developers tolerate it. |
+| 3-4 | Poor. Developers complain. Adoption suffers. |
+| 1-2 | Broken. Developers abandon after first attempt. |
+| 0 | Not addressed. No thought given to this dimension. |
 
-1. Create temp files for output capture:
+**The gap method:** For each score, explain what a 10 looks like for THIS product. Then fix toward 10.
+
+## TTHW Benchmarks (Time to Hello World)
+
+| Tier | Time | Adoption Impact |
+|------|------|-----------------|
+| Champion | < 2 min | 3-4x higher adoption |
+| Competitive | 2-5 min | Baseline |
+| Needs Work | 5-10 min | Significant drop-off |
+| Red Flag | > 10 min | 50-70% abandon |
+
+## Hall of Fame Reference
+
+During each review pass, load the relevant section from:
+\`~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md\`
+
+Read ONLY the section for the current pass (e.g., "## Pass 1" for Getting Started).
+Do NOT read the entire file at once. This keeps context focused.
+
+## Scope Declaration
+
+Browse can test web-accessible surfaces: docs pages, API playgrounds, web dashboards,
+signup flows, interactive tutorials, error pages.
+
+Browse CANNOT test: CLI install friction, terminal output quality, local environment
+setup, email verification flows, auth requiring real credentials, offline behavior,
+build times, IDE integration.
+
+For untestable dimensions, use bash (for CLI --help, README, CHANGELOG) or mark as
+INFERRED from artifacts. Never guess. State your evidence source for every score.
+
+## Step 0: Target Discovery
+
+1. Read CLAUDE.md for project URL, docs URL, CLI install command
+2. Read README.md for getting started instructions
+3. Read package.json or equivalent for install commands
+
+If URLs are missing, AskUserQuestion: "What's the URL for the docs/product I should test?"
+
+### Boomerang Baseline
+
+Check for prior /plan-devex-review scores:
+
 ```bash
-TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_PLAN_REVIEW"
 ```
 
-2. Run the review (5-minute timeout). **Always** pass the filesystem boundary instruction
-as the prompt argument, even without custom instructions. If the user provided custom
-instructions, append them after the boundary separated by a newline:
+If prior scores exist, display them. These are your baseline for the boomerang comparison.
+
+## Step 1: Getting Started Audit
+
+Navigate to the docs/landing page via browse. Screenshot it.
+
+```
+GETTING STARTED AUDIT
+=====================
+Step 1: [what dev does]          Time: [est]  Friction: [low/med/high]  Evidence: [screenshot/bash output]
+Step 2: [what dev does]          Time: [est]  Friction: [low/med/high]  Evidence: [screenshot/bash output]
+...
+TOTAL: [N steps, M minutes]
+```
+
+Score 0-10. Load "## Pass 1" from dx-hall-of-fame.md for calibration.
+
+## Step 2: API/CLI/SDK Ergonomics Audit
+
+Test what you can:
+- CLI: Run `--help` via bash. Evaluate output quality, flag design, discoverability.
+- API playground: Navigate via browse if one exists. Screenshot.
+- Naming: Check consistency across the API surface.
+
+Score 0-10. Load "## Pass 2" from dx-hall-of-fame.md for calibration.
+
+## Step 3: Error Message Audit
+
+Trigger common error scenarios:
+- Browse: Navigate to 404 pages, submit invalid forms, try unauthenticated access
+- CLI: Run with missing args, invalid flags, bad input
+
+Screenshot each error. Score against the Elm/Rust/Stripe three-tier model.
+
+Score 0-10. Load "## Pass 3" from dx-hall-of-fame.md for calibration.
+
+## Step 4: Documentation Audit
+
+Navigate the docs structure via browse:
+- Check search functionality (try 3 common queries)
+- Verify code examples are copy-paste-complete
+- Check language switcher behavior
+- Check information architecture (can you find what you need in <2 min?)
+
+Screenshot key findings. Score 0-10. Load "## Pass 4" from dx-hall-of-fame.md.
+
+## Step 5: Upgrade Path Audit
+
+Read via bash:
+- CHANGELOG quality (clear? user-facing? migration notes?)
+- Migration guides (exist? step-by-step?)
+- Deprecation warnings in code (grep for deprecated/obsolete)
+
+Score 0-10. Evidence: INFERRED from files. Load "## Pass 5" from dx-hall-of-fame.md.
+
+## Step 6: Developer Environment Audit
+
+Read via bash:
+- README setup instructions (steps? prerequisites? platform coverage?)
+- CI/CD configuration (exists? documented?)
+- TypeScript types (if applicable)
+- Test utilities / fixtures
+
+Score 0-10. Evidence: INFERRED from files. Load "## Pass 6" from dx-hall-of-fame.md.
+
+## Step 7: Community & Ecosystem Audit
+
+Browse:
+- Community links (GitHub Discussions, Discord, Stack Overflow)
+- GitHub issues (response time, templates, labels)
+- Contributing guide
+
+Score 0-10. Evidence: TESTED where web-accessible, INFERRED otherwise.
+
+## Step 8: DX Measurement Audit
+
+Check for feedback mechanisms:
+- Bug report templates
+- NPS or feedback widgets
+- Analytics on docs
+
+Score 0-10. Evidence: INFERRED from files/pages.
+
+## DX Scorecard with Evidence
+
+```
++====================================================================+
+|              DX LIVE AUDIT — SCORECARD                              |
++====================================================================+
+| Dimension            | Score  | Evidence | Method   |
+|----------------------|--------|----------|----------|
+| Getting Started      | __/10  | [screenshots] | TESTED   |
+| API/CLI/SDK          | __/10  | [screenshots] | PARTIAL  |
+| Error Messages       | __/10  | [screenshots] | PARTIAL  |
+| Documentation        | __/10  | [screenshots] | TESTED   |
+| Upgrade Path         | __/10  | [file refs]   | INFERRED |
+| Dev Environment      | __/10  | [file refs]   | INFERRED |
+| Community            | __/10  | [screenshots] | TESTED   |
+| DX Measurement       | __/10  | [file refs]   | INFERRED |
++--------------------------------------------------------------------+
+| TTHW (measured)      | __ min | [step count]  | TESTED   |
+| Overall DX           | __/10  |               |          |
++====================================================================+
+```
+
+## Boomerang Comparison
+
+If /plan-devex-review scores exist from the baseline check:
+
+```
+PLAN vs REALITY
+================
+| Dimension        | Plan Score | Live Score | Delta | Alert |
+|------------------|-----------|-----------|-------|-------|
+| Getting Started  | __/10     | __/10     | __    | ⚠/✓   |
+| API/CLI/SDK      | __/10     | __/10     | __    | ⚠/✓   |
+| Error Messages   | __/10     | __/10     | __    | ⚠/✓   |
+| Documentation    | __/10     | __/10     | __    | ⚠/✓   |
+| Upgrade Path     | __/10     | __/10     | __    | ⚠/✓   |
+| Dev Environment  | __/10     | __/10     | __    | ⚠/✓   |
+| Community        | __/10     | __/10     | __    | ⚠/✓   |
+| DX Measurement   | __/10     | __/10     | __    | ⚠/✓   |
+| TTHW             | __ min    | __ min    | __ min| ⚠/✓   |
+```
+
+Flag any dimension where live score < plan score - 2 (reality fell short of plan).
+
+## Review Log
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:**
+
 ```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"devex-review","timestamp":"TIMESTAMP","status":"STATUS","overall_score":N,"product_type":"TYPE","tthw_measured":"TTHW","dimensions_tested":N,"dimensions_inferred":N,"boomerang":"YES_OR_NO","commit":"COMMIT"}'
 ```
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+## Review Readiness Dashboard
 
-Use `timeout: 300000` on the Bash call. If the user provided custom instructions
-(e.g., `/codex review focus on security`), append them after the boundary:
+After completing the review, read the review log and config to display the dashboard.
+
 ```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+~/.claude/skills/gstack/bin/gstack-review-read
 ```
 
-3. Capture the output. Then parse cost from stderr:
-```bash
-grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
-```
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
 
-4. Determine gate verdict by checking the review output for critical findings.
-   If the output contains `[P1]` — the gate is **FAIL**.
-   If no `[P1]` markers are found (only `[P2]` or no findings) — the gate is **PASS**.
+**Source attribution:** If the most recent entry for a skill has a \`"via"\` field, append it to the status label in parentheses. Examples: `plan-eng-review` with `via:"autoplan"` shows as "CLEAR (PLAN via /autoplan)". `review` with `via:"ship"` shows as "CLEAR (DIFF via /ship)". Entries without a `via` field show as "CLEAR (PLAN)" or "CLEAR (DIFF)" as before.
 
-5. Present the output:
+Note: `autoplan-voices` and `design-outside-voices` entries are audit-trail-only (forensic data for cross-model consensus analysis). They do not appear in the dashboard and are not checked by any consumer.
+
+Display:
 
 ```
-CODEX SAYS (code review):
-════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
-════════════════════════════════════════════════════════════
-GATE: PASS                    Tokens: 14,331 | Est. cost: ~$0.12
++====================================================================+
+|                    REVIEW READINESS DASHBOARD                       |
++====================================================================+
+| Review          | Runs | Last Run            | Status    | Required |
+|-----------------|------|---------------------|-----------|----------|
+| Eng Review      |  1   | 2026-03-16 15:00    | CLEAR     | YES      |
+| CEO Review      |  0   | —                   | —         | no       |
+| Design Review   |  0   | —                   | —         | no       |
+| Adversarial     |  0   | —                   | —         | no       |
+| Outside Voice   |  0   | —                   | —         | no       |
++--------------------------------------------------------------------+
+| VERDICT: CLEARED — Eng Review passed                                |
++====================================================================+
 ```
 
-or
+**Review tiers:**
+- **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
+- **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
+- **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
+- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
-```
-GATE: FAIL (N critical findings)
-```
+**Verdict logic:**
+- **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
+- **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
+- CEO, Design, and Codex reviews are shown for context but never block shipping
+- If \`skip_eng_review\` config is \`true\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
-6. **Cross-model comparison:** If `/review` (Claude's own review) was already run
-   earlier in this conversation, compare the two sets of findings:
-
-```
-CROSS-MODEL ANALYSIS:
-  Both found: [findings that overlap between Claude and Codex]
-  Only Codex found: [findings unique to Codex]
-  Only Claude found: [findings unique to Claude's /review]
-  Agreement rate: X% (N/M total unique findings overlap)
-```
-
-7. Persist the review result:
-```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
-```
-
-Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
-GATE ("pass" or "fail"), findings (count of [P1] + [P2] markers),
-findings_fixed (count of findings that were addressed/fixed before shipping).
-
-8. Clean up temp files:
-```bash
-rm -f "$TMPERR"
-```
+**Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
+- Parse the \`---HEAD---\` section from the bash output to get the current HEAD commit hash
+- For each review entry that has a \`commit\` field: compare it against the current HEAD. If different, count elapsed commits: \`git rev-list --count STORED_COMMIT..HEAD\`. Display: "Note: {skill} review from {date} may be stale — {N} commits since review"
+- For entries without a \`commit\` field (legacy entries): display "Note: {skill} review from {date} has no commit tracking — consider re-running for accurate staleness detection"
+- If all reviews match the current HEAD, do not display any staleness notes
 
 ## Plan File Review Report
 
@@ -736,266 +921,40 @@ plan's living status.
 - Always place it as the very last section in the plan file. If it was found mid-file,
   move it: delete the old location and append at the end.
 
----
+## Capture Learnings
 
-## Step 2B: Challenge (Adversarial) Mode
-
-Codex tries to break your code — finding edge cases, race conditions, security holes,
-and failure modes that a normal review would miss.
-
-1. Construct the adversarial prompt. **Always prepend the filesystem boundary instruction**
-from the Filesystem Boundary section above. If the user provided a focus area
-(e.g., `/codex challenge security`), include it after the boundary:
-
-Default prompt (no focus):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
-
-With focus (e.g., "security"):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
-
-2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls (5-minute timeout):
-
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+If you discovered a non-obvious pattern, pitfall, or architectural insight during
+this session, log it for future sessions:
 
 ```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json 2>/dev/null | PYTHONUNBUFFERED=1 python3 -u -c "
-import sys, json
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        obj = json.loads(line)
-        t = obj.get('type','')
-        if t == 'item.completed' and 'item' in obj:
-            item = obj['item']
-            itype = item.get('type','')
-            text = item.get('text','')
-            if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}', flush=True)
-                print(flush=True)
-            elif itype == 'agent_message' and text:
-                print(text, flush=True)
-            elif itype == 'command_execution':
-                cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}', flush=True)
-        elif t == 'turn.completed':
-            usage = obj.get('usage',{})
-            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}', flush=True)
-    except: pass
-"
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"devex-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
 
-This parses codex's JSONL events to extract reasoning traces, tool calls, and the final
-response. The `[codex thinking]` lines show what codex reasoned through before its answer.
+**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
+(user stated), `architecture` (structural decision), `tool` (library/framework insight),
+`operational` (project environment/CLI/workflow knowledge).
 
-3. Present the full streamed output:
+**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
+`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
 
-```
-CODEX SAYS (adversarial challenge):
-════════════════════════════════════════════════════════════
-<full output from above, verbatim>
-════════════════════════════════════════════════════════════
-Tokens: N | Est. cost: ~$X.XX
-```
+**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
+An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
 
----
+**files:** Include the specific file paths this learning references. This enables
+staleness detection: if those files are later deleted, the learning can be flagged.
 
-## Step 2C: Consult Mode
+**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
+already knows. A good test: would this insight save time in a future session? If yes, log it.
 
-Ask Codex anything about the codebase. Supports session continuity for follow-ups.
+## Next Steps
 
-1. **Check for existing session:**
-```bash
-cat .context/codex-session-id 2>/dev/null || echo "NO_SESSION"
-```
+After the audit, recommend:
+- Fix the gaps found (specific, actionable fixes)
+- Re-run /devex-review after fixes to verify improvement
+- If boomerang showed significant gaps, re-run /plan-devex-review on the next feature plan
 
-If a session file exists (not `NO_SESSION`), use AskUserQuestion:
-```
-You have an active Codex conversation from earlier. Continue it or start fresh?
-A) Continue the conversation (Codex remembers the prior context)
-B) Start a new conversation
-```
+## Formatting Rules
 
-2. Create temp files:
-```bash
-TMPRESP=$(mktemp /tmp/codex-resp-XXXXXX.txt)
-TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
-```
-
-3. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
-or if plan files exist and the user said `/codex` with no arguments:
-```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
-```
-If no project-scoped match, fall back to `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-but warn: "Note: this plan may be from a different project — verify before sending to Codex."
-
-**IMPORTANT — embed content, don't reference path:** Codex runs sandboxed to the repo
-root (`-C`) and cannot access `~/.claude/plans/` or any files outside the repo. You MUST
-read the plan file yourself and embed its FULL CONTENT in the prompt below. Do NOT tell
-Codex the file path or ask it to read the plan file — it will waste 10+ tool calls
-searching and fail.
-
-Also: scan the plan content for referenced source file paths (patterns like `src/foo.ts`,
-`lib/bar.py`, paths containing `/` that exist in the repo). If found, list them in the
-prompt so Codex reads them directly instead of discovering them via rg/find.
-
-**Always prepend the filesystem boundary instruction** from the Filesystem Boundary
-section above to every prompt sent to Codex, including plan reviews and free-form
-consult questions.
-
-Prepend the boundary and persona to the user's prompt:
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-You are a brutally honest technical reviewer. Review this plan for: logical gaps and
-unstated assumptions, missing error handling or edge cases, overcomplexity (is there a
-simpler approach?), feasibility risks (what could go wrong?), and missing dependencies
-or sequencing issues. Be direct. Be terse. No compliments. Just the problems.
-Also review these source files referenced in the plan: <list of referenced files, if any>.
-
-THE PLAN:
-<full plan content, embedded verbatim>"
-
-For non-plan consult prompts (user typed `/codex <question>`), still prepend the boundary:
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-<user's question>"
-
-4. Run codex exec with **JSONL output** to capture reasoning traces (5-minute timeout):
-
-If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
-
-For a **new session:**
-```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
-import sys, json
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        obj = json.loads(line)
-        t = obj.get('type','')
-        if t == 'thread.started':
-            tid = obj.get('thread_id','')
-            if tid: print(f'SESSION_ID:{tid}', flush=True)
-        elif t == 'item.completed' and 'item' in obj:
-            item = obj['item']
-            itype = item.get('type','')
-            text = item.get('text','')
-            if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}', flush=True)
-                print(flush=True)
-            elif itype == 'agent_message' and text:
-                print(text, flush=True)
-            elif itype == 'command_execution':
-                cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}', flush=True)
-        elif t == 'turn.completed':
-            usage = obj.get('usage',{})
-            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}', flush=True)
-    except: pass
-"
-```
-
-For a **resumed session** (user chose "Continue"):
-```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
-<same python streaming parser as above, with flush=True on all print() calls>
-"
-```
-
-5. Capture session ID from the streamed output. The parser prints `SESSION_ID:<id>`
-   from the `thread.started` event. Save it for follow-ups:
-```bash
-mkdir -p .context
-```
-Save the session ID printed by the parser (the line starting with `SESSION_ID:`)
-to `.context/codex-session-id`.
-
-6. Present the full streamed output:
-
-```
-CODEX SAYS (consult):
-════════════════════════════════════════════════════════════
-<full output, verbatim — includes [codex thinking] traces>
-════════════════════════════════════════════════════════════
-Tokens: N | Est. cost: ~$X.XX
-Session saved — run /codex again to continue this conversation.
-```
-
-7. After presenting, note any points where Codex's analysis differs from your own
-   understanding. If there is a disagreement, flag it:
-   "Note: Claude Code disagrees on X because Y."
-
----
-
-## Model & Reasoning
-
-**Model:** No model is hardcoded — codex uses whatever its current default is (the frontier
-agentic coding model). This means as OpenAI ships newer models, /codex automatically
-uses them. If the user wants a specific model, pass `-m` through to codex.
-
-**Reasoning effort (per-mode defaults):**
-- **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
-- **Challenge (2B):** `high` — adversarial but bounded by diff size
-- **Consult (2C):** `medium` — large context (plans, codebase), interactive, needs speed
-
-`xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
-tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
-(e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
-
-**Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
-docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
-
-If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
-or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
-
----
-
-## Cost Estimation
-
-Parse token count from stderr. Codex prints `tokens used\nN` to stderr.
-
-Display as: `Tokens: N`
-
-If token count is not available, display: `Tokens: unknown`
-
----
-
-## Error Handling
-
-- **Binary not found:** Detected in Step 0. Stop with install instructions.
-- **Auth error:** Codex prints an auth error to stderr. Surface the error:
-  "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
-- **Timeout:** If the Bash call times out (5 min), tell the user:
-  "Codex timed out after 5 minutes. The diff may be too large or the API may be slow. Try again or use a smaller scope."
-- **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
-  "Codex returned no response. Check stderr for errors."
-- **Session resume failure:** If resume fails, delete the session file and start fresh.
-
----
-
-## Important Rules
-
-- **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode.
-- **Present output verbatim.** Do not truncate, summarize, or editorialize Codex's output
-  before showing it. Show it in full inside the CODEX SAYS block.
-- **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
-- **5-minute timeout** on all Bash calls to codex (`timeout: 300000`).
-- **No double-reviewing.** If the user already ran `/review`, Codex provides a second
-  independent opinion. Do not re-run Claude Code's own review.
-- **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
-  that Codex got distracted by skill files: `gstack-config`, `gstack-update-check`,
-  `SKILL.md`, or `skills/gstack`. If any of these appear in the output, append a
-  warning: "Codex appears to have read gstack skill files instead of reviewing your
-  code. Consider retrying."
+* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
+* Rate every dimension with evidence source.
+* Screenshots are the gold standard. File references are acceptable. Guesses are not.
