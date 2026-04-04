@@ -205,10 +205,22 @@ Status cmd:    {status command}
 Merge method:  {merge method}
 
 Saved to CLAUDE.md. /land-and-deploy will use these settings automatically.
+```
 
+Also persist the merge method to the global gstack config so `/land-and-deploy`
+can read it without parsing CLAUDE.md:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-config set merge_method {merge method}
+```
+
+Tell the user: "Merge method '{merge method}' saved to both CLAUDE.md and gstack config."
+
+```
 Next steps:
 - Run /land-and-deploy to merge and deploy your current PR
 - Edit the "## Deploy Configuration" section in CLAUDE.md to change settings
+- Run `gstack-config set merge_method {squash|merge|rebase}` to change merge method
 - Run /setup-deploy again to reconfigure
 ```
 

@@ -56,7 +56,7 @@ readiness first.
 - Production health issues detected by canary (offer revert)
 
 **Never stop for:**
-- Choosing merge method (auto-detect from repo settings)
+- Choosing merge method (config override > repo settings > squash default)
 - Timeout warnings (warn and continue gracefully)
 
 ## Voice & Tone
@@ -200,7 +200,7 @@ Run whichever commands are relevant based on the detected platform. Build the re
 ║  4. {Wait for deploy workflow / Wait 60s / Skip}           ║
 ║  5. {Run canary verification / Skip (no URL)}              ║
 ║                                                            ║
-║  MERGE METHOD: {squash/merge/rebase} (from repo settings)  ║
+║  MERGE METHOD: {squash/merge/rebase} (source: {config/repo/default})  ║
 ║  MERGE QUEUE:  {detected / not detected}                   ║
 ╚══════════════════════════════════════════════════════════╝
 ```
@@ -548,6 +548,69 @@ If the user chooses A or C: Tell the user "Merging now." Continue to Step 4.
 Record the start timestamp for timing data. Also record which merge path is taken
 (auto-merge vs direct) for the deploy report.
 
+### 4.0: Determine merge method
+
+Resolve the merge method using a three-tier priority:
+
+1. **User config override** (explicit preference, highest priority)
+2. **Repo settings** (what GitHub allows for this repo)
+3. **Default** (`squash`)
+
+```bash
+# Tier 1: Check user config
+_MERGE_METHOD=$(~/.claude/skills/gstack/bin/gstack-config get merge_method 2>/dev/null || true)
+_MERGE_SOURCE=""
+if [ -n "$_MERGE_METHOD" ]; then
+  _MERGE_SOURCE="config"
+fi
+
+# Tier 2: Query repo settings if no config override
+if [ -z "$_MERGE_METHOD" ]; then
+  _REPO_SETTINGS=$(gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed --jq '{s: .squashMergeAllowed, m: .mergeCommitAllowed, r: .rebaseMergeAllowed}' 2>/dev/null || true)
+  if [ -n "$_REPO_SETTINGS" ]; then
+    _SQUASH=$(echo "$_REPO_SETTINGS" | jq -r '.s')
+    _MERGE=$(echo "$_REPO_SETTINGS" | jq -r '.m')
+    _REBASE=$(echo "$_REPO_SETTINGS" | jq -r '.r')
+    # Pick the repo's preferred method: if only one is enabled, use that.
+    # If multiple are enabled, prefer squash (GitHub's default UI selection).
+    _ENABLED_COUNT=0
+    [ "$_SQUASH" = "true" ] && _ENABLED_COUNT=$((_ENABLED_COUNT + 1))
+    [ "$_MERGE" = "true" ] && _ENABLED_COUNT=$((_ENABLED_COUNT + 1))
+    [ "$_REBASE" = "true" ] && _ENABLED_COUNT=$((_ENABLED_COUNT + 1))
+
+    if [ "$_ENABLED_COUNT" -eq 1 ]; then
+      [ "$_SQUASH" = "true" ] && _MERGE_METHOD="squash"
+      [ "$_MERGE" = "true" ] && _MERGE_METHOD="merge"
+      [ "$_REBASE" = "true" ] && _MERGE_METHOD="rebase"
+      _MERGE_SOURCE="repo (only method allowed)"
+    elif [ "$_ENABLED_COUNT" -gt 1 ]; then
+      # Multiple methods allowed — use squash as default preference
+      if [ "$_SQUASH" = "true" ]; then _MERGE_METHOD="squash"
+      elif [ "$_MERGE" = "true" ]; then _MERGE_METHOD="merge"
+      else _MERGE_METHOD="rebase"
+      fi
+      _MERGE_SOURCE="repo (multiple allowed, picked default)"
+    fi
+  fi
+fi
+
+# Tier 3: Default to squash
+if [ -z "$_MERGE_METHOD" ]; then
+  _MERGE_METHOD="squash"
+  _MERGE_SOURCE="default"
+fi
+
+echo "MERGE_METHOD: $_MERGE_METHOD (source: $_MERGE_SOURCE)"
+```
+
+Valid values: `squash`, `merge`, `rebase`. If the resolved value is not one of these
+three, warn the user and fall back to `squash`.
+
+Print the merge method and source in the dry-run UI. If the source is "repo" and only
+one method is allowed, note: "This repo only allows {method} merges."
+
+### 4.1: Try auto-merge first
+
 Try auto-merge first (respects repo merge settings and merge queues):
 
 ```bash
@@ -557,13 +620,21 @@ gh pr merge --auto --delete-branch
 If `--auto` succeeds: record `MERGE_PATH=auto`. This means the repo has auto-merge enabled
 and may use merge queues.
 
-If `--auto` is not available (repo doesn't have auto-merge enabled), merge directly:
+### 4.2: Direct merge fallback
+
+If `--auto` is not available (repo doesn't have auto-merge enabled), merge directly
+using the configured merge method:
 
 ```bash
-gh pr merge --squash --delete-branch
+gh pr merge --${_MERGE_METHOD} --delete-branch
 ```
 
-If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully. The branch has been cleaned up."
+For example:
+- `merge_method: squash` → `gh pr merge --squash --delete-branch` (default, current behavior)
+- `merge_method: merge` → `gh pr merge --merge --delete-branch` (preserves full commit history)
+- `merge_method: rebase` → `gh pr merge --rebase --delete-branch` (linear history)
+
+If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully (via ${_MERGE_METHOD}). The branch has been cleaned up."
 
 If the merge fails with a permission error: **STOP.** "I don't have permission to merge this PR. You'll need a maintainer to merge it, or check your repo's branch protection rules."
 
