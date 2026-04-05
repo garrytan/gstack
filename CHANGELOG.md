@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.15.7.0] - 2026-04-04 — Academic Research Skills
+
+You can now run literature reviews and peer reviews directly from Claude Code. Two new skills turn academic research from a multi-day manual process into a guided 30-minute workflow.
+
+### Added
+
+- **`/research-synthesis` skill.** End-to-end literature review: define a research protocol, search 4 academic databases, screen papers by inclusion/exclusion criteria, synthesize findings with anti-hallucination rules (every claim requires a direct source quote), and generate a structured review report.
+- **`/research-peer-review` skill.** Adversarial academic merit review. Reads your synthesis artifacts and evaluates them across 6 dimensions (search quality, screening rigor, synthesis quality, evidence strength, gaps/limitations, reproducibility). Produces a journal-style accept/minor_revision/major_revision/reject decision. Read-only by design.
+- **`research-tools` binary.** TypeScript CLI that searches Semantic Scholar, PubMed, arXiv, and OpenAlex APIs with automatic deduplication. Three-strategy dedup: DOI match, cross-reference ID match, and fuzzy title+author bigram Jaccard similarity (>0.9 threshold). Resume support for interrupted searches. 37 unit tests covering all API clients and dedup logic.
+- **Multi-host support for research binary.** `researchDir` added to HostPaths type system, `GSTACK_RESEARCH` env var for external hosts, `$R` preamble variable. Same pattern as `$B` (browse) and `$D` (design).
+
 ## [0.15.6.0] - 2026-04-04 — Declarative Multi-Host Platform
 
 Adding a new coding agent to gstack used to mean touching 9 files and knowing the internals of `gen-skill-docs.ts`. Now it's one TypeScript config file and a re-export. Zero code changes elsewhere. Tests auto-parameterize.

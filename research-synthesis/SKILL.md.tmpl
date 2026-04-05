@@ -1,0 +1,220 @@
+---
+name: research-synthesis
+preamble-tier: 2
+version: 1.0.0
+description: |
+  End-to-end academic literature review. Takes a research question and produces
+  a fully cited evidence synthesis: protocol → search → screen → synthesize.
+  Uses the research-tools binary to search 4 academic APIs (Semantic Scholar,
+  PubMed, arXiv, OpenAlex) with automatic deduplication.
+  Invoke when: "literature review", "what does the research say", "find papers on",
+  "background research", "evidence synthesis", "systematic review". (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# Research Synthesis — End-to-End Literature Review
+
+## Overview
+
+This skill runs a complete literature review pipeline:
+1. **Protocol** — Define the research question, inclusion/exclusion criteria, and search strategy
+2. **Search** — Query 4 academic APIs via the research-tools binary, deduplicate results
+3. **Screen** — Two-pass abstract screening with explicit inclusion/exclusion reasoning
+4. **Synthesize** — Build an evidence graph with cited claims, identify themes and contradictions
+
+All artifacts are written to `artifacts/` in the project root. Every claim in the
+final synthesis must trace to a real paper with a direct source quote. Zero tolerance
+for hallucinated citations.
+
+## Setup
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+R=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/research/dist/research-tools" ] && R="$_ROOT/.claude/skills/gstack/research/dist/research-tools"
+[ -z "$R" ] && [ -x ~/.claude/skills/gstack/research/dist/research-tools ] && R=~/.claude/skills/gstack/research/dist/research-tools
+if [ -n "$R" ] && [ -x "$R" ]; then
+  echo "RESEARCH_TOOLS: $R"
+else
+  echo "RESEARCH_TOOLS: NOT_FOUND"
+fi
+```
+
+If `RESEARCH_TOOLS` is `NOT_FOUND`: tell the user the research binary needs building.
+Run: `cd <gstack-dir> && bun build --compile research/src/cli.ts --outfile research/dist/research-tools && chmod +x research/dist/research-tools`
+
+## Step 1: Protocol — Define the Review
+
+Ask the user for their research question. Then use AskUserQuestion to confirm:
+
+1. **Research question** — the specific question to answer
+2. **Scope** — broad survey vs. narrow systematic review
+3. **Inclusion criteria** — what makes a paper relevant (topic, methodology, population, date range)
+4. **Exclusion criteria** — what to filter out (non-peer-reviewed, wrong language, wrong domain)
+5. **Search parameters** — max results per source (default 50), year range, specific APIs
+
+Write the protocol to `artifacts/protocol.json`:
+```json
+{
+  "question": "...",
+  "scope": "survey|systematic",
+  "inclusion": ["criterion 1", "criterion 2"],
+  "exclusion": ["criterion 1", "criterion 2"],
+  "searchParams": {
+    "maxPerSource": 50,
+    "yearFrom": null,
+    "yearTo": null,
+    "sources": ["semantic_scholar", "pubmed", "arxiv", "openalex"]
+  },
+  "createdAt": "ISO-8601"
+}
+```
+
+## Step 2: Search — Multi-API Acquisition
+
+Run the research-tools binary to search all configured APIs:
+
+```bash
+mkdir -p artifacts
+$R search --query "<research question>" --max <maxPerSource> [--year-from YYYY] [--year-to YYYY] [--sources s1,s2,...] --output artifacts
+```
+
+The binary writes:
+- `artifacts/search_results.jsonl` — one paper per line (deduplicated)
+- `artifacts/search_meta.json` — search metadata (sources, counts, timing)
+
+Report the search summary to the user:
+- How many results per source
+- How many duplicates removed
+- Total unique papers
+
+If any source failed, note it but continue. The pipeline is resilient to partial failures.
+
+If the result count is very low (<5), suggest broadening the query or adjusting year range.
+If very high (>200), suggest narrowing the scope or adding exclusion criteria.
+
+## Step 3: Screen — Abstract Screening
+
+Read `artifacts/search_results.jsonl` and screen each paper against the protocol's
+inclusion/exclusion criteria.
+
+**Two-pass screening:**
+
+### Pass 1: Title + metadata filter
+Read each paper's title, year, venue, and authors. Quickly exclude obviously irrelevant
+papers (wrong field, wrong language, retracted). Mark as `exclude` with reasoning, or
+pass to Pass 2.
+
+### Pass 2: Abstract screening
+For papers that passed Pass 1, read the abstract. For each paper, produce:
+```json
+{
+  "id": "paper_id",
+  "decision": "include|exclude|uncertain",
+  "reasoning": "Why this paper is/isn't relevant...",
+  "confidence": 0.85,
+  "criteriaMatched": ["criterion_name_1", "criterion_name_2"]
+}
+```
+
+Decision rules:
+- **include** (confidence >= 0.7): clearly matches criteria
+- **exclude** (confidence >= 0.7): clearly doesn't match criteria
+- **uncertain** (confidence < 0.7 or edge case): flag for user review
+
+Write all decisions to `artifacts/screening_decisions.jsonl` (one per line).
+Write included papers to `artifacts/included_papers.json` (array).
+
+Report screening summary:
+- Total screened, included, excluded, uncertain
+- Ask user to adjudicate uncertain papers (if any)
+
+**Batch size:** Process papers in batches of 20 to avoid context overflow.
+After each batch, write decisions incrementally.
+
+## Step 4: Synthesize — Evidence Graph
+
+Read `artifacts/included_papers.json` and build the evidence synthesis.
+
+### For ≤ 20 included papers: single-pass synthesis
+Read all abstracts. For each paper, extract:
+- Key findings and claims
+- Study design / methodology
+- Direct quotes that support claims (anti-hallucination anchor)
+
+### For > 20 included papers: hierarchical synthesis
+1. Cluster papers by theme (group related abstracts)
+2. Synthesize within each cluster
+3. Cross-cluster synthesis to identify overarching patterns
+
+### Evidence graph structure
+Build `artifacts/evidence_graph.json`:
+```json
+{
+  "claims": [
+    {
+      "text": "The specific claim...",
+      "supporting": ["paper_id_1", "paper_id_2"],
+      "contradicting": ["paper_id_3"],
+      "confidence": 0.85,
+      "sourceQuote": "Direct quote from the paper that supports this claim",
+      "paperId": "primary_source_paper_id"
+    }
+  ],
+  "themes": ["theme_1", "theme_2"],
+  "methodology": {
+    "studyDesigns": {"RCT": 3, "observational": 5, "review": 2},
+    "qualityDistribution": {"high": 4, "medium": 5, "low": 1}
+  },
+  "generatedAt": "ISO-8601"
+}
+```
+
+### Anti-hallucination rules
+1. Every claim must have a `sourceQuote` — a direct quote from the paper's abstract
+2. Never invent paper titles, authors, or findings
+3. If a claim has only one supporting paper, mark it explicitly ("single-source claim")
+4. Surface contradictions — do not silently resolve them
+5. Confidence below 0.5 means "needs human verification"
+
+### Write the synthesis
+Write `artifacts/synthesis.md` — a human-readable literature review with:
+- Executive summary (2-3 paragraphs)
+- Themes with supporting evidence (cite paper IDs inline)
+- Contradictions and open questions
+- Methodology summary (study designs, quality distribution)
+- Limitations (publication bias, geographic coverage, temporal range)
+- Full reference list with DOIs/URLs
+
+## Step 5: Report Results
+
+Present the synthesis summary to the user:
+- Number of papers searched → screened → included → synthesized
+- Key themes identified
+- Major contradictions found
+- Confidence assessment
+- Suggested next steps (e.g., "run /research-peer-review to evaluate rigor")
+
+## Completion
+
+```bash
+_OUTCOME="success"  # or "partial" if some sources failed
+_CLAIMS=$(cat artifacts/evidence_graph.json 2>/dev/null | grep -c '"text"' || echo "0")
+echo "STATUS: $_OUTCOME"
+echo "CLAIMS: $_CLAIMS"
+echo "ARTIFACTS: $(ls artifacts/ 2>/dev/null | tr '\n' ', ')"
+```
+
+Report status: **DONE** if all steps completed, **DONE_WITH_CONCERNS** if partial
+source failures or uncertain screenings remain unresolved.
+
+Suggest: "Run `/research-peer-review` to get an adversarial quality assessment of this review."

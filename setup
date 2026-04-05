@@ -196,6 +196,12 @@ if [ ! -x "$BROWSE_BIN" ]; then
   exit 1
 fi
 
+# 1a. Check research binary (soft failure — warning only)
+RESEARCH_BIN="$SOURCE_GSTACK_DIR/research/dist/research-tools"
+if [ ! -x "$RESEARCH_BIN" ]; then
+  echo "Warning: research binary missing at $RESEARCH_BIN (research skills will prompt for build)" >&2
+fi
+
 # 1b. Generate .agents/ Codex skill docs — always regenerate to prevent stale descriptions.
 # .agents/ is no longer committed — generated at setup time from .tmpl templates.
 # bun run build already does this, but we need it when NEEDS_BUILD=0 (binary is fresh).
