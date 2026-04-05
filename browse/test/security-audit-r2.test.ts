@@ -576,3 +576,43 @@ describe('Task 13: inbox output wrapped as untrusted content', () => {
     expect(block).toContain('wrapUntrustedContent');
   });
 });
+
+// ─── Task 14: DOM serialization round-trip replaced with DocumentFragment ─────
+
+const SIDEPANEL_SRC = fs.readFileSync(path.join(import.meta.dir, '../../extension/sidepanel.js'), 'utf-8');
+
+describe('Task 14: switchChatTab uses DocumentFragment, not innerHTML round-trip', () => {
+  it('switchChatTab does NOT use innerHTML to restore chat (string-based re-parse removed)', () => {
+    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
+    expect(fn).toBeTruthy();
+    // Must NOT have the dangerous pattern of assigning chatDomByTab value back to innerHTML
+    expect(fn).not.toMatch(/chatMessages\.innerHTML\s*=\s*chatDomByTab/);
+  });
+
+  it('switchChatTab uses createDocumentFragment to save chat DOM', () => {
+    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
+    expect(fn).toContain('createDocumentFragment');
+  });
+
+  it('switchChatTab moves nodes via appendChild/firstChild (not innerHTML assignment)', () => {
+    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
+    // Must use appendChild to restore nodes from fragment
+    expect(fn).toContain('chatMessages.appendChild');
+  });
+
+  it('chatDomByTab comment documents that values are DocumentFragments, not strings', () => {
+    // Check module-level comment on chatDomByTab
+    const commentIdx = SIDEPANEL_SRC.indexOf('chatDomByTab');
+    const commentLine = SIDEPANEL_SRC.slice(commentIdx, commentIdx + 120);
+    expect(commentLine).toMatch(/DocumentFragment|fragment/i);
+  });
+
+  it('welcome screen is built with DOM methods in the else branch (not innerHTML)', () => {
+    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
+    // The else branch must use createElement, not innerHTML template literal
+    expect(fn).toContain('createElement');
+    // The specific innerHTML template with chat-welcome must be gone
+    expect(fn).not.toMatch(/innerHTML\s*=\s*`[\s\S]*?chat-welcome/);
+  });
+});
+
