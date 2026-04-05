@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.15.8.0] - 2026-04-05 — Writing Skills Pipeline
+
+You can now draft and review professional content directly from Claude Code. Two new skills turn the terminal into a writing orchestration layer: describe what you want, get a publication-ready draft, then run a structured editing pass with AI slop detection and voice consistency checking.
+
+### Added
+
+- **`/write-draft` skill.** Full writing pipeline: format auto-detection (blog post, memo, research paper, website copy, newsletter, freeform), combined format+outline confirmation in a single prompt, voice-matched output when a voice profile is configured, self-edit pass that catches AI slop patterns, and custom output location. Produces a file you edit in Cursor, VS Code, or your preferred editor.
+- **`/write-review` skill.** Structured editing pipeline: format-aware prose review with severity-ranked findings (structural, voice, prose, polish), AI slop detection with 30+ banned words and 12+ banned patterns, voice consistency checking against your profile, revision with before/after diff. Input resolution supports file paths, most-recent-draft glob, or pasted content.
+- **Three platform-level resolvers.** `{{VOICE_PROFILE_CHECK}}` (any skill can adopt for voice-matched prose), `{{FORMAT_DETECTION}}` (writing-specific format heuristic), `{{SLOP_RULES}}` (shared AI vocabulary and pattern detection). The voice profile resolver is designed as platform infrastructure so `/ship`, `/document-release`, and other prose-producing skills can adopt it in a future release.
+- **Voice profile system.** Persistent voice profile at `~/.gstack/writing/voice-profile.md` with sentinel file pattern (matches telemetry precedent). Setup deferred to second session to avoid first-run prompt cascade. Profile validation on read with corruption recovery. File-size truncation for large profiles (>12KB extracts fingerprint only).
+
 ## [0.15.7.0] - 2026-04-04 — Academic Research Skills
 
 You can now run literature reviews and peer reviews directly from Claude Code. Two new skills turn academic research from a multi-day manual process into a guided 30-minute workflow.
