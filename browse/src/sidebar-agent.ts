@@ -348,7 +348,10 @@ function isValidQueueEntry(e: unknown): e is QueueEntry {
   if (typeof obj.prompt !== 'string' || obj.prompt.length === 0) return false;
   // Optional typed fields
   if (obj.args !== undefined && (!Array.isArray(obj.args) || !obj.args.every(a => typeof a === 'string'))) return false;
-  if (obj.stateFile !== undefined && typeof obj.stateFile !== 'string') return false;
+  if (obj.stateFile !== undefined) {
+    if (typeof obj.stateFile !== 'string') return false;
+    if (obj.stateFile.includes('..')) return false;
+  }
   if (obj.cwd !== undefined) {
     if (typeof obj.cwd !== 'string') return false;
     if (obj.cwd.includes('..')) return false;

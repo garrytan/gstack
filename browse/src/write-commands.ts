@@ -428,16 +428,27 @@ export async function handleWriteCommand(
     case 'cookie-import': {
       const filePath = args[0];
       if (!filePath) throw new Error('Usage: browse cookie-import <json-file>');
-      // Path validation — prevent reading arbitrary files
-      if (path.isAbsolute(filePath)) {
-        const safeDirs = [TEMP_DIR, process.cwd()];
-        const resolved = path.resolve(filePath);
-        if (!safeDirs.some(dir => isPathWithin(resolved, dir))) {
-          throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+      // Path validation — resolve symlinks to prevent symlink traversal attacks (read path)
+      {
+        const absolute = path.resolve(filePath);
+        let realPath: string;
+        try {
+          realPath = fs.realpathSync(absolute);
+        } catch (err: any) {
+          if (err.code === 'ENOENT') {
+            try {
+              const dir = fs.realpathSync(path.dirname(absolute));
+              realPath = path.join(dir, path.basename(absolute));
+            } catch {
+              realPath = absolute;
+            }
+          } else {
+            throw new Error(`Cannot resolve real path: ${filePath} (${err.code})`);
+          }
         }
-      }
-      if (path.normalize(filePath).includes('..')) {
-        throw new Error('Path traversal sequences (..) are not allowed');
+        if (!SAFE_DIRECTORIES.some(dir => isPathWithin(realPath, dir))) {
+          throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+        }
       }
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const raw = fs.readFileSync(filePath, 'utf-8');

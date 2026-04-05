@@ -16,6 +16,7 @@ const META_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/meta-command
 const WRITE_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/write-commands.ts'), 'utf-8');
 const SERVER_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/server.ts'), 'utf-8');
 const AGENT_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/sidebar-agent.ts'), 'utf-8');
+const SNAPSHOT_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/snapshot.ts'), 'utf-8');
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
@@ -247,5 +248,101 @@ describe('Task 1: validateOutputPath uses realpathSync', () => {
       expect(() => mod.validateOutputPath('/home/user/secret.png')).toThrow(/Path must be within/);
       expect(() => mod.validateOutputPath('/var/log/access.log')).toThrow(/Path must be within/);
     });
+  });
+});
+
+// ─── Round-2 review findings: applyStyle CSS check ──────────────────────────
+
+describe('Round-2 finding 1: extension applyStyle blocks dangerous CSS values', () => {
+  const INSPECTOR_SRC = fs.readFileSync(
+    path.join(import.meta.dir, '../../extension/inspector.js'),
+    'utf-8'
+  );
+
+  it('applyStyle function exists in inspector.js', () => {
+    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
+    expect(fn).toBeTruthy();
+  });
+
+  it('applyStyle validates CSS value with url() block', () => {
+    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
+    // Source contains literal regex /url\s*\(/ — match the source-level escape sequence
+    expect(fn).toMatch(/url\\s\*\\\(/);
+  });
+
+  it('applyStyle blocks expression()', () => {
+    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
+    expect(fn).toMatch(/expression\\s\*\\\(/);
+  });
+
+  it('applyStyle blocks @import', () => {
+    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
+    expect(fn).toContain('@import');
+  });
+
+  it('applyStyle blocks javascript: scheme', () => {
+    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
+    expect(fn).toContain('javascript:');
+  });
+
+  it('applyStyle blocks data: scheme', () => {
+    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
+    expect(fn).toContain('data:');
+  });
+
+  it('applyStyle value check appears before setProperty call', () => {
+    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
+    // Check that the CSS value guard (url\s*\() appears before setProperty
+    const valueCheckIdx = fn.search(/url\\s\*\\\(/);
+    const setPropIdx = fn.indexOf('setProperty');
+    expect(valueCheckIdx).toBeGreaterThan(-1);
+    expect(setPropIdx).toBeGreaterThan(-1);
+    expect(valueCheckIdx).toBeLessThan(setPropIdx);
+  });
+});
+
+// ─── Round-2 finding 2: snapshot.ts annotated path uses realpathSync ────────
+
+describe('Round-2 finding 2: snapshot.ts annotated path uses realpathSync', () => {
+  it('snapshot.ts annotated screenshot section contains realpathSync', () => {
+    // Slice the annotated screenshot block from the source
+    const annotateStart = SNAPSHOT_SRC.indexOf('opts.annotate');
+    expect(annotateStart).toBeGreaterThan(-1);
+    const annotateBlock = SNAPSHOT_SRC.slice(annotateStart, annotateStart + 2000);
+    expect(annotateBlock).toContain('realpathSync');
+  });
+
+  it('snapshot.ts annotated path validation resolves safe dirs with realpathSync', () => {
+    const annotateStart = SNAPSHOT_SRC.indexOf('opts.annotate');
+    const annotateBlock = SNAPSHOT_SRC.slice(annotateStart, annotateStart + 2000);
+    // safeDirs array must be built with .map() that calls realpathSync
+    // Pattern: [TEMP_DIR, process.cwd()].map(...realpathSync...)
+    expect(annotateBlock).toContain('[TEMP_DIR, process.cwd()].map');
+    expect(annotateBlock).toContain('realpathSync');
+  });
+});
+
+// ─── Round-2 finding 3: stateFile path traversal check in isValidQueueEntry ─
+
+describe('Round-2 finding 3: isValidQueueEntry checks stateFile for path traversal', () => {
+  it('isValidQueueEntry checks stateFile for .. traversal sequences', () => {
+    const fn = extractFunction(AGENT_SRC, 'isValidQueueEntry');
+    expect(fn).toBeTruthy();
+    // Must check stateFile for '..' — find the stateFile block and look for '..' string
+    const stateFileIdx = fn.indexOf('stateFile');
+    expect(stateFileIdx).toBeGreaterThan(-1);
+    const stateFileBlock = fn.slice(stateFileIdx, stateFileIdx + 200);
+    // The block must contain a check for the two-dot traversal sequence
+    expect(stateFileBlock).toMatch(/'\.\.'|"\.\."|\.\./);
+  });
+
+  it('isValidQueueEntry stateFile block contains both type check and traversal check', () => {
+    const fn = extractFunction(AGENT_SRC, 'isValidQueueEntry');
+    const stateFileIdx = fn.indexOf('stateFile');
+    const stateBlock = fn.slice(stateFileIdx, stateFileIdx + 300);
+    // Must contain the type check
+    expect(stateBlock).toContain('typeof obj.stateFile');
+    // Must contain the includes('..') call
+    expect(stateBlock).toMatch(/includes\s*\(\s*['"]\.\.['"]\s*\)/);
   });
 });

@@ -313,11 +313,32 @@ export async function handleSnapshot(
   // ─── Annotated screenshot (-a) ────────────────────────────
   if (opts.annotate) {
     const screenshotPath = opts.outputPath || `${TEMP_DIR}/browse-annotated.png`;
-    // Validate output path (consistent with screenshot/pdf/responsive)
-    const resolvedPath = require('path').resolve(screenshotPath);
-    const safeDirs = [TEMP_DIR, process.cwd()];
-    if (!safeDirs.some((dir: string) => isPathWithin(resolvedPath, dir))) {
-      throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+    // Validate output path — resolve symlinks to prevent symlink traversal attacks
+    {
+      const nodePath = require('path') as typeof import('path');
+      const nodeFs = require('fs') as typeof import('fs');
+      const absolute = nodePath.resolve(screenshotPath);
+      const safeDirs = [TEMP_DIR, process.cwd()].map((d: string) => {
+        try { return nodeFs.realpathSync(d); } catch { return d; }
+      });
+      let realPath: string;
+      try {
+        realPath = nodeFs.realpathSync(absolute);
+      } catch (err: any) {
+        if (err.code === 'ENOENT') {
+          try {
+            const dir = nodeFs.realpathSync(nodePath.dirname(absolute));
+            realPath = nodePath.join(dir, nodePath.basename(absolute));
+          } catch {
+            realPath = absolute;
+          }
+        } else {
+          throw new Error(`Cannot resolve real path: ${screenshotPath} (${err.code})`);
+        }
+      }
+      if (!safeDirs.some((dir: string) => isPathWithin(realPath, dir))) {
+        throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+      }
     }
     try {
       // Inject overlay divs at each ref's bounding box
