@@ -351,21 +351,72 @@ plan's living status.
 
 # /design-ref: Brand Design System Reference Library
 
-Load professional design systems from 55+ companies and apply them to your project.
+Load professional design systems from 54 companies and apply them to your project.
 Every DESIGN.md is sourced from [awesome-design-md](https://github.com/VoltAgent/awesome-design-md),
-a curated collection of brand design specifications.
+a curated collection of brand design specifications. All 54 ship locally with gstack —
+no network needed.
+
+## User-invocable
+When the user types `/design-ref`, run this skill.
+
+## Arguments
+- `/design-ref` — browse brands by category, pick one
+- `/design-ref <brand>` — load a specific brand (e.g., `/design-ref stripe`)
+- `/design-ref list` — show all available brands by category
 
 ---
 
-## Step 0: Check for Cached Design Systems
+## Step 0: List or Direct Load
+
+If the user passed `list` as the argument, list all available brands and stop:
 
 ```bash
-ls ~/.gstack/design-refs/*.md 2>/dev/null | head -20 || echo "NO_CACHED_REFS"
+echo "=== Available Brand Design Systems ==="
+echo ""
+echo "AI & ML:"
+for b in claude cohere elevenlabs minimax mistral.ai ollama opencode.ai replicate runwayml together.ai voltagent x.ai; do
+  [ -f "$HOME/.claude/skills/gstack/design-ref/brands/$b.md" ] && echo "  $b"
+done
+echo ""
+echo "Developer Tools:"
+for b in cursor expo linear.app lovable mintlify posthog raycast resend sentry supabase superhuman vercel warp zapier; do
+  [ -f "$HOME/.claude/skills/gstack/design-ref/brands/$b.md" ] && echo "  $b"
+done
+echo ""
+echo "Design & Productivity:"
+for b in airtable cal clay figma framer intercom miro notion pinterest webflow; do
+  [ -f "$HOME/.claude/skills/gstack/design-ref/brands/$b.md" ] && echo "  $b"
+done
+echo ""
+echo "Fintech:"
+for b in coinbase kraken revolut stripe wise; do
+  [ -f "$HOME/.claude/skills/gstack/design-ref/brands/$b.md" ] && echo "  $b"
+done
+echo ""
+echo "Infrastructure & Cloud:"
+for b in clickhouse composio hashicorp mongodb sanity; do
+  [ -f "$HOME/.claude/skills/gstack/design-ref/brands/$b.md" ] && echo "  $b"
+done
+echo ""
+echo "Enterprise & Consumer:"
+for b in airbnb apple bmw ibm nvidia spacex spotify uber; do
+  [ -f "$HOME/.claude/skills/gstack/design-ref/brands/$b.md" ] && echo "  $b"
+done
 ```
 
-If cached files exist, list them: "You have these brand references cached: [list]. Want to use one of these, or fetch a new one?"
+Present the output as a clean categorized list. **Stop here** — don't proceed to brand selection unless the user asks.
 
-If no cached files, continue to Step 1.
+If the user passed a specific brand name, skip to Step 2 with that brand.
+
+Otherwise, check if the user already has a DESIGN.md in their project:
+
+```bash
+[ -f DESIGN.md ] && echo "HAS_DESIGN_MD" && head -5 DESIGN.md || echo "NO_DESIGN_MD"
+```
+
+If they have one, mention it: "You already have a DESIGN.md. Want to replace it, or browse for reference?"
+
+Then continue to Step 1.
 
 ---
 
