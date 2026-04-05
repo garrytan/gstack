@@ -399,9 +399,19 @@ export async function handleWriteCommand(
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
 
-      // Validate all files exist before upload
+      // Validate paths are within safe directories (same check as cookie-import)
+      const safeDirs = [TEMP_DIR, process.cwd()];
       for (const fp of filePaths) {
         if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
+        if (path.isAbsolute(fp)) {
+          const resolvedFp = path.resolve(fp);
+          if (!safeDirs.some(dir => isPathWithin(resolvedFp, dir))) {
+            throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+          }
+        }
+        if (path.normalize(fp).includes('..')) {
+          throw new Error('Path traversal sequences (..) are not allowed');
+        }
       }
 
       const resolved = await bm.resolveRef(selector);
