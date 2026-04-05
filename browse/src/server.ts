@@ -684,6 +684,23 @@ const idleCheckInterval = setInterval(() => {
   }
 }, 60_000);
 
+// ─── Parent-Process Watchdog ────────────────────────────────────────
+// When the spawning CLI process (e.g. a Claude Code session) exits, this
+// server can become an orphan — keeping chrome-headless-shell alive and
+// causing console-window flicker on Windows. Poll the parent PID every 15s
+// and self-terminate if it is gone.
+const BROWSE_PARENT_PID = parseInt(process.env.BROWSE_PARENT_PID || '0', 10);
+if (BROWSE_PARENT_PID > 0) {
+  setInterval(() => {
+    try {
+      process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only, no signal sent
+    } catch {
+      console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited, shutting down`);
+      shutdown();
+    }
+  }, 15_000);
+}
+
 // ─── Command Sets (from commands.ts — single source of truth) ───
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from './commands';
 export { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS };
