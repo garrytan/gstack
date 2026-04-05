@@ -18,7 +18,7 @@
       "properties": {
         "type": { "const": "pipeline_start" },
         "pipeline_slug": { "type": "string" },
-        "pipeline_type": { "type": "string", "enum": ["feature", "hotfix", "dev", "debug", "review", "deep-review", "deploy", "weekly", "performance", "security", "project-init"] },
+        "pipeline_type": { "type": "string", "enum": ["feature", "hotfix", "dev", "debug", "review", "deep-review", "deploy", "weekly", "performance", "security", "project-init", "retro", "plan", "sprint", "ship", "qa", "verify", "browse", "export", "import"] },
         "command": { "type": "string" },
         "arguments": { "type": "string", "default": "" },
         "ts": { "type": "string", "format": "date-time" }
@@ -77,7 +77,7 @@
         "trace_id": { "type": "string", "description": "Pipeline slug + run start time, or standalone-{timestamp}" },
         "pipeline_slug": { "type": "string" },
         "agent_type": { "type": "string" },
-        "department": { "type": "string", "enum": ["planning", "engineering", "evaluation", "qa", "management", "general"] },
+        "department": { "type": "string", "enum": ["planning", "engineering", "design", "evaluation", "qa", "management", "general"] },
         "model": { "type": "string" },
         "step_number": { "type": ["integer", "null"] },
         "description": { "type": "string" },

@@ -26,6 +26,22 @@
   --error-bg: rgba(239,68,68,0.08);
   --scrollbar-thumb: #ced4da;
   --code-bg: #f1f3f5;
+  /* Work Unit / Task 전용 색상 */
+  --priority-high:   #ff4d4f;
+  --priority-medium: #faad14;
+  --priority-low:    #8c8c8c;
+  --size-xs: #69b1ff;
+  --size-s:  #95de64;
+  --size-m:  #ffd666;
+  --size-l:  #ff9c6e;
+  --size-xl: #ff6b81;
+  --status-blocked:   #ff9c6e;
+  --status-backlog:   var(--text-muted);
+  --accent-dim:    color-mix(in srgb, var(--accent) 13%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 27%, transparent);
+  --budget-warn:   #faad14;
+  --budget-danger: #ff4d4f;
+  --budget-normal: var(--status-done);
 }
 
 [data-theme="dark"] {
@@ -45,6 +61,22 @@
   --scrollbar-thumb: #3a3d45;
   --code-bg: #1e2028;
   --status-pending: #2a2d38;
+  /* Work Unit / Task 전용 색상 */
+  --priority-high:   #ff4d4f;
+  --priority-medium: #faad14;
+  --priority-low:    #8c8c8c;
+  --size-xs: #69b1ff;
+  --size-s:  #95de64;
+  --size-m:  #ffd666;
+  --size-l:  #ff9c6e;
+  --size-xl: #ff6b81;
+  --status-blocked:   #ff9c6e;
+  --status-backlog:   var(--text-muted);
+  --accent-dim:    color-mix(in srgb, var(--accent) 13%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 27%, transparent);
+  --budget-warn:   #faad14;
+  --budget-danger: #ff4d4f;
+  --budget-normal: var(--status-done);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

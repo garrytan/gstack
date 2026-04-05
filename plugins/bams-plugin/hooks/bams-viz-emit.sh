@@ -9,6 +9,8 @@
 #   bash bams-viz-emit.sh step_end       <slug> <step_number> <status> [duration_ms]
 #   bash bams-viz-emit.sh agent_start    <slug> <call_id> <agent_type> [model] [description] [prompt_summary]
 #   bash bams-viz-emit.sh agent_end      <slug> <call_id> <agent_type> <status> [duration_ms] [result_summary]
+#   bash bams-viz-emit.sh work_unit_start <slug> [name]
+#   bash bams-viz-emit.sh work_unit_end   <slug> [status]
 #   bash bams-viz-emit.sh error          <slug> <message> [step_number] [error_code]
 set -uo pipefail
 
@@ -31,6 +33,42 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 TODAY=$(date -u +%Y-%m-%d)
 AGENTS_FILE="$AGENTS_DIR/${TODAY}.jsonl"
 
+# Active work units JSON array file (supports parallel work units)
+# Format: [{"slug":"...","name":"...","startedAt":"..."},...]
+ACTIVE_WU_FILE="/tmp/bams-active-workunits.json"
+
+# wu_list_read: read the active work units JSON array; returns [] if absent or invalid
+wu_list_read() {
+  if [ -f "$ACTIVE_WU_FILE" ]; then
+    jq -e '.' "$ACTIVE_WU_FILE" 2>/dev/null || echo "[]"
+  else
+    echo "[]"
+  fi
+}
+
+# wu_list_write: atomically write the JSON array to the active work units file
+wu_list_write() {
+  local data="$1"
+  printf '%s\n' "$data" > "${ACTIVE_WU_FILE}.tmp" && mv "${ACTIVE_WU_FILE}.tmp" "$ACTIVE_WU_FILE"
+}
+
+# wu_latest_slug: return the slug of the most recently started active work unit, or ""
+wu_latest_slug() {
+  local list
+  list=$(wu_list_read)
+  printf '%s' "$list" | jq -r 'if length > 0 then last.slug else "" end' 2>/dev/null || echo ""
+}
+
+# Migrate legacy single-file tracker to JSON array (one-time, backward-compat)
+if [ -f /tmp/bams-active-workunit ] && [ ! -f "$ACTIVE_WU_FILE" ]; then
+  _LEGACY_SLUG=$(cat /tmp/bams-active-workunit 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$_LEGACY_SLUG" ]; then
+    wu_list_write "[{\"slug\":\"${_LEGACY_SLUG}\",\"name\":\"${_LEGACY_SLUG}\",\"startedAt\":\"${TS}\"}]"
+  fi
+  # Keep legacy file in place so other tools that haven't updated yet still work;
+  # it will naturally become stale and can be removed once all callers migrate.
+fi
+
 # Department mapping from agent_type
 dept_map() {
   case "$1" in
@@ -47,9 +85,18 @@ dept_map() {
 case "$EVENT_TYPE" in
   pipeline_start)
     _PARENT="${6:-}"
-    jq -cn --arg slug "$SLUG" --arg ptype "${3:-unknown}" --arg cmd "${4:-}" --arg args "${5:-}" --arg parent "$_PARENT" --arg ts "$TS" \
+    # Pick the most recently started active work unit as the FK
+    ACTIVE_WU=$(wu_latest_slug)
+    jq -cn --arg slug "$SLUG" --arg ptype "${3:-unknown}" --arg cmd "${4:-}" --arg args "${5:-}" --arg parent "$_PARENT" --arg wu "$ACTIVE_WU" --arg ts "$TS" \
       '{type:"pipeline_start",pipeline_slug:$slug,pipeline_type:$ptype,command:$cmd,arguments:$args,ts:$ts}
-       + (if $parent != "" then {parent_pipeline_slug:$parent} else {} end)' >> "$EVENTS_FILE"
+       + (if $parent != "" then {parent_pipeline_slug:$parent} else {} end)
+       + (if $wu != "" then {work_unit_slug:$wu} else {} end)' >> "$EVENTS_FILE"
+    # Record pipeline link in work unit file
+    if [ -n "$ACTIVE_WU" ]; then
+      WU_FILE="${BAMS_ROOT}/artifacts/pipeline/${ACTIVE_WU}-workunit.jsonl"
+      jq -cn --arg wu "$ACTIVE_WU" --arg slug "$SLUG" --arg ptype "${3:-unknown}" --arg ts "$TS" \
+        '{type:"pipeline_linked",work_unit_slug:$wu,pipeline_slug:$slug,pipeline_type:$ptype,ts:$ts}' >> "$WU_FILE"
+    fi
     ;;
   pipeline_end)
     # Auto-calculate step counts from event file if not explicitly provided
@@ -180,6 +227,44 @@ case "$EVENT_TYPE" in
     # 3. If pipeline_start exists without pipeline_end, emit pipeline_end(interrupted)
     if grep -q '"pipeline_start"' "$EVENTS_FILE" 2>/dev/null &&        ! grep -q '"pipeline_end"' "$EVENTS_FILE" 2>/dev/null; then
       jq -cn         --arg slug "$SLUG"         --arg ts "$RECOVER_TS"         '{type:"pipeline_end",pipeline_slug:$slug,status:"interrupted",total_steps:0,completed_steps:0,failed_steps:0,skipped_steps:0,ts:$ts}' >> "$EVENTS_FILE"
+    fi
+    ;;
+  work_unit_start)
+    WU_FILE="${BAMS_ROOT}/artifacts/pipeline/${SLUG}-workunit.jsonl"
+    WU_NAME="${3:-$SLUG}"
+    jq -cn --arg slug "$SLUG" --arg name "$WU_NAME" --arg ts "$TS" \
+      '{type:"work_unit_start",work_unit_slug:$slug,work_unit_name:$name,ts:$ts}' >> "$WU_FILE"
+    # Append to active work units JSON array (parallel support)
+    _CURRENT_LIST=$(wu_list_read)
+    # Remove any existing entry with the same slug (idempotent re-start)
+    _UPDATED=$(printf '%s' "$_CURRENT_LIST" | jq --arg s "$SLUG" '[.[] | select(.slug != $s)]')
+    # Append new entry
+    _UPDATED=$(printf '%s' "$_UPDATED" | jq --arg s "$SLUG" --arg n "$WU_NAME" --arg t "$TS" \
+      '. + [{"slug":$s,"name":$n,"startedAt":$t}]')
+    wu_list_write "$_UPDATED"
+    # Also update legacy single-file tracker for backward compatibility
+    echo "$SLUG" > /tmp/bams-active-workunit
+    ;;
+  work_unit_end)
+    WU_FILE="${BAMS_ROOT}/artifacts/pipeline/${SLUG}-workunit.jsonl"
+    jq -cn --arg slug "$SLUG" --arg status "${3:-completed}" --arg ts "$TS" \
+      '{type:"work_unit_end",work_unit_slug:$slug,status:$status,ts:$ts}' >> "$WU_FILE"
+    # Remove only this slug from the active work units JSON array
+    _CURRENT_LIST=$(wu_list_read)
+    _UPDATED=$(printf '%s' "$_CURRENT_LIST" | jq --arg s "$SLUG" '[.[] | select(.slug != $s)]')
+    wu_list_write "$_UPDATED"
+    # Update legacy single-file tracker: if the removed slug was the active one,
+    # set it to the most recently started remaining work unit (or remove entirely)
+    if [ -f /tmp/bams-active-workunit ]; then
+      _LEGACY=$(cat /tmp/bams-active-workunit 2>/dev/null | tr -d '[:space:]')
+      if [ "$_LEGACY" = "$SLUG" ]; then
+        _NEXT=$(printf '%s' "$_UPDATED" | jq -r 'if length > 0 then last.slug else "" end' 2>/dev/null || echo "")
+        if [ -n "$_NEXT" ]; then
+          echo "$_NEXT" > /tmp/bams-active-workunit
+        else
+          rm -f /tmp/bams-active-workunit
+        fi
+      fi
     fi
     ;;
   error)

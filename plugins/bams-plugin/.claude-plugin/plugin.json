@@ -31,7 +31,13 @@
     "./agents/qa-strategy.md",
     "./agents/release-quality-gate.md",
     "./agents/ux-research.md",
-    "./agents/hr-agent.md"
+    "./agents/hr-agent.md",
+    "./agents/design-director.md",
+    "./agents/design-system-agent.md",
+    "./agents/graphic-designer.md",
+    "./agents/motion-designer.md",
+    "./agents/ui-designer.md",
+    "./agents/ux-designer.md"
   ],
   "skills": "./skills/",
   "hooks": {

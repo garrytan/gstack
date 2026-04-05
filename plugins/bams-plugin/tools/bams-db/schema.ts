@@ -379,3 +379,59 @@ export interface HrReportRow {
   created_at: string;
   updated_at: string;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Work Unit 스키마
+// 작업 단위(Work Unit) — 여러 파이프라인을 하나의 논리적 작업으로 묶는다
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * work_units 테이블 DDL
+ * 논리적 작업 단위. 여러 파이프라인이 하나의 work unit에 연결될 수 있다.
+ */
+export const WORK_UNITS_TABLE_DDL = `
+  CREATE TABLE IF NOT EXISTS work_units (
+    id              TEXT PRIMARY KEY,
+    slug            TEXT NOT NULL UNIQUE,
+    name            TEXT,
+    status          TEXT NOT NULL DEFAULT 'active',
+    started_at      TEXT NOT NULL,
+    ended_at        TEXT,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+  );
+`;
+
+/**
+ * pipeline_work_unit 테이블 DDL
+ * 파이프라인과 work unit 간 다대다 연결 테이블.
+ */
+export const PIPELINE_WORK_UNIT_TABLE_DDL = `
+  CREATE TABLE IF NOT EXISTS pipeline_work_unit (
+    pipeline_slug   TEXT NOT NULL,
+    work_unit_slug  TEXT NOT NULL,
+    linked_at       TEXT NOT NULL,
+    PRIMARY KEY (pipeline_slug, work_unit_slug)
+  );
+`;
+
+/**
+ * WorkUnit 레코드 타입
+ */
+export interface WorkUnitRow {
+  id: string;
+  slug: string;
+  name: string | null;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+}
+
+/**
+ * PipelineWorkUnit 연결 레코드 타입
+ */
+export interface PipelineWorkUnitRow {
+  pipeline_slug: string;
+  work_unit_slug: string;
+  linked_at: string;
+}

@@ -9,6 +9,16 @@
  *   const { pipelines } = await bamsApi.getPipelines();
  */
 
+import type {
+  WorkUnit,
+  WorkUnitTasksResponse,
+  WorkUnitCostsResponse,
+  BudgetStatusResponse,
+  HRReportsResponse,
+  HRReportDetailResponse,
+  WorkUnitDetailResponse,
+} from "./types";
+
 const BAMS_SERVER_BASE =
   process.env.NEXT_PUBLIC_BAMS_SERVER_URL ?? "http://localhost:3099";
 
@@ -208,6 +218,50 @@ export const bamsApi = {
     }
 
     return es;
+  },
+
+  // ── 워크유닛 ─────────────────────────────────────────────────
+
+  async getWorkUnits(): Promise<{ workunits: WorkUnit[] }> {
+    return apiFetch<{ workunits: WorkUnit[] }>("/api/workunits");
+  },
+
+  async getWorkUnit(slug: string): Promise<{ workunit: WorkUnit | null }> {
+    return apiFetch<{ workunit: WorkUnit | null }>(`/api/workunits/${slug}`);
+  },
+
+  async getActiveWorkUnit(): Promise<{ workunit: WorkUnit | null }> {
+    return apiFetch<{ workunit: WorkUnit | null }>("/api/workunits/active");
+  },
+
+  // ── Work Unit 확장 API ────────────────────────────────────────
+
+  async getWorkUnitTasks(slug: string): Promise<WorkUnitTasksResponse> {
+    return apiFetch<WorkUnitTasksResponse>(`/api/workunits/${encodeURIComponent(slug)}/tasks`);
+  },
+
+  async getWorkUnitCosts(slug: string): Promise<WorkUnitCostsResponse> {
+    return apiFetch<WorkUnitCostsResponse>(`/api/workunits/${encodeURIComponent(slug)}/costs`);
+  },
+
+  async getWorkUnitDetail(slug: string): Promise<WorkUnitDetailResponse> {
+    return apiFetch<WorkUnitDetailResponse>(`/api/workunits/${encodeURIComponent(slug)}`);
+  },
+
+  // ── 예산 ─────────────────────────────────────────────────────
+
+  async getBudgetStatus(): Promise<BudgetStatusResponse> {
+    return apiFetch<BudgetStatusResponse>("/api/budget/status");
+  },
+
+  // ── HR 보고서 ─────────────────────────────────────────────────
+
+  async getHRReports(): Promise<HRReportsResponse> {
+    return apiFetch<HRReportsResponse>("/api/hr/reports");
+  },
+
+  async getHRReport(id: string): Promise<HRReportDetailResponse> {
+    return apiFetch<HRReportDetailResponse>(`/api/hr/reports/${encodeURIComponent(id)}`);
   },
 
   // ── Health ───────────────────────────────────────────────────

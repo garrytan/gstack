@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import React from 'react'
 import { usePolling } from '@/hooks/usePolling'
 import { GanttTab } from '@/components/tabs/GanttTab'
@@ -11,8 +11,11 @@ import { TimelineTab } from '@/components/tabs/TimelineTab'
 import { LogsTab } from '@/components/tabs/LogsTab'
 import { MetaverseTab } from '@/components/tabs/MetaverseTab'
 import { HRTab } from '@/components/tabs/HRTab'
+import { WorkUnitsTab } from '@/components/tabs/WorkUnitsTab'
+import type { WorkUnit } from '@/lib/types'
 
 const TABS = [
+  { id: 'workunits', label: 'Work Units', icon: '📦' },
   { id: 'agents', label: 'Agents', icon: '🤖' },
   { id: 'metaverse', label: 'Metaverse', icon: '🌐' },
   { id: 'dag', label: 'DAG', icon: '🔀' },
@@ -32,7 +35,7 @@ interface PipelineListItem {
 }
 
 export function Dashboard() {
-  const [activeTab, setActiveTab] = useState<TabId>('agents')
+  const [activeTab, setActiveTab] = useState<TabId>('workunits')
   const [selectedPipeline, setSelectedPipeline] = useState<string | null>(null)
   const [theme, setTheme] = useState<'light' | 'dark'>('dark')
   const [logHighlightTs, setLogHighlightTs] = useState<string | null>(null)
@@ -42,6 +45,13 @@ export function Dashboard() {
 
   // Track if user has interacted with selector
   const [userSelected, setUserSelected] = useState(false)
+
+  // Work Unit selector
+  const [selectedWorkUnit, setSelectedWorkUnit] = useState<string | null>(null)
+  const [workUnitUserSelected, setWorkUnitUserSelected] = useState(false)
+
+  // Poll Work Unit list
+  const { data: workUnitsData } = usePolling<{ workunits: WorkUnit[] }>('/api/workunits', 5000)
 
   // Auto-select first pipeline only on initial load
   useEffect(() => {
@@ -64,6 +74,15 @@ export function Dashboard() {
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark')
   }, [])
+
+  // Work Unit 선택 시 pipeline selector 필터링
+  const filteredPipelines = useMemo(() => {
+    if (!selectedWorkUnit || !workUnitsData) return pipelines ?? []
+    const wu = workUnitsData.workunits.find(w => w.slug === selectedWorkUnit)
+    if (!wu) return pipelines ?? []
+    const wuPipelineSlugs = new Set(wu.pipelines.map(p => p.slug))
+    return (pipelines ?? []).filter(p => wuPipelineSlugs.has(p.slug))
+  }, [selectedWorkUnit, workUnitsData, pipelines])
 
   // Cross-tab navigation: Timeline -> Logs
   const handleNavigateToLogs = useCallback((timestamp?: string) => {
@@ -99,7 +118,40 @@ export function Dashboard() {
           <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 500 }}>v2.0</span>
         </div>
 
-        {/* Pipeline selector */}
+        {/* Work Unit selector */}
+        <select
+          value={selectedWorkUnit || ''}
+          onChange={e => {
+            setWorkUnitUserSelected(true)
+            setSelectedWorkUnit(e.target.value || null)
+            // WU 변경 시 pipeline 선택 초기화
+            setSelectedPipeline(null)
+            setUserSelected(false)
+          }}
+          style={{
+            padding: '5px 10px',
+            borderRadius: '6px',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            fontSize: '12px',
+            minWidth: '160px',
+            outline: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          <option value="">All Work Units</option>
+          {workUnitsData?.workunits.map(wu => (
+            <option key={wu.slug} value={wu.slug}>
+              {wu.name} ({wu.status})
+            </option>
+          ))}
+        </select>
+
+        {/* Separator */}
+        <span style={{ color: 'var(--border)', fontSize: '16px', lineHeight: 1, userSelect: 'none' }}>|</span>
+
+        {/* Pipeline selector — filtered by WU if selected */}
         <select
           value={selectedPipeline || ''}
           onChange={e => { setUserSelected(true); setSelectedPipeline(e.target.value || null) }}
@@ -115,13 +167,36 @@ export function Dashboard() {
             cursor: 'pointer',
           }}
         >
-          <option value="">All pipelines (전체)</option>
-          {pipelines?.map(p => (
+          <option value="">
+            {selectedWorkUnit ? 'All in WU' : 'All pipelines (전체)'}
+          </option>
+          {filteredPipelines.map(p => (
             <option key={p.slug} value={p.slug}>
               {p.slug} ({p.status})
             </option>
           ))}
         </select>
+
+        {/* Summary chips (WU 선택 시) */}
+        {selectedWorkUnit && workUnitsData && (() => {
+          const wu = workUnitsData.workunits.find(w => w.slug === selectedWorkUnit)
+          if (!wu) return null
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+              <span style={{
+                padding: '2px 8px',
+                borderRadius: '10px',
+                fontSize: '10px',
+                fontWeight: 600,
+                background: wu.status === 'active' ? 'rgba(59,130,246,0.15)' : 'rgba(34,197,94,0.12)',
+                color: wu.status === 'active' ? 'var(--status-running, #3b82f6)' : 'var(--status-done, #22c55e)',
+                border: `1px solid ${wu.status === 'active' ? 'rgba(59,130,246,0.3)' : 'rgba(34,197,94,0.25)'}`,
+              }}>
+                {wu.pipelines.length} pipelines
+              </span>
+            </div>
+          )
+        })()}
 
         <div style={{ flex: 1 }} />
 
@@ -197,6 +272,7 @@ export function Dashboard() {
       {/* Main content */}
       <main style={{ flex: 1, overflow: 'hidden' }}>
         <TabErrorBoundary key={activeTab}>
+          {activeTab === 'workunits' && <WorkUnitsTab pipelineSlug={selectedPipeline} />}
           {activeTab === 'dag' && <DagTab pipelineSlug={selectedPipeline} />}
           {activeTab === 'gantt' && <GanttTab pipelineSlug={selectedPipeline} />}
           {activeTab === 'org' && <OrgTab />}
@@ -222,8 +298,9 @@ export function Dashboard() {
         flexShrink: 0,
       }}>
         <span>
+          {selectedWorkUnit && `WU: ${selectedWorkUnit} | `}
           Pipeline: {selectedPipeline || 'none'}
-          {pipelines && ` | ${pipelines.length} pipeline(s)`}
+          {filteredPipelines && ` | ${filteredPipelines.length} pipeline(s)`}
         </span>
         <LastUpdateTime />
       </footer>

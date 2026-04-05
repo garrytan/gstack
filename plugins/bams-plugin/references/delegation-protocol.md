@@ -14,6 +14,7 @@ pipeline-orchestrator (총괄 지휘)
   │
   ├─▶ 기획부장 (product-strategy, business-analysis, ux-research, project-governance)
   ├─▶ 개발부장 (frontend-engineering, backend-engineering, platform-devops, data-integration)
+  ├─▶ 디자인부장 (ui-designer, ux-designer, graphic-designer, motion-designer, design-system-agent)
   ├─▶ QA부장 (qa-strategy, automation-qa, defect-triage, release-quality-gate)
   ├─▶ 평가부장 (product-analytics, experimentation, performance-evaluation, business-kpi)
   ├─▶ 인사 관리 (hr-agent — 에이전트 생명주기 관리)
@@ -141,6 +142,7 @@ pipeline-orchestrator (총괄 지휘)
 | `data` | data-integration | data-integration (리드) |
 | `qa` | qa-strategy | qa-strategy, automation-qa, defect-triage |
 | `planning` | product-strategy | product-strategy, business-analysis, ux-research |
+| `design` / `ui` / `ux` | design-director | ui-designer, ux-designer, graphic-designer, motion-designer, design-system-agent |
 | `security` | platform-devops | platform-devops (보안 전문) |
 | `agent-management` | hr-agent | hr-agent (에이전트 생명주기 관리) |
 
@@ -154,6 +156,7 @@ pipeline-orchestrator (총괄 지휘)
 | `src/app/api/**`, `src/lib/**`, `*.server.ts`, `prisma/**` | backend-engineering |
 | `Dockerfile`, `.github/**`, `deploy/**`, `infra/**` | platform-devops |
 | `src/lib/data/**`, `scripts/etl/**`, `*.sql` | data-integration |
+| `src/styles/**`, `src/design/**`, `*.figma`, `design-tokens/**`, `src/components/**/style*` | design-director |
 | `agents/*.md`, `references/jojikdo.json`, `agents-config.ts` | hr-agent |
 
 ### 3-3. 혼합 패턴 (복수 부서)

@@ -89,6 +89,7 @@ export interface Pipeline {
   steps: PipelineStep[]
   agents: AgentCall[]
   errors: PipelineError[]
+  workUnitSlug?: string
 }
 
 export interface PipelineStep {
@@ -260,4 +261,147 @@ export interface RetroJournalEntry {
   alert_count: number
   retro_metadata: RetroMetadata
   agents: HRAgent[]
+}
+
+// ── Work Unit types ──────────────────────────────────
+export interface WorkUnitEvent {
+  type: 'work_unit_start' | 'work_unit_end' | 'pipeline_linked'
+  work_unit_slug: string
+  ts: string
+  work_unit_name?: string
+  status?: string
+  pipeline_slug?: string
+  pipeline_type?: string
+}
+
+export interface WorkUnit {
+  slug: string
+  name: string
+  status: 'active' | 'completed' | 'abandoned'
+  startedAt: string
+  endedAt: string | null
+  pipelines: WorkUnitPipeline[]
+}
+
+export interface WorkUnitPipeline {
+  slug: string
+  type: string
+  linkedAt: string
+  status?: string
+}
+
+// ── bams-db Task 타입 (프론트엔드용 — cross-package import 없이 정의) ──
+export interface Task {
+  id: string
+  pipeline_slug: string
+  phase: number | null
+  step: string | null
+  title: string
+  description: string | null
+  status: 'backlog' | 'in_progress' | 'done' | 'blocked' | 'cancelled'
+  priority: 'high' | 'medium' | 'low'
+  size: 'XS' | 'S' | 'M' | 'L' | 'XL' | null
+  assignee_agent: string | null
+  checkout_locked_at: string | null
+  deps: string | null   // JSON string: '["TASK-A1","TASK-A2"]'
+  tags: string | null   // JSON string: '["backend","auth"]'
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Work Unit API Response 타입 ──────────────────────────────
+export interface WorkUnitTasksResponse {
+  work_unit_slug: string
+  pipelines: Array<{
+    slug: string
+    tasks: Task[]
+  }>
+  total_count: number
+  summary: {
+    backlog: number
+    in_progress: number
+    done: number
+    blocked: number
+    cancelled: number
+  }
+}
+
+export interface WorkUnitCostsResponse {
+  work_unit_slug: string
+  total_billed_cents: number
+  by_pipeline: Array<{
+    pipeline_slug: string
+    billed_cents: number
+    input_tokens: number
+    output_tokens: number
+  }>
+  by_agent: Array<{
+    agent_slug: string
+    model: string
+    billed_cents: number
+    input_tokens: number
+    output_tokens: number
+    cache_read_tokens: number
+    cache_write_tokens: number
+  }>
+}
+
+// BudgetStatus (bams-db/schema.ts BudgetStatus를 cross-package 없이 재정의)
+export interface BudgetPolicyRef {
+  id: string
+  scope_type: 'agent' | 'pipeline' | 'global'
+  scope_id: string | null
+  metric: string
+  window_kind: string
+  amount: number
+  warn_percent: number
+  hard_stop_enabled: number
+  is_active: number
+}
+
+export interface BudgetStatusItem {
+  policy: BudgetPolicyRef
+  current: number
+  percent: number
+  warn: boolean
+  hard_stop: boolean
+}
+
+export interface BudgetStatusResponse {
+  statuses: BudgetStatusItem[]
+}
+
+export interface HRReportsResponse {
+  reports: Array<{
+    id: string
+    retro_slug: string
+    report_date: string
+    source: string
+    period_start: string | null
+    period_end: string | null
+  }>
+}
+
+export interface HRReportDetailResponse {
+  id: string
+  retro_slug: string
+  report_date: string
+  source: string
+  period_start: string | null
+  period_end: string | null
+  data: Record<string, unknown>
+}
+
+export interface WorkUnitDetailResponse {
+  workunit: WorkUnit & {
+    task_summary: {
+      total: number
+      backlog: number
+      in_progress: number
+      done: number
+    }
+    total_billed_cents: number
+  }
 }

@@ -16,11 +16,14 @@ import {
   TASKS_TABLE_DDL,
   TASKS_INDEXES_DDL,
   TASK_EVENTS_TABLE_DDL,
+  WORK_UNITS_TABLE_DDL,
+  PIPELINE_WORK_UNIT_TABLE_DDL,
   type Task,
   type TaskEvent,
   type TaskStatus,
   type TaskPriority,
   type TaskSize,
+  type PipelineWorkUnitRow,
 } from "./schema.ts";
 
 /** DB 파일 기본 경로 */
@@ -52,6 +55,8 @@ export class TaskDB {
     this.db.exec(TASKS_TABLE_DDL);
     this.db.exec(TASK_EVENTS_TABLE_DDL);
     this.db.exec(TASKS_INDEXES_DDL);
+    this.db.exec(WORK_UNITS_TABLE_DDL);
+    this.db.exec(PIPELINE_WORK_UNIT_TABLE_DDL);
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -298,6 +303,44 @@ export class TaskDB {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Work Unit 연결 (TaskDB 경량 래퍼)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * work unit을 생성한다. 이미 존재하면 무시 (idempotent).
+   */
+  upsertWorkUnit(slug: string, name?: string): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO work_units (id, slug, name, status, started_at)
+      VALUES (?, ?, ?, 'active', datetime('now'))
+    `).run(randomUUID(), slug, name ?? slug);
+  }
+
+  /**
+   * 파이프라인을 work unit에 연결한다. 이미 연결되어 있으면 무시 (idempotent).
+   */
+  linkPipelineToWorkUnit(pipelineSlug: string, workUnitSlug: string): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO pipeline_work_unit (pipeline_slug, work_unit_slug, linked_at)
+      VALUES (?, ?, datetime('now'))
+    `).run(pipelineSlug, workUnitSlug);
+  }
+
+  /**
+   * work unit에 연결된 파이프라인 목록을 조회한다.
+   */
+  getWorkUnitPipelines(workUnitSlug: string): PipelineWorkUnitRow[] {
+    return this.db
+      .prepare<PipelineWorkUnitRow>(`
+        SELECT pipeline_slug, work_unit_slug, linked_at
+        FROM pipeline_work_unit
+        WHERE work_unit_slug = ?
+        ORDER BY linked_at ASC
+      `)
+      .all(workUnitSlug);
+  }
+
   /** DB 연결 종료 */
   close(): void {
     this.db.close();
@@ -483,43 +526,48 @@ export class CostDB {
     return policies.map((policy) => {
       let current = 0;
 
+      // window_kind 화이트리스트 검증 (DB 열거형이지만 방어적으로 처리)
+      const VALID_WINDOW_KINDS = ["session", "daily", "monthly"] as const;
+      const windowKind = VALID_WINDOW_KINDS.includes(policy.window_kind as typeof VALID_WINDOW_KINDS[number])
+        ? policy.window_kind
+        : "session";
+
       // 현재 사용량 계산 (window_kind에 따라 기간 필터)
       const windowFilter =
-        policy.window_kind === "session"
+        windowKind === "session"
           ? "1=1" // 세션: 전체 (파이프라인 단위)
-          : policy.window_kind === "daily"
+          : windowKind === "daily"
             ? "date(created_at) = date('now')"
             : "strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')";
 
-      if (policy.metric === "billed_cents") {
-        const whereClause =
-          scopeType === "agent"
-            ? `agent_slug = '${scopeId}' AND ${windowFilter}`
-            : scopeType === "pipeline"
-              ? `pipeline_slug = '${scopeId}' AND ${windowFilter}`
-              : windowFilter;
+      // scope별 WHERE 절과 파라미터를 prepared statement로 구성
+      const scopeColumn =
+        scopeType === "agent"
+          ? "agent_slug"
+          : scopeType === "pipeline"
+            ? "pipeline_slug"
+            : null;
 
-        const row = this.db
-          .prepare<{ val: number }>(
-            `SELECT COALESCE(SUM(billed_cents), 0) AS val FROM token_usage WHERE ${whereClause}`
-          )
-          .get();
-        current = row?.val ?? 0;
-      } else {
-        const whereClause =
-          scopeType === "agent"
-            ? `agent_slug = '${scopeId}' AND ${windowFilter}`
-            : scopeType === "pipeline"
-              ? `pipeline_slug = '${scopeId}' AND ${windowFilter}`
-              : windowFilter;
+      const whereClause = scopeColumn
+        ? `${scopeColumn} = ? AND ${windowFilter}`
+        : windowFilter;
 
-        const row = this.db
-          .prepare<{ val: number }>(
-            `SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS val FROM token_usage WHERE ${whereClause}`
-          )
-          .get();
-        current = row?.val ?? 0;
-      }
+      const params = scopeColumn ? [scopeId ?? null] : [];
+
+      // metric 화이트리스트 검증
+      const metricExpr =
+        policy.metric === "billed_cents"
+          ? "COALESCE(SUM(billed_cents), 0)"
+          : policy.metric === "total_tokens"
+            ? "COALESCE(SUM(input_tokens + output_tokens), 0)"
+            : "COALESCE(SUM(input_tokens + output_tokens), 0)"; // 안전한 기본값
+
+      const row = this.db
+        .prepare<{ val: number }>(
+          `SELECT ${metricExpr} AS val FROM token_usage WHERE ${whereClause}`
+        )
+        .get(...params);
+      current = row?.val ?? 0;
 
       const percent = policy.amount > 0 ? (current / policy.amount) * 100 : 0;
 
@@ -567,6 +615,167 @@ export class CostDB {
     }
 
     return { warn, block };
+  }
+
+
+  /**
+   * 여러 파이프라인의 비용을 집계하여 Work Unit 비용 요약을 반환한다.
+   * pipelineSlugs는 Work Unit에 연결된 파이프라인 목록이다.
+   */
+  getWorkUnitCost(pipelineSlugs: string[]): {
+    total_billed_cents: number;
+    by_pipeline: Array<{
+      pipeline_slug: string;
+      billed_cents: number;
+      input_tokens: number;
+      output_tokens: number;
+    }>;
+    by_agent: Array<{
+      agent_slug: string;
+      model: string;
+      billed_cents: number;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_write_tokens: number;
+    }>;
+  } {
+    if (pipelineSlugs.length === 0) {
+      return { total_billed_cents: 0, by_pipeline: [], by_agent: [] };
+    }
+
+    // pipeline별 집계 (parameterized: IN 절 placeholders)
+    const placeholders = pipelineSlugs.map(() => "?").join(", ");
+
+    const byPipeline = this.db
+      .prepare<{
+        pipeline_slug: string;
+        billed_cents: number;
+        input_tokens: number;
+        output_tokens: number;
+      }>(
+        `SELECT
+          pipeline_slug,
+          COALESCE(SUM(billed_cents), 0)              AS billed_cents,
+          COALESCE(SUM(input_tokens), 0)              AS input_tokens,
+          COALESCE(SUM(output_tokens), 0)             AS output_tokens
+        FROM token_usage
+        WHERE pipeline_slug IN (${placeholders})
+        GROUP BY pipeline_slug
+        ORDER BY billed_cents DESC`
+      )
+      .all(...pipelineSlugs);
+
+    const byAgent = this.db
+      .prepare<{
+        agent_slug: string;
+        model: string;
+        billed_cents: number;
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_tokens: number;
+        cache_write_tokens: number;
+      }>(
+        `SELECT
+          agent_slug,
+          model,
+          COALESCE(SUM(billed_cents), 0)              AS billed_cents,
+          COALESCE(SUM(input_tokens), 0)              AS input_tokens,
+          COALESCE(SUM(output_tokens), 0)             AS output_tokens,
+          COALESCE(SUM(cache_read_tokens), 0)         AS cache_read_tokens,
+          COALESCE(SUM(cache_write_tokens), 0)        AS cache_write_tokens
+        FROM token_usage
+        WHERE pipeline_slug IN (${placeholders})
+        GROUP BY agent_slug, model
+        ORDER BY billed_cents DESC`
+      )
+      .all(...pipelineSlugs);
+
+    const totalCents = byPipeline.reduce((sum, p) => sum + p.billed_cents, 0);
+
+    return {
+      total_billed_cents: totalCents,
+      by_pipeline: byPipeline,
+      by_agent: byAgent,
+    };
+  }
+
+  /**
+   * HR 보고서 목록을 조회한다.
+   * hr_reports 테이블이 없으면 빈 배열을 반환한다 (graceful degradation).
+   */
+  getHRReports(): Array<{
+    id: string;
+    retro_slug: string;
+    report_date: string;
+    source: string;
+    period_start: string | null;
+    period_end: string | null;
+  }> {
+    try {
+      return this.db
+        .prepare<{
+          id: string;
+          retro_slug: string;
+          report_date: string;
+          source: string;
+          period_start: string | null;
+          period_end: string | null;
+        }>(
+          `SELECT id, retro_slug, report_date, source, period_start, period_end
+           FROM hr_reports
+           ORDER BY report_date DESC, created_at DESC`
+        )
+        .all();
+    } catch {
+      // hr_reports 테이블이 없을 때 graceful degradation
+      return [];
+    }
+  }
+
+  /**
+   * 특정 HR 보고서를 id로 조회한다 (data JSON 포함).
+   * 없으면 null 반환.
+   */
+  getHRReport(id: string): {
+    id: string;
+    retro_slug: string;
+    report_date: string;
+    source: string;
+    period_start: string | null;
+    period_end: string | null;
+    data: Record<string, unknown>;
+  } | null {
+    try {
+      const row = this.db
+        .prepare<{
+          id: string;
+          retro_slug: string;
+          report_date: string;
+          source: string;
+          period_start: string | null;
+          period_end: string | null;
+          data: string;
+        }>("SELECT * FROM hr_reports WHERE id = ?")
+        .get(id);
+
+      if (!row) return null;
+
+      return {
+        id: row.id,
+        retro_slug: row.retro_slug,
+        report_date: row.report_date,
+        source: row.source,
+        period_start: row.period_start,
+        period_end: row.period_end,
+        data: (() => {
+          try { return JSON.parse(row.data) as Record<string, unknown>; }
+          catch { return {}; }
+        })(),
+      };
+    } catch {
+      return null;
+    }
   }
 
   close(): void {
@@ -716,3 +925,125 @@ export function getDefaultHrReportDB(): HrReportDB {
 }
 
 export type { HrReportRow } from "./schema.ts";
+
+// ─────────────────────────────────────────────────────────────
+// WorkUnitDB — Work Unit CRUD
+// ─────────────────────────────────────────────────────────────
+
+import {
+  WORK_UNITS_TABLE_DDL,
+  PIPELINE_WORK_UNIT_TABLE_DDL,
+  type WorkUnitRow,
+  type PipelineWorkUnitRow,
+} from "./schema.ts";
+
+export class WorkUnitDB {
+  private db: Database;
+
+  constructor(dbPath: string = DEFAULT_DB_PATH) {
+    const fs = require("fs");
+    const dir = dbPath.substring(0, dbPath.lastIndexOf("/"));
+    if (dir) fs.mkdirSync(dir, { recursive: true });
+
+    this.db = new Database(dbPath, { create: true });
+    this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA foreign_keys = ON;");
+    this.db.exec("PRAGMA synchronous = NORMAL;");
+    this.initSchema();
+  }
+
+  private initSchema(): void {
+    this.db.exec(WORK_UNITS_TABLE_DDL);
+    this.db.exec(PIPELINE_WORK_UNIT_TABLE_DDL);
+  }
+
+  /** Work Unit 생성 (idempotent — slug 중복 시 무시) */
+  createWorkUnit(slug: string, name: string, startedAt: string): void {
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO work_units (id, slug, name, status, started_at) VALUES (?, ?, ?, ?, ?)"
+      )
+      .run(randomUUID(), slug, name, "active", startedAt);
+  }
+
+  /** Work Unit 종료 */
+  endWorkUnit(slug: string, status: string, endedAt: string): void {
+    this.db
+      .prepare("UPDATE work_units SET status = ?, ended_at = ? WHERE slug = ?")
+      .run(status, endedAt, slug);
+  }
+
+  /** 전체 Work Unit 목록 조회 (생성일 내림차순) */
+  getWorkUnits(): WorkUnitRow[] {
+    return this.db
+      .prepare<WorkUnitRow>("SELECT * FROM work_units ORDER BY created_at DESC")
+      .all();
+  }
+
+  /** slug로 단일 Work Unit 조회 */
+  getWorkUnit(slug: string): WorkUnitRow | null {
+    return (
+      this.db
+        .prepare<WorkUnitRow>("SELECT * FROM work_units WHERE slug = ?")
+        .get(slug) ?? null
+    );
+  }
+
+  /** 현재 활성 Work Unit 조회 (가장 최근 1건) */
+  getActiveWorkUnit(): WorkUnitRow | null {
+    return (
+      this.db
+        .prepare<WorkUnitRow>(
+          "SELECT * FROM work_units WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
+        )
+        .get() ?? null
+    );
+  }
+
+  /** 파이프라인을 Work Unit에 연결 (idempotent — 중복 시 무시) */
+  linkPipeline(workUnitSlug: string, pipelineSlug: string, linkedAt: string): void {
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO pipeline_work_unit (pipeline_slug, work_unit_slug, linked_at) VALUES (?, ?, ?)"
+      )
+      .run(pipelineSlug, workUnitSlug, linkedAt);
+  }
+
+  /** Work Unit에 연결된 파이프라인 목록 조회 */
+  getPipelinesByWorkUnit(workUnitSlug: string): PipelineWorkUnitRow[] {
+    return this.db
+      .prepare<PipelineWorkUnitRow>(
+        "SELECT * FROM pipeline_work_unit WHERE work_unit_slug = ? ORDER BY linked_at"
+      )
+      .all(workUnitSlug);
+  }
+
+  /** 파이프라인이 속한 Work Unit 조회 */
+  getWorkUnitByPipeline(pipelineSlug: string): WorkUnitRow | null {
+    return (
+      this.db
+        .prepare<WorkUnitRow>(
+          `SELECT wu.* FROM work_units wu
+           JOIN pipeline_work_unit pwu ON wu.slug = pwu.work_unit_slug
+           WHERE pwu.pipeline_slug = ?`
+        )
+        .get(pipelineSlug) ?? null
+    );
+  }
+
+  /** DB 연결 종료 */
+  close(): void {
+    this.db.close();
+  }
+}
+
+// 싱글턴 WorkUnitDB
+let _defaultWorkUnitDb: WorkUnitDB | null = null;
+export function getDefaultWorkUnitDB(): WorkUnitDB {
+  if (!_defaultWorkUnitDb) {
+    _defaultWorkUnitDb = new WorkUnitDB();
+  }
+  return _defaultWorkUnitDb;
+}
+
+export type { WorkUnitRow, PipelineWorkUnitRow } from "./schema.ts";

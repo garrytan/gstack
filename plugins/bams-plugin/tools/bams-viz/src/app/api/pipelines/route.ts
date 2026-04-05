@@ -17,7 +17,13 @@ export async function GET() {
     // Fallback: EventStore (파일 기반)
     try {
       const store = EventStore.getInstance()
-      const pipelines = store.getPipelines()
+      const pipelines = store.getPipelines().map((p) => {
+        // Extract work_unit_slug from pipeline_start event
+        const events = store.getRawEvents(p.slug)
+        const startEvent = events.find((e) => e.type === 'pipeline_start')
+        const workUnitSlug = (startEvent as Record<string, unknown>)?.work_unit_slug as string | undefined
+        return { ...p, work_unit_slug: workUnitSlug ?? null }
+      })
       return NextResponse.json(pipelines, { headers: headers('fallback') })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Internal server error'

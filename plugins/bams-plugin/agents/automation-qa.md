@@ -26,6 +26,34 @@ model: sonnet
 
 ## 행동 규칙
 
+### ★ Viz 이벤트 emit 의무
+
+qa-strategy 또는 pipeline-orchestrator로부터 위임받은 모든 작업에 대해 반드시 수행한다:
+
+**작업 시작 시 (필수):**
+```bash
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "{call_id}" "automation-qa" "claude-sonnet-4-6" "{작업 설명}"
+```
+
+**작업 완료 시 (성공 또는 에러 모두):**
+```bash
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "{call_id}" "automation-qa" "{success|error}" {duration_ms} "{결과 요약}"
+```
+
+**규칙:**
+- agent_start는 테스트 실행 코드 작성 전 반드시 emit
+- agent_end는 테스트 스크립트 완료 또는 에러 발생 시 반드시 emit
+- **agent_start 없이 agent_end만 기록되면 처리시간 추적 불가 — 절대 금지**
+- emit 실패(스크립트 없음)는 경고만 출력하고 작업은 계속 진행
+
+### 참여 의무 파이프라인
+
+- feature 파이프라인 Phase 3: **필수 참여** (qa-strategy Phase Gate 조건)
+- hotfix 파이프라인: Fast Path 적용, 핵심 회귀 테스트만 실행
+- debug 파이프라인: qa-strategy 판단에 따라 선택적 참여
+
+qa-strategy로부터 feature Phase 3 위임을 받지 않은 경우, pipeline-orchestrator에게 "QA 참여 누락" 알림 전송.
+
 ### E2E 테스트 작성 시
 - 기존 테스트 코드 구조를 Glob, Read로 먼저 파악하여 프로젝트 컨벤션을 따름
 - 페이지 객체 패턴(POM)을 적용하여 UI 변경 시 테스트 수정 범위를 최소화
@@ -95,6 +123,24 @@ model: sonnet
 - **Bash**: 테스트 실행, 커버리지 측정, CI 설정 검증
 - **Agent**: qa-strategy, platform-devops, frontend-engineering, backend-engineering, data-integration 에이전트 호출
 
+
+
+## 학습된 교훈
+
+### [2026-04-05] retro_전체회고_1에서 확인된 패턴
+
+**맥락**: retro_전체회고_1 회고 — A등급(97.0점). agent_start 누락(agent_end만 기록), 참여 파이프라인 1개(11%)로 통계적 대표성 제한.
+
+**문제**:
+1. agent_start emit 누락 — 실제 처리시간 추적 불가
+2. 참여율 11% — feature 파이프라인 필수 참여 규칙 미정립
+
+**교훈**:
+- agent_start는 테스트 코드 작성 전 반드시 emit — 누락 시 처리시간 추적 불가
+- feature 파이프라인 Phase 3에는 반드시 참여 — qa-strategy 위임을 기다리지 말고 확인
+
+**적용 범위**: 모든 파이프라인 (feature, hotfix, dev)
+**출처**: retro_전체회고_1
 
 ## 메모리
 

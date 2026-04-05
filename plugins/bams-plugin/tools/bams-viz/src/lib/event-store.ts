@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs'
 import { join, resolve } from 'path'
-import type { Pipeline, AgentData, Trace, PipelineEvent } from './types'
+import type { Pipeline, AgentData, Trace, PipelineEvent, WorkUnitEvent, WorkUnit } from './types'
 import { parseEvents, parseAgentEvents, buildTraces } from './parser'
 import { generateFlowchart, generateGantt } from './mermaid-gen'
 import { getGlobalRoot } from './global-root'
@@ -37,6 +37,8 @@ class EventStore {
   private agentsDir: string = ''
   private initialized = false
 
+  private workunitDir: string = ''
+
   // File-level caches
   private pipelineCache = new Map<string, CacheEntry<Pipeline | null>>()
   private rawEventsCache = new Map<string, CacheEntry<PipelineEvent[]>>()
@@ -44,6 +46,8 @@ class EventStore {
   private agentCache = new Map<string, DirCacheEntry<AgentData>>()
   private pipelinesListCache: DirCacheEntry<Array<{ slug: string; type: string; status: string; startedAt: string | null }>> | null = null
   private tracesCache: DirCacheEntry<Trace[]> | null = null
+  private workunitCache = new Map<string, CacheEntry<WorkUnitEvent[]>>()
+  private workunitListCache: DirCacheEntry<WorkUnit[]> | null = null
 
   /** Validate slug/date to prevent path traversal.
    * Allows all Unicode letters and numbers (including Korean) via \p{L} and \p{N}.
@@ -65,6 +69,7 @@ class EventStore {
   initialize(crewRoot: string): void {
     this.pipelineDir = join(crewRoot, 'artifacts', 'pipeline')
     this.agentsDir = join(crewRoot, 'artifacts', 'agents')
+    this.workunitDir = join(crewRoot, 'artifacts', 'pipeline')
     mkdirSync(this.pipelineDir, { recursive: true })
     mkdirSync(this.agentsDir, { recursive: true })
     this.initialized = true
@@ -449,6 +454,134 @@ class EventStore {
       })),
     }
   }
+  // ── Work Unit methods ──────────────────────────────────
+
+  /**
+   * List all work unit slugs from *-workunit.jsonl files
+   */
+  getWorkUnitSlugs(): string[] {
+    this.ensureInitialized()
+    try {
+      return readdirSync(this.workunitDir)
+        .filter((f: string) => f.endsWith('-workunit.jsonl'))
+        .map((f: string) => f.replace('-workunit.jsonl', ''))
+        .sort()
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Get raw events for a specific work unit
+   */
+  getWorkUnitEvents(slug: string): WorkUnitEvent[] {
+    this.ensureInitialized()
+    EventStore.validateParam(slug)
+    const file = join(this.workunitDir, `${slug}-workunit.jsonl`)
+    const cached = this.workunitCache.get(slug)
+    if (this.isFileCacheValid(cached, file)) return cached.data
+    if (!existsSync(file)) return []
+    try {
+      const content = readFileSync(file, 'utf-8')
+      const lines = content.trim().split('\n').filter(Boolean)
+      const events: WorkUnitEvent[] = []
+      for (const line of lines) {
+        try { events.push(JSON.parse(line)) } catch { /* skip */ }
+      }
+      this.workunitCache.set(slug, { data: events, mtimeMs: this.getFileMtime(file), cachedAt: Date.now() })
+      return events
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Get all work units parsed into WorkUnit objects
+   */
+  getWorkUnits(): WorkUnit[] {
+    this.ensureInitialized()
+    const filter = (f: string) => f.endsWith('-workunit.jsonl')
+    if (this.isDirCacheValid(this.workunitListCache, this.workunitDir, filter)) {
+      return this.workunitListCache.data
+    }
+    try {
+      const slugs = this.getWorkUnitSlugs()
+      const filesMtime = this.getDirMtimes(this.workunitDir, filter)
+      const data = slugs.map((slug) => this.buildWorkUnit(slug)).filter((wu): wu is WorkUnit => wu !== null)
+      this.workunitListCache = { data, filesMtime, cachedAt: Date.now() }
+      return data
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Get the currently active work unit (started but not ended)
+   */
+  getActiveWorkUnit(): WorkUnit | null {
+    const workunits = this.getWorkUnits()
+    return workunits.find((wu) => wu.status === 'active') ?? null
+  }
+
+  /**
+   * Get all currently active work units (started but not ended)
+   */
+  getActiveWorkUnits(): WorkUnit[] {
+    const workunits = this.getWorkUnits()
+    return workunits.filter((wu) => wu.status === 'active')
+  }
+
+  /**
+   * Build a WorkUnit object from its events
+   */
+  private buildWorkUnit(slug: string): WorkUnit | null {
+    const events = this.getWorkUnitEvents(slug)
+    if (events.length === 0) return null
+
+    const startEvent = events.find((e) => e.type === 'work_unit_start')
+    if (!startEvent) return null
+
+    const endEvent = events.find((e) => e.type === 'work_unit_end')
+    const linkedEvents = events.filter((e) => e.type === 'pipeline_linked')
+
+    let status: WorkUnit['status'] = 'active'
+    if (endEvent) {
+      status = (endEvent.status === 'abandoned') ? 'abandoned' : 'completed'
+    }
+
+    // Deduplicate by pipeline slug (Map preserves first occurrence)
+    const pipelineMap = new Map<string, { slug: string; type: string; linkedAt: string; status: string | undefined }>()
+    for (const e of linkedEvents) {
+      const slug = e.pipeline_slug ?? ''
+      if (slug && !pipelineMap.has(slug)) {
+        pipelineMap.set(slug, {
+          slug,
+          type: e.pipeline_type ?? 'unknown',
+          linkedAt: e.ts ?? new Date().toISOString(),
+          status: undefined,
+        })
+      }
+    }
+    const pipelines = Array.from(pipelineMap.values())
+
+    // Enrich pipeline status from EventStore pipeline data
+    for (const p of pipelines) {
+      const pipeline = this.getPipeline(p.slug)
+      if (pipeline) {
+        p.status = pipeline.status
+      }
+    }
+
+    return {
+      slug,
+      name: startEvent.work_unit_name ?? slug,
+      status,
+      startedAt: startEvent.ts,
+      endedAt: endEvent?.ts ?? null,
+      pipelines,
+    }
+  }
+
   /**
    * Delete a pipeline's event file and invalidate caches
    */

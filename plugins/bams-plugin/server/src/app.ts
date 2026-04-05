@@ -19,6 +19,14 @@
  *   POST /api/costs                       — 토큰 사용량 기록 (B4 구현 후 활성화)
  *   GET  /api/costs                       — 비용 조회 (쿼리: scope=, window=)
  *   GET  /api/events/stream               — SSE 스트리밍 (C2용, 쿼리: pipeline=, agent=)
+ *   GET  /api/workunits                    — work unit 목록 (파이프라인 수 포함)
+ *   GET  /api/workunits/active             — 활성 work unit 목록
+ *   GET  /api/workunits/:slug              — work unit 상세 (이벤트 + 파이프라인 + task_summary + total_billed_cents)
+ *   GET  /api/workunits/:slug/tasks        — work unit 하위 전체 task 목록
+ *   GET  /api/workunits/:slug/costs        — work unit 비용 집계
+ *   GET  /api/budget/status               — 전역 예산 현황
+ *   GET  /api/hr/reports                  — HR 보고서 목록
+ *   GET  /api/hr/reports/:id              — HR 보고서 상세
  */
 
 import { readFileSync, existsSync, readdirSync } from "fs";
@@ -117,6 +125,42 @@ function getPipelineSlugs(): string[] {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Work Unit 이벤트 파일 파싱
+// ─────────────────────────────────────────────────────────────
+
+interface WorkUnitEvent {
+  type: string;
+  work_unit_slug?: string;
+  name?: string;
+  ts?: string;
+  [key: string]: unknown;
+}
+
+function parseWorkUnitEvents(slug: string): WorkUnitEvent[] {
+  const file = join(PIPELINE_EVENTS_DIR, `${slug}-workunit.jsonl`);
+  if (!existsSync(file)) return [];
+  try {
+    return readFileSync(file, "utf-8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as WorkUnitEvent);
+  } catch {
+    return [];
+  }
+}
+
+function getWorkUnitSlugs(): string[] {
+  if (!existsSync(PIPELINE_EVENTS_DIR)) return [];
+  try {
+    return readdirSync(PIPELINE_EVENTS_DIR)
+      .filter((f) => f.endsWith("-workunit.jsonl"))
+      .map((f) => f.replace("-workunit.jsonl", ""));
+  } catch {
+    return [];
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // 에이전트 목록 파싱
 // ─────────────────────────────────────────────────────────────
 
@@ -182,6 +226,7 @@ async function handleRequest(req: Request): Promise<Response> {
         pipeline_type: startEvent?.pipeline_type ?? "unknown",
         started_at: startEvent?.ts ?? null,
         last_event_at: lastEvent?.ts ?? null,
+        work_unit_slug: (startEvent?.work_unit_slug as string) ?? null,
         task_summary: summary,
       };
     });
@@ -396,6 +441,234 @@ async function handleRequest(req: Request): Promise<Response> {
         ...corsHeaders(),
       },
     });
+  }
+
+  // ── GET /api/workunits/active ──────────────────────────────────
+  // NOTE: /active must match BEFORE the /:slug route
+  if (method === "GET" && path === "/api/workunits/active") {
+    const wuSlugs = getWorkUnitSlugs();
+    const active = wuSlugs
+      .map((wuSlug) => {
+        const events = parseWorkUnitEvents(wuSlug);
+        const startEvent = events.find((e) => e.type === "work_unit_start");
+        const endEvent = events.find((e) => e.type === "work_unit_end");
+        if (!startEvent || endEvent) return null; // not active
+        // Count linked pipelines
+        const pipelineSlugs = getPipelineSlugs();
+        const linkedPipelines = pipelineSlugs.filter((ps) => {
+          const pEvents = parsePipelineEvents(ps);
+          const pStart = pEvents.find((e) => e.type === "pipeline_start");
+          return pStart?.work_unit_slug === wuSlug;
+        });
+        return {
+          slug: wuSlug,
+          name: (startEvent.name as string) ?? wuSlug,
+          status: "active" as const,
+          startedAt: startEvent.ts ?? null,
+          endedAt: null,
+          pipelineCount: linkedPipelines.length,
+        };
+      })
+      .filter(Boolean);
+    return jsonResponse({ workunits: active });
+  }
+
+  // ── GET /api/workunits ──────────────────────────────────────
+  if (method === "GET" && path === "/api/workunits") {
+    const wuSlugs = getWorkUnitSlugs();
+    const pipelineSlugs = getPipelineSlugs();
+    const workunits = wuSlugs.map((wuSlug) => {
+      const events = parseWorkUnitEvents(wuSlug);
+      const startEvent = events.find((e) => e.type === "work_unit_start");
+      const endEvent = events.find((e) => e.type === "work_unit_end");
+      // Count linked pipelines
+      const linkedCount = pipelineSlugs.filter((ps) => {
+        const pEvents = parsePipelineEvents(ps);
+        const pStart = pEvents.find((e) => e.type === "pipeline_start");
+        return pStart?.work_unit_slug === wuSlug;
+      }).length;
+      return {
+        slug: wuSlug,
+        name: (startEvent?.name as string) ?? wuSlug,
+        status: endEvent ? "completed" : startEvent ? "active" : "unknown",
+        startedAt: startEvent?.ts ?? null,
+        endedAt: endEvent?.ts ?? null,
+        pipelineCount: linkedCount,
+      };
+    });
+    return jsonResponse({ workunits });
+  }
+
+  // ── GET /api/workunits/:slug ────────────────────────────────
+  const workunitDetailMatch = path.match(/^\/api\/workunits\/([^/]+)$/);
+  if (method === "GET" && workunitDetailMatch) {
+    const wuSlug = decodeURIComponent(workunitDetailMatch[1]);
+    const events = parseWorkUnitEvents(wuSlug);
+    if (events.length === 0) {
+      return errorResponse(`Work unit not found: ${wuSlug}`, 404);
+    }
+    const startEvent = events.find((e) => e.type === "work_unit_start");
+    const endEvent = events.find((e) => e.type === "work_unit_end");
+    // Find linked pipelines — DB join 우선, JSONL fallback
+    let pipelines: Array<{ slug: string; type: string; linkedAt: string | null }> = [];
+    try {
+      const wuDb = getDefaultDB();
+      const dbRows = wuDb.getWorkUnitPipelines(wuSlug);
+      if (dbRows.length > 0) {
+        // DB 기반: pipeline_work_unit 테이블에서 조회
+        pipelines = dbRows.map((row) => {
+          const pEvents = parsePipelineEvents(row.pipeline_slug);
+          const pStart = pEvents.find((e) => e.type === "pipeline_start");
+          return {
+            slug: row.pipeline_slug,
+            type: (pStart?.pipeline_type as string) ?? "unknown",
+            linkedAt: row.linked_at ?? null,
+          };
+        });
+      }
+    } catch {
+      // DB 조회 실패 시 JSONL fallback으로 진행
+    }
+    // JSONL fallback: DB 레코드 없으면 기존 방식 사용
+    if (pipelines.length === 0) {
+      const pipelineSlugs = getPipelineSlugs();
+      pipelines = pipelineSlugs
+        .map((ps) => {
+          const pEvents = parsePipelineEvents(ps);
+          const pStart = pEvents.find((e) => e.type === "pipeline_start");
+          if (pStart?.work_unit_slug !== wuSlug) return null;
+          return {
+            slug: ps,
+            type: (pStart.pipeline_type as string) ?? "unknown",
+            linkedAt: pStart.ts ?? null,
+          };
+        })
+        .filter((p): p is { slug: string; type: string; linkedAt: string | null } => p !== null);
+    }
+    // Work Unit task_summary + 비용 집계 추가
+    const db = getDefaultDB();
+    const pipelineSlugsList = pipelines.map((p) => (p as { slug: string }).slug);
+    let taskSummary = { total: 0, backlog: 0, in_progress: 0, done: 0, blocked: 0, cancelled: 0 };
+    for (const ps of pipelineSlugsList) {
+      const s = db.getPipelineSummary(ps);
+      taskSummary = {
+        total: taskSummary.total + s.total,
+        backlog: taskSummary.backlog + s.backlog,
+        in_progress: taskSummary.in_progress + s.in_progress,
+        done: taskSummary.done + s.done,
+        blocked: taskSummary.blocked + s.blocked,
+        cancelled: taskSummary.cancelled + s.cancelled,
+      };
+    }
+    const costDb = getDefaultCostDB();
+    let totalBilledCents = 0;
+    for (const ps of pipelineSlugsList) {
+      const cost = costDb.getPipelineCost(ps);
+      totalBilledCents += cost.total_cents;
+    }
+
+    return jsonResponse({
+      slug: wuSlug,
+      name: (startEvent?.name as string) ?? wuSlug,
+      status: endEvent ? "completed" : startEvent ? "active" : "unknown",
+      startedAt: startEvent?.ts ?? null,
+      endedAt: endEvent?.ts ?? null,
+      events,
+      pipelines,
+      task_summary: taskSummary,
+      total_billed_cents: totalBilledCents,
+    });
+  }
+
+  // ── GET /api/workunits/:slug/tasks ─────────────────────────────
+  const workunitTasksMatch = path.match(/^\/api\/workunits\/([^/]+)\/tasks$/);
+  if (method === "GET" && workunitTasksMatch) {
+    const wuSlug = decodeURIComponent(workunitTasksMatch[1]);
+    const events = parseWorkUnitEvents(wuSlug);
+    if (events.length === 0) {
+      return errorResponse(`Work unit not found: ${wuSlug}`, 404);
+    }
+    // 연결된 파이프라인 조회
+    const pipelineSlugs = getPipelineSlugs().filter((ps) => {
+      const pEvents = parsePipelineEvents(ps);
+      const pStart = pEvents.find((e) => e.type === "pipeline_start");
+      return pStart?.work_unit_slug === wuSlug;
+    });
+    const db = getDefaultDB();
+    const pipelinesWithTasks = pipelineSlugs.map((ps) => ({
+      slug: ps,
+      tasks: db.getTasksByPipeline(ps),
+    }));
+    const allTasks = pipelinesWithTasks.flatMap((p) => p.tasks);
+    const summary = {
+      backlog: allTasks.filter((t) => t.status === "backlog").length,
+      in_progress: allTasks.filter((t) => t.status === "in_progress").length,
+      done: allTasks.filter((t) => t.status === "done").length,
+      blocked: allTasks.filter((t) => t.status === "blocked").length,
+      cancelled: allTasks.filter((t) => t.status === "cancelled").length,
+    };
+    return jsonResponse({
+      work_unit_slug: wuSlug,
+      pipelines: pipelinesWithTasks,
+      total_count: allTasks.length,
+      summary,
+    });
+  }
+
+  // ── GET /api/workunits/:slug/costs ───────────────────────────────
+  const workunitCostsMatch = path.match(/^\/api\/workunits\/([^/]+)\/costs$/);
+  if (method === "GET" && workunitCostsMatch) {
+    const wuSlug = decodeURIComponent(workunitCostsMatch[1]);
+    const events = parseWorkUnitEvents(wuSlug);
+    if (events.length === 0) {
+      return errorResponse(`Work unit not found: ${wuSlug}`, 404);
+    }
+    const pipelineSlugs = getPipelineSlugs().filter((ps) => {
+      const pEvents = parsePipelineEvents(ps);
+      const pStart = pEvents.find((e) => e.type === "pipeline_start");
+      return pStart?.work_unit_slug === wuSlug;
+    });
+    const costDb = getDefaultCostDB();
+    const result = costDb.getWorkUnitCost(pipelineSlugs);
+    return jsonResponse({ work_unit_slug: wuSlug, ...result });
+  }
+
+  // ── GET /api/budget/status ───────────────────────────────────────
+  if (method === "GET" && path === "/api/budget/status") {
+    try {
+      const costDb = getDefaultCostDB();
+      const statuses = costDb.getBudgetStatus("global");
+      return jsonResponse({ statuses });
+    } catch (err) {
+      return errorResponse(`Failed to get budget status: ${err}`, 500);
+    }
+  }
+
+  // ── GET /api/hr/reports ─────────────────────────────────────────
+  if (method === "GET" && path === "/api/hr/reports") {
+    try {
+      const costDb = getDefaultCostDB();
+      const reports = costDb.getHRReports();
+      return jsonResponse({ reports });
+    } catch (err) {
+      return errorResponse(`Failed to get HR reports: ${err}`, 500);
+    }
+  }
+
+  // ── GET /api/hr/reports/:id ─────────────────────────────────────
+  const hrReportDetailMatch = path.match(/^\/api\/hr\/reports\/([^/]+)$/);
+  if (method === "GET" && hrReportDetailMatch) {
+    const reportId = hrReportDetailMatch[1];
+    try {
+      const costDb = getDefaultCostDB();
+      const report = costDb.getHRReport(reportId);
+      if (!report) {
+        return errorResponse(`HR report not found: ${reportId}`, 404);
+      }
+      return jsonResponse(report);
+    } catch (err) {
+      return errorResponse(`Failed to get HR report: ${err}`, 500);
+    }
   }
 
   // ── Health Check ─────────────────────────────────────────────
