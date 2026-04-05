@@ -616,3 +616,38 @@ describe('Task 14: switchChatTab uses DocumentFragment, not innerHTML round-trip
   });
 });
 
+// ─── Task 15: pollChat/switchChatTab reentrancy guard ────────────────────────
+
+describe('Task 15: pollChat reentrancy guard and deferred call in switchChatTab', () => {
+  it('pollInProgress guard variable is declared at module scope', () => {
+    // Must be declared before any function definitions (within first 2000 chars)
+    const moduleTop = SIDEPANEL_SRC.slice(0, 2000);
+    expect(moduleTop).toContain('pollInProgress');
+  });
+
+  it('pollChat function checks and sets pollInProgress', () => {
+    const fn = extractFunction(SIDEPANEL_SRC, 'pollChat');
+    expect(fn).toBeTruthy();
+    expect(fn).toContain('pollInProgress');
+  });
+
+  it('pollChat resets pollInProgress in finally block', () => {
+    const fn = extractFunction(SIDEPANEL_SRC, 'pollChat');
+    // The finally block must contain the reset
+    const finallyIdx = fn.indexOf('finally');
+    expect(finallyIdx).toBeGreaterThan(-1);
+    const finallyBlock = fn.slice(finallyIdx, finallyIdx + 60);
+    expect(finallyBlock).toContain('pollInProgress');
+  });
+
+  it('switchChatTab calls pollChat via setTimeout (not directly)', () => {
+    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
+    // Must use setTimeout to defer pollChat — no direct call at the end
+    expect(fn).toMatch(/setTimeout\s*\(\s*pollChat/);
+    // Must NOT have a bare direct call `pollChat()` at the end (outside setTimeout)
+    // We check that there is no standalone `pollChat()` call (outside setTimeout wrapper)
+    const withoutSetTimeout = fn.replace(/setTimeout\s*\(\s*pollChat[^)]*\)/g, '');
+    expect(withoutSetTimeout).not.toMatch(/\bpollChat\s*\(\s*\)/);
+  });
+});
+
