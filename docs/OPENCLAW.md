@@ -50,34 +50,17 @@ OpenClaw decides at spawn time which tier of gstack support to use:
 
 ### Dispatch routing guide (for AGENTS.md)
 
-Add this to OpenClaw's AGENTS.md:
+The complete ready-to-paste section lives in `openclaw/agents-gstack-section.md`.
+Copy it into your OpenClaw AGENTS.md.
 
-```markdown
-## Coding Task Dispatch
+Key behavioral rules (these go ABOVE the dispatch tiers):
 
-When asked for coding work, pick the dispatch tier:
-
-SIMPLE: "fix this typo," "update that config," single-file changes
--> sessions_spawn(runtime: "acp", prompt: "<just the task>")
-
-MEDIUM: multi-file features, refactors, skill edits
--> sessions_spawn(runtime: "acp", prompt: "<gstack-lite content>\n\n<task>")
-
-HEAVY: needs a specific gstack methodology
--> sessions_spawn(runtime: "acp", prompt: "Load gstack. Run /qa https://...")
-  Skills: /cso, /review, /qa, /ship, /investigate, /design-review, /benchmark
-
-FULL: build a complete feature, multi-day scope, needs planning + review
--> sessions_spawn(runtime: "acp", prompt: "<gstack-full content>\n\n<task>")
-  Claude Code runs: /autoplan -> implement -> /ship -> report back
-
-PLAN: user wants to plan a Claude Code project, spec out a feature, or design
-  something before any code is written
--> sessions_spawn(runtime: "acp", prompt: "<gstack-plan content>\n\n<task>")
-  Claude Code runs: /office-hours -> /autoplan -> saves plan file -> reports back
-  The orchestrator persists the plan link to its memory/knowledge store.
-  When the user is ready to implement, spawn a new FULL session pointing at the plan.
-```
+1. **Always spawn, never redirect.** When the user asks to use ANY gstack skill,
+   ALWAYS spawn a Claude Code session. Never tell the user to open Claude Code.
+2. **Resolve the repo.** If the user names a repo, set the working directory. If
+   unknown, ask which repo.
+3. **Autoplan runs end-to-end.** Spawn, let it run the full pipeline, report back
+   in chat. User should never have to leave Telegram.
 
 ### CLAUDE.md collision handling
 
@@ -119,14 +102,15 @@ knowledge base, or whatever is configured in AGENTS.md). When the user is
 ready to build, spawn a FULL session that references the saved plan.
 
 ### Native methodology skills
-Conversational skills for non-coding work, generated from gstack source templates:
-- `openclaw/office-hours.md` — Product interrogation (6 forcing questions)
-- `openclaw/ceo-review.md` — Strategic challenge (10-section review, 4 modes)
-- `openclaw/investigate.md` — Operational debugging (4-phase methodology)
-- `openclaw/retro.md` — Operational retrospective (weekly review)
+Published to ClaHub. Install with `clawhub install`:
+- `gstack-openclaw-office-hours` — Product interrogation (6 forcing questions)
+- `gstack-openclaw-ceo-review` — Strategic challenge (10-section review, 4 modes)
+- `gstack-openclaw-investigate` — Operational debugging (4-phase methodology)
+- `gstack-openclaw-retro` — Operational retrospective (weekly review)
 
-These are lean adaptations. They contain the methodology, not the full gstack
-skill infrastructure (no browse, no telemetry, no preamble).
+Source lives in `openclaw/skills/` in the gstack repo. These are hand-crafted
+adaptations of the gstack methodology for OpenClaw's conversational context.
+No gstack infrastructure (no browse, no telemetry, no preamble).
 
 ## Spawned session detection
 

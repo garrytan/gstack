@@ -78,6 +78,24 @@ when Claude Code has gstack installed. Paste this to your OpenClaw agent:
 See [docs/OPENCLAW.md](docs/OPENCLAW.md) for advanced dispatch routing and
 the gstack-lite/gstack-full prompt templates.
 
+### Native OpenClaw Skills (via ClaHub)
+
+Four methodology skills that work directly in your OpenClaw agent, no Claude Code
+session needed. Install from ClaHub:
+
+```
+clawhub install gstack-openclaw-office-hours gstack-openclaw-ceo-review gstack-openclaw-investigate gstack-openclaw-retro
+```
+
+| Skill | What it does |
+|-------|-------------|
+| `gstack-openclaw-office-hours` | Product interrogation with 6 forcing questions |
+| `gstack-openclaw-ceo-review` | Strategic challenge with 4 scope modes |
+| `gstack-openclaw-investigate` | Root cause debugging methodology |
+| `gstack-openclaw-retro` | Weekly engineering retrospective |
+
+These are conversational skills. Your OpenClaw agent runs them directly via chat.
+
 ### Other AI Agents
 
 gstack works on 8 AI coding agents, not just Claude. Setup auto-detects which
