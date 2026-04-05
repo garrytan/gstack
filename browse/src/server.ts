@@ -282,6 +282,10 @@ function loadSession(): SidebarSession | null {
   try {
     const activeFile = path.join(SESSIONS_DIR, 'active.json');
     const activeData = JSON.parse(fs.readFileSync(activeFile, 'utf-8'));
+    if (typeof activeData.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(activeData.id)) {
+      console.warn('[browse] Invalid session ID in active.json — ignoring');
+      return null;
+    }
     const sessionFile = path.join(SESSIONS_DIR, activeData.id, 'session.json');
     const session = JSON.parse(fs.readFileSync(sessionFile, 'utf-8')) as SidebarSession;
     // Validate worktree still exists — crash may have left stale path
@@ -1086,7 +1090,6 @@ async function start() {
           mode: browserManager.getConnectionMode(),
           uptime: Math.floor((Date.now() - startTime) / 1000),
           tabs: browserManager.getTabCount(),
-          currentUrl: browserManager.getCurrentUrl(),
           // Auth token for extension bootstrap. Safe: /health is localhost-only.
           // Previously served via .auth.json in extension dir, but that breaks
           // read-only .app bundles and codesigning. Extension reads token from here.
@@ -1095,7 +1098,6 @@ async function start() {
           agent: {
             status: agentStatus,
             runningFor: agentStartTime ? Date.now() - agentStartTime : null,
-            currentMessage,
             queueLength: messageQueue.length,
           },
           session: sidebarSession ? { id: sidebarSession.id, name: sidebarSession.name } : null,

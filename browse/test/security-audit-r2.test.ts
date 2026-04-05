@@ -346,3 +346,92 @@ describe('Round-2 finding 3: isValidQueueEntry checks stateFile for path travers
     expect(stateBlock).toMatch(/includes\s*\(\s*['"]\.\.['"]\s*\)/);
   });
 });
+
+// ─── Task 5: /health endpoint must not expose sensitive fields ───────────────
+
+describe('/health endpoint security', () => {
+  it('must not expose currentMessage', () => {
+    const block = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/refs'");
+    expect(block).not.toContain('currentMessage');
+  });
+  it('must not expose currentUrl', () => {
+    const block = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/refs'");
+    expect(block).not.toContain('currentUrl');
+  });
+});
+
+// ─── Task 6: frame --url ReDoS fix ──────────────────────────────────────────
+
+describe('frame --url ReDoS fix', () => {
+  it('frame --url section does not pass raw user input to new RegExp()', () => {
+    const block = sliceBetween(META_SRC, "target === '--url'", 'else {');
+    expect(block).not.toMatch(/new RegExp\(args\[/);
+  });
+
+  it('frame --url section uses escapeRegExp before constructing RegExp', () => {
+    const block = sliceBetween(META_SRC, "target === '--url'", 'else {');
+    expect(block).toContain('escapeRegExp');
+  });
+
+  it('escapeRegExp neutralizes catastrophic patterns (behavioral)', async () => {
+    const mod = await import('../src/meta-commands.ts');
+    const { escapeRegExp } = mod as any;
+    expect(typeof escapeRegExp).toBe('function');
+    const evil = '(a+)+$';
+    const escaped = escapeRegExp(evil);
+    const start = Date.now();
+    new RegExp(escaped).test('aaaaaaaaaaaaaaaaaaaaaaaaaaa!');
+    expect(Date.now() - start).toBeLessThan(100);
+  });
+});
+
+// ─── Task 7: watch-mode guard in chain command ───────────────────────────────
+
+describe('chain command watch-mode guard', () => {
+  it('chain loop contains isWatching() guard before write dispatch', () => {
+    const block = sliceBetween(META_SRC, 'for (const cmd of commands)', 'Wait for network to settle');
+    expect(block).toContain('isWatching');
+  });
+
+  it('chain loop BLOCKED message appears for write commands in watch mode', () => {
+    const block = sliceBetween(META_SRC, 'for (const cmd of commands)', 'Wait for network to settle');
+    expect(block).toContain('BLOCKED: write commands disabled in watch mode');
+  });
+});
+
+// ─── Task 8: Cookie domain validation ───────────────────────────────────────
+
+describe('cookie-import domain validation', () => {
+  it('cookie-import handler validates cookie domain against page domain', () => {
+    const block = sliceBetween(WRITE_SRC, "case 'cookie-import':", "case 'cookie-import-browser':");
+    expect(block).toContain('cookieDomain');
+    expect(block).toContain('defaultDomain');
+    expect(block).toContain('does not match current page domain');
+  });
+
+  it('cookie-import-browser handler validates --domain against page hostname', () => {
+    const block = sliceBetween(WRITE_SRC, "case 'cookie-import-browser':", "case 'style':");
+    expect(block).toContain('normalizedDomain');
+    expect(block).toContain('pageHostname');
+    expect(block).toContain('does not match current page domain');
+  });
+});
+
+// ─── Task 9: loadSession ID validation ──────────────────────────────────────
+
+describe('loadSession session ID validation', () => {
+  it('loadSession validates session ID format before using it in a path', () => {
+    const fn = extractFunction(SERVER_SRC, 'loadSession');
+    expect(fn).toBeTruthy();
+    // Must contain the alphanumeric regex guard
+    expect(fn).toMatch(/\[a-zA-Z0-9_-\]/);
+  });
+
+  it('loadSession returns null on invalid session ID', () => {
+    const fn = extractFunction(SERVER_SRC, 'loadSession');
+    const block = fn.slice(fn.indexOf('activeData.id'));
+    // Must warn and return null
+    expect(block).toContain('Invalid session ID');
+    expect(block).toContain('return null');
+  });
+});
