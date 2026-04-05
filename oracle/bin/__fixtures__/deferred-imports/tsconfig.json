@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "module": "esnext",
+    "target": "es2020",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "strict": true
+  },
+  "include": ["src"]
+}
