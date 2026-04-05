@@ -1060,12 +1060,13 @@ async function start() {
         const welcomePath = (() => {
           // Check project-local designs first, then global
           const slug = process.env.GSTACK_SLUG || 'unknown';
-          const projectWelcome = `${process.env.HOME}/.gstack/projects/${slug}/designs/welcome-page-20260331/finalized.html`;
+          const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
+          const projectWelcome = `${homeDir}/.gstack/projects/${slug}/designs/welcome-page-20260331/finalized.html`;
           try { if (require('fs').existsSync(projectWelcome)) return projectWelcome; } catch (err: any) {
             console.warn('[browse] Error checking project welcome page:', err.message);
           }
           // Fallback: built-in welcome page from gstack install
-          const skillRoot = process.env.GSTACK_SKILL_ROOT || `${process.env.HOME}/.claude/skills/gstack`;
+          const skillRoot = process.env.GSTACK_SKILL_ROOT || `${homeDir}/.claude/skills/gstack`;
           const builtinWelcome = `${skillRoot}/browse/src/welcome.html`;
           try { if (require('fs').existsSync(builtinWelcome)) return builtinWelcome; } catch (err: any) {
             console.warn('[browse] Error checking builtin welcome page:', err.message);
@@ -1080,8 +1081,14 @@ async function start() {
             console.error('[browse] Failed to read welcome page:', welcomePath, err.message);
           }
         }
-        // No welcome page found — redirect to about:blank
-        return new Response('', { status: 302, headers: { 'Location': 'about:blank' } });
+        // No welcome page found — serve a simple fallback (avoid ERR_UNSAFE_REDIRECT on Windows)
+        return new Response(
+          `<!DOCTYPE html><html><head><title>GStack Browser</title>
+          <style>body{background:#111;color:#fff;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
+          .msg{text-align:center;opacity:.7;}.gold{color:#f5a623;font-size:2em;margin-bottom:12px;}</style></head>
+          <body><div class="msg"><div class="gold">◈</div><p>GStack Browser ready.</p><p style="font-size:.85em">Waiting for commands from Claude Code.</p></div></body></html>`,
+          { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
       }
 
       // Health check — no auth required, does NOT reset idle timer
@@ -1097,7 +1104,11 @@ async function start() {
           // comes from a Chrome extension (Origin: chrome-extension://...).
           // Previously served unconditionally, but that leaks the token if the
           // server is tunneled to the internet (ngrok, SSH tunnel).
-          ...(req.headers.get('origin')?.startsWith('chrome-extension://') ? { token: AUTH_TOKEN } : {}),
+          // In headed mode the server is always local, so return token unconditionally
+          // (fixes Playwright Chromium extensions that don't send Origin header).
+          ...(browserManager.getConnectionMode() === 'headed' ||
+              req.headers.get('origin')?.startsWith('chrome-extension://')
+              ? { token: AUTH_TOKEN } : {}),
           chatEnabled: true,
           agent: {
             status: agentStatus,
