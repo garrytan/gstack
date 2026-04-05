@@ -486,6 +486,9 @@ create_codex_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     ln -snf "$gstack_dir/bin" "$codex_gstack/bin"
   fi
+  if [ -d "$gstack_dir/node_modules" ]; then
+    ln -snf "$gstack_dir/node_modules" "$codex_gstack/node_modules"
+  fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     ln -snf "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
   fi
