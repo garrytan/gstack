@@ -21,14 +21,33 @@ function sliceBetween(source: string, startMarker: string, endMarker: string): s
 }
 
 describe('Server auth security', () => {
-  // Test 1: /health serves auth token for extension bootstrap (localhost-only, safe)
-  // Token is gated on chrome-extension:// Origin header to prevent leaking
-  // when the server is tunneled to the internet.
-  test('/health serves auth token only for chrome extension origin', () => {
-    const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/refs'");
-    expect(healthBlock).toContain('AUTH_TOKEN');
-    // Must be gated on chrome-extension Origin
-    expect(healthBlock).toContain('chrome-extension://');
+  // Test 1: /health must NOT serve the auth token (CSO finding #1 — spoofable Origin)
+  // Extension reads token from ~/.gstack/.auth.json instead.
+  test('/health does NOT serve auth token', () => {
+    const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/connect'");
+    // Token must not appear in the health response construction
+    expect(healthBlock).not.toContain('token: AUTH_TOKEN');
+    expect(healthBlock).not.toContain('token: AUTH');
+    // Should not expose browsing activity when tunneled
+    expect(healthBlock).toContain('not through tunnel');
+  });
+
+  // Test 1b: /health strips sensitive fields when tunneled
+  test('/health strips currentUrl, agent, session when tunnel is active', () => {
+    const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/connect'");
+    // currentUrl and agent.currentMessage must be gated on !tunnelActive
+    expect(healthBlock).toContain('!tunnelActive');
+    expect(healthBlock).toContain('currentUrl');
+    expect(healthBlock).toContain('currentMessage');
+    // Tunnel URL must NOT be exposed in health response
+    expect(healthBlock).not.toContain('url: tunnelUrl');
+  });
+
+  // Test 1c: newtab must check domain restrictions (CSO finding #5)
+  test('newtab enforces domain restrictions', () => {
+    const newtabBlock = sliceBetween(SERVER_SRC, "newtab with ownership for scoped tokens", "Block mutation commands while watching");
+    expect(newtabBlock).toContain('checkDomain');
+    expect(newtabBlock).toContain('Domain not allowed');
   });
 
   // Test 2: /refs endpoint requires auth via validateAuth
@@ -62,5 +81,99 @@ describe('Server auth security', () => {
     expect(streamBlock).toContain('AUTH_TOKEN');
     // Should not have wildcard CORS for the SSE stream
     expect(streamBlock).not.toContain("Access-Control-Allow-Origin': '*'");
+  });
+
+  // Test 7: /command accepts scoped tokens (not just root)
+  // This was the Wintermute bug — /command was BELOW the blanket validateAuth gate
+  // which only accepts root tokens. Scoped tokens got 401'd before reaching getTokenInfo.
+  test('/command endpoint sits ABOVE the blanket root-only auth gate', () => {
+    const commandIdx = SERVER_SRC.indexOf("url.pathname === '/command'");
+    const blanketGateIdx = SERVER_SRC.indexOf("Auth-required endpoints (root token only)");
+    // /command must appear BEFORE the blanket gate in source order
+    expect(commandIdx).toBeGreaterThan(0);
+    expect(blanketGateIdx).toBeGreaterThan(0);
+    expect(commandIdx).toBeLessThan(blanketGateIdx);
+  });
+
+  // Test 7b: /command uses getTokenInfo (accepts scoped tokens), not validateAuth (root-only)
+  test('/command uses getTokenInfo for auth, not validateAuth', () => {
+    const commandBlock = sliceBetween(SERVER_SRC, "url.pathname === '/command'", "Auth-required endpoints");
+    expect(commandBlock).toContain('getTokenInfo');
+    expect(commandBlock).not.toContain('validateAuth');
+  });
+
+  // Test 8: /tunnel/start requires root token
+  test('/tunnel/start requires root token', () => {
+    const tunnelBlock = sliceBetween(SERVER_SRC, "/tunnel/start", "Refs endpoint");
+    expect(tunnelBlock).toContain('isRootRequest');
+    expect(tunnelBlock).toContain('Root token required');
+  });
+
+  // Test 8b: /tunnel/start checks ngrok native config paths
+  test('/tunnel/start reads ngrok native config files', () => {
+    const tunnelBlock = sliceBetween(SERVER_SRC, "/tunnel/start", "Refs endpoint");
+    expect(tunnelBlock).toContain("'ngrok.yml'");
+    expect(tunnelBlock).toContain('authtoken');
+  });
+
+  // Test 8c: /tunnel/start returns already_active if tunnel is running
+  test('/tunnel/start returns already_active when tunnel exists', () => {
+    const tunnelBlock = sliceBetween(SERVER_SRC, "/tunnel/start", "Refs endpoint");
+    expect(tunnelBlock).toContain('already_active');
+    expect(tunnelBlock).toContain('tunnelActive');
+  });
+
+  // Test 9: /pair requires root token
+  test('/pair requires root token', () => {
+    const pairBlock = sliceBetween(SERVER_SRC, "url.pathname === '/pair'", "/tunnel/start");
+    expect(pairBlock).toContain('isRootRequest');
+    expect(pairBlock).toContain('Root token required');
+  });
+
+  // Test 9b: /pair calls createSetupKey (not createToken)
+  test('/pair creates setup keys, not session tokens', () => {
+    const pairBlock = sliceBetween(SERVER_SRC, "url.pathname === '/pair'", "/tunnel/start");
+    expect(pairBlock).toContain('createSetupKey');
+    expect(pairBlock).not.toContain('createToken');
+  });
+
+  // Test 10: tab ownership check happens before command dispatch
+  test('tab ownership check runs before command dispatch for scoped tokens', () => {
+    const handleBlock = sliceBetween(SERVER_SRC, "async function handleCommand", "Block mutation commands while watching");
+    expect(handleBlock).toContain('checkTabAccess');
+    expect(handleBlock).toContain('Tab not owned by your agent');
+  });
+
+  // Test 10b: chain command pre-validates subcommand scopes
+  test('chain handler checks scope for each subcommand before dispatch', () => {
+    const metaSrc = fs.readFileSync(path.join(import.meta.dir, '../src/meta-commands.ts'), 'utf-8');
+    const chainBlock = metaSrc.slice(
+      metaSrc.indexOf("case 'chain':"),
+      metaSrc.indexOf("case 'diff':")
+    );
+    expect(chainBlock).toContain('checkScope');
+    expect(chainBlock).toContain('Chain rejected');
+    expect(chainBlock).toContain('tokenInfo');
+  });
+
+  // Test 10c: handleMetaCommand accepts tokenInfo parameter
+  test('handleMetaCommand accepts tokenInfo for chain scope checking', () => {
+    const metaSrc = fs.readFileSync(path.join(import.meta.dir, '../src/meta-commands.ts'), 'utf-8');
+    const sig = metaSrc.slice(
+      metaSrc.indexOf('export async function handleMetaCommand'),
+      metaSrc.indexOf('): Promise<string>')
+    );
+    expect(sig).toContain('tokenInfo');
+  });
+
+  // Test 10d: server passes tokenInfo to handleMetaCommand
+  test('server passes tokenInfo to handleMetaCommand', () => {
+    expect(SERVER_SRC).toContain('handleMetaCommand(command, args, browserManager, shutdown, tokenInfo)');
+  });
+
+  // Test 10e: activity attribution includes clientId
+  test('activity events include clientId from token', () => {
+    const commandStartBlock = sliceBetween(SERVER_SRC, "Activity: emit command_start", "try {");
+    expect(commandStartBlock).toContain('clientId: tokenInfo?.clientId');
   });
 });

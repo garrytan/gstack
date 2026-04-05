@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.9.0] - 2026-04-05 — `/pair-agent`: Multi-Agent Browser Sharing
+
+Your AI agents can now share a browser. Type `/pair-agent`, paste the output into your other agent (OpenClaw, Hermes, Codex, Cursor, anything), and it can browse the web using your browser. Each agent gets its own tab. They can't mess with each other. You watch everything happen in a visible Chromium window.
+
+This is the first time multiple AI agents from different companies can coordinate through a shared browser with real security boundaries. One command to pair. One paste to connect.
+
+### Added
+
+- **`/pair-agent` skill.** Type `/pair-agent` in Claude Code. Pick your agent (OpenClaw, Hermes, Codex, Cursor, generic). If ngrok is installed, the tunnel starts automatically. A visible browser window opens so you can watch. The skill prints a copy-pasteable instruction block the other agent follows to connect. Five minutes to pair, 24 hours of access. Same-machine shortcut: `--local openclaw` writes credentials directly, no copy-paste needed.
+- **Tab isolation.** Each agent owns the tabs it creates. Write commands (click, fill, navigate) are blocked on tabs you don't own. Read commands (snapshot, text, screenshot) work on any tab. The user's pre-existing tabs are root-only. No agent can stomp on another.
+- **Scoped token security.** Per-agent tokens with read/write/admin/meta command scopes, domain glob restrictions (e.g. `*.myapp.com`), rate limiting (10 req/s default), and 24h expiry. Setup keys expire in 5 minutes and can only be used once. Admin scope (JS execution, cookie access) is denied by default. The `chain` command validates every subcommand against the token's scope before executing any of them.
+- **On-demand tunnel.** If ngrok is installed and authed, `/pair-agent` auto-starts a tunnel. No manual setup. The `/health` endpoint strips sensitive data (browsing URLs, user messages) when tunneled so it's safe to expose to the internet.
+- **Activity attribution.** Every command in the activity stream includes `clientId` so you can see which agent did what in the sidebar.
+
 ## [0.15.8.0] - 2026-04-04 — Smarter Reviews
 
 Code reviews now learn from your decisions. Skip a finding once and it stays quiet until the code changes. Specialists auto-suggest test stubs alongside their findings. And silent specialists that never find anything get auto-gated so reviews stay fast.

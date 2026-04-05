@@ -46,6 +46,10 @@ export class BrowserManager {
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
 
+  // ─── Tab Ownership (multi-agent isolation) ──────────────
+  // Maps tabId → clientId. Unowned tabs (not in this map) are root-only for writes.
+  private tabOwnership: Map<number, string> = new Map();
+
   // ─── Ref Map (snapshot → @e1, @e2, @c1, @c2, ...) ────────
   private refMap: Map<string, RefEntry> = new Map();
 
@@ -506,7 +510,7 @@ export class BrowserManager {
   }
 
   // ─── Tab Management ────────────────────────────────────────
-  async newTab(url?: string): Promise<number> {
+  async newTab(url?: string, clientId?: string): Promise<number> {
     if (!this.context) throw new Error('Browser not launched');
 
     // Validate URL before allocating page to avoid zombie tabs on rejection
@@ -518,6 +522,11 @@ export class BrowserManager {
     const id = this.nextTabId++;
     this.pages.set(id, page);
     this.activeTabId = id;
+
+    // Record tab ownership for multi-agent isolation
+    if (clientId) {
+      this.tabOwnership.set(id, clientId);
+    }
 
     // Wire up console/network/dialog capture
     this.wirePageEvents(page);
@@ -536,6 +545,7 @@ export class BrowserManager {
 
     await page.close();
     this.pages.delete(tabId);
+    this.tabOwnership.delete(tabId);
 
     // Switch to another tab if we closed the active one
     if (tabId === this.activeTabId) {
@@ -609,6 +619,32 @@ export class BrowserManager {
 
   getTabCount(): number {
     return this.pages.size;
+  }
+
+  // ─── Tab Ownership (multi-agent isolation) ──────────────
+
+  /** Get the owner of a tab, or null if unowned (root-only for writes). */
+  getTabOwner(tabId: number): string | null {
+    return this.tabOwnership.get(tabId) || null;
+  }
+
+  /**
+   * Check if a client can access a tab.
+   * Read access is always allowed. Write access requires ownership.
+   * Unowned tabs are root-only for writes.
+   */
+  checkTabAccess(tabId: number, clientId: string, isWrite: boolean): boolean {
+    if (clientId === 'root') return true;
+    if (!isWrite) return true;
+    const owner = this.tabOwnership.get(tabId);
+    if (!owner) return false; // unowned = root-only for writes
+    return owner === clientId;
+  }
+
+  /** Transfer tab ownership to a different client. */
+  transferTab(tabId: number, toClientId: string): void {
+    if (!this.pages.has(tabId)) throw new Error(`Tab ${tabId} not found`);
+    this.tabOwnership.set(tabId, toClientId);
   }
 
   async getTabListWithTitles(): Promise<Array<{ id: number; url: string; title: string; active: boolean }>> {

@@ -7,6 +7,7 @@ import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
 import { validateNavigationUrl } from './url-validation';
+import { checkScope, type TokenInfo } from './token-registry';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -48,7 +49,8 @@ export async function handleMetaCommand(
   command: string,
   args: string[],
   bm: BrowserManager,
-  shutdown: () => Promise<void> | void
+  shutdown: () => Promise<void> | void,
+  tokenInfo?: TokenInfo | null
 ): Promise<string> {
   switch (command) {
     // ─── Tabs ──────────────────────────────────────────
@@ -232,6 +234,21 @@ export async function handleMetaCommand(
       const { handleReadCommand } = await import('./read-commands');
       const { handleWriteCommand } = await import('./write-commands');
 
+      // Pre-validate ALL subcommands against the token's scope before executing any.
+      // This prevents partial execution where some subcommands succeed before a
+      // scope violation is hit, leaving the browser in an inconsistent state.
+      if (tokenInfo && tokenInfo.clientId !== 'root') {
+        for (const cmd of commands) {
+          const [name] = cmd;
+          if (!checkScope(tokenInfo, name)) {
+            throw new Error(
+              `Chain rejected: subcommand "${name}" not allowed by your token scope (${tokenInfo.scopes.join(', ')}). ` +
+              `All subcommands must be within scope.`
+            );
+          }
+        }
+      }
+
       let lastWasWrite = false;
       for (const cmd of commands) {
         const [name, ...cmdArgs] = cmd;
@@ -247,7 +264,7 @@ export async function handleMetaCommand(
             }
             lastWasWrite = false;
           } else if (META_COMMANDS.has(name)) {
-            result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
+            result = await handleMetaCommand(name, cmdArgs, bm, shutdown, tokenInfo);
             lastWasWrite = false;
           } else {
             throw new Error(`Unknown command: ${name}`);
