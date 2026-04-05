@@ -15,11 +15,31 @@ import { resolveConfig } from './config';
 import type { Frame } from 'playwright';
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
+// Must match the hardened version in write-commands.ts (symlink resolution)
+// Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp → /private/tmp)
+const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()].map(d => {
+  try { return fs.realpathSync(d); } catch { return d; }
+});
 
 export function validateOutputPath(filePath: string): void {
   const resolved = path.resolve(filePath);
-  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
+
+  // Resolve real path of the parent directory to catch symlinks.
+  // The file itself may not exist yet (e.g., screenshot output).
+  let dir = path.dirname(resolved);
+  let realDir: string;
+  try {
+    realDir = fs.realpathSync(dir);
+  } catch {
+    try {
+      realDir = fs.realpathSync(path.dirname(dir));
+    } catch {
+      throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    }
+  }
+
+  const realResolved = path.join(realDir, path.basename(resolved));
+  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realResolved, dir));
   if (!isSafe) {
     throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
