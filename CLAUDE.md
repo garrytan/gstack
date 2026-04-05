@@ -186,10 +186,10 @@ failure modes. The sidebar spans 5 files across 2 codebases (extension + server)
 with non-obvious ordering dependencies. The doc exists to prevent the kind of
 silent failures that come from not understanding the cross-component flow.
 
-## Vendored symlink awareness
+## Dev symlink awareness
 
 When developing gstack, `.claude/skills/gstack` may be a symlink back to this
-working directory (gitignored). This means skill changes are **live immediately** —
+working directory (gitignored). This means skill changes are **live immediately**,
 great for rapid iteration, risky during big refactors where half-written skills
 could break other Claude Code sessions using gstack concurrently.
 
@@ -204,9 +204,11 @@ symlink or a real copy. If it's a symlink to your working directory, be aware th
 with a SKILL.md symlink inside (e.g., `qa/SKILL.md -> gstack/qa/SKILL.md`). This
 ensures Claude discovers them as top-level skills, not nested under `gstack/`.
 Names are either short (`qa`) or namespaced (`gstack-qa`), controlled by
-`skill_prefix` in `~/.gstack/config.yaml`. When vendoring into a project, run
-`./setup` after symlinking to create the per-skill directories. Pass `--no-prefix`
-or `--prefix` to skip the interactive prompt.
+`skill_prefix` in `~/.gstack/config.yaml`. Pass `--no-prefix` or `--prefix` to
+skip the interactive prompt.
+
+**Note:** Vendoring gstack into a project's repo is deprecated. Use global install
++ `./setup --team` instead. See README.md for team mode instructions.
 
 **For plan reviews:** When reviewing plans that modify skill templates or the
 gen-skill-docs pipeline, consider whether the changes should be tested in isolation

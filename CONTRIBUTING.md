@@ -367,7 +367,7 @@ to `gstack/...`, so they'll resolve to the global install automatically.
 
 ### Switching prefix mode
 
-If you vendored gstack with one prefix setting and want to switch:
+If you installed gstack with one prefix setting and want to switch:
 
 ```bash
 cd .claude/skills/gstack && ./setup --no-prefix   # switch to /qa, /ship

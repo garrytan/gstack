@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.15.9.0] - 2026-04-04 — Team Mode
+
+Teams can now keep every developer on the same gstack version automatically. No more vendoring 342 files into your repo. No more version drift across branches. No more "who upgraded gstack last?" Slack threads. One command, every developer is current.
+
+Hat tip to Jared Friedman for the design.
+
+### Added
+
+- **`./setup --team`.** Registers a `SessionStart` hook in `~/.claude/settings.json` that auto-updates gstack at the start of each Claude Code session. Runs in background (zero latency), throttled to once/hour, network-failure-safe, completely silent. `./setup --no-team` reverses it.
+- **`./setup -q` / `--quiet`.** Suppresses all informational output. Used by the session-update hook but also useful for CI and scripted installs.
+- **`gstack-team-init` command.** Generates repo-level bootstrap files in two flavors: `optional` (gentle CLAUDE.md suggestion, one-time offer per developer) or `required` (CLAUDE.md enforcement + PreToolUse hook that blocks work without gstack installed).
+- **`gstack-settings-hook` helper.** DRY utility for adding/removing hooks in Claude Code's `settings.json`. Atomic writes (.tmp + rename) prevent corruption.
+- **`gstack-session-update` script.** The SessionStart hook target. Background fork, PID-based lockfile with stale recovery, `GIT_TERMINAL_PROMPT=0` to prevent credential prompt hangs, debug log at `~/.gstack/analytics/session-update.log`.
+- **Vendoring deprecation in preamble.** Every skill now detects vendored gstack copies in the project and offers one-time migration to team mode. "Want me to do it for you?" beats "here are 4 manual steps."
+
+### Changed
+
+- **Vendoring is deprecated.** README no longer recommends copying gstack into your repo. Global install + `--team` is the way. `--local` flag still works but prints a deprecation warning.
+- **Uninstall cleans up hooks.** `gstack-uninstall` now removes the SessionStart hook from `~/.claude/settings.json`.
+
 ## [0.15.8.0] - 2026-04-04 — Smarter Reviews
 
 Code reviews now learn from your decisions. Skip a finding once and it stays quiet until the code changes. Specialists auto-suggest test stubs alongside their findings. And silent specialists that never find anything get auto-gated so reviews stay fast.

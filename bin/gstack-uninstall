@@ -227,6 +227,13 @@ if [ -n "$_GIT_ROOT" ]; then
   fi
 fi
 
+# ─── Remove SessionStart hook from Claude Code settings ─────
+SETTINGS_HOOK="$(dirname "$0")/gstack-settings-hook"
+SESSION_UPDATE="$(dirname "$0")/gstack-session-update"
+if [ -x "$SETTINGS_HOOK" ]; then
+  "$SETTINGS_HOOK" remove "$SESSION_UPDATE" 2>/dev/null && REMOVED+=("SessionStart hook") || true
+fi
+
 # ─── Remove global state ────────────────────────────────────
 if [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ]; then
   rm -rf "$STATE_DIR"
