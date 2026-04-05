@@ -1063,6 +1063,8 @@ descriptions of what 10/10 looks like.
 
 ## Review Sections (7 passes, after scope is agreed)
 
+**Anti-skip rule:** Never condense, abbreviate, or skip any review pass (1-7) regardless of plan type (strategy, spec, code, infra). Every pass in this skill exists for a reason. "This is a strategy doc so design passes don't apply" is always wrong — design gaps are where implementation breaks down. If a pass genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
+
 ## Prior Learnings
 
 Search for relevant learnings from previous sessions:

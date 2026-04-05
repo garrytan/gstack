@@ -353,7 +353,9 @@ After mode is selected, confirm which implementation approach (from 0C-bis) appl
 Once selected, commit fully. Do not silently drift.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-## Review Sections (10 sections, after scope and mode are agreed)
+## Review Sections (11 sections, after scope and mode are agreed)
+
+**Anti-skip rule:** Never condense, abbreviate, or skip any review section (1-11) regardless of plan type (strategy, spec, code, infra). Every section in this skill exists for a reason. "This is a strategy doc so implementation sections don't apply" is always wrong — implementation details are where strategy breaks down. If a section genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
 
 ### Section 1: Architecture Review
 Evaluate and diagram:
