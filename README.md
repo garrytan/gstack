@@ -310,6 +310,16 @@ Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-desig
 /cso, /autoplan, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn.
 ```
 
+
+## Community & Ecosystem
+
+Tools that extend gstack or work alongside it:
+
+- **[Conductor](https://conductor.build)** — Run multiple Claude Code sessions in parallel, each in its own isolated workspace.
+- **[forbotsake](https://github.com/forbotsake/forbotsake)** — Marketing skills for Claude Code. Same architecture (markdown, slash commands, MIT). Takes technical founders from "I shipped but have no marketing" to a published campaign. `git clone https://github.com/forbotsake/forbotsake ~/.claude/skills/forbotsake`
+
+_Building something on gstack? Open a PR to add it here._
+
 ## License
 
 MIT. Free forever. Go build something.
