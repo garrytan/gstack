@@ -105,6 +105,12 @@ gstack/
 ├── design-shotgun/  # /design-shotgun skill (visual design exploration)
 ├── open-gstack-browser/  # /open-gstack-browser skill (launch GStack Browser)
 ├── connect-chrome/  # symlink → open-gstack-browser (backwards compat)
+├── research/        # Research binary CLI (academic API search + dedup)
+│   ├── src/         # CLI + API clients + dedup logic
+│   ├── test/        # Unit tests (dedup + mocked API tests)
+│   └── dist/        # Compiled binary (research-tools)
+├── research-synthesis/  # /research-synthesis skill (end-to-end literature review)
+├── research-peer-review/ # /research-peer-review skill (adversarial academic merit review)
 ├── design/          # Design binary CLI (GPT Image API)
 │   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
 │   ├── test/        # Integration tests
