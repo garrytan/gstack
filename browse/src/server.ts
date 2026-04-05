@@ -23,6 +23,7 @@ import { COMMAND_DESCRIPTIONS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } fro
 import {
   wrapUntrustedPageContent, datamarkContent,
   runContentFilters, type ContentFilterResult,
+  markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from './content-security';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import {
@@ -957,7 +958,23 @@ async function handleCommandInternal(
     let result: string;
 
     if (READ_COMMANDS.has(command)) {
-      result = await handleReadCommand(command, args, browserManager);
+      const isScoped = tokenInfo && tokenInfo.clientId !== 'root';
+      // Hidden element stripping for scoped tokens on text command
+      if (isScoped && command === 'text') {
+        const page = browserManager.getPage();
+        const strippedDescs = await markHiddenElements(page);
+        if (strippedDescs.length > 0) {
+          console.warn(`[browse] Content security: stripped ${strippedDescs.length} hidden elements for ${tokenInfo.clientId}`);
+        }
+        try {
+          const target = browserManager.getActiveFrameOrPage();
+          result = await getCleanTextWithStripping(target);
+        } finally {
+          await cleanupHiddenMarkers(page);
+        }
+      } else {
+        result = await handleReadCommand(command, args, browserManager);
+      }
     } else if (WRITE_COMMANDS.has(command)) {
       result = await handleWriteCommand(command, args, browserManager);
     } else if (META_COMMANDS.has(command)) {

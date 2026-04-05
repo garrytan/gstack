@@ -11,6 +11,7 @@
  */
 
 import { randomBytes } from 'crypto';
+import type { Page, Frame } from 'playwright';
 
 // ─── Datamarking (Layer 1) ──────────────────────────────────────
 
@@ -53,6 +54,139 @@ export function datamarkContent(content: string): string {
       return match + taggedMarker;
     }
     return match;
+  });
+}
+
+// ─── Hidden Element Stripping (Layer 2) ─────────────────────────
+
+/** Injection-like patterns in ARIA labels */
+const ARIA_INJECTION_PATTERNS = [
+  /ignore\s+(previous|above|all)\s+instructions?/i,
+  /you\s+are\s+(now|a)\s+/i,
+  /system\s*:\s*/i,
+  /\bdo\s+not\s+(follow|obey|listen)/i,
+  /\bexecute\s+(the\s+)?following/i,
+  /\bforget\s+(everything|all|your)/i,
+  /\bnew\s+instructions?\s*:/i,
+];
+
+/**
+ * Detect hidden elements and ARIA injection on a page.
+ * Marks hidden elements with data-gstack-hidden attribute.
+ * Returns descriptions of what was found for logging.
+ *
+ * Detection criteria:
+ *   - opacity < 0.1
+ *   - font-size < 1px
+ *   - off-screen (positioned far outside viewport)
+ *   - visibility:hidden or display:none with text content
+ *   - same foreground/background color
+ *   - clip/clip-path hiding
+ *   - ARIA labels with injection patterns
+ */
+export async function markHiddenElements(page: Page | Frame): Promise<string[]> {
+  return await page.evaluate((ariaPatterns: string[]) => {
+    const found: string[] = [];
+    const elements = document.querySelectorAll('body *');
+
+    for (const el of elements) {
+      if (el instanceof HTMLElement) {
+        const style = window.getComputedStyle(el);
+        const text = el.textContent?.trim() || '';
+        if (!text) continue; // skip empty elements
+
+        let isHidden = false;
+        let reason = '';
+
+        // Check opacity
+        if (parseFloat(style.opacity) < 0.1) {
+          isHidden = true;
+          reason = 'opacity < 0.1';
+        }
+        // Check font-size
+        else if (parseFloat(style.fontSize) < 1) {
+          isHidden = true;
+          reason = 'font-size < 1px';
+        }
+        // Check off-screen positioning
+        else if (style.position === 'absolute' || style.position === 'fixed') {
+          const rect = el.getBoundingClientRect();
+          if (rect.right < -100 || rect.bottom < -100 || rect.left > window.innerWidth + 100 || rect.top > window.innerHeight + 100) {
+            isHidden = true;
+            reason = 'off-screen';
+          }
+        }
+        // Check same fg/bg color (text hiding)
+        else if (style.color === style.backgroundColor && text.length > 10) {
+          isHidden = true;
+          reason = 'same fg/bg color';
+        }
+        // Check clip-path hiding
+        else if (style.clipPath === 'inset(100%)' || style.clip === 'rect(0px, 0px, 0px, 0px)') {
+          isHidden = true;
+          reason = 'clip hiding';
+        }
+
+        if (isHidden) {
+          el.setAttribute('data-gstack-hidden', 'true');
+          found.push(`[${el.tagName.toLowerCase()}] ${reason}: "${text.slice(0, 60)}..."`);
+        }
+
+        // Check ARIA labels for injection patterns
+        const ariaLabel = el.getAttribute('aria-label') || '';
+        const ariaLabelledBy = el.getAttribute('aria-labelledby');
+        let labelText = ariaLabel;
+        if (ariaLabelledBy) {
+          const labelEl = document.getElementById(ariaLabelledBy);
+          if (labelEl) labelText += ' ' + (labelEl.textContent || '');
+        }
+
+        if (labelText) {
+          for (const pattern of ariaPatterns) {
+            if (new RegExp(pattern).test(labelText)) {
+              el.setAttribute('data-gstack-hidden', 'true');
+              found.push(`[${el.tagName.toLowerCase()}] ARIA injection: "${labelText.slice(0, 60)}..."`);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    return found;
+  }, ARIA_INJECTION_PATTERNS.map(p => p.source));
+}
+
+/**
+ * Get clean text with hidden elements stripped (for `text` command).
+ * Uses clone + remove approach: clones body, removes marked elements, returns innerText.
+ */
+export async function getCleanTextWithStripping(page: Page | Frame): Promise<string> {
+  return await page.evaluate(() => {
+    const body = document.body;
+    if (!body) return '';
+    const clone = body.cloneNode(true) as HTMLElement;
+    // Remove standard noise elements
+    clone.querySelectorAll('script, style, noscript, svg').forEach(el => el.remove());
+    // Remove hidden-marked elements
+    clone.querySelectorAll('[data-gstack-hidden]').forEach(el => el.remove());
+    return clone.innerText
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join('\n');
+  });
+}
+
+/**
+ * Clean up data-gstack-hidden attributes from the page.
+ * Should be called after extraction is complete.
+ */
+export async function cleanupHiddenMarkers(page: Page | Frame): Promise<void> {
+  await page.evaluate(() => {
+    document.querySelectorAll('[data-gstack-hidden]').forEach(el => {
+      el.removeAttribute('data-gstack-hidden');
+    });
   });
 }
 
