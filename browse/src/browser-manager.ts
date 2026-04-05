@@ -822,6 +822,12 @@ export class BrowserManager {
       this.wirePageEvents(page);
 
       if (saved.url) {
+        try {
+          await validateNavigationUrl(saved.url);
+        } catch (err: any) {
+          console.warn(`[browse] Skipping invalid URL in state file: ${saved.url} — ${err.message}`);
+          continue;
+        }
         await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
       }
 

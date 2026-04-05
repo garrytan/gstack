@@ -465,3 +465,53 @@ describe('Task 10: responsive screenshot path validation', () => {
     expect(block).toContain('results.push');
   });
 });
+
+// ─── Task 11: State load — cookie + page URL validation ──────────────────────
+
+const BROWSER_MANAGER_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/browser-manager.ts'), 'utf-8');
+
+describe('Task 11: state load cookie validation', () => {
+  it('state load block filters cookies by domain and type', () => {
+    const block = sliceBetween(META_SRC, "action === 'load'", "throw new Error('Usage: state save|load");
+    expect(block).toContain('cookie');
+    expect(block).toContain('domain');
+    expect(block).toContain('filter');
+  });
+
+  it('state load block checks for localhost and .internal in cookie domains', () => {
+    const block = sliceBetween(META_SRC, "action === 'load'", "throw new Error('Usage: state save|load");
+    expect(block).toContain('localhost');
+    expect(block).toContain('.internal');
+  });
+
+  it('state load block uses validatedCookies when calling restoreState', () => {
+    const block = sliceBetween(META_SRC, "action === 'load'", "throw new Error('Usage: state save|load");
+    expect(block).toContain('validatedCookies');
+    // Must pass validatedCookies to restoreState, not the raw data.cookies
+    const restoreIdx = block.indexOf('restoreState');
+    const restoreBlock = block.slice(restoreIdx, restoreIdx + 200);
+    expect(restoreBlock).toContain('validatedCookies');
+  });
+
+  it('browser-manager restoreState validates page URL before goto', () => {
+    // restoreState is a class method — use sliceBetween to extract the method body
+    const restoreFn = sliceBetween(BROWSER_MANAGER_SRC, 'async restoreState(', 'async recreateContext(');
+    expect(restoreFn).toBeTruthy();
+    expect(restoreFn).toContain('validateNavigationUrl');
+  });
+
+  it('browser-manager restoreState skips invalid URLs with a warning', () => {
+    const restoreFn = sliceBetween(BROWSER_MANAGER_SRC, 'async restoreState(', 'async recreateContext(');
+    expect(restoreFn).toContain('Skipping invalid URL');
+    expect(restoreFn).toContain('continue');
+  });
+
+  it('validateNavigationUrl call appears before page.goto in restoreState', () => {
+    const restoreFn = sliceBetween(BROWSER_MANAGER_SRC, 'async restoreState(', 'async recreateContext(');
+    const validateIdx = restoreFn.indexOf('validateNavigationUrl');
+    const gotoIdx = restoreFn.indexOf('page.goto');
+    expect(validateIdx).toBeGreaterThan(-1);
+    expect(gotoIdx).toBeGreaterThan(-1);
+    expect(validateIdx).toBeLessThan(gotoIdx);
+  });
+});

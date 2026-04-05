@@ -526,6 +526,18 @@ export async function handleMetaCommand(
         if (!Array.isArray(data.cookies) || !Array.isArray(data.pages)) {
           throw new Error('Invalid state file: expected cookies and pages arrays');
         }
+        // Validate and filter cookies — reject malformed or internal-network cookies
+        const validatedCookies = data.cookies.filter((c: any) => {
+          if (typeof c !== 'object' || !c) return false;
+          if (typeof c.name !== 'string' || typeof c.value !== 'string') return false;
+          if (typeof c.domain !== 'string' || !c.domain) return false;
+          const d = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
+          if (d === 'localhost' || d.endsWith('.internal') || d === '169.254.169.254') return false;
+          return true;
+        });
+        if (validatedCookies.length < data.cookies.length) {
+          console.warn(`[browse] Filtered ${data.cookies.length - validatedCookies.length} invalid cookies from state file`);
+        }
         // Warn on state files older than 7 days
         if (data.savedAt) {
           const ageMs = Date.now() - new Date(data.savedAt).getTime();
@@ -538,7 +550,7 @@ export async function handleMetaCommand(
         bm.setFrame(null);
         await bm.closeAllPages();
         await bm.restoreState({
-          cookies: data.cookies,
+          cookies: validatedCookies,
           pages: data.pages.map((p: any) => ({ ...p, storage: null })),
         });
         return `State loaded: ${data.cookies.length} cookies, ${data.pages.length} pages`;
