@@ -1,10 +1,10 @@
 # gstack
 
-A structured engineering workflow for Claude Code. Give AI agents distinct roles, clear processes, and real tools — then get out of the way.
+A complete AI engineering workflow for Claude Code. Slash commands, structured roles, real tools — then get out of the way.
 
-gstack turns Claude Code into a team: a product thinker who challenges your assumptions, an architect who locks down the plan, a builder that routes to parallel agents or executes in-session, a reviewer that runs your actual linters before layering LLM judgment, a QA lead that opens a real browser, a security officer that runs deterministic SAST before OWASP analysis, and a release engineer that ships the PR. Slash commands, Markdown prompts, MIT license.
+gstack turns Claude Code into a team: a product thinker who challenges your assumptions, an architect who locks down the plan, a builder that routes to parallel agents or executes in-session, a reviewer that runs your actual linters before layering LLM judgment, a QA lead that opens a real browser, a security officer that runs deterministic SAST before OWASP analysis, and a release engineer that ships the PR.
 
-Originally created by [Garry Tan](https://github.com/garrytan/gstack). This fork extends gstack with SAST/linter integration, a `/build` skill, multi-agent orchestration via `/orch`, and other improvements.
+Originally created by [Garry Tan](https://github.com/garrytan/gstack). Maintained and extended by [Jeff Hooton](https://github.com/jeffdhooton).
 
 **Who this is for:**
 - **Solo builders and small teams (1-3 people)** — ship like a team of twenty
@@ -28,11 +28,11 @@ Originally created by [Garry Tan](https://github.com/garrytan/gstack). This fork
 
 Open Claude Code and paste this. Claude does the rest.
 
-> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/jeffdhooton/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /qa-backend, /test-gen, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /env-sync, /deps, /autoplan, /build, /orch, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn, /index, /inbox, /pair, /checkpoint, /health, /perf. Then ask the user if they also want to add gstack to the current project so teammates get it.
+> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/jeffdhooton/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-ref, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /qa-backend, /test-gen, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /env-sync, /deps, /autoplan, /build, /orch, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn, /index, /inbox, /pair, /checkpoint, /health, /perf. Then ask the user if they also want to add gstack to the current project so teammates get it.
 
 ### Step 2: Add to your repo so teammates get it (optional)
 
-> Add gstack to this project: run **`cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`** then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /qa-backend, /test-gen, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /env-sync, /deps, /autoplan, /build, /orch, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn, /pair, /checkpoint, /health, /perf, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+> Add gstack to this project: run **`cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`** then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-ref, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /qa-backend, /test-gen, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /env-sync, /deps, /autoplan, /build, /orch, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn, /pair, /checkpoint, /health, /perf, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
 
 Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
 
@@ -147,6 +147,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/plan-eng-review` | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | `/plan-design-review` | **Senior Designer** | Rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. AI Slop detection. Interactive — one AskUserQuestion per design choice. |
 | `/design-consultation` | **Design Partner** | Build a complete design system from scratch. Researches the landscape, proposes creative risks, generates realistic product mockups. |
+| `/design-ref` | **Brand Librarian** | Load design systems from 55+ companies (Stripe, Airbnb, Apple, Linear, Figma, Notion, etc.) as DESIGN.md references. Fetch, cache, preview, and apply professional design tokens to your project. |
 | `/build` | **Lead Engineer** | The missing middle. Analyzes your plan, decides whether to route to /orch (parallel multi-agent) or build in-session (sequential), then executes. Auto-detects build/test/lint commands. Implements, tests, iterates until green. |
 | `/orch` | **Engineering Manager** | Multi-agent orchestration. Spins up parallel Claude Code instances via tmux for independent workstreams. Backend + frontend + tests all building at once. |
 | `/review` | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Runs your project's linters and SAST tools first (ESLint, Semgrep, ruff, Brakeman, etc.), then layers LLM judgment on top for what tools can't catch. Auto-fixes the obvious ones. |
@@ -215,6 +216,8 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 
 **Pair programming.** `/pair` coordinates two Claude Code sessions on the same task — one drives, one reviews in real-time via `/inbox`.
 
+**Brand design library.** `/design-ref` loads design systems from 55+ companies (Stripe, Airbnb, Apple, Linear, Figma, etc.) as DESIGN.md references. Pick a brand, apply its tokens to your project, and every design skill uses them automatically.
+
 ## Parallel execution
 
 The sprint structure is what makes parallelism work. Without a process, ten agents is ten sources of chaos. With a process — think, plan, build, review, test, ship — each agent knows exactly what to do and when to stop.
@@ -272,7 +275,7 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 ## gstack
 Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
 Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
-/design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy,
+/design-consultation, /design-ref, /design-shotgun, /design-html, /review, /ship, /land-and-deploy,
 /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /qa-backend, /test-gen,
 /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate,
 /document-release, /codex, /cso, /env-sync, /deps, /autoplan, /build, /orch, /careful,

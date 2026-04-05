@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.21.0] - 2026-04-05 — Brand Design Library + Rebrand
+
+Say "design like Stripe" and mean it. `/design-ref` loads professional design systems from 55+ companies — Stripe, Airbnb, Apple, Linear, Figma, Notion, and more — as DESIGN.md references. Pick a brand, apply its tokens (colors, typography, spacing, components), and every design skill uses them automatically. Powered by [awesome-design-md](https://github.com/VoltAgent/awesome-design-md).
+
+Also: gstack is no longer branded as "Garry's Stack." It's its own thing now — a complete AI engineering workflow for Claude Code. Attribution to the original creator stays in the README and LICENSE.
+
+### Added
+
+- **`/design-ref` skill.** Browse 55+ brand design systems by category (AI, developer tools, fintech, enterprise). Fetches and caches DESIGN.md files from awesome-design-md. Preview summaries show colors, typography, and component styles. Copy to your project as DESIGN.md so `/design-consultation`, `/design-html`, `/design-shotgun`, and `/design-review` all use it. Mix two brands by picking elements from each.
+
+### Changed
+
+- **Rebranded.** Description is now "A complete AI engineering workflow for Claude Code." README, package.json, and LICENSE updated. Garry Tan credited as original creator; Jeff Hooton as maintainer.
+
 ## [0.20.0] - 2026-04-05 — Performance Profiling + README Refresh
 
 Find performance bottlenecks before they ship. `/perf` profiles your backend — API response times, N+1 queries, memory leaks, CPU hotspots, and bundle sizes. Works with any framework: Node.js, PHP/Laravel, Python, Go, Rust, Ruby/Rails.

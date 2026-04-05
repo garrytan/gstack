@@ -1,0 +1,208 @@
+---
+name: design-ref
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Load brand design systems from 55+ companies (Stripe, Airbnb, Apple, Linear,
+  Figma, Notion, etc.) as DESIGN.md references. Fetch, cache, preview, and
+  apply professional design tokens — colors, typography, spacing, components —
+  to your project. Works with /design-consultation, /design-html, /design-shotgun.
+  Use when: "use stripe's design", "design like airbnb", "brand reference",
+  "design system", "design tokens", "load design", "design-ref".
+  Proactively suggest when /design-consultation starts and no DESIGN.md exists,
+  or when /design-shotgun could benefit from brand-accurate tokens. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /design-ref: Brand Design System Reference Library
+
+Load professional design systems from 55+ companies and apply them to your project.
+Every DESIGN.md is sourced from [awesome-design-md](https://github.com/VoltAgent/awesome-design-md),
+a curated collection of brand design specifications.
+
+---
+
+## Step 0: Check for Cached Design Systems
+
+```bash
+ls ~/.gstack/design-refs/*.md 2>/dev/null | head -20 || echo "NO_CACHED_REFS"
+```
+
+If cached files exist, list them: "You have these brand references cached: [list]. Want to use one of these, or fetch a new one?"
+
+If no cached files, continue to Step 1.
+
+---
+
+## Step 1: Choose a Brand
+
+If the user invoked `/design-ref <brand>` with a brand name, skip this step and use that brand directly.
+
+If no brand was specified, present the catalog organized by category:
+
+**AskUserQuestion:**
+
+> Which brand's design system do you want to reference?
+>
+> **AI & ML:** claude, cohere, elevenlabs, mistral-ai, ollama, opencode-ai, replicate, together-ai, xai
+>
+> **Developer Tools:** cursor, expo, hashicorp, linear, lovable, mintlify, posthog, raycast, resend, sentry, supabase, vercel, voltagent, warp
+>
+> **Design & Productivity:** airtable, cal-com, figma, framer, miro, notion, sanity, webflow, zapier
+>
+> **Fintech:** coinbase, kraken, revolut, stripe, wise
+>
+> **Enterprise & Consumer:** airbnb, apple, bmw, clickhouse, clay, composio, ibm, intercom, mongodb, nvidia, pinterest, runwayml, spacex, spotify, superhuman, uber
+>
+> Type a brand name, or pick from any category above.
+
+Accept any of the 55 known brands. If the user types something not in the list, say which brands are available and ask again.
+
+---
+
+## Step 2: Fetch the DESIGN.md
+
+Using the brand selected in Step 1:
+
+```bash
+BRAND="<selected-brand>"
+mkdir -p ~/.gstack/design-refs
+CACHE="$HOME/.gstack/design-refs/$BRAND-DESIGN.md"
+if [ ! -f "$CACHE" ]; then
+  curl -sL "https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md/$BRAND/DESIGN.md" -o "$CACHE"
+fi
+wc -l "$CACHE"
+head -50 "$CACHE"
+```
+
+Replace `<selected-brand>` with the actual brand name from Step 1 (lowercase, hyphenated — e.g., `mistral-ai`, `cal-com`).
+
+If curl returns an empty file or a 404 page, tell the user: "Could not fetch the design system for [brand]. The brand may not be in the repository. Pick another?"
+
+If the file was already cached, say: "Using cached version. Delete `~/.gstack/design-refs/<brand>-DESIGN.md` to re-fetch."
+
+---
+
+## Step 3: Read and Summarize the Design System
+
+Read the full cached DESIGN.md file for the selected brand:
+
+```bash
+cat "$HOME/.gstack/design-refs/<selected-brand>-DESIGN.md"
+```
+
+After reading the full file, present a concise summary covering:
+
+- **Color palette** — primary, accent, semantic colors (with hex values)
+- **Typography** — font families, key sizes, scale
+- **Component style** — border radius, shadows, spacing base unit
+- **Overall vibe** — warm/cold, minimal/rich, playful/serious, etc.
+
+Keep the summary to 15-25 lines. The user should get the essence without scrolling through the full spec.
+
+---
+
+## Step 4: Apply or Reference
+
+**AskUserQuestion:**
+
+> How would you like to use this design system?
+>
+> **A) Copy to this project as DESIGN.md** — standard location that /design-consultation, /design-html, /design-shotgun, and /design-review all read automatically.
+>
+> **B) Use as reference only** — keep it in cache, I'll tell you when to apply specific elements.
+>
+> **C) Mix with another brand** — pick a second design system to blend elements from both.
+
+### If A: Copy to project
+
+```bash
+cp "$HOME/.gstack/design-refs/<selected-brand>-DESIGN.md" DESIGN.md
+```
+
+Then proceed to Step 5 (integration message).
+
+### If B: Reference only
+
+Tell the user: "The design system is cached at `~/.gstack/design-refs/<brand>-DESIGN.md`. Reference it anytime. When you're ready to apply it, run `/design-ref` again or just ask me to copy it."
+
+Done — no further steps needed.
+
+### If C: Mix with another brand
+
+Ask which second brand to fetch. Fetch and cache the second brand using the same curl pattern from Step 2, then read both files.
+
+Present a side-by-side comparison:
+
+```
+[Brand A] vs [Brand B]:
+
+COLORS:
+  A: primary [hex], accent [hex] — [vibe]
+  B: primary [hex], accent [hex] — [vibe]
+
+TYPOGRAPHY:
+  A: [font families] — [character]
+  B: [font families] — [character]
+
+SPACING & COMPONENTS:
+  A: [base unit], [border radius], [density]
+  B: [base unit], [border radius], [density]
+
+OVERALL FEEL:
+  A: [2-3 word description]
+  B: [2-3 word description]
+```
+
+Then AskUserQuestion:
+
+> "Which elements from each? For example: 'colors from Stripe, typography from Linear, spacing from Notion.' Or describe the blend you want."
+
+After the user picks, write a merged DESIGN.md to the project root combining the selected elements. Attribute each choice: "Colors: from Stripe. Typography: from Linear." in a comment at the top.
+
+Then proceed to Step 5.
+
+---
+
+## Step 5: Integration with Other Skills
+
+After copying DESIGN.md to the project, tell the user:
+
+"Your project now has a DESIGN.md based on **[brand name]**'s design system. Other gstack skills will automatically use it:
+
+- `/design-consultation` reads it as your design system baseline
+- `/design-html` uses it for color, typography, and spacing tokens
+- `/design-shotgun` uses it to generate on-brand variants
+- `/design-review` audits your UI against it
+
+To update later, run `/design-ref` again with a different brand."
+
+---
+
+## Available Brands (full list)
+
+For reference, these 55 brands are available:
+
+airbnb, airtable, apple, bmw, cal-com, clay, clickhouse, claude, cohere,
+coinbase, composio, cursor, elevenlabs, expo, figma, framer, hashicorp, ibm,
+intercom, kraken, linear, lovable, mintlify, miro, mistral-ai, mongodb,
+notion, nvidia, ollama, opencode-ai, pinterest, posthog, raycast, replicate,
+resend, revolut, runwayml, sanity, sentry, spacex, spotify, stripe, superhuman,
+supabase, together-ai, uber, vercel, voltagent, warp, webflow, wise, xai, zapier
+
+---
+
+## Important Rules
+
+1. **Every bash block is self-contained.** No variable persistence between blocks. Substitute the brand name directly into each block.
+2. **Cache by default.** Never re-fetch a brand that's already cached unless the user explicitly asks.
+3. **Respect existing DESIGN.md.** If the project already has a DESIGN.md, warn before overwriting: "This will replace your existing DESIGN.md. Continue? (The current file will be backed up to DESIGN.md.bak.)"
+4. **Back up before overwriting.** If a DESIGN.md exists, copy it to DESIGN.md.bak first.
+5. **Brand names are exact.** Use the hyphenated lowercase form (e.g., `mistral-ai`, `cal-com`, `opencode-ai`). Do not guess or transform the name.
+6. **Attribution.** When copying a brand's DESIGN.md, keep any attribution or license notices from the original file intact.
