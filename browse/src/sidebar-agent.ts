@@ -243,18 +243,63 @@ async function askClaude(queueEntry: any): Promise<void> {
     let claudeArgs = args || ['-p', prompt, '--output-format', 'stream-json', '--verbose',
       '--allowedTools', 'Bash,Read,Glob,Grep,Write'];
 
+    // Windows: cmd.exe wraps .cmd files and corrupts multiline CLI arguments.
+    // Spawn node with cli.js directly, and split the combined prompt into
+    // --system-prompt (the <system> block) + -p (just the user message).
+    // This also avoids <system> tags being treated as user input by claude.
+    const IS_WIN = process.platform === 'win32';
+    let spawnCmd = 'claude';
+    let spawnArgs = claudeArgs;
+    if (IS_WIN) {
+      // Resolve cli.js path from claude.cmd location
+      const claudeCmdDir = path.join(process.env.APPDATA || '', 'npm');
+      const cliJs = path.join(claudeCmdDir, 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
+      if (fs.existsSync(cliJs)) {
+        spawnCmd = 'node';
+        // Extract and split the combined prompt: <system>...</system> + user message
+        const pIdx = spawnArgs.indexOf('-p');
+        if (pIdx !== -1 && pIdx + 1 < spawnArgs.length) {
+          const combinedPrompt = spawnArgs[pIdx + 1];
+          const sysMatch = combinedPrompt.match(/^<system>\n([\s\S]*?)\n<\/system>\n+/);
+          if (sysMatch) {
+            const systemPrompt = sysMatch[1];
+            const userPrompt = combinedPrompt.slice(sysMatch[0].length);
+            // Rebuild args: replace combined prompt with user-only, add --system-prompt
+            spawnArgs = [cliJs, ...spawnArgs.slice(0, pIdx), '-p', userPrompt,
+              '--system-prompt', systemPrompt, ...spawnArgs.slice(pIdx + 2)];
+          } else {
+            spawnArgs = [cliJs, ...spawnArgs];
+          }
+        } else {
+          spawnArgs = [cliJs, ...spawnArgs];
+        }
+      }
+    }
+
     // Validate cwd exists — queue may reference a stale worktree
     let effectiveCwd = cwd || process.cwd();
     try { fs.accessSync(effectiveCwd); } catch (err: any) {
       console.warn('[sidebar-agent] Worktree path inaccessible, falling back to cwd:', effectiveCwd, err.message);
       effectiveCwd = process.cwd();
     }
+    // Windows: bun/libuv fails to find .cmd executables (e.g. claude.cmd) when
+    // cwd contains backslashes. Convert to forward slashes for compatibility.
+    const spawnCwd = effectiveCwd.replace(/\\/g, '/');
 
-    const proc = spawn('claude', claudeArgs, {
+    // Build child env: inherit everything, then override. Must unset ALL Claude Code
+    // session env vars so claude doesn't refuse to launch or behave as a nested session.
+    const childEnv = { ...process.env };
+    for (const key of Object.keys(childEnv)) {
+      if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_CODE_')) delete childEnv[key];
+    }
+    const proc = spawn(spawnCmd, spawnArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: effectiveCwd,
+      windowsHide: true,
+      cwd: spawnCwd,
       env: {
-        ...process.env,
+        ...childEnv,
+        // Add browse binary directory to PATH so claude can find it
+        PATH: `${path.dirname(B)}${path.delimiter}${childEnv.PATH || ''}`,
         BROWSE_STATE_FILE: stateFile || '',
         // Connect to the existing headed browse server, never start a new one.
         // BROWSE_PORT tells the CLI which port to check.
@@ -294,6 +339,9 @@ async function askClaude(queueEntry: any): Promise<void> {
 
     proc.on('close', (code) => {
       activeProcs.delete(tid);
+      if (code !== 0 || stderrBuffer.trim()) {
+        console.warn(`[sidebar-agent] Tab ${tid}: claude exited code=${code}${stderrBuffer.trim() ? ' stderr=' + stderrBuffer.trim().slice(0, 300) : ''}`);
+      }
       if (buffer.trim()) {
         try { handleStreamEvent(JSON.parse(buffer), tid); } catch (err: any) {
           console.error(`[sidebar-agent] Tab ${tid}: Failed to parse final buffer:`, buffer.slice(0, 100), err.message);

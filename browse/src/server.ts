@@ -195,7 +195,11 @@ function findBrowseBin(): string {
     path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
   ];
   for (const c of candidates) {
-    try { if (fs.existsSync(c)) return c; } catch {}
+    try {
+      if (fs.existsSync(c)) return c;
+      // Windows: compiled binaries have .exe extension
+      if (fs.existsSync(c + '.exe')) return c + '.exe';
+    } catch {}
   }
   return 'browse'; // fallback to PATH
 }

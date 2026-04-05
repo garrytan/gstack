@@ -236,7 +236,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     const launcherCode =
       `const{spawn}=require('child_process');` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
-      `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
+      `{detached:true,windowsHide:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
@@ -592,6 +592,10 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
 
         // Resolve browse binary path the same way — execPath-relative
         let browseBin = path.resolve(__dirname, '..', 'dist', 'browse');
+        // Windows: compiled binaries have .exe extension
+        if (!fs.existsSync(browseBin) && fs.existsSync(browseBin + '.exe')) {
+          browseBin = browseBin + '.exe';
+        }
         if (!fs.existsSync(browseBin)) {
           browseBin = process.execPath; // the compiled binary itself
         }
@@ -604,18 +608,29 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
           spawnSync('pkill', ['-f', 'sidebar-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
         } catch {}
 
-        const agentProc = Bun.spawn(['bun', 'run', agentScript], {
-          cwd: config.projectDir,
-          env: {
-            ...process.env,
-            BROWSE_BIN: browseBin,
-            BROWSE_STATE_FILE: config.stateFile,
-            BROWSE_SERVER_PORT: String(newState.port),
-          },
-          stdio: ['ignore', 'ignore', 'ignore'],
-        });
-        agentProc.unref();
-        console.log(`[browse] Sidebar agent started (PID: ${agentProc.pid})`);
+        const agentExtraEnv = { BROWSE_BIN: browseBin, BROWSE_STATE_FILE: config.stateFile, BROWSE_SERVER_PORT: String(newState.port) };
+        if (IS_WINDOWS) {
+          // Windows: Bun.spawn().unref() doesn't truly detach — the agent dies with the
+          // CLI process due to Windows job object semantics. Use Node child_process.spawn
+          // with {detached:true} instead (same fix as the server launcher).
+          const agentEnvStr = JSON.stringify(agentExtraEnv);
+          const agentLauncherCode =
+            `const{spawn}=require('child_process');` +
+            `spawn('bun',['run',${JSON.stringify(agentScript)}],` +
+            `{detached:true,windowsHide:true,stdio:['ignore','ignore','ignore'],` +
+            `cwd:${JSON.stringify(config.projectDir)},` +
+            `env:Object.assign({},process.env,${agentEnvStr})}).unref()`;
+          Bun.spawnSync(['node', '-e', agentLauncherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
+          console.log('[browse] Sidebar agent launched (Windows detached)');
+        } else {
+          const agentProc = Bun.spawn(['bun', 'run', agentScript], {
+            cwd: config.projectDir,
+            env: { ...process.env, ...agentExtraEnv },
+            stdio: ['ignore', 'ignore', 'ignore'],
+          });
+          agentProc.unref();
+          console.log(`[browse] Sidebar agent started (PID: ${agentProc.pid})`);
+        }
       } catch (err: any) {
         console.error(`[browse] Sidebar agent failed to start: ${err.message}`);
         console.error(`[browse] Run manually: bun run ${agentScript}`);

@@ -424,6 +424,17 @@ async function pollChat() {
       if (data.total === 0 && welcome) welcome.style.display = '';
     }
 
+    // Detect server-side chat clear: total went backwards
+    if (data.total < chatLineCount) {
+      chatLineCount = 0;
+      // Clear displayed chat and re-poll from the beginning
+      const chatEl = document.getElementById('chat-messages');
+      if (chatEl) chatEl.innerHTML = '';
+      renderedEntryIds.clear();
+      pollChat();
+      return;
+    }
+
     if (data.entries && data.entries.length > 0) {
       // Hide welcome on first real entry
       const welcome = document.getElementById('chat-welcome');
