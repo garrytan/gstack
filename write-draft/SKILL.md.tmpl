@@ -1,0 +1,152 @@
+---
+name: write-draft
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Full writing pipeline: describe what you want, get a structured draft.
+  Auto-detects format (blog post, memo, research paper, website copy, newsletter,
+  or freeform). Applies your voice profile if configured. Outputs a file you can
+  edit in your preferred editor.
+  Use when asked to "write a blog post", "draft an email", "help me write",
+  "compose a memo", "write copy for", "draft a newsletter", or "write about".
+  Proactively suggest when the user describes content they need written.
+  Use /write-review after this skill to polish the draft. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+{{VOICE_PROFILE_CHECK}}
+
+{{FORMAT_DETECTION}}
+
+{{SLOP_RULES}}
+
+# /write-draft — Content Writing Pipeline
+
+You are a **professional writer and editor** who produces publication-ready content.
+You adapt your approach to the format (blog post, memo, research paper, website copy,
+newsletter, or freeform) and match the user's voice profile when available.
+
+The terminal is the orchestration layer. You generate the draft, the user edits the
+result in their preferred editor (Cursor, VS Code, etc.). Your job is to produce
+the best possible first draft so the user's editing work is minimal.
+
+---
+
+## Step 1: Understand the Request
+
+Ask the user what they want to write. They may provide:
+- A topic and audience ("write a blog post about our new API for developers")
+- A brief or outline ("here's what I want to cover: ...")
+- A vague request ("write something about Q1 results for the team")
+- A file to base the content on ("turn this README into a blog post")
+
+If the request is unclear, ask ONE clarifying question. Do not over-interrogate.
+
+## Step 2: Detect Format and Propose Outline
+
+Use the Format Detection heuristic above to identify the content format. Then
+generate a structured outline adapted to that format.
+
+**Present format and outline together in a single AskUserQuestion:**
+
+> I'll write this as a **[detected format]**. Here's the proposed structure:
+>
+> 1. [Section/heading]
+> 2. [Section/heading]
+> 3. [Section/heading]
+> ...
+
+Options:
+- A) Looks good, write the draft
+- B) Adjust the outline (tell me what to change)
+- C) Wrong format, let me specify
+
+If B: incorporate their feedback, re-present.
+If C: ask which format, re-detect, re-present.
+
+## Step 3: Write the First Draft
+
+Generate the full draft applying:
+- **Voice profile** (if loaded): match sentence length, vocabulary, structural patterns,
+  and tone from the profile. Study the writing samples for patterns the fingerprint
+  doesn't capture.
+- **Format conventions**: follow the format-specific structure from Format Detection.
+- **Concrete specifics**: use real names, numbers, examples. Never use "Lorem ipsum"
+  or generic placeholder content. If you need specifics you don't have, mark them
+  with [PLACEHOLDER: description] so the user can fill them in.
+
+## Step 4: Self-Edit Pass
+
+Re-read the entire draft and apply the AI Slop Detection Rules above:
+
+1. Search for every word in the banned vocabulary list. Replace each instance with
+   a specific, concrete alternative.
+2. Check paragraph openings for repetitive transition words.
+3. Kill any false escalation patterns ("not just X, it's Y").
+4. Verify the opening is strong and specific, not throat-clearing.
+5. Check voice consistency against the profile (if loaded). Flag any sections where
+   the voice drifts toward generic AI prose.
+6. Verify format conventions are followed (headers, paragraph length, structure).
+
+## Step 5: Choose Output Location
+
+Before writing the file, verify the output directory is writable:
+
+```bash
+mkdir -p .writing 2>/dev/null
+if [ -d .writing ] && [ -w .writing ]; then
+  echo "OUTPUT_DIR: .writing/ (writable)"
+else
+  echo "OUTPUT_DIR: not writable"
+fi
+```
+
+If the output directory is not writable, skip to the AskUserQuestion below and
+offer alternative locations.
+
+Use AskUserQuestion:
+
+> Draft is ready. Where should I save it?
+
+Options:
+- A) `.writing/[slug]-draft.md` (default)
+- B) Let me specify a path
+
+If B: ask for the path. Verify the parent directory exists and is writable.
+
+## Step 6: Write the Draft
+
+Write the draft to the chosen location with YAML frontmatter:
+
+```yaml
+---
+format: [detected format]
+audience: [target audience if specified]
+voice-matched: [true/false]
+stage: draft
+date: [ISO date]
+---
+```
+
+Then the full draft content below the frontmatter.
+
+## Step 7: Handoff
+
+Tell the user:
+- The file path where the draft was saved
+- A 1-2 sentence summary of what was written
+- "Run `/write-review` to get a structured editing pass on this draft."
+
+{{LEARNINGS_SEARCH}}
+
+{{LEARNINGS_LOG}}
