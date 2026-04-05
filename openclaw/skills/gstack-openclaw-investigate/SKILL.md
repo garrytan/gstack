@@ -1,6 +1,11 @@
 ---
 name: gstack-openclaw-investigate
-description: Systematic debugging with root cause investigation. Four phases: investigate, analyze, hypothesize, implement. Iron Law: no fixes without root cause. Use when asked to debug, fix a bug, investigate an error, or root cause analysis. Proactively use when user reports errors, stack traces, unexpected behavior, or says something stopped working.
+description: |
+  Systematic debugging with root cause investigation. Four phases: investigate,
+  analyze, hypothesize, implement. Iron Law: no fixes without root cause. Use
+  when asked to debug, fix a bug, investigate an error, or root cause analysis.
+  Proactively use when user reports errors, stack traces, unexpected behavior,
+  or says something stopped working.
 version: 1.0.0
 metadata: { "openclaw": { "emoji": "🔍" } }
 ---

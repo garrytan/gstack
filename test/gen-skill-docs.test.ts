@@ -132,6 +132,28 @@ describe('gen-skill-docs', () => {
     }
   });
 
+  test('native OpenClaw skill descriptions avoid invalid plain-scalar YAML', () => {
+    const openClawSkillGlob = path.join(ROOT, 'openclaw', 'skills');
+    const skillDirs = fs.readdirSync(openClawSkillGlob, { withFileTypes: true }).filter(entry => entry.isDirectory());
+
+    for (const entry of skillDirs) {
+      const content = fs.readFileSync(path.join(openClawSkillGlob, entry.name, 'SKILL.md'), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      expect(fmEnd).toBeGreaterThan(0);
+      const frontmatter = content.slice(4, fmEnd);
+
+      const descriptionLine = frontmatter.split('\n').find(line => line.startsWith('description:'));
+      expect(descriptionLine).toBeDefined();
+
+      if (descriptionLine === 'description: |') {
+        continue;
+      }
+
+      const plainDescription = descriptionLine!.replace(/^description:\s*/, '');
+      expect(plainDescription.includes(': ')).toBe(false);
+    }
+  });
+
   test(`every generated SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
     for (const skill of ALL_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
