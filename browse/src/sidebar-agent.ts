@@ -223,7 +223,7 @@ async function handleStreamEvent(event: any, tabId?: number): Promise<void> {
   }
 }
 
-async function askClaude(queueEntry: any): Promise<void> {
+async function askClaude(queueEntry: QueueEntry): Promise<void> {
   const { prompt, args, stateFile, cwd, tabId } = queueEntry;
   const tid = tabId ?? 0;
 
@@ -313,9 +313,10 @@ async function askClaude(queueEntry: any): Promise<void> {
     // Timeout (default 300s / 5 min — multi-page tasks need time)
     const timeoutMs = parseInt(process.env.SIDEBAR_AGENT_TIMEOUT || '300000', 10);
     setTimeout(() => {
-      try { proc.kill(); } catch (killErr: any) {
-        console.warn(`[sidebar-agent] Tab ${tid}: Failed to kill timed-out process:`, killErr.message);
+      try { proc.kill('SIGTERM'); } catch (killErr: any) {
+        console.warn(`[sidebar-agent] Tab ${tid}: Failed to SIGTERM timed-out process:`, killErr.message);
       }
+      setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 3000);
       const timeoutMsg = stderrBuffer.trim()
         ? `Timed out after ${timeoutMs / 1000}s\nstderr: ${stderrBuffer.trim().slice(-500)}`
         : `Timed out after ${timeoutMs / 1000}s`;
@@ -325,6 +326,44 @@ async function askClaude(queueEntry: any): Promise<void> {
       });
     }, timeoutMs);
   });
+}
+
+// ─── Queue entry validation ─────────────────────────────────────
+
+interface QueueEntry {
+  prompt: string;
+  args?: string[];
+  stateFile?: string;
+  cwd?: string;
+  tabId?: number | null;
+  message?: string | null;
+  pageUrl?: string | null;
+  sessionId?: string | null;
+  ts?: string;
+}
+
+function isValidQueueEntry(e: unknown): e is QueueEntry {
+  if (typeof e !== 'object' || e === null) return false;
+  const obj = e as Record<string, unknown>;
+  // Required
+  if (typeof obj.prompt !== 'string' || obj.prompt.length === 0) return false;
+  // Optional typed fields
+  if (obj.args !== undefined && (!Array.isArray(obj.args) || !obj.args.every(a => typeof a === 'string'))) return false;
+  if (obj.stateFile !== undefined) {
+    if (typeof obj.stateFile !== 'string') return false;
+    if (obj.stateFile.includes('..')) return false;
+  }
+  if (obj.cwd !== undefined) {
+    if (typeof obj.cwd !== 'string') return false;
+    if (obj.cwd.includes('..')) return false;
+  }
+  // tabId: optional number or null (writer emits null when no tab)
+  if (obj.tabId !== undefined && obj.tabId !== null && typeof obj.tabId !== 'number') return false;
+  if (obj.message !== undefined && obj.message !== null && typeof obj.message !== 'string') return false;
+  if (obj.pageUrl !== undefined && obj.pageUrl !== null && typeof obj.pageUrl !== 'string') return false;
+  // sessionId: optional string or null (writer emits sessionId: ... || null)
+  if (obj.sessionId !== undefined && obj.sessionId !== null && typeof obj.sessionId !== 'string') return false;
+  return true;
 }
 
 // ─── Poll loop ───────────────────────────────────────────────────
@@ -357,12 +396,16 @@ async function poll() {
     const line = readLine(lastLine);
     if (!line) continue;
 
-    let entry: any;
-    try { entry = JSON.parse(line); } catch (err: any) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(line); } catch (err: any) {
       console.warn(`[sidebar-agent] Skipping malformed queue entry at line ${lastLine}:`, line.slice(0, 80), err.message);
       continue;
     }
-    if (!entry.message && !entry.prompt) continue;
+    if (!isValidQueueEntry(parsed)) {
+      console.warn(`[sidebar-agent] Skipping invalid queue entry at line ${lastLine}: failed schema validation`);
+      continue;
+    }
+    const entry = parsed;
 
     const tid = entry.tabId ?? 0;
     // Skip if this tab already has an agent running — server queues per-tab
@@ -383,8 +426,9 @@ async function poll() {
 
 async function main() {
   const dir = path.dirname(QUEUE);
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (!fs.existsSync(QUEUE)) fs.writeFileSync(QUEUE, '');
+  try { fs.chmodSync(QUEUE, 0o600); } catch {}
 
   lastLine = countLines();
   await refreshToken();

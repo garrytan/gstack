@@ -472,6 +472,12 @@ export async function modifyStyle(
     throw new Error(`Invalid CSS property name: ${property}. Only letters and hyphens allowed.`);
   }
 
+  // Validate CSS value — block data exfiltration patterns
+  const DANGEROUS_CSS = /url\s*\(|expression\s*\(|@import|javascript:|data:/i;
+  if (DANGEROUS_CSS.test(value)) {
+    throw new Error('CSS value rejected: contains potentially dangerous pattern.');
+  }
+
   let oldValue = '';
   let source = 'inline';
   let sourceLine = 0;

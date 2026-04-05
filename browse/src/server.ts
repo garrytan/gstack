@@ -282,6 +282,10 @@ function loadSession(): SidebarSession | null {
   try {
     const activeFile = path.join(SESSIONS_DIR, 'active.json');
     const activeData = JSON.parse(fs.readFileSync(activeFile, 'utf-8'));
+    if (typeof activeData.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(activeData.id)) {
+      console.warn('[browse] Invalid session ID in active.json — ignoring');
+      return null;
+    }
     const sessionFile = path.join(SESSIONS_DIR, activeData.id, 'session.json');
     const session = JSON.parse(fs.readFileSync(sessionFile, 'utf-8')) as SidebarSession;
     // Validate worktree still exists — crash may have left stale path
@@ -558,8 +562,9 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
     tabId: agentTabId,
   });
   try {
-    fs.mkdirSync(gstackDir, { recursive: true });
+    fs.mkdirSync(gstackDir, { recursive: true, mode: 0o700 });
     fs.appendFileSync(agentQueue, entry + '\n');
+    try { fs.chmodSync(agentQueue, 0o600); } catch {}
   } catch (err: any) {
     addChatEntry({ ts: new Date().toISOString(), role: 'agent', type: 'agent_error', error: `Failed to queue: ${err.message}` });
     agentStatus = 'idle';
@@ -1085,7 +1090,6 @@ async function start() {
           mode: browserManager.getConnectionMode(),
           uptime: Math.floor((Date.now() - startTime) / 1000),
           tabs: browserManager.getTabCount(),
-          currentUrl: browserManager.getCurrentUrl(),
           // Auth token for extension bootstrap. Safe: /health is localhost-only.
           // Previously served via .auth.json in extension dir, but that breaks
           // read-only .app bundles and codesigning. Extension reads token from here.
@@ -1094,7 +1098,6 @@ async function start() {
           agent: {
             status: agentStatus,
             runningFor: agentStartTime ? Date.now() - agentStartTime : null,
-            currentMessage,
             queueLength: messageQueue.length,
           },
           session: sidebarSession ? { id: sidebarSession.id, name: sidebarSession.name } : null,
@@ -1217,7 +1220,8 @@ async function start() {
           // Sync active tab from Chrome extension — detects manual tab switches
           const activeUrl = url.searchParams.get('activeUrl');
           if (activeUrl) {
-            browserManager.syncActiveTabByUrl(activeUrl);
+            const sanitized = sanitizeExtensionUrl(activeUrl);
+            if (sanitized) browserManager.syncActiveTabByUrl(sanitized);
           }
           const tabs = await browserManager.getTabListWithTitles();
           return new Response(JSON.stringify({ tabs }), {
@@ -1290,7 +1294,8 @@ async function start() {
         // Sync active tab BEFORE reading the ID — the user may have switched
         // tabs manually and the server's activeTabId is stale.
         if (extensionUrl) {
-          browserManager.syncActiveTabByUrl(extensionUrl);
+          const sanitized = sanitizeExtensionUrl(extensionUrl);
+          if (sanitized) browserManager.syncActiveTabByUrl(sanitized);
         }
         const msgTabId = browserManager?.getActiveTabId?.() ?? 0;
         const ts = new Date().toISOString();

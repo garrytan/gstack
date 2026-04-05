@@ -20,7 +20,8 @@ let connState = 'disconnected'; // disconnected | connected | reconnecting | dea
 let lastOptimisticMsg = null; // track optimistically rendered user msg to avoid dupes
 let sidebarActiveTabId = null; // which browser tab's chat we're showing
 const chatLineCountByTab = {}; // tabId -> last seen chatLineCount
-const chatDomByTab = {}; // tabId -> saved innerHTML
+const chatDomByTab = {}; // tabId -> saved DocumentFragment (never serialized HTML)
+let pollInProgress = false; // reentrancy guard — prevents concurrent/recursive pollChat calls
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 const MAX_RECONNECT_ATTEMPTS = 30; // 30 * 2s = 60s before showing "dead"
@@ -390,7 +391,9 @@ document.getElementById('stop-agent-btn').addEventListener('click', stopAgent);
 let initialLoadDone = false;
 
 async function pollChat() {
-  if (!serverUrl || !serverToken) return;
+  if (pollInProgress) return;
+  pollInProgress = true;
+  if (!serverUrl || !serverToken) { pollInProgress = false; return; }
   try {
     // Request chat for the currently displayed tab
     const tabParam = sidebarActiveTabId !== null ? `&tabId=${sidebarActiveTabId}` : '';
@@ -449,6 +452,8 @@ async function pollChat() {
     updateStopButton(data.agentStatus === 'processing');
   } catch (err) {
     console.error('[gstack sidebar] Chat poll error:', err.message);
+  } finally {
+    pollInProgress = false;
   }
 }
 
@@ -456,9 +461,14 @@ async function pollChat() {
 function switchChatTab(newTabId) {
   if (newTabId === sidebarActiveTabId) return;
 
-  // Save current tab's chat DOM + scroll position
+  // Save current tab's chat DOM into a DocumentFragment (avoids innerHTML
+  // serialization/re-parsing round-trip which is an XSS vector).
   if (sidebarActiveTabId !== null) {
-    chatDomByTab[sidebarActiveTabId] = chatMessages.innerHTML;
+    const frag = document.createDocumentFragment();
+    while (chatMessages.firstChild) {
+      frag.appendChild(chatMessages.firstChild);
+    }
+    chatDomByTab[sidebarActiveTabId] = frag;
     chatLineCountByTab[sidebarActiveTabId] = chatLineCount;
   }
 
@@ -468,7 +478,9 @@ function switchChatTab(newTabId) {
   // mid-message (the server may have switched tabs because the user's
   // Chrome tab changed, but we still want to show the optimistic UI).
   if (chatDomByTab[newTabId]) {
-    chatMessages.innerHTML = chatDomByTab[newTabId];
+    // Move nodes back from the fragment — no HTML re-parsing, no XSS risk.
+    while (chatMessages.firstChild) chatMessages.removeChild(chatMessages.firstChild);
+    chatMessages.appendChild(chatDomByTab[newTabId]);
     chatLineCount = chatLineCountByTab[newTabId] || 0;
     // Reset agent state for restored tab
     agentContainer = null;
@@ -480,12 +492,23 @@ function switchChatTab(newTabId) {
     chatLineCount = 0;
     // agentContainer/agentTextEl are already set from sendMessage()
   } else {
-    chatMessages.innerHTML = `
-      <div class="chat-welcome" id="chat-welcome">
-        <div class="chat-welcome-icon">G</div>
-        <p>Send a message about this page.</p>
-        <p class="muted">Each tab has its own conversation.</p>
-      </div>`;
+    // Build welcome screen with DOM methods — never innerHTML for untrusted content.
+    chatMessages.textContent = '';
+    const welcome = document.createElement('div');
+    welcome.className = 'chat-welcome';
+    welcome.id = 'chat-welcome';
+    const icon = document.createElement('div');
+    icon.className = 'chat-welcome-icon';
+    icon.textContent = 'G';
+    const p1 = document.createElement('p');
+    p1.textContent = 'Send a message about this page.';
+    const p2 = document.createElement('p');
+    p2.className = 'muted';
+    p2.textContent = 'Each tab has its own conversation.';
+    welcome.appendChild(icon);
+    welcome.appendChild(p1);
+    welcome.appendChild(p2);
+    chatMessages.appendChild(welcome);
     chatLineCount = 0;
     // Reset agent state for fresh tab
     agentContainer = null;
@@ -493,8 +516,8 @@ function switchChatTab(newTabId) {
     agentText = '';
   }
 
-  // Immediately poll the new tab's chat
-  pollChat();
+  // Defer poll to avoid direct mutual recursion with pollChat.
+  setTimeout(pollChat, 0);
 }
 
 function updateStopButton(agentRunning) {

@@ -15,14 +15,40 @@ import { resolveConfig } from './config';
 import type { Frame } from 'playwright';
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
+// Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp → /private/tmp)
+const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()].map(d => {
+  try { return fs.realpathSync(d); } catch { return d; }
+});
 
 export function validateOutputPath(filePath: string): void {
-  const resolved = path.resolve(filePath);
-  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
+  // Always resolve to absolute first (fixes relative path symlink bypass)
+  const absolute = path.resolve(filePath);
+  // Resolve symlinks — for new files, resolve the parent directory
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(absolute);
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      // File doesn't exist — resolve directory part for symlinks (e.g., /tmp → /private/tmp)
+      try {
+        const dir = fs.realpathSync(path.dirname(absolute));
+        realPath = path.join(dir, path.basename(absolute));
+      } catch {
+        realPath = absolute;
+      }
+    } else {
+      throw new Error(`Cannot resolve real path: ${filePath} (${err.code})`);
+    }
+  }
+  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realPath, dir));
   if (!isSafe) {
     throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
+}
+
+/** Escape special regex metacharacters in a user-supplied string to prevent ReDoS. */
+export function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Tokenize a pipe segment respecting double-quoted strings. */
@@ -195,9 +221,10 @@ export async function handleMetaCommand(
 
       for (const vp of viewports) {
         await page.setViewportSize({ width: vp.width, height: vp.height });
-        const path = `${prefix}-${vp.name}.png`;
-        await page.screenshot({ path, fullPage: true });
-        results.push(`${vp.name} (${vp.width}x${vp.height}): ${path}`);
+        const screenshotPath = `${prefix}-${vp.name}.png`;
+        validateOutputPath(screenshotPath);
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        results.push(`${vp.name} (${vp.width}x${vp.height}): ${screenshotPath}`);
       }
 
       // Restore original viewport
@@ -238,6 +265,10 @@ export async function handleMetaCommand(
         try {
           let result: string;
           if (WRITE_COMMANDS.has(name)) {
+            if (bm.isWatching()) {
+              results.push(`[${name}] BLOCKED: write commands disabled in watch mode`);
+              continue;
+            }
             result = await handleWriteCommand(name, cmdArgs, bm);
             lastWasWrite = true;
           } else if (READ_COMMANDS.has(name)) {
@@ -443,8 +474,8 @@ export async function handleMetaCommand(
 
       for (const msg of messages) {
         const ts = msg.timestamp ? `[${msg.timestamp}]` : '[unknown]';
-        lines.push(`${ts} ${msg.url}`);
-        lines.push(`  "${msg.userMessage}"`);
+        lines.push(`${ts} ${wrapUntrustedContent(msg.url, 'inbox:url')}`);
+        lines.push(`  "${wrapUntrustedContent(msg.userMessage, 'inbox:message')}"`);
         lines.push('');
       }
 
@@ -495,6 +526,18 @@ export async function handleMetaCommand(
         if (!Array.isArray(data.cookies) || !Array.isArray(data.pages)) {
           throw new Error('Invalid state file: expected cookies and pages arrays');
         }
+        // Validate and filter cookies — reject malformed or internal-network cookies
+        const validatedCookies = data.cookies.filter((c: any) => {
+          if (typeof c !== 'object' || !c) return false;
+          if (typeof c.name !== 'string' || typeof c.value !== 'string') return false;
+          if (typeof c.domain !== 'string' || !c.domain) return false;
+          const d = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
+          if (d === 'localhost' || d.endsWith('.internal') || d === '169.254.169.254') return false;
+          return true;
+        });
+        if (validatedCookies.length < data.cookies.length) {
+          console.warn(`[browse] Filtered ${data.cookies.length - validatedCookies.length} invalid cookies from state file`);
+        }
         // Warn on state files older than 7 days
         if (data.savedAt) {
           const ageMs = Date.now() - new Date(data.savedAt).getTime();
@@ -507,7 +550,7 @@ export async function handleMetaCommand(
         bm.setFrame(null);
         await bm.closeAllPages();
         await bm.restoreState({
-          cookies: data.cookies,
+          cookies: validatedCookies,
           pages: data.pages.map((p: any) => ({ ...p, storage: null })),
         });
         return `State loaded: ${data.cookies.length} cookies, ${data.pages.length} pages`;
@@ -535,7 +578,7 @@ export async function handleMetaCommand(
         frame = page.frame({ name: args[1] });
       } else if (target === '--url') {
         if (!args[1]) throw new Error('Usage: frame --url <pattern>');
-        frame = page.frame({ url: new RegExp(args[1]) });
+        frame = page.frame({ url: new RegExp(escapeRegExp(args[1])) });
       } else {
         // CSS selector or @ref for the iframe element
         const resolved = await bm.resolveRef(target);
