@@ -49,6 +49,54 @@ function extractFunction(src: string, name: string): string {
   return src.slice(start);
 }
 
+// ─── Task 4: Agent queue poisoning — full schema validation + permissions ───
+
+describe('Agent queue security', () => {
+  it('server queue directory must use restricted permissions', () => {
+    const queueSection = SERVER_SRC.slice(SERVER_SRC.indexOf('agentQueue'), SERVER_SRC.indexOf('agentQueue') + 2000);
+    expect(queueSection).toMatch(/0o700/);
+  });
+
+  it('sidebar-agent queue directory must use restricted permissions', () => {
+    // The mkdirSync for the queue dir lives in main() — search the main() body
+    const mainStart = AGENT_SRC.indexOf('async function main');
+    const queueSection = AGENT_SRC.slice(mainStart);
+    expect(queueSection).toMatch(/0o700/);
+  });
+
+  it('cli.ts queue file creation must use restricted permissions', () => {
+    const CLI_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/cli.ts'), 'utf-8');
+    const queueSection = CLI_SRC.slice(CLI_SRC.indexOf('queue') || 0, CLI_SRC.indexOf('queue') + 2000);
+    expect(queueSection).toMatch(/0o700|0o600|mode/);
+  });
+
+  it('queue reader must have a validator function covering all fields', () => {
+    // Extract ONLY the validator function body by walking braces
+    const validatorStart = AGENT_SRC.indexOf('function isValidQueueEntry');
+    expect(validatorStart).toBeGreaterThan(-1);
+    let depth = 0;
+    let bodyStart = AGENT_SRC.indexOf('{', validatorStart);
+    let bodyEnd = bodyStart;
+    for (let i = bodyStart; i < AGENT_SRC.length; i++) {
+      if (AGENT_SRC[i] === '{') depth++;
+      if (AGENT_SRC[i] === '}') depth--;
+      if (depth === 0) { bodyEnd = i + 1; break; }
+    }
+    const validatorBlock = AGENT_SRC.slice(validatorStart, bodyEnd);
+
+    expect(validatorBlock).toMatch(/prompt.*string/);
+    expect(validatorBlock).toMatch(/Array\.isArray/);
+    expect(validatorBlock).toMatch(/\.\./);
+    expect(validatorBlock).toContain('stateFile');
+    expect(validatorBlock).toContain('tabId');
+    expect(validatorBlock).toMatch(/number/);
+    expect(validatorBlock).toContain('null');
+    expect(validatorBlock).toContain('message');
+    expect(validatorBlock).toContain('pageUrl');
+    expect(validatorBlock).toContain('sessionId');
+  });
+});
+
 // ─── Shared source reads for CSS validator tests ────────────────────────────
 const CDP_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/cdp-inspector.ts'), 'utf-8');
 const EXTENSION_SRC = fs.readFileSync(

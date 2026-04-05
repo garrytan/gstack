@@ -558,8 +558,9 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
     tabId: agentTabId,
   });
   try {
-    fs.mkdirSync(gstackDir, { recursive: true });
+    fs.mkdirSync(gstackDir, { recursive: true, mode: 0o700 });
     fs.appendFileSync(agentQueue, entry + '\n');
+    try { fs.chmodSync(agentQueue, 0o600); } catch {}
   } catch (err: any) {
     addChatEntry({ ts: new Date().toISOString(), role: 'agent', type: 'agent_error', error: `Failed to queue: ${err.message}` });
     agentStatus = 'idle';

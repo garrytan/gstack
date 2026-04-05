@@ -587,7 +587,10 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         }
         // Clear old agent queue
         const agentQueue = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
-        try { fs.writeFileSync(agentQueue, ''); } catch {}
+        try {
+          fs.mkdirSync(path.dirname(agentQueue), { recursive: true, mode: 0o700 });
+          fs.writeFileSync(agentQueue, '', { mode: 0o600 });
+        } catch {}
 
         // Resolve browse binary path the same way — execPath-relative
         let browseBin = path.resolve(__dirname, '..', 'dist', 'browse');
