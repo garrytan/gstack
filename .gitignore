@@ -17,6 +17,7 @@ bin/gstack-global-discover
 .context/
 extension/.auth.json
 .gstack-worktrees/
+.writing/
 /tmp/
 *.log
 *.bun-build
