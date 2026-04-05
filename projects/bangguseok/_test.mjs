@@ -1,0 +1,1 @@
+const f = new FormData(); f.append('file', new Blob(['test'], {type:'image/jpeg'}), 'test.jpg'); f.append('documentType', 'passport'); fetch('http://localhost:3000/api/validate', {method:'POST', body:f}).then(r=>r.json()).then(d=>console.log(JSON.stringify(d))).catch(e=>console.error(e.message));  

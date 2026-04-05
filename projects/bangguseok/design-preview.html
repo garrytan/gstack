@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>방구석 사진관 — Design Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=Pretendard:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════
+   방구석 사진관 — Morning Studio Design System
+   ═══════════════════════════════════════════ */
+
+:root {
+  /* Background */
+  --bg-warm: #FEFCF9;
+  --bg-cream: #F5F0EB;
+  --bg-section: #FAF7F4;
+  --bg-glow: rgba(212, 165, 116, 0.08);
+
+  /* Text */
+  --text-dark: #3D2B1F;
+  --text-body: #6B5B4F;
+  --text-muted: #A39585;
+  --text-white: #FEFCF9;
+
+  /* Accent */
+  --accent: #D4A574;
+  --accent-hover: #C4905E;
+  --accent-soft: rgba(212, 165, 116, 0.12);
+  --accent-glow: rgba(212, 165, 116, 0.15);
+
+  /* Status */
+  --success: #59A96A;
+  --success-bg: rgba(89, 169, 106, 0.08);
+  --danger: #D45A5A;
+  --danger-bg: rgba(212, 90, 90, 0.08);
+  --warning: #D4A04A;
+
+  /* Border & Shadow */
+  --border: rgba(61, 43, 31, 0.08);
+  --border-hover: rgba(61, 43, 31, 0.15);
+  --shadow-soft: 0 2px 16px rgba(61, 43, 31, 0.06);
+  --shadow-card: 0 4px 24px rgba(61, 43, 31, 0.08);
+  --shadow-cta: 0 4px 20px rgba(212, 165, 116, 0.3);
+
+  /* Shape */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-full: 9999px;
+
+  /* Typography */
+  --font-body: 'Pretendard', -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Noto Serif KR', 'Batang', serif;
+}
+
+/* Reset */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-warm);
+  color: var(--text-body);
+  min-height: 100vh;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* ─── Morning Sunlight Glow ─── */
+body::before {
+  content: '';
+  position: fixed;
+  top: -120px;
+  right: -120px;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(255, 220, 170, 0.25) 0%, rgba(255, 220, 170, 0.08) 40%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  top: 60px;
+  right: 40px;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(255, 240, 210, 0.15) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ═══ Layout ═══ */
+.page { position: relative; z-index: 1; }
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ═══ Header ═══ */
+.header {
+  text-align: center;
+  padding: 48px 0 40px;
+}
+
+.header__logo {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--text-dark);
+  letter-spacing: -0.5px;
+  margin-bottom: 8px;
+}
+
+.header__tagline {
+  font-size: 16px;
+  color: var(--text-body);
+  font-weight: 400;
+  margin-bottom: 16px;
+}
+
+.header__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(212, 165, 116, 0.2);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-hover);
+}
+
+/* ═══ Main — 2 Column Desktop ═══ */
+.main {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 32px;
+  align-items: start;
+  padding-bottom: 48px;
+}
+
+/* ─── Left Column: Action ─── */
+.action-col { display: flex; flex-direction: column; gap: 20px; }
+
+/* Doc Type Selector */
+.doc-selector { display: flex; gap: 8px; }
+
+.doc-pill {
+  flex: 1;
+  padding: 10px 4px;
+  background: transparent;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-full);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-body);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.doc-pill:hover {
+  border-color: var(--accent);
+  color: var(--text-dark);
+}
+
+.doc-pill--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-white);
+  font-weight: 600;
+}
+
+/* Upload Zone */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: var(--bg-section);
+}
+
+.upload-zone:hover {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.upload-zone__icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-zone__icon svg {
+  width: 24px;
+  height: 24px;
+  stroke: var(--accent-hover);
+}
+
+.upload-zone__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-dark);
+  margin-bottom: 4px;
+}
+
+.upload-zone__hint {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* CTA Button */
+.btn-cta {
+  width: 100%;
+  padding: 16px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-white);
+  font-family: var(--font-body);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: var(--shadow-cta);
+}
+
+.btn-cta:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(212, 165, 116, 0.35);
+}
+
+.btn-cta:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-cta-hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: -12px;
+}
+
+/* ─── Right Column: Trust ─── */
+.trust-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Sample Result */
+.sample-result {
+  background: var(--bg-cream);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  text-align: center;
+}
+
+.sample-result__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+}
+
+.sample-photos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.sample-photo {
+  width: 100px;
+  height: 133px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+}
+
+.sample-photo--before {
+  border: 1px solid var(--border);
+  background: #e8e0d8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sample-photo--after {
+  border: 2px solid var(--success);
+  background: #fff;
+  box-shadow: 0 0 20px rgba(89, 169, 106, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--success);
+}
+
+.sample-arrow {
+  font-size: 20px;
+  color: var(--accent);
+}
+
+/* Trust Badges */
+.trust-badges {
+  display: flex;
+  gap: 12px;
+}
+
+.trust-badge {
+  flex: 1;
+  padding: 16px 8px;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.trust-badge:hover {
+  border-color: var(--border-hover);
+}
+
+.trust-badge__icon {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 8px;
+  background: var(--accent-soft);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trust-badge__icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: var(--accent-hover);
+}
+
+.trust-badge__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dark);
+  margin-bottom: 2px;
+}
+
+.trust-badge__desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ═══ Result Section (below fold) ═══ */
+.result-section {
+  padding: 40px 0;
+  border-top: 1px solid var(--border);
+}
+
+.result-banner {
+  text-align: center;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+
+.result-banner--pass {
+  background: var(--success-bg);
+  border: 1px solid rgba(89, 169, 106, 0.2);
+  color: var(--success);
+}
+
+.result-banner--fail {
+  background: var(--danger-bg);
+  border: 1px solid rgba(212, 90, 90, 0.2);
+  color: var(--danger);
+}
+
+/* Before/After */
+.comparison {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.comparison__item {
+  text-align: center;
+}
+
+.comparison__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.comparison__img {
+  width: 140px;
+  height: 186px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-cream);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.comparison__img--after {
+  border: 2px solid var(--success);
+  box-shadow: 0 0 24px rgba(89, 169, 106, 0.12);
+  color: var(--success);
+}
+
+.comparison__arrow {
+  font-size: 24px;
+  color: var(--accent);
+}
+
+/* Download Button */
+.btn-download {
+  display: block;
+  width: fit-content;
+  margin: 0 auto 24px;
+  padding: 14px 40px;
+  background: var(--success);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-download:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(89, 169, 106, 0.3);
+}
+
+/* Check List */
+.check-list {
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+
+.check-item__status {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.check-item__status--pass {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid rgba(89, 169, 106, 0.2);
+}
+
+.check-item__status--fail {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid rgba(212, 90, 90, 0.2);
+}
+
+.check-item__label {
+  font-weight: 500;
+  color: var(--text-dark);
+}
+
+.check-item__reason {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* ═══ Loading State ═══ */
+.loading-section {
+  text-align: center;
+  padding: 48px 24px;
+}
+
+.progress-bar {
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  background: var(--bg-cream);
+  border-radius: 3px;
+  margin: 0 auto 20px;
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  width: 60%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  border-radius: 3px;
+  transition: width 0.5s ease;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+.loading-section__text {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-dark);
+  margin-bottom: 6px;
+}
+
+.loading-section__sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ═══ Footer ═══ */
+.footer {
+  padding: 24px 0 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+.footer a {
+  color: var(--text-body);
+  text-decoration: none;
+}
+
+.footer a:hover { color: var(--text-dark); }
+
+/* ═══ Accessibility ═══ */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ═══ Responsive ═══ */
+@media (max-width: 960px) {
+  .main {
+    grid-template-columns: 1fr;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  /* trust-col stays below action-col on mobile */
+}
+
+@media (max-width: 640px) {
+  .container { padding: 0 16px; }
+  .header { padding: 32px 0 28px; }
+  .header__logo { font-size: 28px; }
+  .header__tagline { font-size: 14px; }
+
+  .doc-pill { font-size: 13px; padding: 8px 2px; }
+  .upload-zone { padding: 36px 16px; }
+
+  .trust-badges { flex-direction: column; gap: 8px; }
+
+  .comparison { gap: 12px; }
+  .comparison__img { width: 110px; height: 146px; }
+
+  body::before { width: 300px; height: 300px; top: -80px; right: -80px; }
+  body::after { display: none; }
+}
+
+/* (section-divider removed — preview shows landing only) */
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ═══ Header ═══ -->
+  <header class="header container">
+    <h1 class="header__logo">방구석 사진관</h1>
+    <p class="header__tagline">반려 걱정 없는 증명사진, 10초면 완성</p>
+    <span class="header__badge">무료 베타 서비스</span>
+  </header>
+
+  <!-- ═══ Main: 2-Column ═══ -->
+  <main class="main container">
+
+    <!-- Left: Action Column -->
+    <div class="action-col">
+
+      <!-- Doc Type Pills -->
+      <div class="doc-selector">
+        <button class="doc-pill doc-pill--active">여권</button>
+        <button class="doc-pill">주민등록증</button>
+        <button class="doc-pill">이력서</button>
+      </div>
+
+      <!-- Upload Zone -->
+      <div class="upload-zone" tabindex="0" role="button" aria-label="사진 업로드">
+        <div class="upload-zone__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+        </div>
+        <p class="upload-zone__title">여기에 사진을 올려주세요</p>
+        <p class="upload-zone__hint">JPG, PNG, HEIC · 최대 4MB</p>
+      </div>
+
+      <!-- CTA -->
+      <button class="btn-cta" disabled>무료로 증명사진 만들기</button>
+      <p class="btn-cta-hint">사진을 먼저 올려주세요</p>
+    </div>
+
+    <!-- Right: Trust Column -->
+    <div class="trust-col">
+
+      <!-- Sample Result -->
+      <div class="sample-result">
+        <p class="sample-result__label">이런 결과물을 받으실 수 있어요</p>
+        <div class="sample-photos">
+          <div class="sample-photo sample-photo--before">원본</div>
+          <span class="sample-arrow">→</span>
+          <div class="sample-photo sample-photo--after">규격 완성</div>
+        </div>
+      </div>
+
+      <!-- Trust Badges -->
+      <div class="trust-badges">
+        <div class="trust-badge">
+          <div class="trust-badge__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+            </svg>
+          </div>
+          <p class="trust-badge__label">10초 완성</p>
+          <p class="trust-badge__desc">업로드만 하면 끝</p>
+        </div>
+        <div class="trust-badge">
+          <div class="trust-badge__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+          </div>
+          <p class="trust-badge__label">AI 자동보정</p>
+          <p class="trust-badge__desc">배경·밝기·크롭</p>
+        </div>
+        <div class="trust-badge">
+          <div class="trust-badge__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+              <path d="M20 6L9 17l-5-5"/>
+            </svg>
+          </div>
+          <p class="trust-badge__label">규격 적합</p>
+          <p class="trust-badge__desc">반려 걱정 없음</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ═══ Footer ═══ -->
+  <footer class="footer container">
+    <p>방구석 사진관 · 무료 베타</p>
+    <p style="margin-top: 4px;">업로드된 사진은 처리 후 즉시 삭제됩니다 · 서버에 저장되지 않습니다</p>
+    <p style="margin-top: 4px;">AI 검증 결과는 참고용이며, 최종 판단은 발급 기관에 따릅니다 · <a href="#">개인정보 처리방침</a></p>
+  </footer>
+
+</div>
+</body>
+</html>
