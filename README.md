@@ -172,7 +172,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/open-gstack-browser` | **GStack Browser** — launch GStack Browser with sidebar, anti-bot stealth, auto model routing (Sonnet for actions, Opus for analysis), one-click cookie import, and Claude Code integration. Clean up pages, take smart screenshots, edit CSS, and pass info back to your terminal. |
 | `/setup-deploy` | **Deploy Configurator** — one-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
 
-**[Deep dives with examples and philosophy for every skill →](docs/skills.md)**
+**Run any skill with `/skill-name` in your Claude Code session.**
 
 ## Parallel sprints
 
@@ -277,12 +277,10 @@ Alpaca internal fork. Based on [garrytan/gstack](https://github.com/garrytan/gst
 
 | Doc | What it covers |
 |-----|---------------|
-| [Skill Deep Dives](docs/skills.md) | Philosophy, examples, and workflow for every skill (includes Greptile integration) |
 | [Engineering Ethos](ETHOS.md) | Alpaca engineering philosophy: Boil the Lake, Search Before Building, User Sovereignty |
 | [Architecture](ARCHITECTURE.md) | Design decisions and system internals |
 | [Browser Reference](BROWSER.md) | Full command reference for `/browse` |
 | [Contributing](CONTRIBUTING.md) | Dev setup, testing, contributor mode, and dev mode |
-| [Changelog](CHANGELOG.md) | What's new in every version |
 
 ## Privacy
 

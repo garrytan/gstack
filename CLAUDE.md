@@ -111,7 +111,6 @@ gstack/
 │   └── dist/        # Compiled binary
 ├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
 ├── lib/             # Shared libraries (worktree.ts)
-├── docs/designs/    # Design documents
 ├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
 ├── .github/         # CI workflows + Docker image
 │   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
@@ -178,13 +177,12 @@ When you need to interact with a browser (QA, dogfooding, cookie setup), use the
 `mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
 project uses.
 
-**Sidebar architecture:** Before modifying `sidepanel.js`, `background.js`,
-`content.js`, `sidebar-agent.ts`, or sidebar-related server endpoints, read
-`docs/designs/SIDEBAR_MESSAGE_FLOW.md`. It documents the full initialization
-timeline, message flow, auth token chain, tab concurrency model, and known
-failure modes. The sidebar spans 5 files across 2 codebases (extension + server)
-with non-obvious ordering dependencies. The doc exists to prevent the kind of
-silent failures that come from not understanding the cross-component flow.
+**Sidebar architecture:** The sidebar spans 5 files across 2 codebases (extension + server)
+with non-obvious ordering dependencies (`sidepanel.js`, `background.js`,
+`content.js`, `sidebar-agent.ts`, and sidebar-related server endpoints).
+Be careful with initialization ordering — there are cross-component flow
+dependencies that cause silent failures when changed without understanding
+the full message flow and auth token chain.
 
 ## Dev symlink awareness
 
@@ -299,21 +297,7 @@ already landed on main. Your entry goes on top because your branch lands next.
 - Is your entry the topmost entry in CHANGELOG (above main's latest)?
 If any answer is no, fix it before continuing.
 
-**After any CHANGELOG edit that moves, adds, or removes entries,** immediately run
-`grep "^## \[" CHANGELOG.md` and verify the full version sequence is contiguous
-with no gaps or duplicates before committing. If a version is missing, the edit
-broke something. Fix it before moving on.
-
-CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
-
-- Lead with what the user can now **do** that they couldn't before. Sell the feature.
-- Use plain language, not implementation details. "You can now..." not "Refactored the..."
-- **Never mention TODOS.md, internal tracking, eval infrastructure, or contributor-facing
-  details.** These are invisible to users and meaningless to them.
-- Put contributor/internal changes in a separate "For contributors" section at the bottom.
-- Every entry should make someone think "oh nice, I want to try that."
-- No jargon: say "every question now tells you which project and branch you're in" not
-  "AskUserQuestion format standardized across skill templates via preamble resolver."
+This fork does not maintain a CHANGELOG. Version history is tracked via git commits.
 
 ## AI effort compression
 
