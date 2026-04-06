@@ -1596,9 +1596,7 @@ smarter on their codebase over time.
 If `SQRY: unavailable`: skip this section.
 If `SQRY: available` but no `mcp__sqry__` tools visible: tell user to run `sqry mcp setup` and restart session.
 
-**Before first query:** read `sqry://meta/manifest` via ReadMcpResourceTool to confirm MCP server connection.
-
-**Index freshness:** if `SQRY_INDEXED: no` or `SQRY_STALE: yes` → run `mcp__sqry__rebuild_index` first.
+**Index freshness:** if `SQRY_INDEXED: no` → tell user to run `sqry index .` (typically 10-60s), then `mcp__sqry__rebuild_index`.
 If you made structural changes this session, call rebuild_index before your next sqry query.
 
 **structural verification before shipping** — use these `mcp__sqry__` tools:
@@ -1607,7 +1605,7 @@ If you made structural changes this session, call rebuild_index before your next
 - `mcp__sqry__find_unused` — catch dead code being shipped
 - `mcp__sqry__complexity_metrics` — verify complexity hasn't regressed
 
-**Limits/tiering:** read `sqry://docs/capability-map` via ReadMcpResourceTool. Full params: `sqry://docs/tool-guide`. Live from sqry — do not hardcode.
+**Tool parameters:** Most sqry tools accept `max_depth` (default 3, max 10) and `max_results` (default 20, max 100). Scope queries to specific files or directories when possible — full-repo queries on large codebases are expensive. Use `semantic_search` for broad discovery, then `direct_callers`/`direct_callees` for focused tracing.
 
 ## Step 3.48: Scope Drift Detection
 
