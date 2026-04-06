@@ -4,8 +4,8 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 
 | Skill | Your specialist | What they do |
 |-------|----------------|--------------|
-| [`/office-hours`](#office-hours) | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
-| [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
+| [`/office-hours`](#office-hours) | **Product Design Partner** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
+| [`/plan-ceo-review`](#plan-ceo-review) | **Leadership Review** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
@@ -46,7 +46,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 
 This is where every project should start.
 
-Before you plan, before you review, before you write code — sit down with a YC-style partner and think about what you're actually building. Not what you think you're building. What you're *actually* building.
+Before you plan, before you review, before you write code — sit down with a product design partner and think about what you're actually building. Not what you think you're building. What you're *actually* building.
 
 ### The reframe
 
@@ -1106,7 +1106,7 @@ Set `auto_upgrade: true` in `~/.gstack/config.yaml` to skip the prompt entirely 
 
 ## Greptile integration
 
-[Greptile](https://greptile.com) is a YC company that reviews your PRs automatically. It catches real bugs — race conditions, security issues, things that pass CI and blow up in production. It has genuinely saved my ass more than once. I love these guys.
+[Greptile](https://greptile.com) reviews your PRs automatically. It catches real bugs — race conditions, security issues, things that pass CI and blow up in production.
 
 ### Setup
 

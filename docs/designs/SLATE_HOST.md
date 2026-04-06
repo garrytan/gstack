@@ -1,7 +1,7 @@
 # Slate Host Integration — Research & Design Doc
 
 **Date:** 2026-04-02
-**Branch:** garrytan/slate-agent-support
+**Branch:** feature/slate-agent-support
 **Status:** Research complete, blocked on host config refactor
 **Supersedes:** None
 

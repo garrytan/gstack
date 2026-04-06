@@ -1,7 +1,7 @@
 # Design: Design Shotgun — Browser-to-Agent Feedback Loop
 
 Generated on 2026-03-27
-Branch: garrytan/agent-design-tools
+Branch: feature/agent-design-tools
 Status: LIVING DOCUMENT — update as bugs are found and fixed
 
 ## What This Feature Does

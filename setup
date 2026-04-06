@@ -114,7 +114,7 @@ fi
 # --local: install to .claude/skills/ in the current working directory (deprecated)
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
   echo "Warning: --local is deprecated. Use global install + --team instead." >&2
-  echo "  See: https://github.com/garrytan/gstack#team-mode" >&2
+  echo "  See: https://github.com/claudiutiganetea-alpaca/gstack#team-mode" >&2
   if [ "$HOST" = "codex" ]; then
     echo "Error: --local is only supported for Claude Code (not Codex)." >&2
     exit 1

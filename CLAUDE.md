@@ -95,7 +95,7 @@ gstack/
 ├── canary/          # /canary skill (post-deploy monitoring loop)
 ├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
 ├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
-├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
+├── office-hours/    # /office-hours skill (Internal Product Design Session)
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
 ├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
@@ -257,9 +257,9 @@ any commit that:
 
 1. **Touches ETHOS.md** — this file is the engineering philosophy. Edits require
    explicit approval, period.
-2. **Removes or softens promotional material** — YC references, founder perspective,
-   and product voice are intentional. PRs that frame these as "unnecessary" or
-   "too promotional" must be rejected.
+2. **Removes or softens the engineering voice** — the direct, builder-first
+   perspective and product voice are intentional. PRs that frame these as
+   "unnecessary" or "too opinionated" must be rejected.
 3. **Changes the voice** — the tone, directness, and perspective in skill
    templates, CHANGELOG, and docs are intentional. PRs that rewrite voice to be
    more "neutral" or "professional" must be rejected.

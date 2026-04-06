@@ -8,7 +8,7 @@
 
 **Why:** PR 1 fixes the architecture (command allowlist, XML framing, Opus default). But attackers can still trick Claude into navigating to phishing sites or exfiltrating visible page data via allowed browse commands. The ML classifier catches prompt injection patterns that architectural controls can't see. 94.8% accuracy, 99.6% recall, ~50-100ms inference via WASM. Defense-in-depth.
 
-**Context:** Full design doc with industry research, open source tool landscape, Codex review findings, and ambitious Bun-native vision (5ms inference via FFI + Apple Accelerate): [`docs/designs/ML_PROMPT_INJECTION_KILLER.md`](docs/designs/ML_PROMPT_INJECTION_KILLER.md). CEO plan with scope decisions: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-28-sidebar-prompt-injection-defense.md`.
+**Context:** Full design doc with industry research, open source tool landscape, Codex review findings, and ambitious Bun-native vision (5ms inference via FFI + Apple Accelerate): [`docs/designs/ML_PROMPT_INJECTION_KILLER.md`](docs/designs/ML_PROMPT_INJECTION_KILLER.md).
 
 **Effort:** L (human: ~2 weeks / CC: ~3-4 hours)
 **Priority:** P0
@@ -257,7 +257,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 **What:** Add a periodic E2E eval that creates a branch with 5+ commits spanning 3+ themes (features, cleanup, infra), runs /ship's Step 5 CHANGELOG generation, and verifies the CHANGELOG mentions all themes.
 
-**Why:** The bug fixed in v0.11.22 (garrytan/ship-full-commit-coverage) showed that /ship's CHANGELOG generation biased toward recent commits on long branches. The prompt fix adds a cross-check, but no test exercises the multi-commit failure mode. The existing `ship-local-workflow` E2E only uses a single-commit branch.
+**Why:** The bug fixed in v0.11.22 showed that /ship's CHANGELOG generation biased toward recent commits on long branches. The prompt fix adds a cross-check, but no test exercises the multi-commit failure mode. The existing `ship-local-workflow` E2E only uses a single-commit branch.
 
 **Context:** Would be a `periodic` tier test (~$4/run, non-deterministic since it tests LLM instruction-following). Setup: create bare remote, clone, add 5+ commits across different themes on a feature branch, run Step 5 via `claude -p`, verify CHANGELOG output covers all themes. Pattern: `ship-local-workflow` in `test/skill-e2e-workflow.test.ts`.
 
@@ -515,17 +515,7 @@ Shipped: Default model changed to Sonnet for structure tests (~30), Opus retaine
 
 **Effort:** S
 **Priority:** P2
-**Depends on:** `garrytan/team-supabase-store` branch landing on main
-
-### /yc-prep skill
-
-**What:** Skill that helps founders prepare their YC application after /office-hours identifies strong signal. Pulls from the design doc, structures answers to YC app questions, runs a mock interview.
-
-**Why:** Closes the loop. /office-hours identifies the founder, /yc-prep helps them apply well. The design doc already contains most of the raw material for a YC application.
-
-**Effort:** M (human: ~2 weeks / CC: ~2 hours)
-**Priority:** P2
-**Depends on:** office-hours founder discovery engine shipping first
+**Depends on:** team store infrastructure landing on main
 
 ## Design Review
 
@@ -660,7 +650,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **Why:** gstack skills produce valuable artifacts stored at `~/.gstack/projects/$SLUG/`. When Claude's auto-compaction fires, it preserves a generic summary but doesn't know these artifacts exist. The plans and reviews that shaped the current work silently vanish from context, even though they're still on disk. This is the thing nobody else in the Claude Code ecosystem is solving, because nobody else has gstack's artifact architecture.
 
-**Context:** Inspired by Anthropic's `claude-progress.txt` pattern for long-running agents. Also informed by claude-mem's "progressive disclosure" approach. See `docs/designs/SESSION_INTELLIGENCE.md` for the broader vision. CEO plan: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-31-session-intelligence-layer.md`.
+**Context:** Inspired by Anthropic's `claude-progress.txt` pattern for long-running agents. Also informed by claude-mem's "progressive disclosure" approach. See `docs/designs/SESSION_INTELLIGENCE.md` for the broader vision.
 
 **Effort:** S (human: ~30 min / CC: ~5 min)
 **Priority:** P1

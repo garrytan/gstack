@@ -217,7 +217,7 @@ Adding a new coding agent to gstack used to mean touching 9 files and knowing th
 
 ### Added
 
-- **Developer persona interrogation.** The review starts by asking WHO your developer is, with concrete archetypes (YC founder, platform engineer, frontend dev, OSS contributor). The persona shapes every question for the rest of the review.
+- **Developer persona interrogation.** The review starts by asking WHO your developer is, with concrete archetypes (startup founder, platform engineer, frontend dev, OSS contributor). The persona shapes every question for the rest of the review.
 - **Empathy narrative as conversation starter.** A first-person "I'm a developer who just found your tool..." walkthrough gets shown to you for reaction before any scoring begins. You correct it, and the corrected version goes into the plan.
 - **Competitive DX benchmarking.** WebSearch finds your competitors' TTHW and onboarding approaches. You pick your target tier (Champion < 2min, Competitive 2-5min, or current trajectory). That target follows you through every pass.
 - **Magical moment design.** You choose how developers should experience the "oh wow" moment: playground, demo command, video, or guided tutorial, with effort/tradeoff analysis.
@@ -444,11 +444,11 @@ You can now go from an approved design mockup to production-quality HTML with on
 
 ## [0.13.10.0] - 2026-03-29 — Office Hours Gets a Reading List
 
-Repeat /office-hours users now get fresh, curated resources every session instead of the same YC closing. 34 hand-picked videos and essays from Garry Tan, Lightcone Podcast, YC Startup School, and Paul Graham, contextually matched to what came up during the session. The system remembers what it already showed you, so you never see the same recommendation twice.
+Repeat /office-hours users now get fresh, curated resources every session instead of the same closing. Contextually matched to what came up during the session. The system remembers what it already showed you, so you never see the same recommendation twice.
 
 ### Added
 
-- **Rotating founder resources in /office-hours closing.** 34 curated resources across 5 categories (Garry Tan videos, YC Backstory, Lightcone Podcast, YC Startup School, Paul Graham essays). Claude picks 2-3 per session based on session context, not randomly.
+- **Rotating resources in /office-hours closing.** Curated resources contextually matched per session, not randomly.
 - **Resource dedup log.** Tracks which resources were shown in `~/.gstack/projects/$SLUG/resources-shown.jsonl` so repeat users always see fresh content.
 - **Resource selection analytics.** Logs which resources get picked to `skill-usage.jsonl` so you can see patterns over time.
 - **Browser-open offer.** After showing resources, offers to open them in your browser so you can check them out later.
@@ -590,7 +590,7 @@ Six fixes from community PRs and bug reports. The big one: your dependency tree 
 
 ### Added
 
-- **Community PR guardrails in CLAUDE.md.** ETHOS.md, promotional material, and Garry's voice are explicitly protected from modification without user approval.
+- **Community PR guardrails in CLAUDE.md.** ETHOS.md, engineering voice, and product perspective are explicitly protected from modification without user approval.
 
 ## [0.13.2.0] - 2026-03-28 — User Sovereignty
 
@@ -830,12 +830,12 @@ When you ship a branch with 12 commits spanning performance work, dead code remo
 
 Every gstack skill now has a voice. Not a personality, not a persona, but a consistent set of instructions that make Claude sound like someone who shipped code today and cares whether the thing works for real users. Direct, concrete, sharp. Names the file, the function, the command. Connects technical work to what the user actually experiences.
 
-Two tiers: lightweight skills get a trimmed version (tone + writing rules). Full skills get the complete directive with context-dependent tone (YC partner energy for strategy, senior eng for code review, blog-post clarity for debugging), concreteness standards, humor calibration, and user-outcome guidance.
+Two tiers: lightweight skills get a trimmed version (tone + writing rules). Full skills get the complete directive with context-dependent tone (senior leadership energy for strategy, senior eng for code review, blog-post clarity for debugging), concreteness standards, humor calibration, and user-outcome guidance.
 
 ### Added
 
 - **Voice directive in all 25 skills.** Generated from `preamble.ts`, injected via the template resolver. Tier 1 skills get a 4-line version. Tier 2+ skills get the full directive.
-- **Context-dependent tone.** Match the context: YC partner for `/plan-ceo-review`, senior eng for `/review`, best-technical-blog-post for `/investigate`.
+- **Context-dependent tone.** Match the context: senior leadership for `/plan-ceo-review`, senior eng for `/review`, best-technical-blog-post for `/investigate`.
 - **Concreteness standard.** "Show the exact command. Use real numbers. Point at the exact line." Not aspirational... enforced.
 - **User outcome connection.** "This matters because your user will see a 3-second spinner." Make the user's user real.
 - **LLM eval test.** Judge scores directness, concreteness, anti-corporate tone, AI vocabulary avoidance, and user outcome connection. All dimensions must score 4/5+.
@@ -1446,7 +1446,7 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 ### Fixed
 
 - **`/retro` now counts full calendar days.** Running a retro late at night no longer silently misses commits from earlier in the day. Git treats bare dates like `--since="2026-03-11"` as "11pm on March 11" if you run it at 11pm — now we pass `--since="2026-03-11T00:00:00"` so it always starts from midnight. Compare mode windows get the same fix.
-- **Review log no longer breaks on branch names with `/`.** Branch names like `garrytan/design-system` caused review log writes to fail because Claude Code runs multi-line bash blocks as separate shell invocations, losing variables between commands. New `gstack-review-log` and `gstack-review-read` atomic helpers encapsulate the entire operation in a single command.
+- **Review log no longer breaks on branch names with `/`.** Branch names like `feature/design-system` caused review log writes to fail because Claude Code runs multi-line bash blocks as separate shell invocations, losing variables between commands. New `gstack-review-log` and `gstack-review-read` atomic helpers encapsulate the entire operation in a single command.
 - **All skill templates are now platform-agnostic.** Removed Rails-specific patterns (`bin/test-lane`, `RAILS_ENV`, `.includes()`, `rescue StandardError`, etc.) from `/ship`, `/review`, `/plan-ceo-review`, and `/plan-eng-review`. The review checklist now shows examples for Rails, Node, Python, and Django side-by-side.
 - **`/ship` reads CLAUDE.md to discover test commands** instead of hardcoding `bin/test-lane` and `npm run test`. If no test commands are found, it asks the user and persists the answer to CLAUDE.md.
 
@@ -1550,11 +1550,11 @@ When both `/review` (Claude) and `/codex review` have run, you get a cross-model
 
 - `/debug` and `/office-hours` were completely invisible to natural language — no trigger phrases at all. Now both have full reactive + proactive triggers.
 
-## [0.7.0] - 2026-03-18 — YC Office Hours
+## [0.7.0] - 2026-03-18 — Product Design Sessions
 
-**`/office-hours` — sit down with a YC partner before you write a line of code.**
+**`/office-hours` — sit down with a product design partner before you write a line of code.**
 
-Two modes. If you're building a startup, you get six forcing questions distilled from how YC evaluates products: demand reality, status quo, desperate specificity, narrowest wedge, observation & surprise, and future-fit. If you're hacking on a side project, learning to code, or at a hackathon, you get an enthusiastic brainstorming partner who helps you find the coolest version of your idea.
+Six forcing questions that reframe your product: demand reality, status quo, desperate specificity, narrowest wedge, observation & surprise, and future-fit.
 
 Both modes write a design doc that feeds directly into `/plan-ceo-review` and `/plan-eng-review`. After the session, the skill reflects back what it noticed about how you think — specific observations, not generic praise.
 
@@ -1616,7 +1616,7 @@ Every gstack skill now follows the **Completeness Principle**: always recommend 
 full implementation when AI makes the marginal cost near-zero. No more "Choose B
 because it's 90% of the value" when option A is 70 lines more code.
 
-Read the philosophy: https://garryslist.org/posts/boil-the-ocean
+See ETHOS.md for the philosophy behind this principle.
 
 - **Completeness scoring**: every AskUserQuestion option now shows a completeness
   score (1-10), biasing toward the complete solution
