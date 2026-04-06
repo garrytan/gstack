@@ -26,10 +26,10 @@ fi
 
 case "$ACTION" in
   add)
-    bun -e "
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_HOOK_CMD="$HOOK_CMD" bun -e "
       const fs = require('fs');
-      const settingsPath = '$SETTINGS_FILE';
-      const hookCmd = $(printf '%s' "$HOOK_CMD" | bun -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))");
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
+      const hookCmd = process.env.GSTACK_HOOK_CMD;
 
       let settings = {};
       try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
@@ -55,9 +55,9 @@ case "$ACTION" in
     ;;
   remove)
     [ -f "$SETTINGS_FILE" ] || exit 0
-    bun -e "
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" bun -e "
       const fs = require('fs');
-      const settingsPath = '$SETTINGS_FILE';
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
 
       let settings = {};
       try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { process.exit(0); }
