@@ -705,6 +705,9 @@ const idleCheckInterval = setInterval(() => {
 const BROWSE_PARENT_PID = parseInt(process.env.BROWSE_PARENT_PID || '0', 10);
 if (BROWSE_PARENT_PID > 0) {
   setInterval(() => {
+    // Headed mode: the user is looking at the browser. Don't kill it
+    // just because the CLI command that launched it has exited.
+    if (browserManager.getConnectionMode() === 'headed') return;
     try {
       process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only, no signal sent
     } catch {
