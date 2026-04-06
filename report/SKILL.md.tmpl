@@ -229,19 +229,10 @@ python research/experiments/<slug>/run_<slug>.py
 
 ### Step 7: Outcome assessment
 
-Ask the researcher to assess the experiment outcome via AskUserQuestion:
+Print the report path and result summary as text. Then **call the AskUserQuestion tool**:
 
-> **Report generated:** research/reports/<slug>.md
->
-> **Result:** <CONFIRMED / REJECTED / INCONCLUSIVE>
->
-> How would you classify this experiment?
-
-Options:
-- A) Success — hypothesis confirmed, save results as new baseline
-- B) Partial success — interesting results but needs more work
-- C) Failure — hypothesis rejected, record as dead end
-- D) Inconclusive — needs different parameters or approach
+- question: "Report generated: research/reports/<slug>.md. Result: <CONFIRMED/REJECTED/INCONCLUSIVE>. How would you classify this experiment? RECOMMENDATION: <your assessment based on the data>."
+- options: ["Success — save as new baseline", "Partial success — needs more work", "Failure — record as dead end", "Inconclusive — needs different parameters"]
 
 ### Step 8: Record to learnings and update baseline
 

@@ -69,13 +69,19 @@ fi
 
 If artifacts are listed, mention recent activity briefly.
 
-## AskUserQuestion Format
+## AskUserQuestion — MUST use the tool
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch, and the current task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English. No jargon.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`
-4. **Options:** Lettered options: `A) ... B) ... C) ...`
+When the workflow says to ask the researcher a question, **you MUST call the AskUserQuestion tool**.
+Do NOT just print the options as text in the chat. The tool renders clickable options in the UI.
+
+**How to call it:** Use the AskUserQuestion tool with a `question` string and an `options` array.
+Include a recommendation in the question text itself.
+
+**Question format:**
+1. Re-ground: state the project, branch, and current task (1-2 sentences)
+2. Explain the decision in plain English
+3. Add `RECOMMENDATION: [option]` with a one-line reason
+4. The options array provides the choices — keep them short and actionable
 
 Assume the user hasn't looked at this window in 20 minutes.
 
@@ -152,10 +158,11 @@ The user provides a research idea in natural language. Examples:
 - "MWPM decoder outperforms Union-Find at low noise rates for rotated surface codes"
 - "Increasing batch size beyond 1024 shows diminishing returns for this model"
 
-If the idea is vague, use AskUserQuestion to clarify:
-- What specific quantity are you measuring?
-- What do you expect to observe?
-- What would prove the hypothesis wrong?
+If the idea is vague, **call the AskUserQuestion tool** to clarify. Example:
+- question: "Your idea is broad. Which aspect should we focus on?"
+- options: ["Measuring <quantity A>", "Comparing <method A> vs <method B>", "Characterizing <behavior>"]
+
+Tailor the options to the specific idea. Do NOT just print text.
 
 ### Step 2: Check past learnings
 
@@ -219,52 +226,70 @@ Before generating any code, read the project's CLAUDE.md and look for a `## Rese
 grep -A 50 "## Research conventions" CLAUDE.md 2>/dev/null || echo "NO_CONVENTIONS"
 ```
 
-If `NO_CONVENTIONS` is printed, the project has no research conventions configured yet.
-Use AskUserQuestion to ask the researcher to define their conventions:
-
-> This project doesn't have research conventions configured yet.
-> I need to know your project's coding conventions to generate code that
-> matches your style. I'll ask a few questions and save them to CLAUDE.md.
-
-Questions to ask (via AskUserQuestion):
-1. **Language:** What language do you use? (Python, Julia, MATLAB, etc.)
-2. **Import style:** Any specific import conventions? (e.g., "import numpy as np")
-3. **Naming:** How do you name experiment files and result directories?
-4. **Compute backend:** Where do you run experiments? (local, SLURM, cloud)
-5. **Baseline location:** Where are baseline results stored?
-6. **Test command:** How do you run tests?
-
-After gathering answers, write a `## Research conventions` section to CLAUDE.md with the
-answers formatted as key-value pairs. Example:
-
-```markdown
-## Research conventions
-
-### Language
-python 3.11+
-
-### Imports
-- Always use `import stim` not `from stim import *`
-- Use `pathlib.Path` not `os.path`
-- Numpy as `np`, matplotlib.pyplot as `plt`
-
-### Naming
-- Experiment files: `run_<slug>.py`
-- Result directories: `results/<slug>/<YYYYMMDD-HHMMSS>/`
-
-### Compute backend
-local
-
-### Baseline location
-research/baselines/
-
-### Test command
-pytest tests/ -x
-```
-
 If conventions ARE found, parse them and use them to guide all code generation.
 Every generated file must follow these conventions exactly. Convention compliance
 is more important than code elegance.
+
+---
+
+If `NO_CONVENTIONS` is printed, the project has no research conventions yet.
+**Auto-detect the project and write conventions to CLAUDE.md before continuing.**
+
+**Step 1: Auto-detect project characteristics.**
+
+```bash
+echo "=== LANGUAGE DETECTION ==="
+if ls *.py **/*.py 2>/dev/null | head -1 >/dev/null 2>&1; then echo "DETECTED: python"; fi
+if ls *.jl **/*.jl 2>/dev/null | head -1 >/dev/null 2>&1; then echo "DETECTED: julia"; fi
+if ls *.m **/*.m 2>/dev/null | head -1 >/dev/null 2>&1; then echo "DETECTED: matlab"; fi
+if ls *.rs **/*.rs 2>/dev/null | head -1 >/dev/null 2>&1; then echo "DETECTED: rust"; fi
+if ls *.cpp **/*.cpp 2>/dev/null | head -1 >/dev/null 2>&1; then echo "DETECTED: cpp"; fi
+
+echo "=== DEPENDENCIES ==="
+cat requirements.txt 2>/dev/null || cat pyproject.toml 2>/dev/null | head -30 || cat Project.toml 2>/dev/null | head -20 || echo "NO_DEPS_FILE"
+
+echo "=== TEST COMMAND ==="
+if [ -f pyproject.toml ] && grep -q pytest pyproject.toml 2>/dev/null; then echo "DETECTED: pytest"; fi
+if [ -f Makefile ] && grep -q "test:" Makefile 2>/dev/null; then grep "test:" Makefile | head -1; fi
+
+echo "=== EXISTING RESEARCH ==="
+ls research/ 2>/dev/null || echo "NO_RESEARCH_DIR"
+```
+
+**Step 2: Build a conventions draft from the detection results.**
+
+Based on what was detected, draft a `## Research conventions` section. Fill in what was detected, leave reasonable defaults for the rest. Use this format:
+
+```
+## Research conventions
+
+language: <detected language, e.g. "python 3.11+">
+test_command: <detected or "pytest -x">
+compute_backend: local
+random_seed_strategy: explicit
+
+preferred_libraries:
+  - <libraries from requirements.txt/pyproject.toml>
+
+naming:
+  experiments: snake_case
+  hypotheses: snake_case
+
+imports:
+  - <detected import conventions, e.g. "numpy as np">
+```
+
+**Step 3: Present the draft to the researcher for confirmation.**
+
+**You MUST call the AskUserQuestion tool** with these options (do NOT just print the options as text):
+- question: Show the drafted conventions and ask "Does this look right? I'll append this to CLAUDE.md."
+- options: ["Looks good, save it", "Let me edit it first"]
+
+**Step 4: Append to CLAUDE.md.**
+
+If the researcher approves, append the conventions section to CLAUDE.md using the Edit tool. If CLAUDE.md doesn't exist, create it with the Write tool.
+
+Then continue with the original skill workflow using the newly written conventions.
 
 ### Step 4: Generate hypothesis document
 
@@ -341,25 +366,15 @@ mkdir -p research/reports
 
 ### Step 7: Review with researcher
 
-Show the generated hypothesis and spec to the researcher via AskUserQuestion:
+Show the generated hypothesis and spec to the researcher. Print a summary of the
+hypothesis, parameters, and success criteria as text. Then **call the AskUserQuestion tool**:
 
-> **Hypothesis:** <claim>
->
-> **Parameters:** <summary of parameter grid>
->
-> **Success criteria:** <threshold>
->
-> Ready to proceed?
+- question: "Hypothesis: <claim>. Parameters: <summary>. Success criteria: <threshold>. RECOMMENDATION: Save it — the spec looks complete."
+- options: ["Looks good, save it", "Modify the hypothesis", "Modify the parameters", "Discard"]
 
-Options:
-- A) Looks good, save it
-- B) Modify the hypothesis
-- C) Modify the parameters
-- D) Discard
-
-If A: Write files and record to learnings.
-If B/C: Iterate on the specific part.
-If D: Do not create files.
+If "Looks good": Write files and record to learnings.
+If "Modify the hypothesis" or "Modify the parameters": Iterate on the specific part.
+If "Discard": Do not create files.
 
 ### Step 8: Record to learnings
 

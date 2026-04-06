@@ -69,13 +69,19 @@ fi
 
 If artifacts are listed, mention recent activity briefly.
 
-## AskUserQuestion Format
+## AskUserQuestion — MUST use the tool
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch, and the current task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English. No jargon.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`
-4. **Options:** Lettered options: `A) ... B) ... C) ...`
+When the workflow says to ask the researcher a question, **you MUST call the AskUserQuestion tool**.
+Do NOT just print the options as text in the chat. The tool renders clickable options in the UI.
+
+**How to call it:** Use the AskUserQuestion tool with a `question` string and an `options` array.
+Include a recommendation in the question text itself.
+
+**Question format:**
+1. Re-ground: state the project, branch, and current task (1-2 sentences)
+2. Explain the decision in plain English
+3. Add `RECOMMENDATION: [option]` with a one-line reason
+4. The options array provides the choices — keep them short and actionable
 
 Assume the user hasn't looked at this window in 20 minutes.
 
@@ -348,19 +354,10 @@ python research/experiments/<slug>/run_<slug>.py
 
 ### Step 7: Outcome assessment
 
-Ask the researcher to assess the experiment outcome via AskUserQuestion:
+Print the report path and result summary as text. Then **call the AskUserQuestion tool**:
 
-> **Report generated:** research/reports/<slug>.md
->
-> **Result:** <CONFIRMED / REJECTED / INCONCLUSIVE>
->
-> How would you classify this experiment?
-
-Options:
-- A) Success — hypothesis confirmed, save results as new baseline
-- B) Partial success — interesting results but needs more work
-- C) Failure — hypothesis rejected, record as dead end
-- D) Inconclusive — needs different parameters or approach
+- question: "Report generated: research/reports/<slug>.md. Result: <CONFIRMED/REJECTED/INCONCLUSIVE>. How would you classify this experiment? RECOMMENDATION: <your assessment based on the data>."
+- options: ["Success — save as new baseline", "Partial success — needs more work", "Failure — record as dead end", "Inconclusive — needs different parameters"]
 
 ### Step 8: Record to learnings and update baseline
 

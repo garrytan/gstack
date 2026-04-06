@@ -33,10 +33,11 @@ The user provides a research idea in natural language. Examples:
 - "MWPM decoder outperforms Union-Find at low noise rates for rotated surface codes"
 - "Increasing batch size beyond 1024 shows diminishing returns for this model"
 
-If the idea is vague, use AskUserQuestion to clarify:
-- What specific quantity are you measuring?
-- What do you expect to observe?
-- What would prove the hypothesis wrong?
+If the idea is vague, **call the AskUserQuestion tool** to clarify. Example:
+- question: "Your idea is broad. Which aspect should we focus on?"
+- options: ["Measuring <quantity A>", "Comparing <method A> vs <method B>", "Characterizing <behavior>"]
+
+Tailor the options to the specific idea. Do NOT just print text.
 
 ### Step 2: Check past learnings
 
@@ -133,25 +134,15 @@ mkdir -p research/reports
 
 ### Step 7: Review with researcher
 
-Show the generated hypothesis and spec to the researcher via AskUserQuestion:
+Show the generated hypothesis and spec to the researcher. Print a summary of the
+hypothesis, parameters, and success criteria as text. Then **call the AskUserQuestion tool**:
 
-> **Hypothesis:** <claim>
->
-> **Parameters:** <summary of parameter grid>
->
-> **Success criteria:** <threshold>
->
-> Ready to proceed?
+- question: "Hypothesis: <claim>. Parameters: <summary>. Success criteria: <threshold>. RECOMMENDATION: Save it — the spec looks complete."
+- options: ["Looks good, save it", "Modify the hypothesis", "Modify the parameters", "Discard"]
 
-Options:
-- A) Looks good, save it
-- B) Modify the hypothesis
-- C) Modify the parameters
-- D) Discard
-
-If A: Write files and record to learnings.
-If B/C: Iterate on the specific part.
-If D: Do not create files.
+If "Looks good": Write files and record to learnings.
+If "Modify the hypothesis" or "Modify the parameters": Iterate on the specific part.
+If "Discard": Do not create files.
 
 ### Step 8: Record to learnings
 

@@ -156,27 +156,15 @@ logic based on the spec and conventions.
 
 **This step is mandatory. Never skip it.**
 
-Show the generated code to the researcher and ask for approval via AskUserQuestion:
+Print a summary of the generated code to the chat: file path, what it does,
+parameter count, seed count, estimated runtime. Then **call the AskUserQuestion tool**:
 
-> **Generated experiment code:** `research/experiments/<slug>/run_<slug>.py`
->
-> **What it does:**
-> - <1-2 sentence summary of the experiment>
-> - Sweeps <N> parameter combinations across <M> seeds
-> - Estimated runtime: <estimate>
->
-> **Parameters:** <summary>
->
-> Ready to execute?
+- question: "Generated: research/experiments/<slug>/run_<slug>.py. Sweeps <N> parameter combinations x <M> seeds. Estimated runtime: <estimate>. RECOMMENDATION: Run it — the code follows project conventions and provenance is included."
+- options: ["Run it", "I want to modify the code first", "Abort"]
 
-Options:
-- A) Run it
-- B) I want to modify the code first
-- C) Abort
-
-If A: Proceed to Phase B.
-If B: Wait for the researcher to make edits, then re-read the file and proceed.
-If C: Stop. Do not execute.
+If "Run it": Proceed to Phase B.
+If "I want to modify the code first": Wait for the researcher to make edits, then re-read the file and proceed.
+If "Abort": Stop. Do not execute.
 
 ## Phase B: Execution
 
