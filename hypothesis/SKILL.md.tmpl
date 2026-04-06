@@ -1,0 +1,170 @@
+---
+name: hypothesis
+preamble-tier: 2
+version: 0.1.0
+description: |
+  Structure a research idea into a testable hypothesis and experiment specification.
+  Takes a natural language description and produces a structured hypothesis document
+  plus a parameter sweep spec. Checks past learnings to prevent re-running dead ends.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+  - Grep
+  - Glob
+
+---
+
+{{PREAMBLE}}
+
+# /hypothesis — Structure Research Ideas
+
+Transform a natural language research idea into a structured, testable hypothesis
+with an experiment specification ready for `/run-experiment`.
+
+## Workflow
+
+### Step 1: Capture the idea
+
+The user provides a research idea in natural language. Examples:
+- "Surface code threshold scales as 1/distance for bit-flip noise"
+- "MWPM decoder outperforms Union-Find at low noise rates for rotated surface codes"
+- "Increasing batch size beyond 1024 shows diminishing returns for this model"
+
+If the idea is vague, **call the AskUserQuestion tool** to clarify. Example:
+- question: "Your idea is broad. Which aspect should we focus on?"
+- options: ["Measuring <quantity A>", "Comparing <method A> vs <method B>", "Characterizing <behavior>"]
+
+Tailor the options to the specific idea. Do NOT just print text.
+
+### Step 2: Check past learnings
+
+{{LEARNINGS_SEARCH}}
+
+Search for related hypotheses and experiments. If similar work was done before:
+- **If it succeeded:** Note it and suggest building on those results
+- **If it failed (dead-end):** Warn the researcher with the reason
+
+```bash
+{{SLUG_EVAL}}
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+if [ -f "$_LEARN_FILE" ]; then
+  grep -i "<relevant_keyword>" "$_LEARN_FILE" | tail -5
+fi
+```
+
+### Step 3: Read project conventions
+
+{{RESEARCH_CONVENTIONS}}
+
+### Step 4: Generate hypothesis document
+
+Create a slug from the idea (e.g., "threshold-scaling", "decoder-comparison").
+
+Write `research/hypotheses/<slug>.md`:
+
+```markdown
+# Hypothesis: <title>
+
+**Date:** <today>
+**Author:** <from git config>
+**Status:** proposed
+
+## Claim
+<one clear sentence stating the hypothesis>
+
+## Prediction
+<what specific outcome would confirm or deny this>
+
+## Method
+<how to test it — simulation approach, analysis method>
+
+## Parameters
+<key experimental parameters and their ranges>
+
+## Success Criteria
+<quantitative threshold for accepting/rejecting the hypothesis>
+
+## Estimated Compute
+<rough estimate: seconds/minutes/hours, local/cluster>
+
+## Related Work
+<links to past experiments, learnings, or papers>
+```
+
+### Step 5: Generate experiment spec
+
+Write `research/experiments/<slug>/spec.yaml`:
+
+```yaml
+hypothesis: research/hypotheses/<slug>.md
+created: <today>
+status: pending
+
+parameters:
+  # Key experimental parameters with ranges
+  # Example for QEC:
+  # distances: [3, 5, 7, 9]
+  # noise_rates: [0.001, 0.003, 0.005, 0.008, 0.01]
+  # num_shots: 100000
+
+baseline:
+  path: research/baselines/<slug>/metrics.json  # or null if no baseline
+  description: <what to compare against>
+
+conventions:
+  language: <from CLAUDE.md>
+  imports: <from CLAUDE.md>
+  naming: <from CLAUDE.md>
+
+seeds: [42, 123, 456]  # default seeds for reproducibility
+```
+
+### Step 6: Create directory structure
+
+```bash
+mkdir -p research/hypotheses
+mkdir -p research/experiments/<slug>
+mkdir -p research/baselines/<slug>
+mkdir -p research/results/<slug>
+mkdir -p research/reports
+```
+
+### Step 7: Review with researcher
+
+Show the generated hypothesis and spec to the researcher. Print a summary of the
+hypothesis, parameters, and success criteria as text. Then **call the AskUserQuestion tool**:
+
+- question: "Hypothesis: <claim>. Parameters: <summary>. Success criteria: <threshold>. RECOMMENDATION: Save it — the spec looks complete."
+- options: ["Looks good, save it", "Modify the hypothesis", "Modify the parameters", "Discard"]
+
+If "Looks good": Write files and record to learnings.
+If "Modify the hypothesis" or "Modify the parameters": Iterate on the specific part.
+If "Discard": Do not create files.
+
+### Step 8: Record to learnings
+
+{{LEARNINGS_LOG}}
+
+Log the hypothesis creation:
+
+```bash
+{{SLUG_EVAL}}
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+mkdir -p "$(dirname "$_LEARN_FILE")"
+echo '{"type":"hypothesis","slug":"<slug>","claim":"<claim>","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> "$_LEARN_FILE"
+```
+
+## Output
+
+After completion, tell the researcher:
+
+```
+Hypothesis created:
+  research/hypotheses/<slug>.md
+  research/experiments/<slug>/spec.yaml
+
+Next step: /run-experiment research/experiments/<slug>/spec.yaml
+```
