@@ -95,6 +95,16 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
+# Semantic code search (sqry) — lightweight detection only (command -v is ~1ms).
+# Index status is checked at query time by the agent, not at preamble load.
+_SQRY="unavailable"
+_SQRY_INDEXED="unknown"
+if command -v sqry-mcp >/dev/null 2>&1; then
+  _SQRY="available"
+  [ -d ".sqry" ] && _SQRY_INDEXED="yes" || _SQRY_INDEXED="no"
+fi
+echo "SQRY: $_SQRY"
+[ "$_SQRY" = "available" ] && echo "SQRY_INDEXED: $_SQRY_INDEXED"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
@@ -654,6 +664,27 @@ matches a past learning, display:
 
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
+
+## Structural Code Analysis (sqry)
+
+If `SQRY: unavailable`: skip this section.
+If `SQRY: available` but no `mcp__sqry__` tools visible: tell user to run `sqry mcp setup` and restart session.
+
+**Index freshness:** if `SQRY_INDEXED: no` → tell user to run `sqry index .` (typically 10-60s), then `mcp__sqry__rebuild_index`.
+If you made structural changes this session, call rebuild_index before your next sqry query.
+
+**AST-powered security audit** — use these `mcp__sqry__` tools:
+
+- `mcp__sqry__trace_path` — structural call paths from input handlers to dangerous sinks (exec, eval, innerHTML, raw SQL)
+- `mcp__sqry__call_hierarchy` — full call tree from auth/authz entry points to verify coverage
+- `mcp__sqry__find_cycles` — circular dependencies that could cause infinite loops (DoS vectors)
+- `mcp__sqry__find_unused` — dead code with old vulnerabilities or stale auth checks
+- `mcp__sqry__complexity_metrics` — high-complexity functions (cyclomatic >15) for manual security review
+- `mcp__sqry__direct_callers` — verify security-critical functions only called from trusted contexts
+- `mcp__sqry__semantic_search` — functions matching security patterns (auth*, sanitize*, validate*, escape*)
+- `mcp__sqry__cross_language_edges` — FFI/HTTP boundaries where trust assumptions change
+
+**Tool parameters:** Most sqry tools accept `max_depth` (default 3, max 10) and `max_results` (default 20, max 100). Scope queries to specific files or directories when possible — full-repo queries on large codebases are expensive. Use `semantic_search` for broad discovery, then `direct_callers`/`direct_callees` for focused tracing.
 
 ### Phase 1: Attack Surface Census
 

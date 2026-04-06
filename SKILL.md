@@ -88,25 +88,16 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
-# Semantic code search (sqry)
+# Semantic code search (sqry) — lightweight detection only (command -v is ~1ms).
+# Index status is checked at query time by the agent, not at preamble load.
 _SQRY="unavailable"
-_SQRY_INDEXED="no"
-_SQRY_STALE="no"
-if command -v sqry >/dev/null 2>&1; then
+_SQRY_INDEXED="unknown"
+if command -v sqry-mcp >/dev/null 2>&1; then
   _SQRY="available"
-  _SQRY_VERSION=$(sqry --version 2>/dev/null | head -1 || echo "unknown")
-  _SQRY_STATUS=$(sqry index --status --json . 2>/dev/null || echo '{}')
-  if echo "$_SQRY_STATUS" | grep -q '"exists": true' 2>/dev/null; then
-    _SQRY_INDEXED="yes"
-  fi
-  if echo "$_SQRY_STATUS" | grep -q '"stale": true' 2>/dev/null; then
-    _SQRY_STALE="yes"
-  fi
+  [ -d ".sqry" ] && _SQRY_INDEXED="yes" || _SQRY_INDEXED="no"
 fi
 echo "SQRY: $_SQRY"
-[ "$_SQRY" = "available" ] && echo "SQRY_VERSION: $_SQRY_VERSION"
 [ "$_SQRY" = "available" ] && echo "SQRY_INDEXED: $_SQRY_INDEXED"
-[ "$_SQRY" = "available" ] && echo "SQRY_STALE: $_SQRY_STALE"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
