@@ -1,0 +1,66 @@
+{
+  "tool": "llm-cli-gateway",
+  "homepage": "https://github.com/verivus-oss/llm-cli-gateway",
+  "mcp_server_name": "llm-cli-gw",
+  "detection": {
+    "binary": "llm-cli-gateway",
+    "min_version": "1.1.0"
+  },
+  "integrations": {
+    "review": {
+      "phase": "multi-llm-review",
+      "context": "multi-LLM code review",
+      "tools": [
+        { "tool": "gemini_request_async", "when": "dispatch Gemini review in parallel with Codex", "requires_cli": "gemini" },
+        { "tool": "codex_request_async", "when": "dispatch Codex review in parallel with Gemini", "requires_cli": "codex" },
+        { "tool": "llm_job_status", "when": "poll async job completion" },
+        { "tool": "llm_job_result", "when": "collect finished review results" },
+        { "tool": "session_create", "when": "establish review session for follow-up clarification" }
+      ]
+    },
+    "investigate": {
+      "phase": "hypothesis-validation",
+      "context": "cross-model root cause validation",
+      "tools": [
+        { "tool": "gemini_request", "when": "validate root cause hypothesis with a fresh perspective", "requires_cli": "gemini" },
+        { "tool": "codex_request", "when": "get Codex second opinion on the suspected root cause", "requires_cli": "codex" },
+        { "tool": "session_create", "when": "establish investigation session for iterative hypothesis testing" }
+      ]
+    },
+    "plan-eng-review": {
+      "phase": "architecture-review",
+      "context": "multi-LLM architecture review",
+      "tools": [
+        { "tool": "gemini_request", "when": "get Gemini perspective on architecture decisions and trade-offs", "requires_cli": "gemini" },
+        { "tool": "codex_request", "when": "get Codex cold-read of the architecture plan", "requires_cli": "codex" },
+        { "tool": "session_create", "when": "establish review session for follow-up questions" }
+      ]
+    },
+    "plan-ceo-review": {
+      "phase": "strategic-review",
+      "context": "multi-LLM strategic assessment",
+      "tools": [
+        { "tool": "gemini_request", "when": "get Gemini perspective on scope and strategic direction", "requires_cli": "gemini" },
+        { "tool": "codex_request", "when": "get Codex assessment of feasibility and technical risk", "requires_cli": "codex" }
+      ]
+    },
+    "ship": {
+      "phase": "pre-ship-review",
+      "context": "multi-LLM pre-ship verification",
+      "tools": [
+        { "tool": "gemini_request_async", "when": "dispatch Gemini pre-ship review in parallel", "requires_cli": "gemini" },
+        { "tool": "codex_request_async", "when": "dispatch Codex pre-ship review in parallel", "requires_cli": "codex" },
+        { "tool": "llm_job_status", "when": "poll async job completion" },
+        { "tool": "llm_job_result", "when": "collect pre-ship review results" }
+      ]
+    },
+    "retro": {
+      "phase": "multi-perspective-analysis",
+      "context": "multi-LLM retrospective analysis",
+      "tools": [
+        { "tool": "gemini_request", "when": "get Gemini perspective on patterns, trends, and blind spots", "requires_cli": "gemini" },
+        { "tool": "codex_request", "when": "get Codex analysis of code quality trends", "requires_cli": "codex" }
+      ]
+    }
+  }
+}

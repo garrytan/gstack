@@ -18,6 +18,7 @@ import { generateConfidenceCalibration } from './confidence';
 import { generateInvokeSkill } from './composition';
 import { generateReviewArmy } from './review-army';
 import { generateDxFramework } from './dx';
+import { generateLlmGatewayContext } from './llm-gateway';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
@@ -62,4 +63,5 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   REVIEW_ARMY: generateReviewArmy,
   CROSS_REVIEW_DEDUP: generateCrossReviewDedup,
   DX_FRAMEWORK: generateDxFramework,
+  LLM_GATEWAY_CONTEXT: generateLlmGatewayContext,
 };

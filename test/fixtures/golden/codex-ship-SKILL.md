@@ -80,8 +80,31 @@ fi
 _ROUTING_DECLINED=$($GSTACK_BIN/gstack-config get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
+# Vendoring deprecation: detect if CWD has a vendored gstack copy
+_VENDORED="no"
+if [ -d ".agents/skills/gstack" ] && [ ! -L ".agents/skills/gstack" ]; then
+  if [ -f ".agents/skills/gstack/VERSION" ] || [ -d ".agents/skills/gstack/.git" ]; then
+    _VENDORED="yes"
+  fi
+fi
+echo "VENDORED_GSTACK: $_VENDORED"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
+# Multi-LLM orchestration (llm-cli-gateway)
+_LLM_GW="unavailable"
+_LLM_GW_CLAUDE="no"
+_LLM_GW_CODEX="no"
+_LLM_GW_GEMINI="no"
+if command -v llm-cli-gateway >/dev/null 2>&1; then
+  _LLM_GW="available"
+  command -v claude >/dev/null 2>&1 && _LLM_GW_CLAUDE="yes"
+  command -v codex >/dev/null 2>&1 && _LLM_GW_CODEX="yes"
+  command -v gemini >/dev/null 2>&1 && _LLM_GW_GEMINI="yes"
+fi
+echo "LLM_GATEWAY: $_LLM_GW"
+[ "$_LLM_GW" = "available" ] && echo "LLM_GW_CLAUDE: $_LLM_GW_CLAUDE"
+[ "$_LLM_GW" = "available" ] && echo "LLM_GW_CODEX: $_LLM_GW_CODEX"
+[ "$_LLM_GW" = "available" ] && echo "LLM_GW_GEMINI: $_LLM_GW_GEMINI"
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills AND do not
@@ -207,6 +230,38 @@ If B: run `$GSTACK_BIN/gstack-config set routing_declined true`
 Say "No problem. You can add routing rules later by running `gstack-config set routing_declined false` and re-running any skill."
 
 This only happens once per project. If `HAS_ROUTING` is `yes` or `ROUTING_DECLINED` is `true`, skip this entirely.
+
+If `VENDORED_GSTACK` is `yes`: This project has a vendored copy of gstack at
+`.agents/skills/gstack/`. Vendoring is deprecated. We will not keep vendored copies
+up to date, so this project's gstack will fall behind.
+
+Use AskUserQuestion (one-time per project, check for `~/.gstack/.vendoring-warned-$SLUG` marker):
+
+> This project has gstack vendored in `.agents/skills/gstack/`. Vendoring is deprecated.
+> We won't keep this copy up to date, so you'll fall behind on new features and fixes.
+>
+> Want to migrate to team mode? It takes about 30 seconds.
+
+Options:
+- A) Yes, migrate to team mode now
+- B) No, I'll handle it myself
+
+If A:
+1. Run `git rm -r .agents/skills/gstack/`
+2. Run `echo '.agents/skills/gstack/' >> .gitignore`
+3. Run `$GSTACK_BIN/gstack-team-init required` (or `optional`)
+4. Run `git add .claude/ .gitignore CLAUDE.md && git commit -m "chore: migrate gstack from vendored to team mode"`
+5. Tell the user: "Done. Each developer now runs: `cd $GSTACK_ROOT && ./setup --team`"
+
+If B: say "OK, you're on your own to keep the vendored copy up to date."
+
+Always run (regardless of choice):
+```bash
+eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" 2>/dev/null || true
+touch ~/.gstack/.vendoring-warned-${SLUG:-unknown}
+```
+
+This only happens once per project. If the marker file exists, skip entirely.
 
 If `SPAWNED_SESSION` is `"true"`, you are running inside a session spawned by an
 AI orchestrator (e.g., OpenClaw). In spawned sessions:
@@ -573,6 +628,16 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
 - Test coverage gaps within target threshold (auto-generate and commit, or flag in PR body)
+
+**Re-run behavior (idempotency):**
+Re-running `/ship` means "run the whole checklist again." Every verification step
+(tests, coverage audit, plan completion, pre-landing review, adversarial review,
+VERSION/CHANGELOG check, TODOS, document-release) runs on every invocation.
+Only *actions* are idempotent:
+- Step 4: If VERSION already bumped, skip the bump but still read the version
+- Step 7: If already pushed, skip the push command
+- Step 8: If PR exists, update the body instead of creating a new PR
+Never skip a verification step because a prior `/ship` run already performed it.
 
 ---
 
@@ -1602,7 +1667,43 @@ Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "is
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 
-4. **Classify each finding as AUTO-FIX or ASK** per the Fix-First Heuristic in
+
+
+### Step 3.57: Cross-review finding dedup
+
+Before classifying findings, check if any were previously skipped by the user in a prior review on this branch.
+
+```bash
+$GSTACK_ROOT/bin/gstack-review-read
+```
+
+Parse the output: only lines BEFORE `---CONFIG---` are JSONL entries (the output also contains `---CONFIG---` and `---HEAD---` footer sections that are not JSONL — ignore those).
+
+For each JSONL entry that has a `findings` array:
+1. Collect all fingerprints where `action: "skipped"`
+2. Note the `commit` field from that entry
+
+If skipped fingerprints exist, get the list of files changed since that review:
+
+```bash
+git diff --name-only <prior-review-commit> HEAD
+```
+
+For each current finding (from both the checklist pass (Step 3.5) and specialist review (Step 3.55-3.56)), check:
+- Does its fingerprint match a previously skipped finding?
+- Is the finding's file path NOT in the changed-files set?
+
+If both conditions are true: suppress the finding. It was intentionally skipped and the relevant code hasn't changed.
+
+Print: "Suppressed N findings from prior reviews (previously skipped by user)"
+
+**Only suppress `skipped` findings — never `fixed` or `auto-fixed`** (those might regress and should be re-checked).
+
+If no prior reviews exist or none have a `findings` array, skip this step silently.
+
+Output a summary header: `Pre-Landing Review: N issues (X critical, Y informational)`
+
+4. **Classify each finding from both the checklist pass and specialist review (Step 3.55-3.56) as AUTO-FIX or ASK** per the Fix-First Heuristic in
    checklist.md. Critical findings lean toward ASK; informational lean toward AUTO-FIX.
 
 5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
@@ -1624,10 +1725,13 @@ Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "is
 
 9. Persist the review result to the review log:
 ```bash
-$GSTACK_ROOT/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
+$GSTACK_ROOT/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
 ```
 Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
 and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
+- `quality_score` = the PR Quality Score computed in Step 3.56 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
+- `specialists` = the per-specialist stats object compiled in Step 3.56. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
+- `findings` = array of per-finding records. For each finding (from checklist pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"`, `"fixed"` (user approved), or `"skipped"` (user chose Skip).
 
 Save the review output — it goes into the PR body in Step 8.
 
@@ -1674,6 +1778,30 @@ For each classified comment:
 
 
 
+## Multi-LLM Orchestration (llm-cli-gateway)
+
+If preamble shows `LLM_GATEWAY: unavailable`: skip this section entirely.
+
+If preamble shows `LLM_GATEWAY: available`:
+
+1. **CLI availability:** Only use tools for CLIs shown as `yes` in the preamble.
+   Skip tool recommendations for unavailable CLIs.
+
+2. **Async for parallel work:** Use `_async` variants + `llm_job_status`/`llm_job_result`
+   when running multiple LLM requests in parallel. Use sync variants for single sequential calls.
+
+3. **Session continuity:** Use `session_create` to establish a session for multi-turn
+   workflows. Pass `sessionId` to subsequent requests in the same skill invocation.
+
+**During multi-LLM pre-ship verification**, use these gateway MCP tools:
+
+- `mcp__llm-cli-gw__gemini_request_async` — dispatch Gemini pre-ship review in parallel (requires `LLM_GW_GEMINI: yes`)
+- `mcp__llm-cli-gw__llm_job_status` — poll async job completion
+- `mcp__llm-cli-gw__llm_job_result` — collect pre-ship review results
+
+Collect results from all models before synthesizing. Always show which models contributed
+and flag where models agree vs. diverge.
+
 ## Capture Learnings
 
 If you discovered a non-obvious pattern, pitfall, or architectural insight during
@@ -1710,7 +1838,7 @@ echo "BASE: $BASE_VERSION  HEAD: $CURRENT_VERSION"
 if [ "$CURRENT_VERSION" != "$BASE_VERSION" ]; then echo "ALREADY_BUMPED"; fi
 ```
 
-If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (prior `/ship` run). Skip the rest of Step 4 and use the current VERSION. Otherwise proceed with the bump.
+If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (prior `/ship` run). Skip the bump action (do not modify VERSION), but read the current VERSION value — it is needed for CHANGELOG and PR body. Continue to the next step. Otherwise proceed with the bump.
 
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
 
@@ -1901,7 +2029,7 @@ echo "LOCAL: $LOCAL  REMOTE: $REMOTE"
 [ "$LOCAL" = "$REMOTE" ] && echo "ALREADY_PUSHED" || echo "PUSH_NEEDED"
 ```
 
-If `ALREADY_PUSHED`, skip the push. Otherwise push with upstream tracking:
+If `ALREADY_PUSHED`, skip the push but continue to Step 8. Otherwise push with upstream tracking:
 
 ```bash
 git push -u origin <branch-name>
@@ -1923,7 +2051,7 @@ gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number):
 glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
 ```
 
-If an **open** PR/MR already exists: **update** the PR body with the latest test results, coverage, and review findings using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Print the existing URL and continue to Step 8.5.
+If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary). Never reuse stale PR body content from a prior run. Print the existing URL and continue to Step 8.5.
 
 If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
@@ -2027,6 +2155,8 @@ execute its full workflow:
 
 This step is automatic. Do not ask the user for confirmation. The goal is zero-friction
 doc updates — the user runs `/ship` and documentation stays current without a separate command.
+
+If Step 8.5 created a docs commit, re-edit the PR/MR body to include the latest commit SHA in the summary. This ensures the PR body reflects the truly final state after document-release.
 
 ---
 
