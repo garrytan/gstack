@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.8.1] - 2026-04-05 — Cleanup
+
+### Changed
+
+- Regenerated research skill SKILL.md files to remove stale preamble content (old browser-open command, outdated voice section text).
+- Added `.writing/` to `.gitignore` so draft files from `/write-draft` aren't accidentally committed.
+
 ## [0.15.8.0] - 2026-04-05 — Writing Skills Pipeline
 
 You can now draft and review professional content directly from Claude Code. Two new skills turn the terminal into a writing orchestration layer: describe what you want, get a publication-ready draft, then run a structured editing pass with AI slop detection and voice consistency checking.
