@@ -737,18 +737,36 @@ const idleCheckInterval = setInterval(() => {
 }, 60_000);
 
 // ─── Parent-Process Watchdog ────────────────────────────────────────
-// When the spawning CLI process (e.g. a Claude Code session) exits, this
-// server can become an orphan — keeping chrome-headless-shell alive and
-// causing console-window flicker on Windows. Poll the parent PID every 15s
-// and self-terminate if it is gone.
+// When the spawning CLI process exits, this server can become an orphan,
+// keeping chrome-headless-shell alive (causes console-window flicker on
+// Windows). Poll the parent PID every 15s and self-terminate if gone.
+//
+// Caveat: BROWSE_PARENT_PID is set to the CLI's process.pid, which is
+// short-lived (the CLI exits after spawning the server). In headless mode
+// the CLI auto-restarts the server on next call, so the watchdog acts as
+// a fast garbage collector for idle headless servers. In headed/tunnel
+// mode the user controls the browser lifetime, so the watchdog must not
+// interfere. A grace period prevents killing servers that are actively
+// receiving commands through new CLI invocations.
 const BROWSE_PARENT_PID = parseInt(process.env.BROWSE_PARENT_PID || '0', 10);
+const WATCHDOG_GRACE_MS = 30_000; // skip kill if a command arrived within this window
 if (BROWSE_PARENT_PID > 0) {
   setInterval(() => {
+    // Headed mode: user is looking at the browser. Never auto-terminate.
+    if (browserManager.getConnectionMode() === 'headed') return;
+    // Tunnel mode: remote agents may reconnect sporadically.
+    if (tunnelActive) return;
     try {
-      process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only, no signal sent
+      process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only
     } catch {
-      console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited, shutting down`);
-      shutdown();
+      // Parent is gone. But the CLI is short-lived — each `$B` call is a
+      // new process, so this fires within seconds of server start. Only
+      // shut down if the server has also been idle (no recent commands),
+      // meaning no client is actively using it.
+      if (Date.now() - lastActivity > WATCHDOG_GRACE_MS) {
+        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited and server idle, shutting down`);
+        shutdown();
+      }
     }
   }, 15_000);
 }
