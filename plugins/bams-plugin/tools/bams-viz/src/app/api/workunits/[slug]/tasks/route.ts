@@ -3,6 +3,22 @@ import { EventStore } from '@/lib/event-store'
 import { getDbPath } from '@/lib/global-root'
 import type { WorkUnitTasksResponse } from '@/lib/types'
 
+/** Defensively decode percent-encoded slug. Handles double-encoding. */
+function safeDecodeSlug(raw: string): string {
+  try {
+    let decoded = raw
+    for (let i = 0; i < 2; i++) {
+      const next = decodeURIComponent(decoded)
+      if (next === decoded) break
+      decoded = next
+    }
+    return decoded
+  } catch {
+    return raw
+  }
+}
+
+
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' }
 const BAMS_SERVER = process.env.BAMS_SERVER_URL ?? 'http://localhost:3099'
 
@@ -40,7 +56,7 @@ function fetchFromFallback(slug: string): WorkUnitTasksResponse | null {
       work_unit_slug: slug,
       pipelines: linkedSlugs.map(ps => ({ slug: ps, tasks: [] })),
       total_count: 0,
-      summary: { backlog: 0, in_progress: 0, done: 0, blocked: 0, cancelled: 0 },
+      summary: { backlog: 0, in_progress: 0, in_review: 0, done: 0, blocked: 0, cancelled: 0 },
     }
   }
 
@@ -81,6 +97,7 @@ function fetchFromFallback(slug: string): WorkUnitTasksResponse | null {
     const summary = {
       backlog:     allTaskRows.filter(t => t['status'] === 'backlog').length,
       in_progress: allTaskRows.filter(t => t['status'] === 'in_progress').length,
+      in_review:   allTaskRows.filter(t => t['status'] === 'in_review').length,
       done:        allTaskRows.filter(t => t['status'] === 'done').length,
       blocked:     allTaskRows.filter(t => t['status'] === 'blocked').length,
       cancelled:   allTaskRows.filter(t => t['status'] === 'cancelled').length,
@@ -105,7 +122,8 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
-  const { slug } = await params
+  const { slug: rawSlug } = await params
+  const slug = safeDecodeSlug(rawSlug)
 
   // 1. bams-server 우선
   const serverResult = await fetchFromServer(slug)

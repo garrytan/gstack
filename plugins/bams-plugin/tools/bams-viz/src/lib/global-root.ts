@@ -53,29 +53,22 @@ export function getHrDir(): string {
   return join(getGlobalRoot(), 'artifacts', 'hr')
 }
 
-/** HR 보고서용 DB 경로를 반환합니다. DB가 존재하지 않으면 null을 반환합니다.
+/** 글로벌 DB 경로를 반환합니다.
  *
- * 탐색 우선순위:
- *   1. BAMS_DB_PATH 환경변수 (명시적 오버라이드)
- *   2. process.cwd() 기준 .crew/db/bams.db
- *   3. 글로벌 경로 ~/.bams/db/bams.db (폴백)
+ * 경로: ~/.claude/plugins/marketplaces/my-claude/bams.db (항상 고정)
+ * 오버라이드: BAMS_DB_PATH 환경변수
  *
- * DB 파일이 없으면 null을 반환하고 호출자가 JSON fallback을 사용한다.
+ * 디렉토리가 없으면 자동 생성합니다.
  */
-export function getDbPath(): string | null {
+export function getDbPath(): string {
   if (process.env.BAMS_DB_PATH) return process.env.BAMS_DB_PATH
 
-  const { existsSync } = require('fs') as typeof import('fs')
-
-  const cwdPath = join(process.cwd(), '.crew', 'db', 'bams.db')
-  if (existsSync(cwdPath)) return cwdPath
-
-  try {
-    const globalPath = join(getGlobalRoot(), 'db', 'bams.db')
-    if (existsSync(globalPath)) return globalPath
-  } catch {
-    // HOME not set — skip
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
+  if (!home) {
+    throw new Error('HOME environment variable is not set')
   }
 
-  return null
+  const dir = join(home, '.claude', 'plugins', 'marketplaces', 'my-claude')
+  mkdirSync(dir, { recursive: true })
+  return join(dir, 'bams.db')
 }

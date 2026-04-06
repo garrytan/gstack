@@ -179,6 +179,31 @@ _VIZ_DIR=$(find . -path "*/bams-plugin/tools/bams-viz/src/app/page.tsx" -not -pa
 cd "$_VIZ_DIR" && npm install 2>&1
 ```
 
+### Step 2.5: bams-server 기동
+
+bams-viz가 API 데이터를 올바르게 표시하려면 Control Plane 서버(port 3099)가 필요합니다.
+
+```bash
+if ! curl -sf http://localhost:3099/health > /dev/null 2>&1; then
+  echo "[bams] Control Plane 서버 기동 중..."
+  _SERVER_SCRIPT=$(find . -path "*/bams-plugin/server/src/app.ts" -not -path "*/node_modules/*" 2>/dev/null | head -1)
+  [ -z "$_SERVER_SCRIPT" ] && _SERVER_SCRIPT=$(find ~/.claude/plugins/cache -path "*/bams-plugin/*/server/src/app.ts" 2>/dev/null | head -1)
+  if [ -n "$_SERVER_SCRIPT" ]; then
+    nohup bun run "$_SERVER_SCRIPT" > /tmp/bams-server.log 2>&1 &
+    sleep 1
+    if curl -sf http://localhost:3099/health > /dev/null 2>&1; then
+      echo "[bams] Control Plane 서버 기동 완료 (http://localhost:3099)"
+    else
+      echo "[bams] WARNING: 서버 기동 실패 — 파일 fallback 모드로 진행"
+    fi
+  else
+    echo "[bams] WARNING: server/src/app.ts를 찾을 수 없음 — 파일 fallback 모드로 진행"
+  fi
+else
+  echo "[bams] Control Plane 서버 이미 실행 중 (http://localhost:3099)"
+fi
+```
+
 ### Step 3: 빌드 + 실행
 
 ```bash

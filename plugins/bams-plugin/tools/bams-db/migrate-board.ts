@@ -210,5 +210,5 @@ async function migrate(boardPath: string, dbPath: string) {
 
 // CLI 실행
 const boardPath = process.argv[2] ?? ".crew/board.md";
-const dbPath = process.argv[3] ?? ".crew/db/bams.db";
+const dbPath = process.argv[3] ?? (require("path").join(require("os").homedir(), ".claude", "plugins", "marketplaces", "my-claude", "bams.db"));
 migrate(boardPath, dbPath).catch(console.error);

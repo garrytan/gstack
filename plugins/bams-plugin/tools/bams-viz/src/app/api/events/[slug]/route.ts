@@ -1,6 +1,22 @@
 import { NextResponse } from 'next/server'
 import { EventStore } from '@/lib/event-store'
 
+/** Defensively decode percent-encoded slug. Handles double-encoding. */
+function safeDecodeSlug(raw: string): string {
+  try {
+    let decoded = raw
+    for (let i = 0; i < 2; i++) {
+      const next = decodeURIComponent(decoded)
+      if (next === decoded) break
+      decoded = next
+    }
+    return decoded
+  } catch {
+    return raw
+  }
+}
+
+
 function headers(source: string) {
   return { 'Access-Control-Allow-Origin': '*', 'X-Data-Source': source }
 }
@@ -9,7 +25,8 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
-  const { slug } = await params
+  const { slug: rawSlug } = await params
+  const slug = safeDecodeSlug(rawSlug)
 
   // Note: bamsApi.getPipeline() returns { slug, events, tasks, summary } which is NOT
   // the Pipeline type ({ steps, agents, status, ... }) expected by DagTab/GanttTab.

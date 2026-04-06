@@ -57,6 +57,18 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 >
 > 2. 보드 및 히스토리 업데이트:
 >    - 완료된 모든 태스크를 board.md의 `## Done`으로 이동
+>    - **DB 상태 업데이트 (board.md Done 이동과 동시에 실행)**: `~/.claude/plugins/marketplaces/my-claude/bams.db`가 존재하면 각 태스크의 상태를 `done`으로 업데이트한다:
+>      ```bash
+>      if [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
+>        bun -e "
+>          import { TaskDB } from './plugins/bams-plugin/tools/bams-db/index.ts';
+>          const db = new TaskDB();
+>          // 완료된 각 태스크 ID에 대해 호출:
+>          // db.updateTaskStatus('{task_id}', 'done', 'pipeline-orchestrator');
+>          db.close();
+>        "
+>      fi
+>      ```
 >    - `.crew/history.md`에 타임스탬프와 함께 추가
 >    - board.md의 `> Last updated:` 업데이트
 >

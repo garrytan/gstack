@@ -18,12 +18,12 @@
 export const TASKS_TABLE_DDL = `
   CREATE TABLE IF NOT EXISTS tasks (
     id                  TEXT PRIMARY KEY,           -- UUID (crypto.randomUUID())
-    pipeline_slug       TEXT NOT NULL,              -- 파이프라인 슬러그 (e.g. "ref-analysis-paperclip")
+    pipeline_id         TEXT NOT NULL REFERENCES pipelines(id),  -- 파이프라인 FK
     phase               INTEGER,                    -- Phase 번호 (1, 2, 3, 4, 5)
     step                TEXT,                       -- Step 식별자 (e.g. "design", "implement")
     title               TEXT NOT NULL,              -- 태스크 제목
     description         TEXT,                       -- 상세 설명 (Markdown)
-    status              TEXT NOT NULL DEFAULT 'backlog',  -- backlog|in_progress|done|blocked|cancelled
+    status              TEXT NOT NULL DEFAULT 'backlog',  -- backlog|in_progress|in_review|done|blocked|cancelled
     priority            TEXT NOT NULL DEFAULT 'medium',   -- high|medium|low
     size                TEXT,                       -- XS|S|M|L|XL
     assignee_agent      TEXT,                       -- 담당 에이전트 슬러그
@@ -31,6 +31,10 @@ export const TASKS_TABLE_DDL = `
     checkout_locked_at  TEXT,                       -- ISO-8601 타임스탬프 (잠금 시각)
     deps                TEXT,                       -- JSON 배열: ["REF-A1", "REF-A2"]
     tags                TEXT,                       -- JSON 배열: ["backend", "infra"]
+    model               TEXT,                       -- 사용 모델 (e.g. "claude-sonnet-4")
+    label               TEXT,                       -- 태스크 라벨
+    duration_ms         INTEGER,                    -- 소요 시간 (ms)
+    summary             TEXT,                       -- 태스크 요약
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
     started_at          TEXT,
@@ -43,14 +47,14 @@ export const TASKS_TABLE_DDL = `
  * Paperclip의 issues 테이블 인덱스 패턴 참조
  */
 export const TASKS_INDEXES_DDL = `
-  CREATE INDEX IF NOT EXISTS tasks_pipeline_status_idx
-    ON tasks(pipeline_slug, status);
+  CREATE INDEX IF NOT EXISTS tasks_pipeline_id_status_idx
+    ON tasks(pipeline_id, status);
 
   CREATE INDEX IF NOT EXISTS tasks_assignee_status_idx
     ON tasks(assignee_agent, status);
 
   CREATE INDEX IF NOT EXISTS tasks_phase_idx
-    ON tasks(pipeline_slug, phase);
+    ON tasks(pipeline_id, phase);
 `;
 
 /**
@@ -85,6 +89,7 @@ export const TASK_EVENTS_TABLE_DDL = `
 export const TASK_STATUS = {
   BACKLOG: "backlog",
   IN_PROGRESS: "in_progress",
+  IN_REVIEW: "in_review",
   DONE: "done",
   BLOCKED: "blocked",
   CANCELLED: "cancelled",
@@ -121,7 +126,7 @@ export type TaskSize = (typeof TASK_SIZE)[keyof typeof TASK_SIZE];
  */
 export interface Task {
   id: string;
-  pipeline_slug: string;
+  pipeline_id: string;
   phase: number | null;
   step: string | null;
   title: string;
@@ -134,6 +139,10 @@ export interface Task {
   checkout_locked_at: string | null;
   deps: string | null;          // JSON string: string[]
   tags: string | null;          // JSON string: string[]
+  model: string | null;
+  label: string | null;
+  duration_ms: number | null;
+  summary: string | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
@@ -156,145 +165,6 @@ export interface TaskEvent {
 }
 
 // ─────────────────────────────────────────────────────────────
-// B4: 비용 관리 스키마
-// 참조: reference/paperclip/packages/db/src/schema/budget_policies.ts
-// ─────────────────────────────────────────────────────────────
-
-/**
- * 모델별 단가 테이블 (USD cents per 1K tokens)
- * 출처: Anthropic 가격 정책 (2024-Q4)
- */
-export const MODEL_PRICING: Record<
-  string,
-  { input_per_1k: number; output_per_1k: number; cache_read_per_1k?: number }
-> = {
-  "claude-opus-4-5":    { input_per_1k: 1.5,  output_per_1k: 7.5,  cache_read_per_1k: 0.15 },
-  "claude-sonnet-4-5":  { input_per_1k: 0.3,  output_per_1k: 1.5,  cache_read_per_1k: 0.03 },
-  "claude-haiku-4-5":   { input_per_1k: 0.08, output_per_1k: 0.4,  cache_read_per_1k: 0.008 },
-  "claude-opus-4":      { input_per_1k: 1.5,  output_per_1k: 7.5,  cache_read_per_1k: 0.15 },
-  "claude-sonnet-4":    { input_per_1k: 0.3,  output_per_1k: 1.5,  cache_read_per_1k: 0.03 },
-  "claude-haiku-4":     { input_per_1k: 0.08, output_per_1k: 0.4,  cache_read_per_1k: 0.008 },
-  "claude-opus-3-5":    { input_per_1k: 1.5,  output_per_1k: 7.5,  cache_read_per_1k: 0.15 },
-  "claude-sonnet-3-5":  { input_per_1k: 0.3,  output_per_1k: 1.5,  cache_read_per_1k: 0.03 },
-  "claude-haiku-3-5":   { input_per_1k: 0.08, output_per_1k: 0.4,  cache_read_per_1k: 0.008 },
-  // fallback
-  "opus":    { input_per_1k: 1.5,  output_per_1k: 7.5 },
-  "sonnet":  { input_per_1k: 0.3,  output_per_1k: 1.5 },
-  "haiku":   { input_per_1k: 0.08, output_per_1k: 0.4 },
-};
-
-/** 모델 슬러그로 단가 조회 (부분 매칭) */
-export function getPricing(model: string): {
-  input_per_1k: number;
-  output_per_1k: number;
-  cache_read_per_1k: number;
-} {
-  // 정확 매칭
-  if (MODEL_PRICING[model]) {
-    return {
-      cache_read_per_1k: 0,
-      ...MODEL_PRICING[model],
-    };
-  }
-  // 부분 매칭 (e.g. "claude-sonnet-4-6" → "sonnet")
-  const modelLower = model.toLowerCase();
-  if (modelLower.includes("opus"))   return { ...MODEL_PRICING["opus"], cache_read_per_1k: 0.15 };
-  if (modelLower.includes("sonnet")) return { ...MODEL_PRICING["sonnet"], cache_read_per_1k: 0.03 };
-  if (modelLower.includes("haiku"))  return { ...MODEL_PRICING["haiku"], cache_read_per_1k: 0.008 };
-  // 기본값 (sonnet)
-  return { ...MODEL_PRICING["sonnet"], cache_read_per_1k: 0.03 };
-}
-
-/**
- * token_usage 테이블 DDL
- * 에이전트별 토큰 사용량 + 비용 기록
- */
-export const TOKEN_USAGE_TABLE_DDL = `
-  CREATE TABLE IF NOT EXISTS token_usage (
-    id                  TEXT PRIMARY KEY,
-    pipeline_slug       TEXT NOT NULL,
-    phase               INTEGER,
-    step                TEXT,
-    agent_slug          TEXT NOT NULL,
-    model               TEXT NOT NULL,
-    run_id              TEXT,
-    input_tokens        INTEGER NOT NULL DEFAULT 0,
-    output_tokens       INTEGER NOT NULL DEFAULT 0,
-    cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
-    cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
-    billed_cents        REAL NOT NULL DEFAULT 0,    -- 모델별 단가 적용 USD cents
-    created_at          DATETIME NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE INDEX IF NOT EXISTS token_usage_pipeline_idx
-    ON token_usage(pipeline_slug);
-
-  CREATE INDEX IF NOT EXISTS token_usage_agent_idx
-    ON token_usage(agent_slug, created_at);
-`;
-
-/**
- * budget_policies 테이블 DDL
- * 스코프별(에이전트/파이프라인/전체) 예산 제한
- */
-export const BUDGET_POLICIES_TABLE_DDL = `
-  CREATE TABLE IF NOT EXISTS budget_policies (
-    id                TEXT PRIMARY KEY,
-    scope_type        TEXT NOT NULL,   -- agent | pipeline | global
-    scope_id          TEXT,            -- agent_slug 또는 pipeline_slug (global이면 NULL)
-    metric            TEXT NOT NULL,   -- billed_cents | token_count
-    window_kind       TEXT NOT NULL,   -- session | daily | monthly
-    amount            REAL NOT NULL,   -- 예산 한도
-    warn_percent      REAL NOT NULL DEFAULT 80,   -- 경고 임계값 (%)
-    hard_stop_enabled INTEGER NOT NULL DEFAULT 0, -- 1 = 초과 시 강제 중단
-    is_active         INTEGER NOT NULL DEFAULT 1,
-    created_at        DATETIME NOT NULL DEFAULT (datetime('now')),
-    updated_at        DATETIME NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE INDEX IF NOT EXISTS budget_policies_scope_idx
-    ON budget_policies(scope_type, scope_id);
-`;
-
-export interface TokenUsage {
-  id: string;
-  pipeline_slug: string;
-  phase: number | null;
-  step: string | null;
-  agent_slug: string;
-  model: string;
-  run_id: string | null;
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  billed_cents: number;
-  created_at: string;
-}
-
-export interface BudgetPolicy {
-  id: string;
-  scope_type: "agent" | "pipeline" | "global";
-  scope_id: string | null;
-  metric: "billed_cents" | "token_count";
-  window_kind: "session" | "daily" | "monthly";
-  amount: number;
-  warn_percent: number;
-  hard_stop_enabled: number;
-  is_active: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface BudgetStatus {
-  policy: BudgetPolicy;
-  current: number;
-  percent: number;
-  warn: boolean;
-  hard_stop: boolean;
-}
-
-// ─────────────────────────────────────────────────────────────
 // C2: 실시간 실행 로그 스키마
 // ─────────────────────────────────────────────────────────────
 
@@ -306,7 +176,7 @@ export interface BudgetStatus {
 export const RUN_LOGS_TABLE_DDL = `
   CREATE TABLE IF NOT EXISTS run_logs (
     id              TEXT PRIMARY KEY,
-    pipeline_slug   TEXT NOT NULL,
+    pipeline_id     TEXT NOT NULL REFERENCES pipelines(id),
     run_id          TEXT,
     agent_slug      TEXT NOT NULL,
     event_type      TEXT NOT NULL,   -- agent_start | tool_call | tool_result | text_chunk | agent_end | error
@@ -314,8 +184,8 @@ export const RUN_LOGS_TABLE_DDL = `
     created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE INDEX IF NOT EXISTS run_logs_pipeline_idx
-    ON run_logs(pipeline_slug, created_at DESC);
+  CREATE INDEX IF NOT EXISTS run_logs_pipeline_id_idx
+    ON run_logs(pipeline_id, created_at DESC);
 
   CREATE INDEX IF NOT EXISTS run_logs_agent_idx
     ON run_logs(agent_slug, created_at DESC);
@@ -331,7 +201,7 @@ export const RUN_LOGS_TABLE_DDL = `
 
 export interface RunLog {
   id: string;
-  pipeline_slug: string;
+  pipeline_id: string;
   run_id: string | null;
   agent_slug: string;
   event_type: string;
@@ -381,6 +251,59 @@ export interface HrReportRow {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Pipelines 스키마
+// 파이프라인 실행 인스턴스 — Work Unit에 연결되는 실행 단위
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * pipelines 테이블 DDL
+ * 파이프라인 실행 인스턴스. work_units와 N:1 관계.
+ * tasks, run_logs가 pipeline_id로 FK 참조한다.
+ */
+export const PIPELINES_TABLE_DDL = `
+  CREATE TABLE IF NOT EXISTS pipelines (
+    id              TEXT PRIMARY KEY,
+    slug            TEXT NOT NULL UNIQUE,
+    work_unit_id    TEXT REFERENCES work_units(id),
+    type            TEXT NOT NULL,
+    command         TEXT,
+    status          TEXT NOT NULL DEFAULT 'running',
+    arguments       TEXT,
+    started_at      TEXT,
+    ended_at        TEXT,
+    duration_ms     INTEGER,
+    total_steps     INTEGER DEFAULT 0,
+    completed_steps INTEGER DEFAULT 0,
+    failed_steps    INTEGER DEFAULT 0,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS pipelines_work_unit_idx ON pipelines(work_unit_id);
+  CREATE INDEX IF NOT EXISTS pipelines_status_idx ON pipelines(status);
+`;
+
+/**
+ * PipelineRow 레코드 타입
+ */
+export interface PipelineRow {
+  id: string;
+  slug: string;
+  work_unit_id: string | null;
+  type: string;
+  command: string | null;
+  status: string;
+  arguments: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  total_steps: number;
+  completed_steps: number;
+  failed_steps: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Work Unit 스키마
 // 작업 단위(Work Unit) — 여러 파이프라인을 하나의 논리적 작업으로 묶는다
 // ─────────────────────────────────────────────────────────────
@@ -397,20 +320,8 @@ export const WORK_UNITS_TABLE_DDL = `
     status          TEXT NOT NULL DEFAULT 'active',
     started_at      TEXT NOT NULL,
     ended_at        TEXT,
+    deleted_at      TEXT,                                         -- 소프트 삭제 타임스탬프 (NULL=활성)
     created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
-  );
-`;
-
-/**
- * pipeline_work_unit 테이블 DDL
- * 파이프라인과 work unit 간 다대다 연결 테이블.
- */
-export const PIPELINE_WORK_UNIT_TABLE_DDL = `
-  CREATE TABLE IF NOT EXISTS pipeline_work_unit (
-    pipeline_slug   TEXT NOT NULL,
-    work_unit_slug  TEXT NOT NULL,
-    linked_at       TEXT NOT NULL,
-    PRIMARY KEY (pipeline_slug, work_unit_slug)
   );
 `;
 
@@ -424,14 +335,6 @@ export interface WorkUnitRow {
   status: string;
   started_at: string;
   ended_at: string | null;
+  deleted_at: string | null;
   created_at: string;
-}
-
-/**
- * PipelineWorkUnit 연결 레코드 타입
- */
-export interface PipelineWorkUnitRow {
-  pipeline_slug: string;
-  work_unit_slug: string;
-  linked_at: string;
 }

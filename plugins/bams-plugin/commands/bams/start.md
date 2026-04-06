@@ -62,10 +62,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 DB에도 work unit을 기록합니다 (DB가 존재하면):
 ```bash
-if [ -f ".crew/db/bams.db" ]; then
+if [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
   bun -e "
     import { TaskDB } from './plugins/bams-plugin/tools/bams-db/index.ts';
-    const db = new TaskDB('.crew/db/bams.db');
+    const db = new TaskDB();
     db.upsertWorkUnit('{slug}', '{작업명}');
     db.close();
   " 2>/dev/null || true

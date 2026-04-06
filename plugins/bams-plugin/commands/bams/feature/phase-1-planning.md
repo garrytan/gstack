@@ -152,6 +152,19 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 >    - 스프린트 계획 수립 (`/bams:sprint plan` 실행)
 >    - `.crew/config.md`의 `last_task_id` 업데이트
 >
+> 5. **TaskDB 동기화**: board.md에 태스크를 추가한 직후, DB가 존재하면 각 태스크를 DB에도 등록합니다:
+>    ```bash
+>    if [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
+>      bun -e "
+>        import { TaskDB } from './plugins/bams-plugin/tools/bams-db/index.ts';
+>        const db = new TaskDB();
+>        db.createTask({ pipeline_slug: '{slug}', title: '{task_title}', status: 'backlog', assignee_agent: '{agent}', phase: {phase}, priority: '{priority}', size: '{size}' });
+>        db.close();
+>      "
+>    fi
+>    ```
+>    각 태스크마다 반복 실행합니다.
+>
 > **기대 산출물**: 기능 명세, 기술 설계, 태스크 분해 결과, 스프린트 설정 완료
 
 orchestrator 반환 후, Bash로 agent_end를 emit합니다:

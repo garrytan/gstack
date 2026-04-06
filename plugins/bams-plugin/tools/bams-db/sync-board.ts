@@ -13,11 +13,12 @@
  */
 
 import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { homedir } from "os";
 import { dirname } from "path";
 import { TaskDB } from "./index.ts";
 import type { Task } from "./schema.ts";
 
-const DEFAULT_DB_PATH = ".crew/db/bams.db";
+const DEFAULT_DB_PATH = join(homedir(), ".claude", "plugins", "marketplaces", "my-claude", "bams.db");
 const DEFAULT_BOARD_PATH = ".crew/board.md";
 
 // ─────────────────────────────────────────────────────────────

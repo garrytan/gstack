@@ -93,6 +93,19 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 > 3. `regression-test:` — 추가된 회귀 테스트 경로
 >
 > `.crew/board.md`의 관련 태스크를 `Done`으로 변경합니다.
+>
+> **DB 상태 업데이트 (board.md Done 이동과 동시에 실행)**: `~/.claude/plugins/marketplaces/my-claude/bams.db`가 존재하면 해당 태스크의 상태를 `done`으로 업데이트한다:
+> ```bash
+> if [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
+>   bun -e "
+>     import { TaskDB } from './plugins/bams-plugin/tools/bams-db/index.ts';
+>     const db = new TaskDB();
+>     // 완료된 각 태스크 ID에 대해 호출:
+>     // db.updateTaskStatus('{task_id}', 'done', 'pipeline-orchestrator');
+>     db.close();
+>   "
+> fi
+> ```
 
 orchestrator 반환 후, Bash로 agent_end를 emit합니다:
 ```bash
@@ -126,7 +139,7 @@ TaskDB 연동 규칙은 `_common.md` 참조.
 
 파이프라인 완료 시:
 ```bash
-if [ -f ".crew/db/bams.db" ]; then
+if [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
   bun run plugins/bams-plugin/tools/bams-db/sync-board.ts {slug} --write
 fi
 ```

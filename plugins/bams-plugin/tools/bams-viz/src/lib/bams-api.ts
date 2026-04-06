@@ -12,22 +12,47 @@
 import type {
   WorkUnit,
   WorkUnitTasksResponse,
-  WorkUnitCostsResponse,
-  BudgetStatusResponse,
+  Task,
   HRReportsResponse,
   HRReportDetailResponse,
   WorkUnitDetailResponse,
+  WorkUnitAgentsResponse,
+  WorkUnitAgentsActiveResponse,
+  WorkUnitRetroResponse,
+  PipelineDetail,
+  WorkUnitPatchRequest,
 } from "./types";
 
 const BAMS_SERVER_BASE =
   process.env.NEXT_PUBLIC_BAMS_SERVER_URL ?? "http://localhost:3099";
 
-/** 공통 fetch 래퍼 */
+/** 공통 fetch 래퍼 — bams-server 직접 호출 (GET 전용) */
 async function apiFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
   const res = await fetch(`${BAMS_SERVER_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options?.headers ?? {}),
+    },
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`bams-api: ${res.status} ${res.statusText} — ${body}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+/** Next.js 프록시 경유 fetch — PATCH/DELETE/POST 뮤테이션용 (CORS 우회) */
+async function proxyFetch<T>(
+  path: string,
+  options?: RequestInit
+): Promise<T> {
+  const res = await fetch(path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -56,13 +81,14 @@ export interface PipelineSummary {
     total: number;
     backlog: number;
     in_progress: number;
+    in_review: number;
     done: number;
     blocked: number;
     cancelled: number;
   };
 }
 
-export interface PipelineDetail extends PipelineSummary {
+export interface PipelineLegacyDetail extends PipelineSummary {
   events: unknown[];
   tasks: unknown[];
 }
@@ -74,22 +100,29 @@ export const bamsApi = {
     return apiFetch<{ pipelines: PipelineSummary[] }>("/api/pipelines");
   },
 
-  async getPipeline(slug: string): Promise<PipelineDetail> {
-    return apiFetch<PipelineDetail>(`/api/pipelines/${slug}`);
+  async getPipeline(slug: string): Promise<PipelineLegacyDetail> {
+    return apiFetch<PipelineLegacyDetail>(`/api/pipelines/${slug}`);
   },
 
   // ── 태스크 ───────────────────────────────────────────────────
 
   async getTasks(params: {
-    pipeline: string;
+    pipelineId: string;
     status?: string;
-  }): Promise<{ tasks: unknown[]; count: number }> {
-    const qs = new URLSearchParams({ pipeline: params.pipeline });
+  }): Promise<{ tasks: Task[]; count: number }> {
+    const qs = new URLSearchParams({ pipeline_id: params.pipelineId });
     if (params.status) qs.set("status", params.status);
-    return apiFetch<{ tasks: unknown[]; count: number }>(
+    return apiFetch<{ tasks: Task[]; count: number }>(
       `/api/tasks?${qs.toString()}`
     );
   },
+
+  async getPipelineTasks(pipelineSlug: string): Promise<{ tasks: Task[]; count: number }> {
+    return apiFetch<{ tasks: Task[]; count: number }>(
+      `/api/pipelines/${encodeURIComponent(pipelineSlug)}/tasks`
+    );
+  },
+
 
   async updateTaskStatus(
     taskId: string,
@@ -142,26 +175,6 @@ export const bamsApi = {
     return apiFetch<unknown>("/api/stats/agents");
   },
 
-  // ── 비용 (B4 구현 후 활성화) ──────────────────────────────────
-
-  async recordCost(body: Record<string, unknown>): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>("/api/costs", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-  },
-
-  async getCosts(params?: {
-    scope?: string;
-    window?: string;
-  }): Promise<{ costs: unknown[] }> {
-    const qs = new URLSearchParams();
-    if (params?.scope) qs.set("scope", params.scope);
-    if (params?.window) qs.set("window", params.window);
-    const query = qs.toString() ? `?${qs.toString()}` : "";
-    return apiFetch<{ costs: unknown[] }>(`/api/costs${query}`);
-  },
-
   // ── SSE 스트리밍 (C2) ─────────────────────────────────────────
 
   connectEventStream(params: {
@@ -185,11 +198,7 @@ export const bamsApi = {
       params.onEvent("task_updated", JSON.parse(e.data));
     });
 
-    es.addEventListener("cost_recorded", (e: MessageEvent) => {
-      params.onEvent("cost_recorded", JSON.parse(e.data));
-    });
-
-    es.addEventListener("agent_start", (e: MessageEvent) => {
+es.addEventListener("agent_start", (e: MessageEvent) => {
       params.onEvent("agent_start", JSON.parse(e.data));
     });
 
@@ -240,18 +249,8 @@ export const bamsApi = {
     return apiFetch<WorkUnitTasksResponse>(`/api/workunits/${encodeURIComponent(slug)}/tasks`);
   },
 
-  async getWorkUnitCosts(slug: string): Promise<WorkUnitCostsResponse> {
-    return apiFetch<WorkUnitCostsResponse>(`/api/workunits/${encodeURIComponent(slug)}/costs`);
-  },
-
-  async getWorkUnitDetail(slug: string): Promise<WorkUnitDetailResponse> {
-    return apiFetch<WorkUnitDetailResponse>(`/api/workunits/${encodeURIComponent(slug)}`);
-  },
-
-  // ── 예산 ─────────────────────────────────────────────────────
-
-  async getBudgetStatus(): Promise<BudgetStatusResponse> {
-    return apiFetch<BudgetStatusResponse>("/api/budget/status");
+  async getWorkUnitDetail(slug: string): Promise<WorkUnitDetailResponse & { pipelines?: PipelineDetail[] }> {
+    return apiFetch<WorkUnitDetailResponse & { pipelines?: PipelineDetail[] }>(`/api/workunits/${encodeURIComponent(slug)}`);
   },
 
   // ── HR 보고서 ─────────────────────────────────────────────────
@@ -263,6 +262,65 @@ export const bamsApi = {
   async getHRReport(id: string): Promise<HRReportDetailResponse> {
     return apiFetch<HRReportDetailResponse>(`/api/hr/reports/${encodeURIComponent(id)}`);
   },
+
+  // ── Work Unit 조작 (PATCH / DELETE) ─────────────────────────────
+
+  async patchWorkUnit(
+    slug: string,
+    body: WorkUnitPatchRequest
+  ): Promise<{ workunit: WorkUnit }> {
+    return proxyFetch<{ workunit: WorkUnit }>(
+      `/api/workunits/${encodeURIComponent(slug)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }
+    );
+  },
+
+  async deleteWorkUnit(slug: string): Promise<{ ok: boolean }> {
+    return proxyFetch<{ ok: boolean }>(
+      `/api/workunits/${encodeURIComponent(slug)}`,
+      { method: "DELETE" }
+    );
+  },
+
+
+  async patchWorkUnitPipeline(
+    wuSlug: string,
+    pipelineSlug: string,
+    body: { status: "completed" | "failed" | "paused" }
+  ): Promise<{ ok: boolean }> {
+    return proxyFetch<{ ok: boolean }>(
+      `/api/workunits/${encodeURIComponent(wuSlug)}/pipelines/${encodeURIComponent(pipelineSlug)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }
+    );
+  },
+  // ── Work Unit 에이전트 통계 ───────────────────────────────────────
+
+  async getWorkUnitAgents(slug: string): Promise<WorkUnitAgentsResponse> {
+    return proxyFetch<WorkUnitAgentsResponse>(
+      `/api/workunits/${encodeURIComponent(slug)}/agents`
+    );
+  },
+
+  async getWorkUnitAgentsActive(slug: string): Promise<WorkUnitAgentsActiveResponse> {
+    return proxyFetch<WorkUnitAgentsActiveResponse>(
+      `/api/workunits/${encodeURIComponent(slug)}/agents/active`
+    );
+  },
+
+  // ── Work Unit Retro 연결 ─────────────────────────────────────────
+
+  async getWorkUnitRetro(slug: string): Promise<WorkUnitRetroResponse> {
+    return proxyFetch<WorkUnitRetroResponse>(
+      `/api/workunits/${encodeURIComponent(slug)}/retro`
+    );
+  },
+
 
   // ── Health ───────────────────────────────────────────────────
 

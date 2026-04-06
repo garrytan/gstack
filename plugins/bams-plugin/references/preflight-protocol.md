@@ -10,7 +10,7 @@
 1. **`.crew/config.md`** — 프로젝트 메타정보 (기술스택, 디렉토리 구조, 컨벤션, 테스트 명령어)
    - `## Pipeline Learnings` 섹션에서 이번 작업과 관련된 항목만 추출.
 2. **`.crew/board.md`** — 현재 태스크 보드 (있으면)
-   - `.crew/db/bams.db`가 존재하면 **DB 우선**: board.md 대신 DB에서 현재 파이프라인의 태스크를 조회합니다.
+   - `~/.claude/plugins/marketplaces/my-claude/bams.db`가 존재하면 **DB 우선**: board.md 대신 DB에서 현재 파이프라인의 태스크를 조회합니다.
    - DB 조회: `bun -e "import { TaskDB } from './plugins/bams-plugin/tools/bams-db/index.ts'; const db = new TaskDB(); console.log(JSON.stringify(db.getTasksByPipeline('{slug}'))); db.close();"`
    - DB 없으면 기존 board.md 방식 유지.
 3. **`CLAUDE.md`** — 프로젝트별 빌드/테스트/배포 명령어 + `## Gotchas` 섹션
@@ -143,10 +143,10 @@ Agent tool(Task tool) 호출 시의 `agent_start`/`agent_end` 이벤트는 hooks
 
 ### D-1: DB 초기화
 
-`.crew/db/bams.db`가 존재하는지 확인하고, 없으면 생성합니다:
+`~/.claude/plugins/marketplaces/my-claude/bams.db`가 존재하는지 확인하고, 없으면 생성합니다:
 
 ```bash
-if [ ! -f ".crew/db/bams.db" ]; then
+if [ ! -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
   echo "[bams-db] DB 초기화 중..."
   bun run plugins/bams-plugin/tools/bams-db/init-db.ts
 fi
@@ -154,7 +154,7 @@ fi
 
 기존 `board.md`가 있고 DB가 비어있으면 마이그레이션을 제안합니다:
 ```bash
-if [ -f ".crew/board.md" ] && [ -f ".crew/db/bams.db" ]; then
+if [ -f ".crew/board.md" ] && [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
   # DB에 태스크가 없으면 마이그레이션 제안 (migrate-board.ts 참조)
   TASK_COUNT=$(bun -e "import { TaskDB } from './plugins/bams-plugin/tools/bams-db/index.ts'; const db = new TaskDB(); const r = db.db?.prepare('SELECT COUNT(*) as n FROM tasks').get(); console.log(r?.n ?? 0); db.close();" 2>/dev/null || echo "0")
   if [ "$TASK_COUNT" = "0" ]; then
@@ -187,4 +187,4 @@ else
 fi
 ```
 
-**주의:** 서버는 DB(`.crew/db/bams.db`)에 접근하므로 D-1(DB 초기화) 이후에 실행합니다.
+**주의:** 서버는 DB(`~/.claude/plugins/marketplaces/my-claude/bams.db`)에 접근하므로 D-1(DB 초기화) 이후에 실행합니다.

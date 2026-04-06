@@ -49,12 +49,35 @@ class EventStore {
   private workunitCache = new Map<string, CacheEntry<WorkUnitEvent[]>>()
   private workunitListCache: DirCacheEntry<WorkUnit[]> | null = null
 
+  /**
+   * Defensively decode a percent-encoded parameter.
+   * Handles double-encoding by decoding up to 2 times until stable.
+   * Returns the decoded string, or the original if decoding fails.
+   */
+  static safeDecodeParam(param: string): string {
+    if (!param) return param
+    try {
+      let decoded = param
+      // Decode up to 2 rounds to handle double-encoding (%25xx → %xx → char)
+      for (let i = 0; i < 2; i++) {
+        const next = decodeURIComponent(decoded)
+        if (next === decoded) break // stable — no more encoding
+        decoded = next
+      }
+      return decoded
+    } catch {
+      return param // malformed URI — return as-is, let validateParam reject it
+    }
+  }
+
   /** Validate slug/date to prevent path traversal.
    * Allows all Unicode letters and numbers (including Korean) via \p{L} and \p{N}.
    * Blocks path traversal characters: /, \\, and double-dot (..) sequences.
+   * Automatically decodes percent-encoded input before validation.
    */
   private static validateParam(param: string): void {
-    if (!param || !/^[\p{L}\p{N}_\-]{1,256}$/u.test(param)) {
+    const decoded = EventStore.safeDecodeParam(param)
+    if (!decoded || !/^[\p{L}\p{N}_\-]{1,256}$/u.test(decoded)) {
       throw new Error(`Invalid parameter: ${param}`)
     }
   }
@@ -161,6 +184,7 @@ class EventStore {
    */
   getPipeline(slug: string): Pipeline | null {
     this.ensureInitialized()
+    slug = EventStore.safeDecodeParam(slug)
     EventStore.validateParam(slug)
     const file = join(this.pipelineDir, `${slug}-events.jsonl`)
     const cached = this.pipelineCache.get(slug)
@@ -181,6 +205,7 @@ class EventStore {
    */
   getRawEvents(slug: string): PipelineEvent[] {
     this.ensureInitialized()
+    slug = EventStore.safeDecodeParam(slug)
     EventStore.validateParam(slug)
     const file = join(this.pipelineDir, `${slug}-events.jsonl`)
     const cached = this.rawEventsCache.get(slug)
@@ -476,6 +501,7 @@ class EventStore {
    */
   getWorkUnitEvents(slug: string): WorkUnitEvent[] {
     this.ensureInitialized()
+    slug = EventStore.safeDecodeParam(slug)
     EventStore.validateParam(slug)
     const file = join(this.workunitDir, `${slug}-workunit.jsonl`)
     const cached = this.workunitCache.get(slug)
@@ -550,15 +576,22 @@ class EventStore {
     }
 
     // Deduplicate by pipeline slug (Map preserves first occurrence)
-    const pipelineMap = new Map<string, { slug: string; type: string; linkedAt: string; status: string | undefined }>()
+    const pipelineMap = new Map<string, { id: string; slug: string; type: string; linkedAt: string; status: string | undefined; durationMs: number | null; totalSteps: number; completedSteps: number; failedSteps: number; command: string | null; arguments: string | null }>()
     for (const e of linkedEvents) {
       const slug = e.pipeline_slug ?? ''
       if (slug && !pipelineMap.has(slug)) {
         pipelineMap.set(slug, {
+          id: slug,
           slug,
           type: e.pipeline_type ?? 'unknown',
           linkedAt: e.ts ?? new Date().toISOString(),
           status: undefined,
+          durationMs: null,
+          totalSteps: 0,
+          completedSteps: 0,
+          failedSteps: 0,
+          command: null,
+          arguments: null,
         })
       }
     }
@@ -569,6 +602,8 @@ class EventStore {
       const pipeline = this.getPipeline(p.slug)
       if (pipeline) {
         p.status = pipeline.status
+        p.durationMs = pipeline.durationMs
+        p.command = pipeline.command
       }
     }
 
@@ -587,6 +622,7 @@ class EventStore {
    */
   deletePipeline(slug: string): boolean {
     this.ensureInitialized()
+    slug = EventStore.safeDecodeParam(slug)
     EventStore.validateParam(slug)
     const file = join(this.pipelineDir, `${slug}-events.jsonl`)
     if (!existsSync(file)) return false

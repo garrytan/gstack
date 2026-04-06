@@ -1,10 +1,10 @@
 /**
  * bams-db/init-db.ts
  *
- * .crew/db/bams.db 초기화 스크립트
+ * 글로벌 bams.db 초기화 스크립트 (~/.claude/plugins/marketplaces/my-claude/bams.db)
  *
  * 기능:
- *   1. .crew/db/ 디렉터리 생성
+ *   1. ~/.claude/plugins/marketplaces/my-claude/ 디렉터리 생성
  *   2. bams.db SQLite 파일 생성 + 스키마 실행
  *   3. 기존 board.md가 있으면 마이그레이션 제안
  *
@@ -14,9 +14,11 @@
  */
 
 import { existsSync, mkdirSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { TaskDB } from "./index.ts";
 
-const DEFAULT_DB_PATH = ".crew/db/bams.db";
+const DEFAULT_DB_PATH = join(homedir(), ".claude", "plugins", "marketplaces", "my-claude", "bams.db");
 const DEFAULT_BOARD_PATH = ".crew/board.md";
 
 async function main() {

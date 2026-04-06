@@ -621,9 +621,11 @@ export function convertRetroToHR(retroSlug: string, crewRoot: string): void {
   // DB 쓰기 실패 시 경고만 출력하고 JSON fallback으로 계속 진행
   // ---------------------------------------------------------------------------
   try {
-    // DB 경로: .crew/db/bams.db (crewRoot 기준)
-    const dbPath = join(crewRoot, 'db', 'bams.db')
-    mkdirSync(join(crewRoot, 'db'), { recursive: true })
+    // DB 경로: 글로벌 단일 DB
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
+    const globalDbDir = join(home, '.claude', 'plugins', 'marketplaces', 'my-claude')
+    mkdirSync(globalDbDir, { recursive: true })
+    const dbPath = join(globalDbDir, 'bams.db')
 
     const hrDb = new Database(dbPath, { create: true })
     hrDb.exec('PRAGMA journal_mode = WAL;')

@@ -85,8 +85,13 @@ dept_map() {
 case "$EVENT_TYPE" in
   pipeline_start)
     _PARENT="${6:-}"
-    # Pick the most recently started active work unit as the FK
-    ACTIVE_WU=$(wu_latest_slug)
+    _WU_ARG="${7:-}"
+    # Prefer explicitly passed WU slug ($7); fall back to most recently started active work unit
+    if [ -n "$_WU_ARG" ]; then
+      ACTIVE_WU="$_WU_ARG"
+    else
+      ACTIVE_WU=$(wu_latest_slug)
+    fi
     jq -cn --arg slug "$SLUG" --arg ptype "${3:-unknown}" --arg cmd "${4:-}" --arg args "${5:-}" --arg parent "$_PARENT" --arg wu "$ACTIVE_WU" --arg ts "$TS" \
       '{type:"pipeline_start",pipeline_slug:$slug,pipeline_type:$ptype,command:$cmd,arguments:$args,ts:$ts}
        + (if $parent != "" then {parent_pipeline_slug:$parent} else {} end)

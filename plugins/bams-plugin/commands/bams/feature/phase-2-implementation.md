@@ -97,6 +97,18 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 그 후:
 - 파일을 읽어 올바르게 생성/수정되었는지 확인
 - board.md에서 해당 태스크를 `## In Review`로 이동
+- **DB 상태 업데이트 (board.md 이동과 동시에 실행)**: `~/.claude/plugins/marketplaces/my-claude/bams.db`가 존재하면 해당 태스크의 상태를 `in_review`로 업데이트한다:
+  ```bash
+  if [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
+    bun -e "
+      import { TaskDB } from './plugins/bams-plugin/tools/bams-db/index.ts';
+      const db = new TaskDB();
+      // 배치의 각 태스크 ID에 대해 호출 (task_id는 createTask() 반환값 또는 board.md에서 조회):
+      // db.updateTaskStatus('{task_id}', 'in_review', 'pipeline-orchestrator');
+      db.close();
+    "
+  fi
+  ```
 - git 저장소인 경우 `git diff --stat` 표시
 
 ---

@@ -71,10 +71,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 DB에도 work unit 종료를 기록합니다 (DB가 존재하면):
 ```bash
-if [ -f ".crew/db/bams.db" ]; then
+if [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
   bun -e "
     import { WorkUnitDB } from './plugins/bams-plugin/tools/bams-db/index.ts';
-    const db = new WorkUnitDB('.crew/db/bams.db');
+    const db = new WorkUnitDB();
     db.endWorkUnit('{slug}', 'completed', new Date().toISOString());
     db.close();
   " 2>/dev/null || true

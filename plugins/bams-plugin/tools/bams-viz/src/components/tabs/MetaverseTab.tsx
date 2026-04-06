@@ -37,7 +37,8 @@ interface AgentNode {
 
 interface MetaverseTabProps {
   pipelineSlug?: string | null
-  onNavigateToTraces?: () => void  // kept for future use
+  wuSlug?: string | null
+  onNavigateToTraces?: () => void
 }
 
 /**
@@ -45,7 +46,6 @@ interface MetaverseTabProps {
  * Agents without activity appear as idle with zero counts.
  */
 function buildAgentNodes(data: AgentData | null): AgentNode[] {
-  // Index live calls by agentType
   const callsByType = new Map<string, AgentCall[]>()
   if (data) {
     for (const call of data.calls) {
@@ -55,7 +55,6 @@ function buildAgentNodes(data: AgentData | null): AgentNode[] {
     }
   }
 
-  // Index stats by agentType
   const statsByType = new Map<string, { callCount: number; errorCount: number; avgDurationMs: number; errorRate: number }>()
   if (data) {
     for (const s of data.stats) {
@@ -68,7 +67,6 @@ function buildAgentNodes(data: AgentData | null): AgentNode[] {
     }
   }
 
-  // Build nodes grouped by department for positioning
   const deptAgents: Record<string, AgentNode[]> = {}
 
   for (const { agentType, department } of ALL_AGENTS) {
@@ -102,7 +100,6 @@ function buildAgentNodes(data: AgentData | null): AgentNode[] {
     })
   }
 
-  // Position agents within department areas (3-column grid)
   const result: AgentNode[] = []
   for (const [dept, agents] of Object.entries(deptAgents)) {
     const layout = DEPT_LAYOUT[dept] || DEPT_LAYOUT.engineering
@@ -137,7 +134,6 @@ function AgentNodeSVG({
     : '#6c757d'
 
   const fillOpacity = hasActivity ? 0.9 : 0.35
-  const pulseClass = node.status === 'working' ? 'agent-pulse' : node.status === 'error' ? 'agent-blink' : ''
 
   return (
     <g
@@ -154,7 +150,6 @@ function AgentNodeSVG({
           stroke={fillColor}
           strokeWidth={2}
           opacity={0.3}
-          className={pulseClass}
         />
       )}
       {/* Main circle */}
@@ -216,16 +211,23 @@ function AgentNodeSVG({
   )
 }
 
-export function MetaverseTab({ pipelineSlug, onNavigateToTraces }: MetaverseTabProps) {
+export function MetaverseTab({ pipelineSlug, wuSlug, onNavigateToTraces }: MetaverseTabProps) {
   const [selectedAgent, setSelectedAgent] = useState<AgentNode | null>(null)
-  const apiUrl = pipelineSlug ? `/api/agents?date=all&pipeline=${pipelineSlug}` : '/api/agents?date=all'
+
+  // wuSlug가 있으면 해당 work unit 기준으로 필터링, pipelineSlug가 있으면 파이프라인 기준
+  const apiUrl = wuSlug
+    ? `/api/agents?date=all&pipeline_slug=${wuSlug}`
+    : pipelineSlug
+    ? `/api/agents?date=all&pipeline=${pipelineSlug}`
+    : '/api/agents?date=all'
+
   const { data, error, isLoading } = usePolling<AgentData>(apiUrl, 2000)
 
   const nodes = useMemo(() => {
     return buildAgentNodes(data ?? null)
   }, [data])
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading metaverse...</div>
   }
   if (error) {
@@ -234,6 +236,16 @@ export function MetaverseTab({ pipelineSlug, onNavigateToTraces }: MetaverseTabP
 
   const svgWidth = 1000
   const svgHeight = 1040
+
+  const hasAnyActivity = nodes.some(n => n.callCount > 0)
+  if (!hasAnyActivity && !isLoading) {
+    return (
+      <EmptyState
+        title="No agent activity"
+        description="No agents have been called in this work unit yet."
+      />
+    )
+  }
 
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: '20px' }}>
@@ -276,7 +288,6 @@ export function MetaverseTab({ pipelineSlug, onNavigateToTraces }: MetaverseTabP
               >
                 {deptInfo.label}
               </text>
-              {/* Department call count summary */}
               <text
                 x={layout.x + layout.w - 12}
                 y={layout.y + 24}
@@ -414,7 +425,6 @@ export function MetaverseTab({ pipelineSlug, onNavigateToTraces }: MetaverseTabP
                           {call.model}
                         </span>
                       )}
-                      {/* Collaboration info */}
                       {call.parentSpanId && (
                         <span style={{ fontSize: '10px', color: 'var(--dept-planning)', background: 'rgba(59,130,246,0.1)', padding: '1px 6px', borderRadius: '3px' }}>
                           from parent

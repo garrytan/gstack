@@ -170,6 +170,20 @@ orchestrator로부터 받은 결과물을 저장합니다:
 2. 설계를 `.crew/artifacts/design/{slug}-design.md`에 저장
 3. 태스크를 `.crew/board.md`의 `## Backlog`에 추가
 4. `.crew/config.md`의 `last_task_id` 업데이트
+5. **DB에 태스크 기록 (board.md 추가와 동시에 실행)**: `~/.claude/plugins/marketplaces/my-claude/bams.db`가 존재하면 각 태스크를 DB에도 INSERT한다:
+   ```bash
+   if [ -f "$HOME/.claude/plugins/marketplaces/my-claude/bams.db" ]; then
+     bun -e "
+       import { TaskDB } from './plugins/bams-plugin/tools/bams-db/index.ts';
+       const db = new TaskDB();
+       // 각 태스크를 반복하여 createTask() 호출
+       // 예시 (실제 값으로 치환):
+       // db.createTask({ pipeline_slug: '{slug}', title: '태스크 제목', phase: 1, priority: 'medium', assignee_agent: '에이전트명', tags: ['tag1'] });
+       db.close();
+     "
+   fi
+   ```
+   각 태스크마다 다음 필드를 포함한다: `pipeline_slug` (`{slug}`), `title`, `phase` (1), `priority`, `assignee_agent`, `deps`, `tags`
 
 사용자에게 계획 요약을 제시합니다. 질문: "구현을 진행할까요?"
 사용자가 아니라고 하면, 여기서 중단합니다.

@@ -1,36 +1,53 @@
-# gstack development
-
 ## ★ Bams 조직 운영 규칙 (최우선)
 
-> 이 규칙은 모든 /bams:* 커맨드에서 최우선으로 적용됩니다.
+> 이 규칙은 모든 /bams:\* 커맨드에서 최우선으로 적용됩니다.
 > 위반 시 즉시 중단하고 올바른 위임 경로로 전환하세요.
 
 ### 1. 위임 원칙 — 커맨드 레벨 직접 수정 절대 금지
 
 **모든 코드 수정은 반드시 `pipeline-orchestrator → 부서장 → 에이전트` 위임 체계를 통해 수행합니다.**
 
-- 허용: Bash/Glob으로 상태 확인, viz 이벤트 emit, 사용자에게 질문
+- 허용: Bash/Glob으로 상태 확인, 사용자에게 질문
 - 금지: Edit/Write로 소스 코드 직접 변경, 에이전트 역할 대신 수행
 - 위반 감지 시: 즉시 작업을 중단하고 pipeline-orchestrator에게 해당 작업을 위임
+- "내가 직접 하면 더 빠르다"는 판단으로 위임을 건너뛰지 않는다
+- 간단한 수정이라도 예외 없이 orchestrator → 부서장 → 에이전트 3단 위임 구조 준수
 
 위임 구조:
+
 ```
 사용자 커맨드 → pipeline-orchestrator → 부서장 → 에이전트
 ```
 
 각 에이전트는 자신의 전문 분야에서만 작업합니다:
+
 - 기획: product-strategy, business-analysis, ux-research, project-governance
 - 개발: frontend-engineering, backend-engineering, platform-devops, data-integration
+- 디자인: design-director, ui-designer, ux-designer, graphic-designer, motion-designer, design-system-agent
 - QA: qa-strategy, automation-qa, defect-triage, release-quality-gate
 - 평가: product-analytics, experimentation, performance-evaluation, business-kpi
-- 경영지원: executive-reporter, cross-department-coordinator, resource-optimizer
+- 경영지원: executive-reporter, cross-department-coordinator, resource-optimizer, hr-agent
 
-### 2. 파이프라인 네이밍 규칙
+### 2. viz 이벤트 emit 규칙
+
+커맨드 레벨에서 viz 이벤트(step_start, step_end, agent_start, agent_end)를 직접 Bash로 emit하지 않는다.
+모든 viz 이벤트 emit은 pipeline-orchestrator → 부서장 → 에이전트 위임 체계 내에서 수행한다.
+커맨드 레벨에서는 pipeline_start/pipeline_end만 emit 가능 (엔트리포인트 수준).
+
+### 3. Work Unit 선택 규칙
+
+활성 work unit이 2개 이상일 때 파이프라인 시작 전 반드시 AskUserQuestion으로 어떤 작업에 연결할지 사용자에게 물어야 한다.
+- 1개면 자동 선택
+- 0개면 경고 후 WU 없이 진행
+
+### 4. 파이프라인 네이밍 규칙
 
 모든 파이프라인 slug는 다음 형식을 따릅니다:
+
 ```
 {command}_{한글요약}
 ```
+
 - command: feature, hotfix, dev, debug
 - 한글요약: 공백 없이 작업 내용 요약
 
@@ -38,322 +55,84 @@
 
 **slug는 파이프라인 수명 동안 불변(immutable)입니다.** 상태는 slug에 포함하지 않으며,
 이벤트 파일 내 `pipeline_start` / `pipeline_end` 이벤트로 자동 판별합니다.
+
 - `pipeline_end` 없음 → 진행 중
 - `pipeline_end` 있음 → 완료 (status 필드 기준)
 
 이 규칙은 이벤트 파일, PRD, 설계문서, 리뷰, board.md 태스크 ID에 모두 적용됩니다.
 상세: `.crew/references/pipeline-naming-convention.md` 참조
 
-### 3. 데이터 기록 규칙
+### 5. 데이터 기록 규칙
 
 - 파이프라인 시작/종료 시 반드시 viz 이벤트를 emit합니다
 - 모든 아티팩트는 `.crew/artifacts/` 하위에 네이밍 규칙에 따라 저장합니다
 - board.md 업데이트는 project-governance 에이전트를 통해 수행합니다
 
-## Commands
+### 6. Bams 커맨드 목록
 
-```bash
-bun install          # install dependencies
-bun test             # run free tests (browse + snapshot + skill validation)
-bun run test:evals   # run paid evals: LLM judge + E2E (diff-based, ~$4/run max)
-bun run test:evals:all  # run ALL paid evals regardless of diff
-bun run test:gate    # run gate-tier tests only (CI default, blocks merge)
-bun run test:periodic  # run periodic-tier tests only (weekly cron / manual)
-bun run test:e2e     # run E2E tests only (diff-based, ~$3.85/run max)
-bun run test:e2e:all # run ALL E2E tests regardless of diff
-bun run eval:select  # show which tests would run based on current diff
-bun run dev <cmd>    # run CLI in dev mode, e.g. bun run dev goto https://example.com
-bun run build        # gen docs + compile binaries
-bun run gen:skill-docs  # regenerate SKILL.md files from templates
-bun run skill:check  # health dashboard for all skills
-bun run dev:skill    # watch mode: auto-regen + validate on change
-bun run eval:list    # list all eval runs from ~/.gstack-dev/evals/
-bun run eval:compare # compare two eval runs (auto-picks most recent)
-bun run eval:summary # aggregate stats across all eval runs
-```
+| 커맨드          | 설명                            |
+| --------------- | ------------------------------- |
+| `/bams:init`    | 프로젝트 초기화                 |
+| `/bams:plan`    | PRD + 기술 설계 + 태스크 분해   |
+| `/bams:feature` | 풀 피처 개발 사이클             |
+| `/bams:dev`     | 멀티에이전트 풀 개발 파이프라인 |
+| `/bams:hotfix`  | 버그 핫픽스 빠른 경로           |
+| `/bams:debug`   | 버그 분류 → 수정 → 회귀 테스트  |
+| `/bams:review`  | 5관점 병렬 코드 리뷰            |
+| `/bams:ship`    | PR 생성 + 머지                  |
+| `/bams:status`  | 프로젝트 대시보드 현황          |
+| `/bams:sprint`  | 스프린트 플래닝 및 관리         |
+| `/bams:viz`     | 파이프라인 실행 시각화          |
 
-`test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
-use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
-E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
---verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
-against the previous run.
+### 7. 에이전트 필수 활용 원칙
 
-**Diff-based test selection:** `test:evals` and `test:e2e` auto-select tests based
-on `git diff` against the base branch. Each test declares its file dependencies in
-`test/helpers/touchfiles.ts`. Changes to global touchfiles (session-runner, eval-store,
-touchfiles.ts itself) trigger all tests. Use `EVALS_ALL=1` or the `:all` script
-variants to force all tests. Run `eval:select` to preview which tests would run.
+**Claude Code로 코드를 수정하는 모든 작업은 Bams 조직의 에이전트를 통해 수행합니다.**
 
-**Two-tier system:** Tests are classified as `gate` or `periodic` in `E2E_TIERS`
-(in `test/helpers/touchfiles.ts`). CI runs only gate tests (`EVALS_TIER=gate`);
-periodic tests run weekly via cron or manually. Use `EVALS_TIER=gate` or
-`EVALS_TIER=periodic` to filter. When adding new E2E tests, classify them:
-1. Safety guardrail or deterministic functional test? -> `gate`
-2. Quality benchmark, Opus model test, or non-deterministic? -> `periodic`
-3. Requires external service (Codex, Gemini)? -> `periodic`
+- 코드 수정이 필요한 요청 → pipeline-orchestrator에게 위임
+- orchestrator가 판단: 파이프라인 필요 여부 결정
+  - 복잡한 작업 → `/bams:dev`, `/bams:feature` 등 파이프라인으로 처리
+  - 단순 작업 → 해당 부서 에이전트에게 직접 위임
+- 읽기 전용 작업(질문, 상태 확인 등)은 직접 응답 가능
 
-## Testing
+### 8. Reference 참조 규칙
 
-```bash
-bun test             # run before every commit — free, <2s
-bun run test:evals   # run before shipping — paid, diff-based (~$4/run max)
-```
+에이전트는 작업 시작 시 다음을 참조합니다:
 
-`bun test` runs skill validation, gen-skill-docs quality checks, and browse
-integration tests. `bun run test:evals` runs LLM-judge quality evals and E2E
-tests via `claude -p`. Both must pass before creating a PR.
+- `.crew/config.md` — 프로젝트 설정, 아키텍처, 컨벤션
+- `.crew/gotchas.md` — 프로젝트 주의사항
+- `.crew/board.md` — 현재 태스크 상태
+- 각 에이전트의 `.crew/memory/{agent-slug}/MEMORY.md` — 학습된 지식
 
-## Project structure
+### 9. 에이전트 동작 완료 규칙
 
-```
-gstack/
-├── browse/          # Headless browser CLI (Playwright)
-│   ├── src/         # CLI + server + commands
-│   │   ├── commands.ts  # Command registry (single source of truth)
-│   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
-│   ├── test/        # Integration tests + fixtures
-│   └── dist/        # Compiled binary
-├── scripts/         # Build + DX tooling
-│   ├── gen-skill-docs.ts  # Template → SKILL.md generator
-│   ├── skill-check.ts     # Health dashboard
-│   └── dev-skill.ts       # Watch mode
-├── test/            # Skill validation + eval tests
-│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts
-│   ├── fixtures/    # Ground truth JSON, planted-bug fixtures, eval baselines
-│   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
-│   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
-│   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
-│   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
-├── qa-only/         # /qa-only skill (report-only QA, no fixes)
-├── plan-design-review/  # /plan-design-review skill (report-only design audit)
-├── design-review/    # /design-review skill (design audit + fix loop)
-├── ship/            # Ship workflow skill
-├── review/          # PR review skill
-├── plan-ceo-review/ # /plan-ceo-review skill
-├── plan-eng-review/ # /plan-eng-review skill
-├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
-├── benchmark/       # /benchmark skill (performance regression detection)
-├── canary/          # /canary skill (post-deploy monitoring loop)
-├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
-├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
-├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
-├── investigate/     # /investigate skill (systematic root-cause debugging)
-├── retro/           # Retrospective skill (includes /retro global cross-project mode)
-├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
-├── document-release/ # /document-release skill (post-ship doc updates)
-├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
-├── design-consultation/ # /design-consultation skill (design system from scratch)
-├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
-├── .github/         # CI workflows + Docker image
-│   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
-│   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
-├── setup            # One-time setup: build binary + symlink skills
-├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
-├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
-├── ETHOS.md         # Builder philosophy (Boil the Lake, Search Before Building)
-└── package.json     # Build scripts for browse
-```
+모든 에이전트는 작업 완료 시:
 
-## SKILL.md workflow
+1. 변경 사항 요약을 반환합니다
+2. viz 이벤트(agent_end)를 emit합니다
+3. 에러 발생 시 status="error"로 보고하고, 근본 원인과 영향 범위를 포함합니다
+4. 파이프라인의 마지막 에이전트는 pipeline_end를 emit합니다
 
-SKILL.md files are **generated** from `.tmpl` templates. To update docs:
+## Bams 현재 상태
 
-1. Edit the `.tmpl` file (e.g. `SKILL.md.tmpl` or `browse/SKILL.md.tmpl`)
-2. Run `bun run gen:skill-docs` (or `bun run build` which does it automatically)
-3. Commit both the `.tmpl` and generated `.md` files
+> Last updated: 2026-04-06
 
-To add a new browse command: add it to `browse/src/commands.ts` and rebuild.
-To add a snapshot flag: add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts` and rebuild.
+### 완료 파이프라인
 
-**Merge conflicts on SKILL.md files:** NEVER resolve conflicts on generated SKILL.md
-files by accepting either side. Instead: (1) resolve conflicts on the `.tmpl` templates
-and `scripts/gen-skill-docs.ts` (the sources of truth), (2) run `bun run gen:skill-docs`
-to regenerate all SKILL.md files, (3) stage the regenerated files. Accepting one side's
-generated output silently drops the other side's template changes.
+- `dev_vizDB재설계` — viz DB 전면 재설계 + UI 2페이지 구조 전환 (12태스크, 92 tests, 87.9/100)
 
-## Platform-agnostic design
+### 아티팩트
 
-Skills must NEVER hardcode framework-specific commands, file patterns, or directory
-structures. Instead:
+- PRD: `.crew/artifacts/prd/dev_vizDB재설계-prd.md`
+- 성과 보고서: `.crew/artifacts/report/dev_vizDB재설계-report.md`
+- 테스트: `plugins/bams-plugin/tools/bams-db/test/pipeline-crud.test.ts` (34 tests)
 
-1. **Read CLAUDE.md** for project-specific config (test commands, eval commands, etc.)
-2. **If missing, AskUserQuestion** — let the user tell you or let gstack search the repo
-3. **Persist the answer to CLAUDE.md** so we never have to ask again
+### DB 스키마 (v2 — FK 기반)
 
-This applies to test commands, eval commands, deploy commands, and any other
-project-specific behavior. The project owns its config; gstack reads it.
+- `work_units` → `pipelines` (work_unit_id FK) → `tasks` (pipeline_id FK)
+- `run_logs` (pipeline_id FK), `task_events` (task_id FK)
+- 제거: token_usage, budget_policies, pipeline_work_unit, retro_slug
 
-## Writing SKILL templates
+### viz UI 구조
 
-SKILL.md.tmpl files are **prompt templates read by Claude**, not bash scripts.
-Each bash code block runs in a separate shell — variables do not persist between blocks.
-
-Rules:
-- **Use natural language for logic and state.** Don't use shell variables to pass
-  state between code blocks. Instead, tell Claude what to remember and reference
-  it in prose (e.g., "the base branch detected in Step 0").
-- **Don't hardcode branch names.** Detect `main`/`master`/etc dynamically via
-  `gh pr view` or `gh repo view`. Use `{{BASE_BRANCH_DETECT}}` for PR-targeting
-  skills. Use "the base branch" in prose, `<base>` in code block placeholders.
-- **Keep bash blocks self-contained.** Each code block should work independently.
-  If a block needs context from a previous step, restate it in the prose above.
-- **Express conditionals as English.** Instead of nested `if/elif/else` in bash,
-  write numbered decision steps: "1. If X, do Y. 2. Otherwise, do Z."
-
-## Browser interaction
-
-When you need to interact with a browser (QA, dogfooding, cookie setup), use the
-`/browse` skill or run the browse binary directly via `$B <command>`. NEVER use
-`mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
-project uses.
-
-## Vendored symlink awareness
-
-When developing gstack, `.claude/skills/gstack` may be a symlink back to this
-working directory (gitignored). This means skill changes are **live immediately** —
-great for rapid iteration, risky during big refactors where half-written skills
-could break other Claude Code sessions using gstack concurrently.
-
-**Check once per session:** Run `ls -la .claude/skills/gstack` to see if it's a
-symlink or a real copy. If it's a symlink to your working directory, be aware that:
-- Template changes + `bun run gen:skill-docs` immediately affect all gstack invocations
-- Breaking changes to SKILL.md.tmpl files can break concurrent gstack sessions
-- During large refactors, remove the symlink (`rm .claude/skills/gstack`) so the
-  global install at `~/.claude/skills/gstack/` is used instead
-
-**For plan reviews:** When reviewing plans that modify skill templates or the
-gen-skill-docs pipeline, consider whether the changes should be tested in isolation
-before going live (especially if the user is actively using gstack in other windows).
-
-## Compiled binaries — NEVER commit browse/dist/
-
-The `browse/dist/` directory contains compiled Bun binaries (`browse`, `find-browse`,
-~58MB each). These are Mach-O arm64 only — they do NOT work on Linux, Windows, or
-Intel Macs. The `./setup` script already builds from source for every platform, so
-the checked-in binaries are redundant. They are tracked by git due to a historical
-mistake and should eventually be removed with `git rm --cached`.
-
-**NEVER stage or commit these files.** They show up as modified in `git status`
-because they're tracked despite `.gitignore` — ignore them. When staging files,
-always use specific filenames (`git add file1 file2`) — never `git add .` or
-`git add -A`, which will accidentally include the binaries.
-
-## Commit style
-
-**Always bisect commits.** Every commit should be a single logical change. When
-you've made multiple changes (e.g., a rename + a rewrite + new tests), split them
-into separate commits before pushing. Each commit should be independently
-understandable and revertable.
-
-Examples of good bisection:
-- Rename/move separate from behavior changes
-- Test infrastructure (touchfiles, helpers) separate from test implementations
-- Template changes separate from generated file regeneration
-- Mechanical refactors separate from new features
-
-When the user says "bisect commit" or "bisect and push," split staged/unstaged
-changes into logical commits and push.
-
-## CHANGELOG + VERSION style
-
-**VERSION and CHANGELOG are branch-scoped.** Every feature branch that ships gets its
-own version bump and CHANGELOG entry. The entry describes what THIS branch adds —
-not what was already on main.
-
-**When to write the CHANGELOG entry:**
-- At `/ship` time (Step 5), not during development or mid-branch.
-- The entry covers ALL commits on this branch vs the base branch.
-- Never fold new work into an existing CHANGELOG entry from a prior version that
-  already landed on main. If main has v0.10.0.0 and your branch adds features,
-  bump to v0.10.1.0 with a new entry — don't edit the v0.10.0.0 entry.
-
-**Key questions before writing:**
-1. What branch am I on? What did THIS branch change?
-2. Is the base branch version already released? (If yes, bump and create new entry.)
-3. Does an existing entry on this branch already cover earlier work? (If yes, replace
-   it with one unified entry for the final version.)
-
-CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
-
-- Lead with what the user can now **do** that they couldn't before. Sell the feature.
-- Use plain language, not implementation details. "You can now..." not "Refactored the..."
-- **Never mention TODOS.md, internal tracking, eval infrastructure, or contributor-facing
-  details.** These are invisible to users and meaningless to them.
-- Put contributor/internal changes in a separate "For contributors" section at the bottom.
-- Every entry should make someone think "oh nice, I want to try that."
-- No jargon: say "every question now tells you which project and branch you're in" not
-  "AskUserQuestion format standardized across skill templates via preamble resolver."
-
-## AI effort compression
-
-When estimating or discussing effort, always show both human-team and CC+gstack time:
-
-| Task type | Human team | CC+gstack | Compression |
-|-----------|-----------|-----------|-------------|
-| Boilerplate / scaffolding | 2 days | 15 min | ~100x |
-| Test writing | 1 day | 15 min | ~50x |
-| Feature implementation | 1 week | 30 min | ~30x |
-| Bug fix + regression test | 4 hours | 15 min | ~20x |
-| Architecture / design | 2 days | 4 hours | ~5x |
-| Research / exploration | 1 day | 3 hours | ~3x |
-
-Completeness is cheap. Don't recommend shortcuts when the complete implementation
-is a "lake" (achievable) not an "ocean" (multi-quarter migration). See the
-Completeness Principle in the skill preamble for the full philosophy.
-
-## Search before building
-
-Before designing any solution that involves concurrency, unfamiliar patterns,
-infrastructure, or anything where the runtime/framework might have a built-in:
-
-1. Search for "{runtime} {thing} built-in"
-2. Search for "{thing} best practice {current year}"
-3. Check official runtime/framework docs
-
-Three layers of knowledge: tried-and-true (Layer 1), new-and-popular (Layer 2),
-first-principles (Layer 3). Prize Layer 3 above all. See ETHOS.md for the full
-builder philosophy.
-
-## Local plans
-
-Contributors can store long-range vision docs and design documents in `~/.gstack-dev/plans/`.
-These are local-only (not checked in). When reviewing TODOS.md, check `plans/` for candidates
-that may be ready to promote to TODOs or implement.
-
-## E2E eval failure blame protocol
-
-When an E2E eval fails during `/ship` or any other workflow, **never claim "not
-related to our changes" without proving it.** These systems have invisible couplings —
-a preamble text change affects agent behavior, a new helper changes timing, a
-regenerated SKILL.md shifts prompt context.
-
-**Required before attributing a failure to "pre-existing":**
-1. Run the same eval on main (or base branch) and show it fails there too
-2. If it passes on main but fails on the branch — it IS your change. Trace the blame.
-3. If you can't run on main, say "unverified — may or may not be related" and flag it
-   as a risk in the PR body
-
-"Pre-existing" without receipts is a lazy claim. Prove it or don't say it.
-
-## Long-running tasks: don't give up
-
-When running evals, E2E tests, or any long-running background task, **poll until
-completion**. Use `sleep 180 && echo "ready"` + `TaskOutput` in a loop every 3
-minutes. Never switch to blocking mode and give up when the poll times out. Never
-say "I'll be notified when it completes" and stop checking — keep the loop going
-until the task finishes or the user tells you to stop.
-
-The full E2E suite can take 30-45 minutes. That's 10-15 polling cycles. Do all of
-them. Report progress at each check (which tests passed, which are running, any
-failures so far). The user wants to see the run complete, not a promise that
-you'll check later.
-
-## Deploying to the active skill
-
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
-
-1. Push your branch
-2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
-
-Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+- 랜딩 (`/`): Work 카드 그리드 + StatusFilter
+- 상세 (`/work/[slug]`): Pipeline 아코디언 + TaskTable + Agents/Timeline 탭
