@@ -145,7 +145,10 @@ export async function handleReadCommand(
               id: input.id || undefined,
               placeholder: input.placeholder || undefined,
               required: input.required || undefined,
-              value: input.type === 'password' ? '[redacted]' : (input.value || undefined),
+              value: input.type === 'password'
+                || (input.name && /(^|[_.-])(token|secret|key|password|credential|auth|jwt|session|csrf|sid)($|[_.-])|api.?key/i.test(input.name))
+                || (input.id && /(^|[_.-])(token|secret|key|password|credential|auth|jwt|session|csrf|sid)($|[_.-])|api.?key/i.test(input.id))
+                ? '[redacted]' : (input.value || undefined),
               options: el.tagName === 'SELECT'
                 ? [...(el as HTMLSelectElement).options].map(o => ({ value: o.value, text: o.text }))
                 : undefined,
