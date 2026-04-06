@@ -1,0 +1,140 @@
+# sqry Add-in for gstack — Implementation DAG
+#
+# Spec: docs/superpowers/specs/2026-04-06-sqry-add-in-design.md
+# Approved: 2026-04-06 (Gemini 3 Pro + OpenAI Codex gpt-5.4, 4 rounds)
+#
+# Nodes are tasks. `depends_on` edges encode ordering constraints.
+# Tasks with no shared dependency can run in parallel.
+
+[meta]
+spec = "docs/superpowers/specs/2026-04-06-sqry-add-in-design.md"
+branch = "feat/sqry-add-in"
+base = "main"
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 0: Scaffolding (no dependencies — all parallelizable)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.scaffold_tools_json]
+description = "Create contrib/add-tool/sqry/tools.json — the routing contract"
+files_create = ["contrib/add-tool/sqry/tools.json"]
+depends_on = []
+
+[tasks.scaffold_detection]
+description = "Create contrib/add-tool/sqry/detection.sh — preamble bash fragment"
+files_create = ["contrib/add-tool/sqry/detection.sh"]
+depends_on = []
+
+[tasks.scaffold_install]
+description = "Create contrib/add-tool/sqry/install.sh — idempotent installer"
+files_create = ["contrib/add-tool/sqry/install.sh"]
+depends_on = []
+
+[tasks.scaffold_uninstall]
+description = "Create contrib/add-tool/sqry/uninstall.sh — clean removal"
+files_create = ["contrib/add-tool/sqry/uninstall.sh"]
+depends_on = []
+
+[tasks.scaffold_readme]
+description = "Create contrib/add-tool/sqry/README.md — integration docs"
+files_create = ["contrib/add-tool/sqry/README.md"]
+depends_on = []
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 1: Resolver + registration (depends on tools.json)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.resolver]
+description = "Create scripts/resolvers/sqry.ts — reads tools.json, generates conditional markdown per skill"
+files_create = ["scripts/resolvers/sqry.ts"]
+depends_on = ["scaffold_tools_json"]
+
+[tasks.register_resolver]
+description = "Modify scripts/resolvers/index.ts — import generateSqryContext, add SQRY_CONTEXT to RESOLVERS"
+files_modify = ["scripts/resolvers/index.ts"]
+depends_on = ["resolver"]
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 2: Preamble detection (depends on detection.sh)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.preamble_detection]
+description = "Modify scripts/resolvers/preamble.ts — inline detection.sh bash after llm-gateway block"
+files_modify = ["scripts/resolvers/preamble.ts"]
+depends_on = ["scaffold_detection"]
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 3: Template placement (depends on resolver registration)
+# All 6 templates are independent of each other.
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.tmpl_investigate]
+description = "Add {{SQRY_CONTEXT}} to investigate/SKILL.md.tmpl after {{LLM_GATEWAY_CONTEXT}}"
+files_modify = ["investigate/SKILL.md.tmpl"]
+depends_on = ["register_resolver"]
+
+[tasks.tmpl_cso]
+description = "Add {{SQRY_CONTEXT}} to cso/SKILL.md.tmpl after {{LEARNINGS_SEARCH}}"
+files_modify = ["cso/SKILL.md.tmpl"]
+depends_on = ["register_resolver"]
+
+[tasks.tmpl_review]
+description = "Add {{SQRY_CONTEXT}} to review/SKILL.md.tmpl after {{LLM_GATEWAY_CONTEXT}}"
+files_modify = ["review/SKILL.md.tmpl"]
+depends_on = ["register_resolver"]
+
+[tasks.tmpl_retro]
+description = "Add {{SQRY_CONTEXT}} to retro/SKILL.md.tmpl after {{LLM_GATEWAY_CONTEXT}}"
+files_modify = ["retro/SKILL.md.tmpl"]
+depends_on = ["register_resolver"]
+
+[tasks.tmpl_plan_eng_review]
+description = "Add {{SQRY_CONTEXT}} to plan-eng-review/SKILL.md.tmpl after {{LLM_GATEWAY_CONTEXT}}"
+files_modify = ["plan-eng-review/SKILL.md.tmpl"]
+depends_on = ["register_resolver"]
+
+[tasks.tmpl_ship]
+description = "Add {{SQRY_CONTEXT}} to ship/SKILL.md.tmpl after {{LLM_GATEWAY_CONTEXT}}"
+files_modify = ["ship/SKILL.md.tmpl"]
+depends_on = ["register_resolver"]
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 3b: Update shared contrib README (no code dependency)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.update_contrib_readme]
+description = "Update contrib/add-tool/README.md — add sqry to integrations list, fix placement rule on line 27"
+files_modify = ["contrib/add-tool/README.md"]
+depends_on = []
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 4: Regenerate SKILL.md files (depends on all template + resolver work)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.gen_skill_docs]
+description = "Run bun run gen:skill-docs to regenerate all SKILL.md files from templates"
+command = "bun run gen:skill-docs"
+depends_on = [
+  "register_resolver",
+  "preamble_detection",
+  "tmpl_investigate",
+  "tmpl_cso",
+  "tmpl_review",
+  "tmpl_retro",
+  "tmpl_plan_eng_review",
+  "tmpl_ship",
+]
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 5: Tests (depends on resolver + tools.json)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.test_resolver]
+description = "Create test/sqry-resolver.test.ts — resolver + tools.json validation (mirrors llm-gateway test)"
+files_create = ["test/sqry-resolver.test.ts"]
+depends_on = ["resolver", "scaffold_tools_json"]
+
+[tasks.run_tests]
+description = "Run bun test to validate resolver, skill docs, and existing tests still pass"
+command = "bun test"
+depends_on = ["gen_skill_docs", "test_resolver"]

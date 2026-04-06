@@ -1,0 +1,133 @@
+# sqry v8.0.0 Alignment — Resource Delegation Restructure
+#
+# Problem: Our tools.json + resolver hardcode thick static tool guidance
+# (constraints, defaults, tiering) that duplicates and will drift from
+# sqry v8's live MCP resources (sqry://docs/capability-map, tool-guide).
+#
+# Solution: Make gstack's sqry integration "thin" like the v8 skills:
+# - Keep: tool routing (which tools for which skill phase), gating, index freshness
+# - Remove: hardcoded defaults, per-tool constraints, output limit prose
+# - Add: MCP resource delegation (read sqry://docs/* for parameter guidance)
+# - Add: manifest check (sqry://meta/manifest for server health)
+#
+# No template changes needed — {{SQRY_CONTEXT}} placement stays the same.
+# No preamble changes needed — detection block is unaffected.
+# No install/uninstall/detection.sh changes needed.
+
+[meta]
+spec = "docs/superpowers/specs/2026-04-06-sqry-add-in-design.md"
+branch = "feat/sqry-add-in"
+base = "main"
+reason = "Align with sqry-skills v8.0.0 resource delegation architecture"
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 1: Restructure tools.json (source of truth)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.thin_tools_json]
+description = """Restructure contrib/add-tool/sqry/tools.json:
+- Remove top-level `defaults` section (max_depth, max_results, rebuild_hint)
+- Remove per-tool `constraint` fields from all integrations
+- Add top-level `mcp_resources` object mapping purpose to sqry:// URIs:
+    "capability_map": "sqry://docs/capability-map"
+    "tool_guide": "sqry://docs/tool-guide"
+    "manifest": "sqry://meta/manifest"
+- Add `rebuild_hint` as a plain string under detection (gstack-specific, not a sqry default)
+- Keep: tool routing (tool name + when clause), phase, context — these are gstack's value-add
+- Keep: min_version at 7.0.0 (we use index --status --json which requires it)
+- `when` clauses stay as-is — they describe WHEN to use the tool in the skill phase,
+  not HOW to parameterize it (that's the MCP resource's job)
+"""
+files_modify = ["contrib/add-tool/sqry/tools.json"]
+depends_on = []
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 2: Restructure resolver (depends on new tools.json shape)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.thin_resolver]
+description = """Restructure scripts/resolvers/sqry.ts to match v8 resource delegation:
+- Update ToolsConfig interface: remove `defaults`, add `mcp_resources` record,
+  move rebuild_hint under detection
+- Remove ToolMapping.constraint field from interface
+- Remove constraint annotation rendering from tool list
+- Remove hardcoded "Output limits" paragraph
+- Add MCP resource delegation block after tool list:
+  "For parameter guidance (max_depth, max_results, scoping), read
+   `sqry://docs/capability-map` via ReadMcpResourceTool.
+   For full tool reference, read `sqry://docs/tool-guide`."
+- Add manifest health check: "Before first sqry query, read
+   `sqry://meta/manifest` to confirm the MCP server is connected."
+- Keep: SQRY availability gating, MCP runtime gate, index freshness, rebuild_hint
+- Keep: tool list with `when` clauses (no constraints)
+"""
+files_modify = ["scripts/resolvers/sqry.ts"]
+depends_on = ["thin_tools_json"]
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 3: Update tests (depends on new resolver output)
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.update_tests]
+description = """Update test/sqry-resolver.test.ts to match restructured output:
+- Remove test 'has defaults section with output limits'
+- Remove test 'constraint annotations appear in tool list'
+- Remove test 'tools without constraints have no bold annotation'
+- Remove per-tool constraint tests from schema validation loop
+- Remove test checking output contains 'max_depth 2' and 'max_results 50'
+- Add test: tools.json has mcp_resources with capability_map, tool_guide, manifest URIs
+- Add test: tools.json has no `defaults` key
+- Add test: no tool in any integration has a `constraint` field
+- Add test: resolver output contains 'sqry://docs/capability-map'
+- Add test: resolver output contains 'sqry://meta/manifest'
+- Add test: resolver output contains 'ReadMcpResourceTool'
+- Keep: all tool name validation, when clause validation, gating tests,
+  index freshness tests, preamble tests, SKILL.md content tests
+"""
+files_modify = ["test/sqry-resolver.test.ts"]
+depends_on = ["thin_resolver"]
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 4: Regenerate + update golden files
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.gen_skill_docs]
+description = "Run bun run gen:skill-docs --host all to regenerate all SKILL.md files"
+command = "bun run gen:skill-docs --host all"
+depends_on = ["thin_resolver"]
+
+[tasks.update_golden]
+description = """Update golden baseline files for ship skill:
+- cp ship/SKILL.md test/fixtures/golden/claude-ship-SKILL.md
+- cp .agents/skills/gstack-ship/SKILL.md test/fixtures/golden/codex-ship-SKILL.md
+- cp .factory/skills/gstack-ship/SKILL.md test/fixtures/golden/factory-ship-SKILL.md
+"""
+files_modify = [
+  "test/fixtures/golden/claude-ship-SKILL.md",
+  "test/fixtures/golden/codex-ship-SKILL.md",
+  "test/fixtures/golden/factory-ship-SKILL.md",
+]
+depends_on = ["gen_skill_docs"]
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 5: Run tests
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.run_tests]
+description = "Run bun test to validate everything passes"
+command = "bun test"
+depends_on = ["update_tests", "update_golden"]
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 6: Update contrib README to mention resource delegation
+# ─────────────────────────────────────────────────────────────────
+
+[tasks.update_sqry_readme]
+description = """Update contrib/add-tool/sqry/README.md:
+- Add note that parameter guidance is served live via sqry MCP resources
+- Mention sqry://docs/capability-map and sqry://docs/tool-guide
+- Clarify that tools.json defines WHEN to use tools (skill-phase routing),
+  while MCP resources define HOW (parameter limits, tiering, scoping)
+"""
+files_modify = ["contrib/add-tool/sqry/README.md"]
+depends_on = []
