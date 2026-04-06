@@ -86,6 +86,33 @@ fi
 _ROUTING_DECLINED=$(~/.claude/skills/gstack/bin/gstack-config get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
+# Vendoring deprecation: detect if CWD has a vendored gstack copy
+_VENDORED="no"
+if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
+  if [ -f ".claude/skills/gstack/VERSION" ] || [ -d ".claude/skills/gstack/.git" ]; then
+    _VENDORED="yes"
+  fi
+fi
+echo "VENDORED_GSTACK: $_VENDORED"
+# Semantic code search (sqry)
+_SQRY="unavailable"
+_SQRY_INDEXED="no"
+_SQRY_STALE="no"
+if command -v sqry >/dev/null 2>&1; then
+  _SQRY="available"
+  _SQRY_VERSION=$(sqry --version 2>/dev/null | head -1 || echo "unknown")
+  _SQRY_STATUS=$(sqry index --status --json . 2>/dev/null || echo '{}')
+  if echo "$_SQRY_STATUS" | grep -q '"exists": true' 2>/dev/null; then
+    _SQRY_INDEXED="yes"
+  fi
+  if echo "$_SQRY_STATUS" | grep -q '"stale": true' 2>/dev/null; then
+    _SQRY_STALE="yes"
+  fi
+fi
+echo "SQRY: $_SQRY"
+[ "$_SQRY" = "available" ] && echo "SQRY_VERSION: $_SQRY_VERSION"
+[ "$_SQRY" = "available" ] && echo "SQRY_INDEXED: $_SQRY_INDEXED"
+[ "$_SQRY" = "available" ] && echo "SQRY_STALE: $_SQRY_STALE"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
@@ -213,6 +240,38 @@ If B: run `~/.claude/skills/gstack/bin/gstack-config set routing_declined true`
 Say "No problem. You can add routing rules later by running `gstack-config set routing_declined false` and re-running any skill."
 
 This only happens once per project. If `HAS_ROUTING` is `yes` or `ROUTING_DECLINED` is `true`, skip this entirely.
+
+If `VENDORED_GSTACK` is `yes`: This project has a vendored copy of gstack at
+`.claude/skills/gstack/`. Vendoring is deprecated. We will not keep vendored copies
+up to date, so this project's gstack will fall behind.
+
+Use AskUserQuestion (one-time per project, check for `~/.gstack/.vendoring-warned-$SLUG` marker):
+
+> This project has gstack vendored in `.claude/skills/gstack/`. Vendoring is deprecated.
+> We won't keep this copy up to date, so you'll fall behind on new features and fixes.
+>
+> Want to migrate to team mode? It takes about 30 seconds.
+
+Options:
+- A) Yes, migrate to team mode now
+- B) No, I'll handle it myself
+
+If A:
+1. Run `git rm -r .claude/skills/gstack/`
+2. Run `echo '.claude/skills/gstack/' >> .gitignore`
+3. Run `~/.claude/skills/gstack/bin/gstack-team-init required` (or `optional`)
+4. Run `git add .claude/ .gitignore CLAUDE.md && git commit -m "chore: migrate gstack from vendored to team mode"`
+5. Tell the user: "Done. Each developer now runs: `cd ~/.claude/skills/gstack && ./setup --team`"
+
+If B: say "OK, you're on your own to keep the vendored copy up to date."
+
+Always run (regardless of choice):
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+touch ~/.gstack/.vendoring-warned-${SLUG:-unknown}
+```
+
+This only happens once per project. If the marker file exists, skip entirely.
 
 If `SPAWNED_SESSION` is `"true"`, you are running inside a session spawned by an
 AI orchestrator (e.g., OpenClaw). In spawned sessions:
@@ -579,6 +638,16 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
 - Test coverage gaps within target threshold (auto-generate and commit, or flag in PR body)
+
+**Re-run behavior (idempotency):**
+Re-running `/ship` means "run the whole checklist again." Every verification step
+(tests, coverage audit, plan completion, pre-landing review, adversarial review,
+VERSION/CHANGELOG check, TODOS, document-release) runs on every invocation.
+Only *actions* are idempotent:
+- Step 4: If VERSION already bumped, skip the bump but still read the version
+- Step 7: If already pushed, skip the push command
+- Step 8: If PR exists, update the body instead of creating a new PR
+Never skip a verification step because a prior `/ship` run already performed it.
 
 ---
 
@@ -1526,6 +1595,35 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
+## Structural Code Analysis (sqry)
+
+If preamble shows `SQRY: unavailable`: skip this section entirely.
+
+If preamble shows `SQRY: available`: check your available tools for the `mcp__sqry__` prefix.
+- If you see `mcp__sqry__` tools: use them as described below.
+- If you do NOT see `mcp__sqry__` tools despite `SQRY: available`: tell the user
+  "sqry is installed but not configured as an MCP server. Run `sqry mcp setup`
+  to enable structural code analysis, then restart this session."
+
+**Server health:** Before your first sqry query, read `sqry://meta/manifest` via
+ReadMcpResourceTool to confirm the MCP server is connected and check the installed version.
+
+**Index freshness:**
+- If `SQRY_INDEXED: no`: run `mcp__sqry__rebuild_index` before any queries.
+- If `SQRY_STALE: yes`: run `mcp__sqry__rebuild_index` before any queries.
+- If you made structural changes this session, call rebuild_index before your next sqry query.
+
+**During structural verification before shipping**, use these sqry MCP tools:
+
+- `mcp__sqry__find_cycles` — verify no circular dependencies in shipped code
+- `mcp__sqry__find_unused` — catch dead code being shipped
+- `mcp__sqry__complexity_metrics` — verify complexity hasn't regressed
+
+**Parameter guidance:** For limits (max_depth, max_results, scoping) and cost tiering,
+read `sqry://docs/capability-map` via ReadMcpResourceTool. For full tool parameters,
+read `sqry://docs/tool-guide`. These resources are served live by sqry and always match
+your installed version — do not hardcode parameter values.
+
 ## Step 3.48: Scope Drift Detection
 
 Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
@@ -1658,7 +1756,244 @@ Present Codex output under a `CODEX (design):` header, merged with the checklist
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 
-4. **Classify each finding as AUTO-FIX or ASK** per the Fix-First Heuristic in
+## Step 3.55: Review Army — Specialist Dispatch
+
+### Detect stack and scope
+
+```bash
+source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || true
+# Detect stack for specialist context
+STACK=""
+[ -f Gemfile ] && STACK="${STACK}ruby "
+[ -f package.json ] && STACK="${STACK}node "
+[ -f requirements.txt ] || [ -f pyproject.toml ] && STACK="${STACK}python "
+[ -f go.mod ] && STACK="${STACK}go "
+[ -f Cargo.toml ] && STACK="${STACK}rust "
+echo "STACK: ${STACK:-unknown}"
+DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_LINES=$((DIFF_INS + DIFF_DEL))
+echo "DIFF_LINES: $DIFF_LINES"
+# Detect test framework for specialist test stub generation
+TEST_FW=""
+{ [ -f jest.config.ts ] || [ -f jest.config.js ]; } && TEST_FW="jest"
+[ -f vitest.config.ts ] && TEST_FW="vitest"
+{ [ -f spec/spec_helper.rb ] || [ -f .rspec ]; } && TEST_FW="rspec"
+{ [ -f pytest.ini ] || [ -f conftest.py ]; } && TEST_FW="pytest"
+[ -f go.mod ] && TEST_FW="go-test"
+echo "TEST_FW: ${TEST_FW:-unknown}"
+```
+
+### Read specialist hit rates (adaptive gating)
+
+```bash
+~/.claude/skills/gstack/bin/gstack-specialist-stats 2>/dev/null || true
+```
+
+### Select specialists
+
+Based on the scope signals above, select which specialists to dispatch.
+
+**Always-on (dispatch on every review with 50+ changed lines):**
+1. **Testing** — read `~/.claude/skills/gstack/review/specialists/testing.md`
+2. **Maintainability** — read `~/.claude/skills/gstack/review/specialists/maintainability.md`
+
+**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to the Fix-First flow (item 4).
+
+**Conditional (dispatch if the matching scope signal is true):**
+3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/security.md`
+4. **Performance** — if SCOPE_BACKEND=true OR SCOPE_FRONTEND=true. Read `~/.claude/skills/gstack/review/specialists/performance.md`
+5. **Data Migration** — if SCOPE_MIGRATIONS=true. Read `~/.claude/skills/gstack/review/specialists/data-migration.md`
+6. **API Contract** — if SCOPE_API=true. Read `~/.claude/skills/gstack/review/specialists/api-contract.md`
+7. **Design** — if SCOPE_FRONTEND=true. Use the existing design review checklist at `~/.claude/skills/gstack/review/design-checklist.md`
+
+### Adaptive gating
+
+After scope-based selection, apply adaptive gating based on specialist hit rates:
+
+For each conditional specialist that passed scope gating, check the `gstack-specialist-stats` output above:
+- If tagged `[GATE_CANDIDATE]` (0 findings in 10+ dispatches): skip it. Print: "[specialist] auto-gated (0 findings in N reviews)."
+- If tagged `[NEVER_GATE]`: always dispatch regardless of hit rate. Security and data-migration are insurance policy specialists — they should run even when silent.
+
+**Force flags:** If the user's prompt includes `--security`, `--performance`, `--testing`, `--maintainability`, `--data-migration`, `--api-contract`, `--design`, or `--all-specialists`, force-include that specialist regardless of gating.
+
+Note which specialists were selected, gated, and skipped. Print the selection:
+"Dispatching N specialists: [names]. Skipped: [names] (scope not detected). Gated: [names] (0 findings in N+ reviews)."
+
+---
+
+### Dispatch specialists in parallel
+
+For each selected specialist, launch an independent subagent via the Agent tool.
+**Launch ALL selected specialists in a single message** (multiple Agent tool calls)
+so they run in parallel. Each subagent has fresh context — no prior review bias.
+
+**Each specialist subagent prompt:**
+
+Construct the prompt for each specialist. The prompt includes:
+
+1. The specialist's checklist content (you already read the file above)
+2. Stack context: "This is a {STACK} project."
+3. Past learnings for this domain (if any exist):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
+```
+
+If learnings are found, include them: "Past learnings for this domain: {learnings}"
+
+4. Instructions:
+
+"You are a specialist code reviewer. Read the checklist below, then run
+`git diff origin/<base>` to get the full diff. Apply the checklist against the diff.
+
+For each finding, output a JSON object on its own line:
+{\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"category\",\"summary\":\"description\",\"fix\":\"recommended fix\",\"fingerprint\":\"path:line:category\",\"specialist\":\"name\"}
+
+Required fields: severity, confidence, path, category, summary, specialist.
+Optional: line, fix, fingerprint, evidence, test_stub.
+
+If you can write a test that would catch this issue, include it in the `test_stub` field.
+Use the detected test framework ({TEST_FW}). Write a minimal skeleton — describe/it/test
+blocks with clear intent. Skip test_stub for architectural or design-only findings.
+
+If no findings: output `NO FINDINGS` and nothing else.
+Do not output anything else — no preamble, no summary, no commentary.
+
+Stack context: {STACK}
+Past learnings: {learnings or 'none'}
+
+CHECKLIST:
+{checklist content}"
+
+**Subagent configuration:**
+- Use `subagent_type: "general-purpose"`
+- Do NOT use `run_in_background` — all specialists must complete before merge
+- If any specialist subagent fails or times out, log the failure and continue with results from successful specialists. Specialists are additive — partial results are better than no results.
+
+---
+
+### Step 3.56: Collect and merge findings
+
+After all specialist subagents complete, collect their outputs.
+
+**Parse findings:**
+For each specialist's output:
+1. If output is "NO FINDINGS" — skip, this specialist found nothing
+2. Otherwise, parse each line as a JSON object. Skip lines that are not valid JSON.
+3. Collect all parsed findings into a single list, tagged with their specialist name.
+
+**Fingerprint and deduplicate:**
+For each finding, compute its fingerprint:
+- If `fingerprint` field is present, use it
+- Otherwise: `{path}:{line}:{category}` (if line is present) or `{path}:{category}`
+
+Group findings by fingerprint. For findings sharing the same fingerprint:
+- Keep the finding with the highest confidence score
+- Tag it: "MULTI-SPECIALIST CONFIRMED ({specialist1} + {specialist2})"
+- Boost confidence by +1 (cap at 10)
+- Note the confirming specialists in the output
+
+**Apply confidence gates:**
+- Confidence 7+: show normally in the findings output
+- Confidence 5-6: show with caveat "Medium confidence — verify this is actually an issue"
+- Confidence 3-4: move to appendix (suppress from main findings)
+- Confidence 1-2: suppress entirely
+
+**Compute PR Quality Score:**
+After merging, compute the quality score:
+`quality_score = max(0, 10 - (critical_count * 2 + informational_count * 0.5))`
+Cap at 10. Log this in the review result at the end.
+
+**Output merged findings:**
+Present the merged findings in the same format as the current review:
+
+```
+SPECIALIST REVIEW: N findings (X critical, Y informational) from Z specialists
+
+[For each finding, in order: CRITICAL first, then INFORMATIONAL, sorted by confidence descending]
+[SEVERITY] (confidence: N/10, specialist: name) path:line — summary
+  Fix: recommended fix
+  [If MULTI-SPECIALIST CONFIRMED: show confirmation note]
+
+PR Quality Score: X/10
+```
+
+These findings flow into the Fix-First flow (item 4) alongside the checklist pass (Step 3.5).
+The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification.
+
+**Compile per-specialist stats:**
+After merging findings, compile a `specialists` object for the review-log persist.
+For each specialist (testing, maintainability, security, performance, data-migration, api-contract, design, red-team):
+- If dispatched: `{"dispatched": true, "findings": N, "critical": N, "informational": N}`
+- If skipped by scope: `{"dispatched": false, "reason": "scope"}`
+- If skipped by gating: `{"dispatched": false, "reason": "gated"}`
+- If not applicable (e.g., red-team not activated): omit from the object
+
+Include the Design specialist even though it uses `design-checklist.md` instead of the specialist schema files.
+Remember these stats — you will need them for the review-log entry in Step 5.8.
+
+---
+
+### Red Team dispatch (conditional)
+
+**Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
+
+If activated, dispatch one more subagent via the Agent tool (foreground, not background).
+
+The Red Team subagent receives:
+1. The red-team checklist from `~/.claude/skills/gstack/review/specialists/red-team.md`
+2. The merged specialist findings from Step 3.56 (so it knows what was already caught)
+3. The git diff command
+
+Prompt: "You are a red team reviewer. The code has already been reviewed by N specialists
+who found the following issues: {merged findings summary}. Your job is to find what they
+MISSED. Read the checklist, run `git diff origin/<base>`, and look for gaps.
+Output findings as JSON objects (same schema as the specialists). Focus on cross-cutting
+concerns, integration boundary issues, and failure modes that specialist checklists
+don't cover."
+
+If the Red Team finds additional issues, merge them into the findings list before
+the Fix-First flow (item 4). Red Team findings are tagged with `"specialist":"red-team"`.
+
+If the Red Team returns NO FINDINGS, note: "Red Team review: no additional issues found."
+If the Red Team subagent fails or times out, skip silently and continue.
+
+### Step 3.57: Cross-review finding dedup
+
+Before classifying findings, check if any were previously skipped by the user in a prior review on this branch.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-read
+```
+
+Parse the output: only lines BEFORE `---CONFIG---` are JSONL entries (the output also contains `---CONFIG---` and `---HEAD---` footer sections that are not JSONL — ignore those).
+
+For each JSONL entry that has a `findings` array:
+1. Collect all fingerprints where `action: "skipped"`
+2. Note the `commit` field from that entry
+
+If skipped fingerprints exist, get the list of files changed since that review:
+
+```bash
+git diff --name-only <prior-review-commit> HEAD
+```
+
+For each current finding (from both the checklist pass (Step 3.5) and specialist review (Step 3.55-3.56)), check:
+- Does its fingerprint match a previously skipped finding?
+- Is the finding's file path NOT in the changed-files set?
+
+If both conditions are true: suppress the finding. It was intentionally skipped and the relevant code hasn't changed.
+
+Print: "Suppressed N findings from prior reviews (previously skipped by user)"
+
+**Only suppress `skipped` findings — never `fixed` or `auto-fixed`** (those might regress and should be re-checked).
+
+If no prior reviews exist or none have a `findings` array, skip this step silently.
+
+Output a summary header: `Pre-Landing Review: N issues (X critical, Y informational)`
+
+4. **Classify each finding from both the checklist pass and specialist review (Step 3.55-3.56) as AUTO-FIX or ASK** per the Fix-First Heuristic in
    checklist.md. Critical findings lean toward ASK; informational lean toward AUTO-FIX.
 
 5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
@@ -1680,10 +2015,13 @@ Present Codex output under a `CODEX (design):` header, merged with the checklist
 
 9. Persist the review result to the review log:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
 ```
 Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
 and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
+- `quality_score` = the PR Quality Score computed in Step 3.56 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
+- `specialists` = the per-specialist stats object compiled in Step 3.56. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
+- `findings` = array of per-finding records. For each finding (from checklist pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"`, `"fixed"` (user approved), or `"skipped"` (user chose Skip).
 
 Save the review output — it goes into the PR body in Step 8.
 
@@ -1889,7 +2227,7 @@ echo "BASE: $BASE_VERSION  HEAD: $CURRENT_VERSION"
 if [ "$CURRENT_VERSION" != "$BASE_VERSION" ]; then echo "ALREADY_BUMPED"; fi
 ```
 
-If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (prior `/ship` run). Skip the rest of Step 4 and use the current VERSION. Otherwise proceed with the bump.
+If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (prior `/ship` run). Skip the bump action (do not modify VERSION), but read the current VERSION value — it is needed for CHANGELOG and PR body. Continue to the next step. Otherwise proceed with the bump.
 
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
 
@@ -2080,7 +2418,7 @@ echo "LOCAL: $LOCAL  REMOTE: $REMOTE"
 [ "$LOCAL" = "$REMOTE" ] && echo "ALREADY_PUSHED" || echo "PUSH_NEEDED"
 ```
 
-If `ALREADY_PUSHED`, skip the push. Otherwise push with upstream tracking:
+If `ALREADY_PUSHED`, skip the push but continue to Step 8. Otherwise push with upstream tracking:
 
 ```bash
 git push -u origin <branch-name>
@@ -2102,7 +2440,7 @@ gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number):
 glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
 ```
 
-If an **open** PR/MR already exists: **update** the PR body with the latest test results, coverage, and review findings using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Print the existing URL and continue to Step 8.5.
+If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary). Never reuse stale PR body content from a prior run. Print the existing URL and continue to Step 8.5.
 
 If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
@@ -2206,6 +2544,8 @@ execute its full workflow:
 
 This step is automatic. Do not ask the user for confirmation. The goal is zero-friction
 doc updates — the user runs `/ship` and documentation stays current without a separate command.
+
+If Step 8.5 created a docs commit, re-edit the PR/MR body to include the latest commit SHA in the summary. This ensures the PR body reflects the truly final state after document-release.
 
 ---
 

@@ -95,6 +95,25 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
+# Semantic code search (sqry)
+_SQRY="unavailable"
+_SQRY_INDEXED="no"
+_SQRY_STALE="no"
+if command -v sqry >/dev/null 2>&1; then
+  _SQRY="available"
+  _SQRY_VERSION=$(sqry --version 2>/dev/null | head -1 || echo "unknown")
+  _SQRY_STATUS=$(sqry index --status --json . 2>/dev/null || echo '{}')
+  if echo "$_SQRY_STATUS" | grep -q '"exists": true' 2>/dev/null; then
+    _SQRY_INDEXED="yes"
+  fi
+  if echo "$_SQRY_STATUS" | grep -q '"stale": true' 2>/dev/null; then
+    _SQRY_STALE="yes"
+  fi
+fi
+echo "SQRY: $_SQRY"
+[ "$_SQRY" = "available" ] && echo "SQRY_VERSION: $_SQRY_VERSION"
+[ "$_SQRY" = "available" ] && echo "SQRY_INDEXED: $_SQRY_INDEXED"
+[ "$_SQRY" = "available" ] && echo "SQRY_STALE: $_SQRY_STALE"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
@@ -737,6 +756,37 @@ matches a past learning, display:
 
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
+
+## Structural Code Analysis (sqry)
+
+If preamble shows `SQRY: unavailable`: skip this section entirely.
+
+If preamble shows `SQRY: available`: check your available tools for the `mcp__sqry__` prefix.
+- If you see `mcp__sqry__` tools: use them as described below.
+- If you do NOT see `mcp__sqry__` tools despite `SQRY: available`: tell the user
+  "sqry is installed but not configured as an MCP server. Run `sqry mcp setup`
+  to enable structural code analysis, then restart this session."
+
+**Server health:** Before your first sqry query, read `sqry://meta/manifest` via
+ReadMcpResourceTool to confirm the MCP server is connected and check the installed version.
+
+**Index freshness:**
+- If `SQRY_INDEXED: no`: run `mcp__sqry__rebuild_index` before any queries.
+- If `SQRY_STALE: yes`: run `mcp__sqry__rebuild_index` before any queries.
+- If you made structural changes this session, call rebuild_index before your next sqry query.
+
+**During structural architecture analysis for plan review**, use these sqry MCP tools:
+
+- `mcp__sqry__export_graph` — visualize module dependencies to validate architecture boundaries
+- `mcp__sqry__subgraph` — extract the dependency neighborhood around components the plan modifies
+- `mcp__sqry__show_dependencies` — verify dependency tree of modules the plan touches
+- `mcp__sqry__find_cycles` — check for existing cycles the plan should address or avoid
+- `mcp__sqry__cross_language_edges` — understand cross-language boundaries the plan must respect
+
+**Parameter guidance:** For limits (max_depth, max_results, scoping) and cost tiering,
+read `sqry://docs/capability-map` via ReadMcpResourceTool. For full tool parameters,
+read `sqry://docs/tool-guide`. These resources are served live by sqry and always match
+your installed version — do not hardcode parameter values.
 
 ### 1. Architecture review
 Evaluate:
