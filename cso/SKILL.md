@@ -95,25 +95,6 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
-# Semantic code search (sqry)
-_SQRY="unavailable"
-_SQRY_INDEXED="no"
-_SQRY_STALE="no"
-if command -v sqry >/dev/null 2>&1; then
-  _SQRY="available"
-  _SQRY_VERSION=$(sqry --version 2>/dev/null | head -1 || echo "unknown")
-  _SQRY_STATUS=$(sqry index --status --json . 2>/dev/null || echo '{}')
-  if echo "$_SQRY_STATUS" | grep -q '"exists": true' 2>/dev/null; then
-    _SQRY_INDEXED="yes"
-  fi
-  if echo "$_SQRY_STATUS" | grep -q '"stale": true' 2>/dev/null; then
-    _SQRY_STALE="yes"
-  fi
-fi
-echo "SQRY: $_SQRY"
-[ "$_SQRY" = "available" ] && echo "SQRY_VERSION: $_SQRY_VERSION"
-[ "$_SQRY" = "available" ] && echo "SQRY_INDEXED: $_SQRY_INDEXED"
-[ "$_SQRY" = "available" ] && echo "SQRY_STALE: $_SQRY_STALE"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
@@ -673,29 +654,6 @@ matches a past learning, display:
 
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
-
-## Structural Code Analysis (sqry)
-
-If `SQRY: unavailable`: skip this section.
-If `SQRY: available` but no `mcp__sqry__` tools visible: tell user to run `sqry mcp setup` and restart session.
-
-**Before first query:** read `sqry://meta/manifest` via ReadMcpResourceTool to confirm MCP server connection.
-
-**Index freshness:** if `SQRY_INDEXED: no` or `SQRY_STALE: yes` → run `mcp__sqry__rebuild_index` first.
-If you made structural changes this session, call rebuild_index before your next sqry query.
-
-**AST-powered security audit** — use these `mcp__sqry__` tools:
-
-- `mcp__sqry__trace_path` — structural call paths from input handlers to dangerous sinks (exec, eval, innerHTML, raw SQL)
-- `mcp__sqry__call_hierarchy` — full call tree from auth/authz entry points to verify coverage
-- `mcp__sqry__find_cycles` — circular dependencies that could cause infinite loops (DoS vectors)
-- `mcp__sqry__find_unused` — dead code with old vulnerabilities or stale auth checks
-- `mcp__sqry__complexity_metrics` — high-complexity functions (cyclomatic >15) for manual security review
-- `mcp__sqry__direct_callers` — verify security-critical functions only called from trusted contexts
-- `mcp__sqry__semantic_search` — functions matching security patterns (auth*, sanitize*, validate*, escape*)
-- `mcp__sqry__cross_language_edges` — FFI/HTTP boundaries where trust assumptions change
-
-**Limits/tiering:** read `sqry://docs/capability-map` via ReadMcpResourceTool. Full params: `sqry://docs/tool-guide`. Live from sqry — do not hardcode.
 
 ### Phase 1: Attack Surface Census
 

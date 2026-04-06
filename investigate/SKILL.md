@@ -107,25 +107,6 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
-# Semantic code search (sqry)
-_SQRY="unavailable"
-_SQRY_INDEXED="no"
-_SQRY_STALE="no"
-if command -v sqry >/dev/null 2>&1; then
-  _SQRY="available"
-  _SQRY_VERSION=$(sqry --version 2>/dev/null | head -1 || echo "unknown")
-  _SQRY_STATUS=$(sqry index --status --json . 2>/dev/null || echo '{}')
-  if echo "$_SQRY_STATUS" | grep -q '"exists": true' 2>/dev/null; then
-    _SQRY_INDEXED="yes"
-  fi
-  if echo "$_SQRY_STATUS" | grep -q '"stale": true' 2>/dev/null; then
-    _SQRY_STALE="yes"
-  fi
-fi
-echo "SQRY: $_SQRY"
-[ "$_SQRY" = "available" ] && echo "SQRY_VERSION: $_SQRY_VERSION"
-[ "$_SQRY" = "available" ] && echo "SQRY_INDEXED: $_SQRY_INDEXED"
-[ "$_SQRY" = "available" ] && echo "SQRY_STALE: $_SQRY_STALE"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
@@ -631,29 +612,6 @@ matches a past learning, display:
 
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
-
-## Structural Code Analysis (sqry)
-
-If `SQRY: unavailable`: skip this section.
-If `SQRY: available` but no `mcp__sqry__` tools visible: tell user to run `sqry mcp setup` and restart session.
-
-**Before first query:** read `sqry://meta/manifest` via ReadMcpResourceTool to confirm MCP server connection.
-
-**Index freshness:** if `SQRY_INDEXED: no` or `SQRY_STALE: yes` → run `mcp__sqry__rebuild_index` first.
-If you made structural changes this session, call rebuild_index before your next sqry query.
-
-**structural root cause analysis** — use these `mcp__sqry__` tools:
-
-- `mcp__sqry__direct_callers` — immediate callers of suspect function
-- `mcp__sqry__direct_callees` — immediate callees of suspect function
-- `mcp__sqry__call_hierarchy` — multi-level caller/callee chains when one-hop insufficient
-- `mcp__sqry__is_node_in_cycle` — check if bug site is in circular dependency
-- `mcp__sqry__trace_path` — call path from entry point to bug site
-- `mcp__sqry__dependency_impact` — blast radius — what else breaks if this symbol is wrong
-- `mcp__sqry__get_definition` — jump to definition of symbol from stack traces
-- `mcp__sqry__get_references` — all usages of suspect symbol across codebase
-
-**Limits/tiering:** read `sqry://docs/capability-map` via ReadMcpResourceTool. Full params: `sqry://docs/tool-guide`. Live from sqry — do not hardcode.
 
 Output: **"Root cause hypothesis: ..."** — a specific, testable claim about what is wrong and why.
 
