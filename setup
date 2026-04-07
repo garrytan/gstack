@@ -39,6 +39,8 @@ SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
+MOBILE_PLATFORM=""
+MOBILE_PLATFORM_FLAG=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
@@ -46,6 +48,8 @@ while [ $# -gt 0 ]; do
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
+    --platform) MOBILE_PLATFORM="$2"; MOBILE_PLATFORM_FLAG=1; shift 2 ;;
+    --platform=*) MOBILE_PLATFORM="${1#--platform=}"; MOBILE_PLATFORM_FLAG=1; shift ;;
     --team)    TEAM_MODE=1; shift ;;
     --no-team) NO_TEAM_MODE=1; shift ;;
     -q|--quiet) QUIET=1; shift ;;
@@ -109,6 +113,24 @@ if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
 else
   # Flag was passed explicitly — persist the choice
   "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
+fi
+
+# ─── Resolve mobile platform preference ────────────────────────
+# Priority: CLI flag > saved config > default "none"
+if [ "$MOBILE_PLATFORM_FLAG" -eq 0 ]; then
+  _saved_mobile="$("$GSTACK_CONFIG" get mobile_platform 2>/dev/null || true)"
+  if [ -n "$_saved_mobile" ]; then
+    MOBILE_PLATFORM="$_saved_mobile"
+  else
+    MOBILE_PLATFORM="none"
+  fi
+else
+  # Flag was passed explicitly — validate and persist
+  case "$MOBILE_PLATFORM" in
+    flutter|expo|swift|kotlin|none) ;;
+    *) echo "Unknown --platform value: $MOBILE_PLATFORM (expected flutter, expo, swift, kotlin, or none)" >&2; exit 1 ;;
+  esac
+  "$GSTACK_CONFIG" set mobile_platform "$MOBILE_PLATFORM" 2>/dev/null || true
 fi
 
 # --local: install to .claude/skills/ in the current working directory (deprecated)
@@ -303,6 +325,12 @@ link_claude_skill_dirs() {
       dir_name="$(basename "$skill_dir")"
       # Skip node_modules
       [ "$dir_name" = "node_modules" ] && continue
+      # Skip mobile-only skills unless mobile_platform is set
+      if [ "$MOBILE_PLATFORM" = "none" ]; then
+        case "$dir_name" in
+          hig-review|mobile-security|mobile-qa|analytics-audit|onboarding-audit|store-ship|jank-removal|push-audit|mobile-retro) continue ;;
+        esac
+      fi
       # Use frontmatter name: if present (e.g., run-tests/ with name: test → symlink as "test")
       skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
       [ -z "$skill_name" ] && skill_name="$dir_name"
@@ -347,6 +375,12 @@ cleanup_old_claude_symlinks() {
       [ "$skill_name" = "node_modules" ] && continue
       # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
       case "$skill_name" in gstack-*) continue ;; esac
+      # Skip mobile-only skills unless mobile_platform is set
+      if [ "$MOBILE_PLATFORM" = "none" ]; then
+        case "$skill_name" in
+          hig-review|mobile-security|mobile-qa|analytics-audit|onboarding-audit|store-ship|jank-removal|push-audit|mobile-retro) continue ;;
+        esac
+      fi
       old_target="$skills_dir/$skill_name"
       # Remove directory symlinks pointing into gstack/
       if [ -L "$old_target" ]; then
@@ -388,6 +422,12 @@ cleanup_prefixed_claude_symlinks() {
       # Only clean up prefixed entries for dirs that AREN'T already prefixed
       # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
       case "$skill_name" in gstack-*) continue ;; esac
+      # Skip mobile-only skills unless mobile_platform is set
+      if [ "$MOBILE_PLATFORM" = "none" ]; then
+        case "$skill_name" in
+          hig-review|mobile-security|mobile-qa|analytics-audit|onboarding-audit|store-ship|jank-removal|push-audit|mobile-retro) continue ;;
+        esac
+      fi
       prefixed_target="$skills_dir/gstack-$skill_name"
       # Remove directory symlinks pointing into gstack/
       if [ -L "$prefixed_target" ]; then
