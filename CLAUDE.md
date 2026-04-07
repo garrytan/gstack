@@ -3,437 +3,223 @@
 ## Commands
 
 ```bash
-bun install          # install dependencies
-bun test             # run free tests (browse + snapshot + skill validation)
-bun run test:evals   # run paid evals: LLM judge + E2E (diff-based, ~$4/run max)
-bun run test:evals:all  # run ALL paid evals regardless of diff
-bun run test:gate    # run gate-tier tests only (CI default, blocks merge)
-bun run test:periodic  # run periodic-tier tests only (weekly cron / manual)
-bun run test:e2e     # run E2E tests only (diff-based, ~$3.85/run max)
-bun run test:e2e:all # run ALL E2E tests regardless of diff
-bun run eval:select  # show which tests would run based on current diff
-bun run dev <cmd>    # run CLI in dev mode, e.g. bun run dev goto https://example.com
-bun run build        # gen docs + compile binaries
-bun run gen:skill-docs  # regenerate SKILL.md files from templates
-bun run skill:check  # health dashboard for all skills
-bun run dev:skill    # watch mode: auto-regen + validate on change
-bun run eval:list    # list all eval runs from ~/.gstack-dev/evals/
-bun run eval:compare # compare two eval runs (auto-picks most recent)
-bun run eval:summary # aggregate stats across all eval runs
+bun install             # dependencies
+bun test                # free tests (browse+snapshot+skill validation), <2s
+bun run test:evals      # paid evals: LLM judge+E2E, diff-based (~$4/run max)
+bun run test:evals:all  # all paid evals regardless of diff
+bun run test:gate       # gate-tier only (CI default, blocks merge)
+bun run test:periodic   # periodic-tier only (weekly cron/manual)
+bun run test:e2e        # E2E only, diff-based (~$3.85/run max)
+bun run test:e2e:all    # all E2E regardless of diff
+bun run eval:select     # preview which tests run based on diff
+bun run dev <cmd>       # dev mode, e.g. bun run dev goto https://example.com
+bun run build           # gen docs+compile binaries
+bun run gen:skill-docs  # regenerate SKILL.md from templates
+bun run skill:check     # health dashboard
+bun run dev:skill       # watch mode: auto-regen+validate
+bun run eval:list       # list eval runs from ~/.gstack-dev/evals/
+bun run eval:compare    # compare two runs (auto-picks recent)
+bun run eval:summary    # aggregate stats across runs
 ```
 
-`test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
-use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
-E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
---verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
-against the previous run.
+`test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests use `~/.codex/` config.
+E2E streams progress real-time (`--output-format stream-json --verbose`).
+Results persist to `~/.gstack-dev/evals/` with auto-comparison.
 
-**Diff-based test selection:** `test:evals` and `test:e2e` auto-select tests based
-on `git diff` against the base branch. Each test declares its file dependencies in
-`test/helpers/touchfiles.ts`. Changes to global touchfiles (session-runner, eval-store,
-touchfiles.ts itself) trigger all tests. Use `EVALS_ALL=1` or the `:all` script
-variants to force all tests. Run `eval:select` to preview which tests would run.
+**Diff-based selection:** `test:evals`/`test:e2e` auto-select via `git diff` against base.
+Tests declare dependencies in `test/helpers/touchfiles.ts`. Global touchfile changes trigger all.
+`EVALS_ALL=1` or `:all` variants force all. `eval:select` previews.
 
-**Two-tier system:** Tests are classified as `gate` or `periodic` in `E2E_TIERS`
-(in `test/helpers/touchfiles.ts`). CI runs only gate tests (`EVALS_TIER=gate`);
-periodic tests run weekly via cron or manually. Use `EVALS_TIER=gate` or
-`EVALS_TIER=periodic` to filter. When adding new E2E tests, classify them:
-1. Safety guardrail or deterministic functional test? -> `gate`
-2. Quality benchmark, Opus model test, or non-deterministic? -> `periodic`
-3. Requires external service (Codex, Gemini)? -> `periodic`
+**Two tiers:** `gate` or `periodic` in `E2E_TIERS` (touchfiles.ts).
+CI runs gate only (`EVALS_TIER=gate`); periodic runs weekly/manually.
+New test classification: safety/deterministic→gate | quality/Opus/non-deterministic→periodic | external service→periodic.
 
 ## Testing
 
 ```bash
-bun test             # run before every commit — free, <2s
-bun run test:evals   # run before shipping — paid, diff-based (~$4/run max)
+bun test           # before every commit, free, <2s
+bun run test:evals # before shipping, paid, diff-based (~$4/run max)
 ```
 
-`bun test` runs skill validation, gen-skill-docs quality checks, and browse
-integration tests. `bun run test:evals` runs LLM-judge quality evals and E2E
-tests via `claude -p`. Both must pass before creating a PR.
+Both must pass before creating PR.
 
 ## Project structure
 
 ```
 gstack/
-├── browse/          # Headless browser CLI (Playwright)
-│   ├── src/         # CLI + server + commands
-│   │   ├── commands.ts  # Command registry (single source of truth)
-│   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
-│   ├── test/        # Integration tests + fixtures
-│   └── dist/        # Compiled binary
-├── hosts/           # Typed host configs (one per AI agent)
-│   ├── claude.ts    # Primary host config
-│   ├── codex.ts, factory.ts, kiro.ts  # Existing hosts
-│   ├── opencode.ts, slate.ts, cursor.ts, openclaw.ts  # New hosts
-│   └── index.ts     # Registry: exports all, derives Host type
-├── scripts/         # Build + DX tooling
-│   ├── gen-skill-docs.ts  # Template → SKILL.md generator (config-driven)
-│   ├── host-config.ts     # HostConfig interface + validator
-│   ├── host-config-export.ts  # Shell bridge for setup script
-│   ├── host-adapters/     # Host-specific adapters (OpenClaw tool mapping)
-│   ├── resolvers/   # Template resolver modules (preamble, design, review, etc.)
-│   ├── skill-check.ts     # Health dashboard
-│   └── dev-skill.ts       # Watch mode
-├── test/            # Skill validation + eval tests
-│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts
-│   ├── fixtures/    # Ground truth JSON, planted-bug fixtures, eval baselines
-│   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
-│   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
-│   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
-│   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
-├── qa-only/         # /qa-only skill (report-only QA, no fixes)
-├── plan-design-review/  # /plan-design-review skill (report-only design audit)
-├── design-review/    # /design-review skill (design audit + fix loop)
-├── ship/            # Ship workflow skill
-├── review/          # PR review skill
-├── plan-ceo-review/ # /plan-ceo-review skill
-├── plan-eng-review/ # /plan-eng-review skill
-├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
-├── benchmark/       # /benchmark skill (performance regression detection)
-├── canary/          # /canary skill (post-deploy monitoring loop)
-├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
-├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
-├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
-├── investigate/     # /investigate skill (systematic root-cause debugging)
-├── retro/           # Retrospective skill (includes /retro global cross-project mode)
-├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
-├── document-release/ # /document-release skill (post-ship doc updates)
-├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
-├── design-consultation/ # /design-consultation skill (design system from scratch)
-├── design-shotgun/  # /design-shotgun skill (visual design exploration)
-├── open-gstack-browser/  # /open-gstack-browser skill (launch GStack Browser)
-├── connect-chrome/  # symlink → open-gstack-browser (backwards compat)
-├── design/          # Design binary CLI (GPT Image API)
-│   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
-│   ├── test/        # Integration tests
-│   └── dist/        # Compiled binary
-├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
-├── lib/             # Shared libraries (worktree.ts)
-├── docs/designs/    # Design documents
-├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
-├── .github/         # CI workflows + Docker image
-│   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
-│   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
-├── contrib/         # Contributor-only tools (never installed for users)
-│   └── add-host/    # /gstack-contrib-add-host skill
-├── setup            # One-time setup: build binary + symlink skills
-├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
-├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
-├── ETHOS.md         # Builder philosophy (Boil the Lake, Search Before Building)
-└── package.json     # Build scripts for browse
+├── browse/              # Headless browser CLI (Playwright)
+│   ├── src/commands.ts  # Command registry (source of truth)
+│   ├── src/snapshot.ts  # SNAPSHOT_FLAGS metadata
+│   ├── test/            # Integration tests+fixtures
+│   └── dist/            # Compiled binary
+├── hosts/               # Typed host configs (one per AI agent)
+│   └── index.ts         # Registry: exports all, derives Host type
+├── scripts/
+│   ├── gen-skill-docs.ts     # Template→SKILL.md generator
+│   ├── host-config.ts        # HostConfig interface+validator
+│   ├── host-adapters/        # Host-specific adapters
+│   ├── resolvers/            # Template resolver modules
+│   ├── skill-check.ts        # Health dashboard
+│   └── dev-skill.ts          # Watch mode
+├── test/
+│   ├── helpers/              # skill-parser, session-runner, llm-judge, eval-store
+│   ├── fixtures/             # Ground truth, planted-bug fixtures, eval baselines
+│   ├── skill-validation.test.ts  # Tier 1: static (free, <1s)
+│   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free)
+│   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15)
+│   └── skill-e2e-*.test.ts      # Tier 2: E2E via claude -p (~$3.85)
+├── design/              # Design binary CLI (GPT Image API)
+├── extension/           # Chrome extension (side panel+activity feed+CSS)
+├── lib/                 # Shared libraries (worktree.ts)
+├── contrib/add-host/    # Contributor-only /gstack-contrib-add-host
+├── bin/                 # CLI utilities
+├── setup                # One-time setup: build+symlink
+├── SKILL.md.tmpl        # Template (edit this, run gen:skill-docs)
+├── SKILL.md             # Generated (don't edit)
+├── ETHOS.md             # Builder philosophy
+└── package.json
 ```
+
+Skill directories: qa-only, plan-design-review, design-review, ship, review,
+plan-ceo-review, plan-eng-review, autoplan, benchmark, canary, codex,
+land-and-deploy, office-hours, investigate, retro, document-release, cso,
+design-consultation, design-shotgun, open-gstack-browser, connect-chrome,
+setup-deploy, checkpoint, health, devex-review, guard, freeze, careful,
+unfreeze, learn, browse, setup-browser-cookies, gstack-upgrade, design-html,
+plan-devex-review.
 
 ## SKILL.md workflow
 
-SKILL.md files are **generated** from `.tmpl` templates. To update docs:
+Generated from `.tmpl` templates:
+1. Edit `.tmpl` file
+2. Run `bun run gen:skill-docs` (or `bun run build`)
+3. Commit both `.tmpl` and generated `.md`
 
-1. Edit the `.tmpl` file (e.g. `SKILL.md.tmpl` or `browse/SKILL.md.tmpl`)
-2. Run `bun run gen:skill-docs` (or `bun run build` which does it automatically)
-3. Commit both the `.tmpl` and generated `.md` files
+New browse command: add to `browse/src/commands.ts`, rebuild.
+New snapshot flag: add to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`, rebuild.
 
-To add a new browse command: add it to `browse/src/commands.ts` and rebuild.
-To add a snapshot flag: add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts` and rebuild.
-
-**Merge conflicts on SKILL.md files:** NEVER resolve conflicts on generated SKILL.md
-files by accepting either side. Instead: (1) resolve conflicts on the `.tmpl` templates
-and `scripts/gen-skill-docs.ts` (the sources of truth), (2) run `bun run gen:skill-docs`
-to regenerate all SKILL.md files, (3) stage the regenerated files. Accepting one side's
-generated output silently drops the other side's template changes.
+**Merge conflicts on SKILL.md:** Never accept either side. Resolve on `.tmpl`
+templates and `scripts/gen-skill-docs.ts`, then `bun run gen:skill-docs` to regenerate.
 
 ## Platform-agnostic design
 
-Skills must NEVER hardcode framework-specific commands, file patterns, or directory
-structures. Instead:
-
-1. **Read CLAUDE.md** for project-specific config (test commands, eval commands, etc.)
-2. **If missing, AskUserQuestion** — let the user tell you or let gstack search the repo
-3. **Persist the answer to CLAUDE.md** so we never have to ask again
-
-This applies to test commands, eval commands, deploy commands, and any other
-project-specific behavior. The project owns its config; gstack reads it.
+Skills never hardcode framework-specific commands/patterns/directories.
+1. Read CLAUDE.md for project config
+2. If missing, AskUserQuestion
+3. Persist answer to CLAUDE.md
 
 ## Writing SKILL templates
 
-SKILL.md.tmpl files are **prompt templates read by Claude**, not bash scripts.
-Each bash code block runs in a separate shell — variables do not persist between blocks.
+Templates are prompt templates read by Claude, not bash scripts.
+Each bash block runs in a separate shell.
 
-Rules:
-- **Use natural language for logic and state.** Don't use shell variables to pass
-  state between code blocks. Instead, tell Claude what to remember and reference
-  it in prose (e.g., "the base branch detected in Step 0").
-- **Don't hardcode branch names.** Detect `main`/`master`/etc dynamically via
-  `gh pr view` or `gh repo view`. Use `{{BASE_BRANCH_DETECT}}` for PR-targeting
-  skills. Use "the base branch" in prose, `<base>` in code block placeholders.
-- **Keep bash blocks self-contained.** Each code block should work independently.
-  If a block needs context from a previous step, restate it in the prose above.
-- **Express conditionals as English.** Instead of nested `if/elif/else` in bash,
-  write numbered decision steps: "1. If X, do Y. 2. Otherwise, do Z."
+- Natural language for logic/state between blocks, not shell variables
+- Detect branch names dynamically (`{{BASE_BRANCH_DETECT}}`)
+- Keep bash blocks self-contained
+- Express conditionals as English, not nested if/elif/else
 
 ## Browser interaction
 
-When you need to interact with a browser (QA, dogfooding, cookie setup), use the
-`/browse` skill or run the browse binary directly via `$B <command>`. NEVER use
-`mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
-project uses.
+Use `/browse` skill or `$B <command>`. Never use `mcp__claude-in-chrome__*` tools.
 
-**Sidebar architecture:** Before modifying `sidepanel.js`, `background.js`,
-`content.js`, `sidebar-agent.ts`, or sidebar-related server endpoints, read
-`docs/designs/SIDEBAR_MESSAGE_FLOW.md`. It documents the full initialization
-timeline, message flow, auth token chain, tab concurrency model, and known
-failure modes. The sidebar spans 5 files across 2 codebases (extension + server)
-with non-obvious ordering dependencies. The doc exists to prevent the kind of
-silent failures that come from not understanding the cross-component flow.
+**Sidebar:** Before modifying sidepanel/background/content/sidebar-agent files,
+read `docs/designs/SIDEBAR_MESSAGE_FLOW.md` first.
 
 ## Dev symlink awareness
 
-When developing gstack, `.claude/skills/gstack` may be a symlink back to this
-working directory (gitignored). This means skill changes are **live immediately**,
-great for rapid iteration, risky during big refactors where half-written skills
-could break other Claude Code sessions using gstack concurrently.
+`.claude/skills/gstack` may symlink to working directory (gitignored).
+Check: `ls -la .claude/skills/gstack`. If symlinked:
+- Template changes immediately affect all gstack invocations
+- Breaking changes can break concurrent sessions
+- During large refactors, `rm .claude/skills/gstack` to use global install
 
-**Check once per session:** Run `ls -la .claude/skills/gstack` to see if it's a
-symlink or a real copy. If it's a symlink to your working directory, be aware that:
-- Template changes + `bun run gen:skill-docs` immediately affect all gstack invocations
-- Breaking changes to SKILL.md.tmpl files can break concurrent gstack sessions
-- During large refactors, remove the symlink (`rm .claude/skills/gstack`) so the
-  global install at `~/.claude/skills/gstack/` is used instead
+**Prefix:** `skill_prefix` in `~/.gstack/config.yaml`. `--no-prefix`/`--prefix` at setup.
+Vendoring is deprecated. Use global install + `./setup --team`.
 
-**Prefix setting:** Setup creates real directories (not symlinks) at the top level
-with a SKILL.md symlink inside (e.g., `qa/SKILL.md -> gstack/qa/SKILL.md`). This
-ensures Claude discovers them as top-level skills, not nested under `gstack/`.
-Names are either short (`qa`) or namespaced (`gstack-qa`), controlled by
-`skill_prefix` in `~/.gstack/config.yaml`. Pass `--no-prefix` or `--prefix` to
-skip the interactive prompt.
+**Upgrade migrations:** Changes to on-disk state need migration scripts in
+`gstack-upgrade/migrations/`. See CONTRIBUTING.md.
 
-**Note:** Vendoring gstack into a project's repo is deprecated. Use global install
-+ `./setup --team` instead. See README.md for team mode instructions.
+## Compiled binaries
 
-**For plan reviews:** When reviewing plans that modify skill templates or the
-gen-skill-docs pipeline, consider whether the changes should be tested in isolation
-before going live (especially if the user is actively using gstack in other windows).
-
-**Upgrade migrations:** When a change modifies on-disk state (directory structure,
-config format, stale files) in ways that could break existing user installs, add a
-migration script to `gstack-upgrade/migrations/`. Read CONTRIBUTING.md's "Upgrade
-migrations" section for the format and testing requirements. The upgrade skill runs
-these automatically after `./setup` during `/gstack-upgrade`.
-
-## Compiled binaries — NEVER commit browse/dist/ or design/dist/
-
-The `browse/dist/` and `design/dist/` directories contain compiled Bun binaries
-(`browse`, `find-browse`, `design`, ~58MB each). These are Mach-O arm64 only — they
-do NOT work on Linux, Windows, or Intel Macs. The `./setup` script already builds
-from source for every platform, so the checked-in binaries are redundant. They are
-tracked by git due to a historical mistake and should eventually be removed with
-`git rm --cached`.
-
-**NEVER stage or commit these files.** They show up as modified in `git status`
-because they're tracked despite `.gitignore` — ignore them. When staging files,
-always use specific filenames (`git add file1 file2`) — never `git add .` or
-`git add -A`, which will accidentally include the binaries.
+**Never commit `browse/dist/` or `design/dist/`.** ~58MB Mach-O arm64 binaries,
+tracked by historical mistake. Always use specific `git add <files>`, never `git add .`/`-A`.
 
 ## Commit style
 
-**Always bisect commits.** Every commit should be a single logical change. When
-you've made multiple changes (e.g., a rename + a rewrite + new tests), split them
-into separate commits before pushing. Each commit should be independently
-understandable and revertable.
-
-Examples of good bisection:
-- Rename/move separate from behavior changes
-- Test infrastructure (touchfiles, helpers) separate from test implementations
-- Template changes separate from generated file regeneration
-- Mechanical refactors separate from new features
-
-When the user says "bisect commit" or "bisect and push," split staged/unstaged
-changes into logical commits and push.
+Bisect commits. One logical change per commit. Split rename/rewrite/tests into separate commits.
 
 ## Community PR guardrails
 
-When reviewing or merging community PRs, **always AskUserQuestion** before accepting
-any commit that:
+Always AskUserQuestion before accepting commits that:
+1. Touch ETHOS.md (no external edits, period)
+2. Remove/soften promotional material (YC refs, founder voice intentional)
+3. Change Garry's voice (tone/humor/directness not generic)
 
-1. **Touches ETHOS.md** — this file is Garry's personal builder philosophy. No edits
-   from external contributors or AI agents, period.
-2. **Removes or softens promotional material** — YC references, founder perspective,
-   and product voice are intentional. PRs that frame these as "unnecessary" or
-   "too promotional" must be rejected.
-3. **Changes Garry's voice** — the tone, humor, directness, and perspective in skill
-   templates, CHANGELOG, and docs are not generic. PRs that rewrite voice to be
-   more "neutral" or "professional" must be rejected.
+No exceptions. No auto-merging.
 
-Even if the agent strongly believes a change improves the project, these three
-categories require explicit user approval via AskUserQuestion. No exceptions.
-No auto-merging. No "I'll just clean this up."
+## CHANGELOG+VERSION style
 
-## CHANGELOG + VERSION style
+Branch-scoped. Write at `/ship` time (Step 5), not during development.
+4-digit format: `MAJOR.MINOR.PATCH.MICRO`.
 
-**VERSION and CHANGELOG are branch-scoped.** Every feature branch that ships gets its
-own version bump and CHANGELOG entry. The entry describes what THIS branch adds —
-not what was already on main.
-
-**When to write the CHANGELOG entry:**
-- At `/ship` time (Step 5), not during development or mid-branch.
-- The entry covers ALL commits on this branch vs the base branch.
-- Never fold new work into an existing CHANGELOG entry from a prior version that
-  already landed on main. If main has v0.10.0.0 and your branch adds features,
-  bump to v0.10.1.0 with a new entry — don't edit the v0.10.0.0 entry.
-
-**Key questions before writing:**
-1. What branch am I on? What did THIS branch change?
-2. Is the base branch version already released? (If yes, bump and create new entry.)
-3. Does an existing entry on this branch already cover earlier work? (If yes, replace
-   it with one unified entry for the final version.)
-
-**Merging main does NOT mean adopting main's version.** When you merge origin/main into
-a feature branch, main may bring new CHANGELOG entries and a higher VERSION. Your branch
-still needs its OWN version bump on top. If main is at v0.13.8.0 and your branch adds
-features, bump to v0.13.9.0 with a new entry. Never jam your changes into an entry that
-already landed on main. Your entry goes on top because your branch lands next.
-
-**After merging main, always check:**
-- Does CHANGELOG have your branch's own entry separate from main's entries?
-- Is VERSION higher than main's VERSION?
-- Is your entry the topmost entry in CHANGELOG (above main's latest)?
-If any answer is no, fix it before continuing.
-
-**After any CHANGELOG edit that moves, adds, or removes entries,** immediately run
-`grep "^## \[" CHANGELOG.md` and verify the full version sequence is contiguous
-with no gaps or duplicates before committing. If a version is missing, the edit
-broke something. Fix it before moving on.
-
-CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
-
-- Lead with what the user can now **do** that they couldn't before. Sell the feature.
-- Use plain language, not implementation details. "You can now..." not "Refactored the..."
-- **Never mention TODOS.md, internal tracking, eval infrastructure, or contributor-facing
-  details.** These are invisible to users and meaningless to them.
-- Put contributor/internal changes in a separate "For contributors" section at the bottom.
-- Every entry should make someone think "oh nice, I want to try that."
-- No jargon: say "every question now tells you which project and branch you're in" not
-  "AskUserQuestion format standardized across skill templates via preamble resolver."
+Rules:
+- Never fold into existing entry from prior version on main
+- After merging main: own entry, higher VERSION, topmost position
+- After edits: `grep "^## \[" CHANGELOG.md` to verify contiguous sequence
+- Write for users, not contributors. "You can now..." not "Refactored the..."
+- No internal details (TODOS.md, eval infra). Separate "For contributors" section.
 
 ## AI effort compression
 
-When estimating or discussing effort, always show both human-team and CC+gstack time:
+Show both scales:
 
-| Task type | Human team | CC+gstack | Compression |
-|-----------|-----------|-----------|-------------|
-| Boilerplate / scaffolding | 2 days | 15 min | ~100x |
-| Test writing | 1 day | 15 min | ~50x |
-| Feature implementation | 1 week | 30 min | ~30x |
-| Bug fix + regression test | 4 hours | 15 min | ~20x |
-| Architecture / design | 2 days | 4 hours | ~5x |
-| Research / exploration | 1 day | 3 hours | ~3x |
-
-Completeness is cheap. Don't recommend shortcuts when the complete implementation
-is a "lake" (achievable) not an "ocean" (multi-quarter migration). See the
-Completeness Principle in the skill preamble for the full philosophy.
+| Task | Human | CC+gstack | Ratio |
+|------|-------|-----------|-------|
+| Boilerplate | 2d | 15m | ~100x |
+| Tests | 1d | 15m | ~50x |
+| Feature | 1w | 30m | ~30x |
+| Bug fix | 4h | 15m | ~20x |
+| Architecture | 2d | 4h | ~5x |
+| Research | 1d | 3h | ~3x |
 
 ## Search before building
 
-Before designing any solution that involves concurrency, unfamiliar patterns,
-infrastructure, or anything where the runtime/framework might have a built-in:
+1. "{runtime} {thing} built-in"
+2. "{thing} best practice {year}"
+3. Official docs
 
-1. Search for "{runtime} {thing} built-in"
-2. Search for "{thing} best practice {current year}"
-3. Check official runtime/framework docs
+Three layers: tried-and-true (L1), new-and-popular (L2), first-principles (L3).
+Prize L3. See ETHOS.md.
 
-Three layers of knowledge: tried-and-true (Layer 1), new-and-popular (Layer 2),
-first-principles (Layer 3). Prize Layer 3 above all. See ETHOS.md for the full
-builder philosophy.
+## E2E eval failure blame
 
-## Local plans
+Never claim "not related" without proof:
+1. Run same eval on main, show it fails there too
+2. Passes on main but fails on branch → it IS your change
+3. Can't verify → say "unverified" and flag as risk
 
-Contributors can store long-range vision docs and design documents in `~/.gstack-dev/plans/`.
-These are local-only (not checked in). When reviewing TODOS.md, check `plans/` for candidates
-that may be ready to promote to TODOs or implement.
+## Long-running tasks
 
-## E2E eval failure blame protocol
+Poll until completion. `sleep 180` + `TaskOutput` loop every 3min.
+Full E2E: 30-45min = 10-15 polling cycles. Do all of them.
 
-When an E2E eval fails during `/ship` or any other workflow, **never claim "not
-related to our changes" without proving it.** These systems have invisible couplings —
-a preamble text change affects agent behavior, a new helper changes timing, a
-regenerated SKILL.md shifts prompt context.
+## E2E test fixtures
 
-**Required before attributing a failure to "pre-existing":**
-1. Run the same eval on main (or base branch) and show it fails there too
-2. If it passes on main but fails on the branch — it IS your change. Trace the blame.
-3. If you can't run on main, say "unverified — may or may not be related" and flag it
-   as a risk in the PR body
+Never copy full SKILL.md into fixture (1500-2000 lines causes timeouts).
+Extract only needed section. Run targeted tests in foreground, never `pkill` and restart.
 
-"Pre-existing" without receipts is a lazy claim. Prove it or don't say it.
-
-## Long-running tasks: don't give up
-
-When running evals, E2E tests, or any long-running background task, **poll until
-completion**. Use `sleep 180 && echo "ready"` + `TaskOutput` in a loop every 3
-minutes. Never switch to blocking mode and give up when the poll times out. Never
-say "I'll be notified when it completes" and stop checking — keep the loop going
-until the task finishes or the user tells you to stop.
-
-The full E2E suite can take 30-45 minutes. That's 10-15 polling cycles. Do all of
-them. Report progress at each check (which tests passed, which are running, any
-failures so far). The user wants to see the run complete, not a promise that
-you'll check later.
-
-## E2E test fixtures: extract, don't copy
-
-**NEVER copy a full SKILL.md file into an E2E test fixture.** SKILL.md files are
-1500-2000 lines. When `claude -p` reads a file that large, context bloat causes
-timeouts, flaky turn limits, and tests that take 5-10x longer than necessary.
-
-Instead, extract only the section the test actually needs:
-
-```typescript
-// BAD — agent reads 1900 lines, burns tokens on irrelevant sections
-fs.copyFileSync(path.join(ROOT, 'ship', 'SKILL.md'), path.join(dir, 'ship-SKILL.md'));
-
-// GOOD — agent reads ~60 lines, finishes in 38s instead of timing out
-const full = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-const start = full.indexOf('## Review Readiness Dashboard');
-const end = full.indexOf('\n---\n', start);
-fs.writeFileSync(path.join(dir, 'ship-SKILL.md'), full.slice(start, end > start ? end : undefined));
-```
-
-Also when running targeted E2E tests to debug failures:
-- Run in **foreground** (`bun test ...`), not background with `&` and `tee`
-- Never `pkill` running eval processes and restart — you lose results and waste money
-- One clean run beats three killed-and-restarted runs
-
-## Publishing native OpenClaw skills to ClawHub
-
-Native OpenClaw skills live in `openclaw/skills/gstack-openclaw-*/SKILL.md`. These are
-hand-crafted methodology skills (not generated by the pipeline) published to ClawHub
-so any OpenClaw user can install them.
-
-**Publishing:** The command is `clawhub publish` (NOT `clawhub skill publish`):
+## Publishing OpenClaw skills
 
 ```bash
-clawhub publish openclaw/skills/gstack-openclaw-office-hours \
-  --slug gstack-openclaw-office-hours --name "gstack Office Hours" \
-  --version 1.0.0 --changelog "description of changes"
+clawhub publish openclaw/skills/gstack-openclaw-<name> \
+  --slug gstack-openclaw-<name> --name "gstack <Name>" \
+  --version X.Y.Z --changelog "description"
 ```
 
-Repeat for each skill: `gstack-openclaw-ceo-review`, `gstack-openclaw-investigate`,
-`gstack-openclaw-retro`. Bump `--version` on each update.
+Auth: `clawhub login`, verify: `clawhub whoami`, search: `clawhub search gstack`.
 
-**Auth:** `clawhub login` (opens browser for GitHub auth). `clawhub whoami` to verify.
+## Deploying to active skill
 
-**Updating:** Same `clawhub publish` command with a higher `--version` and `--changelog`.
-
-**Verification:** `clawhub search gstack` to confirm they're live.
-
-## Deploying to the active skill
-
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
-
-1. Push your branch
-2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
-
-Or copy the binaries directly:
-- `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
-- `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
+```bash
+cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main && bun run build
+```
