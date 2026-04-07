@@ -1,0 +1,217 @@
+---
+name: discuss
+preamble-tier: 2
+version: 0.1.0
+description: |
+  Interactive discussion of experiment reports. Load a completed report and
+  its backing data, then have a back-and-forth conversation with the researcher.
+  Annotations are saved as timestamped discussion logs. Can suggest follow-up
+  experiments that connect back to /hypothesis.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+  - Grep
+  - Glob
+
+---
+
+{{PREAMBLE}}
+
+# /discuss — Interactive Report Discussion
+
+Load a completed experiment report and its backing data (metrics, provenance,
+hypothesis), then engage in an iterative discussion with the researcher.
+Questions get answered with concrete data references. Annotations are saved
+as a persistent discussion log.
+
+## Input
+
+The user provides either:
+- A slug name (e.g., `threshold-scaling`)
+- A report path (e.g., `research/reports/threshold-scaling.md`)
+
+If only a slug is given, locate the report:
+
+```bash
+cat research/reports/<slug>.md 2>/dev/null || echo "NO_REPORT"
+```
+
+If `NO_REPORT`, **call the AskUserQuestion tool**:
+- question: "No report found for '<slug>'. What would you like to discuss?"
+- options: ["Run /report first to generate one", "Point me to a different slug", "Discuss raw results without a report"]
+
+## Workflow
+
+### Step 1: Load context bundle
+
+Load all artifacts for the slug:
+
+```bash
+# Report
+cat research/reports/<slug>.md
+
+# Latest results
+_LATEST=$(ls -t research/results/<slug>/ 2>/dev/null | head -1)
+cat "research/results/<slug>/$_LATEST/metrics.json" 2>/dev/null || echo "NO_METRICS"
+cat "research/results/<slug>/$_LATEST/provenance.json" 2>/dev/null || echo "NO_PROVENANCE"
+
+# Hypothesis
+cat research/hypotheses/<slug>.md 2>/dev/null || echo "NO_HYPOTHESIS"
+
+# Experiment spec
+cat research/experiments/<slug>/spec.yaml 2>/dev/null || echo "NO_SPEC"
+
+# Prior discussions (if resuming)
+cat research/discussions/<slug>.md 2>/dev/null || echo "NEW_DISCUSSION"
+```
+
+If resuming an existing discussion, show the prior entries and continue from where
+it left off.
+
+### Step 2: Summarize loaded context
+
+Print a concise summary to the chat:
+- Hypothesis claim (one line)
+- Result verdict (CONFIRMED/REJECTED/INCONCLUSIVE)
+- Key metrics (top 3-5 numbers from metrics.json)
+- Provenance snapshot (git SHA, timestamp, duration)
+
+Then **call the AskUserQuestion tool**:
+- question: "Context loaded for '<slug>'. What would you like to discuss?"
+- options: ["Ask about the methodology", "Dig into specific metrics", "Question the conclusions", "Suggest follow-up experiments", "Add an annotation"]
+
+### Step 3: Discussion loop
+
+This step repeats. For each researcher question or comment:
+
+**3a. Parse the intent.** Determine whether the researcher is:
+- Asking a data question (answer with specific numbers from metrics.json)
+- Questioning methodology (reference the spec.yaml and experiment code)
+- Adding an annotation (record it)
+- Suggesting follow-up work (connect to /hypothesis)
+
+**3b. Answer with data references.** Every response MUST include at least one
+concrete reference. Format:
+
+> **Data ref:** `metrics.json` — parameter `X` = value Y
+
+or
+
+> **Data ref:** `provenance.json` — git SHA `abc1234`, seeds `[42, 123, 456]`
+
+Do not give vague answers. If the data does not contain the answer, say so
+explicitly and suggest what additional experiment would produce it.
+
+**3c. Record the exchange.** Append to the discussion log (built in memory,
+written in Step 5).
+
+**3d. Prompt for continuation.** After answering, **call the AskUserQuestion tool**:
+- question: "<one-line summary of your answer>. What next?"
+- options: ["Ask another question", "Add an annotation", "Suggest a follow-up experiment", "End discussion"]
+
+If "Ask another question": Loop back to Step 3.
+If "Add an annotation": Go to Step 4a.
+If "Suggest a follow-up experiment": Go to Step 4b.
+If "End discussion": Go to Step 5.
+
+### Step 4a: Add annotation
+
+The researcher provides annotation text. Record it with a type tag.
+
+**Call the AskUserQuestion tool**:
+- question: "What type of annotation is this?"
+- options: ["Observation — noting something interesting", "Concern — flagging a potential issue", "TODO — something to investigate later", "Correction — fixing a mistake in the report"]
+
+Record the annotation with the chosen type, then return to Step 3d.
+
+### Step 4b: Suggest follow-up experiment
+
+Based on the discussion, draft a follow-up hypothesis in one sentence.
+
+**Call the AskUserQuestion tool**:
+- question: "Follow-up idea: '<drafted hypothesis>'. Want to create this as a formal hypothesis?"
+- options: ["Yes, create via /hypothesis", "Refine the idea first", "Just note it in the discussion log"]
+
+If "Yes": Record the suggestion in the discussion log, then tell the researcher:
+```
+To create this hypothesis: /hypothesis "<drafted hypothesis>"
+```
+
+If "Refine": Ask for the refined version, then re-present.
+If "Just note it": Record in the discussion log, return to Step 3d.
+
+### Step 5: Save discussion log
+
+```bash
+mkdir -p research/discussions
+```
+
+Write or append to `research/discussions/<slug>.md`:
+
+```markdown
+# Discussion: <hypothesis title>
+
+**Report:** research/reports/<slug>.md
+**Started:** <timestamp of first entry>
+**Participants:** researcher, Claude
+
+---
+
+## Entry 1 — <timestamp>
+
+**[Researcher]** <question or comment>
+
+**[Analysis]** <Claude's response with data references>
+
+**Data refs:**
+- `metrics.json`: <specific reference>
+- `provenance.json`: <specific reference>
+
+---
+
+## Annotations
+
+| # | Type | Note | Added |
+|---|------|------|-------|
+| 1 | <observation/concern/todo/correction> | <text> | <timestamp> |
+
+## Follow-up Ideas
+
+- [ ] <follow-up hypothesis 1>
+- [ ] <follow-up hypothesis 2>
+```
+
+If appending to an existing discussion, read the existing file and append new
+entries after the last `---` separator. Do not overwrite prior entries.
+
+### Step 6: Record to learnings
+
+{{LEARNINGS_LOG}}
+
+Log the discussion:
+
+```bash
+{{SLUG_EVAL}}
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+mkdir -p "$(dirname "$_LEARN_FILE")"
+echo '{"type":"discussion","slug":"<slug>","entries":<count>,"annotations":<count>,"followups":<count>,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> "$_LEARN_FILE"
+```
+
+## Output
+
+After completion:
+
+```
+Discussion saved:
+  Log:         research/discussions/<slug>.md
+  Entries:     <N> exchanges
+  Annotations: <N> added
+  Follow-ups:  <N> suggested
+
+Related:
+  Report:  research/reports/<slug>.md
+  Results: research/results/<slug>/<timestamp>/
+```

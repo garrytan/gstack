@@ -86,11 +86,13 @@ Replace `OUTCOME` with success/error/abort.
 
 # Research Stack: Hypothesis → Experiment → Report
 
-A framework that formalizes the research computation cycle. Three skills, one workflow:
+A framework that formalizes the research computation cycle. Five skills, one workflow:
 
 1. **`/hypothesis`** — Structure a research idea into a testable experiment spec
 2. **`/run-experiment`** — Generate convention-compliant code, review, execute, capture provenance
 3. **`/report`** — Compare results against baselines, generate plots and analysis
+4. **`/discuss`** — Interactive discussion and annotation of experiment reports
+5. **`/peer-review`** — Critical review of methodology, statistics, code, and conclusions
 
 ## Routing Rules
 
@@ -99,6 +101,8 @@ When the user's request matches a skill, invoke it via the Skill tool:
 - New research idea, "I want to test...", hypothesis → invoke `/hypothesis`
 - Run simulation, execute experiment, parameter sweep → invoke `/run-experiment`
 - Analyze results, compare baselines, generate report → invoke `/report`
+- Discuss results, ask questions about a report, annotate → invoke `/discuss`
+- Review experiment, check methodology, peer review, critique → invoke `/peer-review`
 
 ## Core Principles
 
@@ -197,6 +201,8 @@ research/
   baselines/<slug>/
     metrics.json                    # Baseline results for comparison
   reports/<slug>.md                 # Final analysis report
+  discussions/<slug>.md             # Timestamped discussion logs
+  reviews/<slug>.md                 # Peer review documents with severity ratings
 ```
 
 **Slug convention:** lowercase, hyphens for spaces, no underscores in slugs.
@@ -208,7 +214,7 @@ Example: `threshold-scaling`, `decoder-comparison`, `noise-model-validation`.
 full directory structure:
 
 ```bash
-mkdir -p research/{hypotheses,experiments,results,baselines,reports}
+mkdir -p research/{hypotheses,experiments,results,baselines,reports,discussions,reviews}
 ```
 
 **When referencing paths:** Always use relative paths from the project root.

@@ -1,0 +1,475 @@
+---
+name: peer-review
+preamble-tier: 2
+version: 0.1.0
+description: |
+  AI-powered critical review of experiment implementation and results. Acts as
+  a skeptical reviewer checking methodology, statistics, code quality,
+  reproducibility, and conclusions. Produces a structured review with severity
+  ratings and a final verdict.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+  - Grep
+  - Glob
+
+---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+
+## Preamble (run first)
+
+```bash
+_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+echo "BRANCH: $_BRANCH"
+# Learnings count
+eval "$(~/.claude/skills/research-stack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+if [ -f "$_LEARN_FILE" ]; then
+  _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
+  echo "LEARNINGS: $_LEARN_COUNT entries loaded"
+  if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
+    ~/.claude/skills/research-stack/bin/gstack-learnings-search --limit 3 2>/dev/null || true
+  fi
+else
+  echo "LEARNINGS: 0"
+fi
+# Session timeline
+_SESSION_ID="$$-$(date +%s)"
+_TEL_START=$(date +%s)
+~/.claude/skills/research-stack/bin/gstack-timeline-log '{"skill":"peer-review","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+```
+
+## Voice
+
+**Tone:** direct, concrete, precise. Sound like a researcher, not a consultant.
+Name the file, the function, the exact parameter. No filler.
+
+**Writing rules:**
+- No em dashes. Use commas, periods, or "..." instead.
+- No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, etc.
+- Short paragraphs. Be specific with numbers and file paths.
+- End with what to do next.
+
+## Context Recovery
+
+After compaction or at session start, check for recent project artifacts:
+
+```bash
+eval "$(~/.claude/skills/research-stack/bin/gstack-slug 2>/dev/null)"
+_PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
+if [ -d "$_PROJ" ]; then
+  echo "--- RECENT ARTIFACTS ---"
+  [ -f "$_PROJ/timeline.jsonl" ] && tail -5 "$_PROJ/timeline.jsonl"
+  echo "--- END ARTIFACTS ---"
+fi
+```
+
+If artifacts are listed, mention recent activity briefly.
+
+## AskUserQuestion — MUST use the tool
+
+When the workflow says to ask the researcher a question, **you MUST call the AskUserQuestion tool**.
+Do NOT just print the options as text in the chat. The tool renders clickable options in the UI.
+
+**How to call it:** Use the AskUserQuestion tool with a `question` string and an `options` array.
+Include a recommendation in the question text itself.
+
+**Question format:**
+1. Re-ground: state the project, branch, and current task (1-2 sentences)
+2. Explain the decision in plain English
+3. Add `RECOMMENDATION: [option]` with a one-line reason
+4. The options array provides the choices — keep them short and actionable
+
+Assume the user hasn't looked at this window in 20 minutes.
+
+## Completeness Principle
+
+AI makes completeness near-free. Always recommend the complete option over shortcuts.
+
+**Effort reference:**
+
+| Task type | Human team | CC+research-stack | Compression |
+|-----------|-----------|-----------|-------------|
+| Boilerplate | 2 days | 15 min | ~100x |
+| Parameter sweep | 1 day | 15 min | ~50x |
+| Analysis + plots | 4 hours | 15 min | ~20x |
+| Hypothesis spec | 2 hours | 5 min | ~25x |
+
+## Repo Ownership
+
+If working in a collaborative repo, flag issues outside your branch via
+AskUserQuestion rather than fixing directly (may be someone else's work).
+
+## Search Before Building
+
+Before building anything unfamiliar, **search first.**
+- Search for "{runtime} {thing} built-in"
+- Search for "{thing} best practice {current year}"
+- Check official docs
+
+Three layers: **Layer 1** (tried and true), **Layer 2** (new and popular),
+**Layer 3** (first principles). Prize Layer 3 above all.
+
+## Completion Status
+
+When completing a skill workflow, report status:
+- **DONE** — All steps completed successfully.
+- **DONE_WITH_CONCERNS** — Completed with issues to note.
+- **BLOCKED** — Cannot proceed. State what is blocking.
+- **NEEDS_CONTEXT** — Missing information required.
+
+### Operational Learning
+
+Before completing, reflect:
+- Did any commands fail unexpectedly?
+- Did you discover a project-specific quirk?
+- Did something take longer than expected?
+
+If yes, log an operational learning:
+
+```bash
+~/.claude/skills/research-stack/bin/gstack-learnings-log '{"skill":"peer-review","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
+```
+
+### Telemetry (run last)
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+~/.claude/skills/research-stack/bin/gstack-timeline-log '{"skill":"peer-review","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+```
+
+Replace `OUTCOME` with success/error/abort.
+
+# /peer-review — Critical Review of Experiments
+
+Adopt the persona of a skeptical peer reviewer. Load the full experiment
+context (hypothesis, code, results, report, provenance) and systematically
+evaluate methodology, statistics, code quality, reproducibility, and
+conclusions. Produce a structured review document with severity ratings.
+
+## Input
+
+The user provides a slug name (e.g., `threshold-scaling`).
+
+## Workflow
+
+### Step 1: Load full experiment context
+
+Load everything for the slug:
+
+```bash
+# Hypothesis
+cat research/hypotheses/<slug>.md
+
+# Experiment spec
+cat research/experiments/<slug>/spec.yaml
+
+# Experiment code — find the main script
+ls research/experiments/<slug>/run_*.py 2>/dev/null || ls research/experiments/<slug>/*.py 2>/dev/null || echo "NO_CODE"
+
+# Latest results
+_LATEST=$(ls -t research/results/<slug>/ 2>/dev/null | head -1)
+echo "LATEST_RUN: $_LATEST"
+cat "research/results/<slug>/$_LATEST/metrics.json" 2>/dev/null || echo "NO_METRICS"
+cat "research/results/<slug>/$_LATEST/provenance.json" 2>/dev/null || echo "NO_PROVENANCE"
+
+# Baseline (if exists)
+cat research/baselines/<slug>/metrics.json 2>/dev/null || echo "NO_BASELINE"
+
+# Report
+cat research/reports/<slug>.md 2>/dev/null || echo "NO_REPORT"
+```
+
+Read each file found above. If any critical file is missing (hypothesis, code,
+metrics, provenance), note it as a finding under Reproducibility.
+
+### Step 2: Check past learnings
+
+## Prior Learnings
+
+Search for relevant learnings from previous sessions:
+
+```bash
+_CROSS_PROJ=$(~/.claude/skills/research-stack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
+echo "CROSS_PROJECT: $_CROSS_PROJ"
+if [ "$_CROSS_PROJ" = "true" ]; then
+  ~/.claude/skills/research-stack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+else
+  ~/.claude/skills/research-stack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+fi
+```
+
+If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
+
+> gstack can search learnings from your other projects on this machine to find
+> patterns that might apply here. This stays local (no data leaves your machine).
+> Recommended for solo developers. Skip if you work on multiple client codebases
+> where cross-contamination would be a concern.
+
+Options:
+- A) Enable cross-project learnings (recommended)
+- B) Keep learnings project-scoped only
+
+If A: run `~/.claude/skills/research-stack/bin/gstack-config set cross_project_learnings true`
+If B: run `~/.claude/skills/research-stack/bin/gstack-config set cross_project_learnings false`
+
+Then re-run the search with the appropriate flag.
+
+If learnings are found, incorporate them into your analysis. When a review finding
+matches a past learning, display:
+
+**"Prior learning applied: [key] (confidence N/10, from [date])"**
+
+This makes the compounding visible. The user should see that gstack is getting
+smarter on their codebase over time.
+
+Search for related learnings. If past reviews of this slug exist, note what
+was found before and whether issues were addressed.
+
+### Step 3: Methodology review
+
+Evaluate the experimental design:
+
+- Does the hypothesis state a clear, falsifiable claim?
+- Is the parameter sweep sufficient to test the claim?
+- Are control conditions present (baseline comparison)?
+- Is the parameter range appropriate (not too narrow, not too wide)?
+- Are random seeds used for reproducibility?
+
+For each finding, assign a severity:
+- **critical** — Invalidates the results. Must be fixed before conclusions can be drawn.
+- **major** — Significant weakness. Results are questionable without addressing this.
+- **minor** — Worth noting but does not undermine the core results.
+
+### Step 4: Statistical review
+
+Evaluate whether the data supports the conclusions:
+
+- Sample size: Are there enough runs/seeds to draw conclusions?
+- Variance: Is the variance across seeds reported? Is it acceptable?
+- Effect size: Is the observed effect meaningful or within noise?
+- Multiple comparisons: If testing multiple hypotheses, is correction applied?
+- Threshold: Does the success criterion match what was actually measured?
+- Cherry-picking: Are all results reported, or only favorable ones?
+
+Read the metrics.json carefully. Compute basic statistics if they are not in
+the report:
+
+```bash
+python3 -c "
+import json
+with open('research/results/<slug>/$_LATEST/metrics.json') as f:
+    data = json.load(f)
+if isinstance(data, list):
+    print(f'Result entries: {len(data)}')
+    if len(data) > 0 and isinstance(data[0], dict):
+        print(f'Fields per entry: {list(data[0].keys())}')
+elif isinstance(data, dict):
+    print(f'Top-level keys: {list(data.keys())}')
+"
+```
+
+### Step 5: Code quality review
+
+Read the experiment code and check:
+
+- Off-by-one errors in loop bounds or array indexing
+- Incorrect use of library functions (wrong parameters, deprecated API)
+- Random seed handling (is the seed actually being passed to all RNGs?)
+- Data leakage between runs (shared mutable state across iterations)
+- Numerical stability (division by zero guards, overflow potential)
+- Results serialization (is everything that should be saved actually saved?)
+
+```bash
+grep -n "random\|seed\|np.random\|torch.manual_seed" research/experiments/<slug>/run_*.py 2>/dev/null || echo "NO_SEED_USAGE_FOUND"
+grep -n "global\|mutable\|append" research/experiments/<slug>/run_*.py 2>/dev/null | head -10
+```
+
+### Step 6: Reproducibility review
+
+Evaluate the provenance bundle:
+
+- Is `git_dirty` false? (If true: results may not be reproducible from the SHA)
+- Are all random seeds captured?
+- Are package versions pinned?
+- Can the experiment be re-run from the provenance alone?
+- Is there a clear re-run command?
+
+```bash
+python3 -c "
+import json
+with open('research/results/<slug>/$_LATEST/provenance.json') as f:
+    prov = json.load(f)
+required = ['git_sha', 'git_dirty', 'branch', 'timestamp', 'wall_clock_seconds',
+            'packages', 'random_seeds', 'experiment_spec', 'parameters']
+missing = [k for k in required if k not in prov]
+print(f'Missing fields: {missing if missing else \"none\"}')
+print(f'Git dirty: {prov.get(\"git_dirty\", \"UNKNOWN\")}')
+print(f'Seeds: {prov.get(\"random_seeds\", \"UNKNOWN\")}')
+print(f'Packages: {len(prov.get(\"packages\", {}))} recorded')
+"
+```
+
+### Step 7: Conclusions review
+
+Compare the report's conclusions against the actual data:
+
+- Does the verdict (CONFIRMED/REJECTED/INCONCLUSIVE) match the data?
+- Are the success criteria actually met (check the numbers)?
+- Are there alternative explanations for the observed results?
+- Is the scope of the conclusion appropriate (not overgeneralized)?
+- Are limitations acknowledged?
+
+### Step 8: Present findings
+
+Compile all findings. Print each finding with its severity and category as text.
+Then **call the AskUserQuestion tool**:
+
+- question: "Review complete. <N> findings: <X> critical, <Y> major, <Z> minor. How would you like to proceed?"
+- options: ["Walk through each finding", "Show the full review document", "I accept all findings"]
+
+If "Walk through each finding":
+
+For each finding, print the details and **call the AskUserQuestion tool**:
+- question: "Finding <N>/<total> [<SEVERITY>] <category>: <title>. <description>"
+- options: ["Accept", "Dispute — I disagree", "Defer — will address later"]
+
+If "Dispute": The researcher provides a counter-argument. Re-evaluate the
+finding. If the counter-argument is valid, downgrade or remove it. If not,
+keep it and note the disagreement.
+
+If "Show the full review document" or "I accept all findings": Proceed to Step 9.
+
+### Step 9: Final verdict
+
+Based on all findings and researcher responses, determine the overall verdict:
+
+- **ACCEPT** — No critical findings. Methodology is sound. Results are trustworthy.
+- **REVISE** — Has major findings that should be addressed. Results may be valid but need more work.
+- **REJECT** — Has critical findings. Results cannot be trusted without significant rework.
+
+**Call the AskUserQuestion tool**:
+- question: "Verdict: <ACCEPT/REVISE/REJECT>. <one-line basis>. RECOMMENDATION: <your recommendation>."
+- options: ["Agree with verdict", "Override to ACCEPT", "Override to REVISE", "Override to REJECT"]
+
+### Step 10: Generate review document
+
+```bash
+mkdir -p research/reviews
+```
+
+Write `research/reviews/<slug>.md`:
+
+```markdown
+# Peer Review: <hypothesis title>
+
+**Date:** <today>
+**Reviewer:** Claude (AI peer review)
+**Verdict:** <ACCEPT / REVISE / REJECT>
+
+**Experiment:** research/experiments/<slug>/spec.yaml
+**Report:** research/reports/<slug>.md
+**Results:** research/results/<slug>/<timestamp>/
+
+---
+
+## Summary
+
+<2-3 sentence overall assessment>
+
+## Findings
+
+### Finding 1: <title>
+- **Severity:** <critical / major / minor>
+- **Category:** <methodology / statistics / code-quality / reproducibility / conclusions>
+- **Description:** <detailed description with specific references>
+- **Recommendation:** <what to do about it>
+- **Researcher response:** <accept / dispute / defer>
+
+### Finding 2: <title>
+...
+
+## Review Checklist
+
+| Category | Status | Critical | Major | Minor |
+|----------|--------|----------|-------|-------|
+| Methodology | <PASS/CONCERNS/FAIL> | <N> | <N> | <N> |
+| Statistics | <PASS/CONCERNS/FAIL> | <N> | <N> | <N> |
+| Code Quality | <PASS/CONCERNS/FAIL> | <N> | <N> | <N> |
+| Reproducibility | <PASS/CONCERNS/FAIL> | <N> | <N> | <N> |
+| Conclusions | <PASS/CONCERNS/FAIL> | <N> | <N> | <N> |
+
+## Verdict
+
+**<ACCEPT / REVISE / REJECT>**
+
+<Justification paragraph. Reference specific findings by number.>
+
+## Required Actions (if REVISE or REJECT)
+
+1. [ ] <action item from critical/major findings>
+2. [ ] <action item>
+
+## Commendations
+
+<What was done well. Acknowledge strong methodology, clean code, thorough
+provenance, etc. Even a REJECT should note positive aspects.>
+```
+
+### Step 11: Record to learnings
+
+## Capture Learnings
+
+If you discovered a non-obvious pattern, pitfall, or architectural insight during
+this session, log it for future sessions:
+
+```bash
+~/.claude/skills/research-stack/bin/gstack-learnings-log '{"skill":"peer-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+```
+
+**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
+(user stated), `architecture` (structural decision), `tool` (library/framework insight),
+`operational` (project environment/CLI/workflow knowledge).
+
+**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
+`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
+
+**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
+An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
+
+**files:** Include the specific file paths this learning references. This enables
+staleness detection: if those files are later deleted, the learning can be flagged.
+
+**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
+already knows. A good test: would this insight save time in a future session? If yes, log it.
+
+```bash
+eval "$(~/.claude/skills/research-stack/bin/gstack-slug 2>/dev/null)"
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+mkdir -p "$(dirname "$_LEARN_FILE")"
+echo '{"type":"peer-review","slug":"<slug>","verdict":"<verdict>","critical":<N>,"major":<N>,"minor":<N>,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> "$_LEARN_FILE"
+```
+
+## Output
+
+After completion:
+
+```
+Review complete:
+  Review:     research/reviews/<slug>.md
+  Verdict:    <ACCEPT / REVISE / REJECT>
+  Findings:   <N> total (<X> critical, <Y> major, <Z> minor)
+
+Related:
+  Report:     research/reports/<slug>.md
+  Discussion: /discuss <slug>
+
+If REVISE/REJECT:
+  Address the required actions, re-run the experiment, then:
+  /peer-review <slug>
+```

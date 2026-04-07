@@ -5,7 +5,7 @@ import * as path from 'path';
 const ROOT = path.resolve(import.meta.dir, '..');
 
 describe('Research skill validation', () => {
-  const skills = ['SKILL.md', 'hypothesis/SKILL.md', 'run-experiment/SKILL.md', 'report/SKILL.md'];
+  const skills = ['SKILL.md', 'hypothesis/SKILL.md', 'run-experiment/SKILL.md', 'report/SKILL.md', 'discuss/SKILL.md', 'peer-review/SKILL.md'];
 
   for (const skill of skills) {
     const skillPath = path.join(ROOT, skill);
@@ -58,11 +58,13 @@ describe('Research skill validation', () => {
     expect(content).toContain('provenance.json');
   });
 
-  test('root SKILL.md has routing rules for all 3 skills', () => {
+  test('root SKILL.md has routing rules for all 5 skills', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('/hypothesis');
     expect(content).toContain('/run-experiment');
     expect(content).toContain('/report');
+    expect(content).toContain('/discuss');
+    expect(content).toContain('/peer-review');
   });
 
   test('all skills reference provenance spec', () => {
@@ -86,6 +88,35 @@ describe('Research skill validation', () => {
     expect(root).toContain('results/');
     expect(root).toContain('baselines/');
     expect(root).toContain('reports/');
+    expect(root).toContain('discussions/');
+    expect(root).toContain('reviews/');
+  });
+
+  test('discuss/SKILL.md contains discussion workflow', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'discuss', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Discussion loop');
+    expect(content).toContain('AskUserQuestion');
+    expect(content).toContain('research/discussions/');
+    expect(content).toContain('Data ref');
+    expect(content).toContain('annotation');
+    expect(content).toContain('/hypothesis');
+  });
+
+  test('peer-review/SKILL.md contains review checklist', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'peer-review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Methodology');
+    expect(content).toContain('Statistics');
+    expect(content).toContain('Code quality');
+    expect(content).toContain('Reproducibility');
+    expect(content).toContain('Conclusions');
+    expect(content).toContain('critical');
+    expect(content).toContain('major');
+    expect(content).toContain('minor');
+    expect(content).toContain('ACCEPT');
+    expect(content).toContain('REVISE');
+    expect(content).toContain('REJECT');
+    expect(content).toContain('AskUserQuestion');
+    expect(content).toContain('research/reviews/');
   });
 });
 
@@ -95,6 +126,8 @@ describe('Template freshness', () => {
     'hypothesis/SKILL.md.tmpl',
     'run-experiment/SKILL.md.tmpl',
     'report/SKILL.md.tmpl',
+    'discuss/SKILL.md.tmpl',
+    'peer-review/SKILL.md.tmpl',
   ];
 
   for (const tmpl of templates) {

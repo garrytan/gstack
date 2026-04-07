@@ -151,6 +151,8 @@ research/
   baselines/<slug>/
     metrics.json                    # Baseline results for comparison
   reports/<slug>.md                 # Final analysis report
+  discussions/<slug>.md             # Timestamped discussion logs
+  reviews/<slug>.md                 # Peer review documents with severity ratings
 \`\`\`
 
 **Slug convention:** lowercase, hyphens for spaces, no underscores in slugs.
@@ -162,7 +164,7 @@ Example: \`threshold-scaling\`, \`decoder-comparison\`, \`noise-model-validation
 full directory structure:
 
 \`\`\`bash
-mkdir -p research/{hypotheses,experiments,results,baselines,reports}
+mkdir -p research/{hypotheses,experiments,results,baselines,reports,discussions,reviews}
 \`\`\`
 
 **When referencing paths:** Always use relative paths from the project root.

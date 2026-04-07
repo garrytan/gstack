@@ -1,5 +1,6 @@
 .env
 node_modules/
+bun.lock
 browse/dist/
 design/dist/
 bin/gstack-global-discover
