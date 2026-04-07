@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Agent(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "AskUserQuestion(*)"
+    ],
+    "additionalDirectories": [
+      "~/.bams/artifacts/pipeline",
+      "~/.bams/artifacts/hr",
+      "~/.bams/artifacts/agents",
+      "~/.claude/plugins",
+      "/tmp",
+      "/private/tmp",
+      "~/Library/Application Support/SwiftBar"
+    ]
+  }
+}
