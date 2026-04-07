@@ -38,7 +38,8 @@
   "dependencies": {
     "diff": "^7.0.0",
     "playwright": "^1.58.2",
-    "puppeteer-core": "^24.40.0"
+    "puppeteer-core": "^24.40.0",
+    "sharp": "^0.34.5"
   },
   "engines": {
     "bun": ">=1.0.0"
