@@ -750,15 +750,19 @@ const idleCheckInterval = setInterval(() => {
 // receiving commands through new CLI invocations.
 const BROWSE_PARENT_PID = parseInt(process.env.BROWSE_PARENT_PID || '0', 10);
 const WATCHDOG_GRACE_MS = 30_000; // skip kill if a command arrived within this window
+let watchdogInterval: ReturnType<typeof setInterval> | null = null;
 if (BROWSE_PARENT_PID > 0) {
-  setInterval(() => {
+  watchdogInterval = setInterval(() => {
     // Headed mode: user is looking at the browser. Never auto-terminate.
     if (browserManager.getConnectionMode() === 'headed') return;
     // Tunnel mode: remote agents may reconnect sporadically.
     if (tunnelActive) return;
     try {
       process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only
-    } catch {
+    } catch (err: any) {
+      // ESRCH = process doesn't exist (parent is gone).
+      // EPERM = process exists but we lack permission — treat as alive.
+      if (err?.code === 'EPERM') return;
       // Parent is gone. But the CLI is short-lived — each `$B` call is a
       // new process, so this fires within seconds of server start. Only
       // shut down if the server has also been idle (no recent commands),
@@ -1180,6 +1184,7 @@ async function shutdown() {
   saveSession(); // Persist chat history before exit
   if (sidebarSession?.worktreePath) removeWorktree(sidebarSession.worktreePath);
   if (agentHealthInterval) clearInterval(agentHealthInterval);
+  if (watchdogInterval) clearInterval(watchdogInterval);
   clearInterval(flushInterval);
   clearInterval(idleCheckInterval);
   await flushBuffers(); // Final flush (async now)
