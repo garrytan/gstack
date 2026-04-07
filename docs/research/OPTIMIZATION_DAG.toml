@@ -1,0 +1,1025 @@
+# gstack Token Optimization — Implementation DAG
+# dag-toml-templates v2
+# Every unit is production-complete: no stubs, no placeholders, no "follow-up" deferral.
+
+[meta]
+title          = "gstack Token Optimization — Full-Stack Reduction"
+spec           = "docs/research/ADOPTION_PROPOSAL.md"
+decomposition  = "docs/research/OPTIMIZATION_DAG.toml"
+created        = "2026-04-07"
+total_units    = 21
+tier1_units    = ["U01", "U02", "U03"]
+tier2_units    = ["U04", "U05", "U06", "U07", "U14", "U15", "U16", "U17", "U18", "U19"]
+tier3_units    = ["U08", "U09", "U10", "U11", "U12", "U13", "U20", "U21"]
+
+# ─────────────────────────────────────────────────────────────
+# LAYER 0 — Foundation (no dependencies)
+# ─────────────────────────────────────────────────────────────
+
+[units.U01]
+name            = "Token-optimize CLAUDE.md"
+summary         = "Reduce CLAUDE.md from 439 to ~220 lines by applying techniques T1-T7: collapse redundant rules, compress tables, remove anti-pattern repetition, extract machine-readable sections to contracts TOML, deduplicate cross-section guidance."
+layer           = 0
+tier            = "gate"
+status          = "pending"
+depends_on      = []
+blocks          = ["U20", "U21"]
+estimated_loc   = -219   # net lines removed (439→220)
+spec_sections   = ["§2 Optimization Techniques T1-T7", "§4.1 CLAUDE.md Reduction Strategy"]
+spec_anchors    = ["#techniques", "#claudemd-strategy"]
+files_modify    = ["/srv/repos/public/gstack/CLAUDE.md"]
+files_create    = []
+acceptance      = [
+  "wc -l CLAUDE.md reports ≤225 lines",
+  "All sections from original preserved or explicitly migrated to TOML contracts",
+  "No behavioral rules lost — only prose redundancy eliminated",
+  "bun test passes (skill-validation reads CLAUDE.md in snapshot tests)",
+  "git diff CLAUDE.md shows only deletions and compressions, no net-new behavioral changes",
+]
+produces        = ["optimized CLAUDE.md at ≤225 lines"]
+consumes        = ["original CLAUDE.md at 439 lines"]
+critical_decisions = [
+  "Which sections to extract vs compress in-place (anti-patterns table → contracts TOML U03 or stay?)",
+  "Whether the 'Mandatory Rules' block stays prose or becomes a machine-scannable TOML reference",
+  "Commit-style section: compress or move to U03 style contracts?",
+]
+constraints     = [
+  "Must not change any behavioral contract — only surface area",
+  "Must preserve all Garry's-voice sections verbatim (ETHOS-adjacent content)",
+  "Must keep all command examples in ## Commands section — do not abbreviate runnable docs",
+]
+failure_modes   = [
+  "Compression removes implicit context that resolvers depend on (preamble.ts references CLAUDE.md sections)",
+  "bun test golden-fixture mismatch if gen-skill-docs reads CLAUDE.md",
+  "Garry's voice sections inadvertently flattened",
+]
+rationale       = "CLAUDE.md is injected into every gstack session context window. At 439 lines it burns ~1,760 tokens before any skill content loads. Halving it reclaims ~880 tokens per session with zero behavioral loss."
+
+[units.U02]
+name            = "Token-optimize preamble.ts resolver"
+summary         = "Reduce preamble.ts from 749 to ~430 lines. Collapse multi-line bash into single-line chains where readable, deduplicate echo sequences, extract repeated path interpolations into shared constants, compress English prose in generated sections using T1-T7."
+layer           = 0
+tier            = "gate"
+status          = "pending"
+depends_on      = []
+blocks          = ["U04", "U05", "U06", "U07", "U20", "U21"]
+estimated_loc   = -319   # net lines removed (749→430)
+spec_sections   = ["§2 Optimization Techniques T1-T7", "§4.2 Resolver Reduction Strategy"]
+spec_anchors    = ["#techniques", "#resolver-strategy"]
+files_modify    = ["/srv/repos/public/gstack/scripts/resolvers/preamble.ts"]
+files_create    = []
+acceptance      = [
+  "wc -l scripts/resolvers/preamble.ts reports ≤435 lines",
+  "bun run gen:skill-docs completes without errors",
+  "bun test passes (snapshot tests validate generated SKILL.md output)",
+  "Generated preamble bash block is functionally equivalent — same env vars exported, same conditional logic",
+  "All seven preamble sections still present: update-check, sessions, proactive, lake-intro, telemetry, routing, vendoring, sqry",
+]
+produces        = ["optimized preamble.ts generating ~30% fewer tokens in SKILL.md preamble blocks"]
+consumes        = ["original preamble.ts at 749 lines"]
+critical_decisions = [
+  "Whether to collapse generatePreambleBash into one function or keep sub-functions for testability",
+  "How aggressively to compress the lake-intro prose (it is Garry's voice — must not be neutralized)",
+  "Whether telemetry prompt stays inline or is extracted to its own short generator",
+]
+constraints     = [
+  "Must not alter preamble bash script behavior — env vars, conditionals, exit codes must be identical",
+  "Lake intro and telemetry prompt prose must preserve founder voice and URLs",
+  "All host-config branches (usesEnvVars, paths.*) must remain correct",
+  "TypeScript must compile cleanly — no `any` introductions, no new lint warnings",
+]
+failure_modes   = [
+  "Bash one-liners become harder to read and maintain — accept only if net LOC saving ≥ 5 lines/collapse",
+  "Generated SKILL.md snapshot fixtures diverge — requires fixture update in test/fixtures/",
+  "Host-specific paths dropped during compression, breaking non-claude hosts",
+]
+rationale       = "preamble.ts generates the first section of every SKILL.md. At 749 lines, redundant prose and over-explained bash inflates every generated file. Reducing to 430 lines cuts ~1,200 generated tokens across all skills without removing any functional content."
+
+[units.U03]
+name            = "Create writing style contracts TOML"
+summary         = "Extract the AI slop blacklist, OpenAI hard rejections, and OpenAI litmus checks from scripts/resolvers/constants.ts into a machine-scannable TOML file. Add gstack-specific voice rules (avoid passive voice, avoid hedge words, avoid 'leverage', etc.) derived from preamble.ts commentary."
+layer           = 0
+tier            = "gate"
+status          = "pending"
+depends_on      = []
+blocks          = ["U18", "U21"]
+estimated_loc   = 103   # net new lines (new file)
+spec_sections   = ["§3 Style Contracts", "§5.1 Machine-Scannable Artifacts"]
+spec_anchors    = ["#style-contracts", "#machine-scannable"]
+files_modify    = ["/srv/repos/public/gstack/scripts/resolvers/constants.ts"]
+files_create    = ["/tmp/gstack-token-opt/docs/research/writing-style-contracts.toml"]
+acceptance      = [
+  "TOML file is valid (toml --check or equivalent)",
+  "All entries from AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS present in TOML",
+  "TOML has [voice] section with gstack-specific rules not currently in constants.ts",
+  "constants.ts references the TOML path in a comment so future maintainers know where rules live",
+  "No behavioral change to design.ts which imports these constants — TOML is additive, not replacement",
+]
+produces        = ["writing-style-contracts.toml (machine-scannable voice rules)"]
+consumes        = [
+  "/srv/repos/public/gstack/scripts/resolvers/constants.ts (AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS)",
+  "/srv/repos/public/gstack/scripts/resolvers/preamble.ts (implicit voice commentary)",
+]
+critical_decisions = [
+  "TOML schema: flat arrays vs nested [voice], [rejections], [litmus] sections",
+  "Whether to make constants.ts import from TOML at runtime (adds build complexity) or keep parallel",
+  "Scope of 'gstack voice rules' — how many to add beyond what's already in constants.ts",
+]
+constraints     = [
+  "Must not break design.ts which imports AI_SLOP_BLACKLIST at compile time",
+  "TOML must be human-readable without tooling — no binary encoding, no minification",
+  "File must live in /tmp/gstack-token-opt/docs/research/ for this project scope",
+]
+failure_modes   = [
+  "TOML and constants.ts diverge — need a lint rule or test to keep them in sync",
+  "Over-expansion of voice rules creates a prescriptivist document that conflicts with actual skill tone",
+]
+rationale       = "The blacklists in constants.ts are hidden inside TypeScript imports. Externalizing them as TOML makes them usable by linters, reviewers, and future LLM-based style checkers without requiring a TypeScript build."
+
+# ─────────────────────────────────────────────────────────────
+# LAYER 1 — Resolver Optimization (depends on preamble U02)
+# ─────────────────────────────────────────────────────────────
+
+[units.U04]
+name            = "Token-optimize review.ts resolver"
+summary         = "Reduce review.ts from 1021 to ~700 lines. review.ts is the largest resolver. Compress: Review Readiness Dashboard table generation (verbose ASCII art repeated inline), CODEX_BOUNDARY constant repetition, Codex prompt construction blocks, and multi-step English explanations that can be tightened."
+layer           = 1
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U08", "U09", "U10", "U11", "U12", "U20", "U21"]
+estimated_loc   = -321   # net lines removed (1021→700)
+spec_sections   = ["§4.2 Resolver Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#resolver-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/scripts/resolvers/review.ts"]
+files_create    = []
+acceptance      = [
+  "wc -l scripts/resolvers/review.ts reports ≤705 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes — snapshot fixtures match regenerated output",
+  "Review Readiness Dashboard still renders correctly in generated SKILL.md files",
+  "CODEX_BOUNDARY string unchanged in generated output",
+  "All review types (ceo, eng, design, adversarial, codex) still generate distinct sections",
+]
+produces        = ["optimized review.ts at ≤705 lines"]
+consumes        = [
+  "/srv/repos/public/gstack/scripts/resolvers/review.ts (1021 lines)",
+  "/srv/repos/public/gstack/scripts/resolvers/preamble.ts (U02 output — shared path patterns)",
+]
+critical_decisions = [
+  "Whether to extract the ASCII dashboard table into a helper function (reduces duplication but adds indirection)",
+  "How to compress the Codex prompt construction without losing Codex boundary enforcement",
+  "Whether review log write-back prose can be compressed or must stay verbose for agent reliability",
+]
+constraints     = [
+  "CODEX_BOUNDARY constant must be preserved exactly — it prevents Codex from reading skill files",
+  "Review log JSONL schema (skill, outcome, ts, via fields) must remain unchanged",
+  "Dashboard layout must still be parseable by the display logic in plan-ceo-review and autoplan templates",
+]
+failure_modes   = [
+  "Compressed Codex prompts cause Codex to miss the boundary instruction — security regression",
+  "Dashboard parsing in downstream templates breaks if column positions shift",
+  "Snapshot fixture churn if dashboard whitespace changes",
+]
+rationale       = "review.ts at 1021 lines generates ~4,000 tokens of review scaffolding injected into plan-ceo-review, plan-eng-review, autoplan, and ship. A 30% reduction saves ~1,200 tokens per affected skill invocation."
+
+[units.U05]
+name            = "Token-optimize design.ts resolver"
+summary         = "Reduce design.ts from 950 to ~650 lines. design.ts imports AI_SLOP_BLACKLIST and OPENAI_HARD_REJECTIONS (long constant arrays). Compress: inline list construction into helper, collapse repetitive Codex block generation (litmus checks list building), tighten English prose in generated design review sections."
+layer           = 1
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U08", "U09", "U10", "U11", "U20", "U21"]
+estimated_loc   = -300   # net lines removed (950→650)
+spec_sections   = ["§4.2 Resolver Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#resolver-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/scripts/resolvers/design.ts"]
+files_create    = []
+acceptance      = [
+  "wc -l scripts/resolvers/design.ts reports ≤655 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes",
+  "Codex design review block still contains all litmus checks (count matches OPENAI_LITMUS_CHECKS.length)",
+  "Hard rejection list still contains all OPENAI_HARD_REJECTIONS entries in generated output",
+  "Host-conditional codex block (ctx.host === 'codex' skip) still works correctly",
+]
+produces        = ["optimized design.ts at ≤655 lines"]
+consumes        = [
+  "/srv/repos/public/gstack/scripts/resolvers/design.ts (950 lines)",
+  "/srv/repos/public/gstack/scripts/resolvers/constants.ts (AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS)",
+  "/srv/repos/public/gstack/scripts/resolvers/preamble.ts (U02 output — shared path patterns)",
+]
+critical_decisions = [
+  "Whether litmusList/rejectionList construction can use a shared utility rather than inline .map().join()",
+  "Whether Codex block generation can be extracted to a shared helper between design.ts and review.ts",
+  "Timeout value (300000ms) — keep inline or extract to a named constant in constants.ts",
+]
+constraints     = [
+  "All litmus check entries must appear in generated output — no silent truncation",
+  "gstack-diff-scope bash block must remain intact — it's a binary call with specific output format",
+  "TypeScript must compile without errors on bun build",
+]
+failure_modes   = [
+  "Collapsing list construction causes items to be dropped silently (off-by-one in map/join)",
+  "Sharing Codex block generator with review.ts creates a tight coupling that complicates future changes",
+]
+rationale       = "design.ts generates the design review section injected into ship, autoplan, plan-design-review, and design-review. At 950 lines it's the second-largest resolver. Reducing by 300 lines saves ~1,200 tokens per design-touching skill run."
+
+[units.U06]
+name            = "Token-optimize utility.ts resolver"
+summary         = "Reduce utility.ts from 417 to ~300 lines. utility.ts contains generateBaseBranchDetect (a very long multi-platform detection block) and several smaller helpers. Compress: collapse repeated git fallback chains into prose references, tighten the platform-detection conditional tree, remove over-explained comments."
+layer           = 1
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U08", "U10", "U20", "U21"]
+estimated_loc   = -117   # net lines removed (417→300)
+spec_sections   = ["§4.2 Resolver Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#resolver-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/scripts/resolvers/utility.ts"]
+files_create    = []
+acceptance      = [
+  "wc -l scripts/resolvers/utility.ts reports ≤305 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes",
+  "Generated BASE_BRANCH_DETECT block still covers GitHub, GitLab, and git-native fallback paths",
+  "generateSlugSetup and generateSlugEval output unchanged in snapshot comparison",
+]
+produces        = ["optimized utility.ts at ≤305 lines"]
+consumes        = [
+  "/srv/repos/public/gstack/scripts/resolvers/utility.ts (417 lines)",
+  "/srv/repos/public/gstack/scripts/resolvers/preamble.ts (U02 output — shared path interpolation patterns)",
+]
+critical_decisions = [
+  "Whether the GitHub/GitLab/git-native branches can share a common prose template with placeholders",
+  "How much of the branch-detection commentary to keep vs trim (it serves as agent instruction)",
+  "Whether generateSlugEval stays in utility.ts or moves to a micro-helper file",
+]
+constraints     = [
+  "BASE_BRANCH_DETECT must continue to work for GitHub, GitLab, and git-native repos",
+  "Must not change the semantic meaning of any branch detection step — agents rely on the exact wording",
+  "No new dependencies on external modules",
+]
+failure_modes   = [
+  "Over-compressed branch detection causes agents to miss edge cases (no remote, detached HEAD, GitHub Enterprise)",
+  "Slug helpers silently broken — only caught by E2E tests not snapshot tests",
+]
+rationale       = "utility.ts is used by every template via {{BASE_BRANCH_DETECT}}. Saving 117 lines saves ~470 tokens per skill that includes base-branch detection."
+
+[units.U07]
+name            = "Token-optimize testing.ts resolver"
+summary         = "Reduce testing.ts from 573 to ~450 lines. testing.ts contains generateTestBootstrap (the longest section) plus test coverage and framework detection helpers. Compress: runtime detection bash block (over-commented), bootstrap option prose, coverage audit table."
+layer           = 1
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U08", "U20", "U21"]
+estimated_loc   = -123   # net lines removed (573→450)
+spec_sections   = ["§4.2 Resolver Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#resolver-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/scripts/resolvers/testing.ts"]
+files_create    = []
+acceptance      = [
+  "wc -l scripts/resolvers/testing.ts reports ≤455 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes",
+  "All 8 runtime detectors (ruby, node, python, go, rust, php, elixir, plus sub-frameworks) still present in generated output",
+  "BOOTSTRAP_DECLINED opt-out path still present",
+  "Test coverage audit table still renders with all columns",
+]
+produces        = ["optimized testing.ts at ≤455 lines"]
+consumes        = [
+  "/srv/repos/public/gstack/scripts/resolvers/testing.ts (573 lines)",
+  "/srv/repos/public/gstack/scripts/resolvers/preamble.ts (U02 output — shared path patterns)",
+]
+critical_decisions = [
+  "Whether bootstrap options (A-H runtime choices) can be compressed without losing agent decision clarity",
+  "Whether the runtime detection bash block is safe to compress (it's mechanical — yes) vs the prose instructions (agent-facing — careful)",
+  "Whether coverage table rows can be collapsed (e.g. combine uncovered/partial columns)",
+]
+constraints     = [
+  "All 8 runtime options must remain in the AskUserQuestion branch — removing any breaks real projects",
+  ".gstack/no-test-bootstrap opt-out mechanism must be preserved",
+  "No new runtime dependencies",
+]
+failure_modes   = [
+  "Compressed bootstrap prose causes agents to skip test writing on legitimate projects",
+  "Coverage table column removal causes downstream parsing breakage in ship template",
+]
+rationale       = "testing.ts is injected via {{TEST_BOOTSTRAP}} in ship and qa. At 573 lines, unnecessary verbosity adds ~540 tokens per skill invocation. Reducing to 450 lines saves ~490 tokens."
+
+# ─────────────────────────────────────────────────────────────
+# LAYER 2 — Template Optimization (depends on resolvers U02-U07)
+# ─────────────────────────────────────────────────────────────
+
+[units.U08]
+name            = "Token-optimize ship/SKILL.md.tmpl"
+summary         = "Reduce ship/SKILL.md.tmpl from 682 to ~450 lines. ship is the most-invoked template. Compress: Step 3.25 eval suite block (over-specified conditional tree), Step 3.5 pre-landing review instructions (now generated by review.ts), Step 5.5 TODOS.md update prose, step summary sections (redundant re-statement of step goals)."
+layer           = 2
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02", "U04", "U05", "U06", "U07"]
+blocks          = ["U20", "U21"]
+estimated_loc   = -232   # net lines removed (682→450)
+spec_sections   = ["§4.3 Template Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#template-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/ship/SKILL.md.tmpl"]
+files_create    = []
+acceptance      = [
+  "wc -l ship/SKILL.md.tmpl reports ≤455 lines",
+  "bun run gen:skill-docs succeeds — ship/SKILL.md regenerated",
+  "bun test passes (gen-skill-docs.test.ts validates generated output)",
+  "E2E ship test passes — all 9 steps execute correctly end-to-end",
+  "All 9 steps still present in generated SKILL.md: pre-flight, distribution, merge, tests, evals, coverage, audit, review, version, todos, commit, verify, push, PR",
+  "VERSION bump logic (patch vs minor vs major detection) unchanged",
+  "CHANGELOG format requirements unchanged",
+]
+produces        = ["optimized ship/SKILL.md.tmpl at ≤455 lines", "regenerated ship/SKILL.md"]
+consumes        = [
+  "/srv/repos/public/gstack/ship/SKILL.md.tmpl (682 lines)",
+  "preamble.ts U02 output ({{PREAMBLE}} block)",
+  "utility.ts U06 output ({{BASE_BRANCH_DETECT}} block)",
+  "testing.ts U07 output ({{TEST_BOOTSTRAP}} block)",
+  "review.ts U04 output ({{REVIEW_DASHBOARD}} block)",
+  "design.ts U05 output ({{DESIGN_REVIEW_LITE}} block)",
+]
+critical_decisions = [
+  "Which step headers can be compressed (e.g. 'Step 3.25' numbered sub-step vs prose instruction)",
+  "Whether the eval suite conditional tree (diff-based test selection) can be summarized vs spelled out",
+  "Whether the Summary section (Steps 541-682) can be dramatically compressed without losing agent output format",
+]
+constraints     = [
+  "Must not remove any of the 9 core ship steps — every step exists for a reason",
+  "PR body format requirements must stay — they affect GitHub PR creation",
+  "CHANGELOG entry format must remain unchanged — it's a user-visible contract",
+  "bun run test:evals must still select correct tests based on diff",
+]
+failure_modes   = [
+  "Compressed eval conditional causes ship to always run all tests (expensive) or never run evals",
+  "Summary section compression causes ship to output malformed PR bodies",
+  "Step ordering change breaks bisect-commit logic in Step 6",
+]
+rationale       = "ship/SKILL.md.tmpl at 682 lines is the heaviest template by invocation frequency. Reducing by 232 lines saves ~930 tokens per ship run — the highest ROI single template change."
+
+[units.U09]
+name            = "Token-optimize office-hours/SKILL.md.tmpl"
+summary         = "Reduce office-hours/SKILL.md.tmpl from 771 to ~500 lines. Compress: Phase 2A startup mode Q&A scaffolding (extremely verbose per-question framing), Phase 2.75 landscape awareness section (repeated search instructions), Phase 5 design doc template (over-specified markdown structure)."
+layer           = 2
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02", "U04", "U05"]
+blocks          = ["U20", "U21"]
+estimated_loc   = -271   # net lines removed (771→500)
+spec_sections   = ["§4.3 Template Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#template-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/office-hours/SKILL.md.tmpl"]
+files_create    = []
+acceptance      = [
+  "wc -l office-hours/SKILL.md.tmpl reports ≤505 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes",
+  "All 6 YC forcing questions still present in Phase 2A (demand reality, status quo, desperate specificity, narrowest wedge, observation, future-fit)",
+  "Builder mode (Phase 2B) distinct from startup mode and still present",
+  "Phase 5 design doc still produces all required sections: Problem, Demand, Status Quo, Target User, Constraints, Premises, Cross-Model, Approaches, Recommended, Open Questions, Success Criteria",
+  "Design doc is still saved to disk (bash write step preserved)",
+]
+produces        = ["optimized office-hours/SKILL.md.tmpl at ≤505 lines", "regenerated office-hours/SKILL.md"]
+consumes        = [
+  "/srv/repos/public/gstack/office-hours/SKILL.md.tmpl (771 lines)",
+  "preamble.ts U02 output ({{PREAMBLE}} block)",
+  "review.ts U04 output ({{REVIEW_DASHBOARD}} block — if applicable)",
+  "design.ts U05 output ({{DESIGN_REVIEW_LITE}} block — if applicable)",
+]
+critical_decisions = [
+  "Whether the 6 forcing questions can be listed compactly (one per line) vs expanded with per-question framing prose",
+  "How much of Phase 2.75 landscape search instruction is essential vs agent-trust (can we say 'search for competitors' vs spell out 5 search queries)",
+  "Whether Phase 4.5 Founder Signal Synthesis can be a one-paragraph instruction vs a multi-block section",
+]
+constraints     = [
+  "All 6 YC forcing questions must remain — they are the core product value of office-hours",
+  "Garry's voice in the startup mode framing must be preserved — no neutralization",
+  "Design doc template sections must be complete — downstream /plan-ceo-review depends on the output format",
+]
+failure_modes   = [
+  "Compressed question framing causes agents to skip forcing questions and give shallow startup advice",
+  "Design doc section compression causes /plan-ceo-review to fail to parse the office-hours output",
+]
+rationale       = "office-hours at 771 lines is the second-largest template. It is invoked early in product development cycles — high frequency, high context cost. Reducing by 271 lines saves ~1,085 tokens per run."
+
+[units.U10]
+name            = "Token-optimize land-and-deploy/SKILL.md.tmpl"
+summary         = "Reduce land-and-deploy/SKILL.md.tmpl from 918 to ~600 lines — the largest template in the codebase. Compress: Step 1.5 dry-run validation block (extreme over-specification), Step 5 deploy strategy detection (8 strategies spelled out at length), Step 6 wait-for-deploy polling logic (repeated conditional trees), Step 7 canary verification depth matrix."
+layer           = 2
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02", "U06"]
+blocks          = ["U20", "U21"]
+estimated_loc   = -318   # net lines removed (918→600)
+spec_sections   = ["§4.3 Template Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#template-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/land-and-deploy/SKILL.md.tmpl"]
+files_create    = []
+acceptance      = [
+  "wc -l land-and-deploy/SKILL.md.tmpl reports ≤605 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes",
+  "All 10 steps still present: pre-flight, dry-run, pre-merge, CI wait, readiness gate, merge, deploy detection, deploy wait, canary, revert, report",
+  "All 8 deploy strategies still detectable: Render, Railway, Fly.io, Vercel, Netlify, Docker/k8s, custom script, unknown",
+  "Canary verification depth still has 3 levels (shallow/standard/deep)",
+  "Revert path (Step 8) still present and complete",
+  "non-interactive philosophy still enforced (one critical gate only)",
+]
+produces        = ["optimized land-and-deploy/SKILL.md.tmpl at ≤605 lines", "regenerated land-and-deploy/SKILL.md"]
+consumes        = [
+  "/srv/repos/public/gstack/land-and-deploy/SKILL.md.tmpl (918 lines)",
+  "preamble.ts U02 output ({{PREAMBLE}} block)",
+  "utility.ts U06 output ({{BASE_BRANCH_DETECT}} block)",
+]
+critical_decisions = [
+  "Whether 8 deploy strategies can be presented as a table (platform | detection signal | deploy command) vs 8 prose blocks",
+  "Whether dry-run validation (Step 1.5) can trust that /ship already validated — if so, much can be removed",
+  "Whether canary depth matrix can be a 3-row table vs 3 full narrative sections",
+]
+constraints     = [
+  "Revert path must be complete — this is a safety-critical section",
+  "Non-interactive philosophy must be preserved — land-and-deploy must not ask questions except the one critical gate",
+  "CI wait polling must handle both GitHub Actions and GitLab CI without branching to user questions",
+]
+failure_modes   = [
+  "Deploy strategy table too terse — agents pick wrong strategy for ambiguous repos",
+  "Dry-run step compressed into one line — agents skip validation and attempt real deploys on bad state",
+  "Canary compression causes agents to skip error-rate checks on staging/production",
+]
+rationale       = "land-and-deploy is the highest-risk template at 918 lines. It is invoked on every deployment. A 318-line reduction saves ~1,270 tokens per deploy run while keeping every safety check intact."
+
+[units.U11]
+name            = "Token-optimize plan-ceo-review/SKILL.md.tmpl"
+summary         = "Reduce plan-ceo-review/SKILL.md.tmpl from 823 to ~550 lines. Compress: 11 review sections (each over-specified with sub-bullets that can be collapsed into tighter criteria), Cognitive Patterns block (verbose philosophical prose that can be shortened), PRE-REVIEW SYSTEM AUDIT (repeated file listing instructions)."
+layer           = 2
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02", "U04"]
+blocks          = ["U12", "U20", "U21"]
+estimated_loc   = -273   # net lines removed (823→550)
+spec_sections   = ["§4.3 Template Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#template-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/plan-ceo-review/SKILL.md.tmpl"]
+files_create    = []
+acceptance      = [
+  "wc -l plan-ceo-review/SKILL.md.tmpl reports ≤555 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes",
+  "All 11 review sections still present (numbered, not merged)",
+  "Philosophy, Prime Directives, Engineering Preferences, Cognitive Patterns sections still present",
+  "Priority Hierarchy Under Context Pressure section still present",
+  "PRE-REVIEW SYSTEM AUDIT still reads CLAUDE.md, design docs, TODOS.md",
+  "Nuclear Scope Challenge (Step 0) still present with mode selection (NARROW/EXPAND/SELECTIVE)",
+  "docs/designs promotion logic still present",
+  "Review log write-back still present (required by U04 review dashboard)",
+]
+produces        = ["optimized plan-ceo-review/SKILL.md.tmpl at ≤555 lines", "regenerated plan-ceo-review/SKILL.md"]
+consumes        = [
+  "/srv/repos/public/gstack/plan-ceo-review/SKILL.md.tmpl (823 lines)",
+  "preamble.ts U02 output ({{PREAMBLE}} block)",
+  "review.ts U04 output ({{REVIEW_DASHBOARD}} block)",
+]
+critical_decisions = [
+  "How much of the 'CEO Philosophy' prose to keep vs compress — it sets the agent's review posture",
+  "Whether the 11 review sections can share a common instruction template (e.g. 'For each section: state a verdict (CLEAR/RISK/BLOCKER) with 1-3 supporting bullets')",
+  "Whether the Handoff Note Cleanup section can be removed if it's rarely triggered",
+]
+constraints     = [
+  "Garry's voice in the CEO philosophy sections must be preserved — this is the product's personality",
+  "All 11 review section names must remain — they are referenced by name in autoplan and review dashboards",
+  "Review log JSONL write must remain — the dashboard (U04) depends on it",
+  "AskUserQuestion format (CRITICAL RULE section) must remain intact",
+]
+failure_modes   = [
+  "Philosophy compression causes CEO review to become generic feedback instead of forcing-question mode",
+  "Section name change breaks autoplan's section-matching logic in U12",
+  "Review log format change breaks dashboard rendering in U04",
+]
+rationale       = "plan-ceo-review is invoked before every major feature lands. At 823 lines, it's the third-largest template. Reducing by 273 lines saves ~1,090 tokens per strategic review invocation."
+
+[units.U12]
+name            = "Token-optimize autoplan/SKILL.md.tmpl"
+summary         = "Reduce autoplan/SKILL.md.tmpl from 842 to ~560 lines. autoplan orchestrates CEO+design+eng reviews sequentially. Compress: 6 Decision Principles block (wordy), Decision Classification matrix (over-specified branching), phase-level prose repetition across Phase 0→4, Decision Audit Trail (duplicated in template)."
+layer           = 2
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02", "U04", "U11"]
+blocks          = ["U20", "U21"]
+estimated_loc   = -282   # net lines removed (842→560)
+spec_sections   = ["§4.3 Template Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#template-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/autoplan/SKILL.md.tmpl"]
+files_create    = []
+acceptance      = [
+  "wc -l autoplan/SKILL.md.tmpl reports ≤565 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes",
+  "All 4 phases still present: Intake+Restore, CEO Review, Design Review, Eng Review+Dual Voices",
+  "Phase 3.5 DX Review (conditional) still present",
+  "Sequential execution mandate still enforced (no parallelism between phases)",
+  "6 Decision Principles section still present (can be compressed, not removed)",
+  "Decision Audit Trail section still present (singular — dedup if template had two copies)",
+  "Phase 4 Final Approval Gate still present",
+  "Filesystem Boundary (Codex prompts) still present",
+  "Completion: Write Review Logs still present",
+]
+produces        = ["optimized autoplan/SKILL.md.tmpl at ≤565 lines", "regenerated autoplan/SKILL.md"]
+consumes        = [
+  "/srv/repos/public/gstack/autoplan/SKILL.md.tmpl (842 lines)",
+  "preamble.ts U02 output ({{PREAMBLE}} block)",
+  "review.ts U04 output ({{REVIEW_DASHBOARD}} block)",
+  "plan-ceo-review/SKILL.md.tmpl U11 (referenced sections must still match)",
+]
+critical_decisions = [
+  "Whether the 6 Decision Principles can be compressed to a bulleted list vs 6 prose paragraphs",
+  "Whether Decision Audit Trail appears once or twice in the original — if twice, deduplicate without losing content",
+  "Whether 'Auto-Decide' explanation can reference plan-ceo-review rather than repeat it",
+]
+constraints     = [
+  "Sequential execution is mandatory — autoplan must not allow phases to run in parallel",
+  "Codex prompt filesystem boundary must remain — Codex must not read skill files",
+  "Review log writes for all phases must remain complete (CEO, design, eng each write their log)",
+  "Re-run Instructions section must remain — autoplan supports resumability",
+]
+failure_modes   = [
+  "Decision Principle compression causes autoplan to make the wrong auto-decide call on scope changes",
+  "Phase instruction compression causes CEO review to skip the Nuclear Scope Challenge",
+  "Restore point mechanism broken if Phase 0 Intake section is over-compressed",
+]
+rationale       = "autoplan is the highest-leverage orchestration skill — it runs 3-4 reviews in one invocation. At 842 lines its context cost is multiplied across all sub-agent calls. Reducing by 282 lines saves ~1,130 tokens per autoplan run."
+
+[units.U13]
+name            = "Token-optimize retro/SKILL.md.tmpl"
+summary         = "Reduce retro/SKILL.md.tmpl from 859 to ~570 lines. retro has four modes (engineering retro, global retro, personal weekly, compare). Compress: global retro mode (extreme over-specification of cross-repo analysis steps), compare mode (verbose diff instructions), tone section (can be tightened), Important Rules (repeated constraints)."
+layer           = 2
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U20", "U21"]
+estimated_loc   = -289   # net lines removed (859→570)
+spec_sections   = ["§4.3 Template Reduction Strategy", "§2 Techniques T1-T7"]
+spec_anchors    = ["#template-strategy", "#techniques"]
+files_modify    = ["/srv/repos/public/gstack/retro/SKILL.md.tmpl"]
+files_create    = []
+acceptance      = [
+  "wc -l retro/SKILL.md.tmpl reports ≤575 lines",
+  "bun run gen:skill-docs succeeds",
+  "bun test passes",
+  "All 4 retro modes still present: engineering retro, global retro, personal weekly, compare",
+  "Engineering Retro report template still has all sections",
+  "Global retro mode cross-repo analysis logic still present",
+  "Compare mode diff analysis still present",
+  "Tone section still present (even if compressed)",
+  "Important Rules section still present (even if compressed)",
+  "User-invocable arguments section still present",
+]
+produces        = ["optimized retro/SKILL.md.tmpl at ≤575 lines", "regenerated retro/SKILL.md"]
+consumes        = [
+  "/srv/repos/public/gstack/retro/SKILL.md.tmpl (859 lines)",
+  "preamble.ts U02 output ({{PREAMBLE}} block)",
+]
+critical_decisions = [
+  "Whether global retro mode cross-repo steps can be expressed as a checklist vs a narrative walk-through",
+  "Whether compare mode can be compressed to 'diff the two retro docs and highlight regressions' vs multi-step",
+  "Whether the 4 mode sections can share a common output template vs each specifying their own",
+]
+constraints     = [
+  "Global retro mode must still handle the ~/.gstack-dev/plans/ local plans directory",
+  "Compare mode must still work with two explicit retro file paths as arguments",
+  "Tone section (humor, directness) must preserve Garry's voice — no neutralization",
+]
+failure_modes   = [
+  "Global retro compression causes agents to miss cross-repo pattern detection",
+  "Tone section removal causes retro to produce bland, corporate-style output",
+  "Argument parsing compressed away — agents can't distinguish modes from invocation args",
+]
+rationale       = "retro at 859 lines is invoked weekly and in global cross-repo mode. Reducing by 289 lines saves ~1,160 tokens per retro run — meaningful at weekly cadence and very meaningful for global mode which runs across many repos."
+
+# ─────────────────────────────────────────────────────────────
+# LAYER 3 — Meta Artifacts (depends on resolvers, some on templates)
+# ─────────────────────────────────────────────────────────────
+
+[units.U14]
+name            = "Create skill methodology contracts TOML"
+summary         = "Create a machine-scannable TOML file encoding the methodology contracts embedded in skill templates: completeness principle, sovereignty (no external data without consent), verification gates, non-interactive philosophy, bisect-commit rules, Garry's-voice protection. These are currently implicit in prose across all templates."
+layer           = 3
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U21"]
+estimated_loc   = 150   # new file
+spec_sections   = ["§5.1 Machine-Scannable Artifacts", "§5.2 Methodology Contracts"]
+spec_anchors    = ["#machine-scannable", "#methodology-contracts"]
+files_modify    = []
+files_create    = ["/tmp/gstack-token-opt/docs/research/skill-methodology-contracts.toml"]
+acceptance      = [
+  "TOML file is valid",
+  "Completeness principle section present with exact URL (https://garryslist.org/posts/boil-the-ocean)",
+  "Sovereignty section lists all data-sharing constraints (what is/isn't sent externally)",
+  "Non-interactive philosophy section lists all skills that enforce it (ship, land-and-deploy, autoplan)",
+  "Bisect-commit rules present",
+  "Garry's-voice protection rules present (which files/sections are off-limits to neutral rewrites)",
+  "Each contract has an 'enforced_by' field listing which skill(s) implement it",
+]
+produces        = ["skill-methodology-contracts.toml"]
+consumes        = [
+  "preamble.ts U02 (lake intro, telemetry, proactive — sovereignty contracts)",
+  "ship/SKILL.md.tmpl U08 (bisect-commit rules)",
+  "land-and-deploy/SKILL.md.tmpl U10 (non-interactive philosophy)",
+  "autoplan/SKILL.md.tmpl U12 (sequential execution mandate)",
+  "CLAUDE.md U01 (community PR guardrails — Garry's voice protection)",
+]
+critical_decisions = [
+  "TOML schema: flat [contracts.completeness] sections or array of contract objects",
+  "Whether to include 'rationale' per contract or just 'rule' and 'enforced_by'",
+  "Whether violated_by field is useful (anti-patterns that break each contract)",
+]
+constraints     = [
+  "TOML must be readable without tooling",
+  "Must not invent new contracts — only externalize contracts already present in the codebase",
+]
+failure_modes   = [
+  "Contracts diverge from actual template behavior after U08-U13 optimizations — needs re-validation after Layer 2",
+]
+rationale       = "Methodology contracts are currently enforced by prose in templates. Externalizing them as TOML makes them auditable, testable, and usable by future CI checks or LLM reviewers."
+
+[units.U15]
+name            = "Create traceability TOML"
+summary         = "Create a traceability chain TOML linking: intent (why the optimization) → feature (what capability) → requirement (what must be true) → implementation (which file/unit) → code (which resolver/template function) → test (which test validates it). Full forward and backward traceability for the optimization project."
+layer           = 3
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U21"]
+estimated_loc   = 200   # new file
+spec_sections   = ["§5.3 Traceability Chain"]
+spec_anchors    = ["#traceability"]
+files_modify    = []
+files_create    = ["/tmp/gstack-token-opt/docs/research/traceability.toml"]
+acceptance      = [
+  "TOML file is valid",
+  "Every unit (U01-U21) appears as an implementation entry",
+  "Every requirement traces to at least one acceptance criterion from the DAG unit",
+  "Every intent maps to a measurable outcome (token count, LOC count)",
+  "Forward trace: intent → feature → requirement → implementation → code → test is complete for at least 3 units (U01, U02, U08)",
+  "Backward trace: code → requirement → intent is resolvable for at least 3 units",
+]
+produces        = ["traceability.toml"]
+consumes        = [
+  "OPTIMIZATION_DAG.toml (this file) — all units and acceptance criteria",
+  "ADOPTION_PROPOSAL.md — intent and feature descriptions",
+]
+critical_decisions = [
+  "Whether to use TOML arrays-of-tables ([[traces]]) or nested tables ([traces.T01])",
+  "How to reference code locations — file+function vs file+line_range",
+  "Whether the test column references bun test file paths or just test names",
+]
+constraints     = [
+  "Must not invent requirements not already in the DAG or proposal",
+  "Must be usable as input to a future traceability-lint CI step",
+]
+failure_modes   = [
+  "Traceability links go stale as units are implemented and acceptance criteria evolve",
+]
+rationale       = "Token optimization changes span 21 units across 13 files. Traceability TOML prevents any requirement from being silently dropped as the implementation progresses through layers."
+
+[units.U16]
+name            = "Create review readiness gate TOML"
+summary         = "Create a review-readiness gate TOML specific to this optimization project. Defines the gates that must pass before the optimization PR is mergeable: all units implemented, token counts measured, no behavioral regressions, style contracts satisfied, traceability complete."
+layer           = 3
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U21"]
+estimated_loc   = 120   # new file
+spec_sections   = ["§5.4 Review Readiness Gate"]
+spec_anchors    = ["#review-gate"]
+files_modify    = []
+files_create    = ["/tmp/gstack-token-opt/docs/research/review-readiness-gate.toml"]
+acceptance      = [
+  "TOML file is valid",
+  "Gate has sections: implementation_complete, token_measurement, regression_check, style_contract, traceability",
+  "Each gate section has: description, checks (array), pass_condition, failure_action",
+  "All 21 units appear in implementation_complete.checks",
+  "Token measurement gate references U21 evidence matrix output",
+  "Regression check gate references bun test and bun run gen:skill-docs",
+  "Style contract gate references writing-style-contracts.toml (U03)",
+]
+produces        = ["review-readiness-gate.toml"]
+consumes        = [
+  "OPTIMIZATION_DAG.toml — unit list and acceptance criteria",
+  "writing-style-contracts.toml U03 — style gate input",
+  "traceability.toml U15 — traceability gate input",
+]
+critical_decisions = [
+  "Whether gates are ordered (must pass in sequence) or parallel (any order)",
+  "How strict the token measurement gate is (exact count vs ≤ threshold)",
+  "Whether a failing gate blocks the PR or just flags a warning",
+]
+constraints     = [
+  "All gates must be automatable — no 'human must review' gates without a specific human check defined",
+  "Must align with gstack ship workflow's existing gate checks",
+]
+failure_modes   = [
+  "Gate criteria too loose — optimization ships with undetected regressions",
+  "Gate criteria too strict — minor whitespace changes in TOML block the merge",
+]
+rationale       = "Without explicit gates, optimization PRs risk shipping partial work. The gate TOML makes the merge criteria machine-checkable and removes ambiguity from the review process."
+
+[units.U17]
+name            = "Create evidence matrix TOML"
+summary         = "Create an evidence matrix TOML that records: the before/after token counts per file, the measurement methodology, scope inclusions/exclusions, and confidence level for each claim. This is the primary evidence artifact for the optimization PR."
+layer           = 3
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U02"]
+blocks          = ["U21"]
+estimated_loc   = 180   # new file (estimates pre-measurement)
+spec_sections   = ["§5.5 Evidence Matrix"]
+spec_anchors    = ["#evidence-matrix"]
+files_modify    = []
+files_create    = ["/tmp/gstack-token-opt/docs/research/evidence-matrix.toml"]
+acceptance      = [
+  "TOML file is valid",
+  "Every optimized file has an entry with: file_path, before_loc, target_loc, before_tokens_est, after_tokens_est, measurement_method, scope_includes, scope_excludes, confidence",
+  "Measurement method is documented (tiktoken cl100k_base or equivalent)",
+  "Token estimates use a consistent multiplier (documented in [meta] section)",
+  "Confidence levels are one of: high (exact count), medium (estimate ±10%), low (rough estimate ±25%)",
+  "A [totals] section summarizes aggregate before/after across all units",
+  "scope_excludes are explicit (e.g. 'binary files in dist/', 'test fixtures', 'generated SKILL.md files')",
+]
+produces        = ["evidence-matrix.toml (pre-measurement estimates, updated by U21 with actuals)"]
+consumes        = [
+  "OPTIMIZATION_DAG.toml — estimated_loc per unit",
+  "All optimized files (line counts from wc -l)",
+]
+critical_decisions = [
+  "Token counting method: tiktoken library, claude token estimator, or simple character/4 heuristic",
+  "Whether to count tokens in SKILL.md.tmpl vs generated SKILL.md (templates are the source; generated files are the runtime cost)",
+  "How to handle {{PREAMBLE}} and other resolver expansions — they expand to many more tokens at runtime",
+]
+constraints     = [
+  "Token estimates must be documented as estimates until U21 produces actuals",
+  "Must distinguish template LOC from runtime token cost (they are different dimensions)",
+  "Must be updatable in-place by U21 without losing the pre-measurement estimates",
+]
+failure_modes   = [
+  "Token counting method inconsistency between pre- and post-measurement makes comparison invalid",
+  "Excluding generated SKILL.md from measurement hides the actual runtime cost reduction",
+]
+rationale       = "Claims about token reduction must be backed by evidence. The evidence matrix TOML makes every claim auditable: who measured, what method, what was in/out of scope."
+
+[units.U18]
+name            = "Create language-agnostic AI slop review guide"
+summary         = "Adapt the Rust-specific 'AI slop review' pattern into a language-agnostic guide. Cover: identifying AI-generated padding in prose and code, the blacklist patterns from U03, how to apply the review in a PR context, examples of before/after compression, and how to use gstack's style contracts as input."
+layer           = 3
+tier            = "periodic"
+status          = "pending"
+depends_on      = ["U03"]
+blocks          = ["U19", "U21"]
+estimated_loc   = 250   # new file
+spec_sections   = ["§6 AI Slop Review Guide"]
+spec_anchors    = ["#slop-review-guide"]
+files_modify    = []
+files_create    = ["/tmp/gstack-token-opt/docs/research/ai-slop-review-guide.md"]
+acceptance      = [
+  "Document exists and has at least 200 lines",
+  "Covers: what AI slop is, why it matters for token budgets, how to identify it",
+  "Includes the AI_SLOP_BLACKLIST entries from U03 as a practical checklist",
+  "Includes before/after examples (at least 3) showing compressed vs uncompressed prose",
+  "Language-agnostic: examples use markdown/prose, not Rust-specific syntax",
+  "References gstack writing-style-contracts.toml (U03) for programmatic enforcement",
+  "Includes a PR review checklist that reviewers can use",
+]
+produces        = ["ai-slop-review-guide.md"]
+consumes        = [
+  "writing-style-contracts.toml U03 (blacklists and voice rules)",
+  "preamble.ts U02 before/after (concrete optimization examples)",
+  "ship/SKILL.md.tmpl U08 before/after (concrete optimization examples)",
+]
+critical_decisions = [
+  "Whether to include gstack-specific examples only or generalize to arbitrary prose/code",
+  "How prescriptive to be about compression ratios (e.g. 'reduce by at least 30%' vs 'as much as possible')",
+  "Whether to include a machine-readable checklist format at the end for tool consumption",
+]
+constraints     = [
+  "Must not be Rust-specific — this is for any codebase with AI-generated content",
+  "Must be usable by a human reviewer without running any tooling",
+  "Garry's voice: direct, no-nonsense, no hedging",
+]
+failure_modes   = [
+  "Guide is too abstract — reviewers can't apply it without examples",
+  "Guide prescribes compression that conflicts with agent reliability (over-compressed prompts fail)",
+]
+rationale       = "The gstack codebase has accumulated AI slop across 13 files. A reusable review guide prevents re-accumulation after this optimization and is a community artifact that extends value beyond this project."
+
+[units.U19]
+name            = "Create adoption proposal document"
+summary         = "Write the ADOPTION_PROPOSAL.md that this DAG references as its spec. Covers: problem statement (token budget crisis), evidence (current counts), proposed solution (T1-T7 techniques), success criteria, rollout strategy, risk analysis, and the link back to this DAG as the implementation decomposition."
+layer           = 3
+tier            = "periodic"
+status          = "pending"
+depends_on      = ["U18"]
+blocks          = ["U21"]
+estimated_loc   = 300   # new file
+spec_sections   = ["§1 Problem Statement", "§7 Adoption Strategy"]
+spec_anchors    = ["#problem", "#adoption"]
+files_modify    = []
+files_create    = ["/tmp/gstack-token-opt/docs/research/ADOPTION_PROPOSAL.md"]
+acceptance      = [
+  "Document exists and has at least 250 lines",
+  "Problem statement includes current token counts per file (from evidence-matrix.toml U17)",
+  "Optimization techniques T1-T7 are defined and described with examples",
+  "Success criteria are measurable (specific token reduction targets per file)",
+  "Risk analysis covers: behavioral regression, voice neutralization, snapshot fixture churn",
+  "Rollout strategy references this DAG (OPTIMIZATION_DAG.toml) as the implementation plan",
+  "Document links to all other research artifacts: writing-style-contracts.toml, skill-methodology-contracts.toml, traceability.toml, evidence-matrix.toml, ai-slop-review-guide.md",
+]
+produces        = ["ADOPTION_PROPOSAL.md (the spec this DAG references)"]
+consumes        = [
+  "ai-slop-review-guide.md U18",
+  "evidence-matrix.toml U17 (current token counts)",
+  "OPTIMIZATION_DAG.toml (this file — referenced as implementation decomposition)",
+  "skill-methodology-contracts.toml U14",
+  "traceability.toml U15",
+  "review-readiness-gate.toml U16",
+]
+critical_decisions = [
+  "Whether T1-T7 technique taxonomy is finalized before writing the proposal or emerges from it",
+  "How specific the per-file reduction targets should be (exact counts vs ±10% ranges)",
+  "Whether the proposal advocates for a style linter CI step as a future enforcement mechanism",
+]
+constraints     = [
+  "Must be written after U17 (evidence) and U18 (guide) are complete — proposal needs the evidence",
+  "Garry's voice: builder-focused, specific, no consultant-speak",
+  "Must be self-contained — a new contributor should understand the entire optimization project from this doc alone",
+]
+failure_modes   = [
+  "Written before evidence matrix is complete — token count claims are invented rather than measured",
+  "Document becomes too long (ironic for a token optimization project) — keep under 350 lines",
+]
+rationale       = "The adoption proposal is the entry point for anyone reviewing the optimization work. Having the DAG built first ensures the proposal is grounded in an actual implementation plan rather than aspirational prose."
+
+# ─────────────────────────────────────────────────────────────
+# LAYER 4 — Measurement (depends on all implementation units)
+# ─────────────────────────────────────────────────────────────
+
+[units.U20]
+name            = "Regenerate all SKILL.md files"
+summary         = "Run bun run gen:skill-docs after all Layer 0-2 optimizations are complete. This regenerates all SKILL.md files from their optimized .tmpl templates and optimized resolvers. Update snapshot fixtures in test/fixtures/ if needed."
+layer           = 4
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U01", "U02", "U03", "U04", "U05", "U06", "U07", "U08", "U09", "U10", "U11", "U12", "U13"]
+blocks          = ["U21"]
+estimated_loc   = 0   # no new code — runs existing pipeline
+spec_sections   = ["§4.4 Regeneration Step"]
+spec_anchors    = ["#regeneration"]
+files_modify    = [
+  "/srv/repos/public/gstack/ship/SKILL.md",
+  "/srv/repos/public/gstack/office-hours/SKILL.md",
+  "/srv/repos/public/gstack/land-and-deploy/SKILL.md",
+  "/srv/repos/public/gstack/plan-ceo-review/SKILL.md",
+  "/srv/repos/public/gstack/autoplan/SKILL.md",
+  "/srv/repos/public/gstack/retro/SKILL.md",
+]
+files_create    = []
+acceptance      = [
+  "bun run gen:skill-docs exits 0",
+  "bun test exits 0 (snapshot fixtures match or are updated)",
+  "All 6 targeted SKILL.md files regenerated with reduced line counts",
+  "No other SKILL.md files changed (optimization scope is contained)",
+  "git diff --stat shows only the 6 expected SKILL.md files changed plus their .tmpl sources",
+]
+produces        = ["regenerated SKILL.md files for all optimized templates"]
+consumes        = [
+  "All optimized .tmpl files (U08-U13)",
+  "All optimized resolver .ts files (U02, U04, U05, U06, U07)",
+  "scripts/gen-skill-docs.ts (unchanged — this is the pipeline, not a target)",
+]
+critical_decisions = [
+  "Whether to update snapshot fixtures immediately or treat fixture divergence as a test failure requiring investigation",
+  "How to handle partial optimization (if one .tmpl is not yet optimized, do not regenerate that SKILL.md)",
+]
+constraints     = [
+  "Must run gen:skill-docs exactly as documented in CLAUDE.md — no custom flags or bypasses",
+  "Must not commit generated SKILL.md files separately — they should be committed together with their .tmpl sources",
+  "Must not modify scripts/gen-skill-docs.ts as part of this unit",
+]
+failure_modes   = [
+  "Template syntax error in an optimized .tmpl causes gen-skill-docs to crash — requires fixing the .tmpl",
+  "Snapshot fixture divergence treated as expected update when it's actually a regression",
+]
+rationale       = "Regeneration is the integration step that validates all Layer 0-2 optimizations work together through the full pipeline. It catches cross-unit conflicts before measurement."
+
+[units.U21]
+name            = "Measure before/after token counts, produce summary report"
+summary         = "Measure token counts for all optimized files before and after. Use tiktoken (cl100k_base) or equivalent. Update evidence-matrix.toml (U17) with actuals. Produce a summary report as a markdown table showing: file, before LOC, after LOC, LOC delta, before tokens, after tokens, token delta, % reduction."
+layer           = 4
+tier            = "gate"
+status          = "pending"
+depends_on      = ["U01", "U02", "U03", "U04", "U05", "U06", "U07", "U08", "U09", "U10", "U11", "U12", "U13", "U14", "U15", "U16", "U17", "U18", "U19", "U20"]
+blocks          = []
+estimated_loc   = 50   # measurement script
+spec_sections   = ["§5.5 Evidence Matrix", "§8 Measurement Methodology"]
+spec_anchors    = ["#evidence-matrix", "#measurement"]
+files_modify    = ["/tmp/gstack-token-opt/docs/research/evidence-matrix.toml"]
+files_create    = ["/tmp/gstack-token-opt/docs/research/token-reduction-summary.md"]
+acceptance      = [
+  "evidence-matrix.toml updated with actual before/after token counts (not estimates)",
+  "token-reduction-summary.md exists with markdown table covering all 13 optimized files",
+  "Summary table has columns: File, Before LOC, After LOC, ΔLOC, Before Tokens, After Tokens, ΔTokens, % Reduction",
+  "Aggregate row shows total across all files",
+  "Token counting method documented in summary header",
+  "Measurement covers both .ts resolver files and .tmpl template files",
+  "Note distinguishes template token cost (at gen time) vs runtime token cost (at invocation time, after resolver expansion)",
+  "All acceptance criteria from U01-U13 referenced and confirmed passing",
+]
+produces        = [
+  "updated evidence-matrix.toml with actual measurements",
+  "token-reduction-summary.md (final evidence artifact for PR)",
+]
+consumes        = [
+  "All optimized files (U01-U13 outputs)",
+  "All meta artifacts (U14-U19 outputs)",
+  "Regenerated SKILL.md files (U20 output)",
+  "evidence-matrix.toml U17 (pre-measurement estimates to compare against actuals)",
+]
+critical_decisions = [
+  "Token counting tool: tiktoken Python library, custom script, or claude-tokenizer npm package",
+  "Whether to measure .tmpl files (development cost) or generated SKILL.md files (runtime cost) or both",
+  "How to present the resolver expansion factor (a .tmpl with {{PREAMBLE}} expands to many more tokens at runtime)",
+]
+constraints     = [
+  "Measurement must be reproducible — anyone with the repo can rerun and get the same counts",
+  "Must measure the same set of files as the before-baseline (same method, same tokenizer)",
+  "Summary report must be included in the optimization PR body",
+]
+failure_modes   = [
+  "Before measurements taken from estimates rather than actuals — comparison is misleading",
+  "Tokenizer mismatch between before/after measurement (e.g. cl100k_base vs o200k_base)",
+  "Generated SKILL.md not measured — understates actual runtime token savings",
+]
+rationale       = "Without measurement, the optimization is unverified. The summary report is the deliverable that proves the work achieved its goals and justifies the PR merge."
+
+# ─────────────────────────────────────────────────────────────
+# COMPUTED METADATA
+# ─────────────────────────────────────────────────────────────
+
+[computed]
+entry_points      = ["U01", "U02", "U03"]   # Layer 0: no dependencies, start here
+leaf_nodes        = ["U21"]                  # Layer 4: nothing blocks on U21
+critical_path     = ["U02", "U04", "U08", "U20", "U21"]
+# Rationale: U02 (preamble) → U04 (review) → U08 (ship tmpl, most complex) → U20 (regen) → U21 (measure)
+# This is the longest dependency chain and the highest-LOC path through the graph.
+critical_path_loc = 1190   # |U02|+|U04|+|U08|+|U20|+|U21| = 319+321+232+0+50 = 922 changed LOC
+
+[computed.max_parallel]
+layer_0 = 3   # U01, U02, U03 — fully independent
+layer_1 = 4   # U04, U05, U06, U07 — all depend only on U02 (same layer-0 output)
+layer_2 = 6   # U08-U13 — all depend on layer-1 resolvers; U12 additionally waits on U11
+layer_3 = 5   # U14, U15, U16, U17, U18 fully parallel; U19 waits on U18
+layer_4 = 1   # U20 then U21 — strictly sequential (U21 needs U20's output)
+
+[computed.conflict_groups]
+# Units that share preamble.ts output and may produce SKILL.md fixture conflicts
+resolver_consumers = ["U04", "U05", "U06", "U07"]
+# All depend on preamble.ts (U02) — if U02 changes path interpolation patterns,
+# all four resolver snapshot fixtures diverge simultaneously. Implement U02 first,
+# update fixtures once, then proceed with U04-U07 in parallel.
+
+template_consumers = ["U08", "U09", "U10", "U11", "U12", "U13"]
+# All six templates include {{PREAMBLE}} and thus depend on U02's generated output.
+# If U02 changes the preamble bash block, all six SKILL.md snapshots change.
+# Coordinate fixture updates in U20 rather than six separate fixture commits.
+
+autoplan_ceo_coupling = ["U11", "U12"]
+# autoplan (U12) references plan-ceo-review section names. If U11 renames sections,
+# U12 must be updated in the same commit to avoid a broken intermediate state.
+
+[computed.loc_totals]
+# Lines removed (negative = reduction, positive = new files)
+layer_0_removed    = 538    # U01(-219) + U02(-319)
+layer_0_added      =  103   # U03(+103 new file)
+layer_1_removed    = 861    # U04(-321) + U05(-300) + U06(-117) + U07(-123)
+layer_2_removed    = 1665   # U08(-232) + U09(-271) + U10(-318) + U11(-273) + U12(-282) + U13(-289)
+layer_3_added      = 1000   # U14(+150) + U15(+200) + U16(+120) + U17(+180) + U18(+250) + U19(+300) — net new docs
+layer_4_added      =   50   # U21 measurement script
+net_loc_delta      = -1911  # total lines removed from gstack codebase (excl. new research docs)
+total_lines_removed = 3064  # gross removal (before accounting for new files added)
+
+[computed.token_estimates]
+# Estimated using ~4 chars/token heuristic for English prose + bash (rough baseline)
+# Actual measurement by U21 will replace these estimates
+preamble_runtime_savings_per_skill = 1280   # U02: 319 lines × ~4 tokens/line avg
+review_runtime_savings_per_skill   = 1284   # U04: 321 lines × ~4 tokens/line avg
+ship_template_savings_per_run      =  928   # U08: 232 lines × ~4 tokens/line avg
+land_deploy_savings_per_run        = 1272   # U10: 318 lines × ~4 tokens/line avg
+autoplan_savings_per_run           = 1128   # U12: 282 lines × ~4 tokens/line avg
+total_gross_token_reduction_est    = 12256  # 3064 lines × ~4 tokens/line avg
+note = "Runtime savings are multiplied by invocation frequency. preamble savings apply to every skill run."

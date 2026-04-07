@@ -1,0 +1,311 @@
+# OPTIMIZATION_TRACEABILITY.toml
+# dag-toml-templates v2 — traceability format
+# Maps optimization intent through features, requirements, implementation, code, and tests
+# to outputs for the gstack token-footprint reduction effort.
+# Date: 2026-04-07
+
+[meta]
+format          = "dag-toml-templates/v2/traceability"
+schema_version  = "2.0.0"
+created         = "2026-04-07"
+document_title  = "gstack Token Optimization Traceability"
+project_root    = "/srv/repos/public/gstack"
+
+# ─── Intents ──────────────────────────────────────────────────────────────────
+
+[[intents]]
+id          = "INT:TOK01"
+statement   = "Reduce gstack token footprint by 35-50% across preamble, templates, and CLAUDE.md without dropping any behavioral semantics or workflow steps."
+rationale   = "Context bloat causes E2E test timeouts, inflates per-skill invocation cost, and degrades agent focus. The full preamble at tier 4 is ~220 lines; most skills need tier 1-2."
+success_metric = "Before/after token counts for top 6 skills show >= 35% reduction"
+
+[[intents]]
+id          = "INT:TOK02"
+statement   = "Eliminate AI-detectable patterns (em dashes, vocabulary blacklist terms, filler phrases) from all resolver output and generated SKILL.md files."
+rationale   = "Slop patterns in gstack's own output undermine trust and contradict the voice contract (C03). Generated skills must pass the same builder-voice test applied to user code."
+success_metric = "Zero blacklist terms in generated SKILL.md files when scanned with pattern matcher"
+
+[[intents]]
+id          = "INT:TOK03"
+statement   = "Make methodology rules machine-scannable by formalizing them as TOML contracts with explicit reviewer_checks arrays."
+rationale   = "Rules embedded in prose comments (CLAUDE.md, preamble.ts) are invisible to automated review. TOML contracts can be loaded by the review skill and checked programmatically."
+success_metric = "All 10 contracts in SKILL_CONTRACTS.toml have non-empty reviewer_checks arrays with concrete, checkable criteria"
+
+# ─── Features ─────────────────────────────────────────────────────────────────
+
+[[features]]
+id          = "FEAT:F01"
+title       = "Tiered Preamble Compression"
+description = "Compress preamble resolver output proportional to skill tier. Tier 1-2: voice (trimmed) + core bash + upgrade check. Tier 3-4: full voice + ask format + completeness + context recovery."
+realizes    = ["INT:TOK01"]
+
+[[features]]
+id          = "FEAT:F02"
+title       = "Voice Contract Enforcement"
+description = "Automated scan of generated SKILL.md files for blacklisted vocabulary, banned phrases, and em dashes. Integrated into skill-validation.test.ts as a static check."
+realizes    = ["INT:TOK02"]
+
+[[features]]
+id          = "FEAT:F03"
+title       = "Machine-Scannable Methodology Contracts"
+description = "TOML contract declarations covering all 10 methodology domains. Structured for programmatic loading by the /review and /cso skills."
+realizes    = ["INT:TOK03"]
+
+# ─── Requirements ─────────────────────────────────────────────────────────────
+
+[[requirements]]
+id          = "REQ:R01"
+title       = "Preamble tier system preserves all behaviors"
+description = "Reducing preamble size at lower tiers must not drop any behavior that skill's workflow depends on. Tier assignments must be audited against each skill's SKILL.md.tmpl."
+type        = "functional"
+realizes    = ["FEAT:F01"]
+
+[[requirements]]
+id          = "REQ:R02"
+title       = "Voice blacklist is complete and current"
+description = "The blacklist in SKILL_CONTRACTS.toml C03 must match the blacklist in scripts/resolvers/preamble.ts:655 exactly. Single source of truth is preamble.ts; TOML is derived."
+type        = "consistency"
+realizes    = ["FEAT:F02"]
+
+[[requirements]]
+id          = "REQ:R03"
+title       = "Contracts reference real file paths"
+description = "Every source_artifacts entry in SKILL_CONTRACTS.toml must point to a file that exists in /srv/repos/public/gstack and a line range that contains the relevant code."
+type        = "integrity"
+realizes    = ["FEAT:F03"]
+
+[[requirements]]
+id          = "REQ:R04"
+title       = "Token reduction measurable before and after"
+description = "Before-state token counts must be captured for: scripts/resolvers/preamble.ts output at each tier, CLAUDE.md, and the top 6 skill SKILL.md files."
+type        = "measurement"
+realizes    = ["FEAT:F01"]
+
+[[requirements]]
+id          = "REQ:R05"
+title       = "E2E tests must not regress after compression"
+description = "All gate-tier E2E tests (bun run test:gate) must pass before and after preamble compression. Periodic tests must not newly fail."
+type        = "non-regression"
+realizes    = ["FEAT:F01", "FEAT:F02"]
+
+# ─── Implementations ──────────────────────────────────────────────────────────
+
+[[implementations]]
+id          = "IMP:I01"
+title       = "Preamble resolver tier gating"
+file        = "scripts/resolvers/preamble.ts"
+description = "generateVoiceDirective(tier) already gates voice output at tier <= 1 vs full. Extend this pattern to generateCompletenessSection, generateContextRecovery, and generateAskUserFormat — only emit at tier >= 3."
+status      = "proposed"
+realizes    = ["FEAT:F01"]
+requires    = ["REQ:R01", "REQ:R04"]
+
+[[implementations]]
+id          = "IMP:I02"
+title       = "Voice blacklist scanner"
+file        = "scripts/resolvers/preamble.ts"
+description = "Extract blacklist arrays from generateVoiceDirective() into a standalone exported constant. Import in test/skill-validation.test.ts for static scanning of generated SKILL.md files."
+status      = "proposed"
+realizes    = ["FEAT:F02"]
+requires    = ["REQ:R02"]
+
+[[implementations]]
+id          = "IMP:I03"
+title       = "Review resolver size reduction"
+file        = "scripts/resolvers/review.ts"
+description = "generateReviewDashboard() is 50+ lines. Extract the ASCII table template to a constant. Remove the staleness detection narrative and replace with a terse rule list."
+status      = "proposed"
+realizes    = ["FEAT:F01"]
+requires    = ["REQ:R01"]
+
+[[implementations]]
+id          = "IMP:I04"
+title       = "CLAUDE.md contributor section compression"
+file        = "CLAUDE.md"
+description = "CLAUDE.md is the primary contributor reference. Several sections (Commit style, CHANGELOG+VERSION style, AI effort compression) repeat content available in SKILL.md templates. Compress to pointers where duplication exists."
+status      = "proposed"
+realizes    = ["FEAT:F01"]
+requires    = ["REQ:R04"]
+
+[[implementations]]
+id          = "IMP:I05"
+title       = "Ship template step consolidation"
+file        = "ship/SKILL.md.tmpl"
+description = "Ship template has 9 numbered steps. Steps 5 (CHANGELOG) and 6 (bisectable commits) contain overlapping framing. Consolidate into shared commit step with inline CHANGELOG instructions."
+status      = "proposed"
+realizes    = ["FEAT:F01"]
+requires    = ["REQ:R01", "REQ:R05"]
+
+# ─── Code Artifacts ───────────────────────────────────────────────────────────
+
+[[code]]
+id          = "CODE:C01"
+file        = "scripts/resolvers/preamble.ts"
+description = "Primary preamble generator. Contains generateVoiceDirective (tier-gated), generateCompletenessSection, generateTestFailureTriage, generateAskUserFormat, generateContextRecovery."
+line_ranges = ["16-113", "306-321", "333-410", "292-303", "610-666", "668-700"]
+implements  = ["IMP:I01", "IMP:I02"]
+
+[[code]]
+id          = "CODE:C02"
+file        = "scripts/resolvers/review.ts"
+description = "Review resolver. generateReviewDashboard produces the ASCII Review Readiness Dashboard. generatePlanFileReviewReport writes review status to plan files."
+line_ranges = ["20-71", "73-120"]
+implements  = ["IMP:I03"]
+
+[[code]]
+id          = "CODE:C03"
+file        = "scripts/resolvers/design.ts"
+description = "Design resolver. Imports AI_SLOP_BLACKLIST from constants.ts. generateDesignHardRules applies the full blacklist + OpenAI litmus checks."
+line_ranges  = ["1-2", "671-712"]
+implements  = []
+
+[[code]]
+id          = "CODE:C04"
+file        = "scripts/resolvers/constants.ts"
+description = "Shared constants: AI_SLOP_BLACKLIST (10 patterns), OPENAI_HARD_REJECTIONS (7 patterns), OPENAI_LITMUS_CHECKS (7 checks). Single source of truth for design slop detection."
+line_ranges = ["1-50"]
+implements  = ["IMP:I02"]
+
+[[code]]
+id          = "CODE:C05"
+file        = "ship/SKILL.md.tmpl"
+description = "Ship workflow skill template. 9-step workflow covering merge, test, review, version bump, CHANGELOG, commit, push, PR."
+line_ranges  = ["1-50", "440-677"]
+implements  = ["IMP:I05"]
+
+# ─── Tests ────────────────────────────────────────────────────────────────────
+
+[[tests]]
+id          = "TEST:T01"
+file        = "test/skill-validation.test.ts"
+description = "Static validation of all SKILL.md files. Checks frontmatter, required sections, preamble tier consistency, and tool allow-lists. Voice blacklist scan should be added here."
+tier        = "gate"
+covers      = ["REQ:R02", "REQ:R05"]
+
+[[tests]]
+id          = "TEST:T02"
+file        = "test/gen-skill-docs.test.ts"
+description = "Generator quality checks. Validates that bun run gen:skill-docs produces consistent output from templates. Catches resolver regressions and template drift."
+tier        = "gate"
+covers      = ["REQ:R01", "REQ:R04"]
+
+[[tests]]
+id          = "TEST:T03"
+file        = "test/skill-e2e.test.ts"
+description = "End-to-end skill execution via claude -p. Gate-tier tests for ship, qa, review, investigate. Preamble compression must not cause turn-limit failures or missed workflow steps."
+tier        = "gate"
+covers      = ["REQ:R05"]
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+
+[[outputs]]
+id          = "OUT:O01"
+title       = "Reduced token footprint"
+description = "All preamble tiers, top 6 skill SKILL.md files, and CLAUDE.md show >= 35% token reduction vs baseline. E2E completion rate unchanged."
+type        = "quantitative"
+realized_by = ["IMP:I01", "IMP:I03", "IMP:I04", "IMP:I05"]
+
+[[outputs]]
+id          = "OUT:O02"
+title       = "Machine-scannable methodology contracts"
+description = "SKILL_CONTRACTS.toml with 10 contracts, each with reviewer_checks arrays loadable by /review and /cso skills."
+type        = "artifact"
+realized_by = ["IMP:I02"]
+
+[[outputs]]
+id          = "OUT:O03"
+title       = "Slop-free generated output"
+description = "Zero blacklist term hits when skill-validation.test.ts scans all generated SKILL.md files. Voice contract (C03) passes for all skills."
+type        = "quality"
+realized_by = ["IMP:I02"]
+
+# ─── Relations Index ──────────────────────────────────────────────────────────
+
+[[relations]]
+from = "INT:TOK01"
+to   = ["FEAT:F01", "FEAT:F02"]
+type = "realized_by"
+
+[[relations]]
+from = "INT:TOK02"
+to   = ["FEAT:F02"]
+type = "realized_by"
+
+[[relations]]
+from = "INT:TOK03"
+to   = ["FEAT:F03"]
+type = "realized_by"
+
+[[relations]]
+from = "FEAT:F01"
+to   = ["REQ:R01", "REQ:R04", "REQ:R05"]
+type = "requires"
+
+[[relations]]
+from = "FEAT:F02"
+to   = ["REQ:R02", "REQ:R05"]
+type = "requires"
+
+[[relations]]
+from = "FEAT:F03"
+to   = ["REQ:R03"]
+type = "requires"
+
+[[relations]]
+from = "IMP:I01"
+to   = ["CODE:C01"]
+type = "modifies"
+
+[[relations]]
+from = "IMP:I02"
+to   = ["CODE:C01", "CODE:C04"]
+type = "modifies"
+
+[[relations]]
+from = "IMP:I03"
+to   = ["CODE:C02"]
+type = "modifies"
+
+[[relations]]
+from = "IMP:I04"
+to   = ["CLAUDE.md"]
+type = "modifies"
+
+[[relations]]
+from = "IMP:I05"
+to   = ["CODE:C05"]
+type = "modifies"
+
+[[relations]]
+from = "TEST:T01"
+to   = ["REQ:R02", "REQ:R05"]
+type = "covers"
+
+[[relations]]
+from = "TEST:T02"
+to   = ["REQ:R01", "REQ:R04"]
+type = "covers"
+
+[[relations]]
+from = "TEST:T03"
+to   = ["REQ:R05"]
+type = "covers"
+
+# ─── Computed ─────────────────────────────────────────────────────────────────
+
+[computed]
+total_intents         = 3
+total_features        = 3
+total_requirements    = 5
+total_implementations = 5
+total_code_artifacts  = 5
+total_tests           = 3
+total_outputs         = 3
+total_relations       = 15
+
+requirements_without_tests = ["REQ:R03"]  # Contract integrity — manual audit only
+implementations_without_code = []
+intents_fully_traced = ["INT:TOK01", "INT:TOK02", "INT:TOK03"]
+coverage_gaps = [
+  "REQ:R03 has no automated test: source_artifacts paths must be manually verified",
+  "IMP:I04 (CLAUDE.md compression) has no test coverage — reviewer must eyeball before/after",
+]

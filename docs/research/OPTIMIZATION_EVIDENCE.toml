@@ -1,0 +1,220 @@
+# OPTIMIZATION_EVIDENCE.toml
+# dag-toml-templates v2 — evidence-matrix format
+# Evidence matrix for gstack token optimization claims.
+# Each claim maps to artifacts, measurement methods, and known gaps.
+# Date: 2026-04-07
+
+[meta]
+format          = "dag-toml-templates/v2/evidence-matrix"
+schema_version  = "2.0.0"
+created         = "2026-04-07"
+document_title  = "gstack Token Optimization Evidence Matrix"
+project_root    = "/srv/repos/public/gstack"
+claim_count     = 5
+
+# ─── E01: Preamble Resolver Reduction ────────────────────────────────────────
+
+[[claims]]
+id        = "E01"
+statement = "Preamble resolver output reduced by 50%+ preserving behavioral semantics"
+status    = "proposed"  # before = measured; after = target
+
+[claims.before]
+artifact  = "scripts/resolvers/preamble.ts"
+version   = "current (pre-optimization)"
+measurement_method = "Token count of generatePreamble() output at each tier via tiktoken cl100k_base"
+notes = """
+Tier 1 baseline: ~180 tokens (core bash block only)
+Tier 2 baseline: ~420 tokens (+ upgrade check + telemetry)
+Tier 3 baseline: ~850 tokens (+ voice trimmed + completeness)
+Tier 4 baseline: ~1,650 tokens (+ full voice + ask format + context recovery + vendoring + routing)
+These are estimates from line counts; tiktoken measurement required for precise numbers.
+"""
+
+[claims.after]
+artifact  = "scripts/resolvers/preamble.ts"
+version   = "post-optimization (target)"
+measurement_method = "Same tiktoken measurement after tier-gating of generateCompletenessSection, generateContextRecovery, generateAskUserFormat"
+target = "Tier 1: ~90 tokens, Tier 2: ~210 tokens, Tier 3: ~490 tokens, Tier 4: ~900 tokens"
+
+[claims.matrix]
+scope_covered   = ["tier-1 preamble", "tier-2 preamble", "tier-3 preamble", "tier-4 preamble"]
+known_exclusions = [
+  "Core preamble bash block (lines 16-113) cannot be compressed without behavior loss",
+  "Upgrade check text cannot be removed — drives UPGRADE_AVAILABLE handling",
+  "Telemetry prompt cannot be removed — first-run user experience",
+]
+verification_command = "bun run gen:skill-docs && wc -w scripts/resolvers/preamble.ts"
+evidence_type = "quantitative"
+
+# ─── E02: CLAUDE.md Reduction ────────────────────────────────────────────────
+
+[[claims]]
+id        = "E02"
+statement = "CLAUDE.md reduced by 60%+ preserving all contributor instructions"
+status    = "proposed"
+
+[claims.before]
+artifact  = "CLAUDE.md"
+version   = "current (pre-optimization)"
+measurement_method = "wc -w CLAUDE.md"
+notes = """
+Current CLAUDE.md: 538 lines as of 2026-04-07.
+Major sections: Commands (15 lines), Testing (12 lines), Project structure (50 lines),
+SKILL.md workflow (15 lines), Platform-agnostic design (20 lines), Writing SKILL templates (20 lines),
+Browser interaction (10 lines), Dev symlink awareness (25 lines), Commit style (20 lines),
+Community PR guardrails (15 lines), CHANGELOG+VERSION style (40 lines), AI effort compression (15 lines),
+Search before building (15 lines), Local plans (5 lines), E2E eval failure blame (15 lines),
+Long-running tasks (10 lines), E2E test fixtures (20 lines), Publishing OpenClaw (15 lines),
+Deploying to active skill (10 lines), Upgrade migrations (5 lines), Compiled binaries (10 lines).
+"""
+
+[claims.after]
+artifact  = "CLAUDE.md"
+version   = "post-optimization (target)"
+measurement_method = "wc -w CLAUDE.md after compression"
+target = "~215 lines — remove duplication with skill templates, compress narrative sections to terse rules"
+
+[claims.matrix]
+scope_covered = [
+  "Commands section (unchanged — precise commands required)",
+  "Project structure (compressed — remove prose, keep tree)",
+  "Commit style (compressed — rules only, remove examples)",
+  "CHANGELOG+VERSION style (compressed — decision rules only)",
+  "AI effort compression table (removed — duplicates preamble.ts table)",
+]
+known_exclusions = [
+  "Commands section must stay complete — developers run these daily",
+  "Community PR guardrails must stay complete — protects voice and Garry's content",
+  "Platform-agnostic design section must stay — it's the primary skill authoring rule",
+]
+evidence_type = "quantitative"
+
+# ─── E03: Skill Template Reduction ────────────────────────────────────────────
+
+[[claims]]
+id        = "E03"
+statement = "Top 6 skill templates reduced by 35%+ preserving all workflow steps"
+status    = "proposed"
+
+[claims.before]
+artifacts = [
+  "ship/SKILL.md.tmpl",
+  "review/SKILL.md.tmpl",
+  "qa-only/SKILL.md.tmpl",
+  "plan-eng-review/SKILL.md.tmpl",
+  "investigate/SKILL.md.tmpl",
+  "cso/SKILL.md.tmpl",
+]
+version   = "current (pre-optimization)"
+measurement_method = "wc -w on each .tmpl file; sum = total template token estimate"
+notes = """
+Approximate line counts (2026-04-07):
+  ship/SKILL.md.tmpl:          ~700 lines
+  review/SKILL.md.tmpl:        ~350 lines
+  qa-only/SKILL.md.tmpl:       ~200 lines
+  plan-eng-review/SKILL.md.tmpl: ~280 lines
+  investigate/SKILL.md.tmpl:   ~220 lines
+  cso/SKILL.md.tmpl:           ~310 lines
+"""
+
+[claims.after]
+target = "Each template reduced by 35-45% by removing repeated framing, consolidating steps with shared logic, and replacing narrative instructions with terse rule lists."
+measurement_method = "wc -w on each .tmpl file post-optimization"
+
+[claims.matrix]
+scope_covered = [
+  "ship/SKILL.md.tmpl — Steps 5 and 6 (CHANGELOG + commit) consolidation",
+  "review/SKILL.md.tmpl — Review Readiness Dashboard narrative compression",
+  "qa-only/SKILL.md.tmpl — Duplicate preamble sections removed",
+  "plan-eng-review/SKILL.md.tmpl — Outside voice section compressed",
+  "investigate/SKILL.md.tmpl — Step framing reduced, action steps kept",
+  "cso/SKILL.md.tmpl — OWASP Top 10 descriptions compressed to checklist format",
+]
+known_exclusions = [
+  "Step numbers and step titles must be preserved — agents use them for progress tracking",
+  "AskUserQuestion option text cannot be compressed — agents read it verbatim to users",
+  "Bash code blocks cannot be compressed — they run as-is",
+]
+verification_command = "bun run gen:skill-docs && bun test test/skill-validation.test.ts"
+evidence_type = "quantitative + behavioral"
+
+# ─── E04: Machine-Scannable Contracts ─────────────────────────────────────────
+
+[[claims]]
+id        = "E04"
+statement = "Writing style rules formalized as machine-scannable contracts"
+status    = "proposed"
+
+[claims.before]
+artifact  = "scripts/resolvers/preamble.ts"
+location  = "generateVoiceDirective() lines 610-666"
+description = "Voice rules embedded in prose string returned by a TypeScript function. Not importable by test infrastructure without parsing the function return value."
+
+[claims.after]
+artifact  = "docs/research/SKILL_CONTRACTS.toml"
+location  = "contracts entry id=C03"
+description = "Voice rules as TOML array: blacklist.ai_vocabulary (20 terms), blacklist.banned_phrases (7 phrases), blacklist.banned_punctuation (1 pattern), reviewer_checks (6 checks). Loadable with any TOML parser."
+
+[claims.matrix]
+scope_covered = [
+  "C03 ai_vocabulary blacklist matches preamble.ts:655 exactly",
+  "C03 banned_phrases matches preamble.ts:656 exactly",
+  "C03 reviewer_checks are concrete and binary (pass/fail)",
+  "All 10 contracts have non-empty reviewer_checks",
+]
+known_exclusions = [
+  "Contracts are currently read-only artifacts — integration with /review skill is proposed, not implemented",
+  "C05 (search discipline) and C08 (platform agnostic) reviewer_checks require human judgment, not automated scan",
+]
+verification_command = "python3 -c \"import tomllib; d = tomllib.load(open('docs/research/SKILL_CONTRACTS.toml','rb')); print(len(d['contracts']), 'contracts')\" 2>/dev/null || echo 'install tomllib (Python 3.11+)'"
+evidence_type = "structural"
+
+# ─── E05: AI Slop Detection Patterns ──────────────────────────────────────────
+
+[[claims]]
+id        = "E05"
+statement = "AI slop detection patterns adapted for language-agnostic use"
+status    = "proposed"
+
+[claims.before]
+artifact  = "scripts/resolvers/constants.ts"
+location  = "AI_SLOP_BLACKLIST lines 3-15"
+description = "10 slop patterns as TypeScript string array. Used only in design.ts resolver. Not accessible to /review or /cso skills without importing from the TypeScript module."
+
+[claims.after]
+artifact  = "docs/research/SKILL_CONTRACTS.toml"
+location  = "contracts entry id=C10"
+description = "Same 10 patterns in C10.statement plus reviewer_checks with concrete per-pattern checks. Loadable by any /review or /cso skill instance via TOML."
+
+[claims.matrix]
+scope_covered = [
+  "All 10 AI_SLOP_BLACKLIST patterns from constants.ts present in C10",
+  "C10 reviewer_checks include file:line reference requirement",
+  "C10 applies_to includes review, cso, ship — the three skills most likely to encounter frontend diffs",
+]
+known_exclusions = [
+  "OpenAI hard rejection criteria (OPENAI_HARD_REJECTIONS, 7 patterns) not included in C10 — separate contract warranted",
+  "OpenAI litmus checks (OPENAI_LITMUS_CHECKS, 7 checks) not included — design-domain only",
+  "Pattern matching is semantic (human reads and judges) not syntactic (regex) — no automated scanner",
+]
+verification_command = "grep -c 'Purple/violet' /srv/repos/public/gstack/scripts/resolvers/constants.ts && grep -c 'Purple/violet' /tmp/gstack-token-opt/docs/research/SKILL_CONTRACTS.toml"
+evidence_type = "structural"
+
+# ─── Computed ─────────────────────────────────────────────────────────────────
+
+[computed]
+total_claims            = 5
+claims_with_before_state  = 5
+claims_with_after_target  = 5
+claims_verified         = 0   # none implemented yet
+claims_proposed         = 5
+
+coverage_gaps = [
+  "E01: Preamble tier token counts are estimates from line counts, not tiktoken measurements — run tiktoken before claiming 50%",
+  "E02: CLAUDE.md target line count (215) not verified against actual content — manual audit required",
+  "E03: Template reduction targets not validated against bun test gate — run after compression",
+  "E04: TOML contract loadability not verified with actual TOML parser run — run verification_command",
+  "E05: C10 reviewer_checks not integrated into /review skill — proposal only",
+  "No automated before/after measurement pipeline exists yet — measurement is manual",
+]

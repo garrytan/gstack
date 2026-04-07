@@ -1,0 +1,312 @@
+# SKILL_CONTRACTS.toml
+# dag-toml-templates v2 — contract-declaration format
+# Methodology contracts for the gstack AI builder framework.
+# Date: 2026-04-07
+
+[meta]
+format          = "dag-toml-templates/v2/contract-declaration"
+schema_version  = "2.0.0"
+created         = "2026-04-07"
+document_title  = "gstack Methodology Contracts"
+contract_count  = 10
+
+# ─── C01: Completeness ────────────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C01"
+domain    = "completeness"
+statement = """
+When AI reduces the marginal cost of an implementation to near-zero, always
+recommend the complete option. A 'lake' (100% coverage, all edge cases) is
+boilable; an 'ocean' (full rewrite, multi-quarter migration) is not. Boil
+lakes, flag oceans. Include Completeness X/10 for every option presented to
+the user. Calibration: 10=all edge cases, 7=happy path, 3=shortcut that
+defers significant work.
+"""
+applies_to = ["ship", "qa", "review", "plan-eng-review"]
+source_artifacts = [
+  "scripts/resolvers/preamble.ts:306-321",  # generateCompletenessSection()
+  "scripts/resolvers/preamble.ts:292-303",  # AskUserQuestion format, Completeness scoring
+  "ETHOS.md",
+]
+reviewer_checks = [
+  "Complete option is recommended over any shortcut in AskUserQuestion output",
+  "Completeness X/10 score present for every lettered option",
+  "Effort shown on both scales: human team time and CC+gstack time",
+  "Lakes flagged as boilable; oceans flagged explicitly as multi-quarter scope",
+]
+
+# ─── C02: User Sovereignty ────────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C02"
+domain    = "user_sovereignty"
+statement = """
+The user always has context the AI does not: domain knowledge, business
+relationships, strategic timing, taste. Cross-model agreement (Claude + Codex
+agreeing on a change) is a recommendation, not a mandate. Always say 'the
+outside voice recommends X — do you want to proceed?' Never say 'the outside
+voice is right' and act unilaterally. Direction changes require explicit user
+confirmation via AskUserQuestion.
+"""
+applies_to = ["*"]  # all skills
+source_artifacts = [
+  "scripts/resolvers/preamble.ts:645",  # "User sovereignty." paragraph
+  "scripts/resolvers/preamble.ts:292-303",  # AskUserQuestion format block
+  "CLAUDE.md:239-250",  # Community PR guardrails (Garry's voice, no auto-merging)
+]
+reviewer_checks = [
+  "No unilateral changes to user direction without AskUserQuestion",
+  "Cross-model agreement presented as recommendation, not decision",
+  "AskUserQuestion used before any action that changes project structure or scope",
+  "Outside voice output labeled with 'recommends X — do you want to proceed?'",
+]
+
+# ─── C03: Voice ───────────────────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C03"
+domain    = "voice"
+statement = """
+All generated output must pass a builder-voice test: direct, concrete, sharp,
+never corporate, never academic. Name the file, the function, the line number.
+No filler, no throat-clearing, no AI vocabulary, no em dashes. Sound like
+someone who shipped code today. End with what to do.
+"""
+applies_to = ["*"]  # all skills
+source_artifacts = [
+  "scripts/resolvers/preamble.ts:610-666",  # generateVoiceDirective()
+  "scripts/resolvers/preamble.ts:654-663",  # Writing rules block
+]
+
+# Full blacklist from preamble.ts:655-656
+[contracts.blacklist]
+ai_vocabulary = [
+  "delve",
+  "crucial",
+  "robust",
+  "comprehensive",
+  "nuanced",
+  "multifaceted",
+  "furthermore",
+  "moreover",
+  "additionally",
+  "pivotal",
+  "landscape",
+  "tapestry",
+  "underscore",
+  "foster",
+  "showcase",
+  "intricate",
+  "vibrant",
+  "fundamental",
+  "significant",
+  "interplay",
+]
+banned_phrases = [
+  "here's the kicker",
+  "here's the thing",
+  "plot twist",
+  "let me break this down",
+  "the bottom line",
+  "make no mistake",
+  "can't stress this enough",
+]
+banned_punctuation = [
+  "em dash (—)",
+]
+
+reviewer_checks = [
+  "No words from ai_vocabulary list appear in generated prose",
+  "No phrases from banned_phrases list appear",
+  "No em dashes in output (commas, periods, or '...' used instead)",
+  "At least one concrete artifact named (file, function, command, or line number)",
+  "Output ends with a clear action or next step",
+  "No filler openers: 'Great question!', 'Certainly!', 'Of course!'",
+]
+
+# ─── C04: Verification ────────────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C04"
+domain    = "verification"
+statement = """
+No completion claim without fresh evidence. 'Should work', 'looks good',
+and 'this ought to fix it' are not evidence. Test output must be pasted
+after code changes. Stale verification (reviewed before the last commit)
+is not accepted as a gate pass. Classify test failures as in-branch or
+pre-existing before stopping.
+"""
+applies_to = ["ship", "qa", "land-and-deploy"]
+source_artifacts = [
+  "scripts/resolvers/preamble.ts:333-405",  # generateTestFailureTriage()
+  "CLAUDE.md:E2E eval failure blame protocol section",
+  "ship/SKILL.md.tmpl:Step 3 (run tests)",
+]
+reviewer_checks = [
+  "Test output pasted or referenced after every code change",
+  "No stale verification: review log timestamp matches current HEAD commit",
+  "Failure classification (in-branch vs pre-existing) present before any skip decision",
+  "'Pre-existing' claims backed by evidence (base-branch run showing same failure)",
+  "No 'should work' or equivalent weasel phrases in completion statements",
+]
+
+# ─── C05: Search Discipline ───────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C05"
+domain    = "search_discipline"
+statement = """
+Before designing any solution involving concurrency, unfamiliar patterns,
+infrastructure, or anything where the runtime or framework might have a
+built-in: search first. Three layers: L1 (tried-and-true, boring tech),
+L2 (new-and-popular, community consensus), L3 (first-principles, mechanism
+from scratch). Prize L3 understanding above all. Never build what already
+exists in the runtime.
+"""
+applies_to = ["*"]  # all tier >= 3 skills
+tier_minimum = 3
+source_artifacts = [
+  "CLAUDE.md:Search before building section",
+  "ETHOS.md",
+  "CLAUDE.md:338-345",  # Three layers of knowledge
+]
+reviewer_checks = [
+  "Solution does not duplicate a built-in runtime or framework capability",
+  "Concurrency patterns verified against runtime docs before custom implementation",
+  "L1/L2 options considered and explicitly rejected when L3 chosen",
+  "No 'I'll just build it' without evidence that it doesn't already exist",
+]
+
+# ─── C06: Test Ownership ──────────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C06"
+domain    = "test_ownership"
+statement = """
+Classify every test failure as in-branch or pre-existing before stopping
+or continuing. In-branch: the failing test or the code it tests was modified
+on this branch, or the failure traces to a branch change. Pre-existing:
+neither the test file nor its target was touched, and the failure is
+unrelated to any change identifiable in the diff. When ambiguous, default
+to in-branch. 'Pre-existing' without a base-branch run showing the same
+failure is an unverified claim.
+"""
+applies_to = ["ship", "qa"]
+source_artifacts = [
+  "scripts/resolvers/preamble.ts:333-410",  # generateTestFailureTriage()
+  "CLAUDE.md:E2E eval failure blame protocol section",
+]
+reviewer_checks = [
+  "Each failing test explicitly classified as in-branch or pre-existing",
+  "In-branch failures cause STOP before proceeding",
+  "Pre-existing classification includes evidence (base-branch run, or 'unverified — flag as risk')",
+  "Ambiguous failures default to in-branch classification",
+]
+
+# ─── C07: Bisectable Commits ──────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C07"
+domain    = "bisectable_commits"
+statement = """
+Every commit is one logical change, independently understandable and
+revertable. Rename/move separate from behavior changes. Test infrastructure
+separate from test implementations. Template changes separate from generated
+file regeneration. Mechanical refactors separate from new features. Never
+commit generated files (SKILL.md) without also committing the template
+(.tmpl) that produced them.
+"""
+applies_to = ["ship"]
+source_artifacts = [
+  "CLAUDE.md:Commit style section",
+  "CLAUDE.md:239-252",  # Always bisect commits
+  "ship/SKILL.md.tmpl:Step 6 (bisectable commits)",
+  "ship/SKILL.md.tmpl:440",
+]
+reviewer_checks = [
+  "Each commit in the PR touches one logical concern",
+  "Renames appear in their own commit, not mixed with logic changes",
+  "Generated files (SKILL.md) committed together with their source templates",
+  "No 'git add .' or 'git add -A' used (specific file staging only)",
+  "Compiled binaries (browse/dist, design/dist) never staged",
+]
+
+# ─── C08: Platform Agnostic ───────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C08"
+domain    = "platform_agnostic"
+statement = """
+Skills must never hardcode framework-specific commands, file patterns, or
+directory structures. Read CLAUDE.md for project-specific config (test
+commands, eval commands, deploy commands). If CLAUDE.md does not have the
+answer, use AskUserQuestion and persist the answer to CLAUDE.md. The project
+owns its config; the skill reads it.
+"""
+applies_to = ["*"]  # all skills
+source_artifacts = [
+  "CLAUDE.md:Platform-agnostic design section",
+  "CLAUDE.md:147-164",
+  "scripts/gen-skill-docs.ts",
+]
+reviewer_checks = [
+  "No hardcoded framework commands (e.g., 'rails test', 'pytest', 'npm test') in skill output",
+  "Test commands read from CLAUDE.md, not assumed",
+  "If CLAUDE.md is missing a command, AskUserQuestion is used and answer is persisted",
+  "Branch names detected dynamically (not hardcoded as 'main' or 'master')",
+]
+
+# ─── C09: Token Efficiency ────────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C09"
+domain    = "token_efficiency"
+statement = """
+Remove filler phrases, unnecessary articles, and redundant framing from all
+generated output. Use terse descriptions. Do not copy full SKILL.md files
+into E2E test fixtures — extract only the section the test needs. Preamble
+tiers exist to serve context proportional to skill complexity; never use
+a higher tier than warranted.
+"""
+applies_to = ["documentation", "skill_templates", "resolver_output"]
+source_artifacts = [
+  "CLAUDE.md:E2E test fixtures: extract, don't copy section",
+  "scripts/resolvers/preamble.ts:719-720",  # T1/T2 tier comments
+  "scripts/gen-skill-docs.ts",
+]
+reviewer_checks = [
+  "No full SKILL.md files copied into test fixtures",
+  "Preamble tier matches skill complexity (tier 1-2 for simple, 3-4 for complex)",
+  "No filler openers in resolver output",
+  "Resolver output sections removed when their condition is never true for the skill",
+]
+
+# ─── C10: AI Slop Detection ───────────────────────────────────────────────────
+
+[[contracts]]
+id        = "C10"
+domain    = "ai_slop_detection"
+statement = """
+Scan all generated UI and frontend output for structural slop patterns:
+the 3-column feature grid, centered-everything layouts, colored-circle
+icon decoration, uniform bubbly border-radius, decorative blobs/wavy SVG
+dividers, emoji as design elements, colored left-border cards, generic hero
+copy, and cookie-cutter section rhythm. These patterns signal AI-generated
+defaults. Flag and replace before shipping.
+"""
+applies_to = ["review", "cso", "ship"]
+source_artifacts = [
+  "scripts/resolvers/constants.ts:3-15",    # AI_SLOP_BLACKLIST array
+  "scripts/resolvers/design.ts:1-2",        # imports AI_SLOP_BLACKLIST
+  "scripts/resolvers/design.ts:671-712",    # generateDesignHardRules()
+  "scripts/resolvers/design.ts:260-261",    # slop blacklist applied in methodology
+  "review/design-checklist.md",
+]
+reviewer_checks = [
+  "All 10 AI_SLOP_BLACKLIST patterns checked against any frontend diff",
+  "3-column feature grid flagged if present",
+  "Generic hero copy flagged ('Welcome to X', 'Unlock the power of', 'Your all-in-one solution')",
+  "Findings reference file:line, not just pattern name",
+  "Slop findings merged into Fix-First review flow, not reported separately",
+]

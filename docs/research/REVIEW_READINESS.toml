@@ -1,0 +1,219 @@
+# REVIEW_READINESS.toml
+# dag-toml-templates v2 — review-readiness format
+# Review gates for the gstack token optimization package.
+# Each gate defines what must be true before the artifact class is considered ready.
+# Date: 2026-04-07
+
+[meta]
+format          = "dag-toml-templates/v2/review-readiness"
+schema_version  = "2.0.0"
+created         = "2026-04-07"
+document_title  = "gstack Token Optimization Review Readiness"
+project_root    = "/srv/repos/public/gstack"
+gate_count      = 3
+
+# ─── G01: Optimization Package ────────────────────────────────────────────────
+
+[[gates]]
+id              = "G01"
+artifact_class  = "optimization_package"
+description     = "The full token reduction implementation: compressed preamble tiers, compressed SKILL.md templates, compressed CLAUDE.md, voice blacklist scanner in tests."
+status          = "NOT_READY"
+
+[gates.required_documents]
+list = [
+  "docs/research/OPTIMIZATION_EVIDENCE.toml",           # before/after measurements
+  "docs/research/OPTIMIZATION_TRACEABILITY.toml",       # intent-to-code traceability
+  "CHANGELOG.md",                                        # user-facing description of what changed
+]
+
+[gates.required_artifacts]
+list = [
+  { path = "scripts/resolvers/preamble.ts", check = "generateCompletenessSection gated at tier >= 3" },
+  { path = "scripts/resolvers/preamble.ts", check = "generateContextRecovery gated at tier >= 3" },
+  { path = "scripts/resolvers/preamble.ts", check = "generateAskUserFormat gated at tier >= 3" },
+  { path = "scripts/resolvers/preamble.ts", check = "voice blacklist exported as constant (not embedded in string)" },
+  { path = "ship/SKILL.md.tmpl",            check = "Steps 5 and 6 consolidated without losing CHANGELOG or bisect rules" },
+  { path = "review/SKILL.md.tmpl",          check = "Review Readiness Dashboard compressed without dropping verdict logic" },
+  { path = "CLAUDE.md",                     check = "AI effort compression table removed (duplicates preamble.ts)" },
+  { path = "CLAUDE.md",                     check = "CHANGELOG+VERSION style compressed to decision rules only" },
+  { path = "test/skill-validation.test.ts", check = "Voice blacklist scan added as static check" },
+]
+
+[gates.required_links]
+list = [
+  { label = "Before-state token counts",  location = "OPTIMIZATION_EVIDENCE.toml E01.before.notes" },
+  { label = "After-state token counts",   location = "OPTIMIZATION_EVIDENCE.toml E01.after.target" },
+  { label = "Template before/after diff", location = "git diff origin/main -- ship/SKILL.md.tmpl review/SKILL.md.tmpl" },
+  { label = "Test run passing",           location = "bun run test:gate output" },
+]
+
+[gates.pass_conditions]
+list = [
+  "bun test passes with zero failures (skill-validation.test.ts, gen-skill-docs.test.ts)",
+  "bun run test:gate passes all gate-tier E2E tests",
+  "Before/after token counts show >= 35% reduction for all 6 target skills",
+  "Before/after token counts show >= 50% reduction for preamble tiers 1-3",
+  "CLAUDE.md line count reduced by >= 60% from current 538 lines",
+  "Zero blacklist term hits in generated SKILL.md files (voice scan)",
+  "All generated SKILL.md files regenerated from updated templates (bun run gen:skill-docs run)",
+  "CHANGELOG.md has a new entry describing what changed for contributors",
+]
+
+[gates.block_conditions]
+list = [
+  "Any gate-tier E2E test newly failing vs main branch",
+  "Any skill missing a required workflow step after compression (validated by LLM judge)",
+  "SKILL.md files committed without regenerating from templates",
+  "Compiled binaries (browse/dist/browse, design/dist/design) staged in commit",
+  "Before-state token counts not captured (cannot claim reduction without baseline)",
+]
+
+[gates.next_step]
+action = "Run /ship workflow after all pass_conditions are met."
+command = "/ship"
+notes  = "The /ship skill will run bun test, bun run test:gate, and the full Review Readiness Dashboard before creating the PR."
+
+# ─── G02: Methodology Contracts ───────────────────────────────────────────────
+
+[[gates]]
+id              = "G02"
+artifact_class  = "methodology_contracts"
+description     = "The SKILL_CONTRACTS.toml file with all 10 methodology contracts, ready for programmatic use by /review and /cso skills."
+status          = "READY_FOR_REVIEW"
+
+[gates.required_documents]
+list = [
+  "docs/research/SKILL_CONTRACTS.toml",             # the primary artifact
+  "docs/research/OPTIMIZATION_TRACEABILITY.toml",   # links contracts to source files
+]
+
+[gates.required_artifacts]
+list = [
+  { path = "docs/research/SKILL_CONTRACTS.toml", check = "10 contracts present (C01-C10)" },
+  { path = "docs/research/SKILL_CONTRACTS.toml", check = "Every contract has non-empty reviewer_checks array" },
+  { path = "docs/research/SKILL_CONTRACTS.toml", check = "Every contract has non-empty source_artifacts array" },
+  { path = "docs/research/SKILL_CONTRACTS.toml", check = "C03 blacklist.ai_vocabulary matches preamble.ts:655 exactly" },
+  { path = "docs/research/SKILL_CONTRACTS.toml", check = "C10 applies_to includes review, cso, ship" },
+  { path = "scripts/resolvers/preamble.ts",      check = "Line 655 still matches C03 blacklist (drift check)" },
+  { path = "scripts/resolvers/constants.ts",     check = "AI_SLOP_BLACKLIST items all present in C10.statement" },
+]
+
+[gates.required_links]
+list = [
+  { label = "C03 voice blacklist source",   location = "scripts/resolvers/preamble.ts:654-656" },
+  { label = "C10 slop blacklist source",    location = "scripts/resolvers/constants.ts:3-15" },
+  { label = "C01 completeness source",      location = "scripts/resolvers/preamble.ts:306-321" },
+  { label = "C07 bisectable commits source", location = "CLAUDE.md:239-252" },
+  { label = "TOML parseability check",      location = "python3 -c \"import tomllib; tomllib.load(open('docs/research/SKILL_CONTRACTS.toml','rb'))\"" },
+]
+
+[gates.pass_conditions]
+list = [
+  "All 10 contracts present with id, domain, statement, applies_to, source_artifacts, reviewer_checks",
+  "TOML file parses without error (python3 tomllib or equivalent)",
+  "C03 blacklist.ai_vocabulary array exactly matches preamble.ts:655 content (20 terms)",
+  "C03 banned_phrases array exactly matches preamble.ts:656 content (7 phrases)",
+  "C10 statement contains all 10 items from AI_SLOP_BLACKLIST in constants.ts",
+  "All source_artifacts paths exist in /srv/repos/public/gstack",
+  "reviewer_checks are concrete (binary pass/fail, not subjective)",
+  "No contract has applies_to = [] (empty applies_to is invalid)",
+]
+
+[gates.block_conditions]
+list = [
+  "TOML parse error",
+  "Any contract missing reviewer_checks",
+  "C03 blacklist diverges from preamble.ts:655 (drift)",
+  "C10 missing any item from constants.ts AI_SLOP_BLACKLIST",
+  "source_artifacts pointing to non-existent files",
+  "reviewer_checks containing subjective criteria ('looks good', 'seems right')",
+]
+
+[gates.next_step]
+action = "Integrate SKILL_CONTRACTS.toml loading into /review skill's plan file review step."
+location = "scripts/resolvers/review.ts — generatePlanFileReviewReport()"
+notes  = "Contracts become actionable when /review can load them and surface relevant reviewer_checks in the Review Readiness Dashboard."
+
+# ─── G03: Adoption Proposal ───────────────────────────────────────────────────
+
+[[gates]]
+id              = "G03"
+artifact_class  = "adoption_proposal"
+description     = "A proposal document that maps the token optimization findings to actionable steps, with effort estimates, risk assessment, and a recommended rollout sequence."
+status          = "NOT_READY"
+
+[gates.required_documents]
+list = [
+  "docs/research/OPTIMIZATION_EVIDENCE.toml",           # claims with before/after
+  "docs/research/OPTIMIZATION_TRACEABILITY.toml",       # IMP:I01-I05 with effort notes
+  "docs/research/SKILL_CONTRACTS.toml",                 # contracts as adoption target
+  "docs/superpowers/plans/token-optimization-proposal.md",  # the proposal itself (not yet created)
+]
+
+[gates.required_artifacts]
+list = [
+  { path = "docs/superpowers/plans/token-optimization-proposal.md", check = "Mapping table: each IMP item mapped to before/after token count and effort estimate" },
+  { path = "docs/superpowers/plans/token-optimization-proposal.md", check = "Risk assessment: which compressions are safe vs which could cause agent behavior regression" },
+  { path = "docs/superpowers/plans/token-optimization-proposal.md", check = "Rollout sequence: which optimizations to apply first (lowest risk, highest yield)" },
+  { path = "docs/superpowers/plans/token-optimization-proposal.md", check = "E2E test plan: which tests validate each optimization" },
+]
+
+[gates.required_links]
+list = [
+  { label = "Implementation items",    location = "OPTIMIZATION_TRACEABILITY.toml [[implementations]]" },
+  { label = "Before/after evidence",   location = "OPTIMIZATION_EVIDENCE.toml [[claims]]" },
+  { label = "Contract reviewer_checks", location = "SKILL_CONTRACTS.toml [[contracts]]" },
+  { label = "Current CLAUDE.md line count", location = "wc -l /srv/repos/public/gstack/CLAUDE.md" },
+  { label = "Current skill SKILL.md word counts", location = "wc -w /srv/repos/public/gstack/*/SKILL.md.tmpl" },
+]
+
+[gates.pass_conditions]
+list = [
+  "Proposal document exists at docs/superpowers/plans/token-optimization-proposal.md",
+  "Mapping table covers all 5 IMP items (IMP:I01 - IMP:I05)",
+  "Effort estimates provided in CC+gstack time (not just human time)",
+  "Risk assessment classifies each optimization as: safe (no behavioral change), low-risk (minor prompt shift), or high-risk (potential agent behavior regression)",
+  "Rollout sequence orders optimizations by: highest yield first, lowest risk first",
+  "At least 3 gate-tier E2E tests identified that will validate the full optimization package",
+  "Before-state token counts captured and present in OPTIMIZATION_EVIDENCE.toml (not estimates)",
+]
+
+[gates.block_conditions]
+list = [
+  "Proposal doc missing or empty",
+  "No effort estimates (cannot prioritize without them)",
+  "No risk classification (all compressions treated as equivalent risk)",
+  "Rollout sequence omitted (prevents phased validation)",
+  "Before-state token counts still marked as estimates — must be tiktoken measurements",
+]
+
+[gates.next_step]
+action = "Write the adoption proposal, then run /plan-eng-review on it before implementation begins."
+command = "/plan-eng-review"
+notes  = "Proposal review catches sequencing errors and risk underestimation before any files are changed."
+
+# ─── Gate Summary ─────────────────────────────────────────────────────────────
+
+[summary]
+gates_total    = 3
+gates_ready    = 1  # G02
+gates_not_ready = 2  # G01, G03
+
+critical_path = [
+  "G03 (adoption proposal) must be reviewed before G01 (implementation) begins",
+  "G02 (contracts) is ready for review now — does not block G03",
+  "G01 (optimization package) is the final gate before /ship",
+]
+
+[summary.next_actions]
+immediate = [
+  "Run TOML parse check on SKILL_CONTRACTS.toml to confirm G02 pass_conditions",
+  "Capture actual tiktoken before-state counts for OPTIMIZATION_EVIDENCE.toml E01",
+  "Write docs/superpowers/plans/token-optimization-proposal.md to unblock G03",
+]
+after_g03 = [
+  "Run /plan-eng-review on the proposal",
+  "Implement IMP:I01 (preamble tier gating) first — highest yield, safest",
+  "Run bun run test:gate after each IMP item — validate before moving to next",
+]
