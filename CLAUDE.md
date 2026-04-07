@@ -393,3 +393,53 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 Or copy the binaries directly:
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
+
+## gstack
+
+Use the `/browse` skill for all web browsing and browser interaction. **Never use `mcp__claude-in-chrome__*` tools** — they are slow, unreliable, and not what this project uses.
+
+### Available skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/browse` | Headless browser: navigate, interact, screenshot, QA |
+| `/connect-chrome` | Headed Chrome with side panel |
+| `/setup-browser-cookies` | Configure browser auth cookies |
+| `/qa` | QA testing with browser automation |
+| `/qa-only` | Report-only QA (no fixes) |
+| `/review` | PR review |
+| `/ship` | Ship workflow |
+| `/land-and-deploy` | Merge → deploy → canary verify |
+| `/canary` | Post-deploy monitoring loop |
+| `/benchmark` | Performance regression detection |
+| `/investigate` | Systematic root-cause debugging |
+| `/design-review` | Design audit + fix loop |
+| `/plan-design-review` | Report-only design audit |
+| `/design-consultation` | Design system from scratch |
+| `/design-shotgun` | Visual design exploration |
+| `/design-html` | HTML/CSS design |
+| `/autoplan` | Auto-review pipeline: CEO → design → eng |
+| `/plan-ceo-review` | CEO-perspective plan review |
+| `/plan-eng-review` | Engineering plan review |
+| `/plan-devex-review` | DevEx plan review |
+| `/devex-review` | DevEx audit |
+| `/office-hours` | YC Office Hours — startup diagnostic + builder brainstorm |
+| `/retro` | Retrospective |
+| `/document-release` | Post-ship doc updates |
+| `/codex` | Multi-AI second opinion via OpenAI Codex CLI |
+| `/cso` | OWASP Top 10 + STRIDE security audit |
+| `/setup-deploy` | One-time deploy config |
+| `/careful` | Extra-careful mode |
+| `/freeze` | Freeze codebase |
+| `/unfreeze` | Unfreeze codebase |
+| `/guard` | Guard mode |
+| `/learn` | Learning mode |
+| `/gstack-upgrade` | Upgrade gstack |
+
+### Troubleshooting
+
+If gstack skills aren't working (binary missing, skill not found), rebuild and re-register:
+
+```bash
+cd .claude/skills/gstack && ./setup
+```
