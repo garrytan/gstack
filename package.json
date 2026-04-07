@@ -1,13 +1,13 @@
 {
   "name": "research-stack",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Research computation skills for Claude Code — hypothesis, experiment, report workflow with convention enforcement and provenance tracking.",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "bun run gen:skill-docs",
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
-    "test": "bun test test/skill-validation.test.ts",
+    "test": "bun test test/skill-validation.test.ts test/resolver-smoke.test.ts test/gen-skill-docs.test.ts",
     "skill:check": "bun run scripts/skill-check.ts",
     "dev:skill": "bun run scripts/dev-skill.ts"
   },
