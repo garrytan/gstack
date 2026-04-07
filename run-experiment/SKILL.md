@@ -1,7 +1,7 @@
 ---
 name: run-experiment
 preamble-tier: 2
-version: 0.1.0
+version: 0.2.0
 description: |
   Generate convention-compliant experiment code from a spec, get researcher approval,
   then execute with full provenance tracking. Two-phase workflow: generate → approve → run.

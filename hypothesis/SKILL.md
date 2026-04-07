@@ -1,7 +1,7 @@
 ---
 name: hypothesis
 preamble-tier: 2
-version: 0.1.0
+version: 0.2.0
 description: |
   Structure a research idea into a testable hypothesis and experiment specification.
   Takes a natural language description and produces a structured hypothesis document

@@ -1,7 +1,7 @@
 ---
 name: research-stack
 preamble-tier: 1
-version: 0.1.0
+version: 0.2.0
 description: |
   Research computation framework for Claude Code. Structures the hypothesis-experiment-report
   cycle with convention enforcement, provenance tracking, and negative results registry.

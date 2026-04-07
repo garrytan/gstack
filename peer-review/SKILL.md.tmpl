@@ -1,7 +1,7 @@
 ---
 name: peer-review
 preamble-tier: 2
-version: 0.1.0
+version: 0.2.0
 description: |
   AI-powered critical review of experiment implementation and results. Acts as
   a skeptical reviewer checking methodology, statistics, code quality,
