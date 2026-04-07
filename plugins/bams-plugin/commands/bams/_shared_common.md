@@ -98,8 +98,12 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 파이프라인 시작 전 활성 work unit 선택을 확인한다. `pipeline_start` emit 이전에 실행.
 
 ```bash
-# 활성 WU 목록 확인
-if [ -f /tmp/bams-active-workunits.json ]; then
+# 활성 WU 목록 확인 (bams-server API 우선, fallback: /tmp 파일)
+_WU_JSON=$(curl -sf http://localhost:3099/api/workunits/active 2>/dev/null)
+if [ -n "$_WU_JSON" ]; then
+  WU_COUNT=$(echo "$_WU_JSON" | jq '.workunits | length' 2>/dev/null || echo 0)
+  WU_LIST=$(echo "$_WU_JSON" | jq -r '.workunits[] | "  - \(.slug): \(.name // .slug)"' 2>/dev/null)
+elif [ -f /tmp/bams-active-workunits.json ]; then
   WU_COUNT=$(jq 'length' /tmp/bams-active-workunits.json 2>/dev/null || echo 0)
   WU_LIST=$(jq -r '.[] | "  - \(.slug): \(.name // .slug)"' /tmp/bams-active-workunits.json 2>/dev/null)
 else

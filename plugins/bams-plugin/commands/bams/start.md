@@ -29,7 +29,17 @@ Header: "Work Unit"
 Bash로 현재 활성 work unit 목록을 확인합니다:
 
 ```bash
-if [ -f /tmp/bams-active-workunits.json ]; then
+# bams-server API 우선, fallback: /tmp 파일
+_WU_JSON=$(curl -sf http://localhost:3099/api/workunits/active 2>/dev/null)
+if [ -n "$_WU_JSON" ]; then
+  COUNT=$(echo "$_WU_JSON" | jq '.workunits | length' 2>/dev/null || echo 0)
+  if [ "$COUNT" -gt 0 ]; then
+    echo "현재 활성 작업 ${COUNT}개:"
+    echo "$_WU_JSON" | jq -r '.workunits[] | "  - \(.slug) (시작: \(.startedAt))"' 2>/dev/null
+  else
+    echo "활성 작업 없음"
+  fi
+elif [ -f /tmp/bams-active-workunits.json ]; then
   COUNT=$(jq 'length' /tmp/bams-active-workunits.json 2>/dev/null || echo 0)
   if [ "$COUNT" -gt 0 ]; then
     echo "현재 활성 작업 ${COUNT}개:"
@@ -38,14 +48,7 @@ if [ -f /tmp/bams-active-workunits.json ]; then
     echo "활성 작업 없음"
   fi
 else
-  # 레거시 단일 파일 확인 (하위 호환)
-  if [ -f /tmp/bams-active-workunit ]; then
-    ACTIVE=$(cat /tmp/bams-active-workunit)
-    echo "현재 활성 작업 1개:"
-    echo "  - $ACTIVE (레거시)"
-  else
-    echo "활성 작업 없음"
-  fi
+  echo "활성 작업 없음"
 fi
 ```
 
