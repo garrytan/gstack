@@ -73,23 +73,6 @@ If working in a collaborative repo, flag issues outside your branch via
 AskUserQuestion rather than fixing directly (may be someone else's work).`;
 }
 
-export function generateTestFailureTriage(): string {
-  return `## Test Failure Triage
-
-When tests fail, classify each failure:
-
-1. **In-branch:** the failing test or code it tests was modified on this branch → STOP and fix.
-2. **Pre-existing:** neither test nor tested code was changed → flag and continue.
-
-\`\`\`bash
-git diff origin/<base>...HEAD --name-only
-\`\`\`
-
-For pre-existing failures, use AskUserQuestion to let the researcher decide:
-- A) Investigate and fix now
-- B) Add as TODO
-- C) Skip`;
-}
 
 function generateSearchBeforeBuildingSection(ctx: TemplateContext): string {
   return `## Search Before Building
