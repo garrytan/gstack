@@ -3,18 +3,23 @@
  * Each resolver takes a TemplateContext and returns the replacement string.
  */
 
-import type { TemplateContext } from './types';
+import type { TemplateContext, ResolverFn } from './types';
 
 // Domain modules
 import { generatePreamble } from './preamble';
 import { generateTestFailureTriage } from './preamble';
 import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup } from './browse';
-import { generateDesignMethodology, generateDesignHardRules, generateDesignOutsideVoices, generateDesignReviewLite, generateDesignSketch } from './design';
+import { generateDesignMethodology, generateDesignHardRules, generateDesignOutsideVoices, generateDesignReviewLite, generateDesignSketch, generateDesignSetup, generateDesignMockup, generateDesignShotgunLoop } from './design';
 import { generateTestBootstrap, generateTestCoverageAuditPlan, generateTestCoverageAuditShip, generateTestCoverageAuditReview } from './testing';
-import { generateReviewDashboard, generatePlanFileReviewReport, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './review';
-import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology } from './utility';
+import { generateReviewDashboard, generatePlanFileReviewReport, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec, generateScopeDrift, generateCrossReviewDedup } from './review';
+import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer, generateChangelogWorkflow } from './utility';
+import { generateLearningsSearch, generateLearningsLog } from './learnings';
+import { generateConfidenceCalibration } from './confidence';
+import { generateInvokeSkill } from './composition';
+import { generateReviewArmy } from './review-army';
+import { generateDxFramework } from './dx';
 
-export const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
+export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
   SLUG_SETUP: generateSlugSetup,
   COMMAND_REFERENCE: generateCommandReference,
@@ -36,12 +41,25 @@ export const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   TEST_FAILURE_TRIAGE: generateTestFailureTriage,
   SPEC_REVIEW_LOOP: generateSpecReviewLoop,
   DESIGN_SKETCH: generateDesignSketch,
+  DESIGN_SETUP: generateDesignSetup,
+  DESIGN_MOCKUP: generateDesignMockup,
+  DESIGN_SHOTGUN_LOOP: generateDesignShotgunLoop,
   BENEFITS_FROM: generateBenefitsFrom,
   CODEX_SECOND_OPINION: generateCodexSecondOpinion,
   ADVERSARIAL_STEP: generateAdversarialStep,
+  SCOPE_DRIFT: generateScopeDrift,
   DEPLOY_BOOTSTRAP: generateDeployBootstrap,
   CODEX_PLAN_REVIEW: generateCodexPlanReview,
   PLAN_COMPLETION_AUDIT_SHIP: generatePlanCompletionAuditShip,
   PLAN_COMPLETION_AUDIT_REVIEW: generatePlanCompletionAuditReview,
   PLAN_VERIFICATION_EXEC: generatePlanVerificationExec,
+  CO_AUTHOR_TRAILER: generateCoAuthorTrailer,
+  LEARNINGS_SEARCH: generateLearningsSearch,
+  LEARNINGS_LOG: generateLearningsLog,
+  CONFIDENCE_CALIBRATION: generateConfidenceCalibration,
+  INVOKE_SKILL: generateInvokeSkill,
+  CHANGELOG_WORKFLOW: generateChangelogWorkflow,
+  REVIEW_ARMY: generateReviewArmy,
+  CROSS_REVIEW_DEDUP: generateCrossReviewDedup,
+  DX_FRAMEWORK: generateDxFramework,
 };

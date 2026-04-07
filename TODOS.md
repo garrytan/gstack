@@ -1,5 +1,19 @@
 # TODOS
 
+## Sidebar Security
+
+### ML Prompt Injection Classifier
+
+**What:** Add DeBERTa-v3-base-prompt-injection-v2 via @huggingface/transformers v4 (WASM backend) as an ML defense layer for the Chrome sidebar. Reusable `browse/src/security.ts` module with `checkInjection()` API. Includes canary tokens, attack logging, shield icon, special telemetry (AskUserQuestion on detection even when telemetry off), and BrowseSafe-bench red team test harness (3,680 adversarial cases from Perplexity).
+
+**Why:** PR 1 fixes the architecture (command allowlist, XML framing, Opus default). But attackers can still trick Claude into navigating to phishing sites or exfiltrating visible page data via allowed browse commands. The ML classifier catches prompt injection patterns that architectural controls can't see. 94.8% accuracy, 99.6% recall, ~50-100ms inference via WASM. Defense-in-depth.
+
+**Context:** Full design doc with industry research, open source tool landscape, Codex review findings, and ambitious Bun-native vision (5ms inference via FFI + Apple Accelerate): [`docs/designs/ML_PROMPT_INJECTION_KILLER.md`](docs/designs/ML_PROMPT_INJECTION_KILLER.md). CEO plan with scope decisions: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-28-sidebar-prompt-injection-defense.md`.
+
+**Effort:** L (human: ~2 weeks / CC: ~3-4 hours)
+**Priority:** P0
+**Depends on:** Sidebar security fix PR (command allowlist + XML framing + arg fix) landing first
+
 ## Builder Ethos
 
 ### First-time Search Before Building intro
@@ -184,6 +198,24 @@ Sidebar agent writes structured messages to `.context/sidebar-inbox/`. Workspace
 **Effort:** L (human: ~2 weeks / CC: ~2 hours)
 **Priority:** P3
 **Depends on:** Headed mode (shipped)
+
+### Sidebar agent needs Write tool + better error visibility — SHIPPED
+
+**What:** Two issues with the sidebar agent (`sidebar-agent.ts`): (1) `--allowedTools` is hardcoded to `Bash,Read,Glob,Grep`, missing `Write`. Claude can't create files (like CSVs) when asked. (2) When Claude errors or returns empty, the sidebar UI shows nothing, just a green dot. No error message, no "I tried but failed", nothing.
+
+**Completed:** v0.15.4.0 (2026-04-04). Write tool added to allowedTools. 40+ empty catch blocks replaced with `[gstack sidebar]`, `[gstack bg]`, `[browse]`, `[sidebar-agent]` prefixed console logging across all 4 files (sidepanel.js, background.js, server.ts, sidebar-agent.ts). Error placeholder text now shows in red. Auth token stale-refresh bug fixed.
+
+### Sidebar direct API calls (eliminate claude -p startup tax)
+
+**What:** Each sidebar message spawns a fresh `claude -p` process (~2-3s cold start overhead). For "click @e24" that's absurd. Direct Anthropic API calls would be sub-second.
+
+**Why:** The `claude -p` startup cost is: process spawn (~100ms) + CLI init (~500ms-1s) + API connection (~200ms) + first token. Model routing (Sonnet for actions) helps but doesn't fix the CLI overhead.
+
+**Context:** `server.ts:spawnClaude()` builds args and writes to queue file. `sidebar-agent.ts:askClaude()` spawns `claude -p`. Replace with direct `fetch('https://api.anthropic.com/...')` with tool use. Requires `ANTHROPIC_API_KEY` accessible to the browse server.
+
+**Effort:** M (human: ~1 week / CC: ~30min)
+**Priority:** P2
+**Depends on:** None
 
 ### Chrome Web Store publishing
 
@@ -619,6 +651,176 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Effort:** M (all 6 combined)
 **Priority:** P3
 **Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
+
+## Context Intelligence
+
+### Context recovery preamble
+
+**What:** Add ~10 lines of prose to the preamble telling the agent to re-read gstack artifacts (CEO plans, design reviews, eng reviews, checkpoints) after compaction or context degradation.
+
+**Why:** gstack skills produce valuable artifacts stored at `~/.gstack/projects/$SLUG/`. When Claude's auto-compaction fires, it preserves a generic summary but doesn't know these artifacts exist. The plans and reviews that shaped the current work silently vanish from context, even though they're still on disk. This is the thing nobody else in the Claude Code ecosystem is solving, because nobody else has gstack's artifact architecture.
+
+**Context:** Inspired by Anthropic's `claude-progress.txt` pattern for long-running agents. Also informed by claude-mem's "progressive disclosure" approach. See `docs/designs/SESSION_INTELLIGENCE.md` for the broader vision. CEO plan: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-31-session-intelligence-layer.md`.
+
+**Effort:** S (human: ~30 min / CC: ~5 min)
+**Priority:** P1
+**Depends on:** None
+**Key files:** `scripts/resolvers/preamble.ts`
+
+### Session timeline
+
+**What:** Append one-line JSONL entry to `~/.gstack/projects/$SLUG/timeline.jsonl` after every skill run (timestamp, skill, branch, outcome). `/retro` renders the timeline.
+
+**Why:** Makes AI-assisted work history visible. `/retro` can show "this week: 3 /review, 2 /ship, 1 /investigate." Provides the observability layer for the session intelligence architecture.
+
+**Effort:** S (human: ~1h / CC: ~5 min)
+**Priority:** P1
+**Depends on:** None
+**Key files:** `scripts/resolvers/preamble.ts`, `retro/SKILL.md.tmpl`
+
+### Cross-session context injection
+
+**What:** When a new gstack session starts on a branch with recent checkpoints or plans, the preamble prints a one-line summary: "Last session: implemented JWT auth, 3/5 tasks done." Agent knows where you left off before reading any files.
+
+**Why:** Claude starts every session fresh. This one-liner orients the agent immediately. Similar to claude-mem's SessionStart hook pattern but simpler and integrated.
+
+**Effort:** S (human: ~2h / CC: ~10 min)
+**Priority:** P2
+**Depends on:** Context recovery preamble
+
+### /checkpoint skill
+
+**What:** Manual skill to snapshot current working state: what's being done and why, files being edited, decisions made (and rationale), what's done vs. remaining, critical types/signatures. Saved to `~/.gstack/projects/$SLUG/checkpoints/<timestamp>.md`.
+
+**Why:** Useful before stepping away from a long session, before known-complex operations that might trigger compaction, for handing off context to a different agent/workspace, or coming back to a project after days away.
+
+**Effort:** M (human: ~1 week / CC: ~30 min)
+**Priority:** P2
+**Depends on:** Context recovery preamble
+**Key files:** New `checkpoint/SKILL.md.tmpl`, `scripts/gen-skill-docs.ts`
+
+### Session Intelligence Layer design doc
+
+**What:** Write `docs/designs/SESSION_INTELLIGENCE.md` describing the architectural vision: gstack as the persistent brain that survives Claude's ephemeral context. Every skill writes to `~/.gstack/projects/$SLUG/`, preamble re-reads, `/retro` rolls up.
+
+**Why:** Connects context recovery, health, checkpoint, and timeline features into a coherent architecture. Nobody else in the ecosystem is building this.
+
+**Effort:** S (human: ~2h / CC: ~15 min)
+**Priority:** P1
+**Depends on:** None
+
+## Health
+
+### /health — Project Health Dashboard
+
+**What:** Skill that runs type-check, lint, test suite, and dead code scan, then reports a composite 0-10 health score with breakdown by category. Tracks over time in `~/.gstack/health/<project-slug>/` for trend detection. Optionally integrates CodeScene MCP for deeper complexity/cohesion/coupling analysis.
+
+**Why:** No quick way to get "state of the codebase" before starting work. CodeScene peer-reviewed research shows AI-generated code increases static analysis warnings by 30%, code complexity by 41%, and change failure rates by 30%. Users need guardrails. Like `/qa` but for code quality rather than browser behavior.
+
+**Context:** Reads CLAUDE.md for project-specific commands (platform-agnostic principle). Runs checks in parallel. `/retro` can pull from health history for trend sparklines.
+
+**Effort:** M (human: ~1 week / CC: ~30 min)
+**Priority:** P1
+**Depends on:** None
+**Key files:** New `health/SKILL.md.tmpl`, `scripts/gen-skill-docs.ts`
+
+### /health as /ship gate
+
+**What:** If health score exists and drops below a configurable threshold, `/ship` warns before creating the PR: "Health dropped from 8/10 to 5/10 this branch — 3 new lint warnings, 1 test failure. Ship anyway?"
+
+**Why:** Quality gate that prevents shipping degraded code. Configurable threshold so it's not blocking for teams that don't use `/health`.
+
+**Effort:** S (human: ~1h / CC: ~5 min)
+**Priority:** P2
+**Depends on:** /health skill
+
+## Swarm
+
+### Swarm primitive — reusable multi-agent dispatch
+
+**What:** Extract Review Army's dispatch pattern into a reusable resolver (`scripts/resolvers/swarm.ts`). Wire into `/ship` for parallel pre-ship checks (type-check + lint + test in parallel sub-agents). Make available to `/qa`, `/investigate`, `/health`.
+
+**Why:** Review Army proved parallel sub-agents work brilliantly (5 agents = 835K tokens of working memory vs. 167K for one). The pattern is locked inside `review-army.ts`. Other skills need it too. Claude Code Agent Teams (official, Feb 2026) validates the team-lead-delegates-to-specialists pattern. Gartner: multi-agent inquiries surged 1,445% in one year.
+
+**Context:** Start with the specific `/ship` use case. Extract shared parts only after 2+ consumers reveal what config parameters are actually needed. Avoid premature abstraction. Can leverage existing WorktreeManager for isolation.
+
+**Effort:** L (human: ~2 weeks / CC: ~2 hours)
+**Priority:** P2
+**Depends on:** None
+**Key files:** `scripts/resolvers/review-army.ts`, new `scripts/resolvers/swarm.ts`, `ship/SKILL.md.tmpl`, `lib/worktree.ts`
+
+## Refactoring
+
+### /refactor-prep — Pre-Refactor Token Hygiene
+
+**What:** Skill that detects project language/framework, runs appropriate dead code detection (knip/ts-prune for TS/JS, vulture/autoflake for Python, staticcheck/deadcode for Go, cargo udeps for Rust), strips dead imports/exports/props/console.logs, and commits cleanup separately.
+
+**Why:** Dirty codebases accelerate context compaction. Dead imports, unused exports, and orphaned code eat tokens that contribute nothing but everything to triggering compaction mid-refactor. Cleaning first buys back 20%+ of context budget. Reports lines removed and estimated token savings.
+
+**Effort:** M (human: ~1 week / CC: ~30 min)
+**Priority:** P2
+**Depends on:** None
+**Key files:** New `refactor-prep/SKILL.md.tmpl`, `scripts/gen-skill-docs.ts`
+
+## Factory Droid
+
+### Browse MCP server for Factory Droid
+
+**What:** Expose gstack's browse binary and key workflows as an MCP server that Factory Droid connects to natively. Factory users would run /mcp, add the gstack server, and get browse, QA, and review capabilities as Factory tools.
+
+**Why:** Factory already supports 40+ MCP servers in its registry. Getting gstack's browse binary listed there is a distribution play. Nobody else has a real compiled browser binary as an MCP tool. This is the thing that makes gstack uniquely valuable on Factory Droid.
+
+**Context:** Option A (--host factory compatibility shim) ships first in v0.13.4.0. Option B is the follow-up that provides deeper integration. The browse binary is already a stateless CLI, so wrapping it as an MCP server is straightforward (stdin/stdout JSON-RPC). Each browse command becomes an MCP tool.
+
+**Effort:** L (human: ~1 week / CC: ~5 hours)
+**Priority:** P1
+**Depends on:** --host factory (Option A, shipping in v0.13.4.0)
+
+### .agent/skills/ dual output for cross-agent compatibility
+
+**What:** Factory also reads from `<repo>/.agent/skills/` as a cross-agent compatibility path. Could output there in addition to `.factory/skills/` for broader reach across other agents that use the `.agent` convention.
+
+**Why:** Multiple AI agents beyond Factory may adopt the `.agent/skills/` convention. Outputting there too would give free compatibility.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** --host factory
+
+### Custom Droid definitions alongside skills
+
+**What:** Factory has "custom droids" (subagents with tool restrictions, model selection, autonomy levels). Could ship `gstack-qa.md` droid configs alongside skills that restrict tools to read-only + execute for safety.
+
+**Why:** Deeper Factory integration. Droid configs give Factory users tighter control over what gstack skills can do.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** --host factory
+
+## GStack Browser
+
+### Anti-bot stealth: Playwright CDP patches (rebrowser-style)
+
+**What:** Write a postinstall script that patches Playwright's CDP layer to suppress `Runtime.enable` and use `addBinding` for context ID discovery, same approach as rebrowser-patches. Eliminates the `navigator.webdriver`, `cdc_` markers, and other CDP artifacts that sites like Google use to detect automation.
+
+**Why:** Our current stealth patches (UA override, navigator.webdriver=false, fake plugins) work on most sites but Google still triggers captchas. The real detection is at the CDP protocol level. rebrowser-patches proved the approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total.
+
+**Context:** Full analysis of rebrowser-patches source: patches 6 files in `playwright-core/lib/server/` (crConnection.js, crDevTools.js, crPage.js, crServiceWorker.js, frames.js, page.js). Key technique: suppress `Runtime.enable` (the main CDP detection vector), use `Runtime.addBinding` + `CustomEvent` trick to discover execution context IDs without it. Our extension communicates via Chrome extension APIs, not CDP Runtime, so it should be unaffected. Write E2E tests that verify: (1) extension still loads and connects, (2) Google.com loads without captcha, (3) sidebar chat still works.
+
+**Effort:** L (human: ~2 weeks / CC: ~3 hours)
+**Priority:** P1
+**Depends on:** None
+
+### Chromium fork (long-term alternative to CDP patches)
+
+**What:** Maintain a Chromium fork where anti-bot stealth, GStack Browser branding, and native sidebar support live in the source code, not as runtime monkey-patches.
+
+**Why:** The CDP patches are brittle. They break on every Playwright upgrade and target compiled JS with fragile string matching. A proper fork means: (1) stealth is permanent, not patched, (2) branding is native (no plist hacking at launch), (3) native sidebar replaces the extension (Phase 4 of V0 roadmap), (4) custom protocols (gstack://) for internal pages. Companies like Brave, Arc, and Vivaldi maintain Chromium forks with small teams. With CC, the rebase-on-upstream maintenance could be largely automated.
+
+**Context:** Trigger criteria from V0 design doc: fork when extension side panel becomes the bottleneck, when anti-bot patches need to live deeper than CDP, or when native UI integration (sidebar, status bar) can't be done via extension. The Chromium build takes ~4 hours on a 32-core machine and produces ~50GB of build artifacts. CI would need dedicated build infra. See `docs/designs/GSTACK_BROWSER_V0.md` Phase 5 for full analysis.
+
+**Effort:** XL (human: ~1 quarter / CC: ~2-3 weeks of focused work)
+**Priority:** P2
+**Depends on:** CDP patches proving the value of anti-bot stealth first
 
 ## Completed
 

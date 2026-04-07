@@ -202,4 +202,59 @@ describe('cookie-picker-routes', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('auth gate security', () => {
+    test('GET /cookie-picker HTML page works without auth token', async () => {
+      const { bm } = mockBrowserManager();
+      const url = makeUrl('/cookie-picker');
+      // Request with no Authorization header, but authToken is set on the server
+      const req = new Request('http://127.0.0.1:9470', { method: 'GET' });
+
+      const res = await handleCookiePickerRoute(url, req, bm, 'test-secret-token');
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toContain('text/html');
+    });
+
+    test('GET /cookie-picker/browsers returns 401 without auth', async () => {
+      const { bm } = mockBrowserManager();
+      const url = makeUrl('/cookie-picker/browsers');
+      // No Authorization header
+      const req = new Request('http://127.0.0.1:9470', { method: 'GET' });
+
+      const res = await handleCookiePickerRoute(url, req, bm, 'test-secret-token');
+
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.error).toBe('Unauthorized');
+    });
+
+    test('POST /cookie-picker/import returns 401 without auth', async () => {
+      const { bm } = mockBrowserManager();
+      const url = makeUrl('/cookie-picker/import');
+      const req = makeReq('POST', { browser: 'Chrome', domains: ['.example.com'] });
+
+      const res = await handleCookiePickerRoute(url, req, bm, 'test-secret-token');
+
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.error).toBe('Unauthorized');
+    });
+
+    test('GET /cookie-picker/browsers works with valid auth', async () => {
+      const { bm } = mockBrowserManager();
+      const url = makeUrl('/cookie-picker/browsers');
+      const req = new Request('http://127.0.0.1:9470', {
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer test-secret-token' },
+      });
+
+      const res = await handleCookiePickerRoute(url, req, bm, 'test-secret-token');
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('application/json');
+      const body = await res.json();
+      expect(body).toHaveProperty('browsers');
+    });
+  });
 });

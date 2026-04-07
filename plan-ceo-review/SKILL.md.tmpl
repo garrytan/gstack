@@ -10,7 +10,7 @@ description: |
   Use when asked to "think bigger", "expand scope", "strategy review", "rethink this",
   or "is this ambitious enough".
   Proactively suggest when the user is questioning scope or ambition of a plan,
-  or when the plan feels like it could be thinking bigger.
+  or when the plan feels like it could be thinking bigger. (gstack)
 benefits-from: [office-hours]
 allowed-tools:
   - Read
@@ -105,6 +105,7 @@ Then read CLAUDE.md, TODOS.md, and any existing architecture docs.
 
 **Design doc check:**
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
@@ -115,6 +116,7 @@ If a design doc exists (from `/office-hours`), read it. Use it as the source of 
 
 **Handoff note check** (reuses $SLUG and $BRANCH from the design doc check above):
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 HANDOFF=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null | head -1)
 [ -n "$HANDOFF" ] && echo "HANDOFF_FOUND: $HANDOFF" || echo "NO_HANDOFF"
 ```
@@ -141,12 +143,9 @@ sure," or is clearly exploring rather than reviewing — offer `/office-hours`:
 Options: A) Yes, run /office-hours now. B) No, keep going.
 If they keep going, proceed normally — no guilt, no re-asking.
 
-If they choose A: Read the office-hours skill file from disk:
-`~/.claude/skills/gstack/office-hours/SKILL.md`
+If they choose A:
 
-Follow it inline, skipping these sections (already handled by parent skill):
-Preamble, AskUserQuestion Format, Completeness Principle, Search Before Building,
-Contributor Mode, Completion Status Protocol, Telemetry.
+{{INVOKE_SKILL:office-hours}}
 
 Note current Step 0A progress so you don't re-ask questions already answered.
 After completion, re-run the design doc check and resume the review.
@@ -188,6 +187,8 @@ Run the three-layer synthesis:
 - **[Layer 3]** First-principles reasoning — where might the conventional wisdom be wrong?
 
 Feed into the Premise Challenge (0A) and Dream State Mapping (0C). If you find a eureka moment, surface it during the Expansion opt-in ceremony as a differentiation opportunity. Log it (see preamble).
+
+{{LEARNINGS_SEARCH}}
 
 ## Step 0: Nuclear Scope Challenge + Mode Selection
 
@@ -352,7 +353,9 @@ After mode is selected, confirm which implementation approach (from 0C-bis) appl
 Once selected, commit fully. Do not silently drift.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
 
-## Review Sections (10 sections, after scope and mode are agreed)
+## Review Sections (11 sections, after scope and mode are agreed)
+
+**Anti-skip rule:** Never condense, abbreviate, or skip any review section (1-11) regardless of plan type (strategy, spec, code, infra). Every section in this skill exists for a reason. "This is a strategy doc so implementation sections don't apply" is always wrong — implementation details are where strategy breaks down. If a section genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
 
 ### Section 1: Architecture Review
 Evaluate and diagram:
@@ -592,6 +595,14 @@ If this plan has significant UI scope, recommend: "Consider running /plan-design
 
 {{CODEX_PLAN_REVIEW}}
 
+### Outside Voice Integration Rule
+
+Outside voice findings are INFORMATIONAL until the user explicitly approves each one.
+Do NOT incorporate outside voice recommendations into the plan without presenting each
+finding via AskUserQuestion and getting explicit approval. This applies even when you
+agree with the outside voice. Cross-model consensus is a strong signal — present it as
+such — but the user makes the decision.
+
 ## Post-Implementation Design Audit (if UI scope detected)
 After implementation, run `/design-review` on the live site to catch visual issues that can only be evaluated with rendered output.
 
@@ -703,6 +714,7 @@ After producing the Completion Summary, clean up any handoff notes for this bran
 the review is complete and the context is no longer needed.
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
 {{SLUG_EVAL}}
 rm -f ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null || true
 ```
@@ -768,6 +780,8 @@ If promoted, copy the CEO plan content to `docs/designs/{FEATURE}.md` (create th
 * One sentence max per option.
 * After each section, pause and wait for feedback.
 * Use **CRITICAL GAP** / **WARNING** / **OK** for scannability.
+
+{{LEARNINGS_LOG}}
 
 ## Mode Quick Reference
 ```

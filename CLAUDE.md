@@ -63,8 +63,17 @@ gstack/
 │   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
 │   ├── test/        # Integration tests + fixtures
 │   └── dist/        # Compiled binary
+├── hosts/           # Typed host configs (one per AI agent)
+│   ├── claude.ts    # Primary host config
+│   ├── codex.ts, factory.ts, kiro.ts  # Existing hosts
+│   ├── opencode.ts, slate.ts, cursor.ts, openclaw.ts  # New hosts
+│   └── index.ts     # Registry: exports all, derives Host type
 ├── scripts/         # Build + DX tooling
-│   ├── gen-skill-docs.ts  # Template → SKILL.md generator
+│   ├── gen-skill-docs.ts  # Template → SKILL.md generator (config-driven)
+│   ├── host-config.ts     # HostConfig interface + validator
+│   ├── host-config-export.ts  # Shell bridge for setup script
+│   ├── host-adapters/     # Host-specific adapters (OpenClaw tool mapping)
+│   ├── resolvers/   # Template resolver modules (preamble, design, review, etc.)
 │   ├── skill-check.ts     # Health dashboard
 │   └── dev-skill.ts       # Watch mode
 ├── test/            # Skill validation + eval tests
@@ -93,10 +102,22 @@ gstack/
 ├── document-release/ # /document-release skill (post-ship doc updates)
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
 ├── design-consultation/ # /design-consultation skill (design system from scratch)
+├── design-shotgun/  # /design-shotgun skill (visual design exploration)
+├── open-gstack-browser/  # /open-gstack-browser skill (launch GStack Browser)
+├── connect-chrome/  # symlink → open-gstack-browser (backwards compat)
+├── design/          # Design binary CLI (GPT Image API)
+│   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
+│   ├── test/        # Integration tests
+│   └── dist/        # Compiled binary
+├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
+├── lib/             # Shared libraries (worktree.ts)
+├── docs/designs/    # Design documents
 ├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
 ├── .github/         # CI workflows + Docker image
 │   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
 │   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
+├── contrib/         # Contributor-only tools (never installed for users)
+│   └── add-host/    # /gstack-contrib-add-host skill
 ├── setup            # One-time setup: build binary + symlink skills
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
@@ -157,10 +178,18 @@ When you need to interact with a browser (QA, dogfooding, cookie setup), use the
 `mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
 project uses.
 
-## Vendored symlink awareness
+**Sidebar architecture:** Before modifying `sidepanel.js`, `background.js`,
+`content.js`, `sidebar-agent.ts`, or sidebar-related server endpoints, read
+`docs/designs/SIDEBAR_MESSAGE_FLOW.md`. It documents the full initialization
+timeline, message flow, auth token chain, tab concurrency model, and known
+failure modes. The sidebar spans 5 files across 2 codebases (extension + server)
+with non-obvious ordering dependencies. The doc exists to prevent the kind of
+silent failures that come from not understanding the cross-component flow.
+
+## Dev symlink awareness
 
 When developing gstack, `.claude/skills/gstack` may be a symlink back to this
-working directory (gitignored). This means skill changes are **live immediately** —
+working directory (gitignored). This means skill changes are **live immediately**,
 great for rapid iteration, risky during big refactors where half-written skills
 could break other Claude Code sessions using gstack concurrently.
 
@@ -171,17 +200,34 @@ symlink or a real copy. If it's a symlink to your working directory, be aware th
 - During large refactors, remove the symlink (`rm .claude/skills/gstack`) so the
   global install at `~/.claude/skills/gstack/` is used instead
 
+**Prefix setting:** Setup creates real directories (not symlinks) at the top level
+with a SKILL.md symlink inside (e.g., `qa/SKILL.md -> gstack/qa/SKILL.md`). This
+ensures Claude discovers them as top-level skills, not nested under `gstack/`.
+Names are either short (`qa`) or namespaced (`gstack-qa`), controlled by
+`skill_prefix` in `~/.gstack/config.yaml`. Pass `--no-prefix` or `--prefix` to
+skip the interactive prompt.
+
+**Note:** Vendoring gstack into a project's repo is deprecated. Use global install
++ `./setup --team` instead. See README.md for team mode instructions.
+
 **For plan reviews:** When reviewing plans that modify skill templates or the
 gen-skill-docs pipeline, consider whether the changes should be tested in isolation
 before going live (especially if the user is actively using gstack in other windows).
 
-## Compiled binaries — NEVER commit browse/dist/
+**Upgrade migrations:** When a change modifies on-disk state (directory structure,
+config format, stale files) in ways that could break existing user installs, add a
+migration script to `gstack-upgrade/migrations/`. Read CONTRIBUTING.md's "Upgrade
+migrations" section for the format and testing requirements. The upgrade skill runs
+these automatically after `./setup` during `/gstack-upgrade`.
 
-The `browse/dist/` directory contains compiled Bun binaries (`browse`, `find-browse`,
-~58MB each). These are Mach-O arm64 only — they do NOT work on Linux, Windows, or
-Intel Macs. The `./setup` script already builds from source for every platform, so
-the checked-in binaries are redundant. They are tracked by git due to a historical
-mistake and should eventually be removed with `git rm --cached`.
+## Compiled binaries — NEVER commit browse/dist/ or design/dist/
+
+The `browse/dist/` and `design/dist/` directories contain compiled Bun binaries
+(`browse`, `find-browse`, `design`, ~58MB each). These are Mach-O arm64 only — they
+do NOT work on Linux, Windows, or Intel Macs. The `./setup` script already builds
+from source for every platform, so the checked-in binaries are redundant. They are
+tracked by git due to a historical mistake and should eventually be removed with
+`git rm --cached`.
 
 **NEVER stage or commit these files.** They show up as modified in `git status`
 because they're tracked despite `.gitignore` — ignore them. When staging files,
@@ -204,6 +250,24 @@ Examples of good bisection:
 When the user says "bisect commit" or "bisect and push," split staged/unstaged
 changes into logical commits and push.
 
+## Community PR guardrails
+
+When reviewing or merging community PRs, **always AskUserQuestion** before accepting
+any commit that:
+
+1. **Touches ETHOS.md** — this file is Garry's personal builder philosophy. No edits
+   from external contributors or AI agents, period.
+2. **Removes or softens promotional material** — YC references, founder perspective,
+   and product voice are intentional. PRs that frame these as "unnecessary" or
+   "too promotional" must be rejected.
+3. **Changes Garry's voice** — the tone, humor, directness, and perspective in skill
+   templates, CHANGELOG, and docs are not generic. PRs that rewrite voice to be
+   more "neutral" or "professional" must be rejected.
+
+Even if the agent strongly believes a change improves the project, these three
+categories require explicit user approval via AskUserQuestion. No exceptions.
+No auto-merging. No "I'll just clean this up."
+
 ## CHANGELOG + VERSION style
 
 **VERSION and CHANGELOG are branch-scoped.** Every feature branch that ships gets its
@@ -222,6 +286,23 @@ not what was already on main.
 2. Is the base branch version already released? (If yes, bump and create new entry.)
 3. Does an existing entry on this branch already cover earlier work? (If yes, replace
    it with one unified entry for the final version.)
+
+**Merging main does NOT mean adopting main's version.** When you merge origin/main into
+a feature branch, main may bring new CHANGELOG entries and a higher VERSION. Your branch
+still needs its OWN version bump on top. If main is at v0.13.8.0 and your branch adds
+features, bump to v0.13.9.0 with a new entry. Never jam your changes into an entry that
+already landed on main. Your entry goes on top because your branch lands next.
+
+**After merging main, always check:**
+- Does CHANGELOG have your branch's own entry separate from main's entries?
+- Is VERSION higher than main's VERSION?
+- Is your entry the topmost entry in CHANGELOG (above main's latest)?
+If any answer is no, fix it before continuing.
+
+**After any CHANGELOG edit that moves, adds, or removes entries,** immediately run
+`grep "^## \[" CHANGELOG.md` and verify the full version sequence is contiguous
+with no gaps or duplicates before committing. If a version is missing, the edit
+broke something. Fix it before moving on.
 
 CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
 
@@ -298,6 +379,53 @@ them. Report progress at each check (which tests passed, which are running, any
 failures so far). The user wants to see the run complete, not a promise that
 you'll check later.
 
+## E2E test fixtures: extract, don't copy
+
+**NEVER copy a full SKILL.md file into an E2E test fixture.** SKILL.md files are
+1500-2000 lines. When `claude -p` reads a file that large, context bloat causes
+timeouts, flaky turn limits, and tests that take 5-10x longer than necessary.
+
+Instead, extract only the section the test actually needs:
+
+```typescript
+// BAD — agent reads 1900 lines, burns tokens on irrelevant sections
+fs.copyFileSync(path.join(ROOT, 'ship', 'SKILL.md'), path.join(dir, 'ship-SKILL.md'));
+
+// GOOD — agent reads ~60 lines, finishes in 38s instead of timing out
+const full = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+const start = full.indexOf('## Review Readiness Dashboard');
+const end = full.indexOf('\n---\n', start);
+fs.writeFileSync(path.join(dir, 'ship-SKILL.md'), full.slice(start, end > start ? end : undefined));
+```
+
+Also when running targeted E2E tests to debug failures:
+- Run in **foreground** (`bun test ...`), not background with `&` and `tee`
+- Never `pkill` running eval processes and restart — you lose results and waste money
+- One clean run beats three killed-and-restarted runs
+
+## Publishing native OpenClaw skills to ClawHub
+
+Native OpenClaw skills live in `openclaw/skills/gstack-openclaw-*/SKILL.md`. These are
+hand-crafted methodology skills (not generated by the pipeline) published to ClawHub
+so any OpenClaw user can install them.
+
+**Publishing:** The command is `clawhub publish` (NOT `clawhub skill publish`):
+
+```bash
+clawhub publish openclaw/skills/gstack-openclaw-office-hours \
+  --slug gstack-openclaw-office-hours --name "gstack Office Hours" \
+  --version 1.0.0 --changelog "description of changes"
+```
+
+Repeat for each skill: `gstack-openclaw-ceo-review`, `gstack-openclaw-investigate`,
+`gstack-openclaw-retro`. Bump `--version` on each update.
+
+**Auth:** `clawhub login` (opens browser for GitHub auth). `clawhub whoami` to verify.
+
+**Updating:** Same `clawhub publish` command with a higher `--version` and `--changelog`.
+
+**Verification:** `clawhub search gstack` to confirm they're live.
+
 ## Deploying to the active skill
 
 The active skill lives at `~/.claude/skills/gstack/`. After making changes:
@@ -306,4 +434,6 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
 3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
 
-Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+Or copy the binaries directly:
+- `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+- `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`

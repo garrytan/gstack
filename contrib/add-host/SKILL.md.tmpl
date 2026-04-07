@@ -1,0 +1,63 @@
+---
+name: gstack-contrib-add-host
+description: |
+  Contributor-only skill: create a new host config for gstack's multi-host system.
+  NOT installed for end users. Only usable from the gstack source repo.
+---
+
+# /gstack-contrib-add-host — Add a New Host
+
+This skill helps contributors add support for a new AI coding agent to gstack.
+
+## What you'll create
+
+A single TypeScript file in `hosts/<name>.ts` that defines:
+- CLI binary name for detection
+- Skill directory paths (global + local)
+- Frontmatter transformation rules
+- Path and tool rewrites
+- Runtime root symlink manifest
+
+## Steps
+
+### 1. Gather host info
+
+Ask the contributor:
+- What's the agent's name? (e.g., "OpenCode")
+- What's the CLI binary? (e.g., "opencode")
+- Where does it store skills globally? (e.g., "~/.config/opencode/skills/")
+- Where does it store skills locally in a project? (e.g., ".opencode/skills/")
+- What frontmatter fields does it support? (name + description is the minimum)
+- Does it have its own tool names? (e.g., "exec" instead of "Bash")
+
+### 2. Create the config file
+
+Use `hosts/opencode.ts` as a reference. Create `hosts/<name>.ts` with the
+gathered info. Follow the HostConfig interface in `scripts/host-config.ts`.
+
+### 3. Register in index
+
+Add the import and re-export in `hosts/index.ts`.
+
+### 4. Add to .gitignore
+
+Add `.<name>/` to `.gitignore`.
+
+### 5. Generate and verify
+
+```bash
+bun run gen:skill-docs --host <name>
+```
+
+Check:
+- Output exists at `.<name>/skills/gstack-*/SKILL.md`
+- No `.claude/skills` path leakage
+- Frontmatter matches expected format
+
+### 6. Run tests
+
+```bash
+bun test test/gen-skill-docs.test.ts
+```
+
+All parameterized tests auto-include the new host.

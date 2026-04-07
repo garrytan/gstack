@@ -8,7 +8,14 @@ description: |
   scanning, plus OWASP Top 10, STRIDE threat modeling, and active verification.
   Two modes: daily (zero-noise, 8/10 confidence gate) and comprehensive (monthly deep
   scan, 2/10 bar). Trend tracking across audit runs.
-  Use when: "security audit", "threat model", "pentest review", "OWASP", "CSO review".
+  Use when: "security audit", "threat model", "pentest review", "OWASP", "CSO review". (gstack)
+voice-triggers:
+  - "see-so"
+  - "see so"
+  - "security review"
+  - "security check"
+  - "vulnerability scan"
+  - "run security"
 allowed-tools:
   - Bash
   - Read
@@ -73,7 +80,7 @@ ls go.mod 2>/dev/null && echo "STACK: Go"
 ls Cargo.toml 2>/dev/null && echo "STACK: Rust"
 ls pom.xml build.gradle 2>/dev/null && echo "STACK: JVM"
 ls composer.json 2>/dev/null && echo "STACK: PHP"
-ls *.csproj *.sln 2>/dev/null && echo "STACK: .NET"
+find . -maxdepth 1 \( -name '*.csproj' -o -name '*.sln' \) 2>/dev/null | grep -q . && echo "STACK: .NET"
 ```
 
 **Framework detection:**
@@ -102,6 +109,8 @@ grep -q "laravel" composer.json 2>/dev/null && echo "FRAMEWORK: Laravel"
 
 This is NOT a checklist — it's a reasoning phase. The output is understanding, not findings.
 
+{{LEARNINGS_SEARCH}}
+
 ### Phase 1: Attack Surface Census
 
 Map what an attacker sees — both code surface and infrastructure surface.
@@ -110,7 +119,8 @@ Map what an attacker sees — both code surface and infrastructure surface.
 
 **Infrastructure surface:**
 ```bash
-ls .github/workflows/*.yml .github/workflows/*.yaml .gitlab-ci.yml 2>/dev/null | wc -l
+setopt +o nomatch 2>/dev/null || true  # zsh compat
+{ find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null; [ -f .gitlab-ci.yml ] && echo .gitlab-ci.yml; } | wc -l
 find . -maxdepth 4 -name "Dockerfile*" -o -name "docker-compose*.yml" 2>/dev/null
 find . -maxdepth 4 -name "*.tf" -o -name "*.tfvars" -o -name "kustomization.yaml" 2>/dev/null
 ls .env .env.* 2>/dev/null
@@ -160,7 +170,7 @@ grep -q "^\.env$\|^\.env\.\*" .gitignore 2>/dev/null && echo ".env IS gitignored
 
 **CI configs with inline secrets (not using secret stores):**
 ```bash
-for f in .github/workflows/*.yml .github/workflows/*.yaml .gitlab-ci.yml .circleci/config.yml; do
+for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null) .gitlab-ci.yml .circleci/config.yml; do
   [ -f "$f" ] && grep -n "password:\|token:\|secret:\|api_key:" "$f" | grep -v '\${{' | grep -v 'secrets\.'
 done 2>/dev/null
 ```
@@ -486,6 +496,8 @@ SECURITY FINDINGS
 4   HIGH   9/10   UNVERIFIED  Integrations     Webhook w/o signature verify     P6      api/webhooks.ts:24
 ```
 
+{{CONFIDENCE_CALIBRATION}}
+
 For each finding:
 ```
 ## Finding N: [Title] — [File:Line]
@@ -594,6 +606,8 @@ Write findings to `.gstack/security-reports/{date}-{HHMMSS}.json` using this sch
 ```
 
 If `.gstack/` is not in `.gitignore`, note it in findings — security reports should stay local.
+
+{{LEARNINGS_LOG}}
 
 ## Important Rules
 

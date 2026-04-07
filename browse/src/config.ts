@@ -79,7 +79,7 @@ export function resolveConfig(
  */
 export function ensureStateDir(config: BrowseConfig): void {
   try {
-    fs.mkdirSync(config.stateDir, { recursive: true });
+    fs.mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   } catch (err: any) {
     if (err.code === 'EACCES') {
       throw new Error(`Cannot create state directory ${config.stateDir}: permission denied`);

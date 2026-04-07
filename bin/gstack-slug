@@ -6,10 +6,13 @@
 # Security: output is sanitized to [a-zA-Z0-9._-] only, preventing
 # shell injection when consumed via source or eval.
 set -euo pipefail
-RAW_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
+RAW_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-') || true
+RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-') || true
 # Strip any characters that aren't alphanumeric, dot, hyphen, or underscore
-SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
-BRANCH=$(printf '%s' "$RAW_BRANCH" | tr -cd 'a-zA-Z0-9._-')
+SLUG=$(printf '%s' "${RAW_SLUG:-}" | tr -cd 'a-zA-Z0-9._-')
+BRANCH=$(printf '%s' "${RAW_BRANCH:-}" | tr -cd 'a-zA-Z0-9._-')
+# Fallback when git context is absent
+SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
+BRANCH="${BRANCH:-unknown}"
 echo "SLUG=$SLUG"
 echo "BRANCH=$BRANCH"

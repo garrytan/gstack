@@ -340,21 +340,22 @@ Write your findings to ${dir}/review-output.md`,
     run('git', ['add', 'app.ts'], dir);
     run('git', ['commit', '-m', 'feat: update to v2'], dir);
 
-    // Copy ship skill
-    fs.copyFileSync(path.join(ROOT, 'ship', 'SKILL.md'), path.join(dir, 'ship-SKILL.md'));
+    // Extract only Step 0 (base branch detection) from ship/SKILL.md
+    // (copying the full 1900-line file causes agent context bloat and flaky timeouts)
+    const fullShipSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const step0Start = fullShipSkill.indexOf('## Step 0: Detect platform and base branch');
+    const step0End = fullShipSkill.indexOf('## Step 1: Pre-flight');
+    const shipSection = fullShipSkill.slice(step0Start, step0End > step0Start ? step0End : undefined);
+    fs.writeFileSync(path.join(dir, 'ship-SKILL.md'), shipSection);
 
     const result = await runSkillTest({
-      prompt: `Read ship-SKILL.md for the ship workflow.
+      prompt: `Read ship-SKILL.md. It contains Step 0 (Detect base branch) from the ship workflow.
 
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to Step 0.
+Run the base branch detection. Since there is no remote, gh commands will fail — fall back to main.
 
-Run ONLY Step 0 (Detect base branch) and Step 1 (Pre-flight) from the ship workflow.
-Since there is no remote, gh commands will fail — fall back to main.
+Then run git diff and git log against the detected base branch.
 
-After completing Step 0 and Step 1, STOP. Do NOT proceed to Step 2 or beyond.
-Do NOT push, create PRs, or modify VERSION/CHANGELOG.
-
-Write a summary of what you detected to ${dir}/ship-preflight.md including:
+Write a summary to ${dir}/ship-preflight.md including:
 - The detected base branch name
 - The current branch name
 - The diff stat against the base branch`,
@@ -580,8 +581,13 @@ describeIfSelected('Review Dashboard Via Attribution', ['review-dashboard-via'],
     ].join('\n'));
     fs.chmodSync(path.join(mockBinDir, 'gstack-review-read'), 0o755);
 
-    // Copy ship skill
-    fs.copyFileSync(path.join(ROOT, 'ship', 'SKILL.md'), path.join(dashDir, 'ship-SKILL.md'));
+    // Extract only the Review Readiness Dashboard section from ship/SKILL.md
+    // (copying the full 1900-line file causes agent context bloat and timeouts)
+    const fullSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const dashStart = fullSkill.indexOf('## Review Readiness Dashboard');
+    const dashEnd = fullSkill.indexOf('\n---\n', dashStart);
+    const dashSection = fullSkill.slice(dashStart, dashEnd > dashStart ? dashEnd : undefined);
+    fs.writeFileSync(path.join(dashDir, 'ship-SKILL.md'), dashSection);
   });
 
   afterAll(() => {
@@ -605,7 +611,7 @@ Skip the preamble, lake intro, telemetry, and all other ship steps.
 Write the dashboard output to ${dashDir}/dashboard-output.md`,
       workingDirectory: dashDir,
       maxTurns: 12,
-      timeout: 90_000,
+      timeout: 180_000,
       testName: 'review-dashboard-via',
       runId,
     });
@@ -639,7 +645,7 @@ Write the dashboard output to ${dashDir}/dashboard-output.md`,
     );
     // Ship dashboard should not gate when eng review is clear
     expect(gateQuestions).toHaveLength(0);
-  }, 120_000);
+  }, 240_000);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

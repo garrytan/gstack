@@ -46,6 +46,10 @@ export class BrowserManager {
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
 
+  // ─── Tab Ownership (multi-agent isolation) ──────────────
+  // Maps tabId → clientId. Unowned tabs (not in this map) are root-only for writes.
+  private tabOwnership: Map<number, string> = new Map();
+
   // ─── Ref Map (snapshot → @e1, @e2, @c1, @c2, ...) ────────
   private refMap: Map<string, RefEntry> = new Map();
 
@@ -115,6 +119,8 @@ export class BrowserManager {
     const fs = require('fs');
     const path = require('path');
     const candidates = [
+      // Explicit override via env var (used by GStack Browser.app bundle)
+      process.env.BROWSE_EXTENSIONS_DIR || '',
       // Relative to this source file (dev mode: browse/src/ -> ../../extension)
       path.resolve(__dirname, '..', '..', 'extension'),
       // Global gstack install
@@ -264,7 +270,7 @@ export class BrowserManager {
    * The browser launches headed with a visible window — the user sees
    * every action Claude takes in real time.
    */
-  async launchHeaded(): Promise<void> {
+  async launchHeaded(authToken?: string): Promise<void> {
     // Clear old state before repopulating
     this.pages.clear();
     this.refMap.clear();
@@ -272,10 +278,30 @@ export class BrowserManager {
 
     // Find the gstack extension directory for auto-loading
     const extensionPath = this.findExtensionPath();
-    const launchArgs = ['--hide-crash-restore-bubble'];
+    const launchArgs = [
+      '--hide-crash-restore-bubble',
+      // Anti-bot-detection: remove the navigator.webdriver flag that Playwright sets.
+      // Sites like Google and NYTimes check this to block automation browsers.
+      '--disable-blink-features=AutomationControlled',
+    ];
     if (extensionPath) {
       launchArgs.push(`--disable-extensions-except=${extensionPath}`);
       launchArgs.push(`--load-extension=${extensionPath}`);
+      // Write auth token for extension bootstrap.
+      // Write to ~/.gstack/.auth.json (not the extension dir, which may be read-only
+      // in .app bundles and breaks codesigning).
+      if (authToken) {
+        const fs = require('fs');
+        const path = require('path');
+        const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
+        fs.mkdirSync(gstackDir, { recursive: true });
+        const authFile = path.join(gstackDir, '.auth.json');
+        try {
+          fs.writeFileSync(authFile, JSON.stringify({ token: authToken, port: this.serverPort || 34567 }), { mode: 0o600 });
+        } catch (err: any) {
+          console.warn(`[browse] Could not write .auth.json: ${err.message}`);
+        }
+      }
     }
 
     // Launch headed Chromium via Playwright's persistent context.
@@ -287,10 +313,74 @@ export class BrowserManager {
     const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
     fs.mkdirSync(userDataDir, { recursive: true });
 
+    // Support custom Chromium binary via GSTACK_CHROMIUM_PATH env var.
+    // Used by GStack Browser.app to point at the bundled Chromium.
+    const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
+
+    // Rebrand Chromium → GStack Browser in macOS menu bar / Dock / Cmd+Tab.
+    // Patch the Chromium .app's Info.plist so macOS shows our name.
+    // This works for both dev mode (system Playwright cache) and .app bundle.
+    const chromePath = executablePath || chromium.executablePath();
+    try {
+      // Walk up from binary to the .app's Info.plist
+      // e.g. .../Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
+      //   → .../Google Chrome for Testing.app/Contents/Info.plist
+      const chromeContentsDir = path.resolve(path.dirname(chromePath), '..');
+      const chromePlist = path.join(chromeContentsDir, 'Info.plist');
+      if (fs.existsSync(chromePlist)) {
+        const plistContent = fs.readFileSync(chromePlist, 'utf-8');
+        if (plistContent.includes('Google Chrome for Testing')) {
+          const patched = plistContent
+            .replace(/Google Chrome for Testing/g, 'GStack Browser');
+          fs.writeFileSync(chromePlist, patched);
+        }
+        // Replace Chromium's Dock icon with ours (Chromium's process owns the Dock icon)
+        const iconCandidates = [
+          path.join(__dirname, '..', '..', 'scripts', 'app', 'icon.icns'),       // repo dev mode
+          path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'scripts', 'app', 'icon.icns'), // global install
+        ];
+        const iconSrc = iconCandidates.find(p => fs.existsSync(p));
+        if (iconSrc) {
+          const chromeResources = path.join(chromeContentsDir, 'Resources');
+          // Read original icon name from plist
+          const iconMatch = plistContent.match(/<key>CFBundleIconFile<\/key>\s*<string>([^<]+)<\/string>/);
+          let origIcon = iconMatch ? iconMatch[1] : 'app';
+          if (!origIcon.endsWith('.icns')) origIcon += '.icns';
+          const destIcon = path.join(chromeResources, origIcon);
+          try { fs.copyFileSync(iconSrc, destIcon); } catch { /* non-fatal */ }
+        }
+      }
+    } catch {
+      // Non-fatal: app name just stays as Chrome for Testing
+    }
+
+    // Build custom user agent: keep Chrome version for site compatibility,
+    // but replace "Chrome for Testing" branding with "GStackBrowser"
+    let customUA: string | undefined;
+    if (!this.customUserAgent) {
+      // Detect Chrome version from the Chromium binary
+      const chromePath = executablePath || chromium.executablePath();
+      try {
+        const versionProc = Bun.spawnSync([chromePath, '--version'], {
+          stdout: 'pipe', stderr: 'pipe', timeout: 5000,
+        });
+        const versionOutput = versionProc.stdout.toString().trim();
+        // Output like: "Google Chrome for Testing 145.0.6422.0" or "Chromium 145.0.6422.0"
+        const versionMatch = versionOutput.match(/(\d+\.\d+\.\d+\.\d+)/);
+        const chromeVersion = versionMatch ? versionMatch[1] : '131.0.0.0';
+        customUA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36 GStackBrowser`;
+      } catch {
+        // Fallback: generic modern Chrome UA
+        customUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 GStackBrowser';
+      }
+    }
+
     this.context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
       args: launchArgs,
       viewport: null,  // Use browser's default viewport (real window size)
+      userAgent: this.customUserAgent || customUA,
+      ...(executablePath ? { executablePath } : {}),
       // Playwright adds flags that block extension loading
       ignoreDefaultArgs: [
         '--disable-extensions',
@@ -300,6 +390,59 @@ export class BrowserManager {
     this.browser = this.context.browser();
     this.connectionMode = 'headed';
     this.intentionalDisconnect = false;
+
+    // ─── Anti-bot-detection stealth patches ───────────────────────
+    // Playwright's Chromium is detected by sites like Google/NYTimes via:
+    //   1. navigator.webdriver = true (handled by --disable-blink-features above)
+    //   2. Missing plugins array (real Chrome has PDF viewer, etc.)
+    //   3. Missing languages
+    //   4. CDP runtime detection (window.cdc_* variables)
+    //   5. Permissions API returning 'denied' for notifications
+    await this.context.addInitScript(() => {
+      // Fake plugins array (real Chrome has at least PDF Viewer)
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => {
+          const plugins = [
+            { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+            { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+          ];
+          (plugins as any).namedItem = (name: string) => plugins.find(p => p.name === name) || null;
+          (plugins as any).refresh = () => {};
+          return plugins;
+        },
+      });
+
+      // Fake languages (Playwright sometimes sends empty)
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en'],
+      });
+
+      // Remove CDP runtime artifacts that automation detectors look for
+      // cdc_ prefixed vars are injected by ChromeDriver/CDP
+      const cleanup = () => {
+        for (const key of Object.keys(window)) {
+          if (key.startsWith('cdc_') || key.startsWith('__webdriver')) {
+            try { delete (window as any)[key]; } catch {}
+          }
+        }
+      };
+      cleanup();
+      // Re-clean after a tick in case they're injected late
+      setTimeout(cleanup, 0);
+
+      // Override Permissions API to return 'prompt' for notifications
+      // (automation browsers return 'denied' which is a fingerprint)
+      const originalQuery = window.navigator.permissions?.query;
+      if (originalQuery) {
+        (window.navigator.permissions as any).query = (params: any) => {
+          if (params.name === 'notifications') {
+            return Promise.resolve({ state: 'prompt', onchange: null } as PermissionStatus);
+          }
+          return originalQuery.call(window.navigator.permissions, params);
+        };
+      }
+    });
 
     // Inject visual indicator — subtle top-edge amber gradient
     // Extension's content script handles the floating pill
@@ -339,6 +482,17 @@ export class BrowserManager {
       }
     };
     await this.context.addInitScript(indicatorScript);
+
+    // Track user-created tabs automatically (Cmd+T, link opens in new tab, etc.)
+    this.context.on('page', (page) => {
+      const id = this.nextTabId++;
+      this.pages.set(id, page);
+      this.activeTabId = id;
+      this.wirePageEvents(page);
+      // Inject indicator on the new tab
+      page.evaluate(indicatorScript).catch(() => {});
+      console.log(`[browse] New tab detected (id=${id}, total=${this.pages.size})`);
+    });
 
     // Persistent context opens a default page — adopt it instead of creating a new one
     const existingPages = this.context.pages();
@@ -421,7 +575,7 @@ export class BrowserManager {
   }
 
   // ─── Tab Management ────────────────────────────────────────
-  async newTab(url?: string): Promise<number> {
+  async newTab(url?: string, clientId?: string): Promise<number> {
     if (!this.context) throw new Error('Browser not launched');
 
     // Validate URL before allocating page to avoid zombie tabs on rejection
@@ -433,6 +587,11 @@ export class BrowserManager {
     const id = this.nextTabId++;
     this.pages.set(id, page);
     this.activeTabId = id;
+
+    // Record tab ownership for multi-agent isolation
+    if (clientId) {
+      this.tabOwnership.set(id, clientId);
+    }
 
     // Wire up console/network/dialog capture
     this.wirePageEvents(page);
@@ -451,6 +610,7 @@ export class BrowserManager {
 
     await page.close();
     this.pages.delete(tabId);
+    this.tabOwnership.delete(tabId);
 
     // Switch to another tab if we closed the active one
     if (tabId === this.activeTabId) {
@@ -464,14 +624,94 @@ export class BrowserManager {
     }
   }
 
-  switchTab(id: number): void {
+  switchTab(id: number, opts?: { bringToFront?: boolean }): void {
     if (!this.pages.has(id)) throw new Error(`Tab ${id} not found`);
     this.activeTabId = id;
     this.activeFrame = null; // Frame context is per-tab
+    // Only bring to front when explicitly requested (user-initiated tab switch).
+    // Internal tab pinning (BROWSE_TAB) should NOT steal focus.
+    if (opts?.bringToFront !== false) {
+      const page = this.pages.get(id);
+      if (page) page.bringToFront().catch(() => {});
+    }
+  }
+
+  /**
+   * Sync activeTabId to match the tab whose URL matches the Chrome extension's
+   * active tab. Called on every /sidebar-tabs poll so manual tab switches in
+   * the browser are detected within ~2s.
+   */
+  syncActiveTabByUrl(activeUrl: string): void {
+    if (!activeUrl || this.pages.size <= 1) return;
+    // Try exact match first, then fuzzy match (origin+pathname, ignoring query/fragment)
+    let fuzzyId: number | null = null;
+    let activeOriginPath = '';
+    try {
+      const u = new URL(activeUrl);
+      activeOriginPath = u.origin + u.pathname;
+    } catch {}
+
+    for (const [id, page] of this.pages) {
+      try {
+        const pageUrl = page.url();
+        // Exact match — best case
+        if (pageUrl === activeUrl && id !== this.activeTabId) {
+          this.activeTabId = id;
+          this.activeFrame = null;
+          return;
+        }
+        // Fuzzy match — origin+pathname (handles query param / fragment differences)
+        if (activeOriginPath && fuzzyId === null && id !== this.activeTabId) {
+          try {
+            const pu = new URL(pageUrl);
+            if (pu.origin + pu.pathname === activeOriginPath) {
+              fuzzyId = id;
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+    // Fall back to fuzzy match
+    if (fuzzyId !== null) {
+      this.activeTabId = fuzzyId;
+      this.activeFrame = null;
+    }
+  }
+
+  getActiveTabId(): number {
+    return this.activeTabId;
   }
 
   getTabCount(): number {
     return this.pages.size;
+  }
+
+  // ─── Tab Ownership (multi-agent isolation) ──────────────
+
+  /** Get the owner of a tab, or null if unowned (root-only for writes). */
+  getTabOwner(tabId: number): string | null {
+    return this.tabOwnership.get(tabId) || null;
+  }
+
+  /**
+   * Check if a client can access a tab.
+   * If ownOnly or isWrite is true, requires ownership.
+   * Otherwise (reads), allow by default.
+   */
+  checkTabAccess(tabId: number, clientId: string, options: { isWrite?: boolean; ownOnly?: boolean } = {}): boolean {
+    if (clientId === 'root') return true;
+    const owner = this.tabOwnership.get(tabId);
+    if (options.ownOnly || options.isWrite) {
+      if (!owner) return false;
+      return owner === clientId;
+    }
+    return true;
+  }
+
+  /** Transfer tab ownership to a different client. */
+  transferTab(tabId: number, toClientId: string): void {
+    if (!this.pages.has(tabId)) throw new Error(`Tab ${tabId} not found`);
+    this.tabOwnership.set(tabId, toClientId);
   }
 
   async getTabListWithTitles(): Promise<Array<{ id: number; url: string; title: string; active: boolean }>> {
@@ -685,6 +925,14 @@ export class BrowserManager {
       this.wirePageEvents(page);
 
       if (saved.url) {
+        // Validate the saved URL before navigating — the state file is user-writable and
+        // a tampered URL could navigate to cloud metadata endpoints or file:// URIs.
+        try {
+          await validateNavigationUrl(saved.url);
+        } catch (err: any) {
+          console.warn(`[browse] Skipping invalid URL in state file: ${saved.url} — ${err.message}`);
+          continue;
+        }
         await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
       }
 
@@ -876,6 +1124,8 @@ export class BrowserManager {
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
+        // Auth token is served via /health endpoint now (no file write needed).
+        // Extension reads token from /health on connect.
         console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
       } else {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
@@ -976,6 +1226,22 @@ export class BrowserManager {
 
   // ─── Console/Network/Dialog/Ref Wiring ────────────────────
   private wirePageEvents(page: Page) {
+    // Track tab close — remove from pages map, switch to another tab
+    page.on('close', () => {
+      for (const [id, p] of this.pages) {
+        if (p === page) {
+          this.pages.delete(id);
+          console.log(`[browse] Tab closed (id=${id}, remaining=${this.pages.size})`);
+          // If the closed tab was active, switch to another
+          if (this.activeTabId === id) {
+            const remaining = [...this.pages.keys()];
+            this.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : 0;
+          }
+          break;
+        }
+      }
+    });
+
     // Clear ref map on navigation — refs point to stale elements after page change
     // (lastSnapshot is NOT cleared — it's a text baseline for diffing)
     page.on('framenavigated', (frame) => {

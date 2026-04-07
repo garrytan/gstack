@@ -543,6 +543,17 @@ describe('Visual', () => {
     }
   });
 
+  test('screenshot treats relative dot-slash path as file path, not CSS selector', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    // ./path/to/file.png must be treated as output path, not a CSS class selector (#495)
+    const relPath = './browse-test-dotpath.png';
+    const absPath = path.resolve(relPath);
+    const result = await handleMetaCommand('screenshot', [relPath], bm, async () => {});
+    expect(result).toContain('Screenshot saved');
+    expect(fs.existsSync(absPath)).toBe(true);
+    fs.unlinkSync(absPath);
+  });
+
   test('screenshot with nonexistent selector throws timeout', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     try {
@@ -636,6 +647,13 @@ describe('Chain', () => {
     expect(result).toContain('[goto]');
     expect(result).toContain('Test Page - Basic');
     expect(result).toContain('[css]');
+  });
+
+  test('chain wraps page-content sub-commands with trust markers', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleMetaCommand('chain', ['text'], bm, async () => {});
+    expect(result).toContain('BEGIN UNTRUSTED EXTERNAL CONTENT');
+    expect(result).toContain('END UNTRUSTED EXTERNAL CONTENT');
   });
 
   test('chain reports real error when write command fails', async () => {
@@ -1559,7 +1577,8 @@ describe('Cookie import', () => {
   test('cookie-import preserves explicit domain', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     const tempFile = '/tmp/browse-test-cookies-domain.json';
-    const cookies = [{ name: 'explicit', value: 'domain', domain: 'example.com', path: '/foo' }];
+    // Domain must match page hostname (127.0.0.1) — cross-domain cookies are now rejected
+    const cookies = [{ name: 'explicit', value: 'domain', domain: '127.0.0.1', path: '/foo' }];
     fs.writeFileSync(tempFile, JSON.stringify(cookies));
 
     const result = await handleWriteCommand('cookie-import', [tempFile], bm);
@@ -1747,7 +1766,7 @@ describe('Path traversal prevention', () => {
       await handleReadCommand('eval', ['../../etc/passwd'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Path traversal');
+      expect(err.message).toContain('Path must be within');
     }
   });
 
@@ -1756,7 +1775,7 @@ describe('Path traversal prevention', () => {
       await handleReadCommand('eval', ['/etc/passwd'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Absolute path must be within');
+      expect(err.message).toContain('Path must be within');
     }
   });
 
@@ -1819,7 +1838,7 @@ describe('Chain with cookie-import', () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     const tmpCookies = '/tmp/test-chain-cookies.json';
     fs.writeFileSync(tmpCookies, JSON.stringify([
-      { name: 'chain_test', value: 'chain_value', domain: 'localhost', path: '/' }
+      { name: 'chain_test', value: 'chain_value', domain: '127.0.0.1', path: '/' }
     ]));
     try {
       const commands = JSON.stringify([
@@ -1928,7 +1947,7 @@ describe('State persistence', () => {
     // Save state
     const saveResult = await handleMetaCommand('state', ['save', 'test-roundtrip'], bm, async () => {});
     expect(saveResult).toContain('State saved');
-    expect(saveResult).toContain('treat as sensitive');
+    expect(saveResult).toContain('Cookies stored in plaintext');
 
     // Navigate away
     await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);

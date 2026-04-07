@@ -3,8 +3,11 @@ name: ship
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy", "push to main", "create a PR", or "merge and push".
-  Proactively suggest when the user says code is ready or asks about deploying.
+  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION,
+  update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy",
+  "push to main", "create a PR", "merge and push", or "get it deployed".
+  Proactively invoke this skill (do NOT push/PR directly) when the user says code
+  is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -15,6 +18,7 @@ allowed-tools:
   - Agent
   - AskUserQuestion
   - WebSearch
+sensitive: true
 ---
 
 {{PREAMBLE}}
@@ -47,6 +51,16 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
 - Test coverage gaps within target threshold (auto-generate and commit, or flag in PR body)
+
+**Re-run behavior (idempotency):**
+Re-running `/ship` means "run the whole checklist again." Every verification step
+(tests, coverage audit, plan completion, pre-landing review, adversarial review,
+VERSION/CHANGELOG check, TODOS, document-release) runs on every invocation.
+Only *actions* are idempotent:
+- Step 4: If VERSION already bumped, skip the bump but still read the version
+- Step 7: If already pushed, skip the push command
+- Step 8: If PR exists, update the body instead of creating a new PR
+Never skip a verification step because a prior `/ship` run already performed it.
 
 ---
 
@@ -226,6 +240,10 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 {{PLAN_VERIFICATION_EXEC}}
 
+{{LEARNINGS_SEARCH}}
+
+{{SCOPE_DRIFT}}
+
 ---
 
 ## Step 3.5: Pre-Landing Review
@@ -240,11 +258,17 @@ Review the diff for structural issues that tests don't catch.
    - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
    - **Pass 2 (INFORMATIONAL):** All remaining categories
 
+{{CONFIDENCE_CALIBRATION}}
+
 {{DESIGN_REVIEW_LITE}}
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 
-4. **Classify each finding as AUTO-FIX or ASK** per the Fix-First Heuristic in
+{{REVIEW_ARMY}}
+
+{{CROSS_REVIEW_DEDUP}}
+
+4. **Classify each finding from both the checklist pass and specialist review (Step 3.55-3.56) as AUTO-FIX or ASK** per the Fix-First Heuristic in
    checklist.md. Critical findings lean toward ASK; informational lean toward AUTO-FIX.
 
 5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
@@ -266,10 +290,13 @@ Review the diff for structural issues that tests don't catch.
 
 9. Persist the review result to the review log:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
 ```
 Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
 and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
+- `quality_score` = the PR Quality Score computed in Step 3.56 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
+- `specialists` = the per-specialist stats object compiled in Step 3.56. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
+- `findings` = array of per-finding records. For each finding (from checklist pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"`, `"fixed"` (user approved), or `"skipped"` (user chose Skip).
 
 Save the review output — it goes into the PR body in Step 8.
 
@@ -316,15 +343,29 @@ For each classified comment:
 
 {{ADVERSARIAL_STEP}}
 
+{{LEARNINGS_LOG}}
+
 ## Step 4: Version bump (auto-decide)
+
+**Idempotency check:** Before bumping, compare VERSION against the base branch.
+
+```bash
+BASE_VERSION=$(git show origin/<base>:VERSION 2>/dev/null || echo "0.0.0.0")
+CURRENT_VERSION=$(cat VERSION 2>/dev/null || echo "0.0.0.0")
+echo "BASE: $BASE_VERSION  HEAD: $CURRENT_VERSION"
+if [ "$CURRENT_VERSION" != "$BASE_VERSION" ]; then echo "ALREADY_BUMPED"; fi
+```
+
+If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (prior `/ship` run). Skip the bump action (do not modify VERSION), but read the current VERSION value — it is needed for CHANGELOG and PR body. Continue to the next step. Otherwise proceed with the bump.
 
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
 
 2. **Auto-decide the bump level based on the diff:**
    - Count lines changed (`git diff origin/<base>...HEAD --stat | tail -1`)
+   - Check for feature signals: new route/page files (e.g. `app/*/page.tsx`, `pages/*.ts`), new DB migration/schema files, new test files alongside new source files, or branch name starting with `feat/`
    - **MICRO** (4th digit): < 50 lines changed, trivial tweaks, typos, config
-   - **PATCH** (3rd digit): 50+ lines changed, bug fixes, small-medium features
-   - **MINOR** (2nd digit): **ASK the user** — only for major features or significant architectural changes
+   - **PATCH** (3rd digit): 50+ lines changed, no feature signals detected
+   - **MINOR** (2nd digit): **ASK the user** if ANY feature signal is detected, OR 500+ lines changed, OR new modules/packages added
    - **MAJOR** (1st digit): **ASK the user** — only for milestones or breaking changes
 
 3. Compute the new version:
@@ -335,46 +376,7 @@ For each classified comment:
 
 ---
 
-## Step 5: CHANGELOG (auto-generate)
-
-1. Read `CHANGELOG.md` header to know the format.
-
-2. **First, enumerate every commit on the branch:**
-   ```bash
-   git log <base>..HEAD --oneline
-   ```
-   Copy the full list. Count the commits. You will use this as a checklist.
-
-3. **Read the full diff** to understand what each commit actually changed:
-   ```bash
-   git diff <base>...HEAD
-   ```
-
-4. **Group commits by theme** before writing anything. Common themes:
-   - New features / capabilities
-   - Performance improvements
-   - Bug fixes
-   - Dead code removal / cleanup
-   - Infrastructure / tooling / tests
-   - Refactoring
-
-5. **Write the CHANGELOG entry** covering ALL groups:
-   - If existing CHANGELOG entries on the branch already cover some commits, replace them with one unified entry for the new version
-   - Categorize changes into applicable sections:
-     - `### Added` — new features
-     - `### Changed` — changes to existing functionality
-     - `### Fixed` — bug fixes
-     - `### Removed` — removed features
-   - Write concise, descriptive bullet points
-   - Insert after the file header (line 5), dated today
-   - Format: `## [X.Y.Z.W] - YYYY-MM-DD`
-
-6. **Cross-check:** Compare your CHANGELOG entry against the commit list from step 2.
-   Every commit must map to at least one bullet point. If any commit is unrepresented,
-   add it now. If the branch has N commits spanning K themes, the CHANGELOG must
-   reflect all K themes.
-
-**Do NOT ask the user to describe changes.** Infer from the diff and commit history.
+{{CHANGELOG_WORKFLOW}}
 
 ---
 
@@ -464,7 +466,7 @@ Save this summary — it goes into the PR body in Step 8.
 git commit -m "$(cat <<'EOF'
 chore: bump version and changelog (vX.Y.Z.W)
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+{{CO_AUTHOR_TRAILER}}
 EOF
 )"
 ```
@@ -495,7 +497,17 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 
 ## Step 7: Push
 
-Push to the remote with upstream tracking:
+**Idempotency check:** Check if the branch is already pushed and up to date.
+
+```bash
+git fetch origin <branch-name> 2>/dev/null
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/<branch-name> 2>/dev/null || echo "none")
+echo "LOCAL: $LOCAL  REMOTE: $REMOTE"
+[ "$LOCAL" = "$REMOTE" ] && echo "ALREADY_PUSHED" || echo "PUSH_NEEDED"
+```
+
+If `ALREADY_PUSHED`, skip the push but continue to Step 8. Otherwise push with upstream tracking:
 
 ```bash
 git push -u origin <branch-name>
@@ -505,7 +517,21 @@ git push -u origin <branch-name>
 
 ## Step 8: Create PR/MR
 
-Create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
+**Idempotency check:** Check if a PR/MR already exists for this branch.
+
+**If GitHub:**
+```bash
+gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number): \(.url)" else "NO_PR" end' 2>/dev/null || echo "NO_PR"
+```
+
+**If GitLab:**
+```bash
+glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
+```
+
+If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary). Never reuse stale PR body content from a prior run. Print the existing URL and continue to Step 8.5.
+
+If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
 The PR/MR body should contain these sections:
 
@@ -536,6 +562,10 @@ you missed it.>
 <If Greptile comments were found: bullet list with [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED] tag + one-line summary per comment>
 <If no Greptile comments found: "No Greptile comments.">
 <If no PR existed during Step 3.75: omit this section entirely>
+
+## Scope Drift
+<If scope drift ran: "Scope Check: CLEAN" or list of drift/creep findings>
+<If no scope drift: omit this section>
 
 ## Plan Completion
 <If plan file found: completion checklist summary from Step 3.45>
@@ -603,6 +633,8 @@ execute its full workflow:
 
 This step is automatic. Do not ask the user for confirmation. The goal is zero-friction
 doc updates — the user runs `/ship` and documentation stays current without a separate command.
+
+If Step 8.5 created a docs commit, re-edit the PR/MR body to include the latest commit SHA in the summary. This ensures the PR body reflects the truly final state after document-release.
 
 ---
 

@@ -6,7 +6,7 @@ description: |
   Pre-landing PR review. Analyzes diff against the base branch for SQL safety, LLM trust
   boundary violations, conditional side effects, and other structural issues. Use when
   asked to "review this PR", "code review", "pre-landing review", or "check my diff".
-  Proactively suggest when the user is about to merge or land code changes.
+  Proactively suggest when the user is about to merge or land code changes. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -37,42 +37,9 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 ---
 
-## Step 1.5: Scope Drift Detection
-
-Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
-
-1. Read `TODOS.md` (if it exists). Read PR description (`gh pr view --json body --jq .body 2>/dev/null || true`).
-   Read commit messages (`git log origin/<base>..HEAD --oneline`).
-   **If no PR exists:** rely on commit messages and TODOS.md for stated intent — this is the common case since /review runs before /ship creates the PR.
-2. Identify the **stated intent** — what was this branch supposed to accomplish?
-3. Run `git diff origin/<base>...HEAD --stat` and compare the files changed against the stated intent.
+{{SCOPE_DRIFT}}
 
 {{PLAN_COMPLETION_AUDIT_REVIEW}}
-
-4. Evaluate with skepticism (incorporating plan completion results if available):
-
-   **SCOPE CREEP detection:**
-   - Files changed that are unrelated to the stated intent
-   - New features or refactors not mentioned in the plan
-   - "While I was in there..." changes that expand blast radius
-
-   **MISSING REQUIREMENTS detection:**
-   - Requirements from TODOS.md/PR description not addressed in the diff
-   - Test coverage gaps for stated requirements
-   - Partial implementations (started but not finished)
-
-5. Output (before the main review begins):
-   ```
-   Scope Check: [CLEAN / DRIFT DETECTED / REQUIREMENTS MISSING]
-   Intent: <1-line summary of what was requested>
-   Delivered: <1-line summary of what the diff actually does>
-   [If drift: list each out-of-scope change]
-   [If missing: list each unaddressed requirement]
-   ```
-
-6. This is **INFORMATIONAL** — does not block the review. Proceed to Step 2.
-
----
 
 ## Step 2: Read the checklist
 
@@ -104,12 +71,14 @@ Run `git diff origin/<base>` to get the full diff. This includes both committed 
 
 ---
 
-## Step 4: Two-pass review
+{{LEARNINGS_SEARCH}}
 
-Apply the checklist against the diff in two passes:
+## Step 4: Critical pass (core review)
 
-1. **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, LLM Output Trust Boundary, Enum & Value Completeness
-2. **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Magic Numbers & String Coupling, Dead Code & Consistency, LLM Prompt Issues, Test Gaps, View/Frontend, Performance & Bundle Impact
+Apply the CRITICAL categories from the checklist against the diff:
+SQL & Data Safety, Race Conditions & Concurrency, LLM Output Trust Boundary, Shell Injection, Enum & Value Completeness.
+
+Also apply the remaining INFORMATIONAL categories that are still in the checklist (Async/Sync Mixing, Column/Field Name Safety, LLM Prompt Issues, Type Coercion, View/Frontend, Time Window Safety, Completeness Gaps, Distribution & CI/CD).
 
 **Enum & Value Completeness requires reading code OUTSIDE the diff.** When the diff introduces a new enum value, status, tier, or type constant, use Grep to find all files that reference sibling values, then Read those files to check if the new value is handled. This is the one category where within-diff review is insufficient.
 
@@ -122,21 +91,11 @@ Takes seconds, prevents recommending outdated patterns. If WebSearch is unavaila
 
 Follow the output format specified in the checklist. Respect the suppressions — do NOT flag items listed in the "DO NOT flag" section.
 
----
-
-## Step 4.5: Design Review (conditional)
-
-{{DESIGN_REVIEW_LITE}}
-
-Include any design findings alongside the findings from Step 4. They follow the same Fix-First flow in Step 5 — AUTO-FIX for mechanical CSS fixes, ASK for everything else.
+{{CONFIDENCE_CALIBRATION}}
 
 ---
 
-## Step 4.75: Test Coverage Diagram
-
-{{TEST_COVERAGE_AUDIT_REVIEW}}
-
-This step subsumes the "Test Gaps" category from Pass 2 — do not duplicate findings between the checklist Test Gaps item and this coverage diagram. Include any coverage gaps alongside the findings from Step 4 and Step 4.5. They follow the same Fix-First flow — gaps are INFORMATIONAL findings.
+{{REVIEW_ARMY}}
 
 ---
 
@@ -144,13 +103,21 @@ This step subsumes the "Test Gaps" category from Pass 2 — do not duplicate fin
 
 **Every finding gets action — not just critical ones.**
 
-Output a summary header: `Pre-Landing Review: N issues (X critical, Y informational)`
+{{CROSS_REVIEW_DEDUP}}
 
 ### Step 5a: Classify each finding
 
 For each finding, classify as AUTO-FIX or ASK per the Fix-First Heuristic in
 checklist.md. Critical findings lean toward ASK; informational findings lean
 toward AUTO-FIX.
+
+**Test stub override:** Any finding that has a `test_stub` field (generated by a specialist)
+is reclassified as ASK regardless of its original classification. When presenting the ASK
+item, show the proposed test file path and the test code. The user approves or skips the
+test creation. If approved, write the fix + test file. Derive the test file path from
+the finding's `path` using project conventions (`spec/` for RSpec, `__tests__/` for
+Jest/Vitest, `test_` prefix for pytest, `_test.go` suffix for Go). If the test file
+already exists, append the new test. Output: `[FIXED + TEST] [file:line] Problem -> fix + test at [test_path]`
 
 ### Step 5b: Auto-fix all AUTO-FIX items
 
@@ -262,7 +229,7 @@ recognize that Eng Review was run on this branch.
 Run:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"commit":"COMMIT"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"COMMIT"}'
 ```
 
 Substitute:
@@ -271,7 +238,12 @@ Substitute:
 - `issues_found` = total remaining unresolved findings
 - `critical` = remaining unresolved critical findings
 - `informational` = remaining unresolved informational findings
+- `quality_score` = the PR Quality Score computed in Step 4.6 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
+- `specialists` = the per-specialist stats object compiled in Step 4.6. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Include Design specialist. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
+- `findings` = array of per-finding records from Step 5. For each finding (from critical pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"` (Step 5b), `"fixed"` (user approved in Step 5d), or `"skipped"` (user chose Skip in Step 5c). Suppressed findings from Step 5.0 are NOT included (they were already recorded in a prior review entry).
 - `COMMIT` = output of `git rev-parse --short HEAD`
+
+{{LEARNINGS_LOG}}
 
 If the review exits early before a real review completes (for example, no diff against the base branch), do **not** write this entry.
 

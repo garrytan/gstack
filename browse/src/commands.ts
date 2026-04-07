@@ -15,6 +15,7 @@ export const READ_COMMANDS = new Set([
   'js', 'eval', 'css', 'attrs',
   'console', 'network', 'cookies', 'storage', 'perf',
   'dialog', 'is',
+  'inspect',
 ]);
 
 export const WRITE_COMMANDS = new Set([
@@ -22,6 +23,7 @@ export const WRITE_COMMANDS = new Set([
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
   'viewport', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
   'upload', 'dialog-accept', 'dialog-dismiss',
+  'style', 'cleanup', 'prettyscreenshot',
 ]);
 
 export const META_COMMANDS = new Set([
@@ -39,6 +41,21 @@ export const META_COMMANDS = new Set([
 ]);
 
 export const ALL_COMMANDS = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
+
+/** Commands that return untrusted third-party page content */
+export const PAGE_CONTENT_COMMANDS = new Set([
+  'text', 'html', 'links', 'forms', 'accessibility', 'attrs',
+  'console', 'dialog',
+]);
+
+/** Wrap output from untrusted-content commands with trust boundary markers */
+export function wrapUntrustedContent(result: string, url: string): string {
+  // Sanitize URL: remove newlines to prevent marker injection via history.pushState
+  const safeUrl = url.replace(/[\n\r]/g, '').slice(0, 200);
+  // Escape marker strings in content to prevent boundary escape attacks
+  const safeResult = result.replace(/--- (BEGIN|END) UNTRUSTED EXTERNAL CONTENT/g, '--- $1 UNTRUSTED EXTERNAL C\u200BONTENT');
+  return `--- BEGIN UNTRUSTED EXTERNAL CONTENT (source: ${safeUrl}) ---\n${safeResult}\n--- END UNTRUSTED EXTERNAL CONTENT ---`;
+}
 
 export const COMMAND_DESCRIPTIONS: Record<string, { category: string; description: string; usage?: string }> = {
   // Navigation
@@ -115,6 +132,11 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'state':   { category: 'Server', description: 'Save/load browser state (cookies + URLs)', usage: 'state save|load <name>' },
   // Frame
   'frame':   { category: 'Meta', description: 'Switch to iframe context (or main to return)', usage: 'frame <sel|@ref|--name n|--url pattern|main>' },
+  // CSS Inspector
+  'inspect': { category: 'Inspection', description: 'Deep CSS inspection via CDP — full rule cascade, box model, computed styles', usage: 'inspect [selector] [--all] [--history]' },
+  'style':   { category: 'Interaction', description: 'Modify CSS property on element (with undo support)', usage: 'style <sel> <prop> <value> | style --undo [N]' },
+  'cleanup': { category: 'Interaction', description: 'Remove page clutter (ads, cookie banners, sticky elements, social widgets)', usage: 'cleanup [--ads] [--cookies] [--sticky] [--social] [--all]' },
+  'prettyscreenshot': { category: 'Visual', description: 'Clean screenshot with optional cleanup, scroll positioning, and element hiding', usage: 'prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]' },
 };
 
 // Load-time validation: descriptions must cover exactly the command sets

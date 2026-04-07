@@ -61,7 +61,8 @@ policy:
 `;
 }
 
-export function codexSkillName(skillDir: string): string {
+/** Compute skill name for external hosts (Codex, Factory, etc.) */
+export function externalSkillName(skillDir: string): string {
   if (skillDir === '.' || skillDir === '') return 'gstack';
   // Don't double-prefix: gstack-upgrade → gstack-upgrade (not gstack-gstack-upgrade)
   if (skillDir.startsWith('gstack-')) return skillDir;

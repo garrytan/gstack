@@ -17,7 +17,8 @@ If Codex is available, run a lightweight design check on the diff:
 
 \`\`\`bash
 TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -467,7 +468,8 @@ If user chooses A, launch both voices simultaneously:
 1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
 \`\`\`bash
 TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_SKETCH"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
 
@@ -636,7 +638,8 @@ which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 1. **Codex design voice** (via Bash):
 \`\`\`bash
 TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-codex exec "${escapedCodexPrompt}" -C "$(git rev-parse --show-toplevel)" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "${escapedCodexPrompt}" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached 2>"$TMPERR_DESIGN"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
@@ -719,3 +722,229 @@ ${slopItems}
 
 Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.`;
 }
+
+export function generateDesignSetup(ctx: TemplateContext): string {
+  return `## DESIGN SETUP (run this check BEFORE any design mockup command)
+
+\`\`\`bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
+[ -z "$D" ] && D=${ctx.paths.designDir}/design
+if [ -x "$D" ]; then
+  echo "DESIGN_READY: $D"
+else
+  echo "DESIGN_NOT_AVAILABLE"
+fi
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
+[ -z "$B" ] && B=${ctx.paths.browseDir}/browse
+if [ -x "$B" ]; then
+  echo "BROWSE_READY: $B"
+else
+  echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
+fi
+\`\`\`
+
+If \`DESIGN_NOT_AVAILABLE\`: skip visual mockup generation and fall back to the
+existing HTML wireframe approach (\`DESIGN_SKETCH\`). Design mockups are a
+progressive enhancement, not a hard requirement.
+
+If \`BROWSE_NOT_AVAILABLE\`: use \`open file://...\` instead of \`$B goto\` to open
+comparison boards. The user just needs to see the HTML file in any browser.
+
+If \`DESIGN_READY\`: the design binary is available for visual mockup generation.
+Commands:
+- \`$D generate --brief "..." --output /path.png\` — generate a single mockup
+- \`$D variants --brief "..." --count 3 --output-dir /path/\` — generate N style variants
+- \`$D compare --images "a.png,b.png,c.png" --output /path/board.html --serve\` — comparison board + HTTP server
+- \`$D serve --html /path/board.html\` — serve comparison board and collect feedback via HTTP
+- \`$D check --image /path.png --brief "..."\` — vision quality gate
+- \`$D iterate --session /path/session.json --feedback "..." --output /path.png\` — iterate
+
+**CRITICAL PATH RULE:** All design artifacts (mockups, comparison boards, approved.json)
+MUST be saved to \`~/.gstack/projects/$SLUG/designs/\`, NEVER to \`.context/\`,
+\`docs/designs/\`, \`/tmp/\`, or any project-local directory. Design artifacts are USER
+data, not project files. They persist across branches, conversations, and workspaces.`;
+}
+
+export function generateDesignMockup(ctx: TemplateContext): string {
+  return `## Visual Design Exploration
+
+\`\`\`bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
+[ -z "$D" ] && D=${ctx.paths.designDir}/design
+[ -x "$D" ] && echo "DESIGN_READY" || echo "DESIGN_NOT_AVAILABLE"
+\`\`\`
+
+**If \`DESIGN_NOT_AVAILABLE\`:** Fall back to the HTML wireframe approach below
+(the existing DESIGN_SKETCH section). Visual mockups require the design binary.
+
+**If \`DESIGN_READY\`:** Generate visual mockup explorations for the user.
+
+Generating visual mockups of the proposed design... (say "skip" if you don't need visuals)
+
+**Step 1: Set up the design directory**
+
+\`\`\`bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/mockup-$(date +%Y%m%d)
+mkdir -p "$_DESIGN_DIR"
+echo "DESIGN_DIR: $_DESIGN_DIR"
+\`\`\`
+
+**Step 2: Construct the design brief**
+
+Read DESIGN.md if it exists — use it to constrain the visual style. If no DESIGN.md,
+explore wide across diverse directions.
+
+**Step 3: Generate 3 variants**
+
+\`\`\`bash
+$D variants --brief "<assembled brief>" --count 3 --output-dir "$_DESIGN_DIR/"
+\`\`\`
+
+This generates 3 style variations of the same brief (~40 seconds total).
+
+**Step 4: Show variants inline, then open comparison board**
+
+Show each variant to the user inline first (read the PNGs with Read tool), then
+create and serve the comparison board:
+
+\`\`\`bash
+$D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
+\`\`\`
+
+This opens the board in the user's default browser and blocks until feedback is
+received. Read stdout for the structured JSON result. No polling needed.
+
+If \`$D serve\` is not available or fails, fall back to AskUserQuestion:
+"I've opened the design board. Which variant do you prefer? Any feedback?"
+
+**Step 5: Handle feedback**
+
+If the JSON contains \`"regenerated": true\`:
+1. Read \`regenerateAction\` (or \`remixSpec\` for remix requests)
+2. Generate new variants with \`$D iterate\` or \`$D variants\` using updated brief
+3. Create new board with \`$D compare\`
+4. POST the new HTML to the running server via \`curl -X POST http://localhost:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'\`
+   (parse the port from stderr: look for \`SERVE_STARTED: port=XXXXX\`)
+5. Board auto-refreshes in the same tab
+
+If \`"regenerated": false\`: proceed with the approved variant.
+
+**Step 6: Save approved choice**
+
+\`\`\`bash
+echo '{"approved_variant":"<VARIANT>","feedback":"<FEEDBACK>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"mockup","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+\`\`\`
+
+Reference the saved mockup in the design doc or plan.`;
+}
+
+export function generateDesignShotgunLoop(_ctx: TemplateContext): string {
+  return `### Comparison Board + Feedback Loop
+
+Create the comparison board and serve it over HTTP:
+
+\`\`\`bash
+$D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
+\`\`\`
+
+This command generates the board HTML, starts an HTTP server on a random port,
+and opens it in the user's default browser. **Run it in the background** with \`&\`
+because the server needs to stay running while the user interacts with the board.
+
+Parse the port from stderr output: \`SERVE_STARTED: port=XXXXX\`. You need this
+for the board URL and for reloading during regeneration cycles.
+
+**PRIMARY WAIT: AskUserQuestion with board URL**
+
+After the board is serving, use AskUserQuestion to wait for the user. Include the
+board URL so they can click it if they lost the browser tab:
+
+"I've opened a comparison board with the design variants:
+http://127.0.0.1:<PORT>/ — Rate them, leave comments, remix
+elements you like, and click Submit when you're done. Let me know when you've
+submitted your feedback (or paste your preferences here). If you clicked
+Regenerate or Remix on the board, tell me and I'll generate new variants."
+
+**Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
+board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
+
+**After the user responds to AskUserQuestion:**
+
+Check for feedback files next to the board HTML:
+- \`$_DESIGN_DIR/feedback.json\` — written when user clicks Submit (final choice)
+- \`$_DESIGN_DIR/feedback-pending.json\` — written when user clicks Regenerate/Remix/More Like This
+
+\`\`\`bash
+if [ -f "$_DESIGN_DIR/feedback.json" ]; then
+  echo "SUBMIT_RECEIVED"
+  cat "$_DESIGN_DIR/feedback.json"
+elif [ -f "$_DESIGN_DIR/feedback-pending.json" ]; then
+  echo "REGENERATE_RECEIVED"
+  cat "$_DESIGN_DIR/feedback-pending.json"
+  rm "$_DESIGN_DIR/feedback-pending.json"
+else
+  echo "NO_FEEDBACK_FILE"
+fi
+\`\`\`
+
+The feedback JSON has this shape:
+\`\`\`json
+{
+  "preferred": "A",
+  "ratings": { "A": 4, "B": 3, "C": 2 },
+  "comments": { "A": "Love the spacing" },
+  "overall": "Go with A, bigger CTA",
+  "regenerated": false
+}
+\`\`\`
+
+**If \`feedback.json\` found:** The user clicked Submit on the board.
+Read \`preferred\`, \`ratings\`, \`comments\`, \`overall\` from the JSON. Proceed with
+the approved variant.
+
+**If \`feedback-pending.json\` found:** The user clicked Regenerate/Remix on the board.
+1. Read \`regenerateAction\` from the JSON (\`"different"\`, \`"match"\`, \`"more_like_B"\`,
+   \`"remix"\`, or custom text)
+2. If \`regenerateAction\` is \`"remix"\`, read \`remixSpec\` (e.g. \`{"layout":"A","colors":"B"}\`)
+3. Generate new variants with \`$D iterate\` or \`$D variants\` using updated brief
+4. Create new board: \`$D compare --images "..." --output "$_DESIGN_DIR/design-board.html"\`
+5. Reload the board in the user's browser (same tab):
+   \`curl -s -X POST http://127.0.0.1:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'\`
+6. The board auto-refreshes. **AskUserQuestion again** with the same board URL to
+   wait for the next round of feedback. Repeat until \`feedback.json\` appears.
+
+**If \`NO_FEEDBACK_FILE\`:** The user typed their preferences directly in the
+AskUserQuestion response instead of using the board. Use their text response
+as the feedback.
+
+**POLLING FALLBACK:** Only use polling if \`$D serve\` fails (no port available).
+In that case, show each variant inline using the Read tool (so the user can see them),
+then use AskUserQuestion:
+"The comparison board server failed to start. I've shown the variants above.
+Which do you prefer? Any feedback?"
+
+**After receiving feedback (any path):** Output a clear summary confirming
+what was understood:
+
+"Here's what I understood from your feedback:
+PREFERRED: Variant [X]
+RATINGS: [list]
+YOUR NOTES: [comments]
+DIRECTION: [overall]
+
+Is this right?"
+
+Use AskUserQuestion to verify before proceeding.
+
+**Save the approved choice:**
+\`\`\`bash
+echo '{"approved_variant":"<V>","feedback":"<FB>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"<SCREEN>","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+\`\`\``;
+}
+

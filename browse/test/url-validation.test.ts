@@ -62,11 +62,53 @@ describe('validateNavigationUrl', () => {
     await expect(validateNavigationUrl('http://0251.0376.0251.0376/')).rejects.toThrow(/cloud metadata/i);
   });
 
-  it('blocks IPv6 metadata with brackets', async () => {
+  it('blocks IPv6 metadata with brackets (fd00::)', async () => {
     await expect(validateNavigationUrl('http://[fd00::]/')).rejects.toThrow(/cloud metadata/i);
+  });
+
+  it('blocks IPv6 ULA fd00::1 (not just fd00::)', async () => {
+    await expect(validateNavigationUrl('http://[fd00::1]/')).rejects.toThrow(/cloud metadata/i);
+  });
+
+  it('blocks IPv6 ULA fd12:3456::1', async () => {
+    await expect(validateNavigationUrl('http://[fd12:3456::1]/')).rejects.toThrow(/cloud metadata/i);
+  });
+
+  it('blocks IPv6 ULA fc00:: (full fc00::/7 range)', async () => {
+    await expect(validateNavigationUrl('http://[fc00::]/')).rejects.toThrow(/cloud metadata/i);
+  });
+
+  it('does not block hostnames starting with fd (e.g. fd.example.com)', async () => {
+    await expect(validateNavigationUrl('https://fd.example.com/')).resolves.toBeUndefined();
+  });
+
+  it('does not block hostnames starting with fc (e.g. fcustomer.com)', async () => {
+    await expect(validateNavigationUrl('https://fcustomer.com/')).resolves.toBeUndefined();
   });
 
   it('throws on malformed URLs', async () => {
     await expect(validateNavigationUrl('not-a-url')).rejects.toThrow(/Invalid URL/i);
+  });
+});
+
+describe('validateNavigationUrl — restoreState coverage', () => {
+  it('blocks file:// URLs that could appear in saved state', async () => {
+    await expect(validateNavigationUrl('file:///etc/passwd')).rejects.toThrow(/scheme.*not allowed/i);
+  });
+
+  it('blocks chrome:// URLs that could appear in saved state', async () => {
+    await expect(validateNavigationUrl('chrome://settings')).rejects.toThrow(/scheme.*not allowed/i);
+  });
+
+  it('blocks metadata IPs that could be injected into state files', async () => {
+    await expect(validateNavigationUrl('http://169.254.169.254/latest/meta-data/')).rejects.toThrow(/cloud metadata/i);
+  });
+
+  it('allows normal https URLs from saved state', async () => {
+    await expect(validateNavigationUrl('https://example.com/page')).resolves.toBeUndefined();
+  });
+
+  it('allows localhost URLs from saved state', async () => {
+    await expect(validateNavigationUrl('http://localhost:3000/app')).resolves.toBeUndefined();
   });
 });

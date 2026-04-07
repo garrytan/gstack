@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# gstack-session-update — auto-update gstack on session start (team mode)
+#
+# Called by Claude Code SessionStart hook. Must be fast, silent, non-fatal.
+# The entire update runs in background (forked). The hook itself exits
+# immediately so session startup is never delayed.
+#
+# Exit 0 always — errors must never block a Claude Code session.
+
+set +e
+
+GSTACK_DIR="${GSTACK_DIR:-$HOME/.claude/skills/gstack}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+THROTTLE_FILE="$STATE_DIR/.last-session-update"
+LOCK_DIR="$STATE_DIR/.setup-lock"
+LOG_FILE="$STATE_DIR/analytics/session-update.log"
+THROTTLE_SECONDS=3600  # 1 hour
+
+log_entry() {
+  mkdir -p "$(dirname "$LOG_FILE")"
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+# ── Guard: gstack must be a git repo ──
+if [ ! -d "$GSTACK_DIR/.git" ]; then
+  exit 0
+fi
+
+# ── Guard: team mode must be enabled ──
+AUTO=$("$GSTACK_DIR/bin/gstack-config" get auto_upgrade 2>/dev/null || true)
+if [ "$AUTO" != "true" ]; then
+  exit 0
+fi
+
+# ── Throttle: skip if checked recently ──
+if [ -f "$THROTTLE_FILE" ]; then
+  LAST=$(cat "$THROTTLE_FILE" 2>/dev/null || echo 0)
+  NOW=$(date +%s)
+  ELAPSED=$(( NOW - LAST ))
+  if [ "$ELAPSED" -lt "$THROTTLE_SECONDS" ]; then
+    exit 0
+  fi
+fi
+
+# ── Fork to background: zero latency on session start ──
+(
+  # Prevent git from prompting for credentials (would hang the background process)
+  export GIT_TERMINAL_PROMPT=0
+
+  mkdir -p "$STATE_DIR"
+
+  # ── Acquire lockfile (skip if another session is running setup) ──
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    # Lock exists — check if stale (PID dead)
+    if [ -f "$LOCK_DIR/pid" ]; then
+      LOCK_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo 0)
+      if [ "$LOCK_PID" -gt 0 ] 2>/dev/null && ! kill -0 "$LOCK_PID" 2>/dev/null; then
+        # Stale lock — remove and re-acquire
+        rm -rf "$LOCK_DIR" 2>/dev/null
+        mkdir "$LOCK_DIR" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
+      else
+        log_entry "SKIP locked_by=$LOCK_PID"
+        exit 0
+      fi
+    else
+      log_entry "SKIP locked_no_pid"
+      exit 0
+    fi
+  fi
+
+  # Write PID for stale lock detection
+  echo $$ > "$LOCK_DIR/pid" 2>/dev/null
+
+  # Clean up lock on exit
+  trap 'rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
+
+  # ── Pull latest ──
+  OLD_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
+  git -C "$GSTACK_DIR" pull --ff-only -q 2>/dev/null
+  PULL_EXIT=$?
+  NEW_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
+
+  # Record check time regardless of outcome
+  date +%s > "$THROTTLE_FILE" 2>/dev/null
+
+  if [ "$PULL_EXIT" -ne 0 ]; then
+    log_entry "PULL_FAILED exit=$PULL_EXIT"
+    exit 0
+  fi
+
+  # ── If HEAD moved, run setup -q ──
+  if [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
+    log_entry "UPDATING old=$OLD_HEAD new=$NEW_HEAD"
+
+    # bun must be available for setup
+    if command -v bun >/dev/null 2>&1; then
+      ( cd "$GSTACK_DIR" && ./setup -q ) >/dev/null 2>&1 || {
+        log_entry "SETUP_FAILED"
+      }
+    else
+      log_entry "SETUP_SKIPPED bun_missing"
+    fi
+
+    # Write marker so next skill preamble shows "just upgraded"
+    OLD_VER=$(git -C "$GSTACK_DIR" show "$OLD_HEAD:VERSION" 2>/dev/null || echo "unknown")
+    echo "$OLD_VER" > "$STATE_DIR/just-upgraded-from" 2>/dev/null
+    rm -f "$STATE_DIR/last-update-check" 2>/dev/null
+    rm -f "$STATE_DIR/update-snoozed" 2>/dev/null
+
+    log_entry "UPDATED from=$OLD_VER to=$(cat "$GSTACK_DIR/VERSION" 2>/dev/null || echo unknown)"
+  else
+    log_entry "UP_TO_DATE head=$OLD_HEAD"
+  fi
+) &
+
+exit 0

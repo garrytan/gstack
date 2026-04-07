@@ -5,8 +5,9 @@
 Review the `git diff origin/main` output for the issues listed below. Be specific — cite `file:line` and suggest fixes. Skip anything that's fine. Only flag real problems.
 
 **Two-pass review:**
-- **Pass 1 (CRITICAL):** Run SQL & Data Safety and LLM Output Trust Boundary first. Highest severity.
-- **Pass 2 (INFORMATIONAL):** Run all remaining categories. Lower severity but still actioned.
+- **Pass 1 (CRITICAL):** Run SQL & Data Safety, Race Conditions, LLM Output Trust Boundary, Shell Injection, and Enum Completeness first. Highest severity.
+- **Pass 2 (INFORMATIONAL):** Run remaining categories below. Lower severity but still actioned.
+- **Specialist categories (handled by parallel subagents, NOT this checklist):** Test Gaps, Dead Code, Magic Numbers, Conditional Side Effects, Performance & Bundle Impact, Crypto & Entropy. See `review/specialists/` for these.
 
 All findings get action via Fix-First Review: obvious mechanical fixes are applied automatically,
 genuinely ambiguous issues are batched into a single user question.
@@ -49,6 +50,13 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 #### LLM Output Trust Boundary
 - LLM-generated values (emails, URLs, names) written to DB or passed to mailers without format validation. Add lightweight guards (`EMAIL_REGEXP`, `URI.parse`, `.strip`) before persisting.
 - Structured tool output (arrays, hashes) accepted without type/shape checks before database writes.
+- LLM-generated URLs fetched without allowlist — SSRF risk if URL points to internal network (Python: `urllib.parse.urlparse` → check hostname against blocklist before `requests.get`/`httpx.get`)
+- LLM output stored in knowledge bases or vector DBs without sanitization — stored prompt injection risk
+
+#### Shell Injection (Python-specific)
+- `subprocess.run()` / `subprocess.call()` / `subprocess.Popen()` with `shell=True` AND f-string/`.format()` interpolation in the command string — use argument arrays instead
+- `os.system()` with variable interpolation — replace with `subprocess.run()` using argument arrays
+- `eval()` / `exec()` on LLM-generated code without sandboxing
 
 #### Enum & Value Completeness
 When the diff introduces a new enum value, status string, tier name, or type constant:
@@ -59,41 +67,30 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 
 ### Pass 2 — INFORMATIONAL
 
-#### Conditional Side Effects
-- Code paths that branch on a condition but forget to apply a side effect on one branch. Example: item promoted to verified but URL only attached when a secondary condition is true — the other branch promotes without the URL, creating an inconsistent record.
-- Log messages that claim an action happened but the action was conditionally skipped. The log should reflect what actually occurred.
+#### Async/Sync Mixing (Python-specific)
+- Synchronous `subprocess.run()`, `open()`, `requests.get()` inside `async def` endpoints — blocks the event loop. Use `asyncio.to_thread()`, `aiofiles`, or `httpx.AsyncClient` instead.
+- `time.sleep()` inside async functions — use `asyncio.sleep()`
+- Sync DB calls in async context without `run_in_executor()` wrapping
 
-#### Magic Numbers & String Coupling
-- Bare numeric literals used in multiple files — should be named constants documented together
-- Error message strings used as query filters elsewhere (grep for the string — is anything matching on it?)
+#### Column/Field Name Safety
+- Verify column names in ORM queries (`.select()`, `.eq()`, `.gte()`, `.order()`) against actual DB schema — wrong column names silently return empty results or throw swallowed errors
+- Check `.get()` calls on query results use the column name that was actually selected
+- Cross-reference with schema documentation when available
 
-#### Dead Code & Consistency
-- Variables assigned but never read
+#### Dead Code & Consistency (version/changelog only — other items handled by maintainability specialist)
 - Version mismatch between PR title and VERSION/CHANGELOG files
 - CHANGELOG entries that describe changes inaccurately (e.g., "changed from X to Y" when X never existed)
-- Comments/docstrings that describe old behavior after the code changed
 
 #### LLM Prompt Issues
 - 0-indexed lists in prompts (LLMs reliably return 1-indexed)
 - Prompt text listing available tools/capabilities that don't match what's actually wired up in the `tool_classes`/`tools` array
 - Word/token limits stated in multiple places that could drift
 
-#### Test Gaps
-- Negative-path tests that assert type/status but not the side effects (URL attached? field populated? callback fired?)
-- Assertions on string content without checking format (e.g., asserting title present but not URL format)
-- `.expects(:something).never` missing when a code path should explicitly NOT call an external service
-- Security enforcement features (blocking, rate limiting, auth) without integration tests verifying the enforcement path works end-to-end
-
 #### Completeness Gaps
 - Shortcut implementations where the complete version would cost <30 minutes CC time (e.g., partial enum handling, incomplete error paths, missing edge cases that are straightforward to add)
 - Options presented with only human-team effort estimates — should show both human and CC+gstack time
 - Test coverage gaps where adding the missing tests is a "lake" not an "ocean" (e.g., missing negative-path tests, missing edge case tests that mirror happy-path structure)
 - Features implemented at 80-90% when 100% is achievable with modest additional code
-
-#### Crypto & Entropy
-- Truncation of data instead of hashing (last N chars instead of SHA-256) — less entropy, easier collisions
-- `rand()` / `Random.rand` for security-sensitive values — use `SecureRandom` instead
-- Non-constant-time comparisons (`==`) on secrets or tokens — vulnerable to timing attacks
 
 #### Time Window Safety
 - Date-key lookups that assume "today" covers 24h — report at 8am PT only sees midnight→8am under today's key
@@ -107,23 +104,6 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 - Inline `<style>` blocks in partials (re-parsed every render)
 - O(n*m) lookups in views (`Array#find` in a loop instead of `index_by` hash)
 - Ruby-side `.select{}` filtering on DB results that could be a `WHERE` clause (unless intentionally avoiding leading-wildcard `LIKE`)
-
-#### Performance & Bundle Impact
-- New `dependencies` entries in package.json that are known-heavy: moment.js (→ date-fns, 330KB→22KB), lodash full (→ lodash-es or per-function imports), jquery, core-js full polyfill
-- Significant lockfile growth (many new transitive dependencies from a single addition)
-- Images added without `loading="lazy"` or explicit width/height attributes (causes layout shift / CLS)
-- Large static assets committed to repo (>500KB per file)
-- Synchronous `<script>` tags without async/defer
-- CSS `@import` in stylesheets (blocks parallel loading — use bundler imports instead)
-- `useEffect` with fetch that depends on another fetch result (request waterfall — combine or parallelize)
-- Named → default import switches on tree-shakeable libraries (breaks tree-shaking)
-- New `require()` calls in ESM codebases
-
-**DO NOT flag:**
-- devDependencies additions (don't affect production bundle)
-- Dynamic `import()` calls (code splitting — these are good)
-- Small utility additions (<5KB gzipped)
-- Server-side-only dependencies
 
 #### Distribution & CI/CD Pipeline
 - CI/CD workflow changes (`.github/workflows/`): verify build tool versions match project requirements, artifact names/paths are correct, secrets use `${{ secrets.X }}` not hardcoded values
@@ -142,18 +122,15 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 ## Severity Classification
 
 ```
-CRITICAL (highest severity):      INFORMATIONAL (lower severity):
-├─ SQL & Data Safety              ├─ Conditional Side Effects
-├─ Race Conditions & Concurrency  ├─ Magic Numbers & String Coupling
-├─ LLM Output Trust Boundary      ├─ Dead Code & Consistency
-└─ Enum & Value Completeness      ├─ LLM Prompt Issues
-                                   ├─ Test Gaps
-                                   ├─ Completeness Gaps
-                                   ├─ Crypto & Entropy
-                                   ├─ Time Window Safety
-                                   ├─ Type Coercion at Boundaries
+CRITICAL (highest severity):      INFORMATIONAL (main agent):      SPECIALIST (parallel subagents):
+├─ SQL & Data Safety              ├─ Async/Sync Mixing             ├─ Testing specialist
+├─ Race Conditions & Concurrency  ├─ Column/Field Name Safety      ├─ Maintainability specialist
+├─ LLM Output Trust Boundary      ├─ Dead Code (version only)      ├─ Security specialist
+├─ Shell Injection                ├─ LLM Prompt Issues             ├─ Performance specialist
+└─ Enum & Value Completeness      ├─ Completeness Gaps             ├─ Data Migration specialist
+                                   ├─ Time Window Safety            ├─ API Contract specialist
+                                   ├─ Type Coercion at Boundaries   └─ Red Team (conditional)
                                    ├─ View/Frontend
-                                   ├─ Performance & Bundle Impact
                                    └─ Distribution & CI/CD Pipeline
 
 All findings are actioned via Fix-First Review. Severity determines

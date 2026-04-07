@@ -125,6 +125,82 @@ describe('gstack-telemetry-log', () => {
     expect(events[0]).toHaveProperty('_branch');
   });
 
+  // ─── json_safe() injection prevention tests ────────────────
+  test('sanitizes skill name with quote injection attempt', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill 'review","injected":"true' --duration 10 --outcome success --session-id inj-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    // Must be valid JSON (no injection — quotes stripped, so no field injection possible)
+    const event = JSON.parse(lines[0]);
+    // The key check: no injected top-level property was created
+    expect(event).not.toHaveProperty('injected');
+    // Skill field should have quotes stripped but content preserved
+    expect(event.skill).not.toContain('"');
+  });
+
+  test('truncates skill name exceeding 200 chars', () => {
+    setConfig('telemetry', 'anonymous');
+    const longSkill = 'a'.repeat(250);
+    run(`${BIN}/gstack-telemetry-log --skill '${longSkill}' --duration 10 --outcome success --session-id trunc-1`);
+
+    const events = parseJsonl();
+    expect(events[0].skill.length).toBeLessThanOrEqual(200);
+  });
+
+  test('sanitizes outcome with newline injection attempt', () => {
+    setConfig('telemetry', 'anonymous');
+    // Use printf to pass actual newline in the argument
+    run(`bash -c 'OUTCOME=$(printf "success\\nfake\\":\\"true"); ${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome "$OUTCOME" --session-id inj-2'`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('fake');
+  });
+
+  test('sanitizes session_id with backslash-quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id 'id\\\\"","x":"y'`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('x');
+  });
+
+  test('sanitizes error_class with quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-class 'timeout","extra":"val' --session-id inj-3`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('extra');
+  });
+
+  test('sanitizes failed_step with quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --failed-step 'step1","hacked":"yes' --session-id inj-4`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('hacked');
+  });
+
+  test('escapes error_message quotes and preserves content', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'Error: file "test.txt" not found' --session-id inj-5`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event.error_message).toContain('file');
+    expect(event.error_message).toContain('not found');
+  });
+
   test('creates analytics directory if missing', () => {
     // Remove analytics dir
     const analyticsDir = path.join(tmpDir, 'analytics');
@@ -135,6 +211,34 @@ describe('gstack-telemetry-log', () => {
 
     expect(fs.existsSync(analyticsDir)).toBe(true);
     expect(readJsonl()).toHaveLength(1);
+  });
+
+  // ─── Telemetry JSON safety: branch/repo with special chars ────
+  test('branch name with quotes does not corrupt JSON', () => {
+    setConfig('telemetry', 'anonymous');
+    // Simulate a branch name with double quotes by setting it via git env override
+    // The json_safe function strips quotes, so the JSONL should remain valid
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id branch-quotes-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    // Every line must be valid JSON
+    const event = JSON.parse(lines[0]);
+    expect(event._branch).toBeDefined();
+    // _branch should not contain double quotes (json_safe strips them)
+    expect(event._branch).not.toContain('"');
+  });
+
+  test('repo slug with special chars does not corrupt JSON', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id repo-special-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event._repo_slug).toBeDefined();
+    // _repo_slug should not contain double quotes (json_safe strips them)
+    expect(event._repo_slug).not.toContain('"');
   });
 });
 
@@ -290,5 +394,27 @@ describe('gstack-community-dashboard', () => {
     expect(output).toContain('gstack community dashboard');
     // Should not show "not configured" since config.sh exists
     expect(output).not.toContain('Supabase not configured');
+  });
+});
+
+describe('preamble telemetry gating (#467)', () => {
+  test('preamble source does not write JSONL unconditionally', () => {
+    const preamble = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'preamble.ts'), 'utf-8');
+    const lines = preamble.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('skill-usage.jsonl') && lines[i].includes('>>')) {
+        // Each JSONL write must be inside a _TEL conditional (within 5 lines above)
+        let foundConditional = false;
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (lines[j].includes('_TEL') && lines[j].includes('off')) {
+            foundConditional = true;
+            break;
+          }
+        }
+        if (!foundConditional) {
+          throw new Error(`Unconditional JSONL write at preamble.ts line ${i + 1}: ${lines[i].trim()}`);
+        }
+      }
+    }
   });
 });

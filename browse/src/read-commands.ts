@@ -11,6 +11,11 @@ import type { Page, Frame } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TEMP_DIR, isPathWithin } from './platform';
+import { inspectElement, formatInspectorResult, getModificationHistory } from './cdp-inspector';
+
+// Redaction patterns for sensitive cookie/storage values — exported for test coverage
+export const SENSITIVE_COOKIE_NAME = /(^|[_.-])(token|secret|key|password|credential|auth|jwt|session|csrf|sid)($|[_.-])|api.?key/i;
+export const SENSITIVE_COOKIE_VALUE = /^(eyJ|sk-|sk_live_|sk_test_|pk_live_|pk_test_|rk_live_|sk-ant-|ghp_|gho_|github_pat_|xox[bpsa]-|AKIA[A-Z0-9]{16}|AIza|SG\.|Bearer\s|sbp_)/;
 
 /** Detect await keyword, ignoring comments. Accepted risk: await in string literals triggers wrapping (harmless). */
 function hasAwait(code: string): boolean {
@@ -37,19 +42,34 @@ function wrapForEvaluate(code: string): string {
 }
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
+// Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp → /private/tmp)
+const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()].map(d => {
+  try { return fs.realpathSync(d); } catch { return d; }
+});
 
 export function validateReadPath(filePath: string): void {
-  if (path.isAbsolute(filePath)) {
-    const resolved = path.resolve(filePath);
-    const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
-    if (!isSafe) {
-      throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+  // Always resolve to absolute first (fixes relative path symlink bypass)
+  const resolved = path.resolve(filePath);
+  // Resolve symlinks — throw on non-ENOENT errors
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(resolved);
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      // File doesn't exist — resolve directory part for symlinks (e.g., /tmp → /private/tmp)
+      try {
+        const dir = fs.realpathSync(path.dirname(resolved));
+        realPath = path.join(dir, path.basename(resolved));
+      } catch {
+        realPath = resolved;
+      }
+    } else {
+      throw new Error(`Cannot resolve real path: ${filePath} (${err.code})`);
     }
   }
-  const normalized = path.normalize(filePath);
-  if (normalized.includes('..')) {
-    throw new Error('Path traversal sequences (..) are not allowed');
+  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realPath, dir));
+  if (!isSafe) {
+    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
 }
 
@@ -284,7 +304,14 @@ export async function handleReadCommand(
 
     case 'cookies': {
       const cookies = await page.context().cookies();
-      return JSON.stringify(cookies, null, 2);
+      // Redact cookie values that look like secrets (consistent with storage redaction)
+      const redacted = cookies.map(c => {
+        if (SENSITIVE_COOKIE_NAME.test(c.name) || SENSITIVE_COOKIE_VALUE.test(c.value)) {
+          return { ...c, value: `[REDACTED — ${c.value.length} chars]` };
+        }
+        return c;
+      });
+      return JSON.stringify(redacted, null, 2);
     }
 
     case 'storage': {
@@ -335,6 +362,54 @@ export async function handleReadCommand(
       return Object.entries(timings)
         .map(([k, v]) => `${k.padEnd(12)} ${v}ms`)
         .join('\n');
+    }
+
+    case 'inspect': {
+      // Parse flags
+      let includeUA = false;
+      let showHistory = false;
+      let selector: string | undefined;
+
+      for (const arg of args) {
+        if (arg === '--all') {
+          includeUA = true;
+        } else if (arg === '--history') {
+          showHistory = true;
+        } else if (!selector) {
+          selector = arg;
+        }
+      }
+
+      // --history mode: return modification history
+      if (showHistory) {
+        const history = getModificationHistory();
+        if (history.length === 0) return '(no style modifications)';
+        return history.map((m, i) =>
+          `[${i}] ${m.selector} { ${m.property}: ${m.oldValue} → ${m.newValue} } (${m.source}, ${m.method})`
+        ).join('\n');
+      }
+
+      // If no selector given, check for stored inspector data
+      if (!selector) {
+        // Access stored inspector data from the server's in-memory state
+        // The server stores this when the extension picks an element via POST /inspector/pick
+        const stored = (bm as any)._inspectorData;
+        const storedTs = (bm as any)._inspectorTimestamp;
+        if (stored) {
+          const stale = storedTs && (Date.now() - storedTs > 60000);
+          let output = formatInspectorResult(stored, { includeUA });
+          if (stale) output = '⚠ Data may be stale (>60s old)\n\n' + output;
+          return output;
+        }
+        throw new Error('Usage: browse inspect [selector] [--all] [--history]\nOr pick an element in the Chrome sidebar first.');
+      }
+
+      // Direct inspection by selector
+      const result = await inspectElement(page, selector, { includeUA });
+      // Store for later retrieval
+      (bm as any)._inspectorData = result;
+      (bm as any)._inspectorTimestamp = Date.now();
+      return formatInspectorResult(result, { includeUA });
     }
 
     default:

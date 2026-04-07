@@ -113,12 +113,11 @@ if [ -f "$MARKER_FILE" ]; then
   OLD="$(cat "$MARKER_FILE" 2>/dev/null | tr -d '[:space:]')"
   rm -f "$MARKER_FILE"
   rm -f "$SNOOZE_FILE"
-  mkdir -p "$STATE_DIR"
-  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
   if [ -n "$OLD" ]; then
     echo "JUST_UPGRADED $OLD $LOCAL"
   fi
-  exit 0
+  # Don't exit — fall through to remote check in case
+  # more updates landed since the upgrade
 fi
 
 # ─── Step 3: Check cache freshness ──────────────────────────

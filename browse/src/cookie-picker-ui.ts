@@ -7,7 +7,7 @@
  * No cookie values exposed anywhere.
  */
 
-export function getCookiePickerHTML(serverPort: number): string {
+export function getCookiePickerHTML(serverPort: number, authToken?: string): string {
   const baseUrl = `http://127.0.0.1:${serverPort}`;
 
   return `<!DOCTYPE html>
@@ -44,6 +44,15 @@ export function getCookiePickerHTML(serverPort: number): string {
     font-size: 12px;
     color: #666;
     font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .subtitle {
+    padding: 10px 24px 12px;
+    font-size: 13px;
+    color: #999;
+    line-height: 1.5;
+    border-bottom: 1px solid #222;
+    background: #0f0f0f;
   }
 
   /* ─── Layout ──────────────────────────── */
@@ -300,6 +309,8 @@ export function getCookiePickerHTML(serverPort: number): string {
   <span class="port">localhost:${serverPort}</span>
 </div>
 
+<p class="subtitle">Select the domains of cookies you want to import to GStack Browser. You'll be able to browse those sites with the same login as your other browser.</p>
+
 <div id="banner" class="banner"></div>
 
 <div class="container">
@@ -330,6 +341,7 @@ export function getCookiePickerHTML(serverPort: number): string {
 <script>
 (function() {
   const BASE = '${baseUrl}';
+  const AUTH_TOKEN = '${authToken || ''}';
   let activeBrowser = null;
   let activeProfile = 'Default';
   let allProfiles = [];
@@ -372,7 +384,9 @@ export function getCookiePickerHTML(serverPort: number): string {
 
   // ─── API ────────────────────────────────
   async function api(path, opts) {
-    const res = await fetch(BASE + '/cookie-picker' + path, opts);
+    const headers = { ...(opts?.headers || {}) };
+    if (AUTH_TOKEN) headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+    const res = await fetch(BASE + '/cookie-picker' + path, { ...opts, headers });
     const data = await res.json();
     if (!res.ok) {
       const err = new Error(data.error || 'Request failed');
