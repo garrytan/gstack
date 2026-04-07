@@ -103,7 +103,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   // Visual
   'screenshot': { category: 'Visual', description: 'Save screenshot (supports element crop via CSS/@ref, --clip region, --viewport)', usage: 'screenshot [--viewport] [--clip x,y,w,h] [selector|@ref] [path]' },
   'pdf':     { category: 'Visual', description: 'Save as PDF', usage: 'pdf [path]' },
-  'responsive': { category: 'Visual', description: 'Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc.', usage: 'responsive [prefix]' },
+  'responsive': { category: 'Visual', description: 'Screenshots at mobile (375x812), tablet (768x1024), desktop (default viewport, or BROWSE_VIEWPORT). Saves as {prefix}-mobile.png etc.', usage: 'responsive [prefix]' },
   'diff':    { category: 'Visual', description: 'Text diff between pages', usage: 'diff <url1> <url2>' },
   // Tabs
   'tabs':    { category: 'Tabs', description: 'List open tabs' },

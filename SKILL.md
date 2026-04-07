@@ -823,7 +823,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `diff <url1> <url2>` | Text diff between pages |
 | `pdf [path]` | Save as PDF |
 | `prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]` | Clean screenshot with optional cleanup, scroll positioning, and element hiding |
-| `responsive [prefix]` | Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc. |
+| `responsive [prefix]` | Screenshots at mobile (375x812), tablet (768x1024), desktop (default viewport, or BROWSE_VIEWPORT). Saves as {prefix}-mobile.png etc. |
 | `screenshot [--viewport] [--clip x,y,w,h] [selector|@ref] [path]` | Save screenshot (supports element crop via CSS/@ref, --clip region, --viewport) |
 
 ### Snapshot
