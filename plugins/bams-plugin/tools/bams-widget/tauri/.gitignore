@@ -1,0 +1,15 @@
+# Node
+node_modules/
+dist/
+.bun/
+bun.lock
+
+# Tauri
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/binaries/
+src-tauri/gen/
+
+# Misc
+.DS_Store
+*.local

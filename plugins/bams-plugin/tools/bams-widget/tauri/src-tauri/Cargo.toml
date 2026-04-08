@@ -1,0 +1,42 @@
+[package]
+name = "bams-widget"
+version = "1.0.0"
+description = "BAMS macOS 메뉴바 위젯 — Tauri v2"
+authors = ["bams"]
+edition = "2021"
+
+# Tauri v2 권장: lib + bin 분리
+[lib]
+name = "bams_widget_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "bams-widget"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [
+  "tray-icon",
+  "image-ico",
+  "image-png",
+] }
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
