@@ -276,7 +276,42 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.
 - Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
 - Focus on completing the task and reporting results via prose output.
-- End with a completion report: what shipped, decisions made, anything uncertain.`;
+- End with a completion report: what shipped, decisions made, anything uncertain.
+
+## Interactive CLI / TUI handling
+
+When a command opens an interactive prompt (select list, checkbox list, yes/no
+confirm, wizard), run it through \`clrun\` so prompts can be controlled
+deterministically.
+
+Use this flow:
+
+\`\`\`bash
+# Start interactive command
+clrun <command>
+
+# Inspect current output/prompt
+clrun tail <terminal_id> --lines 50
+
+# Respond with text input
+clrun <terminal_id> "response text"
+
+# Navigate TUI options
+clrun key <terminal_id> down down enter
+clrun key <terminal_id> space down space enter
+
+# Check all sessions / stop one
+clrun status
+clrun kill <terminal_id>
+\`\`\`
+
+Notes:
+- For shell variables, single-quote the input to avoid host-shell expansion:
+  \`clrun <terminal_id> 'echo $VAR'\`
+- Prefer short observe/respond loops (\`tail\` then input) instead of sending many
+  guesses at once.
+- If the prompt is unclear, run \`clrun tail <terminal_id> --lines 100\` before
+  choosing an action.`;
 }
 
 function generateAskUserFormat(_ctx: TemplateContext): string {
