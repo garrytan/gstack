@@ -16,6 +16,7 @@ fi
 
 INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+GENERATED_GSTACK_DIR="${GSTACK_OUTPUT_ROOT:-$SOURCE_GSTACK_DIR}"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
 CODEX_SKILLS="$HOME/.codex/skills"
@@ -227,7 +228,7 @@ fi
 # bun run build already does this, but we need it when NEEDS_BUILD=0 (binary is fresh).
 # Always regenerate: generation is fast (<2s) and mtime-based staleness checks are fragile
 # (miss stale files when timestamps match after clone/checkout/upgrade).
-AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
+AGENTS_DIR="$GENERATED_GSTACK_DIR/.agents/skills"
 NEEDS_AGENTS_GEN=1
 
 if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
@@ -298,6 +299,34 @@ link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local linked=()
+  render_skill_copy() {
+    local source_skill="$1"
+    local target_skill="$2"
+    local target_name="$3"
+    local tmp_file
+
+    tmp_file="$(mktemp "${target_skill}.XXXXXX")"
+    sed "1,/^---$/s/^name:[[:space:]]*.*/name: ${target_name}/" "$source_skill" \
+      | awk '
+          BEGIN { frontmatter = 0; inserted = 0 }
+          {
+            print
+            if (!inserted && $0 == "---") {
+              frontmatter++
+              if (frontmatter == 2) {
+                print "<!-- gstack-managed-skill-copy -->"
+                inserted = 1
+              }
+            }
+          }
+          END {
+            if (!inserted) {
+              print "<!-- gstack-managed-skill-copy -->"
+            }
+          }
+        ' > "$tmp_file"
+    mv "$tmp_file" "$target_skill"
+  }
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       dir_name="$(basename "$skill_dir")"
@@ -320,12 +349,10 @@ link_claude_skill_dirs() {
       if [ -L "$target" ]; then
         rm -f "$target"
       fi
-      # Create real directory with symlinked SKILL.md (absolute path)
+      # Create real directory with copied, patched SKILL.md so source skills stay unchanged.
       # Use mkdir -p unconditionally (idempotent) to avoid TOCTOU race
       mkdir -p "$target"
-      # Validate target isn't a symlink before creating the link
-      if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
-      ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      render_skill_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md" "$link_name"
       linked+=("$link_name")
     fi
   done
@@ -366,6 +393,9 @@ cleanup_old_claude_symlinks() {
             removed+=("$skill_name")
             ;;
         esac
+      elif [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ] && grep -q '<!-- gstack-managed-skill-copy -->' "$old_target/SKILL.md" 2>/dev/null; then
+        rm -rf "$old_target"
+        removed+=("$skill_name")
       fi
     fi
   done
@@ -407,6 +437,9 @@ cleanup_prefixed_claude_symlinks() {
             removed+=("gstack-$skill_name")
             ;;
         esac
+      elif [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ] && grep -q '<!-- gstack-managed-skill-copy -->' "$prefixed_target/SKILL.md" 2>/dev/null; then
+        rm -rf "$prefixed_target"
+        removed+=("gstack-$skill_name")
       fi
     fi
   done
@@ -421,12 +454,12 @@ cleanup_prefixed_claude_symlinks() {
 link_codex_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
-  local agents_dir="$gstack_dir/.agents/skills"
+  local agents_dir="$GENERATED_GSTACK_DIR/.agents/skills"
   local linked=()
 
   if [ ! -d "$agents_dir" ]; then
     echo "  Generating .agents/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host codex )
+    ( cd "$gstack_dir" && GSTACK_OUTPUT_ROOT="$GENERATED_GSTACK_DIR" bun run gen:skill-docs --host codex )
   fi
 
   if [ ! -d "$agents_dir" ]; then
@@ -493,7 +526,7 @@ create_agents_sidecar() {
 create_codex_runtime_root() {
   local gstack_dir="$1"
   local codex_gstack="$2"
-  local agents_dir="$gstack_dir/.agents/skills"
+  local agents_dir="$GENERATED_GSTACK_DIR/.agents/skills"
 
   if [ -L "$codex_gstack" ]; then
     rm -f "$codex_gstack"
@@ -535,7 +568,7 @@ create_codex_runtime_root() {
 create_factory_runtime_root() {
   local gstack_dir="$1"
   local factory_gstack="$2"
-  local factory_dir="$gstack_dir/.factory/skills"
+  local factory_dir="$GENERATED_GSTACK_DIR/.factory/skills"
 
   if [ -L "$factory_gstack" ]; then
     rm -f "$factory_gstack"
@@ -578,7 +611,7 @@ link_factory_skill_dirs() {
 
   if [ ! -d "$factory_dir" ]; then
     echo "  Generating .factory/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host factory )
+    ( cd "$gstack_dir" && GSTACK_OUTPUT_ROOT="$GENERATED_GSTACK_DIR" bun run gen:skill-docs --host factory )
   fi
 
   if [ ! -d "$factory_dir" ]; then
@@ -618,9 +651,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     else
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
-    # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
-    # reads the correct (patched) name: values for symlink naming
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
@@ -659,7 +689,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     else
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
     if [ -x "$GSTACK_RELINK" ]; then
@@ -701,7 +730,7 @@ fi
 # 6. Install for Kiro CLI (copy from .agents/skills, rewrite paths)
 if [ "$INSTALL_KIRO" -eq 1 ]; then
   KIRO_SKILLS="$HOME/.kiro/skills"
-  AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
+  AGENTS_DIR="$GENERATED_GSTACK_DIR/.agents/skills"
   mkdir -p "$KIRO_SKILLS"
 
   # Create gstack dir with symlinks for runtime assets, copy+sed for SKILL.md
@@ -768,7 +797,7 @@ fi
 # The root Codex skill ends up pointing at $SOURCE_GSTACK_DIR/.agents/skills/gstack,
 # so the runtime assets must live there for both global and repo-local installs.
 if [ "$INSTALL_CODEX" -eq 1 ]; then
-  create_agents_sidecar "$SOURCE_GSTACK_DIR"
+  create_agents_sidecar "$GENERATED_GSTACK_DIR"
 fi
 
 # 8. Run pending version migrations
