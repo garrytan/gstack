@@ -354,6 +354,13 @@ describe('gen-skill-docs', () => {
     expect(qaOnlyContent).toContain('Phase 6');
   });
 
+  test('gstack-upgrade generated skill excludes backup trees during upgrade sync', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'gstack-upgrade', 'SKILL.md'), 'utf-8');
+    expect(content).toContain(`find "$INSTALL_DIR" -maxdepth 1 -mindepth 1 -name '.bak*' -exec rm -rf {} +`);
+    expect(content).toContain(`rsync -a --exclude='.git' --exclude='.bak*' "$INSTALL_DIR/" "$LOCAL_GSTACK/"`);
+    expect(content).toContain(`find "$LOCAL_GSTACK" -maxdepth 1 -mindepth 1 -name '.bak*' -exec rm -rf {} +`);
+  });
+
   test('qa-only has no-fix guardrails', () => {
     const qaOnlyContent = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
     expect(qaOnlyContent).toContain('Never fix bugs');

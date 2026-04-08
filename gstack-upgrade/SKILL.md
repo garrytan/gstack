@@ -122,6 +122,7 @@ cd "$INSTALL_DIR"
 STASH_OUTPUT=$(git stash 2>&1)
 git fetch origin
 git reset --hard origin/main
+find "$INSTALL_DIR" -maxdepth 1 -mindepth 1 -name '.bak*' -exec rm -rf {} +
 ./setup
 ```
 If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
@@ -171,8 +172,9 @@ Tell user: "Removed vendored copy at `$LOCAL_GSTACK` (team mode active — globa
 **If `LOCAL_GSTACK` is non-empty AND `TEAM_MODE` is NOT `true`:** Update it by copying from the freshly-upgraded primary install (same approach as README vendored install):
 ```bash
 mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak"
-cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK"
-rm -rf "$LOCAL_GSTACK/.git"
+mkdir -p "$LOCAL_GSTACK"
+rsync -a --exclude='.git' --exclude='.bak*' "$INSTALL_DIR/" "$LOCAL_GSTACK/"
+find "$LOCAL_GSTACK" -maxdepth 1 -mindepth 1 -name '.bak*' -exec rm -rf {} +
 cd "$LOCAL_GSTACK" && ./setup
 rm -rf "$LOCAL_GSTACK.bak"
 ```
