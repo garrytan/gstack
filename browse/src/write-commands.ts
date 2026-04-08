@@ -10,7 +10,7 @@ import type { BrowserManager } from './browser-manager';
 import { findInstalledBrowsers, importCookies, listSupportedBrowserNames } from './cookie-import-browser';
 import { generatePickerCode } from './cookie-picker-routes';
 import { validateNavigationUrl } from './url-validation';
-import { validateOutputPath } from './path-security';
+import { validateOutputPath, validateReadPath } from './path-security';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TEMP_DIR } from './platform';
@@ -394,19 +394,10 @@ export async function handleWriteCommand(
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
 
-      // Validate paths are within safe directories (same check as cookie-import)
+      // Validate paths through shared path-security module (resolve + realpath + boundary check)
       for (const fp of filePaths) {
         if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
-        if (path.isAbsolute(fp)) {
-          let resolvedFp: string;
-          try { resolvedFp = fs.realpathSync(path.resolve(fp)); } catch { resolvedFp = path.resolve(fp); }
-          if (!SAFE_DIRECTORIES.some(dir => isPathWithin(resolvedFp, dir))) {
-            throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
-          }
-        }
-        if (path.normalize(fp).includes('..')) {
-          throw new Error('Path traversal sequences (..) are not allowed');
-        }
+        validateReadPath(fp);
       }
 
       const resolved = await session.resolveRef(selector);
@@ -441,17 +432,8 @@ export async function handleWriteCommand(
     case 'cookie-import': {
       const filePath = args[0];
       if (!filePath) throw new Error('Usage: browse cookie-import <json-file>');
-      // Path validation — prevent reading arbitrary files
-      if (path.isAbsolute(filePath)) {
-        const safeDirs = [TEMP_DIR, process.cwd()];
-        const resolved = path.resolve(filePath);
-        if (!safeDirs.some(dir => isPathWithin(resolved, dir))) {
-          throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
-        }
-      }
-      if (path.normalize(filePath).includes('..')) {
-        throw new Error('Path traversal sequences (..) are not allowed');
-      }
+      // Path validation through shared path-security module (resolve + realpath + boundary check)
+      validateReadPath(filePath);
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const raw = fs.readFileSync(filePath, 'utf-8');
       let cookies: any[];

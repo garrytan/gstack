@@ -39,20 +39,31 @@ describe('validateOutputPath', () => {
 describe('upload command path validation', () => {
   const src = readFileSync(join(__dirname, '..', 'src', 'write-commands.ts'), 'utf-8');
 
-  it('validates upload paths with isPathWithin', () => {
+  it('uses validateReadPath from path-security module', () => {
     const uploadBlock = src.slice(src.indexOf("case 'upload'"), src.indexOf("case 'dialog-accept'"));
-    expect(uploadBlock).toContain('isPathWithin');
+    expect(uploadBlock).toContain('validateReadPath');
   });
 
-  it('blocks path traversal in upload', () => {
+  it('does not use inline path traversal checks (replaced by path-security)', () => {
     const uploadBlock = src.slice(src.indexOf("case 'upload'"), src.indexOf("case 'dialog-accept'"));
-    expect(uploadBlock).toContain("'..'");
+    // Inline checks replaced by validateReadPath which handles resolve + realpath + boundary
+    expect(uploadBlock).not.toContain('includes');
+    expect(uploadBlock).not.toContain('SAFE_DIRECTORIES');
+  });
+});
+
+describe('cookie-import command path validation', () => {
+  const src = readFileSync(join(__dirname, '..', 'src', 'write-commands.ts'), 'utf-8');
+
+  it('uses validateReadPath from path-security module', () => {
+    const importBlock = src.slice(src.indexOf("case 'cookie-import':"), src.indexOf("case 'cookie-import-browser':"));
+    expect(importBlock).toContain('validateReadPath');
   });
 
-  it('checks absolute paths against safe directories', () => {
-    const uploadBlock = src.slice(src.indexOf("case 'upload'"), src.indexOf("case 'dialog-accept'"));
-    expect(uploadBlock).toContain('path.isAbsolute');
-    expect(uploadBlock).toContain('SAFE_DIRECTORIES');
+  it('does not use inline path traversal checks (replaced by path-security)', () => {
+    const importBlock = src.slice(src.indexOf("case 'cookie-import':"), src.indexOf("case 'cookie-import-browser':"));
+    expect(importBlock).not.toContain("includes('..')");
+    expect(importBlock).not.toContain('isPathWithin');
   });
 });
 
