@@ -5,6 +5,7 @@
  * press, scroll, wait, viewport, cookie, header, useragent
  */
 
+import type { TabSession } from './tab-session';
 import type { BrowserManager } from './browser-manager';
 import { findInstalledBrowsers, importCookies, listSupportedBrowserNames } from './cookie-import-browser';
 import { validateNavigationUrl } from './url-validation';
@@ -14,13 +15,45 @@ import { TEMP_DIR, isPathWithin } from './platform';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
 
 // Security: Path validation for screenshot output
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
+// Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp -> /private/tmp)
+const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()].map(d => {
+  try { return fs.realpathSync(d); } catch { return d; }
+});
 
 function validateOutputPath(filePath: string): void {
   const resolved = path.resolve(filePath);
+
+  // Basic containment check using lexical resolution only.
+  // This catches obvious traversal (../../../etc/passwd) but NOT symlinks.
   const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
   if (!isSafe) {
     throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+  }
+
+  // Symlink check: resolve the real path of the nearest existing ancestor
+  // directory and re-validate. This closes the symlink bypass where a
+  // symlink inside /tmp or cwd points outside the safe zone.
+  //
+  // We resolve the parent dir (not the file itself — it may not exist yet).
+  // If the parent doesn't exist either we fall back up the tree.
+  let dir = path.dirname(resolved);
+  let realDir: string;
+  try {
+    realDir = fs.realpathSync(dir);
+  } catch {
+    // Parent doesn't exist — check the grandparent, or skip if inaccessible
+    try {
+      realDir = fs.realpathSync(path.dirname(dir));
+    } catch {
+      // Can't resolve — fail safe
+      throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    }
+  }
+
+  const realResolved = path.join(realDir, path.basename(resolved));
+  const isRealSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realResolved, dir));
+  if (!isRealSafe) {
+    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')} (symlink target blocked)`);
   }
 }
 
@@ -136,12 +169,13 @@ const CLEANUP_SELECTORS = {
 export async function handleWriteCommand(
   command: string,
   args: string[],
+  session: TabSession,
   bm: BrowserManager
 ): Promise<string> {
-  const page = bm.getPage();
+  const page = session.getPage();
   // Frame-aware target for locator-based operations (click, fill, etc.)
-  const target = bm.getActiveFrameOrPage();
-  const inFrame = bm.getFrame() !== null;
+  const target = session.getActiveFrameOrPage();
+  const inFrame = session.getFrame() !== null;
 
   switch (command) {
     case 'goto': {
@@ -177,9 +211,9 @@ export async function handleWriteCommand(
       if (!selector) throw new Error('Usage: browse click <selector>');
 
       // Auto-route: if ref points to a real <option> inside a <select>, use selectOption
-      const role = bm.getRefRole(selector);
+      const role = session.getRefRole(selector);
       if (role === 'option') {
-        const resolved = await bm.resolveRef(selector);
+        const resolved = await session.resolveRef(selector);
         if ('locator' in resolved) {
           const optionInfo = await resolved.locator.evaluate(el => {
             if (el.tagName !== 'OPTION') return null; // custom [role=option], not real <option>
@@ -196,7 +230,7 @@ export async function handleWriteCommand(
         }
       }
 
-      const resolved = await bm.resolveRef(selector);
+      const resolved = await session.resolveRef(selector);
       try {
         if ('locator' in resolved) {
           await resolved.locator.click({ timeout: 5000 });
@@ -226,7 +260,7 @@ export async function handleWriteCommand(
       const [selector, ...valueParts] = args;
       const value = valueParts.join(' ');
       if (!selector || !value) throw new Error('Usage: browse fill <selector> <value>');
-      const resolved = await bm.resolveRef(selector);
+      const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
         await resolved.locator.fill(value, { timeout: 5000 });
       } else {
@@ -241,7 +275,7 @@ export async function handleWriteCommand(
       const [selector, ...valueParts] = args;
       const value = valueParts.join(' ');
       if (!selector || !value) throw new Error('Usage: browse select <selector> <value>');
-      const resolved = await bm.resolveRef(selector);
+      const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
         await resolved.locator.selectOption(value, { timeout: 5000 });
       } else {
@@ -255,7 +289,7 @@ export async function handleWriteCommand(
     case 'hover': {
       const selector = args[0];
       if (!selector) throw new Error('Usage: browse hover <selector>');
-      const resolved = await bm.resolveRef(selector);
+      const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
         await resolved.locator.hover({ timeout: 5000 });
       } else {
@@ -281,7 +315,7 @@ export async function handleWriteCommand(
     case 'scroll': {
       const selector = args[0];
       if (selector) {
-        const resolved = await bm.resolveRef(selector);
+        const resolved = await session.resolveRef(selector);
         if ('locator' in resolved) {
           await resolved.locator.scrollIntoViewIfNeeded({ timeout: 5000 });
         } else {
@@ -297,7 +331,9 @@ export async function handleWriteCommand(
       const selector = args[0];
       if (!selector) throw new Error('Usage: browse wait <selector|--networkidle|--load|--domcontentloaded>');
       if (selector === '--networkidle') {
-        const timeout = args[1] ? parseInt(args[1], 10) : 15000;
+        const MAX_WAIT_MS = 300_000;
+        const MIN_WAIT_MS = 1_000;
+        const timeout = Math.min(Math.max(args[1] ? parseInt(args[1], 10) || MIN_WAIT_MS : 15000, MIN_WAIT_MS), MAX_WAIT_MS);
         await page.waitForLoadState('networkidle', { timeout });
         return 'Network idle';
       }
@@ -309,8 +345,10 @@ export async function handleWriteCommand(
         await page.waitForLoadState('domcontentloaded');
         return 'DOM content loaded';
       }
-      const timeout = args[1] ? parseInt(args[1], 10) : 15000;
-      const resolved = await bm.resolveRef(selector);
+      const MAX_WAIT_MS = 300_000;
+      const MIN_WAIT_MS = 1_000;
+      const timeout = Math.min(Math.max(args[1] ? parseInt(args[1], 10) || MIN_WAIT_MS : 15000, MIN_WAIT_MS), MAX_WAIT_MS);
+      const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
         await resolved.locator.waitFor({ state: 'visible', timeout });
       } else {
@@ -322,7 +360,9 @@ export async function handleWriteCommand(
     case 'viewport': {
       const size = args[0];
       if (!size || !size.includes('x')) throw new Error('Usage: browse viewport <WxH> (e.g., 375x812)');
-      const [w, h] = size.split('x').map(Number);
+      const [rawW, rawH] = size.split('x').map(Number);
+      const w = Math.min(Math.max(Math.round(rawW) || 1280, 1), 16384);
+      const h = Math.min(Math.max(Math.round(rawH) || 720, 1), 16384);
       await bm.setViewport(w, h);
       return `Viewport set to ${w}x${h}`;
     }
@@ -370,12 +410,22 @@ export async function handleWriteCommand(
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
 
-      // Validate all files exist before upload
+      // Validate paths are within safe directories (same check as cookie-import)
       for (const fp of filePaths) {
         if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
+        if (path.isAbsolute(fp)) {
+          let resolvedFp: string;
+          try { resolvedFp = fs.realpathSync(path.resolve(fp)); } catch { resolvedFp = path.resolve(fp); }
+          if (!SAFE_DIRECTORIES.some(dir => isPathWithin(resolvedFp, dir))) {
+            throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+          }
+        }
+        if (path.normalize(fp).includes('..')) {
+          throw new Error('Path traversal sequences (..) are not allowed');
+        }
       }
 
-      const resolved = await bm.resolveRef(selector);
+      const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
         await resolved.locator.setInputFiles(filePaths);
       } else {
@@ -430,7 +480,14 @@ export async function handleWriteCommand(
 
       for (const c of cookies) {
         if (!c.name || c.value === undefined) throw new Error('Each cookie must have "name" and "value" fields');
-        if (!c.domain) c.domain = defaultDomain;
+        if (!c.domain) {
+          c.domain = defaultDomain;
+        } else {
+          const cookieDomain = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
+          if (cookieDomain !== defaultDomain && !defaultDomain.endsWith('.' + cookieDomain)) {
+            throw new Error(`Cookie domain "${c.domain}" does not match current page domain "${defaultDomain}". Use the target site first.`);
+          }
+        }
         if (!c.path) c.path = '/';
       }
 
@@ -450,6 +507,12 @@ export async function handleWriteCommand(
       if (domainIdx !== -1 && domainIdx + 1 < args.length) {
         // Direct import mode — no UI
         const domain = args[domainIdx + 1];
+        // Validate --domain against current page hostname to prevent cross-site cookie injection
+        const pageHostname = new URL(page.url()).hostname;
+        const normalizedDomain = domain.startsWith('.') ? domain.slice(1) : domain;
+        if (normalizedDomain !== pageHostname && !pageHostname.endsWith('.' + normalizedDomain)) {
+          throw new Error(`--domain "${domain}" does not match current page domain "${pageHostname}". Navigate to the target site first.`);
+        }
         const browser = browserArg || 'comet';
         const result = await importCookies(browser, [domain], profile);
         if (result.cookies.length > 0) {
@@ -497,6 +560,12 @@ export async function handleWriteCommand(
       // Validate CSS property name
       if (!/^[a-zA-Z-]+$/.test(property)) {
         throw new Error(`Invalid CSS property name: ${property}. Only letters and hyphens allowed.`);
+      }
+
+      // Validate CSS value — block data exfiltration patterns
+      const DANGEROUS_CSS = /url\s*\(|expression\s*\(|@import|javascript:|data:/i;
+      if (DANGEROUS_CSS.test(value)) {
+        throw new Error('CSS value rejected: contains potentially dangerous pattern.');
       }
 
       const mod = await modifyStyle(page, selector, property, value);

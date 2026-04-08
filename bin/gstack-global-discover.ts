@@ -291,7 +291,7 @@ function extractCwdFromJsonl(filePath: string): string | null {
 }
 
 function scanCodex(since: Date): Session[] {
-  const sessionsDir = join(homedir(), ".codex", "sessions");
+  const sessionsDir = process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions");
   if (!existsSync(sessionsDir)) return [];
 
   const sessions: Session[] = [];
@@ -326,11 +326,14 @@ function scanCodex(since: Date): Session[] {
               continue;
             }
 
-            // Read first line for session_meta (only first 4KB)
+            // Codex session_meta lines embed the full system prompt in
+            // base_instructions (~15KB as of CLI v0.117+). A 4KB buffer
+            // truncates the line and JSON.parse fails. 128KB covers current
+            // sizes with room for growth.
             try {
               const fd = openSync(filePath, "r");
-              const buf = Buffer.alloc(4096);
-              const bytesRead = readSync(fd, buf, 0, 4096, 0);
+              const buf = Buffer.alloc(131072);
+              const bytesRead = readSync(fd, buf, 0, 131072, 0);
               closeSync(fd);
               const firstLine = buf.toString("utf-8", 0, bytesRead).split("\n")[0];
               if (!firstLine) continue;

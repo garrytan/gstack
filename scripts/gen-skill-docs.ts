@@ -19,22 +19,25 @@ import { HOST_PATHS } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
 import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/codex-helpers';
 import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
+import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
+import type { HostConfig } from './host-config';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
 
-// ─── Host Detection ─────────────────────────────────────────
+// ─── Host Detection (config-driven) ─────────────────────────
 
 const HOST_ARG = process.argv.find(a => a.startsWith('--host'));
 type HostArg = Host | 'all';
 const HOST_ARG_VAL: HostArg = (() => {
   if (!HOST_ARG) return 'claude';
   const val = HOST_ARG.includes('=') ? HOST_ARG.split('=')[1] : process.argv[process.argv.indexOf(HOST_ARG) + 1];
-  if (val === 'codex' || val === 'agents') return 'codex';
-  if (val === 'factory' || val === 'droid') return 'factory';
-  if (val === 'claude') return 'claude';
   if (val === 'all') return 'all';
-  throw new Error(`Unknown host: ${val}. Use claude, codex, factory, droid, agents, or all.`);
+  try {
+    return resolveHostArg(val) as Host;
+  } catch {
+    throw new Error(`Unknown host: ${val}. Use ${ALL_HOST_NAMES.join(', ')}, or all.`);
+  }
 })();
 
 // For single-host mode, HOST is the host. For --host all, it's set per iteration below.
@@ -219,44 +222,85 @@ policy:
  * Factory: keeps name + description + user-invocable, conditionally adds disable-model-invocation.
  */
 function transformFrontmatter(content: string, host: Host): string {
-  if (host === 'claude') {
-    // Strip fields not used by Claude: sensitive (Factory-only), voice-triggers (folded into description by preprocessing)
-    content = content.replace(/^sensitive:\s*true\n/m, '');
-    content = content.replace(/^voice-triggers:\n(?:\s+-\s+"[^"]*"\n?)*/m, '');
+  const hostConfig = getHostConfig(host);
+  const fm = hostConfig.frontmatter;
+
+  if (fm.mode === 'denylist') {
+    // Denylist mode: strip listed fields, keep everything else
+    for (const field of fm.stripFields || []) {
+      if (field === 'voice-triggers') {
+        content = content.replace(/^voice-triggers:\n(?:\s+-\s+"[^"]*"\n?)*/m, '');
+      } else {
+        content = content.replace(new RegExp(`^${field}:\\s*.*\\n`, 'm'), '');
+      }
+    }
     return content;
   }
 
+  // Allowlist mode: reconstruct frontmatter with only allowed fields
   const fmStart = content.indexOf('---\n');
   if (fmStart !== 0) return content;
   const fmEnd = content.indexOf('\n---', fmStart + 4);
   if (fmEnd === -1) return content;
   const frontmatter = content.slice(fmStart + 4, fmEnd);
-  const body = content.slice(fmEnd + 4); // includes the leading \n after ---
+  const body = content.slice(fmEnd + 4);
   const { name, description } = extractNameAndDescription(content);
 
-  if (host === 'codex') {
-    // Codex 1024-char description limit — fail build, don't ship broken skills
-    const MAX_DESC = 1024;
-    if (description.length > MAX_DESC) {
-      throw new Error(
-        `Codex description for "${name}" is ${description.length} chars (max ${MAX_DESC}). ` +
-        `Compress the description in the .tmpl file.`
-      );
+  // Description limit enforcement
+  if (fm.descriptionLimit) {
+    const behavior = fm.descriptionLimitBehavior || 'error';
+    if (description.length > fm.descriptionLimit) {
+      if (behavior === 'error') {
+        throw new Error(
+          `${hostConfig.displayName} description for "${name}" is ${description.length} chars (max ${fm.descriptionLimit}). ` +
+          `Compress the description in the .tmpl file.`
+        );
+      } else if (behavior === 'warn') {
+        console.warn(`WARNING: ${hostConfig.displayName} description for "${name}" exceeds ${fm.descriptionLimit} chars`);
+      }
+      // 'truncate' — silently proceed
     }
-    const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
-    return `---\nname: ${name}\ndescription: |\n${indentedDesc}\n---` + body;
   }
 
-  if (host === 'factory') {
-    const sensitive = /^sensitive:\s*true/m.test(frontmatter);
-    const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
-    let fm = `---\nname: ${name}\ndescription: |\n${indentedDesc}\nuser-invocable: true\n`;
-    if (sensitive) fm += `disable-model-invocation: true\n`;
-    fm += '---';
-    return fm + body;
+  // Build frontmatter with allowed fields
+  const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
+  let newFm = `---\nname: ${name}\ndescription: |\n${indentedDesc}\n`;
+
+  // Add extra fields (host-wide)
+  if (fm.extraFields) {
+    for (const [key, value] of Object.entries(fm.extraFields)) {
+      if (key !== 'name' && key !== 'description') {
+        newFm += `${key}: ${value}\n`;
+      }
+    }
   }
 
-  return content; // unknown host: passthrough
+  // Add conditional fields
+  if (fm.conditionalFields) {
+    for (const rule of fm.conditionalFields) {
+      const match = Object.entries(rule.if).every(([k, v]) =>
+        new RegExp(`^${k}:\\s*${v}`, 'm').test(frontmatter)
+      );
+      if (match) {
+        for (const [key, value] of Object.entries(rule.add)) {
+          newFm += `${key}: ${value}\n`;
+        }
+      }
+    }
+  }
+
+  // Rename fields (copy values from template frontmatter with new keys)
+  if (fm.renameFields) {
+    for (const [oldName, newName] of Object.entries(fm.renameFields)) {
+      const fieldMatch = frontmatter.match(new RegExp(`^${oldName}:(.+(?:\\n(?:\\s+.+)*)?)`, 'm'));
+      if (fieldMatch) {
+        newFm += `${newName}:${fieldMatch[1]}\n`;
+      }
+    }
+  }
+
+  newFm += '---';
+  return newFm + body;
 }
 
 /**
@@ -290,18 +334,8 @@ function extractHookSafetyProse(tmplContent: string): string | null {
   return `> **Safety Advisory:** This skill includes safety checks that ${safetyChecks}. When using this skill, always pause and verify before executing potentially destructive operations. If uncertain about a command's safety, ask the user for confirmation before proceeding.`;
 }
 
-// ─── External Host Config ────────────────────────────────────
-
-interface ExternalHostConfig {
-  hostSubdir: string;          // '.agents' | '.factory'
-  generateMetadata: boolean;   // true for codex (openai.yaml), false for factory
-  descriptionLimit?: number;   // 1024 for codex, undefined for factory
-}
-
-const EXTERNAL_HOST_CONFIG: Record<string, ExternalHostConfig> = {
-  codex:   { hostSubdir: '.agents',  generateMetadata: true,  descriptionLimit: 1024 },
-  factory: { hostSubdir: '.factory', generateMetadata: false },
-};
+// ─── External Host Config (now derived from hosts/*.ts) ──────
+// EXTERNAL_HOST_CONFIG replaced by getHostConfig() from hosts/index.ts
 
 // ─── Template Processing ────────────────────────────────────
 
@@ -320,11 +354,10 @@ function processExternalHost(
   ctx: TemplateContext,
   frontmatterName?: string,
 ): { content: string; outputPath: string; outputDir: string; symlinkLoop: boolean } {
-  const config = EXTERNAL_HOST_CONFIG[host];
-  if (!config) throw new Error(`No external host config for: ${host}`);
+  const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
-  const outputDir = path.join(ROOT, config.hostSubdir, 'skills', name);
+  const outputDir = path.join(ROOT, hostConfig.hostSubdir, 'skills', name);
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
 
@@ -353,24 +386,20 @@ function processExternalHost(
     result = result.slice(0, bodyStart) + '\n' + safetyProse + '\n' + result.slice(bodyStart);
   }
 
-  // Replace hardcoded Claude paths with host-appropriate paths
-  result = result.replace(/~\/\.claude\/skills\/gstack/g, ctx.paths.skillRoot);
-  result = result.replace(/\.claude\/skills\/gstack/g, ctx.paths.localSkillRoot);
-  result = result.replace(/\.claude\/skills\/review/g, `${config.hostSubdir}/skills/gstack/review`);
-  result = result.replace(/\.claude\/skills/g, `${config.hostSubdir}/skills`);
-
-  // Factory-only: translate Claude Code tool names to generic phrasing
-  if (host === 'factory') {
-    result = result.replace(/use the Bash tool/g, 'run this command');
-    result = result.replace(/use the Write tool/g, 'create this file');
-    result = result.replace(/use the Read tool/g, 'read the file');
-    result = result.replace(/use the Agent tool/g, 'dispatch a subagent');
-    result = result.replace(/use the Grep tool/g, 'search for');
-    result = result.replace(/use the Glob tool/g, 'find files matching');
+  // Config-driven path rewrites (order matters, replaceAll)
+  for (const rewrite of hostConfig.pathRewrites) {
+    result = result.replaceAll(rewrite.from, rewrite.to);
   }
 
-  // Codex-only: generate openai.yaml metadata
-  if (config.generateMetadata && !symlinkLoop) {
+  // Config-driven tool rewrites
+  if (hostConfig.toolRewrites) {
+    for (const [from, to] of Object.entries(hostConfig.toolRewrites)) {
+      result = result.replaceAll(from, to);
+    }
+  }
+
+  // Config-driven: generate metadata (e.g., openai.yaml for Codex)
+  if (hostConfig.generation.generateMetadata && !symlinkLoop) {
     const agentsDir = path.join(outputDir, 'agents');
     fs.mkdirSync(agentsDir, { recursive: true });
     const shortDescription = condenseOpenAIShortDescription(extractedDescription);
@@ -408,10 +437,14 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier };
 
   // Replace placeholders (supports parameterized: {{NAME:arg1:arg2}})
+  // Config-driven: suppressedResolvers return empty string for this host
+  const currentHostConfig = getHostConfig(host);
+  const suppressed = new Set(currentHostConfig.suppressedResolvers || []);
   let content = tmplContent.replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (match, fullKey) => {
     const parts = fullKey.split(':');
     const resolverName = parts[0];
     const args = parts.slice(1);
+    if (suppressed.has(resolverName)) return '';
     const resolver = RESOLVERS[resolverName];
     if (!resolver) throw new Error(`Unknown placeholder {{${resolverName}}} in ${relTmplPath}`);
     return args.length > 0 ? resolver(ctx, args) : resolver(ctx);
@@ -463,7 +496,7 @@ function findTemplates(): string[] {
   return discoverTemplates(ROOT).map(t => path.join(ROOT, t.tmpl));
 }
 
-const ALL_HOSTS: Host[] = ['claude', 'codex', 'factory'];
+const ALL_HOSTS: Host[] = ALL_HOST_NAMES as Host[];
 const hostsToRun: Host[] = HOST_ARG_VAL === 'all' ? ALL_HOSTS : [HOST];
 const failures: { host: string; error: Error }[] = [];
 
@@ -474,11 +507,17 @@ for (const currentHost of hostsToRun) {
     let hasChanges = false;
     const tokenBudget: Array<{ skill: string; lines: number; tokens: number }> = [];
 
+    const currentHostConfig = getHostConfig(currentHost);
     for (const tmplPath of findTemplates()) {
-      // Skip /codex skill for non-Claude hosts (it's a Claude wrapper around codex exec)
-      if (currentHost !== 'claude') {
-        const dir = path.basename(path.dirname(tmplPath));
-        if (dir === 'codex') continue;
+      const dir = path.basename(path.dirname(tmplPath));
+
+      // includeSkills allowlist (union logic: include minus skip)
+      if (currentHostConfig.generation.includeSkills?.length) {
+        if (!currentHostConfig.generation.includeSkills.includes(dir)) continue;
+      }
+      // skipSkills denylist (subtracts from includeSkills or full set)
+      if (currentHostConfig.generation.skipSkills?.length) {
+        if (currentHostConfig.generation.skipSkills.includes(dir)) continue;
       }
 
       const { outputPath, content, symlinkLoop } = processTemplate(tmplPath, currentHost);
@@ -505,6 +544,68 @@ for (const currentHost of hostsToRun) {
       tokenBudget.push({ skill: relOutput, lines, tokens });
     }
 
+    // Generate gstack-lite and gstack-full for OpenClaw host
+    if (currentHost === 'openclaw' && !DRY_RUN) {
+      const openclawDir = path.join(ROOT, 'openclaw');
+      if (!fs.existsSync(openclawDir)) fs.mkdirSync(openclawDir, { recursive: true });
+
+      const gstackLite = `# gstack-lite Planning Discipline
+
+Injected by the orchestrator into spawned Claude Code sessions. Append to existing CLAUDE.md.
+
+## Planning Discipline
+1. Read every file you will modify. Understand existing patterns first.
+2. Before writing code, state your plan: what, why, which files, test case, risk.
+3. When ambiguous, prefer: completeness over shortcuts, existing patterns over new ones,
+   reversible choices over irreversible ones, safe defaults over clever ones.
+4. Self-review your changes before reporting done. Check for: missed files, broken
+   imports, untested paths, style inconsistencies.
+5. Report when done: what shipped, what decisions you made, anything uncertain.
+`;
+      fs.writeFileSync(path.join(openclawDir, 'gstack-lite-CLAUDE.md'), gstackLite);
+      console.log('GENERATED: openclaw/gstack-lite-CLAUDE.md');
+
+      const gstackFull = `# gstack-full Pipeline
+
+Injected by the orchestrator for complete feature builds. Append to existing CLAUDE.md.
+
+## Full Pipeline
+1. Read CLAUDE.md and understand the project context.
+2. Run /autoplan to review your approach (CEO + eng + design review pipeline).
+3. Implement the approved plan. Follow the planning discipline above.
+4. Run /ship to create a PR with tests, changelog, and version bump.
+5. Report back: PR URL, what shipped, decisions made, anything uncertain.
+
+Do not ask for human input until the PR is ready for review.
+`;
+      fs.writeFileSync(path.join(openclawDir, 'gstack-full-CLAUDE.md'), gstackFull);
+      console.log('GENERATED: openclaw/gstack-full-CLAUDE.md');
+
+      const gstackPlan = `# gstack-plan: Full Review Gauntlet
+
+Injected by the orchestrator when the user wants to plan a Claude Code project.
+Append to existing CLAUDE.md.
+
+## Planning Pipeline
+1. Read CLAUDE.md and understand the project context.
+2. Run /office-hours to produce a design doc (problem statement, premises, alternatives).
+3. Run /autoplan to review the design (CEO + eng + design + DX reviews + codex adversarial).
+4. Save the final reviewed plan to a file the orchestrator can reference later.
+   Write it to: plans/<project-slug>-plan-<date>.md in the current repo.
+   Include the design doc, all review decisions, and the implementation sequence.
+5. Report back to the orchestrator:
+   - Plan file path
+   - One-paragraph summary of what was designed and the key decisions
+   - List of accepted scope expansions (if any)
+   - Recommended next step (usually: spawn a new session with gstack-full to implement)
+
+Do not implement anything. This is planning only.
+The orchestrator will persist the plan link to its own memory/knowledge store.
+`;
+      fs.writeFileSync(path.join(openclawDir, 'gstack-plan-CLAUDE.md'), gstackPlan);
+      console.log('GENERATED: openclaw/gstack-plan-CLAUDE.md');
+    }
+
     if (DRY_RUN && hasChanges) {
       console.error(`\nGenerated SKILL.md files are stale (${currentHost} host). Run: bun run gen:skill-docs --host ${currentHost}`);
       if (HOST_ARG_VAL !== 'all') process.exit(1);
@@ -521,7 +622,8 @@ for (const currentHost of hostsToRun) {
       console.log(`Token Budget (${currentHost} host)`);
       console.log('═'.repeat(60));
       for (const t of tokenBudget) {
-        const name = t.skill.replace(/\/SKILL\.md$/, '').replace(/^\.(agents|factory)\/skills\//, '');
+        const hostSubdirs = ALL_HOST_CONFIGS.map(c => c.hostSubdir.replace('.', '\\.')).join('|');
+        const name = t.skill.replace(/\/SKILL\.md$/, '').replace(new RegExp(`^\\.(${hostSubdirs})\\/skills\\/`), '');
         console.log(`  ${name.padEnd(30)} ${String(t.lines).padStart(5)} lines  ~${String(t.tokens).padStart(6)} tokens`);
       }
       console.log('─'.repeat(60));

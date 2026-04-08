@@ -367,13 +367,9 @@ Minimum 0 per category.
 }
 
 export function generateCoAuthorTrailer(ctx: TemplateContext): string {
-  if (ctx.host === 'codex') {
-    return 'Co-Authored-By: OpenAI Codex <noreply@openai.com>';
-  }
-  if (ctx.host === 'factory') {
-    return 'Co-Authored-By: Factory Droid <droid@users.noreply.github.com>';
-  }
-  return 'Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>';
+  const { getHostConfig } = require('../../hosts/index');
+  const hostConfig = getHostConfig(ctx.host);
+  return hostConfig.coAuthorTrailer || 'Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>';
 }
 
 export function generateChangelogWorkflow(_ctx: TemplateContext): string {

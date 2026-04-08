@@ -355,6 +355,10 @@
   function applyStyle(selector, property, value) {
     // Validate property name: alphanumeric + hyphens only
     if (!/^[a-zA-Z-]+$/.test(property)) return { error: 'Invalid property name' };
+    // Validate CSS value: block exfiltration vectors (url(), expression(), @import, javascript:, data:)
+    if (/url\s*\(|expression\s*\(|@import|javascript:|data:/i.test(value)) {
+      return { error: 'CSS value contains blocked pattern' };
+    }
 
     const el = findElement(selector);
     if (!el) return { error: 'Element not found' };
@@ -373,6 +377,9 @@
   }
 
   function toggleClass(selector, className, action) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(className)) {
+      return { error: 'Invalid class name' };
+    }
     const el = findElement(selector);
     if (!el) return { error: 'Element not found' };
 
@@ -387,6 +394,12 @@
   }
 
   function injectCSS(id, css) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      return { error: 'Invalid CSS injection id' };
+    }
+    if (/url\s*\(|expression\s*\(|@import|javascript:|data:/i.test(css)) {
+      return { error: 'CSS contains blocked pattern (url, expression, @import)' };
+    }
     const styleId = `gstack-inject-${id}`;
     let styleEl = document.getElementById(styleId);
     if (!styleEl) {

@@ -3,6 +3,7 @@
 Scope: When SCOPE_MIGRATIONS=true
 Output: JSON objects, one finding per line. Schema:
 {"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"data-migration","summary":"...","fix":"...","fingerprint":"path:line:data-migration","specialist":"data-migration"}
+Optional: line, fix, fingerprint, evidence, test_stub.
 If no findings: output `NO FINDINGS` and nothing else.
 
 ---

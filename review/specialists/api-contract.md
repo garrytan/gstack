@@ -3,6 +3,7 @@
 Scope: When SCOPE_API=true
 Output: JSON objects, one finding per line. Schema:
 {"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"api-contract","summary":"...","fix":"...","fingerprint":"path:line:api-contract","specialist":"api-contract"}
+Optional: line, fix, fingerprint, evidence, test_stub.
 If no findings: output `NO FINDINGS` and nothing else.
 
 ---

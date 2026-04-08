@@ -467,8 +467,18 @@ describeIfSelected('Codex skill E2E', ['codex-review'], () => {
     run('git', ['add', 'user_controller.rb']);
     run('git', ['commit', '-m', 'add vulnerable controller']);
 
-    // Copy the codex skill file
-    fs.copyFileSync(path.join(ROOT, 'codex', 'SKILL.md'), path.join(codexDir, 'codex-SKILL.md'));
+    // Extract only the review-relevant section from codex SKILL.md (~120 lines vs 1075).
+    // Full SKILL.md is 55KB / ~14K tokens — takes 8 Read calls to consume, exhausting turns.
+    const full = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    const startMarker = '# /codex — Multi-AI Second Opinion';
+    const endMarker = '## Plan File Review Report';
+    const start = full.indexOf(startMarker);
+    const end = full.indexOf(endMarker, start);
+    const reviewSection = full.slice(
+      start >= 0 ? start : 0,
+      end > start ? end : undefined,
+    );
+    fs.writeFileSync(path.join(codexDir, 'codex-SKILL.md'), reviewSection);
   });
 
   afterAll(() => {
@@ -485,11 +495,11 @@ describeIfSelected('Codex skill E2E', ['codex-review'], () => {
 
     const result = await runSkillTest({
       prompt: `You are in a git repo on branch feature/add-vuln with changes against main.
-Read codex-SKILL.md for the /codex skill instructions.
-Run /codex review to review the current diff against main.
+Read codex-SKILL.md for the /codex review instructions (it's short — ~120 lines).
+Follow those instructions to run codex review against the diff on this branch.
 Write the full output (including the GATE verdict) to ${codexDir}/codex-output.md`,
       workingDirectory: codexDir,
-      maxTurns: 15,
+      maxTurns: 25,
       timeout: 300_000,
       testName: 'codex-review',
       runId,

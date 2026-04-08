@@ -113,6 +113,56 @@ Element crop accepts CSS selectors (`.class`, `#id`, `[attr]`) or `@e`/`@c` refs
 
 Mutual exclusion: `--clip` + selector and `--viewport` + `--clip` both throw errors. Unknown flags (e.g. `--bogus`) also throw.
 
+### Batch endpoint
+
+`POST /batch` sends multiple commands in a single HTTP request. This eliminates per-command round-trip latency — critical for remote agents where each HTTP call costs 2-5s (e.g., Render → ngrok → laptop).
+
+```json
+POST /batch
+Authorization: Bearer <token>
+
+{
+  "commands": [
+    {"command": "text", "tabId": 1},
+    {"command": "text", "tabId": 2},
+    {"command": "snapshot", "args": ["-i"], "tabId": 3},
+    {"command": "click", "args": ["@e5"], "tabId": 4}
+  ]
+}
+```
+
+Response:
+```json
+{
+  "results": [
+    {"index": 0, "status": 200, "result": "...page text...", "command": "text", "tabId": 1},
+    {"index": 1, "status": 200, "result": "...page text...", "command": "text", "tabId": 2},
+    {"index": 2, "status": 200, "result": "...snapshot...", "command": "snapshot", "tabId": 3},
+    {"index": 3, "status": 403, "result": "{\"error\":\"Element not found\"}", "command": "click", "tabId": 4}
+  ],
+  "duration": 2340,
+  "total": 4,
+  "succeeded": 3,
+  "failed": 1
+}
+```
+
+**Design decisions:**
+- Each command routes through `handleCommandInternal` — full security pipeline (scope checks, domain validation, tab ownership, content wrapping) enforced per command
+- Per-command error isolation: one failure doesn't abort the batch
+- Max 50 commands per batch
+- Nested batches rejected
+- Rate limiting: 1 batch = 1 request against the per-agent limit (individual commands skip rate check)
+- Ref scoping is already per-tab — no changes needed
+
+**Usage pattern** (agent crawling 20 pages):
+```
+# Step 1: Open 20 tabs (via individual newtab commands or batch)
+# Step 2: Read all 20 pages at once
+POST /batch → [{"command": "text", "tabId": 5}, {"command": "text", "tabId": 6}, ...]
+# → 20 page contents in ~2-3 seconds total vs ~40-100 seconds serial
+```
+
 ### Authentication
 
 Each server session generates a random UUID as a bearer token. The token is written to the state file (`.gstack/browse.json`) with chmod 600. Every HTTP request must include `Authorization: Bearer <token>`. This prevents other processes on the machine from controlling the browser.

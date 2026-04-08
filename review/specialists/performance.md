@@ -3,6 +3,7 @@
 Scope: When SCOPE_BACKEND=true OR SCOPE_FRONTEND=true
 Output: JSON objects, one finding per line. Schema:
 {"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"performance","summary":"...","fix":"...","fingerprint":"path:line:performance","specialist":"performance"}
+Optional: line, fix, fingerprint, evidence, test_stub.
 If no findings: output `NO FINDINGS` and nothing else.
 
 ---

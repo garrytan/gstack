@@ -7,6 +7,7 @@ import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
 import { validateNavigationUrl } from './url-validation';
+import { checkScope, type TokenInfo } from './token-registry';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -15,14 +16,38 @@ import { resolveConfig } from './config';
 import type { Frame } from 'playwright';
 
 // Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
+// Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp → /private/tmp)
+const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()].map(d => {
+  try { return fs.realpathSync(d); } catch { return d; }
+});
 
 export function validateOutputPath(filePath: string): void {
   const resolved = path.resolve(filePath);
-  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
+
+  // Resolve real path of the parent directory to catch symlinks.
+  // The file itself may not exist yet (e.g., screenshot output).
+  let dir = path.dirname(resolved);
+  let realDir: string;
+  try {
+    realDir = fs.realpathSync(dir);
+  } catch {
+    try {
+      realDir = fs.realpathSync(path.dirname(dir));
+    } catch {
+      throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    }
+  }
+
+  const realResolved = path.join(realDir, path.basename(resolved));
+  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realResolved, dir));
   if (!isSafe) {
     throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
+}
+
+/** Escape special regex metacharacters in a user-supplied string to prevent ReDoS. */
+export function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Tokenize a pipe segment respecting double-quoted strings. */
@@ -44,12 +69,24 @@ function tokenizePipeSegment(segment: string): string[] {
   return tokens;
 }
 
+/** Options passed from handleCommandInternal for chain routing */
+export interface MetaCommandOpts {
+  chainDepth?: number;
+  /** Callback to route subcommands through the full security pipeline (handleCommandInternal) */
+  executeCommand?: (body: { command: string; args?: string[]; tabId?: number }, tokenInfo?: TokenInfo | null) => Promise<{ status: number; result: string; json?: boolean }>;
+}
+
 export async function handleMetaCommand(
   command: string,
   args: string[],
   bm: BrowserManager,
-  shutdown: () => Promise<void> | void
+  shutdown: () => Promise<void> | void,
+  tokenInfo?: TokenInfo | null,
+  opts?: MetaCommandOpts,
 ): Promise<string> {
+  // Per-tab operations use the active session; global operations use bm directly
+  const session = bm.getActiveSession();
+
   switch (command) {
     // ─── Tabs ──────────────────────────────────────────
     case 'tabs': {
@@ -80,7 +117,7 @@ export async function handleMetaCommand(
 
     // ─── Server Control ────────────────────────────────
     case 'status': {
-      const page = bm.getPage();
+      const page = session.getPage();
       const tabs = bm.getTabCount();
       const mode = bm.getConnectionMode();
       return [
@@ -111,7 +148,7 @@ export async function handleMetaCommand(
     // ─── Visual ────────────────────────────────────────
     case 'screenshot': {
       // Parse priority: flags (--viewport, --clip) → selector (@ref, CSS) → output path
-      const page = bm.getPage();
+      const page = session.getPage();
       let outputPath = `${TEMP_DIR}/browse-screenshot.png`;
       let clipRect: { x: number; y: number; width: number; height: number } | undefined;
       let targetSelector: string | undefined;
@@ -158,7 +195,7 @@ export async function handleMetaCommand(
       }
 
       if (targetSelector) {
-        const resolved = await bm.resolveRef(targetSelector);
+        const resolved = await session.resolveRef(targetSelector);
         const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
         await locator.screenshot({ path: outputPath, timeout: 5000 });
         return `Screenshot saved (element): ${outputPath}`;
@@ -174,7 +211,7 @@ export async function handleMetaCommand(
     }
 
     case 'pdf': {
-      const page = bm.getPage();
+      const page = session.getPage();
       const pdfPath = args[0] || `${TEMP_DIR}/browse-page.pdf`;
       validateOutputPath(pdfPath);
       await page.pdf({ path: pdfPath, format: 'A4' });
@@ -182,7 +219,7 @@ export async function handleMetaCommand(
     }
 
     case 'responsive': {
-      const page = bm.getPage();
+      const page = session.getPage();
       const prefix = args[0] || `${TEMP_DIR}/browse-responsive`;
       validateOutputPath(prefix);
       const viewports = [
@@ -195,9 +232,10 @@ export async function handleMetaCommand(
 
       for (const vp of viewports) {
         await page.setViewportSize({ width: vp.width, height: vp.height });
-        const path = `${prefix}-${vp.name}.png`;
-        await page.screenshot({ path, fullPage: true });
-        results.push(`${vp.name} (${vp.width}x${vp.height}): ${path}`);
+        const screenshotPath = `${prefix}-${vp.name}.png`;
+        validateOutputPath(screenshotPath);
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        results.push(`${vp.name} (${vp.width}x${vp.height}): ${screenshotPath}`);
       }
 
       // Restore original viewport
@@ -228,39 +266,85 @@ export async function handleMetaCommand(
           .map(seg => tokenizePipeSegment(seg.trim()));
       }
 
-      const results: string[] = [];
-      const { handleReadCommand } = await import('./read-commands');
-      const { handleWriteCommand } = await import('./write-commands');
-
-      let lastWasWrite = false;
-      for (const cmd of commands) {
-        const [name, ...cmdArgs] = cmd;
-        try {
-          let result: string;
-          if (WRITE_COMMANDS.has(name)) {
-            result = await handleWriteCommand(name, cmdArgs, bm);
-            lastWasWrite = true;
-          } else if (READ_COMMANDS.has(name)) {
-            result = await handleReadCommand(name, cmdArgs, bm);
-            if (PAGE_CONTENT_COMMANDS.has(name)) {
-              result = wrapUntrustedContent(result, bm.getCurrentUrl());
-            }
-            lastWasWrite = false;
-          } else if (META_COMMANDS.has(name)) {
-            result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
-            lastWasWrite = false;
-          } else {
-            throw new Error(`Unknown command: ${name}`);
+      // Pre-validate ALL subcommands against the token's scope before executing any.
+      // This prevents partial execution where some subcommands succeed before a
+      // scope violation is hit, leaving the browser in an inconsistent state.
+      if (tokenInfo && tokenInfo.clientId !== 'root') {
+        for (const cmd of commands) {
+          const [name] = cmd;
+          if (!checkScope(tokenInfo, name)) {
+            throw new Error(
+              `Chain rejected: subcommand "${name}" not allowed by your token scope (${tokenInfo.scopes.join(', ')}). ` +
+              `All subcommands must be within scope.`
+            );
           }
-          results.push(`[${name}] ${result}`);
-        } catch (err: any) {
-          results.push(`[${name}] ERROR: ${err.message}`);
+        }
+      }
+
+      // Route each subcommand through handleCommandInternal for full security:
+      // scope, domain, tab ownership, content wrapping — all enforced per subcommand.
+      // Chain-specific options: skip rate check (chain = 1 request), skip activity
+      // events (chain emits 1 event), increment chain depth (recursion guard).
+      const executeCmd = opts?.executeCommand;
+      const results: string[] = [];
+      let lastWasWrite = false;
+
+      if (executeCmd) {
+        // Full security pipeline via handleCommandInternal
+        for (const cmd of commands) {
+          const [name, ...cmdArgs] = cmd;
+          const cr = await executeCmd(
+            { command: name, args: cmdArgs },
+            tokenInfo,
+          );
+          if (cr.status === 200) {
+            results.push(`[${name}] ${cr.result}`);
+          } else {
+            // Parse error from JSON result
+            let errMsg = cr.result;
+            try { errMsg = JSON.parse(cr.result).error || cr.result; } catch {}
+            results.push(`[${name}] ERROR: ${errMsg}`);
+          }
+          lastWasWrite = WRITE_COMMANDS.has(name);
+        }
+      } else {
+        // Fallback: direct dispatch (CLI mode, no server context)
+        const { handleReadCommand } = await import('./read-commands');
+        const { handleWriteCommand } = await import('./write-commands');
+
+        for (const cmd of commands) {
+          const [name, ...cmdArgs] = cmd;
+          try {
+            let result: string;
+            if (WRITE_COMMANDS.has(name)) {
+              if (bm.isWatching()) {
+                result = 'BLOCKED: write commands disabled in watch mode';
+              } else {
+                result = await handleWriteCommand(name, cmdArgs, session, bm);
+              }
+              lastWasWrite = true;
+            } else if (READ_COMMANDS.has(name)) {
+              result = await handleReadCommand(name, cmdArgs, session);
+              if (PAGE_CONTENT_COMMANDS.has(name)) {
+                result = wrapUntrustedContent(result, bm.getCurrentUrl());
+              }
+              lastWasWrite = false;
+            } else if (META_COMMANDS.has(name)) {
+              result = await handleMetaCommand(name, cmdArgs, bm, shutdown, tokenInfo, opts);
+              lastWasWrite = false;
+            } else {
+              throw new Error(`Unknown command: ${name}`);
+            }
+            results.push(`[${name}] ${result}`);
+          } catch (err: any) {
+            results.push(`[${name}] ERROR: ${err.message}`);
+          }
         }
       }
 
       // Wait for network to settle after write commands before returning
       if (lastWasWrite) {
-        await bm.getPage().waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
+        await session.getPage().waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
       }
 
       return results.join('\n\n');
@@ -271,7 +355,7 @@ export async function handleMetaCommand(
       const [url1, url2] = args;
       if (!url1 || !url2) throw new Error('Usage: browse diff <url1> <url2>');
 
-      const page = bm.getPage();
+      const page = session.getPage();
       await validateNavigationUrl(url1);
       await page.goto(url1, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const text1 = await getCleanText(page);
@@ -296,7 +380,14 @@ export async function handleMetaCommand(
 
     // ─── Snapshot ─────────────────────────────────────
     case 'snapshot': {
-      const snapshotResult = await handleSnapshot(args, bm);
+      const isScoped = tokenInfo && tokenInfo.clientId !== 'root';
+      const snapshotResult = await handleSnapshot(args, session, {
+        splitForScoped: !!isScoped,
+      });
+      // Scoped tokens get split format (refs outside envelope); root gets basic wrapping
+      if (isScoped) {
+        return snapshotResult; // already has envelope from split format
+      }
       return wrapUntrustedContent(snapshotResult, bm.getCurrentUrl());
     }
 
@@ -309,7 +400,11 @@ export async function handleMetaCommand(
     case 'resume': {
       bm.resume();
       // Re-snapshot to capture current page state after human interaction
-      const snapshot = await handleSnapshot(['-i'], bm);
+      const isScoped2 = tokenInfo && tokenInfo.clientId !== 'root';
+      const snapshot = await handleSnapshot(['-i'], session, { splitForScoped: !!isScoped2 });
+      if (isScoped2) {
+        return `RESUMED\n${snapshot}`;
+      }
       return `RESUMED\n${wrapUntrustedContent(snapshot, bm.getCurrentUrl())}`;
     }
 
@@ -359,7 +454,7 @@ export async function handleMetaCommand(
         // If a ref was passed, scroll it into view
         if (args.length > 0 && args[0].startsWith('@')) {
           try {
-            const resolved = await bm.resolveRef(args[0]);
+            const resolved = await session.resolveRef(args[0]);
             if ('locator' in resolved) {
               await resolved.locator.scrollIntoViewIfNeeded({ timeout: 5000 });
               return `Browser activated. Scrolled ${args[0]} into view.`;
@@ -443,8 +538,8 @@ export async function handleMetaCommand(
 
       for (const msg of messages) {
         const ts = msg.timestamp ? `[${msg.timestamp}]` : '[unknown]';
-        lines.push(`${ts} ${msg.url}`);
-        lines.push(`  "${msg.userMessage}"`);
+        lines.push(`${ts} ${wrapUntrustedContent(msg.url, 'inbox-url')}`);
+        lines.push(`  "${wrapUntrustedContent(msg.userMessage, 'inbox-message')}"`);
         lines.push('');
       }
 
@@ -495,6 +590,18 @@ export async function handleMetaCommand(
         if (!Array.isArray(data.cookies) || !Array.isArray(data.pages)) {
           throw new Error('Invalid state file: expected cookies and pages arrays');
         }
+        // Validate and filter cookies — reject malformed or internal-network cookies
+        const validatedCookies = data.cookies.filter((c: any) => {
+          if (typeof c !== 'object' || !c) return false;
+          if (typeof c.name !== 'string' || typeof c.value !== 'string') return false;
+          if (typeof c.domain !== 'string' || !c.domain) return false;
+          const d = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
+          if (d === 'localhost' || d.endsWith('.internal') || d === '169.254.169.254') return false;
+          return true;
+        });
+        if (validatedCookies.length < data.cookies.length) {
+          console.warn(`[browse] Filtered ${data.cookies.length - validatedCookies.length} invalid cookies from state file`);
+        }
         // Warn on state files older than 7 days
         if (data.savedAt) {
           const ageMs = Date.now() - new Date(data.savedAt).getTime();
@@ -504,10 +611,10 @@ export async function handleMetaCommand(
           }
         }
         // Close existing pages, then restore (replace, not merge)
-        bm.setFrame(null);
+        session.setFrame(null);
         await bm.closeAllPages();
         await bm.restoreState({
-          cookies: data.cookies,
+          cookies: validatedCookies,
           pages: data.pages.map((p: any) => ({ ...p, storage: null })),
         });
         return `State loaded: ${data.cookies.length} cookies, ${data.pages.length} pages`;
@@ -522,12 +629,12 @@ export async function handleMetaCommand(
       if (!target) throw new Error('Usage: frame <selector|@ref|--name name|--url pattern|main>');
 
       if (target === 'main') {
-        bm.setFrame(null);
-        bm.clearRefs();
+        session.setFrame(null);
+        session.clearRefs();
         return 'Switched to main frame';
       }
 
-      const page = bm.getPage();
+      const page = session.getPage();
       let frame: Frame | null = null;
 
       if (target === '--name') {
@@ -535,10 +642,10 @@ export async function handleMetaCommand(
         frame = page.frame({ name: args[1] });
       } else if (target === '--url') {
         if (!args[1]) throw new Error('Usage: frame --url <pattern>');
-        frame = page.frame({ url: new RegExp(args[1]) });
+        frame = page.frame({ url: new RegExp(escapeRegExp(args[1])) });
       } else {
         // CSS selector or @ref for the iframe element
-        const resolved = await bm.resolveRef(target);
+        const resolved = await session.resolveRef(target);
         const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
         const elementHandle = await locator.elementHandle({ timeout: 5000 });
         frame = await elementHandle?.contentFrame() ?? null;
@@ -546,8 +653,8 @@ export async function handleMetaCommand(
       }
 
       if (!frame) throw new Error(`Frame not found: ${target}`);
-      bm.setFrame(frame);
-      bm.clearRefs();
+      session.setFrame(frame);
+      session.clearRefs();
       return `Switched to frame: ${frame.url()}`;
     }
 

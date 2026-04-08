@@ -1,5 +1,6 @@
 .env
 node_modules/
+dist/
 browse/dist/
 design/dist/
 bin/gstack-global-discover
@@ -7,6 +8,11 @@ bin/gstack-global-discover
 .claude/skills/
 .agents/
 .factory/
+.kiro/
+.opencode/
+.slate/
+.cursor/
+.openclaw/
 .context/
 extension/.auth.json
 .gstack-worktrees/

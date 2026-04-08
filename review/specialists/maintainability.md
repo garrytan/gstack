@@ -3,6 +3,7 @@
 Scope: Always-on (every review)
 Output: JSON objects, one finding per line. Schema:
 {"severity":"INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"maintainability","summary":"...","fix":"...","fingerprint":"path:line:maintainability","specialist":"maintainability"}
+Optional: line, fix, fingerprint, evidence, test_stub.
 If no findings: output `NO FINDINGS` and nothing else.
 
 ---

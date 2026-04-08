@@ -18,7 +18,7 @@
  */
 
 import type { Page, Frame, Locator } from 'playwright';
-import type { BrowserManager, RefEntry } from './browser-manager';
+import type { TabSession, RefEntry } from './tab-session';
 import * as Diff from 'diff';
 import { TEMP_DIR, isPathWithin } from './platform';
 
@@ -56,14 +56,14 @@ export const SNAPSHOT_FLAGS: Array<{
   valueHint?: string;
   optionKey: keyof SnapshotOptions;
 }> = [
-  { short: '-i', long: '--interactive', description: 'Interactive elements only (buttons, links, inputs) with @e refs', optionKey: 'interactive' },
+  { short: '-i', long: '--interactive', description: 'Interactive elements only (buttons, links, inputs) with @e refs. Also auto-enables cursor-interactive scan (-C) to capture dropdowns and popovers.', optionKey: 'interactive' },
   { short: '-c', long: '--compact', description: 'Compact (no empty structural nodes)', optionKey: 'compact' },
   { short: '-d', long: '--depth', description: 'Limit tree depth (0 = root only, default: unlimited)', takesValue: true, valueHint: '<N>', optionKey: 'depth' },
   { short: '-s', long: '--selector', description: 'Scope to CSS selector', takesValue: true, valueHint: '<sel>', optionKey: 'selector' },
   { short: '-D', long: '--diff', description: 'Unified diff against previous snapshot (first call stores baseline)', optionKey: 'diff' },
   { short: '-a', long: '--annotate', description: 'Annotated screenshot with red overlay boxes and ref labels', optionKey: 'annotate' },
   { short: '-o', long: '--output', description: 'Output path for annotated screenshot (default: <temp>/browse-annotated.png)', takesValue: true, valueHint: '<path>', optionKey: 'outputPath' },
-  { short: '-C', long: '--cursor-interactive', description: 'Cursor-interactive elements (@c refs — divs with pointer, onclick)', optionKey: 'cursorInteractive' },
+  { short: '-C', long: '--cursor-interactive', description: 'Cursor-interactive elements (@c refs — divs with pointer, onclick). Auto-enabled when -i is used.', optionKey: 'cursorInteractive' },
 ];
 
 interface ParsedNode {
@@ -132,13 +132,14 @@ function parseLine(line: string): ParsedNode | null {
  */
 export async function handleSnapshot(
   args: string[],
-  bm: BrowserManager
+  session: TabSession,
+  securityOpts?: { splitForScoped?: boolean },
 ): Promise<string> {
   const opts = parseSnapshotArgs(args);
-  const page = bm.getPage();
+  const page = session.getPage();
   // Frame-aware target for accessibility tree
-  const target = bm.getActiveFrameOrPage();
-  const inFrame = bm.getFrame() !== null;
+  const target = session.getActiveFrameOrPage();
+  const inFrame = session.getFrame() !== null;
 
   // Get accessibility tree via ariaSnapshot
   let rootLocator: Locator;
@@ -152,7 +153,7 @@ export async function handleSnapshot(
 
   const ariaText = await rootLocator.ariaSnapshot();
   if (!ariaText || ariaText.trim().length === 0) {
-    bm.setRefMap(new Map());
+    session.setRefMap(new Map());
     return '(no accessible elements found)';
   }
 
@@ -233,7 +234,12 @@ export async function handleSnapshot(
     output.push(outputLine);
   }
 
-  // ─── Cursor-interactive scan (-C) ─────────────────────────
+  // ─── Cursor-interactive scan (-C, or auto with -i) ────────
+  // Auto-enable cursor scan when interactive mode is on — agents asking for
+  // interactive elements should always see clickable non-ARIA items too.
+  if (opts.interactive && !opts.cursorInteractive) {
+    opts.cursorInteractive = true;
+  }
   if (opts.cursorInteractive) {
     try {
       const cursorElements = await target.evaluate(() => {
@@ -256,9 +262,37 @@ export async function handleSnapshot(
           const hasTabindex = el.hasAttribute('tabindex') && parseInt(el.getAttribute('tabindex')!, 10) >= 0;
           const hasRole = el.hasAttribute('role');
 
-          if (!hasCursorPointer && !hasOnclick && !hasTabindex) continue;
-          // Skip if it has an ARIA role (likely already captured)
-          if (hasRole) continue;
+          // Check if element is inside a floating container (portal/popover/dropdown)
+          const isInFloating = (() => {
+            let parent: Element | null = el;
+            while (parent && parent !== document.documentElement) {
+              const pStyle = getComputedStyle(parent);
+              const isFloating = (pStyle.position === 'fixed' || pStyle.position === 'absolute') &&
+                parseInt(pStyle.zIndex || '0', 10) >= 10;
+              const hasPortalAttr = parent.hasAttribute('data-floating-ui-portal') ||
+                parent.hasAttribute('data-radix-popper-content-wrapper') ||
+                parent.hasAttribute('data-radix-portal') ||
+                parent.hasAttribute('data-popper-placement') ||
+                parent.getAttribute('role') === 'listbox' ||
+                parent.getAttribute('role') === 'menu';
+              if (isFloating || hasPortalAttr) return true;
+              parent = parent.parentElement;
+            }
+            return false;
+          })();
+
+          if (!hasCursorPointer && !hasOnclick && !hasTabindex) {
+            // For elements inside floating containers, also check for role="option"/"menuitem"
+            if (isInFloating && hasRole) {
+              const role = el.getAttribute('role');
+              if (role !== 'option' && role !== 'menuitem' && role !== 'menuitemcheckbox' && role !== 'menuitemradio') continue;
+            } else {
+              continue;
+            }
+          }
+          // Skip elements with ARIA roles UNLESS they're inside a floating container
+          // (floating container items may be missed by the accessibility tree)
+          if (hasRole && !isInFloating) continue;
 
           // Build deterministic nth-child CSS path
           const parts: string[] = [];
@@ -275,9 +309,11 @@ export async function handleSnapshot(
 
           const text = (el as HTMLElement).innerText?.trim().slice(0, 80) || el.tagName.toLowerCase();
           const reasons: string[] = [];
+          if (isInFloating) reasons.push('popover-child');
           if (hasCursorPointer) reasons.push('cursor:pointer');
           if (hasOnclick) reasons.push('onclick');
           if (hasTabindex) reasons.push(`tabindex=${el.getAttribute('tabindex')}`);
+          if (hasRole) reasons.push(`role=${el.getAttribute('role')}`);
 
           results.push({ selector, text, reason: reasons.join(', ') });
         }
@@ -302,7 +338,7 @@ export async function handleSnapshot(
   }
 
   // Store ref map on BrowserManager
-  bm.setRefMap(refMap);
+  session.setRefMap(refMap);
 
   if (output.length === 0) {
     return '(no interactive elements found)';
@@ -313,11 +349,32 @@ export async function handleSnapshot(
   // ─── Annotated screenshot (-a) ────────────────────────────
   if (opts.annotate) {
     const screenshotPath = opts.outputPath || `${TEMP_DIR}/browse-annotated.png`;
-    // Validate output path (consistent with screenshot/pdf/responsive)
-    const resolvedPath = require('path').resolve(screenshotPath);
-    const safeDirs = [TEMP_DIR, process.cwd()];
-    if (!safeDirs.some((dir: string) => isPathWithin(resolvedPath, dir))) {
-      throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+    // Validate output path — resolve symlinks to prevent symlink traversal attacks
+    {
+      const nodePath = require('path') as typeof import('path');
+      const nodeFs = require('fs') as typeof import('fs');
+      const absolute = nodePath.resolve(screenshotPath);
+      const safeDirs = [TEMP_DIR, process.cwd()].map((d: string) => {
+        try { return nodeFs.realpathSync(d); } catch { return d; }
+      });
+      let realPath: string;
+      try {
+        realPath = nodeFs.realpathSync(absolute);
+      } catch (err: any) {
+        if (err.code === 'ENOENT') {
+          try {
+            const dir = nodeFs.realpathSync(nodePath.dirname(absolute));
+            realPath = nodePath.join(dir, nodePath.basename(absolute));
+          } catch {
+            realPath = absolute;
+          }
+        } else {
+          throw new Error(`Cannot resolve real path: ${screenshotPath} (${err.code})`);
+        }
+      }
+      if (!safeDirs.some((dir: string) => isPathWithin(realPath, dir))) {
+        throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+      }
     }
     try {
       // Inject overlay divs at each ref's bounding box
@@ -373,9 +430,9 @@ export async function handleSnapshot(
 
   // ─── Diff mode (-D) ───────────────────────────────────────
   if (opts.diff) {
-    const lastSnapshot = bm.getLastSnapshot();
+    const lastSnapshot = session.getLastSnapshot();
     if (!lastSnapshot) {
-      bm.setLastSnapshot(snapshotText);
+      session.setLastSnapshot(snapshotText);
       return snapshotText + '\n\n(no previous snapshot to diff against — this snapshot stored as baseline)';
     }
 
@@ -390,17 +447,49 @@ export async function handleSnapshot(
       }
     }
 
-    bm.setLastSnapshot(snapshotText);
+    session.setLastSnapshot(snapshotText);
     return diffOutput.join('\n');
   }
 
   // Store for future diffs
-  bm.setLastSnapshot(snapshotText);
+  session.setLastSnapshot(snapshotText);
 
   // Add frame context header when operating inside an iframe
   if (inFrame) {
-    const frameUrl = bm.getFrame()?.url() ?? 'unknown';
+    const frameUrl = session.getFrame()?.url() ?? 'unknown';
     output.unshift(`[Context: iframe src="${frameUrl}"]`);
+  }
+
+  // Split output for scoped tokens: trusted refs + untrusted text
+  if (securityOpts?.splitForScoped) {
+    const trustedRefs: string[] = [];
+    const untrustedLines: string[] = [];
+
+    for (const line of output) {
+      // Lines starting with @ref are interactive elements (trusted metadata)
+      const refMatch = line.match(/^(\s*)@(e\d+|c\d+)\s+\[([^\]]+)\]\s*(.*)/);
+      if (refMatch) {
+        const [, indent, ref, role, rest] = refMatch;
+        // Truncate element name/content to 50 chars for trusted section
+        const nameMatch = rest.match(/^"(.+?)"/);
+        let truncName = nameMatch ? nameMatch[1] : rest.trim();
+        if (truncName.length > 50) truncName = truncName.slice(0, 47) + '...';
+        trustedRefs.push(`${indent}@${ref} [${role}] "${truncName}"`);
+      }
+      // All lines go to untrusted section (full content)
+      untrustedLines.push(line);
+    }
+
+    const parts: string[] = [];
+    if (trustedRefs.length > 0) {
+      parts.push('INTERACTIVE ELEMENTS (trusted — use these @refs for click/fill):');
+      parts.push(...trustedRefs);
+      parts.push('');
+    }
+    parts.push('═══ BEGIN UNTRUSTED WEB CONTENT ═══');
+    parts.push(...untrustedLines);
+    parts.push('═══ END UNTRUSTED WEB CONTENT ═══');
+    return parts.join('\n');
   }
 
   return output.join('\n');

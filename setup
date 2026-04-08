@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # gstack setup — build browser binary + register skills with Claude Code / Codex
 set -e
+umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
 if ! command -v bun >/dev/null 2>&1; then
   echo "Error: bun is required but not installed." >&2
@@ -27,11 +28,17 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
 esac
 
+# ─── Quiet mode helper ────────────────────────────────────────
+QUIET=0
+log() { [ "$QUIET" -eq 0 ] && echo "$@" || true; }
+
 # ─── Parse flags ──────────────────────────────────────────────
 HOST="claude"
 LOCAL_INSTALL=0
 SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
+TEAM_MODE=0
+NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
@@ -39,13 +46,28 @@ while [ $# -gt 0 ]; do
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
+    --team)    TEAM_MODE=1; shift ;;
+    --no-team) NO_TEAM_MODE=1; shift ;;
+    -q|--quiet) QUIET=1; shift ;;
     *) shift ;;
   esac
 done
 
 case "$HOST" in
   claude|codex|kiro|factory|auto) ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, or auto)" >&2; exit 1 ;;
+  openclaw)
+    echo ""
+    echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
+    echo "sessions natively via ACP. gstack provides methodology artifacts, not a"
+    echo "full skill installation."
+    echo ""
+    echo "To integrate gstack with OpenClaw:"
+    echo "  1. Tell your OpenClaw agent: 'install gstack for openclaw'"
+    echo "  2. Or generate artifacts: bun run gen:skill-docs --host openclaw"
+    echo "  3. See docs/OPENCLAW.md for the full architecture"
+    echo ""
+    exit 0 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, openclaw, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -59,8 +81,10 @@ if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
   elif [ "$_saved_prefix" = "false" ]; then
     SKILL_PREFIX=0
   else
-    # No saved preference — prompt interactively (or default flat for non-TTY)
-    if [ -t 0 ]; then
+    # No saved preference — prompt interactively (or default flat for non-TTY/quiet)
+    if [ "$QUIET" -eq 1 ]; then
+      SKILL_PREFIX=0
+    elif [ -t 0 ]; then
       echo ""
       echo "Skill naming: how should gstack skills appear?"
       echo ""
@@ -87,8 +111,10 @@ else
   "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
 fi
 
-# --local: install to .claude/skills/ in the current working directory
+# --local: install to .claude/skills/ in the current working directory (deprecated)
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
+  echo "Warning: --local is deprecated. Use global install + --team instead." >&2
+  echo "  See: https://github.com/garrytan/gstack#team-mode" >&2
   if [ "$HOST" = "codex" ]; then
     echo "Error: --local is only supported for Claude Code (not Codex)." >&2
     exit 1
@@ -138,7 +164,7 @@ migrate_direct_codex_install() {
     exit 1
   fi
 
-  echo "Migrating direct Codex install to $migrated_dir to avoid duplicate skill discovery..."
+  log "Migrating direct Codex install to $migrated_dir to avoid duplicate skill discovery..."
   mv "$gstack_dir" "$migrated_dir"
   SOURCE_GSTACK_DIR="$migrated_dir"
   INSTALL_GSTACK_DIR="$migrated_dir"
@@ -179,7 +205,7 @@ elif [ -f "$SOURCE_GSTACK_DIR/bun.lock" ] && [ "$SOURCE_GSTACK_DIR/bun.lock" -nt
 fi
 
 if [ "$NEEDS_BUILD" -eq 1 ]; then
-  echo "Building browse binary..."
+  log "Building browse binary..."
   (
     cd "$SOURCE_GSTACK_DIR"
     bun install
@@ -205,7 +231,7 @@ AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
 NEEDS_AGENTS_GEN=1
 
 if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
-  echo "Generating .agents/ skill docs..."
+  log "Generating .agents/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
@@ -215,7 +241,7 @@ fi
 
 # 1c. Generate .factory/ Factory Droid skill docs
 if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
-  echo "Generating .factory/ skill docs..."
+  log "Generating .factory/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
@@ -295,11 +321,12 @@ link_claude_skill_dirs() {
         rm -f "$target"
       fi
       # Create real directory with symlinked SKILL.md (absolute path)
-      if [ ! -e "$target" ] || [ -d "$target" ]; then
-        mkdir -p "$target"
-        ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
-        linked+=("$link_name")
-      fi
+      # Use mkdir -p unconditionally (idempotent) to avoid TOCTOU race
+      mkdir -p "$target"
+      # Validate target isn't a symlink before creating the link
+      if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
+      ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      linked+=("$link_name")
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
@@ -595,17 +622,58 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     # reads the correct (patched) name: values for symlink naming
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    if [ "$LOCAL_INSTALL" -eq 1 ]; then
-      echo "gstack ready (project-local)."
-      echo "  skills: $INSTALL_SKILLS_DIR"
-    else
-      echo "gstack ready (claude)."
+    # Self-healing: re-run gstack-relink to ensure name: fields and directory
+    # names are consistent with the config. This catches cases where an interrupted
+    # setup, stale git state, or gen:skill-docs left name: fields out of sync.
+    GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
+    if [ -x "$GSTACK_RELINK" ]; then
+      GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
     fi
-    echo "  browse: $BROWSE_BIN"
+    # Backwards-compat alias: /connect-chrome → /open-gstack-browser
+    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
+    if [ "$SKILL_PREFIX" -eq 1 ]; then
+      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+    fi
+    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
+      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+    fi
+    if [ "$LOCAL_INSTALL" -eq 1 ]; then
+      log "gstack ready (project-local)."
+      log "  skills: $INSTALL_SKILLS_DIR"
+    else
+      log "gstack ready (claude)."
+    fi
+    log "  browse: $BROWSE_BIN"
   else
-    echo "gstack ready (claude)."
-    echo "  browse: $BROWSE_BIN"
-    echo "  (skipped skill symlinks — not inside .claude/skills/)"
+    # Not inside a skills/ directory — symlink into ~/.claude/skills/ and retry
+    CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
+    CLAUDE_GSTACK_LINK="$CLAUDE_SKILLS_DIR/gstack"
+    mkdir -p "$CLAUDE_SKILLS_DIR"
+    ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
+    log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
+    INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
+    INSTALL_GSTACK_DIR="$CLAUDE_GSTACK_LINK"
+    # Clean up stale symlinks from the opposite prefix mode
+    if [ "$SKILL_PREFIX" -eq 1 ]; then
+      cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    else
+      cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    fi
+    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
+    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
+    if [ -x "$GSTACK_RELINK" ]; then
+      GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
+    fi
+    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
+    if [ "$SKILL_PREFIX" -eq 1 ]; then
+      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+    fi
+    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
+      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+    fi
+    log "gstack ready (claude)."
+    log "  browse: $BROWSE_BIN"
   fi
 fi
 
@@ -625,9 +693,9 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   # Install generated Codex-format skills (not Claude source dirs)
   link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
 
-  echo "gstack ready (codex)."
-  echo "  browse: $BROWSE_BIN"
-  echo "  codex skills: $CODEX_SKILLS"
+  log "gstack ready (codex)."
+  log "  browse: $BROWSE_BIN"
+  log "  codex skills: $CODEX_SKILLS"
 fi
 
 # 6. Install for Kiro CLI (copy from .agents/skills, rewrite paths)
@@ -732,7 +800,41 @@ fi
 
 # 9. First-time welcome + legacy cleanup
 if [ ! -f "$HOME/.gstack/.welcome-seen" ]; then
-  echo "  Welcome! Run /gstack-upgrade anytime to stay current."
+  log "  Welcome! Run /gstack-upgrade anytime to stay current."
   touch "$HOME/.gstack/.welcome-seen"
 fi
 rm -f /tmp/gstack-latest-version
+
+# 10. Team mode: register/unregister SessionStart hook
+SETTINGS_HOOK="$SOURCE_GSTACK_DIR/bin/gstack-settings-hook"
+HOOK_CMD="$SOURCE_GSTACK_DIR/bin/gstack-session-update"
+
+if [ "$TEAM_MODE" -eq 1 ]; then
+  "$GSTACK_CONFIG" set auto_upgrade true 2>/dev/null || true
+  "$GSTACK_CONFIG" set team_mode true 2>/dev/null || true
+
+  # Register SessionStart hook in Claude Code settings
+  if [ -x "$SETTINGS_HOOK" ]; then
+    "$SETTINGS_HOOK" add "$HOOK_CMD" 2>/dev/null || true
+  fi
+
+  log ""
+  log "Team mode enabled: gstack will auto-update at the start of each Claude Code session."
+  log "  Hook: $HOOK_CMD"
+  log "  To disable: ./setup --no-team"
+  log ""
+  log "Bootstrap your repo:"
+  log "  cd <your-repo> && $SOURCE_GSTACK_DIR/bin/gstack-team-init required"
+fi
+
+if [ "$NO_TEAM_MODE" -eq 1 ]; then
+  "$GSTACK_CONFIG" set auto_upgrade false 2>/dev/null || true
+  "$GSTACK_CONFIG" set team_mode false 2>/dev/null || true
+
+  # Remove SessionStart hook from Claude Code settings
+  if [ -x "$SETTINGS_HOOK" ]; then
+    "$SETTINGS_HOOK" remove "$HOOK_CMD" 2>/dev/null || true
+  fi
+
+  log "Team mode disabled: auto-update hook removed."
+fi

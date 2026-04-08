@@ -123,10 +123,13 @@ export class WorktreeManager {
     // Create detached worktree at current HEAD
     git(['worktree', 'add', '--detach', worktreePath, 'HEAD'], this.repoRoot);
 
-    // Copy gitignored build artifacts that tests need
-    const agentsSrc = path.join(this.repoRoot, '.agents');
-    if (fs.existsSync(agentsSrc)) {
-      copyDirSync(agentsSrc, path.join(worktreePath, '.agents'));
+    // Copy gitignored build artifacts that tests need (config-driven)
+    const { getExternalHosts } = require('../hosts/index');
+    for (const hostConfig of getExternalHosts()) {
+      const hostSrc = path.join(this.repoRoot, hostConfig.hostSubdir);
+      if (fs.existsSync(hostSrc)) {
+        copyDirSync(hostSrc, path.join(worktreePath, hostConfig.hostSubdir));
+      }
     }
 
     const browseDist = path.join(this.repoRoot, 'browse', 'dist');
@@ -256,6 +259,11 @@ export class WorktreeManager {
 
         const entryPath = path.join(worktreeBase, entry);
         try {
+          // Skip recent worktrees (< 1 hour old) to avoid killing
+          // worktrees from concurrent test runs still in progress
+          const stat = fs.statSync(entryPath);
+          const ageMs = Date.now() - stat.mtimeMs;
+          if (ageMs < 3600_000) continue;
           fs.rmSync(entryPath, { recursive: true, force: true });
         } catch { /* non-fatal */ }
       }

@@ -77,6 +77,9 @@ async function generateVariant(
 
       if (!response.ok) {
         const error = await response.text();
+        if (response.status === 403 && error.includes("organization must be verified")) {
+          return { path: outputPath, success: false, error: "OpenAI organization verification required. Go to https://platform.openai.com/settings/organization to verify." };
+        }
         return { path: outputPath, success: false, error: `API error (${response.status}): ${error.slice(0, 200)}` };
       }
 

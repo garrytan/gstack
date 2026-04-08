@@ -165,8 +165,10 @@ describe('sidebar JS (sidepanel.js)', () => {
     expect(js).toContain("data.agentStatus !== 'processing'");
   });
 
-  test('orphaned thinking cleanup adds (session ended) notice', () => {
-    expect(js).toContain('(session ended)');
+  test('orphaned thinking cleanup removes thinking dots silently', () => {
+    // Thinking dots are removed when agent is idle — no "(session ended)"
+    // notice, which was removed as noisy false-positive UX
+    expect(js).toContain('thinking.remove()');
   });
 
   test('sendMessage renders user bubble + thinking dots optimistically', () => {
@@ -296,7 +298,7 @@ describe('TTFO latency chain', () => {
   test('stopAgent also calls stopFastPoll', () => {
     const stopFn = js.slice(
       js.indexOf('async function stopAgent()'),
-      js.indexOf('async function stopAgent()') + 800,
+      js.indexOf('async function stopAgent()') + 1000,
     );
     expect(stopFn).toContain('stopFastPoll');
   });
@@ -439,7 +441,7 @@ describe('browser→sidebar tab sync', () => {
   test('/sidebar-tabs reads activeUrl param and calls syncActiveTabByUrl', () => {
     const handler = serverSrc.slice(
       serverSrc.indexOf("/sidebar-tabs'"),
-      serverSrc.indexOf("/sidebar-tabs'") + 500,
+      serverSrc.indexOf("/sidebar-tabs'") + 700,
     );
     expect(handler).toContain("get('activeUrl')");
     expect(handler).toContain('syncActiveTabByUrl');
@@ -624,7 +626,7 @@ describe('per-tab chat context (sidepanel.js)', () => {
       js.indexOf('function switchChatTab(') + 800,
     );
     expect(fn).toContain('chatDomByTab');
-    expect(fn).toContain('innerHTML');
+    expect(fn).toContain('createDocumentFragment');
   });
 
   test('sendMessage includes tabId in message', () => {
@@ -989,12 +991,17 @@ describe('sidebar agent conciseness + no focus stealing', () => {
     expect(promptSection).toContain('Do NOT keep exploring');
   });
 
-  test('sidebar agent uses opus (not sonnet) for prompt injection resistance', () => {
+  test('sidebar agent auto-routes model based on message type', () => {
+    // Model router exists and defaults to opus for analysis tasks
+    expect(serverSrc).toContain('function pickSidebarModel(');
+    expect(serverSrc).toContain("return 'opus'");
+    expect(serverSrc).toContain("return 'sonnet'");
+    // spawnClaude uses the router, not a hardcoded model
     const spawnFn = serverSrc.slice(
       serverSrc.indexOf('function spawnClaude('),
       serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnClaude(') + 1),
     );
-    expect(spawnFn).toContain("'opus'");
+    expect(spawnFn).toContain('pickSidebarModel(userMessage)');
   });
 
   test('switchTab has bringToFront option', () => {
@@ -1190,5 +1197,475 @@ describe('LLM-based cleanup (smart agent cleanup)', () => {
     expect(wcSrc).toContain("tag === 'nav'");
     expect(wcSrc).toContain("tag === 'header'");
     expect(wcSrc).toContain("role') === 'navigation'");
+  });
+});
+
+// ─── Welcome page + sidebar auto-open ────────────────────────────
+
+describe('welcome page', () => {
+  const welcomePath = path.join(ROOT, 'src', 'welcome.html');
+  const welcomeExists = fs.existsSync(welcomePath);
+  const welcomeSrc = welcomeExists ? fs.readFileSync(welcomePath, 'utf-8') : '';
+
+  test('welcome.html exists in browse/src/', () => {
+    expect(welcomeExists).toBe(true);
+  });
+
+  test('welcome page has GStack Browser branding', () => {
+    expect(welcomeSrc).toContain('GStack Browser');
+  });
+
+  test('welcome page has extension-ready listener to hide prompt', () => {
+    expect(welcomeSrc).toContain('gstack-extension-ready');
+    expect(welcomeSrc).toContain('sidebar-prompt');
+  });
+
+  test('welcome page points RIGHT toward sidebar (not UP at toolbar)', () => {
+    // Up arrow can never align with browser chrome. Right arrow always
+    // points toward the sidebar area regardless of window size.
+    expect(welcomeSrc).not.toContain('arrow-up');
+    expect(welcomeSrc).toContain('arrow-right');
+  });
+
+  test('welcome page has left-aligned text (no center-align on headings)', () => {
+    // User preference: always left-align, never center
+    expect(welcomeSrc).not.toMatch(/text-align:\s*center/);
+  });
+
+  test('welcome page uses dark theme', () => {
+    expect(welcomeSrc).toContain('#0C0C0C'); // --base (near-black)
+    expect(welcomeSrc).toContain('#141414'); // --surface (card bg)
+  });
+});
+
+describe('server /welcome endpoint', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('/welcome endpoint exists in server.ts', () => {
+    expect(serverSrc).toContain("url.pathname === '/welcome'");
+  });
+
+  test('/welcome serves HTML content type', () => {
+    const welcomeSection = serverSrc.slice(
+      serverSrc.indexOf("url.pathname === '/welcome'"),
+      serverSrc.indexOf("url.pathname === '/health'"),
+    );
+    expect(welcomeSection).toContain("'Content-Type': 'text/html");
+  });
+
+  test('/welcome serves fallback HTML if no welcome file found', () => {
+    const welcomeSection = serverSrc.slice(
+      serverSrc.indexOf("url.pathname === '/welcome'"),
+      serverSrc.indexOf("url.pathname === '/health'"),
+    );
+    // Changed from 302 redirect to about:blank (ERR_UNSAFE_REDIRECT on Windows)
+    // to inline HTML fallback page (PR #822)
+    expect(welcomeSection).toContain('GStack Browser ready');
+    expect(welcomeSection).toContain('status: 200');
+  });
+});
+
+describe('headed launch navigates to welcome page', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('server navigates to /welcome after startup in headed mode', () => {
+    // Navigation must happen AFTER Bun.serve() starts (not during launchHeaded)
+    // because the HTTP server needs to be listening before the browser requests /welcome
+    const afterServe = serverSrc.slice(serverSrc.indexOf('Bun.serve('));
+    expect(afterServe).toContain('/welcome');
+    expect(afterServe).toContain("getConnectionMode() === 'headed'");
+  });
+
+  test('welcome navigation does NOT happen in browser-manager (too early)', () => {
+    const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
+    // browser-manager.ts should NOT navigate to /welcome because the server
+    // isn't listening yet when launchHeaded() runs
+    const launchHeadedSection = bmSrc.slice(
+      bmSrc.indexOf('async launchHeaded('),
+      bmSrc.indexOf('// Browser disconnect handler'),
+    );
+    expect(launchHeadedSection).not.toContain('/welcome');
+  });
+});
+
+describe('sidebar auto-open (background.js)', () => {
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+
+  test('autoOpenSidePanel function exists with retry logic', () => {
+    expect(bgSrc).toContain('async function autoOpenSidePanel');
+    expect(bgSrc).toContain('attempt < 5');
+  });
+
+  test('auto-open fires on install AND on every service worker startup', () => {
+    // onInstalled fires on first install / extension update
+    expect(bgSrc).toContain('chrome.runtime.onInstalled.addListener');
+    expect(bgSrc).toContain('autoOpenSidePanel()');
+    // Top-level call fires on every service worker startup
+    const topLevelCalls = bgSrc.match(/^autoOpenSidePanel\(\)/gm);
+    expect(topLevelCalls).not.toBeNull();
+    expect(topLevelCalls!.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('retry uses backoff delays (not fixed interval)', () => {
+    expect(bgSrc).toContain('500');
+    expect(bgSrc).toContain('1000');
+    expect(bgSrc).toContain('2000');
+    expect(bgSrc).toContain('3000');
+    expect(bgSrc).toContain('5000');
+  });
+
+  test('auto-open uses chrome.sidePanel.open with windowId', () => {
+    expect(bgSrc).toContain('chrome.sidePanel.open');
+    expect(bgSrc).toContain('windowId');
+  });
+
+  test('auto-open logs success and failure for debugging', () => {
+    expect(bgSrc).toContain('Side panel opened on attempt');
+    expect(bgSrc).toContain('Side panel auto-open failed');
+  });
+});
+
+describe('sidebar arrow hint hide flow (4-step signal chain)', () => {
+  // The arrow hint on the welcome page should ONLY hide when the sidebar
+  // is actually opened, not when the extension content script loads.
+  //
+  // Signal flow:
+  //   1. sidepanel.js connects → sends { type: 'sidebarOpened' } to background
+  //   2. background.js receives → relays to active tab's content script
+  //   3. content.js receives 'sidebarOpened' → dispatches 'gstack-extension-ready'
+  //   4. welcome.html listens for 'gstack-extension-ready' → hides arrow
+  //
+  const contentSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'content.js'), 'utf-8');
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+  const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+  const welcomeSrc = fs.readFileSync(path.join(ROOT, 'src', 'welcome.html'), 'utf-8');
+
+  // Step 1: sidepanel sends sidebarOpened when connected
+  test('step 1: sidepanel sends sidebarOpened message on connect', () => {
+    expect(spSrc).toContain("{ type: 'sidebarOpened' }");
+    // Should be in updateConnection, after setConnState('connected')
+    const connectFn = spSrc.slice(
+      spSrc.indexOf('function updateConnection('),
+      spSrc.indexOf('function updateConnection(') + 800,
+    );
+    expect(connectFn).toContain('sidebarOpened');
+  });
+
+  // Step 2: background.js accepts and relays sidebarOpened
+  test('step 2: background.js allows sidebarOpened message type', () => {
+    expect(bgSrc).toContain("'sidebarOpened'");
+    // Must be in ALLOWED_TYPES
+    const allowedBlock = bgSrc.slice(
+      bgSrc.indexOf('ALLOWED_TYPES'),
+      bgSrc.indexOf('ALLOWED_TYPES') + 300,
+    );
+    expect(allowedBlock).toContain('sidebarOpened');
+  });
+
+  test('step 2: background.js relays sidebarOpened to active tab content script', () => {
+    expect(bgSrc).toContain("msg.type === 'sidebarOpened'");
+    // Should send to active tab via chrome.tabs.sendMessage
+    const handler = bgSrc.slice(
+      bgSrc.indexOf("msg.type === 'sidebarOpened'"),
+      bgSrc.indexOf("msg.type === 'sidebarOpened'") + 400,
+    );
+    expect(handler).toContain('chrome.tabs.sendMessage');
+    expect(handler).toContain("{ type: 'sidebarOpened' }");
+  });
+
+  // Step 3: content.js fires gstack-extension-ready ONLY on sidebarOpened
+  test('step 3: content.js dispatches extension-ready on sidebarOpened message', () => {
+    expect(contentSrc).toContain("msg.type === 'sidebarOpened'");
+    expect(contentSrc).toContain("new CustomEvent('gstack-extension-ready')");
+  });
+
+  test('step 3: content.js does NOT auto-fire extension-ready on load', () => {
+    // The old pattern was: fire immediately when content script loads.
+    // Now it should only fire when sidebarOpened message arrives.
+    // Check there's no top-level dispatchEvent outside the message handler.
+    const beforeListener = contentSrc.slice(0, contentSrc.indexOf('chrome.runtime.onMessage'));
+    expect(beforeListener).not.toContain("dispatchEvent(new CustomEvent('gstack-extension-ready'))");
+  });
+
+  // Step 4: welcome page hides arrow on gstack-extension-ready
+  test('step 4: welcome page hides arrow on gstack-extension-ready event', () => {
+    expect(welcomeSrc).toContain("'gstack-extension-ready'");
+    expect(welcomeSrc).toContain("classList.add('hidden')");
+  });
+
+  test('step 4: welcome page does NOT auto-hide via status pill polling', () => {
+    // The old fallback (checkPill/gstack-status-pill) would hide the arrow
+    // as soon as the content script injected the pill, even without sidebar open.
+    expect(welcomeSrc).not.toContain('checkPill');
+    expect(welcomeSrc).not.toContain('gstack-status-pill');
+  });
+});
+
+describe('sidebar auth race prevention', () => {
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+  const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('getPort response includes authToken (not just port + connected)', () => {
+    // The auth race: sidepanel calls getPort, gets {port, connected} but no token.
+    // All subsequent requests fail 401. Token must be in the getPort response.
+    const getPortHandler = bgSrc.slice(
+      bgSrc.indexOf("msg.type === 'getPort'"),
+      bgSrc.indexOf("msg.type === 'setPort'"),
+    );
+    expect(getPortHandler).toContain('token: authToken');
+  });
+
+  test('tryConnect uses token from getPort response', () => {
+    // Sidepanel must pass resp.token to updateConnection, not null
+    const start = spSrc.indexOf('function tryConnect()');
+    const end = spSrc.indexOf('\ntryConnect();', start); // top-level call after the function
+    const tryConnectFn = spSrc.slice(start, end);
+    expect(tryConnectFn).toContain('resp.token');
+    expect(tryConnectFn).not.toContain('updateConnection(url, null)');
+  });
+});
+
+describe('startup health check fast-retry', () => {
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+
+  test('initial health check retries every 1s (not 10s)', () => {
+    // The server may not be listening when the extension starts because
+    // Chromium launches before Bun.serve(). A 10s gap means the user
+    // stares at "Connecting..." for 10 seconds. 1s retry fixes this.
+    expect(bgSrc).toContain('startupAttempts');
+    expect(bgSrc).toContain('setInterval(async ()');
+    // Fast retry uses 1000ms, not the 10000ms slow poll
+    expect(bgSrc).toContain('}, 1000);');
+  });
+
+  test('startup retry stops after connection or max attempts', () => {
+    expect(bgSrc).toContain('isConnected || startupAttempts >= 15');
+    expect(bgSrc).toContain('clearInterval(startupCheck)');
+  });
+
+  test('slow 10s polling only starts after startup phase completes', () => {
+    expect(bgSrc).toContain('if (!healthInterval)');
+    expect(bgSrc).toContain('setInterval(checkHealth, 10000)');
+  });
+});
+
+describe('sidebar debug visibility when stuck', () => {
+  const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('connection state machine has a dead state with user-visible message', () => {
+    expect(spSrc).toContain("'dead'");
+    expect(spSrc).toContain('MAX_RECONNECT_ATTEMPTS');
+  });
+
+  test('reconnect attempt counter is visible in the UI', () => {
+    // The banner should show attempt count so user knows something is happening
+    expect(spSrc).toContain('reconnectAttempts');
+  });
+});
+
+describe('BROWSE_NO_AUTOSTART (sidebar headless prevention)', () => {
+  const cliSrc = fs.readFileSync(path.join(ROOT, 'src', 'cli.ts'), 'utf-8');
+  const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
+
+  test('cli.ts checks BROWSE_NO_AUTOSTART before starting a new server', () => {
+    // ensureServer must check this env var BEFORE calling startServer()
+    const ensureServerFn = cliSrc.slice(
+      cliSrc.indexOf('async function ensureServer()'),
+      cliSrc.indexOf('async function startServer()'),
+    );
+    expect(ensureServerFn).toContain('BROWSE_NO_AUTOSTART');
+    expect(ensureServerFn).toContain('process.exit(1)');
+  });
+
+  test('cli.ts shows actionable error message when BROWSE_NO_AUTOSTART blocks', () => {
+    expect(cliSrc).toContain('/open-gstack-browser');
+    expect(cliSrc).toContain('BROWSE_NO_AUTOSTART is set');
+  });
+
+  test('sidebar-agent.ts sets BROWSE_NO_AUTOSTART=1', () => {
+    expect(agentSrc).toContain("BROWSE_NO_AUTOSTART: '1'");
+  });
+
+  test('sidebar-agent.ts sets BROWSE_PORT for headed server reuse', () => {
+    expect(agentSrc).toContain('BROWSE_PORT');
+  });
+
+  test('BROWSE_NO_AUTOSTART check happens before lock acquisition', () => {
+    // The guard must be BEFORE the lock acquisition. If it's after,
+    // we'd acquire a lock and then exit, leaving a stale lock file.
+    const ensureServerStart = cliSrc.indexOf('async function ensureServer()');
+    const noAutoStart = cliSrc.indexOf('BROWSE_NO_AUTOSTART', ensureServerStart);
+    const lockAcquisition = cliSrc.indexOf('Acquire lock', ensureServerStart);
+    expect(noAutoStart).toBeGreaterThan(0);
+    expect(lockAcquisition).toBeGreaterThan(0);
+    expect(noAutoStart).toBeLessThan(lockAcquisition);
+  });
+});
+
+// ─── Tool-result file filtering (sidebar-agent.ts) ──────────────
+
+describe('sidebar-agent hides internal tool-result reads', () => {
+  const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
+
+  test('describeToolCall returns empty for tool-results paths', () => {
+    expect(agentSrc).toContain("input.file_path.includes('/tool-results/')");
+  });
+
+  test('describeToolCall returns empty for .claude/projects paths', () => {
+    expect(agentSrc).toContain("input.file_path.includes('/.claude/projects/')");
+  });
+
+  test('empty description causes early return (no event sent)', () => {
+    // describeToolCall returns '' for internal reads, which means
+    // summarizeToolInput returns '', which means event.input is ''
+    const readHandler = agentSrc.slice(
+      agentSrc.indexOf("if (tool === 'Read'"),
+      agentSrc.indexOf("if (tool === 'Edit'"),
+    );
+    expect(readHandler).toContain("return ''");
+  });
+});
+
+// ─── Sidebar skips empty tool_use entries (sidepanel.js) ────────
+
+describe('sidebar skips empty tool_use descriptions', () => {
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('tool_use with no input returns early', () => {
+    const toolUseHandler = js.slice(
+      js.indexOf("entry.type === 'tool_use'"),
+      js.indexOf("entry.type === 'tool_use'") + 400,
+    );
+    expect(toolUseHandler).toContain("if (!toolInput) return");
+  });
+});
+
+// ─── Tool calls collapse into "See reasoning" on agent_done ─────
+
+describe('tool calls collapse into reasoning disclosure', () => {
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
+
+  test('agent_done wraps tool calls in <details> element', () => {
+    const doneHandler = js.slice(
+      js.indexOf("entry.type === 'agent_done'"),
+      js.indexOf("entry.type === 'agent_done'") + 1200,
+    );
+    expect(doneHandler).toContain("createElement('details')");
+    expect(doneHandler).toContain('agent-reasoning');
+  });
+
+  test('disclosure summary shows step count', () => {
+    const doneHandler = js.slice(
+      js.indexOf("entry.type === 'agent_done'"),
+      js.indexOf("entry.type === 'agent_done'") + 1200,
+    );
+    expect(doneHandler).toContain('See reasoning');
+    expect(doneHandler).toContain('tools.length');
+  });
+
+  test('disclosure inserts before text response', () => {
+    const doneHandler = js.slice(
+      js.indexOf("entry.type === 'agent_done'"),
+      js.indexOf("entry.type === 'agent_done'") + 1200,
+    );
+    // Tool calls should appear before the text answer, not after
+    expect(doneHandler).toContain("querySelector('.agent-text')");
+    expect(doneHandler).toContain('insertBefore(details, textEl)');
+  });
+
+  test('CSS styles the reasoning disclosure', () => {
+    expect(css).toContain('.agent-reasoning');
+    expect(css).toContain('.agent-reasoning summary');
+    // Starts collapsed (no [open] by default)
+    expect(css).toContain('.agent-reasoning[open]');
+  });
+
+  test('disclosure uses custom triangle markers', () => {
+    // No default list-style, custom ▶/▼ via ::before
+    expect(css).toContain('list-style: none');
+    expect(css).toMatch(/agent-reasoning summary::before/);
+  });
+});
+
+// ─── Idle timeout disabled in headed mode (server.ts) ───────────
+
+describe('idle timeout behavior (server.ts)', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('idle check skips in headed mode', () => {
+    const idleCheck = serverSrc.slice(
+      serverSrc.indexOf('idleCheckInterval'),
+      serverSrc.indexOf('idleCheckInterval') + 300,
+    );
+    expect(idleCheck).toContain("=== 'headed'");
+    expect(idleCheck).toContain('return');
+  });
+
+  test('sidebar-command resets idle timer', () => {
+    const sidebarCmd = serverSrc.slice(
+      serverSrc.indexOf("url.pathname === '/sidebar-command'"),
+      serverSrc.indexOf("url.pathname === '/sidebar-command'") + 300,
+    );
+    expect(sidebarCmd).toContain('resetIdleTimer');
+  });
+});
+
+// ─── Shutdown kills sidebar-agent daemon (server.ts) ────────────
+
+describe('shutdown cleanup (server.ts)', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('shutdown kills sidebar-agent daemon process', () => {
+    const shutdownFn = serverSrc.slice(
+      serverSrc.indexOf('async function shutdown()'),
+      serverSrc.indexOf('async function shutdown()') + 800,
+    );
+    expect(shutdownFn).toContain('sidebar-agent');
+    expect(shutdownFn).toContain('pkill');
+  });
+});
+
+// ─── Cookie button in sidebar footer ────────────────────────────
+
+describe('cookie import button (sidebar)', () => {
+  const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('quick actions toolbar has cookies button', () => {
+    expect(html).toContain('id="chat-cookies-btn"');
+    expect(html).toContain('Cookies');
+  });
+
+  test('cookies button navigates to cookie-picker', () => {
+    expect(js).toContain("'chat-cookies-btn'");
+    expect(js).toContain('cookie-picker');
+  });
+});
+
+// ─── Model routing (server.ts) ──────────────────────────────────
+
+describe('sidebar model routing (server.ts)', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('pickSidebarModel routes actions to sonnet', () => {
+    expect(serverSrc).toContain("return 'sonnet'");
+  });
+
+  test('pickSidebarModel routes analysis to opus', () => {
+    expect(serverSrc).toContain("return 'opus'");
+  });
+
+  test('analysis words override action verbs', () => {
+    // ANALYSIS_WORDS check comes before ACTION_PATTERNS
+    const routerFn = serverSrc.slice(
+      serverSrc.indexOf('function pickSidebarModel('),
+      serverSrc.indexOf('function pickSidebarModel(') + 600,
+    );
+    const analysisCheck = routerFn.indexOf('ANALYSIS_WORDS');
+    const actionCheck = routerFn.indexOf('ACTION_PATTERNS');
+    expect(analysisCheck).toBeGreaterThan(0);
+    expect(actionCheck).toBeGreaterThan(0);
+    expect(analysisCheck).toBeLessThan(actionCheck);
   });
 });

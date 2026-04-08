@@ -46,6 +46,15 @@ export function getCookiePickerHTML(serverPort: number, authToken?: string): str
     font-family: 'SF Mono', 'Fira Code', monospace;
   }
 
+  .subtitle {
+    padding: 10px 24px 12px;
+    font-size: 13px;
+    color: #999;
+    line-height: 1.5;
+    border-bottom: 1px solid #222;
+    background: #0f0f0f;
+  }
+
   /* ─── Layout ──────────────────────────── */
   .container {
     display: flex;
@@ -299,6 +308,8 @@ export function getCookiePickerHTML(serverPort: number, authToken?: string): str
   <h1>Cookie Import</h1>
   <span class="port">localhost:${serverPort}</span>
 </div>
+
+<p class="subtitle">Select the domains of cookies you want to import to GStack Browser. You'll be able to browse those sites with the same login as your other browser.</p>
 
 <div id="banner" class="banner"></div>
 

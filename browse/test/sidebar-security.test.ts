@@ -86,9 +86,11 @@ describe('Sidebar prompt injection defense', () => {
 
   // --- Model Selection ---
 
-  test('default model is opus', () => {
-    // The args array should include --model opus
-    expect(SERVER_SRC).toContain("'--model', 'opus'");
+  test('model routing defaults to opus for analysis tasks', () => {
+    // pickSidebarModel returns opus for ambiguous/analysis messages
+    expect(SERVER_SRC).toContain("return 'opus'");
+    // spawnClaude uses the model router
+    expect(SERVER_SRC).toContain("'--model', model");
   });
 
   // --- Trust Boundary ---

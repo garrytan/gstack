@@ -94,7 +94,7 @@ Parse each JSONL entry. Each skill logs different fields:
   → Findings: "{issues_found} issues, {critical_gaps} critical gaps"
 - **plan-design-review**: \\\`status\\\`, \\\`initial_score\\\`, \\\`overall_score\\\`, \\\`unresolved\\\`, \\\`decisions_made\\\`, \\\`commit\\\`
   → Findings: "score: {initial_score}/10 → {overall_score}/10, {decisions_made} decisions"
-- **plan-devex-review**: \\\`status\\\`, \\\`initial_score\\\`, \\\`overall_score\\\`, \\\`product_type\\\`, \\\`tthw_current\\\`, \\\`tthw_target\\\`, \\\`unresolved\\\`, \\\`commit\\\`
+- **plan-devex-review**: \\\`status\\\`, \\\`initial_score\\\`, \\\`overall_score\\\`, \\\`product_type\\\`, \\\`tthw_current\\\`, \\\`tthw_target\\\`, \\\`mode\\\`, \\\`persona\\\`, \\\`competitive_tier\\\`, \\\`unresolved\\\`, \\\`commit\\\`
   → Findings: "score: {initial_score}/10 → {overall_score}/10, TTHW: {tthw_current} → {tthw_target}"
 - **devex-review**: \\\`status\\\`, \\\`overall_score\\\`, \\\`product_type\\\`, \\\`tthw_measured\\\`, \\\`dimensions_tested\\\`, \\\`dimensions_inferred\\\`, \\\`boomerang\\\`, \\\`commit\\\`
   → Findings: "score: {overall_score}/10, TTHW: {tthw_measured}, {dimensions_tested} tested/{dimensions_inferred} inferred"
@@ -974,4 +974,48 @@ Follow the /qa-only workflow with these modifications:
 Add a \`## Verification Results\` section to the PR body (Step 8):
 - If verification ran: summary of results (N PASS, M FAIL, K SKIPPED)
 - If skipped: reason for skipping (no plan, no server, no verification section)`;
+}
+
+// ─── Cross-Review Finding Dedup ──────────────────────────────────────
+
+export function generateCrossReviewDedup(ctx: TemplateContext): string {
+  const isShip = ctx.skillName === 'ship';
+  const stepNum = isShip ? '3.57' : '5.0';
+  const findingsRef = isShip
+    ? 'the checklist pass (Step 3.5) and specialist review (Step 3.55-3.56)'
+    : 'Step 4 critical pass and Step 4.5-4.6 specialists';
+
+  return `### Step ${stepNum}: Cross-review finding dedup
+
+Before classifying findings, check if any were previously skipped by the user in a prior review on this branch.
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Parse the output: only lines BEFORE \`---CONFIG---\` are JSONL entries (the output also contains \`---CONFIG---\` and \`---HEAD---\` footer sections that are not JSONL — ignore those).
+
+For each JSONL entry that has a \`findings\` array:
+1. Collect all fingerprints where \`action: "skipped"\`
+2. Note the \`commit\` field from that entry
+
+If skipped fingerprints exist, get the list of files changed since that review:
+
+\`\`\`bash
+git diff --name-only <prior-review-commit> HEAD
+\`\`\`
+
+For each current finding (from both ${findingsRef}), check:
+- Does its fingerprint match a previously skipped finding?
+- Is the finding's file path NOT in the changed-files set?
+
+If both conditions are true: suppress the finding. It was intentionally skipped and the relevant code hasn't changed.
+
+Print: "Suppressed N findings from prior reviews (previously skipped by user)"
+
+**Only suppress \`skipped\` findings — never \`fixed\` or \`auto-fixed\`** (those might regress and should be re-checked).
+
+If no prior reviews exist or none have a \`findings\` array, skip this step silently.
+
+Output a summary header: \`Pre-Landing Review: N issues (X critical, Y informational)\``;
 }

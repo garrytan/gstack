@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "0.15.3.0",
+  "version": "0.15.15.0",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -36,6 +36,7 @@
     "test:audit": "bun test test/audit-compliance.test.ts"
   },
   "dependencies": {
+    "@ngrok/ngrok": "^1.7.0",
     "diff": "^7.0.0",
     "playwright": "^1.58.2",
     "puppeteer-core": "^24.40.0"

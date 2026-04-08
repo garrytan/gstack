@@ -63,6 +63,10 @@ export async function checkMockup(imagePath: string, brief: string): Promise<Che
 
     if (!response.ok) {
       const error = await response.text();
+      if (response.status === 403 && error.includes("organization must be verified")) {
+        console.error("OpenAI organization verification required. Go to https://platform.openai.com/settings/organization to verify.");
+        return { pass: true, issues: "OpenAI org not verified — vision check skipped" };
+      }
       // Non-blocking: if vision check fails, default to PASS with warning
       console.error(`Vision check API error (${response.status}): ${error}`);
       return { pass: true, issues: "Vision check unavailable — skipped" };

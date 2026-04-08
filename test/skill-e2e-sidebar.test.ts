@@ -116,9 +116,10 @@ describeIfSelected('Sidebar URL accuracy E2E', ['sidebar-url-accuracy'], () => {
     }
 
     expect(lastEntry).not.toBeNull();
-    // Extension URL should be used, not the Playwright fallback
+    // Extension URL should be used, not the Playwright fallback.
+    // The pageUrl field carries the extension URL; the prompt itself
+    // contains only the system prompt + user message (URL is metadata).
     expect(lastEntry.pageUrl).toBe(extensionUrl);
-    expect(lastEntry.prompt).toContain(extensionUrl);
     expect(lastEntry.pageUrl).not.toBe('about:blank');
 
     // Also test: chrome:// URL should be rejected, falling back to about:blank
@@ -262,11 +263,12 @@ describeIfSelected('Sidebar CSS interaction E2E', ['sidebar-css-interaction'], (
     fs.writeFileSync(queueFile, '');
     const startTime = Date.now();
 
-    // Ask the agent to go to HN, find the most insightful comment, and highlight it
+    // Simple task: go to example.com, read the title, apply a style
+    // (much faster than multi-step HN comment navigation)
     const resp = await api('/sidebar-command', {
       method: 'POST',
       body: JSON.stringify({
-        message: 'Go to https://news.ycombinator.com. Find the top story. Click into its comments. Read the comments and find the most insightful one. Highlight that comment with a 4px solid orange outline.',
+        message: 'Go to https://example.com. Read the page title. Add a 4px solid orange outline to the h1 element.',
         activeTabUrl: 'about:blank',
       }),
     });
@@ -315,15 +317,15 @@ describeIfSelected('Sidebar CSS interaction E2E', ['sidebar-css-interaction'], (
       .join(' ')
       .toLowerCase();
 
-    // Should have navigated to HN (look for ycombinator/HN in any entry text)
+    // Should have navigated to example.com (look for example.com in any entry text)
     const allEntryText = entries
       .map((e: any) => `${e.text || ''} ${e.input || ''} ${e.message || ''}`)
       .join(' ');
-    const navigatedToHN = allEntryText.includes('ycombinator') || allEntryText.includes('Hacker News') || allEntryText.includes('news.ycombinator');
-    if (!navigatedToHN) {
+    const navigatedToTarget = allEntryText.includes('example.com') || allEntryText.includes('Example Domain');
+    if (!navigatedToTarget) {
       console.log('ALL ENTRY TEXT (first 2000):', allEntryText.slice(0, 2000));
     }
-    expect(navigatedToHN).toBe(true);
+    expect(navigatedToTarget).toBe(true);
 
     // Should have applied a style (look for orange/outline in tool commands)
     const allText = entries.map((e: any) => e.text || '').join(' ');
@@ -331,7 +333,7 @@ describeIfSelected('Sidebar CSS interaction E2E', ['sidebar-css-interaction'], (
 
     evalCollector?.addTest({
       name: 'sidebar-css-interaction', suite: 'Sidebar CSS interaction E2E', tier: 'e2e',
-      passed: !!doneEntry && navigatedToHN && appliedStyle,
+      passed: !!doneEntry && navigatedToTarget && appliedStyle,
       duration_ms: duration,
       cost_usd: 0,
       exit_reason: doneEntry ? 'success' : 'timeout',

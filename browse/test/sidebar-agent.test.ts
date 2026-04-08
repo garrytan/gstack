@@ -502,12 +502,12 @@ describe('BROWSE_TAB tab pinning (cross-tab isolation)', () => {
     expect(cliSrc).toContain('tabId: parseInt(browseTab');
   });
 
-  test('handleCommand accepts tabId from request body', () => {
+  test('handleCommandInternal accepts tabId from request body', () => {
     const handleFn = serverSrc.slice(
-      serverSrc.indexOf('async function handleCommand('),
-      serverSrc.indexOf('\nasync function ', serverSrc.indexOf('async function handleCommand(') + 1) > 0
-        ? serverSrc.indexOf('\nasync function ', serverSrc.indexOf('async function handleCommand(') + 1)
-        : serverSrc.indexOf('\n// ', serverSrc.indexOf('async function handleCommand(') + 200),
+      serverSrc.indexOf('async function handleCommandInternal('),
+      serverSrc.indexOf('\n/** HTTP wrapper', serverSrc.indexOf('async function handleCommandInternal(') + 1) > 0
+        ? serverSrc.indexOf('\n/** HTTP wrapper', serverSrc.indexOf('async function handleCommandInternal(') + 1)
+        : serverSrc.indexOf('\nasync function ', serverSrc.indexOf('async function handleCommandInternal(') + 200),
     );
     // Should destructure tabId from body
     expect(handleFn).toContain('tabId');
@@ -516,10 +516,10 @@ describe('BROWSE_TAB tab pinning (cross-tab isolation)', () => {
     expect(handleFn).toContain('switchTab(tabId');
   });
 
-  test('handleCommand restores active tab after command (success path)', () => {
+  test('handleCommandInternal restores active tab after command (success path)', () => {
     // On success, should restore savedTabId without stealing focus
     const handleFn = serverSrc.slice(
-      serverSrc.indexOf('async function handleCommand('),
+      serverSrc.indexOf('async function handleCommandInternal('),
       serverSrc.length,
     );
     // Count restore calls — should appear in both success and error paths
@@ -527,18 +527,18 @@ describe('BROWSE_TAB tab pinning (cross-tab isolation)', () => {
     expect(restoreCount).toBeGreaterThanOrEqual(2); // success + error paths
   });
 
-  test('handleCommand restores active tab on error path', () => {
+  test('handleCommandInternal restores active tab on error path', () => {
     // The catch block should also restore
     const catchBlock = serverSrc.slice(
-      serverSrc.indexOf('} catch (err: any) {', serverSrc.indexOf('async function handleCommand(')),
+      serverSrc.indexOf('} catch (err: any) {', serverSrc.indexOf('async function handleCommandInternal(')),
     );
     expect(catchBlock).toContain('switchTab(savedTabId');
   });
 
   test('tab pinning only activates when tabId is provided', () => {
     const handleFn = serverSrc.slice(
-      serverSrc.indexOf('async function handleCommand('),
-      serverSrc.indexOf('try {', serverSrc.indexOf('async function handleCommand(') + 1),
+      serverSrc.indexOf('async function handleCommandInternal('),
+      serverSrc.indexOf('try {', serverSrc.indexOf('async function handleCommandInternal(') + 1),
     );
     // Should check tabId is not undefined/null before switching
     expect(handleFn).toContain('tabId !== undefined');

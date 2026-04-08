@@ -326,8 +326,18 @@ function startBasicPicker() {
   document.addEventListener('keydown', onBasicKeydown, true);
 }
 
+// Do NOT dispatch gstack-extension-ready here — the extension being loaded
+// does not mean the sidebar is open. The welcome page arrow hint should only
+// hide when the sidebar is actually open. We dispatch it when we receive
+// a 'sidebarOpened' message from background.js.
+
 // Listen for messages from background worker
 chrome.runtime.onMessage.addListener((msg) => {
+  // Sidebar actually opened — now hide the welcome page arrow hint
+  if (msg.type === 'sidebarOpened') {
+    document.dispatchEvent(new CustomEvent('gstack-extension-ready'));
+    return;
+  }
   if (msg.type === 'startBasicPicker') {
     startBasicPicker();
     return;

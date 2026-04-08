@@ -10,7 +10,7 @@
     <span class="conn-banner-text" id="conn-banner-text">Reconnecting...</span>
     <div class="conn-banner-actions" id="conn-banner-actions" style="display:none">
       <button class="conn-btn" id="conn-reconnect">Reconnect</button>
-      <button class="conn-btn conn-copy" id="conn-copy" title="Copy command">/connect-chrome</button>
+      <button class="conn-btn conn-copy" id="conn-copy" title="Copy command">/open-gstack-browser</button>
     </div>
   </div>
 
@@ -22,7 +22,8 @@
     <div class="chat-messages" id="chat-messages">
       <div class="chat-loading" id="chat-loading">
         <div class="chat-loading-spinner"></div>
-        <p>Connecting...</p>
+        <p id="loading-status">Looking for browse server...</p>
+        <pre id="loading-debug" class="muted" style="font-size:11px; font-family:'JetBrains Mono',monospace; white-space:pre-wrap; margin-top:8px; color:#71717A;"></pre>
       </div>
       <div class="chat-welcome" id="chat-welcome" style="display:none">
         <div class="chat-welcome-icon">G</div>
@@ -140,6 +141,7 @@
   <div class="quick-actions" id="quick-actions">
     <button id="chat-cleanup-btn" class="quick-action-btn" title="Remove ads, banners, popups">🧹 Cleanup</button>
     <button id="chat-screenshot-btn" class="quick-action-btn" title="Take a screenshot">📸 Screenshot</button>
+    <button id="chat-cookies-btn" class="quick-action-btn" title="Import cookies from your browser">🍪 Cookies</button>
   </div>
 
   <!-- Command Bar -->
@@ -154,6 +156,7 @@
     <div class="footer-left">
       <button class="debug-toggle" id="debug-toggle" title="Toggle debug panels">debug</button>
       <button class="footer-btn" id="clear-chat" title="Clear chat">clear</button>
+      <button class="footer-btn" id="reload-sidebar" title="Reload sidebar">reload</button>
     </div>
     <div class="footer-right">
       <span class="dot" id="footer-dot"></span>

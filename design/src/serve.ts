@@ -33,19 +33,21 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { spawn } from "child_process";
 
 export interface ServeOptions {
   html: string;
   port?: number;
+  hostname?: string; // default '127.0.0.1' — localhost only
   timeout?: number; // seconds, default 600 (10 min)
 }
 
 type ServerState = "serving" | "regenerating" | "done";
 
 export async function serve(options: ServeOptions): Promise<void> {
-  const { html, port = 0, timeout = 600 } = options;
+  const { html, port = 0, hostname = '127.0.0.1', timeout = 600 } = options;
 
   // Validate HTML file exists
   if (!fs.existsSync(html)) {
@@ -53,12 +55,17 @@ export async function serve(options: ServeOptions): Promise<void> {
     process.exit(1);
   }
 
+  // Security: anchor all file reads to the initial HTML's directory.
+  // Prevents /api/reload from reading arbitrary files via path traversal.
+  const allowedDir = fs.realpathSync(path.dirname(path.resolve(html)));
+
   let htmlContent = fs.readFileSync(html, "utf-8");
   let state: ServerState = "serving";
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   const server = Bun.serve({
     port,
+    hostname,
     fetch(req) {
       const url = new URL(req.url);
 
@@ -182,8 +189,19 @@ export async function serve(options: ServeOptions): Promise<void> {
       );
     }
 
+    // Security: resolve symlinks and validate the reload path is within the
+    // allowed directory (anchored to the initial HTML file's parent).
+    // Prevents path traversal via /api/reload reading arbitrary files.
+    const resolvedReload = fs.realpathSync(path.resolve(newHtmlPath));
+    if (!resolvedReload.startsWith(allowedDir + path.sep) && resolvedReload !== allowedDir) {
+      return Response.json(
+        { error: `Path must be within: ${allowedDir}` },
+        { status: 403 }
+      );
+    }
+
     // Swap the HTML content
-    htmlContent = fs.readFileSync(newHtmlPath, "utf-8");
+    htmlContent = fs.readFileSync(resolvedReload, "utf-8");
     state = "serving";
 
     console.error(`SERVE_RELOADED: html=${newHtmlPath}`);

@@ -44,7 +44,7 @@ export const ALL_COMMANDS = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...MET
 
 /** Commands that return untrusted third-party page content */
 export const PAGE_CONTENT_COMMANDS = new Set([
-  'text', 'html', 'links', 'forms', 'accessibility',
+  'text', 'html', 'links', 'forms', 'accessibility', 'attrs',
   'console', 'dialog',
 ]);
 

@@ -20,7 +20,8 @@ let connState = 'disconnected'; // disconnected | connected | reconnecting | dea
 let lastOptimisticMsg = null; // track optimistically rendered user msg to avoid dupes
 let sidebarActiveTabId = null; // which browser tab's chat we're showing
 const chatLineCountByTab = {}; // tabId -> last seen chatLineCount
-const chatDomByTab = {}; // tabId -> saved innerHTML
+const chatDomByTab = {}; // tabId -> saved DocumentFragment (never serialized HTML)
+let pollInProgress = false; // reentrancy guard — prevents concurrent/recursive pollChat calls
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 const MAX_RECONNECT_ATTEMPTS = 30; // 30 * 2s = 60s before showing "dead"
@@ -196,8 +197,27 @@ function handleAgentEvent(entry) {
     if (thinking) thinking.remove();
     updateStopButton(false);
     stopFastPoll();
-    // Add timestamp
+    // Collapse tool calls into a "See reasoning" disclosure
     if (agentContainer) {
+      const tools = agentContainer.querySelectorAll('.agent-tool');
+      if (tools.length > 0) {
+        const details = document.createElement('details');
+        details.className = 'agent-reasoning';
+        const summary = document.createElement('summary');
+        summary.textContent = `See reasoning (${tools.length} step${tools.length > 1 ? 's' : ''})`;
+        details.appendChild(summary);
+        for (const tool of tools) {
+          details.appendChild(tool);
+        }
+        // Insert the disclosure before the text response (if any)
+        const textEl = agentContainer.querySelector('.agent-text');
+        if (textEl) {
+          agentContainer.insertBefore(details, textEl);
+        } else {
+          agentContainer.appendChild(details);
+        }
+      }
+      // Add timestamp
       const ts = document.createElement('span');
       ts.className = 'chat-time';
       ts.textContent = formatChatTime(entry.ts);
@@ -209,6 +229,10 @@ function handleAgentEvent(entry) {
   }
 
   if (entry.type === 'agent_error') {
+    // Suppress timeout errors that fire after agent_done (cleanup noise)
+    if (entry.error && entry.error.includes('Timed out') && !agentContainer) {
+      return;
+    }
     const thinking = document.getElementById('agent-thinking');
     if (thinking) thinking.remove();
     updateStopButton(false);
@@ -237,10 +261,14 @@ function handleAgentEvent(entry) {
   if (thinking) thinking.remove();
 
   if (entry.type === 'tool_use') {
-    const toolEl = document.createElement('div');
-    toolEl.className = 'agent-tool';
     const toolName = entry.tool || 'Tool';
     const toolInput = entry.input || '';
+
+    // Skip tool uses with no description (e.g. internal tool-result file reads)
+    if (!toolInput) return;
+
+    const toolEl = document.createElement('div');
+    toolEl.className = 'agent-tool';
 
     // Use the verbose description as the primary text
     // The tool name becomes a subtle badge
@@ -363,7 +391,9 @@ document.getElementById('stop-agent-btn').addEventListener('click', stopAgent);
 let initialLoadDone = false;
 
 async function pollChat() {
-  if (!serverUrl || !serverToken) return;
+  if (pollInProgress) return;
+  pollInProgress = true;
+  if (!serverUrl || !serverToken) { pollInProgress = false; return; }
   try {
     // Request chat for the currently displayed tab
     const tabParam = sidebarActiveTabId !== null ? `&tabId=${sidebarActiveTabId}` : '';
@@ -371,13 +401,19 @@ async function pollChat() {
       headers: authHeaders(),
       signal: AbortSignal.timeout(3000),
     });
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      console.warn(`[gstack sidebar] Chat poll failed: ${resp.status} ${resp.statusText}`);
+      return;
+    }
     const data = await resp.json();
 
-    // Detect tab switch from server — swap chat context
+    // Detect tab switch from server — swap chat context.
+    // IMPORTANT: return before cleaning up thinking dots — the agent may be
+    // processing on the NEW tab while the OLD tab is idle. Removing the
+    // thinking indicator here would kill the optimistic UI before the switch.
     if (data.activeTabId !== undefined && data.activeTabId !== sidebarActiveTabId) {
       switchChatTab(data.activeTabId);
-      return; // switchChatTab triggers a fresh poll
+      return; // switchChatTab triggers a fresh poll on the correct tab
     }
 
     // First successful poll — hide loading spinner
@@ -402,24 +438,23 @@ async function pollChat() {
     }
 
     // Clean up orphaned thinking indicators after replay.
+    // Only remove if we're on the CORRECT tab and the agent is truly idle.
+    // Don't clean up during tab switches — the agent may be processing on
+    // the new tab while the old tab shows idle.
     const thinking = document.getElementById('agent-thinking');
     if (thinking && data.agentStatus !== 'processing') {
       thinking.remove();
-      if (agentContainer) {
-        const notice = document.createElement('div');
-        notice.className = 'agent-text';
-        notice.style.color = 'var(--text-meta)';
-        notice.style.fontStyle = 'italic';
-        notice.textContent = '(session ended)';
-        agentContainer.appendChild(notice);
-        agentContainer = null;
-        agentTextEl = null;
-      }
+      agentContainer = null;
+      agentTextEl = null;
     }
 
     // Show/hide stop button based on agent status
     updateStopButton(data.agentStatus === 'processing');
-  } catch {}
+  } catch (err) {
+    console.error('[gstack sidebar] Chat poll error:', err.message);
+  } finally {
+    pollInProgress = false;
+  }
 }
 
 /** Switch the sidebar to show a different tab's chat context */
@@ -428,33 +463,58 @@ function switchChatTab(newTabId) {
 
   // Save current tab's chat DOM + scroll position
   if (sidebarActiveTabId !== null) {
-    chatDomByTab[sidebarActiveTabId] = chatMessages.innerHTML;
+    const frag = document.createDocumentFragment();
+    while (chatMessages.firstChild) {
+      frag.appendChild(chatMessages.firstChild);
+    }
+    chatDomByTab[sidebarActiveTabId] = frag;
     chatLineCountByTab[sidebarActiveTabId] = chatLineCount;
   }
 
   sidebarActiveTabId = newTabId;
 
-  // Restore saved chat for new tab, or show welcome
+  // Restore saved chat for new tab, or carry over current DOM if we're
+  // mid-message (the server may have switched tabs because the user's
+  // Chrome tab changed, but we still want to show the optimistic UI).
   if (chatDomByTab[newTabId]) {
-    chatMessages.innerHTML = chatDomByTab[newTabId];
+    while (chatMessages.firstChild) chatMessages.removeChild(chatMessages.firstChild);
+    chatMessages.appendChild(chatDomByTab[newTabId]);
     chatLineCount = chatLineCountByTab[newTabId] || 0;
-  } else {
-    chatMessages.innerHTML = `
-      <div class="chat-welcome" id="chat-welcome">
-        <div class="chat-welcome-icon">G</div>
-        <p>Send a message about this page.</p>
-        <p class="muted">Each tab has its own conversation.</p>
-      </div>`;
+    // Reset agent state for restored tab
+    agentContainer = null;
+    agentTextEl = null;
+    agentText = '';
+  } else if (lastOptimisticMsg && document.getElementById('agent-thinking')) {
+    // We're mid-send with optimistic UI — keep it, don't blow it away.
+    // The poll for the new tab will pick up the entries and sync naturally.
     chatLineCount = 0;
+    // agentContainer/agentTextEl are already set from sendMessage()
+  } else {
+    while (chatMessages.firstChild) chatMessages.removeChild(chatMessages.firstChild);
+    const welcomeDiv = document.createElement('div');
+    welcomeDiv.className = 'chat-welcome';
+    welcomeDiv.id = 'chat-welcome';
+    const iconDiv = document.createElement('div');
+    iconDiv.className = 'chat-welcome-icon';
+    iconDiv.textContent = 'G';
+    welcomeDiv.appendChild(iconDiv);
+    const p1 = document.createElement('p');
+    p1.textContent = 'Send a message about this page.';
+    welcomeDiv.appendChild(p1);
+    const p2 = document.createElement('p');
+    p2.className = 'muted';
+    p2.textContent = 'Each tab has its own conversation.';
+    welcomeDiv.appendChild(p2);
+    chatMessages.appendChild(welcomeDiv);
+    chatLineCount = 0;
+    // Reset agent state for fresh tab
+    agentContainer = null;
+    agentTextEl = null;
+    agentText = '';
   }
 
-  // Reset agent state for this tab
-  agentContainer = null;
-  agentTextEl = null;
-  agentText = '';
-
   // Immediately poll the new tab's chat
-  pollChat();
+  setTimeout(pollChat, 0);
 }
 
 function updateStopButton(agentRunning) {
@@ -466,8 +526,11 @@ function updateStopButton(agentRunning) {
 async function stopAgent() {
   if (!serverUrl) return;
   try {
-    await fetch(`${serverUrl}/sidebar-agent/stop`, { method: 'POST', headers: authHeaders() });
-  } catch {}
+    const resp = await fetch(`${serverUrl}/sidebar-agent/stop`, { method: 'POST', headers: authHeaders() });
+    if (!resp.ok) console.warn(`[gstack sidebar] Stop agent failed: ${resp.status}`);
+  } catch (err) {
+    console.error('[gstack sidebar] Stop agent error:', err.message);
+  }
   // Immediately clean up UI
   const thinking = document.getElementById('agent-thinking');
   if (thinking) thinking.remove();
@@ -513,13 +576,18 @@ async function pollTabs() {
     try {
       const chromeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
       activeTabUrl = chromeTabs?.[0]?.url || null;
-    } catch {}
+    } catch (err) {
+      console.debug('[gstack sidebar] Failed to get active tab URL:', err.message);
+    }
 
     const resp = await fetch(`${serverUrl}/sidebar-tabs${activeTabUrl ? '?activeUrl=' + encodeURIComponent(activeTabUrl) : ''}`, {
       headers: authHeaders(),
       signal: AbortSignal.timeout(2000),
     });
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      console.warn(`[gstack sidebar] Tab poll failed: ${resp.status} ${resp.statusText}`);
+      return;
+    }
     const data = await resp.json();
     if (!data.tabs) return;
 
@@ -529,7 +597,9 @@ async function pollTabs() {
     lastTabJson = json;
 
     renderTabBar(data.tabs);
-  } catch {}
+  } catch (err) {
+    console.error('[gstack sidebar] Tab poll error:', err.message);
+  }
 }
 
 function renderTabBar(tabs) {
@@ -575,7 +645,9 @@ async function switchBrowserTab(tabId) {
     // Switch chat context + re-poll tabs
     switchChatTab(tabId);
     pollTabs();
-  } catch {}
+  } catch (err) {
+    console.error('[gstack sidebar] Failed to switch browser tab:', err.message);
+  }
 }
 
 // ─── Clear Chat ─────────────────────────────────────────────────
@@ -583,8 +655,11 @@ async function switchBrowserTab(tabId) {
 document.getElementById('clear-chat').addEventListener('click', async () => {
   if (!serverUrl) return;
   try {
-    await fetch(`${serverUrl}/sidebar-chat/clear`, { method: 'POST', headers: authHeaders() });
-  } catch {}
+    const resp = await fetch(`${serverUrl}/sidebar-chat/clear`, { method: 'POST', headers: authHeaders() });
+    if (!resp.ok) console.warn(`[gstack sidebar] Clear chat failed: ${resp.status}`);
+  } catch (err) {
+    console.error('[gstack sidebar] Clear chat error:', err.message);
+  }
   // Reset local state
   chatLineCount = 0;
   renderedEntryIds.clear();
@@ -597,6 +672,26 @@ document.getElementById('clear-chat').addEventListener('click', async () => {
       <p>Send a message to Claude Code.</p>
       <p class="muted">Your agent will see it and act on it.</p>
     </div>`;
+});
+
+// ─── Reload Sidebar ─────────────────────────────────────────────
+document.getElementById('reload-sidebar').addEventListener('click', () => {
+  location.reload();
+});
+
+// ─── Copy Cookies ───────────────────────────────────────────────
+document.getElementById('chat-cookies-btn').addEventListener('click', async () => {
+  if (!serverUrl) return;
+  // Navigate the browser to the cookie picker page hosted by the browse server
+  try {
+    await fetch(`${serverUrl}/command`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ command: 'goto', args: [`${serverUrl}/cookie-picker`] }),
+    });
+  } catch (err) {
+    console.error('[gstack sidebar] Failed to open cookie picker:', err.message);
+  }
 });
 
 // ─── Debug Tabs ─────────────────────────────────────────────────
@@ -731,7 +826,9 @@ function connectSSE() {
   eventSource = new EventSource(url);
 
   eventSource.addEventListener('activity', (e) => {
-    try { addEntry(JSON.parse(e.data)); } catch {}
+    try { addEntry(JSON.parse(e.data)); } catch (err) {
+      console.error('[gstack sidebar] Failed to parse activity event:', err.message);
+    }
   });
 
   eventSource.addEventListener('gap', (e) => {
@@ -742,7 +839,9 @@ function connectSSE() {
       banner.className = 'gap-banner';
       banner.textContent = `Missed ${data.availableFrom - data.gapFrom} events`;
       feed.appendChild(banner);
-    } catch {}
+    } catch (err) {
+      console.error('[gstack sidebar] Failed to parse gap event:', err.message);
+    }
   });
 }
 
@@ -777,7 +876,9 @@ async function fetchRefs() {
       </div>
     `).join('');
     footer.textContent = `${data.refs.length} refs`;
-  } catch {}
+  } catch (err) {
+    console.error('[gstack sidebar] Failed to fetch refs:', err.message);
+  }
 }
 
 // ─── Inspector Tab ──────────────────────────────────────────────
@@ -1289,15 +1390,17 @@ function connectInspectorSSE() {
       try {
         const data = JSON.parse(e.data);
         inspectorShowData(data);
-      } catch {}
+      } catch (err) {
+        console.error('[gstack sidebar] Failed to parse inspectResult:', err.message);
+      }
     });
 
     inspectorSSE.addEventListener('error', () => {
       // SSE connection failed — inspector works without it (basic mode)
       if (inspectorSSE) { inspectorSSE.close(); inspectorSSE = null; }
     });
-  } catch {
-    // SSE not available — that's fine
+  } catch (err) {
+    console.debug('[gstack sidebar] Inspector SSE not available:', err.message);
   }
 }
 
@@ -1321,6 +1424,9 @@ function updateConnection(url, token) {
     document.getElementById('footer-port').textContent = `:${port}`;
     setConnState('connected');
     setActionButtonsEnabled(true);
+    // Tell the active tab's content script the sidebar is open — this hides
+    // the welcome page arrow hint. Only fires on actual sidebar connection.
+    chrome.runtime.sendMessage({ type: 'sidebarOpened' }).catch(() => {});
     connectSSE();
     connectInspectorSSE();
     if (chatPollInterval) clearInterval(chatPollInterval);
@@ -1379,24 +1485,102 @@ document.getElementById('conn-reconnect').addEventListener('click', () => {
 });
 
 document.getElementById('conn-copy').addEventListener('click', () => {
-  navigator.clipboard.writeText('/connect-chrome').then(() => {
+  navigator.clipboard.writeText('/open-gstack-browser').then(() => {
     const btn = document.getElementById('conn-copy');
     btn.textContent = 'copied!';
-    setTimeout(() => { btn.textContent = '/connect-chrome'; }, 2000);
+    setTimeout(() => { btn.textContent = '/open-gstack-browser'; }, 2000);
   });
 });
 
-// Try to connect immediately, retry every 2s until connected
-function tryConnect() {
-  chrome.runtime.sendMessage({ type: 'getPort' }, (resp) => {
-    if (resp && resp.port && resp.connected) {
-      const url = `http://127.0.0.1:${resp.port}`;
-      // Token arrives via health broadcast from background.js
-      updateConnection(url, null);
-    } else {
-      setTimeout(tryConnect, 2000);
-    }
+// Try to connect immediately, retry every 2s until connected.
+// Show exactly what's happening at each step so the user is never
+// staring at a blank "Connecting..." with no info.
+let connectAttempts = 0;
+function setLoadingStatus(msg, debug) {
+  const status = document.getElementById('loading-status');
+  const dbg = document.getElementById('loading-debug');
+  if (status) status.textContent = msg;
+  if (dbg && debug !== undefined) dbg.textContent = debug;
+}
+
+async function tryConnect() {
+  connectAttempts++;
+  setLoadingStatus(
+    `Looking for browse server... (attempt ${connectAttempts})`,
+    `Asking background.js for server port...`
+  );
+
+  // Step 1: Ask background for the port
+  const resp = await new Promise(resolve => {
+    chrome.runtime.sendMessage({ type: 'getPort' }, (r) => {
+      if (chrome.runtime.lastError) {
+        resolve({ error: chrome.runtime.lastError.message });
+      } else {
+        resolve(r || {});
+      }
+    });
   });
+
+  if (resp.error) {
+    setLoadingStatus(
+      `Extension error (attempt ${connectAttempts})`,
+      `chrome.runtime.sendMessage failed:\n${resp.error}`
+    );
+    setTimeout(tryConnect, 2000);
+    return;
+  }
+
+  const port = resp.port || 34567;
+
+  // Step 2: If background says connected + has token, use that
+  if (resp.port && resp.connected && resp.token) {
+    setLoadingStatus(
+      `Server found on port ${port}, connecting...`,
+      `token: yes\nStarting SSE + chat polling...`
+    );
+    updateConnection(`http://127.0.0.1:${port}`, resp.token);
+    return;
+  }
+
+  // Step 3: Background not connected yet. Try hitting /health directly.
+  // This bypasses the background.js health poll timing gap.
+  setLoadingStatus(
+    `Checking server directly... (attempt ${connectAttempts})`,
+    `port: ${port}\nbackground connected: ${resp.connected || false}\nTrying GET http://127.0.0.1:${port}/health ...`
+  );
+
+  try {
+    const healthResp = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(2000)
+    });
+    if (healthResp.ok) {
+      const data = await healthResp.json();
+      if (data.status === 'healthy' && data.token) {
+        setLoadingStatus(
+          `Server healthy on port ${port}, connecting...`,
+          `token: yes (from /health)\nStarting SSE + chat polling...`
+        );
+        updateConnection(`http://127.0.0.1:${port}`, data.token);
+        return;
+      }
+      setLoadingStatus(
+        `Server responded but not healthy (attempt ${connectAttempts})`,
+        `status: ${data.status}\ntoken: ${data.token ? 'yes' : 'no'}`
+      );
+    } else {
+      setLoadingStatus(
+        `Server returned ${healthResp.status} (attempt ${connectAttempts})`,
+        `GET /health → ${healthResp.status} ${healthResp.statusText}`
+      );
+    }
+  } catch (e) {
+    setLoadingStatus(
+      `Server not reachable on port ${port} (attempt ${connectAttempts})`,
+      `GET /health failed: ${e.message}\n\nThe browse server may still be starting.\nRun /open-gstack-browser in Claude Code.`
+    );
+  }
+
+  setTimeout(tryConnect, 2000);
 }
 tryConnect();
 
@@ -1406,7 +1590,10 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'health') {
     if (msg.data) {
       const url = `http://127.0.0.1:${msg.data.port || 34567}`;
-      updateConnection(url, msg.data.token);
+      // Request token via targeted sendResponse (not broadcast) to limit exposure
+      chrome.runtime.sendMessage({ type: 'getToken' }, (resp) => {
+        updateConnection(url, resp?.token || null);
+      });
       applyChatEnabled(!!msg.data.chatEnabled);
     } else {
       updateConnection(null);

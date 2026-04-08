@@ -161,13 +161,14 @@ body::after {
 .chat-loading {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   height: 100%;
-  text-align: center;
+  text-align: left;
   color: var(--text-meta);
   gap: 12px;
   font-size: 13px;
+  padding: 24px;
 }
 .chat-loading-spinner {
   width: 24px;
@@ -183,10 +184,10 @@ body::after {
 .chat-welcome {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   height: 100%;
-  text-align: center;
+  text-align: left;
   color: var(--text-label);
   gap: 8px;
   padding: 24px;
@@ -222,7 +223,7 @@ body::after {
   border-bottom-right-radius: var(--radius-sm);
 }
 .chat-notification {
-  text-align: center;
+  text-align: left;
   font-size: 11px;
   color: var(--text-meta);
   padding: 4px 12px;
@@ -288,6 +289,32 @@ body::after {
   color: var(--text-body);
   line-height: 1.5;
   word-break: break-word;
+}
+/* Collapsed reasoning disclosure */
+.agent-reasoning {
+  margin: 4px 0;
+}
+.agent-reasoning summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-meta);
+  padding: 3px 0;
+  user-select: none;
+  list-style: none;
+}
+.agent-reasoning summary::before {
+  content: '▶ ';
+  font-size: 9px;
+}
+.agent-reasoning[open] summary::before {
+  content: '▼ ';
+}
+.agent-reasoning summary:hover {
+  color: var(--text-label);
+}
+.agent-reasoning .agent-tool {
+  margin-left: 4px;
 }
 /* Legacy classes kept for compat */
 .tool-name {
@@ -545,10 +572,10 @@ body::after {
 .session-placeholder {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   height: 100%;
-  text-align: center;
+  text-align: left;
   color: var(--text-label);
   padding: 24px;
   gap: 8px;
@@ -559,10 +586,10 @@ body::after {
 .empty-state {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 40px 24px;
-  text-align: center;
+  text-align: left;
   color: var(--text-label);
   gap: 4px;
 }
@@ -688,6 +715,10 @@ body::after {
   border-color: var(--error);
   animation: shake 300ms ease;
 }
+.command-input.error::placeholder {
+  color: var(--error);
+  opacity: 0.8;
+}
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-4px); }
@@ -787,7 +818,7 @@ footer {
   border-radius: 6px;
   font-size: 11px;
   margin: 6px 12px;
-  text-align: center;
+  text-align: left;
   flex-shrink: 0;
 }
 
@@ -964,10 +995,10 @@ footer {
 .inspector-empty {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 40px 24px;
-  text-align: center;
+  text-align: left;
   gap: 6px;
 }
 

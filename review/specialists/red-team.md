@@ -3,6 +3,7 @@
 Scope: When diff > 200 lines OR security specialist found CRITICAL findings. Runs AFTER other specialists.
 Output: JSON objects, one finding per line. Schema:
 {"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"red-team","summary":"...","fix":"...","fingerprint":"path:line:red-team","specialist":"red-team"}
+Optional: line, fix, fingerprint, evidence, test_stub.
 If no findings: output `NO FINDINGS` and nothing else.
 
 ---
