@@ -6,13 +6,42 @@
 # Security: output is sanitized to [a-zA-Z0-9._-] only, preventing
 # shell injection when consumed via source or eval.
 set -euo pipefail
-RAW_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-') || true
-RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-') || true
-# Strip any characters that aren't alphanumeric, dot, hyphen, or underscore
-SLUG=$(printf '%s' "${RAW_SLUG:-}" | tr -cd 'a-zA-Z0-9._-')
-BRANCH=$(printf '%s' "${RAW_BRANCH:-}" | tr -cd 'a-zA-Z0-9._-')
-# Fallback when git context is absent
+
+CACHE_DIR="$HOME/.gstack/slug-cache"
+PROJECT_DIR="$(pwd)"
+# Encode absolute path as cache key: /Users/j/foo → _Users_j_foo
+CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
+CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
+
+# 1. Try cached slug first (guarantees consistency across sessions)
+if [[ -f "$CACHE_FILE" ]]; then
+  SLUG=$(cat "$CACHE_FILE")
+fi
+
+# 2. If no cache, compute from git remote (separated from pipeline to avoid
+#    pipefail swallowing the error and producing an empty slug)
+if [[ -z "${SLUG:-}" ]]; then
+  REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
+  if [[ -n "$REMOTE_URL" ]]; then
+    RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+    SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
+  fi
+fi
+
+# 3. Fallback to basename only when there's truly no git remote configured
 SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
+
+# 4. Cache the slug for future sessions (atomic write, fail silently)
+if [[ -n "$SLUG" ]]; then
+  mkdir -p "$CACHE_DIR" 2>/dev/null || true
+  CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
+  if [[ -n "$CACHE_TMP" ]]; then
+    printf '%s' "$SLUG" > "$CACHE_TMP" && mv "$CACHE_TMP" "$CACHE_FILE" 2>/dev/null || rm -f "$CACHE_TMP" 2>/dev/null
+  fi
+fi
+
+RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || RAW_BRANCH=""
+BRANCH=$(printf '%s' "${RAW_BRANCH:-}" | tr -cd 'a-zA-Z0-9._-')
 BRANCH="${BRANCH:-unknown}"
 echo "SLUG=$SLUG"
 echo "BRANCH=$BRANCH"
