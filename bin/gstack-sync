@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# gstack-sync — team data sync CLI.
+#
+# Usage:
+#   gstack-sync setup                    — interactive auth flow
+#   gstack-sync status                   — show sync status
+#   gstack-sync test                     — validate full sync flow
+#   gstack-sync show [evals|ships|retros] — view team data
+#   gstack-sync push-{eval,retro,qa,ship,greptile} <file> — push data
+#   gstack-sync push-transcript            — sync Claude session transcripts
+#   gstack-sync pull                     — pull team data to local cache
+#   gstack-sync drain                    — drain the offline queue
+#   gstack-sync logout                   — clear auth tokens
+#
+# Env overrides (for testing):
+#   GSTACK_DIR          — override auto-detected gstack root
+#   GSTACK_STATE_DIR    — override ~/.gstack state directory
+set -euo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+case "${1:-}" in
+  setup)
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" setup
+    ;;
+  status)
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" status
+    ;;
+  push-eval)
+    FILE="${2:?Usage: gstack-sync push-eval <file.json>}"
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" push-eval "$FILE"
+    ;;
+  push-retro)
+    FILE="${2:?Usage: gstack-sync push-retro <file.json>}"
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" push-retro "$FILE"
+    ;;
+  push-qa)
+    FILE="${2:?Usage: gstack-sync push-qa <file.json>}"
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" push-qa "$FILE"
+    ;;
+  push-ship)
+    FILE="${2:?Usage: gstack-sync push-ship <file.json>}"
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" push-ship "$FILE"
+    ;;
+  push-greptile)
+    FILE="${2:?Usage: gstack-sync push-greptile <file.json>}"
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" push-greptile "$FILE"
+    ;;
+  push-transcript)
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" push-transcript
+    ;;
+  test)
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" test
+    ;;
+  show)
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" show "${@:2}"
+    ;;
+  pull)
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" pull
+    ;;
+  drain)
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" drain
+    ;;
+  logout)
+    exec bun run "$GSTACK_DIR/lib/cli-sync.ts" logout
+    ;;
+  *)
+    echo "Usage: gstack-sync <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  setup                 Interactive auth flow (opens browser)"
+    echo "  status                Show sync status (queue, cache, connection)"
+    echo "  test                  Validate full sync flow (push + pull)"
+    echo "  show [evals|ships|retros|sessions]  View team data in terminal"
+    echo "  push-eval <file>      Push eval result JSON to team store"
+    echo "  push-retro <file>     Push retro snapshot JSON"
+    echo "  push-qa <file>        Push QA report JSON"
+    echo "  push-ship <file>      Push ship log JSON"
+    echo "  push-greptile <file>  Push Greptile triage entry JSON"
+    echo "  push-transcript       Sync Claude session transcripts"
+    echo "  pull                  Pull team data to local cache"
+    echo "  drain                 Drain the offline sync queue"
+    echo "  logout                Clear auth tokens"
+    exit 1
+    ;;
+esac

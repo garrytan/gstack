@@ -1,0 +1,5 @@
+{
+  "supabase_url": "https://YOUR_PROJECT.supabase.co",
+  "supabase_anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.YOUR_ANON_KEY_HERE",
+  "team_slug": "your-team-name"
+}

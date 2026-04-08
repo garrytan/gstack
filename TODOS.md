@@ -336,7 +336,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 **Why:** Spot quality trends — is the app getting better or worse?
 
-**Context:** QA already writes structured reports. This adds cross-run comparison.
+**Context:** `eval:trend` now tracks test-level pass rates (eval infrastructure). QA-run-level trending (health scores over time across QA report files) is a separate feature that could reuse `computeTrends` pattern from `lib/cli-eval.ts`.
 
 **Effort:** S
 **Priority:** P2
@@ -406,26 +406,137 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 **Priority:** P3
 **Depends on:** Browse sessions
 
-## Infrastructure
+## Team Sync
 
-### /setup-gstack-upload skill (S3 bucket)
+### Streaming parser for large session files
 
-**What:** Configure S3 bucket for image hosting. One-time setup for visual PR annotations.
+**What:** Replace readFileSync with readline/createReadStream for session files >10MB.
 
-**Why:** Prerequisite for visual PR annotations in /ship and /review.
+**Why:** Currently skip files >10MB. Long sessions (1000+ turns, 35MB) lose enrichment data (tools_used, full turn count).
+
+**Context:** Current 10MB cap is defensive. Session files at `~/.claude/projects/{hash}/{sid}.jsonl` can be 35MB for marathon sessions. Streaming parser removes the cap while keeping memory usage constant.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** Transcript sync (Phase 3)
+
+### Session effectiveness scoring
+
+**What:** Compute a 1-5 effectiveness score per session based on turns to achieve goal, tool diversity, whether code was shipped, and session duration.
+
+**Why:** Enables `show sessions --best` and team-level AI effectiveness metrics. Raw data (tools_used, turns, duration, summary) already in Supabase after transcript sync.
+
+**Context:** Year 2 roadmap item. Scoring heuristics need iteration. Could start with: fewer turns = more efficient, more tool diversity = better problem decomposition, shipped code (detected via git) = successful outcome.
 
 **Effort:** M
 **Priority:** P2
+**Depends on:** Transcript sync (Phase 3)
 
-### gstack-upload helper
+### ~~Weekly AI usage digest~~ ✓ Shipped in Phase 4
 
-**What:** `browse/bin/gstack-upload` — upload file to S3, return public URL.
+Implemented as `supabase/functions/weekly-digest/index.ts`. pg_cron Monday 9am UTC, aggregates 7-day team data, sends Slack summary.
 
-**Why:** Shared utility for all skills that need to embed images in PRs.
+## Team Dashboard
+
+### Regression alert: include failing test names + dashboard link
+
+**What:** Slack alert message should list the specific tests that regressed and include a direct URL to the dashboard Evals tab.
+
+**Why:** Current alert says "pass rate dropped 89% → 82%" but doesn't say which tests. The person paged has to open the dashboard and hunt. Including test names and a direct link saves 2 minutes of triage.
+
+**Context:** `all_results` array in eval_runs has per-test data. `formatSlackMessage()` in regression-alert/index.ts is the change point. Dashboard URL can be derived from SUPABASE_URL.
 
 **Effort:** S
 **Priority:** P2
-**Depends on:** /setup-gstack-upload
+**Depends on:** Phase 4 (shipped)
+
+### Projected monthly cost annotation on dashboard
+
+**What:** Add "Projected monthly: ~$X" annotation to the cost chart on the dashboard.
+
+**Why:** Everyone wants the monthly number for budgeting. One line of math (last 4 weeks average × 4.33), huge value for finance conversations.
+
+**Context:** `renderVBarChart` or `renderCosts` in dashboard/ui.ts. Data is already fetched.
+
+**Effort:** XS
+**Priority:** P3
+
+### Ship notification to Slack
+
+**What:** Post a Slack message when someone ships: "alice shipped v0.4.2 → repo-slug (PR #45)". Reuses existing Slack webhook from team_settings.
+
+**Why:** Real-time team shipping awareness. Currently only regression alerts go to Slack — positive events (ships) should too.
+
+**Context:** Either add to the sync push path in ship/SKILL.md.tmpl or create a new edge function triggered on ship_logs INSERT (same pattern as regression-alert).
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** Phase 4 (shipped)
+
+### Dynamic favicon based on team pass rate
+
+**What:** Dashboard favicon changes color (green/yellow/red dot) based on current overall eval pass rate. Visible from the browser tab bar without switching to the dashboard tab.
+
+**Why:** Zero-click observability. At a glance from your tab bar, you know if the team is healthy.
+
+**Context:** Canvas → data URL favicon, update on each fetchAll() refresh in dashboard/ui.ts. Green >80%, yellow 50-80%, red <50%.
+
+**Effort:** XS
+**Priority:** P3
+
+### Server-side aggregation / materialized views
+
+**What:** Replace client-side data fetching (6 parallel REST calls per refresh) with server-side pre-aggregated views or Supabase materialized views.
+
+**Why:** Current approach pulls up to 100 rows per table per refresh. With 5+ users and 60s refresh, this puts pressure on Supabase request limits. Materialized views would return pre-computed summaries in a single call.
+
+**Context:** Could use Supabase pg_cron to refresh materialized views every 5 minutes. Dashboard would fetch one view instead of 6 tables.
+
+**Effort:** L
+**Priority:** P3
+**Depends on:** Phase 4 (shipped)
+
+### Real-time SSE streaming on dashboard
+
+**What:** Server-Sent Events stream from a Supabase edge function that pushes updates when new data arrives (eval_runs INSERT, ship_logs INSERT, heartbeats).
+
+**Why:** Dashboard currently polls every 60s. SSE would make it truly real-time — see an eval complete the moment it finishes.
+
+**Context:** Supabase Realtime can be used client-side, or a custom SSE edge function can listen to Postgres NOTIFY. Year 2 roadmap item.
+
+**Effort:** L
+**Priority:** P3
+
+### GitHub Check Run integration
+
+**What:** When an eval run is pushed, create a GitHub Check Run on the corresponding commit/PR showing pass rate, regressions, and cost.
+
+**Why:** Eval results become visible directly in the PR review workflow. Regressions can block merge.
+
+**Context:** Requires GitHub App installation or personal access token. Uses GitHub REST API `POST /repos/{owner}/{repo}/check-runs`. Year 2 roadmap item.
+
+**Effort:** L
+**Priority:** P3
+**Depends on:** Phase 4 (shipped)
+
+### ship_logs index on (team_id, created_at)
+
+**What:** Add composite index `idx_ship_logs_team_date ON ship_logs(team_id, created_at DESC)`.
+
+**Why:** Weekly digest queries `ship_logs WHERE team_id = ? AND created_at >= ?`. Without this index, it table-scans. Low priority because ship_logs volume is small in Year 1, but needed before scale.
+
+**Context:** Add to a new migration 008 or append to 007.
+
+**Effort:** XS
+**Priority:** P3
+
+## Infrastructure
+
+### ~~setup-gstack-upload~~ + ~~gstack-upload helper~~ — SUPERSEDED
+
+Replaced by Supabase Storage (migration 008) + `bin/gstack-upload` + `lib/upload.ts`.
+Screenshots upload to the team's Supabase Storage bucket with public CDN URLs.
+No S3 needed.
 
 ### WebM to GIF conversion
 

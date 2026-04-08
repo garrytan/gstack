@@ -178,6 +178,8 @@ When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
 bun run eval:list            # list all eval runs (turns, duration, cost per run)
 bun run eval:compare         # compare two runs — shows per-test deltas + Takeaway commentary
 bun run eval:summary         # aggregate stats + per-test efficiency averages across runs
+bun run eval:trend           # per-test pass rate over last N runs (flaky detection)
+bun run eval:cache stats     # check LLM judge cache hit rate
 ```
 
 **Eval comparison commentary:** `eval:compare` generates natural-language Takeaway sections interpreting what changed between runs — flagging regressions, noting improvements, calling out efficiency gains (fewer turns, faster, cheaper), and producing an overall summary. This is driven by `generateCommentary()` in `eval-store.ts`.
@@ -198,7 +200,8 @@ Each dimension is scored 1-5. Threshold: every dimension must score **≥ 4**. T
 # Needs ANTHROPIC_API_KEY in .env — included in bun run test:evals
 ```
 
-- Uses `claude-sonnet-4-6` for scoring stability
+- Model defaults to `claude-sonnet-4-6`; override with `EVAL_JUDGE_TIER=haiku|opus`
+- Results are SHA-cached — unchanged SKILL.md content skips API calls ($0 on repeat runs). Set `EVAL_CACHE=0` to force re-run.
 - Tests live in `test/skill-llm-eval.test.ts`
 - Calls the Anthropic API directly (not `claude -p`), so it works from anywhere including inside Claude Code
 

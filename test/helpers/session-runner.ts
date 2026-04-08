@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getProjectEvalDir } from './eval-store';
+import type { CostEntry } from '../../lib/eval-format';
 
 const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
 const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json'); // heartbeat stays global
@@ -43,6 +44,7 @@ export interface SkillTestResult {
   output: string;
   costEstimate: CostEstimate;
   transcript: any[];
+  costs: CostEntry[];
   /** Which model was used for this test (added for Sonnet/Opus split diagnostics) */
   model: string;
   /** Time from spawn to first NDJSON line, in ms (added for rate-limit diagnostics) */
@@ -356,5 +358,21 @@ export async function runSkillTest(options: {
     turnsUsed,
   };
 
-  return { toolCalls, browseErrors, exitReason, duration, output: resultLine?.result || '', costEstimate, transcript, model, firstResponseMs, maxInterTurnMs };
+  // Extract per-model costs from resultLine.modelUsage (camelCase → snake_case)
+  const costs: CostEntry[] = [];
+  if (resultLine?.modelUsage) {
+    for (const [modelName, usage] of Object.entries(resultLine.modelUsage as Record<string, any>)) {
+      costs.push({
+        model: modelName,
+        calls: 1,
+        input_tokens: usage.inputTokens || 0,
+        output_tokens: usage.outputTokens || 0,
+        cache_read_input_tokens: usage.cacheReadInputTokens || 0,
+        cache_creation_input_tokens: usage.cacheCreationInputTokens || 0,
+        cost_usd: usage.costUSD,
+      });
+    }
+  }
+
+  return { toolCalls, browseErrors, exitReason, duration, output: resultLine?.result || '', costEstimate, transcript, costs, model, firstResponseMs, maxInterTurnMs };
 }

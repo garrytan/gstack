@@ -1,13 +1,19 @@
 /**
  * Shared LLM-as-judge helpers for eval and E2E tests.
  *
- * Provides callJudge (generic JSON-from-LLM), judge (doc quality scorer),
- * and outcomeJudge (planted-bug detection scorer).
+ * Provides callJudge (generic JSON-from-LLM with cache + tier support),
+ * judge (doc quality scorer), and outcomeJudge (planted-bug detection scorer).
  *
- * Requires: ANTHROPIC_API_KEY env var
+ * Requires: ANTHROPIC_API_KEY env var (skipped on cache hit)
+ *
+ * Env vars:
+ *   EVAL_JUDGE_TIER — model tier for judge calls (fast/standard/full, default: standard)
+ *   EVAL_CACHE=0    — bypass cache, always re-run
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { computeCacheKey, cacheRead, cacheWrite } from '../../lib/eval-cache';
+import { resolveJudgeTier, tierToModel } from '../../lib/eval-tier';
 
 export interface JudgeScore {
   clarity: number;       // 1-5
@@ -25,15 +31,35 @@ export interface OutcomeJudgeResult {
   reasoning: string;
 }
 
+export interface JudgeMeta {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached: boolean;
+}
+
 /**
- * Call claude-sonnet-4-6 with a prompt, extract JSON response.
+ * Call the judge model with a prompt, extract JSON response.
+ * Uses eval-cache for SHA-based caching and eval-tier for model selection.
  * Retries once on 429 rate limit errors.
  */
-export async function callJudge<T>(prompt: string): Promise<T> {
+export async function callJudge<T>(prompt: string): Promise<{ result: T; meta: JudgeMeta }> {
+  const model = tierToModel(resolveJudgeTier());
+
+  // Check cache (keyed by model + prompt content)
+  const cacheKey = computeCacheKey([], `${model}:${prompt}`);
+  const cached = cacheRead('llm-judge', cacheKey);
+  if (cached !== null) {
+    return {
+      result: cached as T,
+      meta: { model, input_tokens: 0, output_tokens: 0, cached: true },
+    };
+  }
+
   const client = new Anthropic();
 
   const makeRequest = () => client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model,
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -53,13 +79,25 @@ export async function callJudge<T>(prompt: string): Promise<T> {
   const text = response.content[0].type === 'text' ? response.content[0].text : '';
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`Judge returned non-JSON: ${text.slice(0, 200)}`);
-  return JSON.parse(jsonMatch[0]) as T;
+  const result = JSON.parse(jsonMatch[0]) as T;
+
+  // Write to cache
+  cacheWrite('llm-judge', cacheKey, result, { model });
+
+  const meta: JudgeMeta = {
+    model,
+    input_tokens: (response.usage as any)?.input_tokens || 0,
+    output_tokens: (response.usage as any)?.output_tokens || 0,
+    cached: false,
+  };
+
+  return { result, meta };
 }
 
 /**
  * Score documentation quality on clarity/completeness/actionability (1-5).
  */
-export async function judge(section: string, content: string): Promise<JudgeScore> {
+export async function judge(section: string, content: string): Promise<{ result: JudgeScore; meta: JudgeMeta }> {
   return callJudge<JudgeScore>(`You are evaluating documentation quality for an AI coding agent's CLI tool reference.
 
 The agent reads this documentation to learn how to use a headless browser CLI. It needs to:
@@ -92,12 +130,14 @@ ${content}`);
 /**
  * Evaluate a QA report against planted-bug ground truth.
  * Returns detection metrics for the planted bugs.
+ * Note: outcomeJudge returns just the result (not meta) for backward compat
+ * with E2E test callers. Cache still works internally.
  */
 export async function outcomeJudge(
   groundTruth: any,
   report: string,
 ): Promise<OutcomeJudgeResult> {
-  return callJudge<OutcomeJudgeResult>(`You are evaluating a QA testing report against known ground truth bugs.
+  const { result } = await callJudge<OutcomeJudgeResult>(`You are evaluating a QA testing report against known ground truth bugs.
 
 GROUND TRUTH (${groundTruth.total_bugs} planted bugs):
 ${JSON.stringify(groundTruth.bugs, null, 2)}
@@ -127,4 +167,5 @@ Rules:
 - detection_rate = length of detected array
 - evidence_quality (1-5): Do detected bugs have screenshots, repro steps, or specific element references?
   5 = excellent evidence for every bug, 1 = no evidence at all`);
+  return result;
 }

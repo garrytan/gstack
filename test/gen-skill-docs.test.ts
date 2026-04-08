@@ -524,14 +524,14 @@ describe('REVIEW_DASHBOARD resolver', () => {
   for (const skill of REVIEW_SKILLS) {
     test(`review dashboard appears in ${skill} generated file`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
-      expect(content).toContain('gstack-review');
+      expect(content).toContain('gstack-review-log');
       expect(content).toContain('REVIEW READINESS DASHBOARD');
     });
   }
 
   test('review dashboard appears in ship generated file', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('reviews.jsonl');
+    expect(content).toContain('gstack-review-log');
     expect(content).toContain('REVIEW READINESS DASHBOARD');
   });
 
