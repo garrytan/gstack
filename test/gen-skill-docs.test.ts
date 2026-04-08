@@ -2076,6 +2076,15 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
+  test('link_codex_skill_dirs replaces stale real directories from prior installs', () => {
+    const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('current_target="$(readlink "$target"');
+    expect(fnBody).toContain('rm -rf "$target"');
+    expect(fnBody).toContain('ln -snf "$skill_dir" "$target"');
+  });
+
   test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
     // Claude links should be real directories with absolute SKILL.md symlinks
     // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
@@ -2182,6 +2191,15 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('migrate_direct_codex_install');
     expect(setupContent).toContain('$HOME/.gstack/repos/gstack');
     expect(setupContent).toContain('avoid duplicate skill discovery');
+  });
+
+  test('link_factory_skill_dirs also replaces stale real directories', () => {
+    const fnStart = setupContent.indexOf('link_factory_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('current_target="$(readlink "$target"');
+    expect(fnBody).toContain('rm -rf "$target"');
+    expect(fnBody).toContain('ln -snf "$skill_dir" "$target"');
   });
 
   // --- Symlink prefix tests (PR #503) ---

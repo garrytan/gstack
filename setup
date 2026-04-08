@@ -442,11 +442,16 @@ link_codex_skill_dirs() {
       # symlink that Step 5 already pointed at the repo root.
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
-      # Create or update symlink
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
-        linked+=("$skill_name")
+      # Upgrade stale real directories from prior installs to symlinks.
+      if [ -L "$target" ]; then
+        current_target="$(readlink "$target" 2>/dev/null || true)"
+        [ "$current_target" = "$skill_dir" ] && continue
+        rm -f "$target"
+      elif [ -e "$target" ]; then
+        rm -rf "$target"
       fi
+      ln -snf "$skill_dir" "$target"
+      linked+=("$skill_name")
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
@@ -591,10 +596,15 @@ link_factory_skill_dirs() {
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
-        linked+=("$skill_name")
+      if [ -L "$target" ]; then
+        current_target="$(readlink "$target" 2>/dev/null || true)"
+        [ "$current_target" = "$skill_dir" ] && continue
+        rm -f "$target"
+      elif [ -e "$target" ]; then
+        rm -rf "$target"
       fi
+      ln -snf "$skill_dir" "$target"
+      linked+=("$skill_name")
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
