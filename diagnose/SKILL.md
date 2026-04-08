@@ -616,13 +616,17 @@ If you cannot construct this chain, you do not have a root cause. You have a gue
 
 Before investigating anything, discover what tools and data sources are at your disposal. **Autodetect everything — ask the user only for what you can't find.**
 
+**Budget: Phase 0 must complete in ≤ 5 tool calls.** Combine sub-phases 0a-0g into 1-2 Bash calls. Phase 0j (saving the env-profile learning) is MANDATORY — if you're running low on turns, skip optional sub-phases but NEVER skip 0j.
+
 ### 0-pre. Learnings fast-path — skip redundant discovery
 
-Before running any detection, check if prior `/diagnose` sessions already mapped this project's environment:
+Check if a prior `/diagnose` session cached this project's environment. Use Grep to search for `env-profile` in learnings files. Spend **at most 1 tool call** — if anything fails or returns nothing, proceed to 0a immediately.
 
-```bash
-gstack-learnings-search --type operational --query "env-profile" --limit 1 2>/dev/null || true
-```
+Use the Grep tool: search for pattern `env-profile` in path `~/.gstack/projects/` with glob `*/learnings.jsonl`.
+
+- If no match: proceed to 0a (full detection). This is normal on first run.
+- If a match with `"confidence":7` or higher: read the `insight` value, print it as cached inventory, skip to **0h**.
+- **Do NOT retry. Do NOT run Bash for this step. 1 Grep call, then move on.**
 
 ## Prior Learnings
 
@@ -667,7 +671,7 @@ smarter on their codebase over time.
 - The env-profile learning is older than 30 days or confidence has decayed below 7
 - Connectivity validation reveals tools that are no longer available or new env vars appear
 
-**If no env-profile learning exists or it's stale:** run the full detection below.
+**If no env-profile learning exists or it's stale:** run the full detection below (0a-0g). This is expected on first run.
 
 **Diagnostic-specific learnings:** If learnings include past root causes, known failure patterns, or "this symptom was caused by X last time" entries, use them to inform (not replace) your hypothesis generation in Phase 2. A prior learning with confidence 8+ about the same code area is strong prior — but still verify. Code changes since the learning may have invalidated it.
 
@@ -897,24 +901,35 @@ fi
 echo "LEARNINGS_SAFE: $_LEARNINGS_FILE is outside repo or gitignored"
 ```
 
-### 0j. Log environment profile to learnings
+### 0j. Log environment profile to learnings — MANDATORY
 
-After completing Phase 0, log the full environment profile as a single structured learning. This is what makes subsequent runs fast — the next `/diagnose` session on this project will load this instead of re-scanning.
+**YOU MUST run this step.** This is what makes subsequent `/diagnose` runs fast — the next session loads the cached profile instead of re-scanning. If you skip this, every future run wastes time re-detecting the same environment.
+
+Compose a JSON string with the actual tools you detected in 0a-0g. Use pipe-delimited sections. Then log it:
 
 ```bash
-gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-profile","insight":"<FULL INVENTORY SUMMARY — include: detected tools with env var names, related repos with their purposes, infra/deployment topology (platforms, regions, production URLs), available gstack skills, CI/CD platform. Use pipe-delimited sections for parseability. Example: databases:$DATABASE_URL_PROD_RO(postgres,eu-west+us-east)|error_tracking:sentry($SENTRY_AUTH_TOKEN,project-slug:my-project)|analytics:posthog($POSTHOG_API_KEY,project:12345)|repos:../frontend(next.js),../infra(terraform)|deploy:vercel(frontend)+fly.io(backend,eu-fra+us-iad)|ci:github-actions|skills:browse,investigate,cso>","confidence":9,"source":"observed","files":[]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-profile","insight":"YOUR_ACTUAL_INVENTORY_HERE","confidence":9,"source":"observed","files":[]}'
 ```
 
-**Important:** The insight field must contain ONLY structural information — env var names (prefixed with `$`), tool names, regions, repo paths, platform names. Never include actual secret values, connection strings, or tokens.
+**Replace `YOUR_ACTUAL_INVENTORY_HERE`** with a pipe-delimited summary of what you actually found. Format: `section:details|section:details|...`
 
-Also log any **new architectural discoveries** (system boundaries, service communication patterns, deployment topology) as separate `architecture` learnings — these are valuable to ALL gstack skills, not just `/diagnose`:
+Example of a correctly filled insight value (do NOT copy this literally — use YOUR findings):
+`databases:pg($DATABASE_URL,.env)|error_tracking:sentry(@sentry/node,$SENTRY_DSN)|analytics:posthog(posthog-node,$POSTHOG_API_KEY)|repos:none|deploy:none|ci:none|skills:browse,investigate,cso`
+
+**Rules for the insight value:**
+- Include ONLY structural information — env var names (prefixed with `$`), tool names, package names, platform names
+- Never include actual secret values, connection strings, or tokens
+- If a category has nothing detected, write `category:none`
+- Include the source of detection in parens: `($ENV_VAR,.env,package.json)`
+
+Also log any **new architectural discoveries** as separate learnings:
 
 ```bash
-# Example: log deployment topology
-gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"deploy-topology","insight":"<describe: which services deploy where, what regions, what platform, what the deploy pipeline looks like>","confidence":9,"source":"observed","files":[]}'
+# Only if deployment topology was detected:
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"deploy-topology","insight":"YOUR_TOPOLOGY_HERE","confidence":9,"source":"observed","files":[]}'
 
-# Example: log service communication pattern
-gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"<service-boundary-name>","insight":"<describe: how system A talks to system B, protocol, auth method, key endpoints>","confidence":8,"source":"observed","files":["<interface-files>"]}'
+# Only if cross-service communication was detected:
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"SERVICE_BOUNDARY_NAME","insight":"YOUR_DESCRIPTION_HERE","confidence":8,"source":"observed","files":["RELEVANT_FILES"]}'
 ```
 
 ### Observability Inventory
@@ -1526,24 +1541,28 @@ After every `/diagnose` session, log learnings that will help future diagnostic 
 The `env-profile` learning was logged in Phase 0j. If the diagnostic session revealed NEW tools, repos, or infrastructure not in the original profile (e.g., you discovered a shared Redis cache during hypothesis testing, or traced a request to an undocumented microservice), update it:
 
 ```bash
-gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-profile","insight":"<UPDATED FULL INVENTORY — same pipe-delimited format as 0j, with new discoveries added>","confidence":9,"source":"observed","files":[]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-profile","insight":"YOUR_UPDATED_INVENTORY_HERE","confidence":9,"source":"observed","files":[]}'
 ```
 
-The learnings system uses "latest winner per key+type" deduplication, so this cleanly replaces the prior profile.
+Replace `YOUR_UPDATED_INVENTORY_HERE` with the actual pipe-delimited inventory (same format as Phase 0j). The learnings system uses "latest winner per key+type" deduplication, so this cleanly replaces the prior profile.
 
 **Always log the root cause** (if established):
 ```bash
-gstack-learnings-log '{"skill":"diagnose","type":"pitfall","key":"<short-key>","insight":"<symptom> was caused by <root-cause>. Evidence: <what-confirmed-it>","confidence":9,"source":"observed","files":["<affected-files>"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"pitfall","key":"SHORT_KEY","insight":"YOUR_ROOT_CAUSE_HERE","confidence":9,"source":"observed","files":["AFFECTED_FILES"]}'
 ```
+
+Replace `SHORT_KEY` with a descriptive key (e.g., `auth-timeout`), `YOUR_ROOT_CAUSE_HERE` with: symptom, root cause, and confirming evidence.
 
 **Log diagnostic dead-ends** (save future you from repeating them):
 ```bash
-gstack-learnings-log '{"skill":"diagnose","type":"pitfall","key":"<short-key>-false-lead","insight":"<symptom> looks like <wrong-cause> but is actually <real-cause>. The misleading signal was <what-fooled-you>","confidence":8,"source":"observed","files":["<files>"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"pitfall","key":"SHORT_KEY-false-lead","insight":"YOUR_DEAD_END_HERE","confidence":8,"source":"observed","files":["FILES"]}'
 ```
+
+Replace with: what the symptom looked like, the wrong hypothesis, the real cause, and what was misleading.
 
 **Log cross-system patterns** (these are gold for ALL gstack skills, not just diagnose):
 ```bash
-gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"<boundary-name>","insight":"<system-A> and <system-B> communicate via <mechanism>. Common failure mode: <pattern>. Check <what-to-verify>","confidence":8,"source":"observed","files":["<interface-files>"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"BOUNDARY_NAME","insight":"YOUR_PATTERN_HERE","confidence":8,"source":"observed","files":["INTERFACE_FILES"]}'
 ```
 
 **Quality bar:** Only log learnings that would save at least 5 minutes in a future session. The goal is a growing knowledge base of "what broke, why, and how we proved it" for this project. These learnings are readable by ALL gstack skills — an architecture insight logged by `/diagnose` helps `/ship`, `/investigate`, and `/qa` in future sessions.
