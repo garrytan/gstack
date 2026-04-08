@@ -89,26 +89,77 @@ export function ensureStateDir(config: BrowseConfig): void {
     }
     throw err;
   }
+}
 
-  // Ensure .gstack/ is in the project's .gitignore
-  const gitignorePath = path.join(config.projectDir, '.gitignore');
+/**
+ * Ensure .gstack/ is ignored by git.
+ *
+ * Call this from a serialized startup path. It mutates repo-local git
+ * ignore metadata, so it should not run from both the CLI and server process.
+ */
+function resolveGitExcludePath(projectDir: string): string | null {
+  const dotGitPath = path.join(projectDir, '.git');
+
   try {
-    const content = fs.readFileSync(gitignorePath, 'utf-8');
-    if (!content.match(/^\.gstack\/?$/m)) {
-      const separator = content.endsWith('\n') ? '' : '\n';
-      fs.appendFileSync(gitignorePath, `${separator}.gstack/\n`);
+    const stat = fs.statSync(dotGitPath);
+    if (stat.isDirectory()) {
+      return path.join(dotGitPath, 'info', 'exclude');
+    }
+    if (!stat.isFile()) {
+      return null;
     }
   } catch (err: any) {
-    if (err.code !== 'ENOENT') {
-      // Write warning to server log (visible even in daemon mode)
-      const logPath = path.join(config.stateDir, 'browse-server.log');
-      try {
-        fs.appendFileSync(logPath, `[${new Date().toISOString()}] Warning: could not update .gitignore at ${gitignorePath}: ${err.message}\n`);
-      } catch {
-        // stateDir write failed too — nothing more we can do
-      }
+    if (err.code === 'ENOENT') {
+      return null;
     }
-    // ENOENT (no .gitignore) — skip silently
+    throw err;
+  }
+
+  const dotGitFile = fs.readFileSync(dotGitPath, 'utf-8');
+  const prefix = 'gitdir: ';
+  const gitDirLine = dotGitFile
+    .split(/\r?\n/)
+    .find(line => line.toLowerCase().startsWith(prefix));
+
+  if (!gitDirLine) {
+    return null;
+  }
+
+  const gitDir = gitDirLine.slice(prefix.length).trim();
+  if (!gitDir) {
+    return null;
+  }
+
+  const resolvedGitDir = path.isAbsolute(gitDir)
+    ? gitDir
+    : path.resolve(projectDir, gitDir);
+  return path.join(resolvedGitDir, 'info', 'exclude');
+}
+
+export function ensureProjectIgnoreEntry(config: BrowseConfig): void {
+  // Keep .gstack/ out of git status without mutating the tracked .gitignore file.
+  const excludePath = resolveGitExcludePath(config.projectDir);
+  if (!excludePath) {
+    return;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+    const content = fs.existsSync(excludePath)
+      ? fs.readFileSync(excludePath, 'utf-8')
+      : '';
+    if (!content.match(/^\.gstack\/?$/m)) {
+      const separator = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+      fs.appendFileSync(excludePath, `${separator}.gstack/\n`);
+    }
+  } catch (err: any) {
+    // Write warning to server log (visible even in daemon mode)
+    const logPath = path.join(config.stateDir, 'browse-server.log');
+    try {
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] Warning: could not update git exclude at ${excludePath}: ${err.message}\n`);
+    } catch {
+      // stateDir write failed too — nothing more we can do
+    }
   }
 }
 

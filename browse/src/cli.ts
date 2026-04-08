@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { resolveConfig, ensureProjectIgnoreEntry, ensureStateDir, readVersionHash } from './config';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -372,6 +372,10 @@ async function ensureServer(): Promise<ServerState> {
     if (freshState && await isServerHealthy(freshState.port)) {
       return freshState;
     }
+
+    // Mutate repo-local git ignore metadata only once from the locked CLI path
+    // to avoid CLI/server startup races appending duplicate .gstack/ entries.
+    ensureProjectIgnoreEntry(config);
 
     // Kill the old server to avoid orphaned chromium processes
     if (state && state.pid) {

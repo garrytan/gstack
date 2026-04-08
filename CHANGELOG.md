@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.16.1.1] - 2026-04-08
+
+### Fixed
+- Browse no longer edits your tracked `.gitignore` just to store its `.gstack/` state. It now uses repo-local Git exclude metadata instead, so starting browse no longer leaves surprise worktree diffs or duplicate `.gstack/` lines when multiple instances start at once. Works in both normal repos and Git worktrees.
+
 ## [0.16.1.0] - 2026-04-08
 
 ### Fixed

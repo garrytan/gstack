@@ -1,26 +1,58 @@
 import { describe, test, expect } from 'bun:test';
-import { resolveConfig, ensureStateDir, readVersionHash, getGitRoot, getRemoteSlug } from '../src/config';
+import { resolveConfig, ensureProjectIgnoreEntry, ensureStateDir, readVersionHash, getGitRoot, getRemoteSlug } from '../src/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+function withTempGitRepo(
+  setup: (tmpDir: string) => void,
+  run: (tmpDir: string) => void,
+): void {
+  const prevCwd = process.cwd();
+  const tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'browse-git-repo-')));
+
+  try {
+    const init = Bun.spawnSync(['git', 'init', '-q'], { cwd: tmpDir, stderr: 'pipe' });
+    if (init.exitCode !== 0) {
+      throw new Error(init.stderr.toString() || 'git init failed');
+    }
+
+    setup(tmpDir);
+    process.chdir(tmpDir);
+    run(tmpDir);
+  } finally {
+    process.chdir(prevCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 describe('config', () => {
   describe('getGitRoot', () => {
     test('returns a path when in a git repo', () => {
-      const root = getGitRoot();
-      expect(root).not.toBeNull();
-      expect(fs.existsSync(path.join(root!, '.git'))).toBe(true);
+      withTempGitRepo(
+        () => {},
+        tmpDir => {
+          const root = getGitRoot();
+          expect(root).toBe(tmpDir);
+          expect(fs.existsSync(path.join(root!, '.git'))).toBe(true);
+        },
+      );
     });
   });
 
   describe('resolveConfig', () => {
     test('uses git root by default', () => {
-      const config = resolveConfig({});
-      const gitRoot = getGitRoot();
-      expect(gitRoot).not.toBeNull();
-      expect(config.projectDir).toBe(gitRoot);
-      expect(config.stateDir).toBe(path.join(gitRoot!, '.gstack'));
-      expect(config.stateFile).toBe(path.join(gitRoot!, '.gstack', 'browse.json'));
+      withTempGitRepo(
+        () => {},
+        tmpDir => {
+          const config = resolveConfig({});
+          const gitRoot = getGitRoot();
+          expect(gitRoot).toBe(tmpDir);
+          expect(config.projectDir).toBe(gitRoot);
+          expect(config.stateDir).toBe(path.join(gitRoot!, '.gstack'));
+          expect(config.stateFile).toBe(path.join(gitRoot!, '.gstack', 'browse.json'));
+        },
+      );
     });
 
     test('derives paths from BROWSE_STATE_FILE when set', () => {
@@ -61,77 +93,121 @@ describe('config', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('adds .gstack/ to .gitignore if not present', () => {
+    test('does not mutate .gitignore as a side effect', () => {
       const tmpDir = path.join(os.tmpdir(), `browse-gitignore-test-${Date.now()}`);
       fs.mkdirSync(tmpDir, { recursive: true });
       fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n');
       const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
       ensureStateDir(config);
       const content = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
+      expect(content).toBe('node_modules/\n');
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+  });
+
+  describe('ensureProjectIgnoreEntry', () => {
+    test('adds .gstack/ to .git/info/exclude if not present', () => {
+      const tmpDir = path.join(os.tmpdir(), `browse-gitignore-test-${Date.now()}`);
+      fs.mkdirSync(tmpDir, { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, '.git', 'info'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), '*.log\n');
+      const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
+      ensureStateDir(config);
+      ensureProjectIgnoreEntry(config);
+      const content = fs.readFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), 'utf-8');
       expect(content).toContain('.gstack/');
-      expect(content).toBe('node_modules/\n.gstack/\n');
+      expect(content).toBe('*.log\n.gstack/\n');
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('does not duplicate .gstack/ in .gitignore', () => {
+    test('does not duplicate .gstack/ in .git/info/exclude', () => {
       const tmpDir = path.join(os.tmpdir(), `browse-gitignore-test-${Date.now()}`);
       fs.mkdirSync(tmpDir, { recursive: true });
-      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n.gstack/\n');
+      fs.mkdirSync(path.join(tmpDir, '.git', 'info'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), '*.log\n.gstack/\n');
       const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
       ensureStateDir(config);
-      const content = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
-      expect(content).toBe('node_modules/\n.gstack/\n');
+      ensureProjectIgnoreEntry(config);
+      const content = fs.readFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), 'utf-8');
+      expect(content).toBe('*.log\n.gstack/\n');
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('handles .gitignore without trailing newline', () => {
+    test('handles .git/info/exclude without trailing newline', () => {
       const tmpDir = path.join(os.tmpdir(), `browse-gitignore-test-${Date.now()}`);
       fs.mkdirSync(tmpDir, { recursive: true });
-      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules');
+      fs.mkdirSync(path.join(tmpDir, '.git', 'info'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), '*.log');
       const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
       ensureStateDir(config);
-      const content = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
-      expect(content).toBe('node_modules\n.gstack/\n');
+      ensureProjectIgnoreEntry(config);
+      const content = fs.readFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), 'utf-8');
+      expect(content).toBe('*.log\n.gstack/\n');
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('logs warning to browse-server.log on non-ENOENT gitignore error', () => {
+    test('logs warning to browse-server.log on git exclude write error', () => {
       const tmpDir = path.join(os.tmpdir(), `browse-gitignore-test-${Date.now()}`);
       fs.mkdirSync(tmpDir, { recursive: true });
-      // Create a read-only .gitignore (no .gstack/ entry → would try to append)
-      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n');
-      fs.chmodSync(path.join(tmpDir, '.gitignore'), 0o444);
+      fs.mkdirSync(path.join(tmpDir, '.git', 'info'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), '*.log\n');
+      fs.chmodSync(path.join(tmpDir, '.git', 'info', 'exclude'), 0o444);
       const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
-      ensureStateDir(config); // should not throw
-      // Verify warning was written to server log
+      ensureStateDir(config);
+      ensureProjectIgnoreEntry(config); // should not throw
       const logPath = path.join(config.stateDir, 'browse-server.log');
       expect(fs.existsSync(logPath)).toBe(true);
       const logContent = fs.readFileSync(logPath, 'utf-8');
-      expect(logContent).toContain('Warning: could not update .gitignore');
-      // .gitignore should remain unchanged
-      const gitignoreContent = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
-      expect(gitignoreContent).toBe('node_modules/\n');
-      // Cleanup
-      fs.chmodSync(path.join(tmpDir, '.gitignore'), 0o644);
+      expect(logContent).toContain('Warning: could not update git exclude');
+      const excludeContent = fs.readFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), 'utf-8');
+      expect(excludeContent).toBe('*.log\n');
+      fs.chmodSync(path.join(tmpDir, '.git', 'info', 'exclude'), 0o644);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('skips if no .gitignore exists', () => {
+    test('handles worktree-style .git files', () => {
       const tmpDir = path.join(os.tmpdir(), `browse-gitignore-test-${Date.now()}`);
       fs.mkdirSync(tmpDir, { recursive: true });
+      const worktreeGitDir = path.join(tmpDir, '.git-worktree');
+      fs.mkdirSync(path.join(worktreeGitDir, 'info'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.git'), 'gitdir: .git-worktree\n');
       const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
       ensureStateDir(config);
-      expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(false);
+      ensureProjectIgnoreEntry(config);
+      const content = fs.readFileSync(path.join(worktreeGitDir, 'info', 'exclude'), 'utf-8');
+      expect(content).toBe('.gstack/\n');
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    test('skips if no git metadata exists', () => {
+      const tmpDir = path.join(os.tmpdir(), `browse-gitignore-test-${Date.now()}`);
+      fs.mkdirSync(tmpDir, { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n');
+      const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
+      ensureStateDir(config);
+      ensureProjectIgnoreEntry(config);
+      expect(fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8')).toBe('node_modules/\n');
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
   });
 
   describe('getRemoteSlug', () => {
     test('returns owner-repo format for current repo', () => {
-      const slug = getRemoteSlug();
-      // This repo has an origin remote — should return a slug
-      expect(slug).toBeTruthy();
-      expect(slug).toMatch(/^[a-zA-Z0-9._-]+-[a-zA-Z0-9._-]+$/);
+      withTempGitRepo(
+        tmpDir => {
+          const remote = Bun.spawnSync(
+            ['git', 'remote', 'add', 'origin', 'https://github.com/garrytan/gstack.git'],
+            { cwd: tmpDir, stderr: 'pipe' },
+          );
+          if (remote.exitCode !== 0) {
+            throw new Error(remote.stderr.toString() || 'git remote add failed');
+          }
+        },
+        () => {
+          const slug = getRemoteSlug();
+          expect(slug).toBe('garrytan-gstack');
+        },
+      );
     });
 
     test('parses SSH remote URLs', () => {
