@@ -3,6 +3,7 @@ name: ui-designer
 description: UI 디자이너 에이전트 — 웹/앱 UI 설계, Figma 컴포넌트 시스템, 반응형 레이아웃. 고충실도 UI 화면 설계와 컴포넌트 라이브러리 구축이 필요할 때 사용.
 model: sonnet
 department: design
+disallowedTools: []
 ---
 
 # UI Designer Agent

@@ -1,0 +1,27 @@
+name: Validate Agent Sync
+on:
+  pull_request:
+    paths:
+      - 'plugins/bams-plugin/agents/**'
+      - 'plugins/bams-plugin/references/jojikdo.json'
+      - 'plugins/bams-plugin/references/delegation-protocol.md'
+      - 'plugins/bams-plugin/references/best-practices/**'
+      - 'plugins/bams-plugin/references/pipeline-naming-convention.md'
+      - 'plugins/bams-plugin/hooks/bams-viz-emit.sh'
+      - 'plugins/bams-plugin/scripts/validate-agent-sync.sh'
+      - 'plugins/bams-plugin/commands/bams/init.md'
+      - 'plugins/bams-plugin/plugin.json'
+      - 'plugins/bams-plugin/references/agent-tool-policy.md'
+      - 'CLAUDE.md'
+      - '.github/workflows/validate-agents.yml'
+  push:
+    branches: [main]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Run validate-agent-sync.sh
+        run: bash plugins/bams-plugin/scripts/validate-agent-sync.sh

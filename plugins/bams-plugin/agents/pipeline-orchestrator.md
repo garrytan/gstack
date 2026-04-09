@@ -53,7 +53,7 @@ orchestrator → 부서장 → 에이전트
 | 디자인 | design-director | ui-designer, ux-designer, graphic-designer, motion-designer, design-system-agent |
 | QA | qa-strategy | automation-qa, defect-triage, release-quality-gate |
 | 평가 | product-analytics | experimentation, performance-evaluation, business-kpi |
-| 경영지원 | executive-reporter, resource-optimizer, hr-agent | (각자 독립) |
+| 경영지원 | executive-reporter, resource-optimizer, hr-agent, cross-department-coordinator | (각자 독립) |
 
 **금지 예시:**
 - orchestrator → automation-qa (직접 지시) — 금지
@@ -154,16 +154,17 @@ Phase의 작업 성격에 따라 다음 부서장에게 위임한다:
 | Phase/작업 성격 | 부서장 에이전트 | 소속 에이전트 풀 |
 |-----------------|----------------|-----------------|
 | 기획 (PRD, 설계, 리서치) | **product-strategy** | business-analysis, ux-research, project-governance |
-| 프론트엔드 개발 — UI 구현 (`frontend` 태그 또는 `*.tsx`, `src/app/**`, `src/components/**`) | **frontend-engineering** | frontend-engineering (리드) |
+| 프론트엔드 개발 — UI 구현 (`frontend` 태그 또는 `*.tsx`, `src/app/**`, `src/components/**`, `*.css`) | **frontend-engineering** | frontend-engineering (리드) |
 | 백엔드 개발 (`backend` 태그 또는 `src/app/api/**`, `prisma/**`, `*.server.ts`) | **backend-engineering** | backend-engineering (리드) |
-| 인프라/DevOps (`infra`/`devops` 태그 또는 `Dockerfile`, `.github/**`) | **platform-devops** | platform-devops (리드) |
-| 데이터 (`data` 태그 또는 `*.sql`, `scripts/etl/**`) | **data-integration** | data-integration (리드) |
+| 인프라/DevOps (`infra`/`devops`/`security` 태그 또는 `Dockerfile`, `.github/**`) | **platform-devops** | platform-devops (리드) |
+| 데이터 (`data` 태그 또는 `*.sql`, `scripts/etl/**`) | **platform-devops** | data-integration (platform-devops가 하위 위임) |
 | QA/검증 | **qa-strategy** | automation-qa, defect-triage, release-quality-gate |
 | 평가/분석 | **product-analytics** | experimentation, performance-evaluation, business-kpi |
 | UI/UX 디자인 (`design` 태그 또는 `*.figma`, `design/**`, `assets/icons/**`, `src/assets/**`) | **design-director** | ui-designer, ux-designer, graphic-designer, motion-designer, design-system-agent |
+| 에이전트 관리 (`agent-management` 태그 또는 `agents/*.md`, `jojikdo.json`) | **hr-agent** | hr-agent (리드) |
 
 **결정 우선순위:**
-1. 태스크 또는 PRD에 명시적 태그가 있으면 태그로 결정 (delegation-protocol.md §3-1)
+1. 태스크 또는 PRD에 명시적 태그가 있으면 태그로 결정 (delegation-protocol.md §3-1) — 예: `security` → platform-devops, `agent-management` → hr-agent
 2. 태그 없으면 변경 대상 파일 패턴으로 판단 (delegation-protocol.md §3-2)
 3. 복수 부서에 걸치면 파일 수 기준 주요 부서장 1명 선정, 나머지는 협력 부서장으로 병렬 위임 (delegation-protocol.md §3-3). 이 경우 cross-department-coordinator에게 부서 간 인터페이스 조율 요청
 

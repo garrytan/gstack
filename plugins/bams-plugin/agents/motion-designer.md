@@ -3,6 +3,7 @@ name: motion-designer
 description: 모션 디자이너 에이전트 — 애니메이션, 마이크로인터랙션, 스크롤 스토리텔링, 트랜지션. Rive 기반 인터랙티브 모션 설계와 구현 핸드오프가 필요할 때 사용.
 model: sonnet
 department: design
+disallowedTools: []
 ---
 
 # Motion Designer Agent

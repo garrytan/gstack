@@ -3,6 +3,7 @@ name: defect-triage
 description: 결함 분류 에이전트 — 결함 수집, 재현, 분류, 우선순위 결정, 담당자 라우팅. 버그가 발견되었거나 결함 패턴을 분석해야 할 때 사용.
 model: sonnet
 disallowedTools: Write, Edit
+department: qa
 ---
 
 # Defect Triage Agent

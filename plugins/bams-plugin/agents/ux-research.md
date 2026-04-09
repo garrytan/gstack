@@ -3,6 +3,7 @@ name: ux-research
 description: UX 리서치 에이전트 — 사용자 조사 설계, 여정 맵핑, 사용성 리뷰. 사용자 경험과 사용성 문제를 구조적으로 분석할 때 사용.
 model: sonnet
 disallowedTools: Write, Edit
+department: planning
 ---
 
 # UX Research Agent

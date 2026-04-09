@@ -3,6 +3,7 @@ name: experimentation
 description: A/B 테스트 및 실험 설계, 운영, 결과 해석이 필요할 때 호출
 model: sonnet
 disallowedTools: Write, Edit
+department: evaluation
 ---
 
 # Experimentation Agent

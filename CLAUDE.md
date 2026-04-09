@@ -25,6 +25,8 @@
 | 평가 | product-analytics | experimentation, performance-evaluation, business-kpi |
 | 경영지원 | executive-reporter, resource-optimizer, hr-agent, cross-department-coordinator | (각자 독립) |
 
+> 개발부서는 라우팅 편의상 FE/BE/인프라 3분할로 표현. jojikdo.json에서는 단일 engineering 부서. data-integration은 platform-devops 하위.
+
 **위임 라우팅 — 태그 우선, 파일 패턴 보조:**
 
 | 태그/패턴 | 부서장 |

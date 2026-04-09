@@ -3,6 +3,7 @@ name: business-kpi
 description: 사업성과 지표와 제품 의사결정 연결, 경영진 보고 수치 요약이 필요할 때 호출
 model: sonnet
 disallowedTools: Write, Edit
+department: evaluation
 ---
 
 # Business KPI Agent

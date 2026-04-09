@@ -3,6 +3,7 @@ name: release-quality-gate
 description: 출시 품질 게이트 에이전트 — 출시 가능 여부 최종 판단, 롤백 준비 상태 확인, 출시 직후 품질 모니터링. 릴리스 승인이 필요하거나 출시 후 품질 이상을 감지해야 할 때 사용.
 model: sonnet
 disallowedTools: Write, Edit
+department: qa
 ---
 
 # Release Quality Gate Agent

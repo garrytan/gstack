@@ -2,6 +2,8 @@
 name: data-integration
 description: 데이터 통합 에이전트 — 이벤트 트래킹 구현, 외부 시스템(결제/인증/메시지/파트너) 연동이 필요할 때 호출
 model: sonnet
+department: engineering
+disallowedTools: []
 ---
 
 # Data Integration Agent

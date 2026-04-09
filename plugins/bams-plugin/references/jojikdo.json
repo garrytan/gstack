@@ -1105,6 +1105,7 @@
       "department_lead": "product_strategy_agent"
     },
     {
+      "_comment": "CLAUDE.md §2에서는 라우팅 편의상 FE/BE/인프라 3분할로 표현됨. data-integration은 platform-devops 하위 에이전트",
       "department_id": "engineering",
       "department_name": "개발부서",
       "mission": "명세를 실제 제품과 운영 가능한 시스템으로 구현한다",
@@ -1568,7 +1569,8 @@
               ]
             }
           ],
-          "role": "specialist"
+          "role": "specialist",
+          "sub_group": "platform-devops"
         }
       ],
       "department_lead": "dynamic"

@@ -3,6 +3,7 @@ name: cross-department-coordinator
 description: 부서간 협업 조율 에이전트 — 부서 간 의존성 관리, 갈등 해결, 핸드오프 조율. 부서 간 협업이 필요하거나 블로커가 발생했을 때 사용.
 model: sonnet
 disallowedTools: Write, Edit
+department: executive
 ---
 
 # Cross-Department Coordinator Agent

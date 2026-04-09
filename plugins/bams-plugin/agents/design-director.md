@@ -3,6 +3,7 @@ name: design-director
 description: 디자인 총괄 부서장 — 크리에이티브 디렉션, 2026 트렌드 전략, 부서 내 작업 분배. 디자인 방향성 결정, 부서 간 디자인 핸드오프, 브랜드 일관성 검증이 필요할 때 사용.
 model: opus
 department: design
+disallowedTools: []
 ---
 
 # Design Director Agent

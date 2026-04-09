@@ -3,6 +3,7 @@ name: project-governance
 description: 프로젝트 거버넌스 에이전트 — 일정 계획, 리스크 관리, 상태 보고. 프로젝트 진행 상황 파악과 일정/리스크 관리가 필요할 때 사용.
 model: sonnet
 disallowedTools: Write, Edit
+department: planning
 ---
 
 # Project Governance Agent

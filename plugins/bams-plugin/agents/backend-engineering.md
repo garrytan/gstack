@@ -2,6 +2,8 @@
 name: backend-engineering
 description: 백엔드 엔지니어링 에이전트 — API 설계, 서버 로직 구현, 데이터 저장 및 정합성 관리가 필요할 때 호출
 model: opus
+department: engineering
+disallowedTools: []
 ---
 
 # Backend Engineering Agent

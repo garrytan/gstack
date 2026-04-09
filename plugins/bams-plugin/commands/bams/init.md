@@ -31,7 +31,7 @@ Options:
 - **전체 재초기화** - "모든 상태를 초기화 (board, history 포함)"
 
 **유지** 선택 시: 여기서 중단.
-**부분 재초기화** 선택 시: Step 2~4 실행 후 Step 5(디렉토리 생성) 스킵, Step 5.5(DB 초기화, idempotent) 실행, Step 6(분석)~Step 8(config) 실행, board/history 보존.
+**부분 재초기화** 선택 시: Step 2~4 실행 후 Step 5(디렉토리 생성) 스킵, Step 5.3(references 복사, idempotent) 실행, Step 5.5(DB 초기화, idempotent) 실행, Step 6(분석)~Step 8(config) 실행, board/history 보존.
 **전체 재초기화** 선택 시: 모든 Step을 처음부터 실행.
 
 ## Step 2: 언어 선택
@@ -84,6 +84,7 @@ Bash `mkdir -p`로 다음 디렉토리를 생성합니다:
 .crew/artifacts/agents/
 .crew/artifacts/hr/
 .crew/db/
+.crew/references/
 ```
 
 
@@ -169,6 +170,36 @@ fi
 ```
 
 이 단계는 idempotent합니다. 이미 존재하는 디렉토리는 스킵하므로, `부분 재초기화` 시에도 안전하게 실행됩니다. 새 에이전트가 추가될 때마다 재실행하면 누락된 디렉토리만 생성합니다.
+
+## Step 5.3: References 파일 복사
+
+bams-plugin의 공용 reference 문서를 프로젝트 `.crew/references/`로 복사합니다. 에이전트와 커맨드가 위임/회고/네이밍/툴 정책 등을 참조할 때 사용합니다.
+
+```bash
+# bams-plugin references 디렉토리 탐색 (소스 → 캐시 순)
+_REFS_DIR=$(find . -path "*/bams-plugin/references" -not -path "*/node_modules/*" 2>/dev/null | head -1)
+[ -z "$_REFS_DIR" ] && _REFS_DIR=$(find ~/.claude/plugins/cache -path "*/bams-plugin/*/references" 2>/dev/null | head -1)
+
+if [ -n "$_REFS_DIR" ]; then
+  mkdir -p .crew/references
+  for _REF in pipeline-naming-convention.md jojikdo.json delegation-protocol.md retro-protocol.md agent-tool-policy.md; do
+    _SRC="$_REFS_DIR/$_REF"
+    _DST=".crew/references/$_REF"
+    if [ -f "$_DST" ]; then
+      echo "[references] $_REF: 이미 존재 — 스킵"
+    elif [ -f "$_SRC" ]; then
+      cp "$_SRC" "$_DST"
+      echo "[references] $_REF: 복사 완료"
+    else
+      echo "[references] $_REF: 소스 없음 — 스킵"
+    fi
+  done
+else
+  echo "[references] references 디렉토리를 찾을 수 없습니다 — 스킵"
+fi
+```
+
+이 단계는 idempotent합니다. 이미 존재하는 파일은 덮어쓰지 않으므로 `부분 재초기화` 시에도 안전합니다. 새 reference 파일이 추가되면 위 목록에 포함하여 재실행하면 누락분만 복사됩니다.
 
 ## Step 5.5: TaskDB 초기화 (SQLite)
 

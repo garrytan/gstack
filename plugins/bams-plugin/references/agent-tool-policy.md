@@ -62,6 +62,36 @@
 # 분석/전략 에이전트 (Write/Edit 금지)
 disallowedTools: Write, Edit
 
-# 구현 에이전트 (제한 없음 — 선언 생략)
+# 구현 전담 에이전트 (의도적 전체 허용)
+disallowedTools: []
 ```
+
+> `disallowedTools: []`는 "선언 누락"이 아니라 **"의도적으로 모든 도구를 허용한다"**는 감사 신호다. 아래 "구현 전담 에이전트 (disallowedTools: [])" 목록과 반드시 일치해야 한다.
+
+## 구현 전담 에이전트 (`disallowedTools: []`)
+
+아래 에이전트는 역할상 Write/Edit/Bash 등 모든 도구가 필수이며, frontmatter에 `disallowedTools: []`로 **명시적 전체 허용**을 선언한다. 신규 등록/삭제 시 본 목록을 동기 갱신해야 한다.
+
+- **frontend-engineering**: React/TSX/CSS 구현을 위한 Write/Edit 필수
+- **backend-engineering**: API 라우트/서버 코드/Prisma 스키마 구현을 위한 Write/Edit 필수
+- **platform-devops**: Dockerfile/CI 워크플로우/인프라 스크립트 작성을 위한 Write/Edit 필수
+- **data-integration**: SQL 마이그레이션/ETL 스크립트 작성을 위한 Write/Edit 필수
+- **automation-qa**: 테스트 코드(Playwright/Vitest) 작성이 핵심 역할
+- **design-director**: 디자인 시스템 토큰/가이드 문서 직접 편집 권한 필요
+- **ui-designer**: 컴포넌트 마크업/스타일 자산 직접 생성
+- **ux-designer**: 플로우/와이어프레임 산출물 파일 직접 생성
+- **graphic-designer**: 이미지/아이콘 자산 및 메타데이터 파일 직접 생성
+- **motion-designer**: 애니메이션 스펙/Lottie 자산 파일 직접 생성
+- **design-system-agent**: 토큰 JSON/테마 파일 직접 편집
+- **hr-agent**: 에이전트 md/jojikdo.json/plugin.json 등 조직 메타데이터 직접 편집
+
+## 온보딩 체크리스트 (신규 에이전트 등록)
+
+- [ ] 역할이 **구현 전담**인가?
+  - 예 → 이 문서 "구현 전담 에이전트" 목록에 사유 1줄과 함께 등록하고, frontmatter에 `disallowedTools: []` 선언
+- [ ] 역할이 **분석/전략/조율 전담**인가?
+  - 예 → frontmatter에 `disallowedTools: Write, Edit` 선언 (산출물은 호출자가 저장)
+- [ ] `pipeline-orchestrator` / `executive-reporter` 류의 **예외 사례**에 해당하는가?
+  - 예 → "예외" 섹션에 사유와 함께 추가
+- [ ] 본 문서의 구현/분석 에이전트 목록 및 조직도(`jojikdo.json`)와 일치하는지 재확인
 

@@ -3,6 +3,7 @@ name: ux-designer
 description: UX 디자이너 에이전트 — 와이어프레임, 프로토타이핑, 접근성 검증, 사용성 테스트. 제품 내 UX 설계와 인터랙션 플로우 정의가 필요할 때 사용.
 model: sonnet
 department: design
+disallowedTools: []
 ---
 
 # UX Designer Agent
