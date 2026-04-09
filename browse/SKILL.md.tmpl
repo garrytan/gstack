@@ -104,7 +104,21 @@ $B snapshot -D                   # verify deletion happened
 $B diff https://staging.app.com https://prod.app.com
 ```
 
-### 11. Show screenshots to the user
+### 11. Interfaze (optional — API key)
+
+Structured extraction and OCR via [Interfaze](https://interfaze.ai/) (OpenAI-compatible API). One-time setup: `$B interfaze-setup` or `INTERFAZE_API_KEY` / `~/.gstack/interfaze.json`.
+
+```bash
+$B ocr                          # OCR current viewport (PNG → text)
+$B ocr @e3 --json               # element screenshot + bounding boxes in precontext
+$B ocr /tmp/mockup.png --json   # file path (must be under cwd or temp)
+$B search "arxiv diffusion 2025" --limit 5
+$B ai-scrape https://example.com --schema '{"title":"string","price":"number"}' [--json]
+```
+
+Use **`ocr`** when `snapshot` has no text (canvas, charts, image-heavy UI) but you need exact strings. Use **`ai-scrape`** for structured fields from URLs that resist local Playwright (heavy bot protection); complements `$B scrape` (local media download).
+
+### 12. Show screenshots to the user
 After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the Read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
 
 ## User Handoff

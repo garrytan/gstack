@@ -17,6 +17,7 @@ export const READ_COMMANDS = new Set([
   'dialog', 'is',
   'inspect',
   'media', 'data',
+  'ocr', 'search', 'ai-scrape',
 ]);
 
 export const WRITE_COMMANDS = new Set([
@@ -40,6 +41,7 @@ export const META_COMMANDS = new Set([
   'watch',
   'state',
   'frame',
+  'interfaze-setup',
 ]);
 
 export const ALL_COMMANDS = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
@@ -49,6 +51,7 @@ export const PAGE_CONTENT_COMMANDS = new Set([
   'text', 'html', 'links', 'forms', 'accessibility', 'attrs',
   'console', 'dialog',
   'media', 'data',
+  'search', 'ai-scrape',
 ]);
 
 /** Wrap output from untrusted-content commands with trust boundary markers */
@@ -108,6 +111,9 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   // Data extraction
   'download': { category: 'Extraction', description: 'Download URL or media element to disk using browser cookies', usage: 'download <url|@ref> [path] [--base64]' },
   'scrape':   { category: 'Extraction', description: 'Bulk download all media from page. Writes manifest.json', usage: 'scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]' },
+  'ocr':      { category: 'Extraction', description: 'OCR via Interfaze: extract text from image file, PDF document, @ref, CSS selector, or current viewport (requires Interfaze API key)', usage: 'ocr [path|@ref|selector] [--json]' },
+  'search':   { category: 'Extraction', description: 'Web search via Interfaze with citations (requires Interfaze API key)', usage: 'search <query> [--limit N]' },
+  'ai-scrape': { category: 'Extraction', description: 'AI structured extraction from any URL via Interfaze (bot-protected sites; requires Interfaze API key)', usage: 'ai-scrape <url> --schema {"field":"string"} [--json]' },
   'archive':  { category: 'Extraction', description: 'Save complete page as MHTML via CDP', usage: 'archive [path]' },
   // Visual
   'screenshot': { category: 'Visual', description: 'Save screenshot (supports element crop via CSS/@ref, --clip region, --viewport)', usage: 'screenshot [--viewport] [--clip x,y,w,h] [selector|@ref] [path]' },
@@ -141,6 +147,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'state':   { category: 'Server', description: 'Save/load browser state (cookies + URLs)', usage: 'state save|load <name>' },
   // Frame
   'frame':   { category: 'Meta', description: 'Switch to iframe context (or main to return)', usage: 'frame <sel|@ref|--name n|--url pattern|main>' },
+  'interfaze-setup': { category: 'Meta', description: 'Save Interfaze API key to ~/.gstack/interfaze.json for ocr, search, ai-scrape', usage: 'interfaze-setup' },
   // CSS Inspector
   'inspect': { category: 'Inspection', description: 'Deep CSS inspection via CDP — full rule cascade, box model, computed styles', usage: 'inspect [selector] [--all] [--history]' },
   'style':   { category: 'Interaction', description: 'Modify CSS property on element (with undo support)', usage: 'style <sel> <prop> <value> | style --undo [N]' },

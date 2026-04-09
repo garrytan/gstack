@@ -659,7 +659,9 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-5. **Ask: what's your goal with this?** This is a real question, not a formality. The answer determines everything about how the session runs.
+5. **Public structured research (optional):** With an Interfaze API key (`$B interfaze-setup`), `$B ai-scrape <public-url> --schema '{"field":"string"}'` can extract labeled fields from pages that resist headless Playwright. Use only for **public** pages; respect site terms and privacy — never target logged-in or private data without explicit user permission.
+
+6. **Ask: what's your goal with this?** This is a real question, not a formality. The answer determines everything about how the session runs.
 
    Via AskUserQuestion, ask:
 
@@ -676,7 +678,7 @@ smarter on their codebase over time.
    - Startup, intrapreneurship → **Startup mode** (Phase 2A)
    - Hackathon, open source, research, learning, having fun → **Builder mode** (Phase 2B)
 
-6. **Assess product stage** (only for startup/intrapreneurship modes):
+7. **Assess product stage** (only for startup/intrapreneurship modes):
    - Pre-product (idea stage, no users yet)
    - Has users (people using it, not yet paying)
    - Has paying customers

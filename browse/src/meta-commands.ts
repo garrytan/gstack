@@ -313,7 +313,7 @@ export async function handleMetaCommand(
               }
               lastWasWrite = true;
             } else if (READ_COMMANDS.has(name)) {
-              result = await handleReadCommand(name, cmdArgs, session);
+              result = await handleReadCommand(name, cmdArgs, session, bm);
               if (PAGE_CONTENT_COMMANDS.has(name)) {
                 result = wrapUntrustedContent(result, bm.getCurrentUrl());
               }
@@ -645,6 +645,27 @@ export async function handleMetaCommand(
       bm.setFrame(frame);
       bm.clearRefs();
       return `Switched to frame: ${frame.url()}`;
+    }
+
+    case 'interfaze-setup': {
+      const { resolveInterfazeKey, saveInterfazeKey } = await import('./interfaze-auth');
+      const existing = resolveInterfazeKey();
+      if (existing) {
+        console.log('Replacing existing Interfaze API key in ~/.gstack/interfaze.json');
+      } else {
+        console.log('No Interfaze API key found.');
+        console.log('Get one at: https://interfaze.ai/dashboard\n');
+      }
+      process.stdout.write('Interfaze API key: ');
+      const reader = Bun.stdin.stream().getReader();
+      const { value } = await reader.read();
+      reader.releaseLock();
+      const key = new TextDecoder().decode(value ?? new Uint8Array()).trim();
+      if (!key || key.length < 8) {
+        throw new Error('Invalid key: enter a non-empty API key (min 8 characters).');
+      }
+      saveInterfazeKey(key);
+      return 'Key saved to ~/.gstack/interfaze.json (0600). Interfaze commands: ocr, search, ai-scrape.';
     }
 
     default:

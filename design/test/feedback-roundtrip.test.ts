@@ -17,6 +17,10 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { BrowserManager } from '../../browse/src/browser-manager';
 import { handleReadCommand } from '../../browse/src/read-commands';
 import { handleWriteCommand } from '../../browse/src/write-commands';
+
+async function readBrowseCmd(cmd: string, args: string[], b: BrowserManager) {
+  return handleReadCommand(cmd, args, b.getActiveSession(), b);
+}
 import { generateCompareHtml } from '../src/compare';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -144,26 +148,26 @@ describe('Submit: browser click → feedback.json on disk', () => {
     await handleWriteCommand('goto', [baseUrl], bm);
 
     // Verify __GSTACK_SERVER_URL was injected
-    const hasServerUrl = await handleReadCommand('js', [
+    const hasServerUrl = await readBrowseCmd('js', [
       '!!window.__GSTACK_SERVER_URL'
     ], bm);
     expect(hasServerUrl).toBe('true');
 
     // User picks variant A, rates it 5 stars
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.querySelectorAll("input[name=\\"preferred\\"]")[0].click()'
     ], bm);
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.querySelectorAll(".stars")[0].querySelectorAll(".star")[4].click()'
     ], bm);
 
     // User adds overall feedback
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.getElementById("overall-feedback").value = "Ship variant A"'
     ], bm);
 
     // User clicks Submit
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.getElementById("submit-btn").click()'
     ], bm);
 
@@ -187,19 +191,19 @@ describe('Submit: browser click → feedback.json on disk', () => {
     await new Promise(r => setTimeout(r, 500));
 
     // After submit, the page should be read-only
-    const submitBtnExists = await handleReadCommand('js', [
+    const submitBtnExists = await readBrowseCmd('js', [
       'document.getElementById("submit-btn").style.display'
     ], bm);
     // submit button is hidden after post-submit lifecycle
     expect(submitBtnExists).toBe('none');
 
-    const successVisible = await handleReadCommand('js', [
+    const successVisible = await readBrowseCmd('js', [
       'document.getElementById("success-msg").style.display'
     ], bm);
     expect(successVisible).toBe('block');
 
     // Success message should mention /design-shotgun
-    const successText = await handleReadCommand('js', [
+    const successText = await readBrowseCmd('js', [
       'document.getElementById("success-msg").textContent'
     ], bm);
     expect(successText).toContain('design-shotgun');
@@ -217,12 +221,12 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
     await handleWriteCommand('goto', [baseUrl], bm);
 
     // User clicks "Totally different" chiclet
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"different\\"]").click()'
     ], bm);
 
     // User clicks Regenerate
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.getElementById("regen-btn").click()'
     ], bm);
 
@@ -250,7 +254,7 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
     await handleWriteCommand('goto', [baseUrl], bm);
 
     // Click "More like this" on variant B (index 1)
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.querySelectorAll(".more-like-this")[1].click()'
     ], bm);
 
@@ -268,17 +272,17 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
     serverState = 'serving';
     await handleWriteCommand('goto', [baseUrl], bm);
 
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"different\\"]").click()'
     ], bm);
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.getElementById("regen-btn").click()'
     ], bm);
 
     await new Promise(r => setTimeout(r, 300));
 
     // Board should show "Generating new designs..." text
-    const bodyText = await handleReadCommand('js', [
+    const bodyText = await readBrowseCmd('js', [
       'document.body.textContent'
     ], bm);
     expect(bodyText).toContain('Generating new designs');
@@ -297,10 +301,10 @@ describe('Full regeneration round-trip: regen → reload → submit', () => {
     await handleWriteCommand('goto', [baseUrl], bm);
 
     // Step 1: User clicks Regenerate
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"match\\"]").click()'
     ], bm);
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.getElementById("regen-btn").click()'
     ], bm);
 
@@ -335,16 +339,16 @@ describe('Full regeneration round-trip: regen → reload → submit', () => {
     await handleWriteCommand('goto', [baseUrl], bm);
 
     // Verify the board is fresh (no prior picks)
-    const status = await handleReadCommand('js', [
+    const status = await readBrowseCmd('js', [
       'document.getElementById("status").textContent'
     ], bm);
     expect(status).toBe('');
 
     // Step 5: User picks variant C on round 2 and submits
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.querySelectorAll("input[name=\\"preferred\\"]")[2].click()'
     ], bm);
-    await handleReadCommand('js', [
+    await readBrowseCmd('js', [
       'document.getElementById("submit-btn").click()'
     ], bm);
 

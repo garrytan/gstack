@@ -19,7 +19,7 @@ import * as path from 'path';
 
 // Thin wrappers that bridge old test calls (bm as 3rd arg) to new signatures (session + bm)
 const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
-  _handleReadCommand(cmd, args, b.getActiveSession());
+  _handleReadCommand(cmd, args, b.getActiveSession(), b);
 const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleWriteCommand(cmd, args, b.getActiveSession(), b);
 

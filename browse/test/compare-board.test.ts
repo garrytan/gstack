@@ -16,7 +16,7 @@ import { handleReadCommand as _handleReadCommand } from '../src/read-commands';
 import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
 
 const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
-  _handleReadCommand(cmd, args, b.getActiveSession());
+  _handleReadCommand(cmd, args, b.getActiveSession(), b);
 const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleWriteCommand(cmd, args, b.getActiveSession(), b);
 import { generateCompareHtml } from '../../design/src/compare';

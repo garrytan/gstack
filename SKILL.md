@@ -657,6 +657,16 @@ $B screenshot /tmp/github-profile.png
 $B diff https://staging.app.com https://prod.app.com
 ```
 
+### Interfaze (optional — OCR, search, structured URL extract)
+
+Requires Interfaze API key (`$B interfaze-setup` or `INTERFAZE_API_KEY`). See `/browse` skill for full patterns.
+
+```bash
+$B ocr [--json]                  # viewport or @ref / image path
+$B search "your query" --limit 5
+$B ai-scrape https://example.com --schema '{"name":"string"}' [--json]
+```
+
 ### Multi-step chain (efficient for long flows)
 
 ```bash
@@ -783,9 +793,12 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 ### Extraction
 | Command | Description |
 |---------|-------------|
+| `ai-scrape <url> --schema {"field":"string"} [--json]` | AI structured extraction from any URL via Interfaze (bot-protected sites; requires Interfaze API key) |
 | `archive [path]` | Save complete page as MHTML via CDP |
 | `download <url|@ref> [path] [--base64]` | Download URL or media element to disk using browser cookies |
+| `ocr [path|@ref|selector] [--json]` | OCR via Interfaze: extract text from image file, PDF document, @ref, CSS selector, or current viewport (requires Interfaze API key) |
 | `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]` | Bulk download all media from page. Writes manifest.json |
+| `search <query> [--limit N]` | Web search via Interfaze with citations (requires Interfaze API key) |
 
 ### Interaction
 | Command | Description |
@@ -846,6 +859,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `chain` | Run commands from JSON stdin. Format: [["cmd","arg1",...],...] |
 | `frame <sel|@ref|--name n|--url pattern|main>` | Switch to iframe context (or main to return) |
 | `inbox [--clear]` | List messages from sidebar scout inbox |
+| `interfaze-setup` | Save Interfaze API key to ~/.gstack/interfaze.json for ocr, search, ai-scrape |
 | `watch [stop]` | Passive observation — periodic snapshots while user browses |
 
 ### Tabs

@@ -937,6 +937,7 @@ This is the **primary mode** for developers verifying their work. When the user 
    - Check console for errors
    - If the change was interactive (forms, buttons, flows), test the interaction end-to-end
    - Use `snapshot -D` before and after actions to verify the change had the expected effect
+   - For exact text in screenshots (prices, error copy, canvas/image-heavy UI where the accessibility tree is empty), use `$B ocr [@ref|path] --json` (Interfaze — run `$B interfaze-setup` once if needed)
 
 5. **Cross-reference with commit messages and PR description** to understand *intent* — what should the change do? Verify it actually does that.
 

@@ -542,7 +542,21 @@ $B snapshot -D                   # verify deletion happened
 $B diff https://staging.app.com https://prod.app.com
 ```
 
-### 11. Show screenshots to the user
+### 11. Interfaze (optional — API key)
+
+Structured extraction and OCR via [Interfaze](https://interfaze.ai/) (OpenAI-compatible API). One-time setup: `$B interfaze-setup` or `INTERFAZE_API_KEY` / `~/.gstack/interfaze.json`.
+
+```bash
+$B ocr                          # OCR current viewport (PNG → text)
+$B ocr @e3 --json               # element screenshot + bounding boxes in precontext
+$B ocr /tmp/mockup.png --json   # file path (must be under cwd or temp)
+$B search "arxiv diffusion 2025" --limit 5
+$B ai-scrape https://example.com --schema '{"title":"string","price":"number"}' [--json]
+```
+
+Use **`ocr`** when `snapshot` has no text (canvas, charts, image-heavy UI) but you need exact strings. Use **`ai-scrape`** for structured fields from URLs that resist local Playwright (heavy bot protection); complements `$B scrape` (local media download).
+
+### 12. Show screenshots to the user
 After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the Read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
 
 ## User Handoff
@@ -675,9 +689,12 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 ### Extraction
 | Command | Description |
 |---------|-------------|
+| `ai-scrape <url> --schema {"field":"string"} [--json]` | AI structured extraction from any URL via Interfaze (bot-protected sites; requires Interfaze API key) |
 | `archive [path]` | Save complete page as MHTML via CDP |
 | `download <url|@ref> [path] [--base64]` | Download URL or media element to disk using browser cookies |
+| `ocr [path|@ref|selector] [--json]` | OCR via Interfaze: extract text from image file, PDF document, @ref, CSS selector, or current viewport (requires Interfaze API key) |
 | `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]` | Bulk download all media from page. Writes manifest.json |
+| `search <query> [--limit N]` | Web search via Interfaze with citations (requires Interfaze API key) |
 
 ### Interaction
 | Command | Description |
@@ -738,6 +755,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `chain` | Run commands from JSON stdin. Format: [["cmd","arg1",...],...] |
 | `frame <sel|@ref|--name n|--url pattern|main>` | Switch to iframe context (or main to return) |
 | `inbox [--clear]` | List messages from sidebar scout inbox |
+| `interfaze-setup` | Save Interfaze API key to ~/.gstack/interfaze.json for ocr, search, ai-scrape |
 | `watch [stop]` | Passive observation — periodic snapshots while user browses |
 
 ### Tabs

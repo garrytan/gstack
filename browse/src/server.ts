@@ -1000,7 +1000,7 @@ async function handleCommandInternal(
           await cleanupHiddenMarkers(page);
         }
       } else {
-        result = await handleReadCommand(command, args, session);
+        result = await handleReadCommand(command, args, session, browserManager);
       }
     } else if (WRITE_COMMANDS.has(command)) {
       result = await handleWriteCommand(command, args, session, browserManager);

@@ -219,6 +219,16 @@ $B screenshot /tmp/github-profile.png
 $B diff https://staging.app.com https://prod.app.com
 ```
 
+### Interfaze (optional — OCR, search, structured URL extract)
+
+Requires Interfaze API key (`$B interfaze-setup` or `INTERFAZE_API_KEY`). See `/browse` skill for full patterns.
+
+```bash
+$B ocr [--json]                  # viewport or @ref / image path
+$B search "your query" --limit 5
+$B ai-scrape https://example.com --schema '{"name":"string"}' [--json]
+```
+
 ### Multi-step chain (efficient for long flows)
 
 ```bash

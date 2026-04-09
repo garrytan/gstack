@@ -113,7 +113,7 @@ Also check:
 - "{framework} {generic error type}" — **sanitize first:** strip hostnames, IPs, file paths, SQL, customer data. Search the error category, not the raw message.
 - "{library} {component} known issues"
 
-If WebSearch is unavailable, skip this search and proceed with hypothesis testing. If a documented solution or known dependency bug surfaces, present it as a candidate hypothesis in Phase 3.
+If WebSearch is unavailable, skip this search and proceed with hypothesis testing — or, if browse + an Interfaze API key are configured (`$B interfaze-setup`), try `$B search "sanitized query"` as an alternative. If a documented solution or known dependency bug surfaces, present it as a candidate hypothesis in Phase 3.
 
 ---
 

@@ -135,6 +135,8 @@ Structure findings as an **Inferred Design System**:
 
 After extraction, offer: *"Want me to save this as your DESIGN.md? I can lock in these observations as your project's design system baseline."*
 
+**Mockups / flat images:** If comparing PNG/JPG mockups (not a live DOM), use \`$B ocr /path/to/mockup.png --json\` (Interfaze API key via \`$B interfaze-setup\`) to pull exact typography copy for comparison against the built site.
+
 ---
 
 ## Phase 3: Page-by-Page Visual Audit

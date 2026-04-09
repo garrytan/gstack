@@ -58,7 +58,7 @@ import { handleSnapshot } from '../src/snapshot';
 import { READ_COMMANDS, WRITE_COMMANDS } from '../src/commands';
 
 const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
-  _handleReadCommand(cmd, args, b.getActiveSession());
+  _handleReadCommand(cmd, args, b.getActiveSession(), b);
 const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleWriteCommand(cmd, args, b.getActiveSession(), b);
 
@@ -73,8 +73,8 @@ describe('Batch execution', () => {
     const session2 = bm.getSession(tab2);
 
     const [result1, result2] = await Promise.allSettled([
-      _handleReadCommand('text', [], session1),
-      _handleReadCommand('text', [], session2),
+      _handleReadCommand('text', [], session1, bm),
+      _handleReadCommand('text', [], session2, bm),
     ]);
 
     expect(result1.status).toBe('fulfilled');
@@ -99,7 +99,7 @@ describe('Batch execution', () => {
 
     // Navigate then read — must be sequential
     await _handleWriteCommand('goto', [baseUrl + '/basic.html'], session, bm);
-    const text = await _handleReadCommand('text', [], session);
+    const text = await _handleReadCommand('text', [], session, bm);
 
     expect(text).toContain('Hello');
 
@@ -115,7 +115,7 @@ describe('Batch execution', () => {
 
     // Use Promise.allSettled — one succeeds (text read), one fails (invalid ref)
     const results = await Promise.allSettled([
-      _handleReadCommand('text', [], session1),
+      _handleReadCommand('text', [], session1, bm),
       session2.resolveRef('@e999'), // nonexistent ref — fails immediately
     ]);
 
