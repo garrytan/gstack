@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# nstack-review-log — atomically log a review result
+# Usage: nstack-review-log '{"skill":"...","timestamp":"...","status":"..."}'
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/nstack-slug" 2>/dev/null)"
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+NSTACK_HOME="${NSTACK_HOME:-${_ROOT:+$_ROOT/.nstack}}"
+NSTACK_HOME="${NSTACK_HOME:-$HOME/.nstack}"
+mkdir -p "$NSTACK_HOME/projects/$SLUG"
+
+# Validate: input must be parseable JSON (reject malformed or injection attempts)
+INPUT="$1"
+if ! printf '%s' "$INPUT" | bun -e "JSON.parse(await Bun.stdin.text())" 2>/dev/null; then
+  # Not valid JSON — refuse to append
+  echo "nstack-review-log: invalid JSON, skipping" >&2
+  exit 1
+fi
+
+echo "$INPUT" >> "$NSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"

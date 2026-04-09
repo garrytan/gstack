@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# nstack-review-read — read review log and config for dashboard
+# Usage: nstack-review-read
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/nstack-slug" 2>/dev/null)"
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+NSTACK_HOME="${NSTACK_HOME:-${_ROOT:+$_ROOT/.nstack}}"
+NSTACK_HOME="${NSTACK_HOME:-$HOME/.nstack}"
+cat "$NSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null || echo "NO_REVIEWS"
+echo "---CONFIG---"
+"$SCRIPT_DIR/nstack-config" get skip_eng_review 2>/dev/null || echo "false"
+echo "---HEAD---"
+git rev-parse --short HEAD 2>/dev/null || echo "unknown"

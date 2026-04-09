@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# gstack-community-dashboard — community usage stats from Supabase
+#
+# Calls the community-pulse edge function for aggregated stats:
+# skill popularity, crash clusters, version distribution, retention.
+#
+# Env overrides (for testing):
+#   GSTACK_DIR                    — override auto-detected gstack root
+#   GSTACK_SUPABASE_URL           — override Supabase project URL
+#   GSTACK_SUPABASE_ANON_KEY      — override Supabase anon key
+set -uo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# Source Supabase config if not overridden by env
+if [ -z "${GSTACK_SUPABASE_URL:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+SUPABASE_URL="${GSTACK_SUPABASE_URL:-}"
+ANON_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+
+if [ -z "$SUPABASE_URL" ] || [ -z "$ANON_KEY" ]; then
+  echo "gstack community dashboard"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Supabase not configured yet. The community dashboard will be"
+  echo "available once the gstack Supabase project is set up."
+  echo ""
+  echo "For local analytics, run: gstack-analytics"
+  exit 0
+fi
+
+# ─── Fetch aggregated stats from edge function ────────────────
+DATA="$(curl -sf --max-time 15 \
+  "${SUPABASE_URL}/functions/v1/community-pulse" \
+  -H "apikey: ${ANON_KEY}" \
+  2>/dev/null || echo "{}")"
+
+echo "gstack community dashboard"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# ─── Weekly active installs ──────────────────────────────────
+WEEKLY="$(echo "$DATA" | grep -o '"weekly_active":[0-9]*' | grep -o '[0-9]*' || echo "0")"
+CHANGE="$(echo "$DATA" | grep -o '"change_pct":[0-9-]*' | grep -o '[0-9-]*' || echo "0")"
+
+echo "Weekly active installs: ${WEEKLY}"
+if [ "$CHANGE" -gt 0 ] 2>/dev/null; then
+  echo "  Change: +${CHANGE}%"
+elif [ "$CHANGE" -lt 0 ] 2>/dev/null; then
+  echo "  Change: ${CHANGE}%"
+fi
+echo ""
+
+# ─── Skill popularity (top 10) ───────────────────────────────
+echo "Top skills (last 7 days)"
+echo "────────────────────────"
+
+# Parse top_skills array from JSON
+SKILLS="$(echo "$DATA" | grep -o '"top_skills":\[[^]]*\]' || echo "")"
+if [ -n "$SKILLS" ] && [ "$SKILLS" != '"top_skills":[]' ]; then
+  # Parse each object — handle any key order (JSONB doesn't preserve order)
+  echo "$SKILLS" | grep -o '{[^}]*}' | while read -r OBJ; do
+    SKILL="$(echo "$OBJ" | grep -o '"skill":"[^"]*"' | awk -F'"' '{print $4}')"
+    COUNT="$(echo "$OBJ" | grep -o '"count":[0-9]*' | grep -o '[0-9]*')"
+    [ -n "$SKILL" ] && [ -n "$COUNT" ] && printf "  /%-20s %s runs\n" "$SKILL" "$COUNT"
+  done
+else
+  echo "  No data yet"
+fi
+echo ""
+
+# ─── Crash clusters ──────────────────────────────────────────
+echo "Top crash clusters"
+echo "──────────────────"
+
+CRASHES="$(echo "$DATA" | grep -o '"crashes":\[[^]]*\]' || echo "")"
+if [ -n "$CRASHES" ] && [ "$CRASHES" != '"crashes":[]' ]; then
+  echo "$CRASHES" | grep -o '{[^}]*}' | head -5 | while read -r OBJ; do
+    ERR="$(echo "$OBJ" | grep -o '"error_class":"[^"]*"' | awk -F'"' '{print $4}')"
+    C="$(echo "$OBJ" | grep -o '"total_occurrences":[0-9]*' | grep -o '[0-9]*')"
+    [ -n "$ERR" ] && printf "  %-30s %s occurrences\n" "$ERR" "${C:-?}"
+  done
+else
+  echo "  No crashes reported"
+fi
+echo ""
+
+# ─── Version distribution ────────────────────────────────────
+echo "Version distribution (last 7 days)"
+echo "───────────────────────────────────"
+
+VERSIONS="$(echo "$DATA" | grep -o '"versions":\[[^]]*\]' || echo "")"
+if [ -n "$VERSIONS" ] && [ "$VERSIONS" != '"versions":[]' ]; then
+  echo "$VERSIONS" | grep -o '{[^}]*}' | head -5 | while read -r OBJ; do
+    VER="$(echo "$OBJ" | grep -o '"version":"[^"]*"' | awk -F'"' '{print $4}')"
+    COUNT="$(echo "$OBJ" | grep -o '"count":[0-9]*' | grep -o '[0-9]*')"
+    [ -n "$VER" ] && [ -n "$COUNT" ] && printf "  v%-15s %s events\n" "$VER" "$COUNT"
+  done
+else
+  echo "  No data yet"
+fi
+
+echo ""
+echo "For local analytics: gstack-analytics"

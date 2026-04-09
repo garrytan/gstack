@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# gstack-telemetry-sync — sync local JSONL events to Supabase
+#
+# Fire-and-forget, backgrounded, rate-limited to once per 5 minutes.
+# Strips local-only fields before sending. Respects privacy tiers.
+# Posts to the telemetry-ingest edge function (not PostgREST directly).
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR           — override ~/.gstack state directory
+#   GSTACK_DIR                 — override auto-detected gstack root
+#   GSTACK_SUPABASE_URL        — override Supabase project URL
+set -uo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+ANALYTICS_DIR="$STATE_DIR/analytics"
+JSONL_FILE="$ANALYTICS_DIR/skill-usage.jsonl"
+CURSOR_FILE="$ANALYTICS_DIR/.last-sync-line"
+RATE_FILE="$ANALYTICS_DIR/.last-sync-time"
+CONFIG_CMD="$GSTACK_DIR/bin/gstack-config"
+
+# Source Supabase config if not overridden by env
+if [ -z "${GSTACK_SUPABASE_URL:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+SUPABASE_URL="${GSTACK_SUPABASE_URL:-}"
+ANON_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+
+# ─── Pre-checks ──────────────────────────────────────────────
+# No Supabase URL configured yet → exit silently
+[ -z "$SUPABASE_URL" ] && exit 0
+
+# No JSONL file → nothing to sync
+[ -f "$JSONL_FILE" ] || exit 0
+
+# Rate limit: once per 5 minutes
+if [ -f "$RATE_FILE" ]; then
+  STALE=$(find "$RATE_FILE" -mmin +5 2>/dev/null || true)
+  [ -z "$STALE" ] && exit 0
+fi
+
+# ─── Read tier ───────────────────────────────────────────────
+TIER="$("$CONFIG_CMD" get telemetry 2>/dev/null || true)"
+TIER="${TIER:-off}"
+[ "$TIER" = "off" ] && exit 0
+
+# ─── Read cursor ─────────────────────────────────────────────
+CURSOR=0
+if [ -f "$CURSOR_FILE" ]; then
+  CURSOR="$(cat "$CURSOR_FILE" 2>/dev/null | tr -d ' \n\r\t')"
+  # Validate: must be a non-negative integer
+  case "$CURSOR" in *[!0-9]*) CURSOR=0 ;; esac
+fi
+
+# Safety: if cursor exceeds file length, reset
+TOTAL_LINES="$(wc -l < "$JSONL_FILE" | tr -d ' \n\r\t')"
+if [ "$CURSOR" -gt "$TOTAL_LINES" ] 2>/dev/null; then
+  CURSOR=0
+fi
+
+# Nothing new to sync
+[ "$CURSOR" -ge "$TOTAL_LINES" ] 2>/dev/null && exit 0
+
+# ─── Read unsent lines ───────────────────────────────────────
+SKIP=$(( CURSOR + 1 ))
+UNSENT="$(tail -n "+$SKIP" "$JSONL_FILE" 2>/dev/null || true)"
+[ -z "$UNSENT" ] && exit 0
+
+# ─── Strip local-only fields and build batch ─────────────────
+# Edge function expects raw JSONL field names (v, ts, sessions) —
+# no column renaming needed (the function maps them internally).
+BATCH="["
+FIRST=true
+COUNT=0
+
+while IFS= read -r LINE; do
+  # Skip empty or malformed lines
+  [ -z "$LINE" ] && continue
+  echo "$LINE" | grep -q '^{' || continue
+
+  # Strip local-only fields (keep v, ts, sessions as-is for edge function)
+  CLEAN="$(echo "$LINE" | sed \
+    -e 's/,"_repo_slug":"[^"]*"//g' \
+    -e 's/,"_branch":"[^"]*"//g' \
+    -e 's/,"repo":"[^"]*"//g')"
+
+  # If anonymous tier, strip installation_id
+  if [ "$TIER" = "anonymous" ]; then
+    CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
+  fi
+
+  if [ "$FIRST" = "true" ]; then
+    FIRST=false
+  else
+    BATCH="$BATCH,"
+  fi
+  BATCH="$BATCH$CLEAN"
+  COUNT=$(( COUNT + 1 ))
+
+  # Batch size limit
+  [ "$COUNT" -ge 100 ] && break
+done <<< "$UNSENT"
+
+BATCH="$BATCH]"
+
+# Nothing to send after filtering
+[ "$COUNT" -eq 0 ] && exit 0
+
+# ─── POST to edge function ───────────────────────────────────
+RESP_FILE="$(mktemp /tmp/gstack-sync-XXXXXX 2>/dev/null || echo "/tmp/gstack-sync-$$")"
+HTTP_CODE="$(curl -s -w '%{http_code}' --max-time 10 \
+  -X POST "${SUPABASE_URL}/functions/v1/telemetry-ingest" \
+  -H "Content-Type: application/json" \
+  -H "apikey: ${ANON_KEY}" \
+  -o "$RESP_FILE" \
+  -d "$BATCH" 2>/dev/null || echo "000")"
+
+# ─── Update cursor on success (2xx) ─────────────────────────
+case "$HTTP_CODE" in
+  2*)
+    # Parse inserted count from response — only advance if events were actually inserted.
+    # Advance by SENT count (not inserted count) because we can't map inserted back to
+    # source lines. If inserted==0, something is systemically wrong — don't advance.
+    INSERTED="$(grep -o '"inserted":[0-9]*' "$RESP_FILE" 2>/dev/null | grep -o '[0-9]*' || echo "0")"
+    if [ "${INSERTED:-0}" -gt 0 ] 2>/dev/null; then
+      NEW_CURSOR=$(( CURSOR + COUNT ))
+      echo "$NEW_CURSOR" > "$CURSOR_FILE" 2>/dev/null || true
+    fi
+    ;;
+esac
+
+rm -f "$RESP_FILE" 2>/dev/null || true
+
+# Update rate limit marker
+touch "$RATE_FILE" 2>/dev/null || true
+
+exit 0
