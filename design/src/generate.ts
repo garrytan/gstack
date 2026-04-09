@@ -58,7 +58,7 @@ async function callOpenAIImageGeneration(
         n: 1,
         size: size === "1536x1024" ? "1536x1024" : size,
         quality: quality === "high" ? "high" : "medium",
-        output_format: "b64_json",
+        output_format: "png",
       }),
       signal: controller.signal,
     });
@@ -76,10 +76,11 @@ async function callOpenAIImageGeneration(
     }
 
     const data = await response.json() as any;
-    const imageData = data.data?.[0]?.b64_json;
+    // GPT Image models always return base64. Check both b64_json (DALL-E format) and b64 (GPT Image format).
+    const imageData = data.data?.[0]?.b64_json || data.data?.[0]?.b64;
 
     if (!imageData) {
-      throw new Error("No image data in OpenAI response.");
+      throw new Error(`No image data in OpenAI response. Keys: ${JSON.stringify(Object.keys(data.data?.[0] || {}))}`);
     }
 
     return {

@@ -64,8 +64,8 @@ export function resolveProvider(): ProviderConfig | null {
   if (process.env.OPENAI_API_KEY) {
     return { provider: "openai", apiKey: process.env.OPENAI_API_KEY };
   }
-  if (process.env.GEMINI_API_KEY) {
-    return { provider: "gemini", apiKey: process.env.GEMINI_API_KEY };
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY) {
+    return { provider: "gemini", apiKey: (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY)! };
   }
 
   // 3. Legacy ~/.gstack/openai.json
