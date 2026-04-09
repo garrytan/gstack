@@ -241,7 +241,15 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
     // macOS/Linux: Bun.spawn + unref works correctly
-    proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
+    // Resolve bun's path at runtime instead of relying on PATH lookup —
+    // Bun.spawn's PATH lookup is broken in `bun build --compile`'d binaries
+    // on some macOS machines (see #931). Falls back to bare 'bun' as a last
+    // resort so this stays a no-op on machines where the bare lookup works.
+    const bunPath = (process.env.BUN_INSTALL ? `${process.env.BUN_INSTALL}/bin/bun` : null)
+      || (fs.existsSync('/usr/local/bin/bun') ? '/usr/local/bin/bun' : null)
+      || (process.env.HOME ? `${process.env.HOME}/.bun/bin/bun` : null)
+      || 'bun';
+    proc = Bun.spawn([bunPath, 'run', SERVER_SCRIPT], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: String(process.pid), ...extraEnv },
     });
@@ -893,7 +901,12 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
           spawnSync('pkill', ['-f', 'sidebar-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
         } catch {}
 
-        const agentProc = Bun.spawn(['bun', 'run', agentScript], {
+        // Same absolute-path workaround as the server-start spawn above (#931).
+        const sidebarBunPath = (process.env.BUN_INSTALL ? `${process.env.BUN_INSTALL}/bin/bun` : null)
+          || (fs.existsSync('/usr/local/bin/bun') ? '/usr/local/bin/bun' : null)
+          || (process.env.HOME ? `${process.env.HOME}/.bun/bin/bun` : null)
+          || 'bun';
+        const agentProc = Bun.spawn([sidebarBunPath, 'run', agentScript], {
           cwd: config.projectDir,
           env: {
             ...process.env,
