@@ -405,6 +405,8 @@ From: [CACHED LEARNINGS + validation | FRESH SCAN]
 
 ## Phase 1: Symptom Collection (The Crime Scene)
 
+**Budget: Phase 1 must complete in ≤ 25 tool calls total.** This includes all sub-phases (1a-1g) AND the workflow map. If you're at 20 tool calls and haven't built the workflow map yet, STOP everything else and build it NOW with what you have. The map is more important than any individual data point.
+
 Gather ALL available evidence before forming any hypothesis. This is the hardest part because your training pushes you to start solving immediately. **Resist.**
 
 ### 1a. User-reported symptoms
@@ -513,6 +515,10 @@ System boundaries: [list each boundary and its contract]
 ```
 
 This map is your diagnostic foundation. Every hypothesis you form in Phase 2 must reference a specific point in this chain. If you can't point to where in the chain the hypothesis claims the failure occurs, the hypothesis is too vague.
+
+**HARD RULE: Build the map within 15 tool calls of starting Phase 1f.** You do NOT need to read every file in the chain — read the route handler, the key DAO method, and the job runner. Skim, don't deep-dive. The map is a high-level overview, not a line-by-line code audit. You will deep-dive during hypothesis testing in Phase 3, when you know WHERE to look. Right now you need to know the SHAPE of the system.
+
+**Output the map as a text block before proceeding.** If you haven't printed a workflow map after 15 tool calls, STOP exploring and write the map with what you have. An incomplete map with "[TODO: verify]" markers is infinitely better than no map at all.
 
 ### 1g. Browser-based evidence (if applicable)
 
