@@ -100,25 +100,25 @@ export class BrowserManager {
   }
 
   /**
-   * Find the gstack Chrome extension directory.
+   * Find the nstack Chrome extension directory.
    * Checks: repo root /extension, global install, dev install.
    */
   private findExtensionPath(): string | null {
     const fs = require('fs');
     const path = require('path');
     const candidates = [
-      // Explicit override via env var (used by GStack Browser.app bundle)
+      // Explicit override via env var (used by NStack Browser.app bundle)
       process.env.BROWSE_EXTENSIONS_DIR || '',
       // Relative to this source file (dev mode: browse/src/ -> ../../extension)
       path.resolve(__dirname, '..', '..', 'extension'),
-      // Global gstack install
-      path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'extension'),
+      // Global nstack install
+      path.join(process.env.HOME || '', '.claude', 'skills', 'nstack', 'extension'),
       // Git repo root (detected via BROWSE_STATE_FILE location)
       (() => {
         const stateFile = process.env.BROWSE_STATE_FILE || '';
         if (stateFile) {
           const repoRoot = path.resolve(path.dirname(stateFile), '..');
-          return path.join(repoRoot, '.claude', 'skills', 'gstack', 'extension');
+          return path.join(repoRoot, '.claude', 'skills', 'nstack', 'extension');
         }
         return '';
       })(),
@@ -183,7 +183,7 @@ export class BrowserManager {
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {
       console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
-      console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
+      console.error('[browse] Console/network logs flushed to .nstack/browse-*.log');
       process.exit(1);
     });
 
@@ -205,7 +205,7 @@ export class BrowserManager {
 
   // ─── Headed Mode ─────────────────────────────────────────────
   /**
-   * Launch Playwright's bundled Chromium in headed mode with the gstack
+   * Launch Playwright's bundled Chromium in headed mode with the nstack
    * Chrome extension auto-loaded. Uses launchPersistentContext() which
    * is required for extension loading (launch() + newContext() can't
    * load extensions).
@@ -219,7 +219,7 @@ export class BrowserManager {
     this.refMap.clear();
     this.nextTabId = 1;
 
-    // Find the gstack extension directory for auto-loading
+    // Find the nstack extension directory for auto-loading
     const extensionPath = this.findExtensionPath();
     const launchArgs = [
       '--hide-crash-restore-bubble',
@@ -231,14 +231,14 @@ export class BrowserManager {
       launchArgs.push(`--disable-extensions-except=${extensionPath}`);
       launchArgs.push(`--load-extension=${extensionPath}`);
       // Write auth token for extension bootstrap.
-      // Write to ~/.gstack/.auth.json (not the extension dir, which may be read-only
+      // Write to ~/.nstack/.auth.json (not the extension dir, which may be read-only
       // in .app bundles and breaks codesigning).
       if (authToken) {
         const fs = require('fs');
         const path = require('path');
-        const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
-        fs.mkdirSync(gstackDir, { recursive: true });
-        const authFile = path.join(gstackDir, '.auth.json');
+        const nstackDir = path.join(process.env.HOME || '/tmp', '.nstack');
+        fs.mkdirSync(nstackDir, { recursive: true });
+        const authFile = path.join(nstackDir, '.auth.json');
         try {
           fs.writeFileSync(authFile, JSON.stringify({ token: authToken, port: this.serverPort || 34567 }), { mode: 0o600 });
         } catch (err: any) {
@@ -253,14 +253,14 @@ export class BrowserManager {
     // so we use Playwright's bundled Chromium which reliably loads extensions.
     const fs = require('fs');
     const path = require('path');
-    const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+    const userDataDir = path.join(process.env.HOME || '/tmp', '.nstack', 'chromium-profile');
     fs.mkdirSync(userDataDir, { recursive: true });
 
-    // Support custom Chromium binary via GSTACK_CHROMIUM_PATH env var.
-    // Used by GStack Browser.app to point at the bundled Chromium.
-    const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
+    // Support custom Chromium binary via NSTACK_CHROMIUM_PATH env var.
+    // Used by NStack Browser.app to point at the bundled Chromium.
+    const executablePath = process.env.NSTACK_CHROMIUM_PATH || undefined;
 
-    // Rebrand Chromium → GStack Browser in macOS menu bar / Dock / Cmd+Tab.
+    // Rebrand Chromium → NStack Browser in macOS menu bar / Dock / Cmd+Tab.
     // Patch the Chromium .app's Info.plist so macOS shows our name.
     // This works for both dev mode (system Playwright cache) and .app bundle.
     const chromePath = executablePath || chromium.executablePath();
@@ -274,13 +274,13 @@ export class BrowserManager {
         const plistContent = fs.readFileSync(chromePlist, 'utf-8');
         if (plistContent.includes('Google Chrome for Testing')) {
           const patched = plistContent
-            .replace(/Google Chrome for Testing/g, 'GStack Browser');
+            .replace(/Google Chrome for Testing/g, 'NStack Browser');
           fs.writeFileSync(chromePlist, patched);
         }
         // Replace Chromium's Dock icon with ours (Chromium's process owns the Dock icon)
         const iconCandidates = [
           path.join(__dirname, '..', '..', 'scripts', 'app', 'icon.icns'),       // repo dev mode
-          path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'scripts', 'app', 'icon.icns'), // global install
+          path.join(process.env.HOME || '', '.claude', 'skills', 'nstack', 'scripts', 'app', 'icon.icns'), // global install
         ];
         const iconSrc = iconCandidates.find(p => fs.existsSync(p));
         if (iconSrc) {
@@ -298,7 +298,7 @@ export class BrowserManager {
     }
 
     // Build custom user agent: keep Chrome version for site compatibility,
-    // but replace "Chrome for Testing" branding with "GStackBrowser"
+    // but replace "Chrome for Testing" branding with "NStackBrowser"
     let customUA: string | undefined;
     if (!this.customUserAgent) {
       // Detect Chrome version from the Chromium binary
@@ -311,10 +311,10 @@ export class BrowserManager {
         // Output like: "Google Chrome for Testing 145.0.6422.0" or "Chromium 145.0.6422.0"
         const versionMatch = versionOutput.match(/(\d+\.\d+\.\d+\.\d+)/);
         const chromeVersion = versionMatch ? versionMatch[1] : '131.0.0.0';
-        customUA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36 GStackBrowser`;
+        customUA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36 NStackBrowser`;
       } catch {
         // Fallback: generic modern Chrome UA
-        customUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 GStackBrowser';
+        customUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 NStackBrowser';
       }
     }
 
@@ -391,27 +391,27 @@ export class BrowserManager {
     // Extension's content script handles the floating pill
     const indicatorScript = () => {
       const injectIndicator = () => {
-        if (document.getElementById('gstack-ctrl')) return;
+        if (document.getElementById('nstack-ctrl')) return;
 
         const topLine = document.createElement('div');
-        topLine.id = 'gstack-ctrl';
+        topLine.id = 'nstack-ctrl';
         topLine.style.cssText = `
           position: fixed; top: 0; left: 0; right: 0; height: 2px;
           background: linear-gradient(90deg, #F59E0B, #FBBF24, #F59E0B);
           background-size: 200% 100%;
-          animation: gstack-shimmer 3s linear infinite;
+          animation: nstack-shimmer 3s linear infinite;
           pointer-events: none; z-index: 2147483647;
           opacity: 0.8;
         `;
 
         const style = document.createElement('style');
         style.textContent = `
-          @keyframes gstack-shimmer {
+          @keyframes nstack-shimmer {
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
           }
           @media (prefers-reduced-motion: reduce) {
-            #gstack-ctrl { animation: none !important; }
+            #nstack-ctrl { animation: none !important; }
           }
         `;
 
@@ -960,7 +960,7 @@ export class BrowserManager {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
       }
 
-      const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+      const userDataDir = path.join(process.env.HOME || '/tmp', '.nstack', 'chromium-profile');
       fs.mkdirSync(userDataDir, { recursive: true });
 
       newContext = await chromium.launchPersistentContext(userDataDir, {

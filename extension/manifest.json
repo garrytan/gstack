@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "gstack browse",
+  "name": "nstack browse",
   "version": "0.1.0",
-  "description": "Live activity feed and @ref overlays for gstack browse",
+  "description": "Live activity feed and @ref overlays for nstack browse",
   "permissions": ["sidePanel", "storage", "activeTab", "scripting"],
   "host_permissions": ["http://127.0.0.1:*/"],
   "action": {

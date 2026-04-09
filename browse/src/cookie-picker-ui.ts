@@ -15,7 +15,7 @@ export function getCookiePickerHTML(serverPort: number, authToken?: string): str
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cookie Import — gstack browse</title>
+<title>Cookie Import — nstack browse</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -309,7 +309,7 @@ export function getCookiePickerHTML(serverPort: number, authToken?: string): str
   <span class="port">localhost:${serverPort}</span>
 </div>
 
-<p class="subtitle">Select the domains of cookies you want to import to GStack Browser. You'll be able to browse those sites with the same login as your other browser.</p>
+<p class="subtitle">Select the domains of cookies you want to import to NStack Browser. You'll be able to browse those sites with the same login as your other browser.</p>
 
 <div id="banner" class="banner"></div>
 
