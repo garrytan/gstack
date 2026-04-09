@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0C0C0C"/>
+  <text x="600" y="260" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="72" fill="#FAFAFA" letter-spacing="-2">gstack</text>
+  <text x="600" y="330" text-anchor="middle" font-family="sans-serif" font-weight="400" font-size="28" fill="#A1A1AA">Your AI engineering team.</text>
+  <text x="600" y="400" text-anchor="middle" font-family="monospace" font-weight="500" font-size="18" fill="#F59E0B">23 specialist skills · 8 AI agents · MIT licensed</text>
+  <rect x="480" y="450" width="240" height="44" rx="8" fill="#F59E0B"/>
+  <text x="600" y="479" text-anchor="middle" font-family="monospace" font-weight="600" font-size="15" fill="#0C0C0C">$ git clone &amp;&amp; ./setup</text>
+</svg>

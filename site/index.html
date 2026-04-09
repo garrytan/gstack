@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gstack is your AI engineering team</title>
+<meta name="description" content="Twenty-three specialist AI skills. One slash command. Turn Claude Code into a virtual engineering team. Free, MIT licensed, open source.">
+
+<!-- Open Graph -->
+<meta property="og:title" content="gstack is your AI engineering team">
+<meta property="og:description" content="Twenty-three specialist AI skills. One slash command. Turn Claude Code into a virtual engineering team.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://garrytan.github.io/gstack/">
+<meta property="og:image" content="https://garrytan.github.io/gstack/assets/og-image.svg">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="gstack is your AI engineering team">
+<meta name="twitter:description" content="Twenty-three specialist AI skills. One slash command. Turn Claude Code into a virtual engineering team.">
+<meta name="twitter:image" content="https://garrytan.github.io/gstack/assets/og-image.svg">
+
+<!-- Favicon -->
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+<link rel="preload" href="https://api.fontshare.com/v2/css?f[]=satoshi@900,700&display=swap" as="style">
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@900,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<!-- Styles -->
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- Grain Texture Overlay -->
+<svg class="grain" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <filter id="grain-filter">
+    <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/>
+    <feColorMatrix type="saturate" values="0"/>
+  </filter>
+  <rect width="100%" height="100%" filter="url(#grain-filter)"/>
+</svg>
+
+<!-- NAV -->
+<nav class="nav" id="nav" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">gstack</a>
+    <a href="https://github.com/garrytan/gstack" class="nav-github" target="_blank" rel="noopener" aria-label="Star gstack on GitHub">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Star on GitHub
+    </a>
+  </div>
+</nav>
+
+<main>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="version-badge">v0.16.2.0</div>
+    <h1>gstack is your AI engineering team</h1>
+    <p class="hero-subtitle">Twenty-three specialists. One slash command.</p>
+    <div class="install-box">
+      <code><span class="prompt">$</span> git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup</code>
+      <button class="copy-btn" id="copy-hero" aria-label="Copy install command to clipboard">Copy</button>
+    </div>
+    <div class="hero-actions">
+      <a href="https://github.com/garrytan/gstack" class="btn-outline" target="_blank" rel="noopener">View on GitHub</a>
+      <a href="https://github.com/garrytan/gstack#quick-start" class="link-amber">Read the docs</a>
+    </div>
+  </section>
+
+  <!-- STATS BAR -->
+  <section class="stats" aria-label="Key metrics">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-number">600,000+</div>
+        <div class="stat-label">Lines Shipped</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">23</div>
+        <div class="stat-label">Specialist Skills</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">8</div>
+        <div class="stat-label">AI Agents</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">10-15</div>
+        <div class="stat-label">Parallel Sprints</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TERMINAL DEMO -->
+  <section class="terminal-section">
+    <h2 class="section-header section-center">See it work</h2>
+
+    <!-- Static transcript for screen readers -->
+    <div class="sr-only" aria-live="off">
+      <p>Terminal demo transcript: User says: I have an idea for a better onboarding flow. Let's start. User runs /office-hours. Result: 6 forcing questions later, scope locked, user journey mapped, risks flagged. User runs /plan-ceo-review. Result: Rethinks the problem, finds the 10-star version, cuts 3 unnecessary steps. User says: Good. Build it, then ship it. User runs /ship. Result: Tests 42 to 51, plus 9 new. Pull request created.</p>
+    </div>
+
+    <div class="terminal-card" aria-hidden="true" id="terminal-demo">
+      <div class="terminal-titlebar">
+        <span class="terminal-dot red"></span>
+        <span class="terminal-dot yellow"></span>
+        <span class="terminal-dot green"></span>
+        <span class="terminal-path">~/projects/my-saas</span>
+      </div>
+      <div class="terminal-body" id="terminal-body">
+        <div class="terminal-line" data-step="0">
+          <span class="t-prompt">you:</span> <span class="t-text">I have an idea for a better onboarding flow. Let's start.</span>
+        </div>
+        <div class="terminal-line" data-step="1">
+          <span class="t-prompt">you:</span> <span class="t-command">/office-hours</span>
+          <span class="t-response">[6 forcing questions later: scope locked, user journey mapped, risks flagged]</span>
+        </div>
+        <div class="terminal-line" data-step="2">
+          <span class="t-prompt">you:</span> <span class="t-command">/plan-ceo-review</span>
+          <span class="t-response">[Rethinks the problem. Finds the 10-star version. Cuts 3 unnecessary steps.]</span>
+        </div>
+        <div class="terminal-line" data-step="3">
+          <span class="t-prompt">you:</span> <span class="t-text">Good. Build it, then ship it.</span>
+        </div>
+        <div class="terminal-line" data-step="4">
+          <span class="t-prompt">you:</span> <span class="t-command">/ship</span>
+          <span class="t-result">Tests: 42 &rarr; 51 (+9 new). PR: github.com/you/app/pull/42</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SPRINT WORKFLOW -->
+  <section class="section section-center">
+    <h2 class="section-header">The sprint</h2>
+    <p class="section-subtitle">Each skill feeds into the next. Nothing falls through the cracks.</p>
+
+    <div class="flow-diagram" role="img" aria-label="Sprint workflow: office-hours, then plan reviews, then design, then review, then QA, then ship">
+      <div class="flow-step active">/office-hours</div>
+      <span class="flow-arrow" aria-hidden="true">&rarr;</span>
+      <div class="flow-step">/plan-*-review</div>
+      <span class="flow-arrow" aria-hidden="true">&rarr;</span>
+      <div class="flow-step">/design-*</div>
+      <span class="flow-arrow" aria-hidden="true">&rarr;</span>
+      <div class="flow-step">/review</div>
+      <span class="flow-arrow" aria-hidden="true">&rarr;</span>
+      <div class="flow-step">/qa</div>
+      <span class="flow-arrow" aria-hidden="true">&rarr;</span>
+      <div class="flow-step">/ship</div>
+    </div>
+
+    <div class="skill-grid">
+      <div class="skill-card">
+        <div class="skill-name">/office-hours</div>
+        <div class="skill-role">YC Office Hours</div>
+        <div class="skill-desc">Start here. Six forcing questions that reframe your product before you write code.</div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name">/plan-ceo-review</div>
+        <div class="skill-role">CEO / Founder</div>
+        <div class="skill-desc">Rethink the problem. Find the 10-star product hiding inside the request.</div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name">/plan-eng-review</div>
+        <div class="skill-role">Eng Manager</div>
+        <div class="skill-desc">Lock architecture, data flow, diagrams, edge cases, and tests.</div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name">/review</div>
+        <div class="skill-role">Staff Engineer</div>
+        <div class="skill-desc">Find the bugs that pass CI but blow up in production.</div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name">/qa</div>
+        <div class="skill-role">QA Lead</div>
+        <div class="skill-desc">Test your app in a real browser, find bugs, fix them, verify the fix.</div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name">/ship</div>
+        <div class="skill-role">Release Engineer</div>
+        <div class="skill-desc">Sync main, run tests, audit coverage, push, open PR.</div>
+      </div>
+    </div>
+
+    <!-- Expandable full skill list -->
+    <details class="skills-expand">
+      <summary>See all 23 skills &darr;</summary>
+      <div class="skills-expand-grid">
+        <div class="skill-card-mini">
+          <div class="skill-name">/plan-design-review</div>
+          <div class="skill-desc">Senior Designer. Rates each design dimension 0-10, explains what a 10 looks like.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/plan-devex-review</div>
+          <div class="skill-desc">DX Lead. Interactive developer experience review with personas and TTHW benchmarks.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/design-consultation</div>
+          <div class="skill-desc">Design Partner. Build a complete design system from scratch.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/design-shotgun</div>
+          <div class="skill-desc">Design Explorer. Generate 4-6 AI mockup variants, compare side by side.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/design-html</div>
+          <div class="skill-desc">Design Engineer. Turn a mockup into production HTML that actually works.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/design-review</div>
+          <div class="skill-desc">Designer Who Codes. Same audit as plan-design-review, then fixes what it finds.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/devex-review</div>
+          <div class="skill-desc">DX Tester. Live developer experience audit. Actually tests your onboarding.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/investigate</div>
+          <div class="skill-desc">Debugger. Systematic root-cause debugging. No fixes without investigation.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/qa-only</div>
+          <div class="skill-desc">QA Reporter. Same methodology as /qa but report only. No code changes.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/cso</div>
+          <div class="skill-desc">Chief Security Officer. OWASP Top 10 + STRIDE threat model.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/land-and-deploy</div>
+          <div class="skill-desc">Release Engineer. Merge, wait for CI, deploy, verify production health.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/canary</div>
+          <div class="skill-desc">SRE. Post-deploy monitoring loop for console errors and regressions.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/benchmark</div>
+          <div class="skill-desc">Performance Engineer. Baseline and compare Core Web Vitals per PR.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/document-release</div>
+          <div class="skill-desc">Technical Writer. Update all docs to match what you just shipped.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/retro</div>
+          <div class="skill-desc">Eng Manager. Team-aware weekly retro with per-person breakdowns.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/codex</div>
+          <div class="skill-desc">Second Opinion. Independent code review from OpenAI Codex CLI.</div>
+        </div>
+        <div class="skill-card-mini">
+          <div class="skill-name">/autoplan</div>
+          <div class="skill-desc">Review Pipeline. One command: CEO, design, and eng review automatically.</div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- BUILT BY -->
+  <section class="built-by">
+    <div class="built-by-inner">
+      <h2>Built by a builder</h2>
+      <p>I'm <a href="https://x.com/garrytan" target="_blank" rel="noopener">Garry Tan</a>, President &amp; CEO of <a href="https://www.ycombinator.com/" target="_blank" rel="noopener">Y Combinator</a>. I've worked with thousands of startups, Coinbase, Instacart, Rippling, when they were one or two people in a garage. Before YC, I was one of the first eng/PM/designers at Palantir, cofounded Posterous (sold to Twitter), and built Bookface, YC's internal social network.</p>
+      <p>gstack is how I ship. In the last 60 days: 600,000+ lines of production code, 10,000-20,000 lines per day, part-time, while running YC full-time. Same person. Different era. The difference is the tooling.</p>
+
+      <div class="github-compare">
+        <div class="github-year">
+          <img src="assets/github-2013.png" alt="GitHub contributions 2013: 772 contributions building Bookface at YC" loading="lazy">
+          <div class="github-year-label">2013</div>
+          <div class="github-year-stat">772 contributions</div>
+        </div>
+        <div class="github-year">
+          <img src="assets/github-2026.png" alt="GitHub contributions 2026: 1,237+ contributions with massive acceleration" loading="lazy">
+          <div class="github-year-label">2026</div>
+          <div class="github-year-stat">1,237+ contributions</div>
+        </div>
+      </div>
+
+      <p>I open sourced how I build software. Fork it. Improve it. Make it yours.</p>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta">
+    <h2>Go build something.</h2>
+    <button class="cta-install" id="copy-cta" aria-label="Copy install command to clipboard">$ git clone && ./setup</button>
+  </section>
+</main>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <p class="footer-credit">Built by Garry Tan. MIT License.</p>
+  <div class="footer-links">
+    <a href="https://github.com/garrytan/gstack" target="_blank" rel="noopener">GitHub</a>
+    <span class="footer-sep" aria-hidden="true">|</span>
+    <a href="https://github.com/garrytan/gstack#quick-start">Docs</a>
+    <span class="footer-sep" aria-hidden="true">|</span>
+    <a href="https://github.com/garrytan/gstack/blob/main/CHANGELOG.md">Changelog</a>
+    <span class="footer-sep" aria-hidden="true">|</span>
+    <a href="https://www.ycombinator.com/" target="_blank" rel="noopener">Y Combinator</a>
+  </div>
+</footer>
+
+<script src="js/main.js"></script>
+
+</body>
+</html>
