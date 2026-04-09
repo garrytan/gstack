@@ -1633,6 +1633,10 @@ OPEN QUESTIONS
  is more useful than a false "complete" diagnosis.]
 
 STATUS: ROOT_CAUSE_ESTABLISHED | PROBABLE_CAUSE | INSUFFICIENT_EVIDENCE
+
+NEXT STEPS
+──────────
+[Suggest 1-3 gstack skills based on the diagnosis outcome. Pick from:]
 ════════════════════════════════════════════════════════════════════
 ```
 
@@ -1640,6 +1644,18 @@ STATUS: ROOT_CAUSE_ESTABLISHED | PROBABLE_CAUSE | INSUFFICIENT_EVIDENCE
 - **ROOT_CAUSE_ESTABLISHED:** Confidence 9-10, all evidence gates passed, no open questions.
 - **PROBABLE_CAUSE:** Confidence 6-8, strong evidence but gaps remain. Report clearly states what's uncertain.
 - **INSUFFICIENT_EVIDENCE:** Confidence <6, need more data. Report lists exactly what evidence is needed and how to obtain it.
+
+### Next step suggestions (pick based on outcome):
+
+After printing the report, suggest the most relevant next skill:
+
+- **ROOT_CAUSE_ESTABLISHED + fix is straightforward:** → `/investigate` to implement and test the fix
+- **ROOT_CAUSE_ESTABLISHED + fix is complex / risky / multi-system:** → Write a plan, then `/plan-eng-review` to lock in the architecture before implementing
+- **ROOT_CAUSE_ESTABLISHED + fix needs scope/strategy discussion:** → Write a plan, then `/plan-ceo-review` to decide scope (is this a quick patch or a redesign?)
+- **PROBABLE_CAUSE:** → Suggest what additional data/access would upgrade to ROOT_CAUSE. If browse is available and issue is UI-visible, suggest `/qa` to reproduce the exact flow.
+- **INSUFFICIENT_EVIDENCE:** → Suggest `/investigate` with specific instructions on what to look for, or suggest instrumenting the code (add logging) and waiting for recurrence.
+- **Security implications found:** → `/cso` for a security audit of the affected area
+- **Multiple systems affected:** → `/review` when the fix PR is ready, to catch cross-system issues
 
 ---
 
