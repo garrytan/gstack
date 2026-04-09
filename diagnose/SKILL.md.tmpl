@@ -95,25 +95,29 @@ Before running ANY database query or API call, verify which environment you're i
 
 **This is not optional.** Querying the wrong database wastes the entire diagnostic session — every observation becomes misleading evidence that sends you down wrong paths. A 30-second verification saves hours of circular debugging.
 
-### 0-pre. Learnings fast-path — skip redundant discovery
+### 0-pre. Learnings fast-path — load durable knowledge from prior sessions
 
-Check if prior sessions cached useful knowledge. Use Grep to search learnings. Spend **at most 2 tool calls total** on this step — then move on.
+Load workflow maps and environment knowledge from prior `/diagnose` sessions. These are the durable learnings that compound — root causes and dead-ends go stale after fixes, but system architecture and environment topology are stable.
 
-**Search 1:** Run this Bash command to load all prior learnings for this project:
+Run these two commands (combine into one Bash call):
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || true
+echo "=== ARCHITECTURE (workflow maps, system boundaries) ==="
+~/.claude/skills/gstack/bin/gstack-learnings-search --type architecture --limit 15 2>/dev/null || true
+echo ""
+echo "=== OPERATIONAL (env-profile, env quirks, db mappings) ==="
+~/.claude/skills/gstack/bin/gstack-learnings-search --type operational --limit 10 2>/dev/null || true
 ```
 
-This searches `~/.gstack/projects/{slug}/learnings.jsonl` (gstack's learnings system, NOT Claude's auto-memory). If it outputs nothing, no prior learnings exist — proceed to 0a.
+This searches `~/.gstack/projects/{slug}/learnings.jsonl` (gstack's learnings system, NOT Claude's auto-memory). If both produce no output, no prior learnings exist — proceed to 0a.
 
-**What to look for in the output:**
-- `[env-profile]` (operational, confidence ≥ 7): cached environment inventory — skip to 0h
-- `[workflow-*]` (architecture type): cached e2e workflow maps — print them and reuse in Phase 1f instead of re-tracing the code from scratch
-- `[env-*]` (operational type): environment quirks (database host mappings, staging/prod gotchas) — print them as warnings before you query anything
-- Pitfall learnings mentioning code areas related to the current issue — use as prior hypotheses in Phase 2
+**What to reuse from the output:**
+- `[env-profile]`: cached environment inventory — skip to 0h if confidence ≥ 7
+- `[workflow-*]`: cached e2e workflow maps — **print and reuse in Phase 1f** instead of re-tracing code. Spot-check 2-3 file:line refs to verify they're still current.
+- `[env-*]`: environment quirks (db host mappings, staging/prod gotchas) — **print as warnings** before your first query. These prevent the wrong-database trap.
+- System boundary patterns: how services communicate, common failure modes — inform Phase 2 hypotheses.
 
-**Do NOT retry.** Run the command once. If it returns nothing, proceed to 0a.
+**Do NOT retry.** Run the combined command once. If it returns nothing, proceed to 0a.
 
 {{LEARNINGS_SEARCH}}
 
@@ -992,56 +996,41 @@ STATUS: ROOT_CAUSE_ESTABLISHED | PROBABLE_CAUSE | INSUFFICIENT_EVIDENCE
 
 ### Diagnostic-specific learnings to capture
 
-After every `/diagnose` session, log learnings that will help future diagnostic sessions. These compound over time — a project with 20 diagnostic learnings resolves issues dramatically faster than one with zero.
+After every `/diagnose` session, log **durable** learnings — knowledge that stays useful across many future sessions. Root causes and dead-ends go stale after fixes; workflow maps and environment topology compound forever.
 
-**Update the environment profile** (if Phase 0 ran full detection or found changes):
+**Priority 1 — ALWAYS log the workflow map** (if Phase 1f built or updated one):
 
-The `env-profile` learning was logged in Phase 0j. If the diagnostic session revealed NEW tools, repos, or infrastructure not in the original profile (e.g., you discovered a shared Redis cache during hypothesis testing, or traced a request to an undocumented microservice), update it:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-profile","insight":"YOUR_UPDATED_INVENTORY_HERE","confidence":9,"source":"observed","files":[]}'
-```
-
-Replace `YOUR_UPDATED_INVENTORY_HERE` with the actual pipe-delimited inventory (same format as Phase 0j). The learnings system uses "latest winner per key+type" deduplication, so this cleanly replaces the prior profile.
-
-**Always log the root cause** (if established):
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"pitfall","key":"SHORT_KEY","insight":"YOUR_ROOT_CAUSE_HERE","confidence":9,"source":"observed","files":["AFFECTED_FILES"]}'
-```
-
-Replace `SHORT_KEY` with a descriptive key (e.g., `auth-timeout`), `YOUR_ROOT_CAUSE_HERE` with: symptom, root cause, and confirming evidence.
-
-**Log diagnostic dead-ends** (save future you from repeating them):
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"pitfall","key":"SHORT_KEY-false-lead","insight":"YOUR_DEAD_END_HERE","confidence":8,"source":"observed","files":["FILES"]}'
-```
-
-Replace with: what the symptom looked like, the wrong hypothesis, the real cause, and what was misleading.
-
-**Log cross-system patterns** (these are gold for ALL gstack skills, not just diagnose):
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"BOUNDARY_NAME","insight":"YOUR_PATTERN_HERE","confidence":8,"source":"observed","files":["INTERFACE_FILES"]}'
-```
-
-**Always log the workflow map** (if Phase 1f built one):
-
-The workflow map is the most expensive artifact to build — it takes 10-15 tool calls to trace the e2e flow through code. Save it so future sessions can skip Phase 1f entirely for the same code path:
+The workflow map is the most expensive artifact to build (10-15 tool calls). Save it so future sessions can reuse it instead of re-tracing the code:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"workflow-FLOW_NAME","insight":"YOUR_WORKFLOW_MAP_HERE","confidence":9,"source":"observed","files":["KEY_FILES_IN_THE_FLOW"]}'
 ```
 
-Replace `FLOW_NAME` with a short name for the workflow (e.g., `set-lead-status`, `user-registration`, `payment-checkout`). Replace `YOUR_WORKFLOW_MAP_HERE` with the compact workflow chain using arrow notation: `User action → Frontend component → API endpoint (file:line) → Service method → DB tables → Background jobs → Response path`. Include file:line references for the key steps. This format lets future sessions reconstruct the full picture from one learning entry.
+Replace `FLOW_NAME` with a short name (e.g., `set-lead-status`, `user-registration`). Replace `YOUR_WORKFLOW_MAP_HERE` with the compact chain: `User action → Frontend component → API endpoint (file:line) → Service method → DB tables → Background jobs → Response path`. Include file:line refs for key steps.
 
-**Log environment-specific quirks** (wrong-database traps, staging/prod differences):
+**Priority 2 — Log environment quirks** (wrong-database traps, staging/prod differences):
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-QUIRK_NAME","insight":"YOUR_FINDING_HERE","confidence":9,"source":"observed","files":[]}'
 ```
 
-Examples: "10.2.0.4/us_staging is US PROD despite the db name. 10.1.10.4/us_staging is actual US staging. staging.leadbay.app hits 10.1.10.4." — this saves future sessions from the wrong-database trap.
+Examples: "10.2.0.4/us_staging is US PROD despite the db name. staging.leadbay.app hits 10.1.10.4." — prevents the wrong-database trap in future sessions.
 
-**Quality bar:** Only log learnings that would save at least 5 minutes in a future session. The goal is a growing knowledge base of "what broke, why, and how we proved it" for this project. These learnings are readable by ALL gstack skills — an architecture insight logged by `/diagnose` helps `/ship`, `/investigate`, and `/qa` in future sessions.
+**Priority 3 — Log cross-system boundary patterns** (how services talk to each other):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"BOUNDARY_NAME","insight":"YOUR_PATTERN_HERE","confidence":8,"source":"observed","files":["INTERFACE_FILES"]}'
+```
+
+These are gold for ALL gstack skills — an architecture insight from `/diagnose` helps `/ship`, `/investigate`, and `/qa`.
+
+**Priority 4 — Update the environment profile** (if Phase 0 discovered new tools):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-profile","insight":"YOUR_UPDATED_INVENTORY_HERE","confidence":9,"source":"observed","files":[]}'
+```
+
+**What NOT to log:** Root causes and dead-ends (`pitfall` type) go stale after the bug is fixed. The diagnostic report itself is the record of those findings — no need to duplicate them as learnings. Only log a pitfall if it represents a **recurring pattern** that will trap future debuggers even after this specific bug is fixed (e.g., "refreshMonitor always deletes non-matching leads" is a pattern; "ASPIRANET was missing from lens_leads" is a one-off).
 
 ---
 
