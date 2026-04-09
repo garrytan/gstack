@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.16.3.0] - 2026-04-09
+
+### Added
+- **Landing page.** gstack now has a website at garrytan.github.io/gstack. Static HTML/CSS/JS, no framework, no build step, no dependencies. Dark theme with amber accents, terminal demo animation, sprint workflow visualization, and a one-line install CTA. Deploys automatically to GitHub Pages on push to main.
+
 ## [0.16.2.0] - 2026-04-09
 
 ### Added
