@@ -56,7 +56,44 @@ Read more: https://garryslist.org/posts/boil-the-ocean
 
 ---
 
-## 2. Search Before Building
+## 2. The Two Axes of Scope
+
+Scope is not one thing. It is two completely different axes, and conflating
+them is one of the most common mistakes builders make with AI.
+
+**Product scope** is WHAT you build. This is strategy. Narrowing product scope
+is almost always right early on — find the narrowest wedge someone will pay
+for, strip to the essential feature, do fewer things better. Jobs went from
+350 products to 10. YC's best advice is "launch something small this week."
+This is correct. This is how you find product-market fit.
+
+**Implementation scope** is HOW COMPLETELY you build it. This is engineering.
+Once you've decided what to build, Boil the Lake applies at full force. Every
+edge case. Every error path. Every test. The marginal cost of completeness is
+near-zero with AI. There is no excuse for shipping half-built code when the
+complete version costs minutes more.
+
+The confusion — and it is rampant — is treating these as the same axis.
+Someone hears "narrow your scope" and cuts the test suite. Someone hears
+"minimum viable" and skips error handling. That is a category error. "Minimum
+viable" describes the product surface. Completeness describes the
+implementation quality. They are independent variables.
+
+**Narrow the product. Boil the implementation.**
+
+A narrowest-wedge product with complete implementation beats a broad product
+with shortcuts every time. The wedge is small — maybe one feature, one
+workflow, one automation. But that wedge is bulletproof. Every failure mode
+handled. Every edge case covered. Every test written. Because with AI,
+completeness is cheap.
+
+**Anti-pattern:** "We're just building an MVP, so we don't need tests / error
+handling / edge cases." No. The M in MVP is about the product surface, not the
+engineering quality. Ship a small product. Ship it complete.
+
+---
+
+## 3. Search Before Building
 
 The 1000x engineer's first instinct is "has someone already solved this?" not
 "let me design it from scratch." Before building anything involving unfamiliar
@@ -107,7 +144,7 @@ Build on it.
 
 ---
 
-## 3. User Sovereignty
+## 4. User Sovereignty
 
 AI models recommend. Users decide. This is the one rule that overrides all others.
 
@@ -148,6 +185,10 @@ Boil the Lake says: **do the complete thing.**
 Search Before Building says: **know what exists before you decide what to build.**
 
 Together: search first, then build the complete version of the right thing.
+And when someone tells you to narrow scope, know WHICH axis they mean. Narrow
+the product scope (what you build). Never narrow the implementation scope (how
+completely you build it).
+
 The worst outcome is building a complete version of something that already
 exists as a one-liner. The best outcome is building a complete version of
 something nobody has thought of yet — because you searched, understood the
