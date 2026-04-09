@@ -21,12 +21,12 @@ describeIfSelected('Session Intelligence E2E', [
   'timeline-event-flow', 'context-recovery-artifacts', 'checkpoint-save-resume',
 ], () => {
   let workDir: string;
-  let gstackHome: string;
+  let nstackHome: string;
   let slug: string;
 
   beforeAll(() => {
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-session-intel-'));
-    gstackHome = path.join(workDir, '.gstack-home');
+    nstackHome = path.join(workDir, '.nstack-home');
 
     // Init git repo
     const run = (cmd: string, args: string[]) =>
@@ -42,8 +42,8 @@ describeIfSelected('Session Intelligence E2E', [
     const binDir = path.join(workDir, 'bin');
     fs.mkdirSync(binDir, { recursive: true });
     for (const script of [
-      'gstack-timeline-log', 'gstack-timeline-read', 'gstack-slug',
-      'gstack-learnings-log', 'gstack-learnings-search',
+      'nstack-timeline-log', 'nstack-timeline-read', 'nstack-slug',
+      'nstack-learnings-log', 'nstack-learnings-search',
     ]) {
       const src = path.join(ROOT, 'bin', script);
       if (fs.existsSync(src)) {
@@ -52,7 +52,7 @@ describeIfSelected('Session Intelligence E2E', [
       }
     }
 
-    // Compute slug (same logic as gstack-slug without git remote)
+    // Compute slug (same logic as nstack-slug without git remote)
     slug = path.basename(workDir).replace(/[^a-zA-Z0-9._-]/g, '');
   });
 
@@ -62,16 +62,16 @@ describeIfSelected('Session Intelligence E2E', [
   });
 
   // --- Test 1: Timeline event flow ---
-  // Write a timeline event via gstack-timeline-log, read it back via gstack-timeline-read.
+  // Write a timeline event via nstack-timeline-log, read it back via nstack-timeline-read.
   // This is the foundational data flow test: events go in, they come back out.
   testConcurrentIfSelected('timeline-event-flow', async () => {
-    const projectDir = path.join(gstackHome, 'projects', slug);
+    const projectDir = path.join(nstackHome, 'projects', slug);
     fs.mkdirSync(projectDir, { recursive: true });
 
     // Write two events via the binary
-    const logBin = path.join(workDir, 'bin', 'gstack-timeline-log');
-    const readBin = path.join(workDir, 'bin', 'gstack-timeline-read');
-    const env = { ...process.env, GSTACK_HOME: gstackHome };
+    const logBin = path.join(workDir, 'bin', 'nstack-timeline-log');
+    const readBin = path.join(workDir, 'bin', 'nstack-timeline-read');
+    const env = { ...process.env, NSTACK_HOME: nstackHome };
     const opts = { cwd: workDir, env, stdio: 'pipe' as const, timeout: 10000 };
 
     spawnSync(logBin, [JSON.stringify({
@@ -82,7 +82,7 @@ describeIfSelected('Session Intelligence E2E', [
       outcome: 'success', duration_s: 120, session: 'test-1',
     })], opts);
 
-    // Read via gstack-timeline-read
+    // Read via nstack-timeline-read
     const readResult = spawnSync(readBin, ['--branch', 'main'], opts);
     const readOutput = readResult.stdout?.toString() || '';
 
@@ -103,7 +103,7 @@ describeIfSelected('Session Intelligence E2E', [
     expect(event2.event).toBe('completed');
     expect(event2.outcome).toBe('success');
 
-    // Verify gstack-timeline-read output includes the events
+    // Verify nstack-timeline-read output includes the events
     expect(readOutput).toContain('review');
 
     recordE2E(evalCollector, 'timeline event flow', 'Session Intelligence E2E', {
@@ -126,7 +126,7 @@ describeIfSelected('Session Intelligence E2E', [
   // Seed CEO plans and timeline events, then run a skill and verify the preamble
   // outputs "RECENT ARTIFACTS" and "LAST_SESSION".
   testConcurrentIfSelected('context-recovery-artifacts', async () => {
-    const projectDir = path.join(gstackHome, 'projects', slug);
+    const projectDir = path.join(nstackHome, 'projects', slug);
     fs.mkdirSync(path.join(projectDir, 'ceo-plans'), { recursive: true });
 
     // Seed a CEO plan
@@ -156,9 +156,9 @@ describeIfSelected('Session Intelligence E2E', [
 Run the context recovery check — the preamble should show recent artifacts.
 
 IMPORTANT:
-- Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
-- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
-  Replace any references to ~/.claude/skills/gstack/bin/ with ./bin/ when running commands.
+- Use NSTACK_HOME="${nstackHome}" as an environment variable when running bin scripts.
+- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/nstack/bin/.
+  Replace any references to ~/.claude/skills/nstack/bin/ with ./bin/ when running commands.
 - Do NOT use AskUserQuestion.
 - Just run the preamble bash block and report what you see.
 - Look for "RECENT ARTIFACTS" and "LAST_SESSION" in the output.`,
@@ -198,7 +198,7 @@ IMPORTANT:
   // Run /checkpoint save via claude -p, verify file created. Then run /checkpoint resume
   // and verify it reads the checkpoint back.
   testConcurrentIfSelected('checkpoint-save-resume', async () => {
-    const projectDir = path.join(gstackHome, 'projects', slug);
+    const projectDir = path.join(nstackHome, 'projects', slug);
     fs.mkdirSync(path.join(projectDir, 'checkpoints'), { recursive: true });
 
     // Copy the /checkpoint skill
@@ -220,9 +220,9 @@ IMPORTANT:
 ${saveSection.slice(0, 2000)}
 
 IMPORTANT:
-- Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
-- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
-  Replace any references to ~/.claude/skills/gstack/bin/ with ./bin/ when running commands.
+- Use NSTACK_HOME="${nstackHome}" as an environment variable when running bin scripts.
+- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/nstack/bin/.
+  Replace any references to ~/.claude/skills/nstack/bin/ with ./bin/ when running commands.
 - Save the checkpoint to ${projectDir}/checkpoints/ with a filename like "20260401-test-checkpoint.md".
 - Include YAML frontmatter with status, branch, and timestamp.
 - Include a summary of what's being worked on (you can see from git status).

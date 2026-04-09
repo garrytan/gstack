@@ -1,8 +1,8 @@
-# Design System — gstack
+# Design System — nstack
 
 ## Product Context
-- **What this is:** Community website for gstack — a CLI tool that turns Claude Code into a virtual engineering team
-- **Who it's for:** Developers discovering gstack, existing community members
+- **What this is:** Community website for nstack — a CLI tool that turns Claude Code into a virtual engineering team
+- **Who it's for:** Developers discovering nstack, existing community members
 - **Space/industry:** Developer tools (peers: Linear, Raycast, Warp, Zed)
 - **Project type:** Community dashboard + marketing site
 

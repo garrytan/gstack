@@ -1,5 +1,5 @@
 /**
- * Cross-platform constants for gstack browse.
+ * Cross-platform constants for nstack browse.
  *
  * On macOS/Linux: TEMP_DIR = '/tmp', path.sep = '/'  — identical to hardcoded values.
  * On Windows: TEMP_DIR = os.tmpdir(), path.sep = '\\' — correct Windows behavior.

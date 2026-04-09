@@ -1,6 +1,6 @@
-# Adding a New Host to gstack
+# Adding a New Host to nstack
 
-gstack uses a declarative host config system. Each supported AI coding agent
+nstack uses a declarative host config system. Each supported AI coding agent
 (Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw) is defined
 as a typed TypeScript config object. Adding a new host means creating one file
 and re-exporting it. Zero code changes to the generator, setup, or tooling.
@@ -50,8 +50,8 @@ const myhost: HostConfig = {
   cliCommand: 'myhost',        // binary name for `command -v` detection
   cliAliases: [],              // alternative binary names
 
-  globalRoot: '.myhost/skills/gstack',
-  localSkillRoot: '.myhost/skills/gstack',
+  globalRoot: '.myhost/skills/nstack',
+  localSkillRoot: '.myhost/skills/nstack',
   hostSubdir: '.myhost',
   usesEnvVars: true,           // false only for Claude (uses literal ~ paths)
 
@@ -67,13 +67,13 @@ const myhost: HostConfig = {
   },
 
   pathRewrites: [
-    { from: '~/.claude/skills/gstack', to: '~/.myhost/skills/gstack' },
-    { from: '.claude/skills/gstack', to: '.myhost/skills/gstack' },
+    { from: '~/.claude/skills/nstack', to: '~/.myhost/skills/nstack' },
+    { from: '.claude/skills/nstack', to: '.myhost/skills/nstack' },
     { from: '.claude/skills', to: '.myhost/skills' },
   ],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'nstack-upgrade', 'ETHOS.md'],
     globalFiles: { 'review': ['checklist.md', 'TODOS-format.md'] },
   },
 
@@ -115,7 +115,7 @@ Add `.myhost/` to `.gitignore` (generated skill docs are gitignored).
 bun run gen:skill-docs --host myhost
 
 # Verify output exists and has no .claude/skills leakage
-ls .myhost/skills/gstack-*/SKILL.md
+ls .myhost/skills/nstack-*/SKILL.md
 grep -r ".claude/skills" .myhost/skills/ | head -5
 # (should be empty)
 

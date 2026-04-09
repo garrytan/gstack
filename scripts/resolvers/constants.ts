@@ -1,6 +1,6 @@
 // ─── Shared Design Constants ────────────────────────────────
 
-/** gstack's 10 AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES */
+/** nstack's 10 AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES */
 export const AI_SLOP_BLACKLIST = [
   'Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes',
   '**The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.',

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.16.0.0] - 2026-04-08 — nstack
+
+The project formerly known as gstack is now **nstack**. Every file, binary, env var, storage path, and generated SKILL.md has been renamed. Telemetry is gone. Storage is per-repo by default.
+
+### Changed
+
+- **Full rebrand: gstack → nstack.** 250+ files updated. All `gstack-*` binaries renamed to `nstack-*`. All `GSTACK_*` env vars renamed to `NSTACK_*`. All `~/.gstack/` paths changed to `~/.nstack/`. All generated SKILL.md files regenerated with new naming. Skill directories renamed (`gstack-upgrade/` → `nstack-upgrade/`, `open-gstack-browser/` → `open-nstack-browser/`).
+- **Per-repo storage by default.** Learnings, timeline, and review data now live in `.nstack/` at your repo root instead of the global `~/.nstack/`. Falls back to `~/.nstack/` outside a git repo or when `NSTACK_HOME` is set. Clone the repo, get the accumulated knowledge. Multiple projects, isolated storage.
+- **README rewritten.** Per-repo installation is the recommended path. Cleaner quick start, no global permissions required. Teammates get skills automatically when they clone.
+
+### Removed
+
+- **Telemetry removed entirely.** Deleted `nstack-telemetry-log`, `nstack-telemetry-sync`, `nstack-community-dashboard` binaries. Removed `scripts/analytics.ts` and all telemetry tests. Stripped telemetry prompt and bash hooks from the preamble generator. The "Session Timeline" section (local-only, never sent anywhere) remains for session duration tracking.
+- **Supabase infrastructure deleted.** Removed `supabase/` directory (edge functions, migrations, config, RLS verification).
+
 ## [0.15.8.1] - 2026-04-05 — Cleanup
 
 ### Changed

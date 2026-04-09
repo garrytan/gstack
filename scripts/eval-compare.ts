@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Compare two eval runs from ~/.gstack-dev/evals/
+ * Compare two eval runs from ~/.nstack-dev/evals/
  *
  * Usage:
  *   bun run eval:compare                    # compare two most recent of same tier

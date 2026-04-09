@@ -72,7 +72,7 @@ function shorten(str: string): string {
   return str
     .replace(/\/Users\/[^/]+/g, '~')
     .replace(/\/conductor\/workspaces\/[^/]+\/[^/]+/g, '')
-    .replace(/\.claude\/skills\/gstack\//g, '')
+    .replace(/\.claude\/skills\/nstack\//g, '')
     .replace(/browse\/dist\/browse/g, '$B');
 }
 
@@ -402,7 +402,7 @@ describe('describeToolCall', () => {
   });
 
   test('full browse binary path recognized', () => {
-    const result = describeToolCall('Bash', { command: '/Users/garrytan/.claude/skills/gstack/browse/dist/browse goto https://example.com' });
+    const result = describeToolCall('Bash', { command: '/Users/garrytan/.claude/skills/nstack/browse/dist/browse goto https://example.com' });
     expect(result).toBe('Opening https://example.com');
   });
 

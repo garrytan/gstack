@@ -5,9 +5,9 @@ import * as path from 'path';
 import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const UNINSTALL = path.join(ROOT, 'bin', 'gstack-uninstall');
+const UNINSTALL = path.join(ROOT, 'bin', 'nstack-uninstall');
 
-describe('gstack-uninstall', () => {
+describe('nstack-uninstall', () => {
   test('syntax check passes', () => {
     const result = spawnSync('bash', ['-n', UNINSTALL], { stdio: 'pipe' });
     expect(result.status).toBe(0);
@@ -17,7 +17,7 @@ describe('gstack-uninstall', () => {
     const result = spawnSync('bash', [UNINSTALL, '--help'], { stdio: 'pipe' });
     expect(result.status).toBe(0);
     const output = result.stdout.toString();
-    expect(output).toContain('gstack-uninstall');
+    expect(output).toContain('nstack-uninstall');
     expect(output).toContain('--force');
     expect(output).toContain('--keep-state');
   });
@@ -37,24 +37,24 @@ describe('gstack-uninstall', () => {
     let mockGitRoot: string;
 
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-test-'));
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nstack-uninstall-test-'));
       mockHome = path.join(tmpDir, 'home');
       mockGitRoot = path.join(tmpDir, 'repo');
 
-      // Create mock gstack install layout
-      fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'gstack'), { recursive: true });
-      fs.writeFileSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'SKILL.md'), 'test');
+      // Create mock nstack install layout
+      fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'nstack'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.claude', 'skills', 'nstack', 'SKILL.md'), 'test');
 
       // Create per-skill symlinks (both old unprefixed and new prefixed)
-      fs.symlinkSync('gstack/review', path.join(mockHome, '.claude', 'skills', 'review'));
-      fs.symlinkSync('gstack/ship', path.join(mockHome, '.claude', 'skills', 'gstack-ship'));
+      fs.symlinkSync('nstack/review', path.join(mockHome, '.claude', 'skills', 'review'));
+      fs.symlinkSync('nstack/ship', path.join(mockHome, '.claude', 'skills', 'nstack-ship'));
 
-      // Create a non-gstack symlink (should NOT be removed)
+      // Create a non-nstack symlink (should NOT be removed)
       fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'other-tool'), { recursive: true });
 
       // Create state directory
-      fs.mkdirSync(path.join(mockHome, '.gstack', 'projects'), { recursive: true });
-      fs.writeFileSync(path.join(mockHome, '.gstack', 'config.json'), '{}');
+      fs.mkdirSync(path.join(mockHome, '.nstack', 'projects'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.nstack', 'config.json'), '{}');
 
       // Create mock git repo
       fs.mkdirSync(mockGitRoot, { recursive: true });
@@ -71,28 +71,28 @@ describe('gstack-uninstall', () => {
         env: {
           ...process.env,
           HOME: mockHome,
-          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
-          GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
+          NSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'nstack'),
+          NSTACK_STATE_DIR: path.join(mockHome, '.nstack'),
         },
         cwd: mockGitRoot,
       });
 
       expect(result.status).toBe(0);
       const output = result.stdout.toString();
-      expect(output).toContain('gstack uninstalled');
+      expect(output).toContain('nstack uninstalled');
 
       // Global skill dir should be removed
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'nstack'))).toBe(false);
 
-      // Per-skill symlinks pointing into gstack/ should be removed
+      // Per-skill symlinks pointing into nstack/ should be removed
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'review'))).toBe(false);
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack-ship'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'nstack-ship'))).toBe(false);
 
-      // Non-gstack tool should still exist
+      // Non-nstack tool should still exist
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
 
       // State should be removed
-      expect(fs.existsSync(path.join(mockHome, '.gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.nstack'))).toBe(false);
     });
 
     test('--keep-state preserves state directory', () => {
@@ -101,8 +101,8 @@ describe('gstack-uninstall', () => {
         env: {
           ...process.env,
           HOME: mockHome,
-          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
-          GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
+          NSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'nstack'),
+          NSTACK_STATE_DIR: path.join(mockHome, '.nstack'),
         },
         cwd: mockGitRoot,
       });
@@ -110,11 +110,11 @@ describe('gstack-uninstall', () => {
       expect(result.status).toBe(0);
 
       // Skills should be removed
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'nstack'))).toBe(false);
 
       // State should still exist
-      expect(fs.existsSync(path.join(mockHome, '.gstack'))).toBe(true);
-      expect(fs.existsSync(path.join(mockHome, '.gstack', 'config.json'))).toBe(true);
+      expect(fs.existsSync(path.join(mockHome, '.nstack'))).toBe(true);
+      expect(fs.existsSync(path.join(mockHome, '.nstack', 'config.json'))).toBe(true);
     });
 
     test('clean system outputs nothing to remove', () => {
@@ -126,8 +126,8 @@ describe('gstack-uninstall', () => {
         env: {
           ...process.env,
           HOME: cleanHome,
-          GSTACK_DIR: path.join(cleanHome, 'nonexistent'),
-          GSTACK_STATE_DIR: path.join(cleanHome, '.gstack'),
+          NSTACK_DIR: path.join(cleanHome, 'nonexistent'),
+          NSTACK_STATE_DIR: path.join(cleanHome, '.nstack'),
         },
         cwd: mockGitRoot,
       });
@@ -139,26 +139,26 @@ describe('gstack-uninstall', () => {
     test('upgrade path: prefixed install + uninstall cleans both old and new symlinks', () => {
       // Simulate the state after setup --no-prefix followed by setup (with prefix):
       // Both old unprefixed and new prefixed symlinks exist
-      // (mockHome already has both 'review' and 'gstack-ship' symlinks)
+      // (mockHome already has both 'review' and 'nstack-ship' symlinks)
 
       const result = spawnSync('bash', [UNINSTALL, '--force'], {
         stdio: 'pipe',
         env: {
           ...process.env,
           HOME: mockHome,
-          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
-          GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
+          NSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'nstack'),
+          NSTACK_STATE_DIR: path.join(mockHome, '.nstack'),
         },
         cwd: mockGitRoot,
       });
 
       expect(result.status).toBe(0);
 
-      // Both old (review) and new (gstack-ship) symlinks should be gone
+      // Both old (review) and new (nstack-ship) symlinks should be gone
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'review'))).toBe(false);
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack-ship'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'nstack-ship'))).toBe(false);
 
-      // Non-gstack should survive
+      // Non-nstack should survive
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
     });
   });

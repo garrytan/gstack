@@ -6,8 +6,8 @@ const codex: HostConfig = {
   cliCommand: 'codex',
   cliAliases: ['agents'],
 
-  globalRoot: '.codex/skills/gstack',
-  localSkillRoot: '.agents/skills/gstack',
+  globalRoot: '.codex/skills/nstack',
+  localSkillRoot: '.agents/skills/nstack',
   hostSubdir: '.agents',
   usesEnvVars: true,
 
@@ -25,9 +25,9 @@ const codex: HostConfig = {
   },
 
   pathRewrites: [
-    { from: '~/.claude/skills/gstack', to: '$GSTACK_ROOT' },
-    { from: '.claude/skills/gstack', to: '.agents/skills/gstack' },
-    { from: '.claude/skills/review', to: '.agents/skills/gstack/review' },
+    { from: '~/.claude/skills/nstack', to: '$NSTACK_ROOT' },
+    { from: '.claude/skills/nstack', to: '.agents/skills/nstack' },
+    { from: '.claude/skills/review', to: '.agents/skills/nstack/review' },
     { from: '.claude/skills', to: '.agents/skills' },
   ],
 
@@ -40,13 +40,13 @@ const codex: HostConfig = {
   ],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'nstack-upgrade', 'ETHOS.md'],
     globalFiles: {
       'review': ['checklist.md', 'TODOS-format.md'],
     },
   },
   sidecar: {
-    path: '.agents/skills/gstack',
+    path: '.agents/skills/nstack',
     symlinks: ['bin', 'browse', 'review', 'qa', 'ETHOS.md'],
   },
 

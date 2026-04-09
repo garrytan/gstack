@@ -17,11 +17,11 @@ const evalCollector = createEvalCollector('e2e-learnings');
 
 describeIfSelected('Learnings E2E', ['learnings-show'], () => {
   let workDir: string;
-  let gstackHome: string;
+  let nstackHome: string;
 
   beforeAll(() => {
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-learnings-'));
-    gstackHome = path.join(workDir, '.gstack-home');
+    nstackHome = path.join(workDir, '.nstack-home');
 
     // Init git repo
     const run = (cmd: string, args: string[]) =>
@@ -39,15 +39,15 @@ describeIfSelected('Learnings E2E', ['learnings-show'], () => {
     // Copy bin scripts needed by /learn
     const binDir = path.join(workDir, 'bin');
     fs.mkdirSync(binDir, { recursive: true });
-    for (const script of ['gstack-learnings-search', 'gstack-learnings-log', 'gstack-slug']) {
+    for (const script of ['nstack-learnings-search', 'nstack-learnings-log', 'nstack-slug']) {
       fs.copyFileSync(path.join(ROOT, 'bin', script), path.join(binDir, script));
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
 
-    // Seed learnings JSONL — slug must match what gstack-slug computes.
-    // With no git remote, gstack-slug falls back to basename(workDir).
+    // Seed learnings JSONL — slug must match what nstack-slug computes.
+    // With no git remote, nstack-slug falls back to basename(workDir).
     const slug = path.basename(workDir).replace(/[^a-zA-Z0-9._-]/g, '');
-    const projectDir = path.join(gstackHome, 'projects', slug);
+    const projectDir = path.join(nstackHome, 'projects', slug);
     fs.mkdirSync(projectDir, { recursive: true });
 
     const learnings = [
@@ -93,10 +93,10 @@ describeIfSelected('Learnings E2E', ['learnings-show'], () => {
 Run the /learn command (no arguments — show recent learnings).
 
 IMPORTANT:
-- Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
-- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
-  Replace any references to ~/.claude/skills/gstack/bin/ with ./bin/ when running commands.
-- Replace any references to ~/.claude/skills/gstack/bin/gstack-slug with ./bin/gstack-slug.
+- Use NSTACK_HOME="${nstackHome}" as an environment variable when running bin scripts.
+- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/nstack/bin/.
+  Replace any references to ~/.claude/skills/nstack/bin/ with ./bin/ when running commands.
+- Replace any references to ~/.claude/skills/nstack/bin/nstack-slug with ./bin/nstack-slug.
 - Do NOT use AskUserQuestion.
 - Do NOT implement code changes.
 - Just show the learnings and summarize what you found.`,

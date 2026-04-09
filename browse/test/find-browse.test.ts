@@ -9,7 +9,7 @@ import { existsSync } from 'fs';
 describe('locateBinary', () => {
   test('returns null when no binary exists at known paths', () => {
     // This test depends on the test environment — if a real binary exists at
-    // ~/.claude/skills/gstack/browse/dist/browse, it will find it.
+    // ~/.claude/skills/nstack/browse/dist/browse, it will find it.
     // We mainly test that the function doesn't throw.
     const result = locateBinary();
     expect(result === null || typeof result === 'string').toBe(true);

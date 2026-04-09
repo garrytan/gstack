@@ -1,11 +1,11 @@
 import type { TemplateContext } from './types';
 
 export function generateSlugEval(ctx: TemplateContext): string {
-  return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"`;
+  return `eval "$(${ctx.paths.binDir}/nstack-slug 2>/dev/null)"`;
 }
 
 export function generateSlugSetup(ctx: TemplateContext): string {
-  return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG`;
+  return `eval "$(${ctx.paths.binDir}/nstack-slug 2>/dev/null)" && mkdir -p ~/.nstack/projects/$SLUG`;
 }
 
 export function generateBaseBranchDetect(_ctx: TemplateContext): string {

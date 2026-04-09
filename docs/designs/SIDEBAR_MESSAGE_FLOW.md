@@ -1,6 +1,6 @@
 # Sidebar Message Flow
 
-How the GStack Browser sidebar actually works. Read this before touching
+How the NStack Browser sidebar actually works. Read this before touching
 sidepanel.js, background.js, content.js, server.ts sidebar endpoints,
 or sidebar-agent.ts.
 
@@ -23,12 +23,12 @@ or sidebar-agent.ts.
 ```
 T+0ms     CLI runs `$B connect`
             ├── Server starts on port 34567
-            ├── Writes state to .gstack/browse.json (pid, port, token)
+            ├── Writes state to .nstack/browse.json (pid, port, token)
             ├── Launches headed Chromium with extension
             └── Clears sidebar-agent-queue.jsonl
 
 T+500ms   sidebar-agent.ts spawned by CLI
-            ├── Reads auth token from .gstack/browse.json
+            ├── Reads auth token from .nstack/browse.json
             ├── Creates queue file if missing
             ├── Sets lastLine = current line count
             └── Starts polling every 200ms
@@ -37,7 +37,7 @@ T+1-3s    Extension loads in Chromium
             ├── background.js: health poll every 1s (fast startup)
             │     └── GET /health → gets auth token
             ├── content.js: injects on welcome page
-            │     └── Does NOT fire gstack-extension-ready (waits for sidebar)
+            │     └── Does NOT fire nstack-extension-ready (waits for sidebar)
             └── Side panel: may auto-open via chrome.sidePanel.open()
 
 T+2-10s   Side panel connects
@@ -75,7 +75,7 @@ T+10s+    Ready for messages
    ├── pickSidebarModel(message) — 'sonnet' for actions, 'opus' for analysis
    ├── Adds user message to chat buffer
    ├── Builds system prompt + args
-   └── Appends JSON to ~/.gstack/sidebar-agent-queue.jsonl
+   └── Appends JSON to ~/.nstack/sidebar-agent-queue.jsonl
 
 5. sidebar-agent.ts poll() (within 200ms)
    ├── Reads new line from queue file
@@ -112,10 +112,10 @@ The welcome page shows a right-pointing arrow until the sidebar opens.
    └── chrome.tabs.sendMessage(activeTabId, { type: 'sidebarOpened' })
 
 3. content.js onMessage handler
-   └── document.dispatchEvent(new CustomEvent('gstack-extension-ready'))
+   └── document.dispatchEvent(new CustomEvent('nstack-extension-ready'))
 
 4. welcome.html script
-   └── addEventListener('gstack-extension-ready', () => arrow.classList.add('hidden'))
+   └── addEventListener('nstack-extension-ready', () => arrow.classList.add('hidden'))
 ```
 
 The arrow does NOT hide when the extension loads. Only when the sidebar connects.
@@ -133,7 +133,7 @@ Server starts → AUTH_TOKEN = crypto.randomUUID()
     ├── sidepanel.js tryConnect() → serverToken from background or /health
     │     └── Used for chat polling: Authorization: Bearer ${serverToken}
     │
-    └── sidebar-agent.ts refreshToken() → reads from .gstack/browse.json
+    └── sidebar-agent.ts refreshToken() → reads from .nstack/browse.json
           └── Used for event relay: Authorization: Bearer ${authToken}
 ```
 
@@ -161,7 +161,7 @@ always override action verbs and force opus.
 | Stale auth token | "Unauthorized" in input | Server restarted, background had old token | background.js refreshes token on every health poll |
 | Tab ID mismatch | Message sent, no response visible | Server assigned tabId 1, sidebar polling tabId 0 | switchChatTab preserves optimistic UI during switch |
 | Sidebar agent not running | Messages queue forever | Agent process failed to spawn or crashed | Check `ps aux | grep sidebar-agent` |
-| Agent stale token | Agent runs but no events appear in sidebar | sidebar-agent has old token from .gstack/browse.json | Agent re-reads token before each event POST |
+| Agent stale token | Agent runs but no events appear in sidebar | sidebar-agent has old token from .nstack/browse.json | Agent re-reads token before each event POST |
 | Queue file missing | spawnClaude fails | Race between server start and agent start | Both sides create file if missing |
 | Optimistic UI blown away | User bubble + dots vanish | switchChatTab replaced DOM with welcome screen | Preserved DOM when lastOptimisticMsg is set |
 
@@ -185,6 +185,6 @@ Each browser tab can run its own agent simultaneously:
 | HTTP server | `browse/src/server.ts` | Bun (compiled binary) |
 | Agent process | `browse/src/sidebar-agent.ts` | Bun (non-compiled, can spawn) |
 | CLI entry | `browse/src/cli.ts` | Bun (compiled binary) |
-| Queue file | `~/.gstack/sidebar-agent-queue.jsonl` | Filesystem |
-| State file | `.gstack/browse.json` | Filesystem |
-| Chat log | `~/.gstack/sessions/<id>/chat.jsonl` | Filesystem |
+| Queue file | `~/.nstack/sidebar-agent-queue.jsonl` | Filesystem |
+| State file | `.nstack/browse.json` | Filesystem |
+| Chat log | `~/.nstack/sessions/<id>/chat.jsonl` | Filesystem |

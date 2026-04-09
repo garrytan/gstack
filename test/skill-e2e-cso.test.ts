@@ -71,7 +71,7 @@ IMPORTANT:
 - Do NOT use AskUserQuestion — skip any interactive prompts.
 - Focus on finding the planted vulnerabilities in this small repo.
 - Produce the SECURITY FINDINGS table.
-- Save the report to .gstack/security-reports/.`,
+- Save the report to .nstack/security-reports/.`,
       workingDirectory: csoDir,
       maxTurns: 30,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Agent'],
@@ -98,7 +98,7 @@ IMPORTANT:
     ).toBe(true);
 
     // Should save a report
-    const reportDir = path.join(csoDir, '.gstack', 'security-reports');
+    const reportDir = path.join(csoDir, '.nstack', 'security-reports');
     const reportExists = fs.existsSync(reportDir);
     if (reportExists) {
       const reports = fs.readdirSync(reportDir).filter(f => f.endsWith('.json'));
@@ -235,7 +235,7 @@ IMPORTANT:
 - This is a TINY repo with only 3 files: .github/workflows/ci.yml, Dockerfile, and package.json. Do NOT waste turns exploring — just read those files directly and audit them.
 - The Dockerfile has no USER directive (runs as root). The CI workflow uses an unpinned third-party GitHub Action (some-third-party/action@main).
 - Focus on infrastructure findings, NOT code-level OWASP scanning.
-- Skip the preamble (gstack-update-check, telemetry, etc.) — go straight to the audit.
+- Skip the preamble (nstack-update-check, telemetry, etc.) — go straight to the audit.
 - Do NOT use the Agent tool for exploration or verification — read the files yourself. This repo is too small to need subagents.`,
       workingDirectory: csoInfraDir,
       maxTurns: 30,

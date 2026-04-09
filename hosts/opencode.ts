@@ -6,8 +6,8 @@ const opencode: HostConfig = {
   cliCommand: 'opencode',
   cliAliases: [],
 
-  globalRoot: '.config/opencode/skills/gstack',
-  localSkillRoot: '.opencode/skills/gstack',
+  globalRoot: '.config/opencode/skills/nstack',
+  localSkillRoot: '.opencode/skills/nstack',
   hostSubdir: '.opencode',
   usesEnvVars: true,
 
@@ -23,13 +23,13 @@ const opencode: HostConfig = {
   },
 
   pathRewrites: [
-    { from: '~/.claude/skills/gstack', to: '~/.config/opencode/skills/gstack' },
-    { from: '.claude/skills/gstack', to: '.opencode/skills/gstack' },
+    { from: '~/.claude/skills/nstack', to: '~/.config/opencode/skills/nstack' },
+    { from: '.claude/skills/nstack', to: '.opencode/skills/nstack' },
     { from: '.claude/skills', to: '.opencode/skills' },
   ],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'nstack-upgrade', 'ETHOS.md'],
     globalFiles: {
       'review': ['checklist.md', 'TODOS-format.md'],
     },

@@ -113,7 +113,7 @@ Report whether it worked.`,
   }, 90_000);
 
   testConcurrentIfSelected('skillmd-no-local-binary', async () => {
-    // Create a tmpdir with no browse binary — no local .claude/skills/gstack/browse/dist/browse
+    // Create a tmpdir with no browse binary — no local .claude/skills/nstack/browse/dist/browse
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-empty-'));
 
     const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -135,8 +135,8 @@ Report the exact output. Do NOT try to fix or install anything — just report w
     });
 
     // Setup block should either find the global binary (READY) or show NEEDS_SETUP.
-    // On dev machines with gstack installed globally, the fallback path
-    // ~/.claude/skills/gstack/browse/dist/browse exists, so we get READY.
+    // On dev machines with nstack installed globally, the fallback path
+    // ~/.claude/skills/nstack/browse/dist/browse exists, so we get READY.
     // The important thing is it doesn't crash or give a confusing error.
     const allText = result.output || '';
     recordE2E(evalCollector, 'SKILL.md setup block (no local binary)', 'Skill E2E tests', result);
@@ -180,7 +180,7 @@ Report the exact output — either "READY: <path>" or "NEEDS_SETUP".`,
 
   testConcurrentIfSelected('operational-learning', async () => {
     const opDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-oplearn-'));
-    const gstackHome = path.join(opDir, '.gstack-home');
+    const nstackHome = path.join(opDir, '.nstack-home');
 
     // Init git repo
     const run = (cmd: string, args: string[]) =>
@@ -195,12 +195,12 @@ Report the exact output — either "READY: <path>" or "NEEDS_SETUP".`,
     // Copy bin scripts
     const binDir = path.join(opDir, 'bin');
     fs.mkdirSync(binDir, { recursive: true });
-    for (const script of ['gstack-learnings-log', 'gstack-slug']) {
+    for (const script of ['nstack-learnings-log', 'nstack-slug']) {
       fs.copyFileSync(path.join(ROOT, 'bin', script), path.join(binDir, script));
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
 
-    // gstack-learnings-log will create the project dir automatically via gstack-slug
+    // nstack-learnings-log will create the project dir automatically via nstack-slug
 
     const result = await runSkillTest({
       prompt: `You just ran \`npm test\` in this project and it failed with this error:
@@ -218,7 +218,7 @@ Before completing, reflect on this session:
 If yes, log an operational learning for future sessions:
 
 \`\`\`bash
-GSTACK_HOME="${gstackHome}" ${binDir}/gstack-learnings-log '{"skill":"qa","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
+NSTACK_HOME="${nstackHome}" ${binDir}/nstack-learnings-log '{"skill":"qa","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
 \`\`\`
 
 Replace SHORT_KEY with a kebab-case key like "esm-vm-modules-flag".
@@ -240,7 +240,7 @@ Log the operational learning now. Then say what you logged.`,
     // Check if learnings file was created with an operational entry
     // The slug is derived from the git repo (dirname), so search all project dirs
     let hasOperational = false;
-    const projectsDir = path.join(gstackHome, 'projects');
+    const projectsDir = path.join(nstackHome, 'projects');
     if (fs.existsSync(projectsDir)) {
       for (const slug of fs.readdirSync(projectsDir)) {
         const lPath = path.join(projectsDir, slug, 'learnings.jsonl');
@@ -295,7 +295,7 @@ Log the operational learning now. Then say what you logged.`,
     const outputPath = path.join(sessionDir, 'question-output.md');
 
     const result = await runSkillTest({
-      prompt: `You are running a gstack skill. The session preamble detected _SESSIONS=4 (the user has 4 gstack windows open).
+      prompt: `You are running a nstack skill. The session preamble detected _SESSIONS=4 (the user has 4 nstack windows open).
 
 ${aqBlock}
 

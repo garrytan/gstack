@@ -427,7 +427,7 @@ describeIfSelected('Cross-skill consistency evals', ['cross-skill greptile consi
     const result = await callJudge<{ consistent: boolean; issues: string[]; score: number; reasoning: string }>(`You are evaluating whether multiple skill configuration files implement the same data architecture consistently.
 
 INTENDED ARCHITECTURE:
-- greptile-history has TWO paths: per-project (~/.gstack/projects/{slug}/greptile-history.md) and global (~/.gstack/greptile-history.md)
+- greptile-history has TWO paths: per-project (~/.nstack/projects/{slug}/greptile-history.md) and global (~/.nstack/greptile-history.md)
 - /review and /ship WRITE to BOTH paths (per-project for suppressions, global for retro aggregation)
 - /review and /ship delegate write mechanics to greptile-triage.md
 - /retro READS from the GLOBAL path only (it aggregates across all projects)
@@ -739,7 +739,7 @@ describeIfSelected('Deploy skill evals', [
 
 // Block 5: Other skills
 describeIfSelected('Other skill evals', [
-  'retro/SKILL.md instructions', 'qa-only/SKILL.md workflow', 'gstack-upgrade/SKILL.md upgrade flow',
+  'retro/SKILL.md instructions', 'qa-only/SKILL.md workflow', 'nstack-upgrade/SKILL.md upgrade flow',
 ], () => {
   testIfSelected('retro/SKILL.md instructions', async () => {
     await runWorkflowJudge({
@@ -765,11 +765,11 @@ describeIfSelected('Other skill evals', [
     });
   }, 30_000);
 
-  testIfSelected('gstack-upgrade/SKILL.md upgrade flow', async () => {
+  testIfSelected('nstack-upgrade/SKILL.md upgrade flow', async () => {
     await runWorkflowJudge({
-      testName: 'gstack-upgrade/SKILL.md upgrade flow',
+      testName: 'nstack-upgrade/SKILL.md upgrade flow',
       suite: 'Other skill evals',
-      skillPath: 'gstack-upgrade/SKILL.md',
+      skillPath: 'nstack-upgrade/SKILL.md',
       startMarker: '## Inline upgrade flow',
       endMarker: '## Standalone usage',
       judgeContext: 'a version upgrade detection and execution workflow',
@@ -798,7 +798,7 @@ describeIfSelected('Voice directive eval', ['voice directive tone'], () => {
       avoids_ai_vocabulary: number;
       connects_user_outcomes: number;
       reasoning: string;
-    }>(`You are evaluating a voice directive for an AI coding assistant framework called GStack.
+    }>(`You are evaluating a voice directive for an AI coding assistant framework called NStack.
 Score each dimension 1-5 where 5 is excellent:
 
 1. directness: Does it instruct the agent to be direct, lead with the point, take positions?

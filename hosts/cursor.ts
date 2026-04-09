@@ -6,8 +6,8 @@ const cursor: HostConfig = {
   cliCommand: 'cursor',
   cliAliases: [],
 
-  globalRoot: '.cursor/skills/gstack',
-  localSkillRoot: '.cursor/skills/gstack',
+  globalRoot: '.cursor/skills/nstack',
+  localSkillRoot: '.cursor/skills/nstack',
   hostSubdir: '.cursor',
   usesEnvVars: true,
 
@@ -23,13 +23,13 @@ const cursor: HostConfig = {
   },
 
   pathRewrites: [
-    { from: '~/.claude/skills/gstack', to: '~/.cursor/skills/gstack' },
-    { from: '.claude/skills/gstack', to: '.cursor/skills/gstack' },
+    { from: '~/.claude/skills/nstack', to: '~/.cursor/skills/nstack' },
+    { from: '.claude/skills/nstack', to: '.cursor/skills/nstack' },
     { from: '.claude/skills', to: '.cursor/skills' },
   ],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'nstack-upgrade', 'ETHOS.md'],
     globalFiles: {
       'review': ['checklist.md', 'TODOS-format.md'],
     },

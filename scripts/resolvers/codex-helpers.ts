@@ -63,10 +63,10 @@ policy:
 
 /** Compute skill name for external hosts (Codex, Factory, etc.) */
 export function externalSkillName(skillDir: string): string {
-  if (skillDir === '.' || skillDir === '') return 'gstack';
-  // Don't double-prefix: gstack-upgrade → gstack-upgrade (not gstack-gstack-upgrade)
-  if (skillDir.startsWith('gstack-')) return skillDir;
-  return `gstack-${skillDir}`;
+  if (skillDir === '.' || skillDir === '') return 'nstack';
+  // Don't double-prefix: nstack-upgrade → nstack-upgrade (not nstack-nstack-upgrade)
+  if (skillDir.startsWith('nstack-')) return skillDir;
+  return `nstack-${skillDir}`;
 }
 
 /**

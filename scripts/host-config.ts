@@ -25,13 +25,13 @@ export interface HostConfig {
   cliAliases?: string[];
 
   // --- Path Configuration ---
-  /** Global install path relative to $HOME (e.g., '.config/opencode/skills/gstack'). */
+  /** Global install path relative to $HOME (e.g., '.config/opencode/skills/nstack'). */
   globalRoot: string;
-  /** Project-local skill path relative to repo root (e.g., '.opencode/skills/gstack'). */
+  /** Project-local skill path relative to repo root (e.g., '.opencode/skills/nstack'). */
   localSkillRoot: string;
   /** Gitignored directory under repo root for generated docs (e.g., '.opencode'). */
   hostSubdir: string;
-  /** Whether preamble generates $GSTACK_ROOT env vars (true for non-Claude hosts). */
+  /** Whether preamble generates $NSTACK_ROOT env vars (true for non-Claude hosts). */
   usesEnvVars: boolean;
 
   // --- Frontmatter Transformation ---
@@ -79,9 +79,9 @@ export interface HostConfig {
     /** Dir → explicit file list for selective file linking. */
     globalFiles?: Record<string, string[]>;
   };
-  /** Optional repo-local sidecar config (e.g., Codex uses .agents/skills/gstack). */
+  /** Optional repo-local sidecar config (e.g., Codex uses .agents/skills/nstack). */
   sidecar?: {
-    /** Sidecar path relative to repo root (e.g., '.agents/skills/gstack'). */
+    /** Sidecar path relative to repo root (e.g., '.agents/skills/nstack'). */
     path: string;
     /** Assets to symlink into sidecar (different set than global). */
     symlinks: string[];
@@ -89,7 +89,7 @@ export interface HostConfig {
 
   // --- Install Behavior ---
   install: {
-    /** Whether gstack-config skill_prefix applies (Claude only). */
+    /** Whether nstack-config skill_prefix applies (Claude only). */
     prefixable: boolean;
     /** How skills are linked into the host dir. */
     linkingStrategy: 'real-dir-symlink' | 'symlink-generated';

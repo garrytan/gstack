@@ -1,5 +1,5 @@
 /**
- * gstack browse — CSS Inspector content script
+ * nstack browse — CSS Inspector content script
  *
  * Dynamically injected via chrome.scripting.executeScript.
  * Provides element picker, selector generation, basic computed style capture,
@@ -8,8 +8,8 @@
 
 (() => {
   // Guard against double-injection
-  if (window.__gstackInspectorActive) return;
-  window.__gstackInspectorActive = true;
+  if (window.__nstackInspectorActive) return;
+  window.__nstackInspectorActive = true;
 
   // ─── State ──────────────────────────────────────────────────────
   let pickerActive = false;
@@ -28,7 +28,7 @@
     if (highlightEl) return;
 
     highlightEl = document.createElement('div');
-    highlightEl.id = 'gstack-inspector-highlight';
+    highlightEl.id = 'nstack-inspector-highlight';
     highlightEl.style.cssText = `
       position: fixed;
       pointer-events: none;
@@ -41,7 +41,7 @@
     document.documentElement.appendChild(highlightEl);
 
     tooltipEl = document.createElement('div');
-    tooltipEl.id = 'gstack-inspector-tooltip';
+    tooltipEl.id = 'nstack-inspector-tooltip';
     tooltipEl.style.cssText = `
       position: fixed;
       pointer-events: none;
@@ -260,7 +260,7 @@
     // Ignore our own overlay elements
     const target = e.target;
     if (target === highlightEl || target === tooltipEl) return;
-    if (target.id === 'gstack-inspector-highlight' || target.id === 'gstack-inspector-tooltip') return;
+    if (target.id === 'nstack-inspector-highlight' || target.id === 'nstack-inspector-tooltip') return;
 
     updateHighlight(target);
   }
@@ -279,7 +279,7 @@
 
     const target = e.target;
     if (target === highlightEl || target === tooltipEl) return;
-    if (target.id === 'gstack-inspector-highlight' || target.id === 'gstack-inspector-tooltip') return;
+    if (target.id === 'nstack-inspector-highlight' || target.id === 'nstack-inspector-tooltip') return;
 
     const selector = buildSelector(target);
     const basicData = captureBasicData(target);
@@ -387,7 +387,7 @@
   }
 
   function injectCSS(id, css) {
-    const styleId = `gstack-inject-${id}`;
+    const styleId = `nstack-inject-${id}`;
     let styleEl = document.getElementById(styleId);
     if (!styleEl) {
       styleEl = document.createElement('style');

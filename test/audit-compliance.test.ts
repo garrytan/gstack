@@ -1,24 +1,8 @@
 import { describe, test, expect } from 'bun:test';
-import { readFileSync, readdirSync, existsSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const ROOT = join(import.meta.dir, '..');
-
-function getAllSkillMds(): Array<{ name: string; content: string }> {
-  const results: Array<{ name: string; content: string }> = [];
-  const rootPath = join(ROOT, 'SKILL.md');
-  if (existsSync(rootPath)) {
-    results.push({ name: 'root', content: readFileSync(rootPath, 'utf-8') });
-  }
-  for (const entry of readdirSync(ROOT, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-    const skillPath = join(ROOT, entry.name, 'SKILL.md');
-    if (existsSync(skillPath)) {
-      results.push({ name: entry.name, content: readFileSync(skillPath, 'utf-8') });
-    }
-  }
-  return results;
-}
 
 describe('Audit compliance', () => {
   // Fix 1: W007 — No hardcoded credentials in documentation
@@ -29,20 +13,6 @@ describe('Audit compliance', () => {
     expect(tmpl).not.toContain('"test@test.com"');
     expect(tmpl).toContain('$TEST_EMAIL');
     expect(tmpl).toContain('$TEST_PASSWORD');
-  });
-
-  // Fix 2: Conditional telemetry — binary calls wrapped with existence check
-  test('preamble telemetry calls are conditional on _TEL and binary existence', () => {
-    const preamble = readFileSync(join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
-    // Pending finalization must check _TEL and binary existence
-    expect(preamble).toContain('_TEL" != "off"');
-    expect(preamble).toContain('-x ');
-    expect(preamble).toContain('gstack-telemetry-log');
-    // End-of-skill telemetry must also be conditional
-    const completionIdx = preamble.indexOf('Telemetry (run last)');
-    expect(completionIdx).toBeGreaterThan(-1);
-    const completionSection = preamble.slice(completionIdx);
-    expect(completionSection).toContain('_TEL" != "off"');
   });
 
   // Round 2 Fix 1: W012 — Bun install uses checksum verification
@@ -103,13 +73,4 @@ describe('Audit compliance', () => {
     expect(cdp).toContain('--remote-allow-origins=');
   });
 
-  // Fix 2+6: All generated SKILL.md files with telemetry are conditional
-  test('all generated SKILL.md files with telemetry calls use conditional pattern', () => {
-    const skills = getAllSkillMds();
-    for (const { name, content } of skills) {
-      if (content.includes('gstack-telemetry-log')) {
-        expect(content).toContain('_TEL" != "off"');
-      }
-    }
-  });
 });

@@ -1,5 +1,5 @@
 /**
- * find-browse — locate the gstack browse binary.
+ * find-browse — locate the nstack browse binary.
  *
  * Compiled to browse/dist/find-browse (standalone binary, no bun runtime needed).
  * Outputs the absolute path to the browse binary on stdout, or exits 1 if not found.
@@ -32,14 +32,14 @@ export function locateBinary(): string | null {
   // Workspace-local takes priority (for development)
   if (root) {
     for (const m of markers) {
-      const local = join(root, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
+      const local = join(root, m, 'skills', 'nstack', 'browse', 'dist', 'browse');
       if (existsSync(local)) return local;
     }
   }
 
   // Global fallback
   for (const m of markers) {
-    const global = join(home, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
+    const global = join(home, m, 'skills', 'nstack', 'browse', 'dist', 'browse');
     if (existsSync(global)) return global;
   }
 

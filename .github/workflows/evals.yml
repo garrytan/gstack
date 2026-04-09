@@ -143,7 +143,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: eval-${{ matrix.suite.name }}
-          path: ~/.gstack-dev/evals/*.json
+          path: ~/.nstack-dev/evals/*.json
           retention-days: 90
 
   report:

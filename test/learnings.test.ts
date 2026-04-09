@@ -14,12 +14,12 @@ let learningsFile: string;
 function runLog(input: string, opts: { expectFail?: boolean } = {}): { stdout: string; exitCode: number } {
   const execOpts: ExecSyncOptionsWithStringEncoding = {
     cwd: ROOT,
-    env: { ...process.env, GSTACK_HOME: tmpDir },
+    env: { ...process.env, NSTACK_HOME: tmpDir },
     encoding: 'utf-8',
     timeout: 15000,
   };
   try {
-    const stdout = execSync(`${BIN}/gstack-learnings-log '${input.replace(/'/g, "'\\''")}'`, execOpts).trim();
+    const stdout = execSync(`${BIN}/nstack-learnings-log '${input.replace(/'/g, "'\\''")}'`, execOpts).trim();
     return { stdout, exitCode: 0 };
   } catch (e: any) {
     if (opts.expectFail) {
@@ -32,19 +32,19 @@ function runLog(input: string, opts: { expectFail?: boolean } = {}): { stdout: s
 function runSearch(args: string = ''): string {
   const execOpts: ExecSyncOptionsWithStringEncoding = {
     cwd: ROOT,
-    env: { ...process.env, GSTACK_HOME: tmpDir },
+    env: { ...process.env, NSTACK_HOME: tmpDir },
     encoding: 'utf-8',
     timeout: 15000,
   };
   try {
-    return execSync(`${BIN}/gstack-learnings-search ${args}`, execOpts).trim();
+    return execSync(`${BIN}/nstack-learnings-search ${args}`, execOpts).trim();
   } catch {
     return '';
   }
 }
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-learn-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nstack-learn-'));
   slugDir = path.join(tmpDir, 'projects');
   fs.mkdirSync(slugDir, { recursive: true });
 });
@@ -60,7 +60,7 @@ function findLearningsFile(): string | null {
   return fs.existsSync(f) ? f : null;
 }
 
-describe('gstack-learnings-log', () => {
+describe('nstack-learnings-log', () => {
   test('appends valid JSON to learnings.jsonl', () => {
     const input = '{"skill":"review","type":"pattern","key":"test-key","insight":"test insight","confidence":8,"source":"observed"}';
     const result = runLog(input);
@@ -104,7 +104,7 @@ describe('gstack-learnings-log', () => {
   });
 });
 
-describe('gstack-learnings-search', () => {
+describe('nstack-learnings-search', () => {
   test('returns empty and exits 0 when no learnings file exists', () => {
     const output = runSearch();
     expect(output).toBe('');
@@ -192,7 +192,7 @@ describe('gstack-learnings-search', () => {
   });
 });
 
-describe('gstack-learnings-log edge cases', () => {
+describe('nstack-learnings-log edge cases', () => {
   test('preserves existing timestamp when ts is present', () => {
     const input = '{"skill":"review","type":"pattern","key":"ts-preserve","insight":"test","confidence":5,"source":"observed","ts":"2025-06-15T10:00:00Z"}';
     runLog(input);
@@ -225,7 +225,7 @@ describe('gstack-learnings-log edge cases', () => {
   });
 });
 
-describe('gstack-learnings-search edge cases', () => {
+describe('nstack-learnings-search edge cases', () => {
   test('sorts by confidence then recency', () => {
     // Two entries: one high confidence old, one lower confidence recent
     runLog(JSON.stringify({ skill: 'review', type: 'pattern', key: 'high-conf', insight: 'high confidence entry', confidence: 9, source: 'user-stated', ts: '2026-01-01T00:00:00Z' }));

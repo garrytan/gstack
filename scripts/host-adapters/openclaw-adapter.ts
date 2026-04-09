@@ -34,9 +34,9 @@ export function transform(content: string, _config: HostConfig): string {
   // 3. Browse binary patterns
   result = result.replaceAll('`$B ', '`exec $B ');
 
-  // 4. Strip gstack binary references that won't exist on OpenClaw
+  // 4. Strip nstack binary references that won't exist on OpenClaw
   // These are preamble utilities — OpenClaw doesn't use them
-  result = result.replace(/~\/\.openclaw\/skills\/gstack\/bin\/gstack-[\w-]+/g, (match) => {
+  result = result.replace(/~\/\.openclaw\/skills\/nstack\/bin\/nstack-[\w-]+/g, (match) => {
     // Keep the reference but note it as exec-based
     return match;
   });

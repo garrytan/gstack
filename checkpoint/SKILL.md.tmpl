@@ -9,7 +9,7 @@ description: |
   Use when asked to "checkpoint", "save progress", "where was I", "resume",
   "what was I working on", or "pick up where I left off".
   Proactively suggest when a session is ending, the user is switching context,
-  or before a long break. (gstack)
+  or before a long break. (nstack)
 allowed-tools:
   - Bash
   - Read
@@ -109,7 +109,7 @@ checkpoint file.
 
 ```bash
 {{SLUG_SETUP}}
-CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+CHECKPOINT_DIR="$HOME/.nstack/projects/$SLUG/checkpoints"
 mkdir -p "$CHECKPOINT_DIR"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
@@ -176,7 +176,7 @@ Duration: {duration or "unknown"}
 
 ```bash
 {{SLUG_SETUP}}
-CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+CHECKPOINT_DIR="$HOME/.nstack/projects/$SLUG/checkpoints"
 if [ -d "$CHECKPOINT_DIR" ]; then
   find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -20
 else
@@ -238,7 +238,7 @@ If A, summarize the first remaining work item and suggest starting there.
 
 ```bash
 {{SLUG_SETUP}}
-CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+CHECKPOINT_DIR="$HOME/.nstack/projects/$SLUG/checkpoints"
 if [ -d "$CHECKPOINT_DIR" ]; then
   echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
   find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null

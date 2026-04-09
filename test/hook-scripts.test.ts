@@ -47,7 +47,7 @@ function freezeInput(filePath: string) {
 }
 
 function withFreezeDir(freezePath: string, fn: (stateDir: string) => void) {
-  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-test-'));
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nstack-freeze-test-'));
   fs.writeFileSync(path.join(stateDir, 'freeze-dir.txt'), freezePath);
   try {
     fn(stateDir);
@@ -342,7 +342,7 @@ describe('check-freeze.sh', () => {
 
   describe('no freeze file exists', () => {
     test('allows everything when no freeze file present', () => {
-      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-test-'));
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nstack-freeze-test-'));
       try {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,

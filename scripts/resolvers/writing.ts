@@ -18,7 +18,7 @@ export function generateVoiceProfileCheck(ctx: TemplateContext): string {
     return `## Voice Profile
 
 \`\`\`bash
-_VP_FILE="\${HOME}/.gstack/writing/voice-profile.md"
+_VP_FILE="\${HOME}/.nstack/writing/voice-profile.md"
 if [ -f "$_VP_FILE" ]; then
   _VP_SIZE=$(wc -c < "$_VP_FILE" 2>/dev/null || echo 0)
   if [ "$_VP_SIZE" -gt 12000 ]; then
@@ -40,9 +40,9 @@ use a clear, direct, professional voice.`;
   return `## Voice Profile
 
 \`\`\`bash
-_VP_FILE="\${HOME}/.gstack/writing/voice-profile.md"
-_VP_PROMPTED=$([ -f ~/.gstack/.voice-profile-prompted ] && echo "yes" || echo "no")
-_VP_CONFIGURED=$(${ctx.paths.binDir}/gstack-config get voice_profile_configured 2>/dev/null || echo "")
+_VP_FILE="\${HOME}/.nstack/writing/voice-profile.md"
+_VP_PROMPTED=$([ -f ~/.nstack/.voice-profile-prompted ] && echo "yes" || echo "no")
+_VP_CONFIGURED=$(${ctx.paths.binDir}/nstack-config get voice_profile_configured 2>/dev/null || echo "")
 echo "VOICE_PROMPTED: $_VP_PROMPTED"
 echo "VOICE_CONFIGURED: $_VP_CONFIGURED"
 
@@ -74,20 +74,20 @@ included, study them for voice patterns beyond what the fingerprint captures.
 
 If \`VOICE_PROFILE\` is \`corrupt\`: warn the user: "Your voice profile appears
 corrupted (missing required sections). Falling back to neutral voice for this session.
-To re-create your profile, delete \`~/.gstack/writing/voice-profile.md\` and
-\`~/.gstack/.voice-profile-prompted\`, then run any writing skill." Continue with
+To re-create your profile, delete \`~/.nstack/writing/voice-profile.md\` and
+\`~/.nstack/.voice-profile-prompted\`, then run any writing skill." Continue with
 neutral professional voice. Do NOT overwrite the file (the user may want to salvage it).
 
 If \`VOICE_PROFILE\` is \`none\` AND \`VOICE_PROMPTED\` is \`no\` AND \`PROACTIVE_PROMPTED\`
-is \`yes\` AND \`TEL_PROMPTED\` is \`yes\`: The preamble cascade is complete. Show a tip
+is \`yes\`: The preamble cascade is complete. Show a tip
 and touch the sentinel:
 
 \`\`\`bash
-touch ~/.gstack/.voice-profile-prompted
+touch ~/.nstack/.voice-profile-prompted
 \`\`\`
 
 Say: "Tip: writing skills work better with your voice profile. To set one up, run
-\`rm ~/.gstack/.voice-profile-prompted\` and invoke any writing skill, then choose
+\`rm ~/.nstack/.voice-profile-prompted\` and invoke any writing skill, then choose
 'Set up voice profile' when prompted."
 
 If \`VOICE_PROFILE\` is \`none\` AND \`VOICE_PROMPTED\` is \`yes\` AND \`VOICE_CONFIGURED\`
@@ -117,9 +117,9 @@ If A:
    - Format-specific notes if samples span multiple formats
 6. Write the voice profile:
 \`\`\`bash
-mkdir -p ~/.gstack/writing
+mkdir -p ~/.nstack/writing
 \`\`\`
-Write to \`~/.gstack/writing/voice-profile.md\` with this structure:
+Write to \`~/.nstack/writing/voice-profile.md\` with this structure:
 \`\`\`markdown
 # Voice Profile
 
@@ -157,14 +157,14 @@ Confidence: [description]
 \`\`\`
 7. Set the config flag:
 \`\`\`bash
-${ctx.paths.binDir}/gstack-config set voice_profile_configured true
-touch ~/.gstack/.voice-profile-prompted
+${ctx.paths.binDir}/nstack-config set voice_profile_configured true
+touch ~/.nstack/.voice-profile-prompted
 \`\`\`
 
 If B:
 \`\`\`bash
-${ctx.paths.binDir}/gstack-config set voice_profile_configured skipped
-touch ~/.gstack/.voice-profile-prompted
+${ctx.paths.binDir}/nstack-config set voice_profile_configured skipped
+touch ~/.nstack/.voice-profile-prompted
 \`\`\`
 Use a clear, direct, professional voice for this session.
 

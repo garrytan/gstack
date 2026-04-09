@@ -6,8 +6,8 @@ const claude: HostConfig = {
   cliCommand: 'claude',
   cliAliases: [],
 
-  globalRoot: '.claude/skills/gstack',
-  localSkillRoot: '.claude/skills/gstack',
+  globalRoot: '.claude/skills/nstack',
+  localSkillRoot: '.claude/skills/nstack',
   hostSubdir: '.claude',
   usesEnvVars: false,
 
@@ -27,7 +27,7 @@ const claude: HostConfig = {
   suppressedResolvers: [],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'nstack-upgrade', 'ETHOS.md'],
     globalFiles: {
       'review': ['checklist.md', 'TODOS-format.md'],
     },

@@ -12,9 +12,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
-const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json');
-const PARTIAL_PATH = path.join(GSTACK_DEV_DIR, 'evals', '_partial-e2e.json');
+const NSTACK_DEV_DIR = path.join(os.homedir(), '.nstack-dev');
+const HEARTBEAT_PATH = path.join(NSTACK_DEV_DIR, 'e2e-live.json');
+const PARTIAL_PATH = path.join(NSTACK_DEV_DIR, 'evals', '_partial-e2e.json');
 const STALE_THRESHOLD_SEC = 600; // 10 minutes
 
 export interface HeartbeatData {
@@ -125,7 +125,7 @@ export function renderDashboard(heartbeat: HeartbeatData | null, partial: Partia
   lines.push(` Completed: ${completedCount}  Running: ${running}  Cost: $${totalCost.toFixed(2)}  Elapsed: ${formatDuration(elapsed)}`);
 
   if (heartbeat?.runId) {
-    const logPath = path.join(GSTACK_DEV_DIR, 'e2e-runs', heartbeat.runId, 'progress.log');
+    const logPath = path.join(NSTACK_DEV_DIR, 'e2e-runs', heartbeat.runId, 'progress.log');
     lines.push(` Logs: ${logPath}`);
   }
 
@@ -155,7 +155,7 @@ if (import.meta.main) {
 
     // --tail: show last 10 lines of progress.log
     if (showTail && heartbeat?.runId) {
-      const logPath = path.join(GSTACK_DEV_DIR, 'e2e-runs', heartbeat.runId, 'progress.log');
+      const logPath = path.join(NSTACK_DEV_DIR, 'e2e-runs', heartbeat.runId, 'progress.log');
       try {
         const content = fs.readFileSync(logPath, 'utf-8');
         const tail = content.split('\n').filter(l => l.trim()).slice(-10);

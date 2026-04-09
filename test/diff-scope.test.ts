@@ -1,5 +1,5 @@
 /**
- * Tests for bin/gstack-diff-scope — verifies scope signal detection.
+ * Tests for bin/nstack-diff-scope — verifies scope signal detection.
  *
  * Creates temp git repos with specific file patterns and verifies
  * the correct SCOPE_* variables are output.
@@ -10,7 +10,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 
-const SCRIPT = join(import.meta.dir, '..', 'bin', 'gstack-diff-scope');
+const SCRIPT = join(import.meta.dir, '..', 'bin', 'nstack-diff-scope');
 
 const dirs: string[] = [];
 
@@ -63,7 +63,7 @@ afterAll(() => {
   }
 });
 
-describe('gstack-diff-scope', () => {
+describe('nstack-diff-scope', () => {
   // --- Existing scope signals ---
 
   test('detects frontend files', () => {

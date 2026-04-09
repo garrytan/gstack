@@ -1,14 +1,14 @@
-# GStack Browser V0 — The AI-Native Development Browser
+# NStack Browser V0 — The AI-Native Development Browser
 
 **Date:** 2026-03-30
 **Author:** Garry Tan + Claude Code
 **Status:** Phase 1a shipped, Phase 1b in progress
-**Branch:** garrytan/gstack-as-browser
+**Branch:** neilenatarajan/nstack-as-browser
 
 ## The Thesis
 
 Every other AI browser (Atlas, Dia, Comet, Chrome Auto Browse) starts with a
-consumer browser and bolts AI onto it. GStack Browser inverts this. It starts
+consumer browser and bolts AI onto it. NStack Browser inverts this. It starts
 with Claude Code as the runtime and gives it a browser viewport.
 
 The agent is the primary citizen. The browser is the canvas. Skills are
@@ -17,17 +17,17 @@ an AI that can see and interact with the web.
 
 This is the IDE for the post-IDE era. Code lives in the terminal. The product
 lives in the browser. The AI works across both simultaneously. What Cursor did
-for text editors, GStack Browser does for the browser.
+for text editors, NStack Browser does for the browser.
 
 ## What It Is Today (Phase 1a, shipped)
 
-A double-clickable macOS .app that wraps Playwright's Chromium with the gstack
+A double-clickable macOS .app that wraps Playwright's Chromium with the nstack
 sidebar extension baked in. You open it and Claude Code can see your screen,
 navigate pages, fill forms, take screenshots, inspect CSS, clean up overlays,
-and run any gstack skill. All without touching a terminal.
+and run any nstack skill. All without touching a terminal.
 
 ```
-GStack Browser.app (389MB, 189MB DMG)
+NStack Browser.app (389MB, 189MB DMG)
 ├── Compiled browse binary (58MB) — CLI + HTTP server
 ├── Chrome extension (172KB) — sidebar, activity feed, inspector
 ├── Playwright's Chromium (330MB) — the actual browser
@@ -82,7 +82,7 @@ deployments. Cross-platform compilation (linux-arm64/x64) required.
 
 ### Phase 4: Chromium Fork (trigger-gated)
 
-When the extension side panel hits hard API limits, GStack Browser ships to
+When the extension side panel hits hard API limits, NStack Browser ships to
 external users, build infra exists, and the business justifies maintenance:
 fork Chromium. Brave's `chromium_src` override pattern, CC-powered 6-week
 rebases (2-4 hours with CC vs 1-2 weeks human). ~20-30 files modified.
@@ -186,7 +186,7 @@ and the other watches the AI fix things in real-time.
 
 ### 6. Skills as Browser Capabilities
 
-Every gstack skill becomes a browser capability.
+Every nstack skill becomes a browser capability.
 
 | Skill | Browser Capability |
 |-------|-------------------|
@@ -253,7 +253,7 @@ Synthetic monitoring with AI judgment. Not just "did the page return 200" but
 
 ```
 +-------------------------------------------------------+
-|                  GStack Browser                        |
+|                  NStack Browser                        |
 |                                                        |
 |  +------------------+  +---------------------------+  |
 |  |   Chromium        |  |   Extension Side Panel    |  |
@@ -270,7 +270,7 @@ Synthetic monitoring with AI judgment. Not just "did the page return 200" but
   +---------┴-----------+    +-----------┴-----------+
   |  Browse Server      |    |  Sidebar Agent        |
   |  (HTTP + SSE)       |    |  (claude -p wrapper)  |
-  |  :34567             |    |  Runs gstack skills   |
+  |  :34567             |    |  Runs nstack skills   |
   |                     |    |  Per-tab isolation     |
   |  Commands:          |    |                       |
   |  goto, click, fill  |    |  Future: BoomLooper   |
@@ -295,9 +295,9 @@ Synthetic monitoring with AI judgment. Not just "did the page return 200" but
 | **Comet** | AI browser | Multi-agent browsing | Early, unclear dev workflow |
 | **Chrome Auto Browse** | Extension | Google's own, deep Chrome integration | Extension-only, no code editing |
 | **Cursor** | VSCode fork + AI | Best-in-class code editing | No browser viewport |
-| **GStack Browser** | CC runtime + browser viewport | See bug in browser, fix in code, verify | Currently macOS-only, no consumer features |
+| **NStack Browser** | CC runtime + browser viewport | See bug in browser, fix in code, verify | Currently macOS-only, no consumer features |
 
-GStack Browser doesn't compete with consumer browsers. It competes with the
+NStack Browser doesn't compete with consumer browsers. It competes with the
 workflow of switching between browser and editor. The goal is to make that switch
 invisible.
 
@@ -317,7 +317,7 @@ From DESIGN.md:
 |-----------|--------|-------|
 | .app bundle | **SHIPPED** | 389MB, launches in ~5s |
 | DMG packaging | **SHIPPED** | 189MB compressed |
-| `GSTACK_CHROMIUM_PATH` | **SHIPPED** | Custom Chromium binary support |
+| `NSTACK_CHROMIUM_PATH` | **SHIPPED** | Custom Chromium binary support |
 | `BROWSE_EXTENSIONS_DIR` | **SHIPPED** | Extension path override |
 | Auth via `/health` | **SHIPPED** | Replaces .auth.json file approach, auto-refreshes on server restart |
 | Build script | **SHIPPED** | `scripts/build-app.sh` |
@@ -350,7 +350,7 @@ Manual skill invocation       Autonomous QA loops            Skill marketplace
                               Real-time collaboration         Enterprise features
 ```
 
-The 12-month ideal: you open GStack Browser, it detects your project, starts
+The 12-month ideal: you open NStack Browser, it detects your project, starts
 your dev server, runs your test suite, and reports what's broken. You say "fix
 it" and the AI fixes every bug, verifies each fix visually, and creates a PR.
 You review the PR in the same browser, approve it, and the AI deploys it and

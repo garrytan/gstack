@@ -7,7 +7,7 @@ description: |
   baselines for page load times, Core Web Vitals, and resource sizes.
   Compares before/after on every PR. Tracks performance trends over time.
   Use when: "performance", "benchmark", "page speed", "lighthouse", "web vitals",
-  "bundle size", "load time". (gstack)
+  "bundle size", "load time". (nstack)
 voice-triggers:
   - "speed test"
   - "check performance"
@@ -45,9 +45,9 @@ When the user types `/benchmark`, run this skill.
 ### Phase 1: Setup
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null || echo "SLUG=unknown")"
-mkdir -p .gstack/benchmark-reports
-mkdir -p .gstack/benchmark-reports/baselines
+eval "$(~/.claude/skills/nstack/bin/nstack-slug 2>/dev/null || echo "SLUG=unknown")"
+mkdir -p .nstack/benchmark-reports
+mkdir -p .nstack/benchmark-reports/baselines
 ```
 
 ### Phase 2: Page Discovery
@@ -128,7 +128,7 @@ Save metrics to baseline file:
 }
 ```
 
-Write to `.gstack/benchmark-reports/baselines/baseline.json`.
+Write to `.nstack/benchmark-reports/baselines/baseline.json`.
 
 ### Phase 5: Comparison
 
@@ -225,7 +225,7 @@ TREND: Performance degrading. LCP doubled in 8 days.
 
 ### Phase 9: Save Report
 
-Write to `.gstack/benchmark-reports/{date}-benchmark.md` and `.gstack/benchmark-reports/{date}-benchmark.json`.
+Write to `.nstack/benchmark-reports/{date}-benchmark.md` and `.nstack/benchmark-reports/{date}-benchmark.json`.
 
 ## Important Rules
 

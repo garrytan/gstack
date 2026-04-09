@@ -2,7 +2,7 @@
  * Review Army resolver — parallel specialist reviewers for /review
  *
  * Generates template prose that instructs Claude to:
- * 1. Detect stack and scope (via gstack-diff-scope)
+ * 1. Detect stack and scope (via nstack-diff-scope)
  * 2. Select and dispatch specialist subagents in parallel
  * 3. Collect, parse, merge, and deduplicate JSON findings
  * 4. Feed merged findings into the existing Fix-First pipeline
@@ -17,7 +17,7 @@ function generateSpecialistSelection(ctx: TemplateContext): string {
 ### Detect stack and scope
 
 \`\`\`bash
-source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null) || true
+source <(${ctx.paths.binDir}/nstack-diff-scope <base> 2>/dev/null) || true
 # Detect stack for specialist context
 STACK=""
 [ -f Gemfile ] && STACK="\${STACK}ruby "
@@ -67,7 +67,7 @@ Construct the prompt for each specialist. The prompt includes:
 3. Past learnings for this domain (if any exist):
 
 \`\`\`bash
-${ctx.paths.binDir}/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
+${ctx.paths.binDir}/nstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
 \`\`\`
 
 If learnings are found, include them: "Past learnings for this domain: {learnings}"

@@ -73,7 +73,7 @@ The specialist checklists are in review-specialists/ (testing.md, security.md, p
 
 Skip the preamble, lake intro, telemetry sections.
 Run Step 4 (Critical pass) then Step 4.5 (Review Army — Specialist Dispatch).
-The base branch is main. Run gstack-diff-scope style analysis on the changed files.
+The base branch is main. Run nstack-diff-scope style analysis on the changed files.
 Since db/migrate/ files changed, the Data Migration specialist should activate.
 
 For the specialist dispatch, instead of launching subagents, just read review-specialists/data-migration.md

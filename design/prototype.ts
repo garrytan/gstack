@@ -3,21 +3,21 @@
  * Sends 3 design briefs to GPT Image API via Responses API.
  * Validates: text rendering quality, layout accuracy, visual coherence.
  *
- * Run: OPENAI_API_KEY=$(cat ~/.gstack/openai.json | python3 -c "import sys,json;print(json.load(sys.stdin)['api_key'])") bun run design/prototype.ts
+ * Run: OPENAI_API_KEY=$(cat ~/.nstack/openai.json | python3 -c "import sys,json;print(json.load(sys.stdin)['api_key'])") bun run design/prototype.ts
  */
 
 import fs from "fs";
 import path from "path";
 
 const API_KEY = process.env.OPENAI_API_KEY
-  || JSON.parse(fs.readFileSync(path.join(process.env.HOME!, ".gstack/openai.json"), "utf-8")).api_key;
+  || JSON.parse(fs.readFileSync(path.join(process.env.HOME!, ".nstack/openai.json"), "utf-8")).api_key;
 
 if (!API_KEY) {
-  console.error("No API key found. Set OPENAI_API_KEY or save to ~/.gstack/openai.json");
+  console.error("No API key found. Set OPENAI_API_KEY or save to ~/.nstack/openai.json");
   process.exit(1);
 }
 
-const OUTPUT_DIR = "/tmp/gstack-prototype-" + Date.now();
+const OUTPUT_DIR = "/tmp/nstack-prototype-" + Date.now();
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 const briefs = [

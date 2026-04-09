@@ -51,7 +51,7 @@ if (!evalsEnabled) {
 // Gemini E2E touchfiles — keyed by test name, same pattern as Codex E2E
 const GEMINI_E2E_TOUCHFILES: Record<string, string[]> = {
   'gemini-discover-skill':  ['.agents/skills/**', 'test/helpers/gemini-session-runner.ts'],
-  'gemini-review-findings': ['review/**', '.agents/skills/gstack-review/**', 'test/helpers/gemini-session-runner.ts'],
+  'gemini-review-findings': ['review/**', '.agents/skills/nstack-review/**', 'test/helpers/gemini-session-runner.ts'],
 };
 
 let selectedTests: string[] | null = null; // null = run all
@@ -144,14 +144,14 @@ describeGemini('Gemini E2E', () => {
     // The output should reference skills in some form
     const outputLower = result.output.toLowerCase();
     expect(
-      outputLower.includes('review') || outputLower.includes('gstack') || outputLower.includes('skill'),
+      outputLower.includes('review') || outputLower.includes('nstack') || outputLower.includes('skill'),
     ).toBe(true);
   }, 120_000);
 
   testIfSelected('gemini-review-findings', async () => {
-    // Run gstack-review skill via Gemini on worktree (isolated from main working tree)
+    // Run nstack-review skill via Gemini on worktree (isolated from main working tree)
     const result = await runGeminiSkill({
-      prompt: 'Run the gstack-review skill on this repository. Review the current branch diff and report your findings.',
+      prompt: 'Run the nstack-review skill on this repository. Review the current branch diff and report your findings.',
       timeoutMs: 540_000,
       cwd: testWorktree,
     });

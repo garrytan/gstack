@@ -6,7 +6,7 @@ Claude Code's context window is ephemeral. Every session starts fresh. When
 auto-compaction fires at ~167K tokens, it preserves a generic summary but
 destroys file reads, reasoning chains, and intermediate decisions.
 
-gstack already produces valuable artifacts that survive on disk: CEO plans,
+nstack already produces valuable artifacts that survive on disk: CEO plans,
 eng reviews, design reviews, QA reports, learnings. These files contain
 decisions, constraints, and context that shaped the current work. But Claude
 doesn't know they exist. After compaction, the plans and reviews that
@@ -18,11 +18,11 @@ status. Anthropic's own `claude-progress.txt` pattern uses a progress file
 that agents read at the start of each session.
 
 Nobody is solving the specific problem of making **skill-produced artifacts**
-survive compaction. Because nobody else has gstack's artifact architecture.
+survive compaction. Because nobody else has nstack's artifact architecture.
 
 ## The Insight
 
-gstack already writes structured artifacts to `~/.gstack/projects/$SLUG/`:
+nstack already writes structured artifacts to `~/.nstack/projects/$SLUG/`:
 - CEO plans: `ceo-plans/`
 - Design reviews: `design-reviews/`
 - Eng reviews: `eng-reviews/`
@@ -46,7 +46,7 @@ After compaction, re-read them."
                           reads on start / after compaction
                                   │
                    ┌──────────────▼──────────────────────┐
-                   │    ~/.gstack/projects/$SLUG/         │
+                   │    ~/.nstack/projects/$SLUG/         │
                    │    (persistent, survives everything) │
                    │                                      │
                    │  ceo-plans/         ← /plan-ceo-review
@@ -71,7 +71,7 @@ After compaction, re-read them."
 
 ### Layer 1: Context Recovery (preamble, all skills)
 ~10 lines of prose in the preamble. After compaction or context degradation,
-the agent checks `~/.gstack/projects/$SLUG/` for recent plans, reviews, and
+the agent checks `~/.nstack/projects/$SLUG/` for recent plans, reviews, and
 checkpoints. Lists the directory, reads the most recent file.
 
 Cost: near-zero. Benefit: every skill's plans/reviews survive compaction.
@@ -86,7 +86,7 @@ Makes the project's AI-assisted work history visible. "This week: 3 /review,
 ### Layer 3: Cross-Session Injection (preamble, all skills)
 When a new session starts on a branch with recent artifacts, the preamble
 prints a one-liner: "Last session: implemented JWT auth, 3/5 tasks done.
-Plan: ~/.gstack/projects/$SLUG/checkpoints/latest.md"
+Plan: ~/.nstack/projects/$SLUG/checkpoints/latest.md"
 
 The agent knows where you left off before reading any files.
 
@@ -120,7 +120,7 @@ layer.
 ## What This Is Not
 
 - Not a replacement for Claude's built-in compaction (that handles session
-  state; we handle gstack artifacts)
+  state; we handle nstack artifacts)
 - Not a full memory system like claude-mem (that handles cross-session
   memory via SQLite; we handle structured skill artifacts)
 - Not a database or service (just markdown files on disk)

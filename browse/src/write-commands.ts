@@ -588,8 +588,8 @@ export async function handleWriteCommand(
             // Always skip nav/header semantic elements
             if (tag === 'nav' || tag === 'header') continue;
             if (el.getAttribute('role') === 'navigation') continue;
-            // Skip the gstack control indicator
-            if ((el as HTMLElement).id === 'gstack-ctrl') continue;
+            // Skip the nstack control indicator
+            if ((el as HTMLElement).id === 'nstack-ctrl') continue;
             // Preserve the FIRST full-width element near the top (site's main nav bar)
             // This catches divs that act as navbars but aren't semantic <nav> elements
             if (!preservedTopNav && top <= 50 && width > viewportWidth * 0.8 && height < 120) {

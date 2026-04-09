@@ -57,7 +57,7 @@ Instead, simulate the workflow:
 2. Infer the production URL (https://test-app.fly.dev)
 3. Note the merge method would be squash
 4. Write the deploy configuration to CLAUDE.md
-5. Write a deploy report skeleton to .gstack/deploy-reports/report.md showing the
+5. Write a deploy report skeleton to .nstack/deploy-reports/report.md showing the
    expected report structure (PR number: simulated, timing: simulated, verdict: simulated)
 
 Do NOT use AskUserQuestion. Do NOT run gh or fly commands.`,
@@ -80,7 +80,7 @@ Do NOT use AskUserQuestion. Do NOT run gh or fly commands.`,
       expect(hasFly).toBe(true);
     }
 
-    const reportDir = path.join(landDir, '.gstack', 'deploy-reports');
+    const reportDir = path.join(landDir, '.nstack', 'deploy-reports');
     expect(fs.existsSync(reportDir)).toBe(true);
   }, 180_000);
 });
@@ -135,7 +135,7 @@ Instead, simulate the Step 1.5 first-run dry-run validation:
    - Command validation results (simulated as all passing)
    - Staging detection results (none expected)
    - What will happen steps
-5. Write the dry-run report to .gstack/deploy-reports/dry-run-validation.md
+5. Write the dry-run report to .nstack/deploy-reports/dry-run-validation.md
 
 Do NOT use AskUserQuestion. Do NOT run gh or fly commands.
 Just demonstrate the first-run dry-run output.`,
@@ -152,7 +152,7 @@ Just demonstrate the first-run dry-run output.`,
     expect(result.exitReason).toBe('success');
 
     // Verify dry-run report was created
-    const reportDir = path.join(firstRunDir, '.gstack', 'deploy-reports');
+    const reportDir = path.join(firstRunDir, '.nstack', 'deploy-reports');
     expect(fs.existsSync(reportDir)).toBe(true);
 
     // Check report content mentions platform detection
@@ -203,13 +203,13 @@ describeIfSelected('Land-and-Deploy review gate E2E', ['land-and-deploy-review-g
 Focus on Step 3.5a and Step 3.5a-bis (the review staleness check and inline review offer).
 
 This repo has 6 commits since the initial commit. There are NO review logs
-(gstack-review-read would return NO_REVIEWS).
+(nstack-review-read would return NO_REVIEWS).
 
 Simulate what the readiness gate would show:
-1. Run gstack-review-read equivalent (simulate NO_REVIEWS output)
+1. Run nstack-review-read equivalent (simulate NO_REVIEWS output)
 2. Determine review staleness: Eng Review should be "NOT RUN"
 3. Note that Step 3.5a-bis would offer an inline review
-4. Write a simulated readiness report to .gstack/deploy-reports/readiness-report.md
+4. Write a simulated readiness report to .nstack/deploy-reports/readiness-report.md
    showing the review status as NOT RUN with the inline review offer text
 
 Do NOT use AskUserQuestion. Do NOT run gh commands.
@@ -227,7 +227,7 @@ Show what the readiness gate output would look like.`,
     expect(result.exitReason).toBe('success');
 
     // Verify readiness report was created
-    const reportDir = path.join(reviewDir, '.gstack', 'deploy-reports');
+    const reportDir = path.join(reviewDir, '.nstack', 'deploy-reports');
     expect(fs.existsSync(reportDir)).toBe(true);
 
     const reportFiles = fs.readdirSync(reportDir);
@@ -272,11 +272,11 @@ describeIfSelected('Canary skill E2E', ['canary-workflow'], () => {
 You are simulating a canary check. There is NO browse daemon available and NO production URL.
 
 Instead, demonstrate you understand the workflow:
-1. Create the .gstack/canary-reports/ directory structure
-2. Write a simulated baseline.json to .gstack/canary-reports/baseline.json with the
+1. Create the .nstack/canary-reports/ directory structure
+2. Write a simulated baseline.json to .nstack/canary-reports/baseline.json with the
    schema described in Phase 2 of the skill (url, timestamp, branch, pages with
    screenshot path, console_errors count, and load_time_ms)
-3. Write a simulated canary report to .gstack/canary-reports/canary-report.md following
+3. Write a simulated canary report to .nstack/canary-reports/canary-report.md following
    the Phase 6 Health Report format (CANARY REPORT header, duration, pages, status,
    per-page results table, verdict)
 
@@ -294,8 +294,8 @@ Just create the directory structure and report files showing the correct schema.
     recordE2E(evalCollector, '/canary workflow', 'Canary skill E2E', result);
     expect(result.exitReason).toBe('success');
 
-    expect(fs.existsSync(path.join(canaryDir, '.gstack', 'canary-reports'))).toBe(true);
-    const reportDir = path.join(canaryDir, '.gstack', 'canary-reports');
+    expect(fs.existsSync(path.join(canaryDir, '.nstack', 'canary-reports'))).toBe(true);
+    const reportDir = path.join(canaryDir, '.nstack', 'canary-reports');
     const files = fs.readdirSync(reportDir, { recursive: true }) as string[];
     expect(files.length).toBeGreaterThan(0);
   }, 180_000);
@@ -333,12 +333,12 @@ describeIfSelected('Benchmark skill E2E', ['benchmark-workflow'], () => {
 You are simulating a benchmark run. There is NO browse daemon available and NO production URL.
 
 Instead, demonstrate you understand the workflow:
-1. Create the .gstack/benchmark-reports/ directory structure including baselines/
-2. Write a simulated baseline.json to .gstack/benchmark-reports/baselines/baseline.json
+1. Create the .nstack/benchmark-reports/ directory structure including baselines/
+2. Write a simulated baseline.json to .nstack/benchmark-reports/baselines/baseline.json
    with the schema from Phase 4 (url, timestamp, branch, pages with ttfb_ms, fcp_ms,
    lcp_ms, dom_interactive_ms, dom_complete_ms, full_load_ms, total_requests,
    total_transfer_bytes, js_bundle_bytes, css_bundle_bytes, largest_resources)
-3. Write a simulated benchmark report to .gstack/benchmark-reports/benchmark-report.md
+3. Write a simulated benchmark report to .nstack/benchmark-reports/benchmark-report.md
    following the Phase 5 comparison format (PERFORMANCE REPORT header, page comparison
    table with Baseline/Current/Delta/Status columns, regression thresholds applied)
 4. Include the Phase 7 Performance Budget section in the report
@@ -357,8 +357,8 @@ Just create the files showing the correct schema and report format.`,
     recordE2E(evalCollector, '/benchmark workflow', 'Benchmark skill E2E', result);
     expect(result.exitReason).toBe('success');
 
-    expect(fs.existsSync(path.join(benchDir, '.gstack', 'benchmark-reports'))).toBe(true);
-    const baselineDir = path.join(benchDir, '.gstack', 'benchmark-reports', 'baselines');
+    expect(fs.existsSync(path.join(benchDir, '.nstack', 'benchmark-reports'))).toBe(true);
+    const baselineDir = path.join(benchDir, '.nstack', 'benchmark-reports', 'baselines');
     if (fs.existsSync(baselineDir)) {
       const files = fs.readdirSync(baselineDir);
       expect(files.length).toBeGreaterThan(0);

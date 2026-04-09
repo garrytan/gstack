@@ -9,7 +9,7 @@ description: |
   "investigate this error", or "root cause analysis".
   Proactively invoke this skill (do NOT debug directly) when the user reports
   errors, 500 errors, stack traces, unexpected behavior, "it was working
-  yesterday", or is troubleshooting why something stopped working. (gstack)
+  yesterday", or is troubleshooting why something stopped working. (nstack)
 allowed-tools:
   - Bash
   - Read
@@ -78,7 +78,7 @@ After forming your root cause hypothesis, lock edits to the affected module to p
 **If FREEZE_AVAILABLE:** Identify the narrowest directory containing the affected files. Write it to the freeze state file:
 
 ```bash
-STATE_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.gstack}"
+STATE_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.nstack}"
 mkdir -p "$STATE_DIR"
 echo "<detected-directory>/" > "$STATE_DIR/freeze-dir.txt"
 echo "Debug scope locked to: <detected-directory>/"

@@ -1,6 +1,6 @@
-# gstack Builder Ethos
+# nstack Builder Ethos
 
-These are the principles that shape how gstack thinks, recommends, and builds.
+These are the principles that shape how nstack thinks, recommends, and builds.
 They are injected into every workflow skill's preamble automatically. They
 reflect what we believe about building software in 2026.
 
@@ -157,7 +157,7 @@ landscape, and saw what everyone else missed.
 
 ## Build for Yourself
 
-The best tools solve your own problem. gstack exists because its creator
+The best tools solve your own problem. nstack exists because its creator
 wanted it. Every feature was built because it was needed, not because it
 was requested. If you're building something for yourself, trust that instinct.
 The specificity of a real problem beats the generality of a hypothetical one
