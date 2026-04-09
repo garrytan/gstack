@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# gstack-builder-profile — read builder profile and output structured summary
+#
+# Reads ~/.gstack/builder-profile.jsonl (append-only session log from /office-hours).
+# Outputs KEY: VALUE pairs for the template to consume. Computes tier, accumulated
+# signals, cross-project detection, nudge eligibility, and resource dedup.
+#
+# Single source of truth for all closing state. No separate config keys or logs.
+#
+# Exit 0 with defaults if no profile exists (first-time user = introduction tier).
+set -euo pipefail
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+PROFILE_FILE="$GSTACK_HOME/builder-profile.jsonl"
+
+# Graceful default: no profile = introduction tier
+if [ ! -f "$PROFILE_FILE" ] || [ ! -s "$PROFILE_FILE" ]; then
+  echo "SESSION_COUNT: 0"
+  echo "TIER: introduction"
+  echo "LAST_PROJECT:"
+  echo "LAST_ASSIGNMENT:"
+  echo "LAST_DESIGN_TITLE:"
+  echo "DESIGN_COUNT: 0"
+  echo "DESIGN_TITLES: []"
+  echo "ACCUMULATED_SIGNALS:"
+  echo "TOTAL_SIGNAL_COUNT: 0"
+  echo "CROSS_PROJECT: false"
+  echo "NUDGE_ELIGIBLE: false"
+  echo "RESOURCES_SHOWN:"
+  echo "RESOURCES_SHOWN_COUNT: 0"
+  echo "TOPICS:"
+  exit 0
+fi
+
+# Use bun for JSON parsing (same pattern as gstack-learnings-search).
+# Fallback to defaults if bun is unavailable.
+cat "$PROFILE_FILE" 2>/dev/null | bun -e "
+const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
+const entries = [];
+for (const line of lines) {
+  try { entries.push(JSON.parse(line)); } catch {}
+}
+
+const count = entries.length;
+
+// Tier computation
+let tier = 'introduction';
+if (count >= 8) tier = 'inner_circle';
+else if (count >= 4) tier = 'regular';
+else if (count >= 1) tier = 'welcome_back';
+
+// Last session data
+const last = entries[count - 1] || {};
+const prev = entries[count - 2] || {};
+const crossProject = prev.project_slug && last.project_slug
+  ? prev.project_slug !== last.project_slug
+  : false;
+
+// Design docs
+const designs = entries
+  .map(e => e.design_doc || '')
+  .filter(Boolean);
+const designTitles = entries
+  .map(e => {
+    const doc = e.design_doc || '';
+    // Extract title from path: ...-design-DATETIME.md -> use the entry's topic or project
+    return doc ? (e.project_slug || 'unknown') : '';
+  })
+  .filter(Boolean);
+
+// Accumulated signals
+const signalCounts = {};
+let totalSignals = 0;
+for (const e of entries) {
+  for (const s of (e.signals || [])) {
+    signalCounts[s] = (signalCounts[s] || 0) + 1;
+    totalSignals++;
+  }
+}
+const signalStr = Object.entries(signalCounts)
+  .map(([k, v]) => k + ':' + v)
+  .join(',');
+
+// Nudge eligibility: builder-mode + 5+ signals across 3+ sessions
+const builderSessions = entries.filter(e => e.mode !== 'startup').length;
+const nudgeEligible = builderSessions >= 3 && totalSignals >= 5;
+
+// Resources shown (aggregate all)
+const allResources = new Set();
+for (const e of entries) {
+  for (const url of (e.resources_shown || [])) {
+    allResources.add(url);
+  }
+}
+
+// Topics (aggregate all)
+const allTopics = new Set();
+for (const e of entries) {
+  for (const t of (e.topics || [])) {
+    allTopics.add(t);
+  }
+}
+
+console.log('SESSION_COUNT: ' + count);
+console.log('TIER: ' + tier);
+console.log('LAST_PROJECT: ' + (last.project_slug || ''));
+console.log('LAST_ASSIGNMENT: ' + (last.assignment || ''));
+console.log('LAST_DESIGN_TITLE: ' + (last.design_doc || ''));
+console.log('DESIGN_COUNT: ' + designs.length);
+console.log('DESIGN_TITLES: ' + JSON.stringify(designTitles));
+console.log('ACCUMULATED_SIGNALS: ' + signalStr);
+console.log('TOTAL_SIGNAL_COUNT: ' + totalSignals);
+console.log('CROSS_PROJECT: ' + crossProject);
+console.log('NUDGE_ELIGIBLE: ' + nudgeEligible);
+console.log('RESOURCES_SHOWN: ' + Array.from(allResources).join(','));
+console.log('RESOURCES_SHOWN_COUNT: ' + allResources.size);
+console.log('TOPICS: ' + Array.from(allTopics).join(','));
+" 2>/dev/null || {
+  # Fallback if bun is unavailable
+  echo "SESSION_COUNT: 0"
+  echo "TIER: introduction"
+  echo "LAST_PROJECT:"
+  echo "LAST_ASSIGNMENT:"
+  echo "LAST_DESIGN_TITLE:"
+  echo "DESIGN_COUNT: 0"
+  echo "DESIGN_TITLES: []"
+  echo "ACCUMULATED_SIGNALS:"
+  echo "TOTAL_SIGNAL_COUNT: 0"
+  echo "CROSS_PROJECT: false"
+  echo "NUDGE_ELIGIBLE: false"
+  echo "RESOURCES_SHOWN:"
+  echo "RESOURCES_SHOWN_COUNT: 0"
+  echo "TOPICS:"
+}
