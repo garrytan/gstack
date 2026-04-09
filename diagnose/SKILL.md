@@ -1178,27 +1178,20 @@ $B text
 
 **Save screenshots as evidence.** Name them descriptively: `/tmp/diag-evidence-<what>.png`. These become attachments to the diagnostic report.
 
-**Evidence Gate 1 — PRINT THIS CHECKLIST before proceeding:**
+**Evidence Gate 1 — YOU MUST OUTPUT THIS BLOCK before proceeding to Phase 2:**
 
 ```
 EVIDENCE GATE 1 — Phase 1 Complete?
 ════════════════════════════════════
-[ ] Environment verified: querying [ENVIRONMENT] database at [HOST/DB]
-    — matches the environment where the bug was reported
-[ ] Complete symptom description (what, when, who, where, how often)
-[ ] Error tracker data (if available) with first occurrence date
-[ ] At least ONE concrete data point from outside the codebase
-    (DB state, error frequency, analytics metric, browser screenshot)
-    — OR explicit note that no external tools are available
-[ ] Timeline of relevant code changes
-[ ] WORKFLOW MAP built (Phase 1f) — complete e2e chain documented
-    — every system boundary identified
-    — every database table in the flow identified
-    — every background job / side effect identified
+[x/  ] Environment verified: querying _______ database at _______
+[x/  ] Symptom description complete (what, when, who, where, how often)
+[x/  ] At least ONE data point from outside codebase (DB/error tracker/browser)
+[x/  ] Workflow map PRINTED above (not "will do later")
 ════════════════════════════════════
+GATE STATUS: PASS / FAIL — [explain any failures]
 ```
 
-**ACTUALLY PRINT this checklist with your answers filled in.** Do not skip it. Do not say "I've checked these mentally." Print it, check each box, and if ANY box fails — especially the workflow map — go back and complete it. Proceeding without a workflow map is the #1 cause of wasted diagnostic sessions.
+**This is a MANDATORY output.** If this block does not appear in your output between Phase 1 and Phase 2, you have violated the skill protocol. Fill in every line. If any box is unchecked, go back and fix it before Phase 2.
 
 ---
 
@@ -1221,16 +1214,20 @@ For each hypothesis, write:
 4. **Test:** How would you prove or disprove this with ONE query or ONE tool call? (If the test takes 5+ tool calls, it's too vague.)
 5. **Scope:** If this is the root cause, what's the full blast radius? What else would be affected?
 
+**YOU MUST OUTPUT THIS TABLE before proceeding to Phase 3:**
+
 ```
 HYPOTHESIS TABLE
-═══════════════════════════════════════════════════════════
-#  │ Claim                          │ For   │ Against │ Test
-───┼────────────────────────────────┼───────┼─────────┼──────
-H1 │ [specific claim]               │ [ref] │ [ref]   │ [method]
-H2 │ [specific claim]               │ [ref] │ [ref]   │ [method]
-H3 │ [specific claim]               │ [ref] │ [ref]   │ [method]
-═══════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════════════
+#  │ Claim (specific, at step N)    │ Evidence FOR  │ Evidence AGAINST │ Test (1 query)
+───┼────────────────────────────────┼───────────────┼──────────────────┼──────────────
+H1 │ ______                         │ ______        │ ______           │ ______
+H2 │ ______                         │ ______        │ ______           │ ______
+H3 │ ______                         │ ______        │ ______           │ ______
+═══════════════════════════════════════════════════════════════════════
 ```
+
+**This is a MANDATORY output.** If this table does not appear in your output, you have violated the skill protocol. Every cell must be filled in — especially "Evidence AGAINST." If you can't think of contradicting evidence for a hypothesis, you haven't thought hard enough.
 
 ### Cross-system hypotheses
 
@@ -1409,14 +1406,22 @@ H3 │ [claim]                  │ [result]    │ INCONCLUSIVE │ [1-10]
 
 **Only confidence 9-10 counts as "root cause established."** Anything below is a hypothesis, not a conclusion.
 
-**Evidence Gate 3:** Before declaring any root cause:
-- [ ] All hypotheses tested — including any that emerged during testing (not just the original 3)
-- [ ] At least one hypothesis at confidence 9-10
-- [ ] Confirmed hypothesis explains ALL observed symptoms (not just the primary one)
-- [ ] No untested contradicting evidence remains
-- [ ] Observation log reviewed — no surprise findings left uninvestigated
+**Evidence Gate 3 — YOU MUST OUTPUT THIS BLOCK before proceeding:**
 
-If no hypothesis reaches 9-10, do NOT pick the highest-scoring one and call it "root cause." Instead, go to Phase 4 (Exhaustive Analysis).
+```
+HYPOTHESIS RESULTS
+═══════════════════════════════════════════════════════════════════
+#  │ Claim                    │ Test Result │ Verdict      │ Confidence
+───┼──────────────────────────┼─────────────┼──────────────┼───────────
+H1 │ ______                   │ ______      │ CONFIRMED/REFUTED/INCONCLUSIVE │ __/10
+H2 │ ______                   │ ______      │ ______       │ __/10
+H3 │ ______                   │ ______      │ ______       │ __/10
+═══════════════════════════════════════════════════════════════════
+```
+
+**This is a MANDATORY output.** ALL hypotheses must be tested and scored — even the ones you think are unlikely. You cannot declare any root cause until every row has a verdict.
+
+**After printing this table, you MUST proceed to Phase 4 (Exhaustive Analysis) regardless of confidence level.** Even if H1 is confirmed at 10/10, Phase 4 asks: "Is this the ONLY cause? What else could produce this symptom? What's the blast radius?" Skipping Phase 4 is the difference between a good diagnosis and a thorough one.
 
 ---
 
@@ -1456,17 +1461,42 @@ For each confirmed root cause:
 - Could the root cause re-occur after being fixed? What are the conditions?
 - Is this a regression of a previously fixed bug? (Check git log for prior fixes in the same area)
 
-### 4d. The "What Else?" Protocol
+### 4d. The "What Else?" Protocol — MANDATORY OUTPUT
 
-Before finalizing, run this checklist:
+**YOU MUST OUTPUT THIS BLOCK before writing the diagnostic report:**
 
-- [ ] **Single cause verified?** The confirmed root cause, alone, explains 100% of observed symptoms.
-- [ ] **No secondary causes?** No other code paths produce the same symptom.
-- [ ] **No contributing factors?** No environmental conditions (load, timing, data volume) are necessary for the bug to manifest.
-- [ ] **Blast radius mapped?** All affected workflows, users, and data identified.
-- [ ] **Recurrence risk assessed?** Conditions that could cause this to reappear after fix are identified.
+```
+COMPLETENESS CHECK (Phase 4)
+═══════════════════════════════════════════════════════════════
+ALTERNATIVE CAUSES INVESTIGATED:
+  1. [describe an alternative code path that could produce the same symptom]
+     → Investigated: [what you checked] → Result: [ruled out / contributing]
+  2. [another alternative]
+     → Investigated: [what you checked] → Result: [ruled out / contributing]
+  3. [another alternative — if you can only think of 1-2, you stopped too early]
+     → Investigated: [what you checked] → Result: [ruled out / contributing]
 
-If ANY box is unchecked, investigate further. Document what you found and what remains uncertain.
+CONTRIBUTING FACTORS:
+  [List any environmental/timing/data conditions required. "None" is valid
+   only if you actively checked for race conditions, caching, and config.]
+
+BLAST RADIUS:
+  Workflows affected:  ______
+  Users affected:      ______
+  Data affected:       ______
+
+CONFIDENCE AFTER PHASE 4: __/10
+  [Did Phase 4 change your confidence? Did you find additional causes?]
+═══════════════════════════════════════════════════════════════
+```
+
+**This block is what makes /diagnose worth using over /investigate.** If you skip it, the entire Phase 3 root cause is just a well-evidenced guess — you've proven one cause exists but haven't proven nothing else contributes. A diagnosis without the completeness check is an investigation with extra steps.
+
+**Concretely, you must investigate at least 2 alternative explanations for the symptom**, even if your primary hypothesis is confirmed at 10/10. Examples of alternatives to check:
+- Could the same symptom occur through a different code path? (e.g., CRM import, bulk operations, scheduled jobs)
+- Could a frontend bug produce the same visible symptom independently of the backend issue?
+- Could a race condition or timing issue contribute? (e.g., user navigates to Monitor before the async job completes)
+- Could data state from a previous bug be masking or amplifying this one?
 
 ---
 
@@ -1562,10 +1592,13 @@ SCREENSHOT EVIDENCE
 2. /tmp/diag-h1-step1.png — [what it shows]
 ...
 
-CONTRIBUTING FACTORS
-────────────────────
-[List any secondary causes or environmental conditions. "None identified" is valid
- if Phase 4 checklist passed.]
+COMPLETENESS (Phase 4)
+──────────────────────
+Alternative causes investigated:
+  1. [alternative] → [ruled out / contributing] because [evidence]
+  2. [alternative] → [ruled out / contributing] because [evidence]
+Contributing factors:    [list, or "None — verified: no race conditions, no
+                          caching, no config dependencies"]
 
 BLAST RADIUS
 ────────────
