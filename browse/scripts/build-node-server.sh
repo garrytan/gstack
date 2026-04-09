@@ -17,6 +17,7 @@ echo "Building Node-compatible server bundle..."
 bun build "$SRC_DIR/server.ts" \
   --target=node \
   --outfile "$DIST_DIR/server-node.mjs" \
+  --external "@ngrok/ngrok" \
   --external playwright \
   --external playwright-core \
   --external diff \

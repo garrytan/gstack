@@ -36,13 +36,46 @@ SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 # Read prefix setting
 PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 
+render_skill_copy() {
+  local source_skill="$1"
+  local target_skill="$2"
+  local target_name="$3"
+  local tmp_file
+
+  tmp_file="$(mktemp "${target_skill}.XXXXXX")"
+  sed "1,/^---$/s/^name:[[:space:]]*.*/name: ${target_name}/" "$source_skill" \
+    | awk '
+        BEGIN { frontmatter = 0; inserted = 0 }
+        {
+          print
+          if (!inserted && $0 == "---") {
+            frontmatter++
+            if (frontmatter == 2) {
+              print "<!-- gstack-managed-skill-copy -->"
+              inserted = 1
+            }
+          }
+        }
+        END {
+          if (!inserted) {
+            print "<!-- gstack-managed-skill-copy -->"
+          }
+        }
+      ' > "$tmp_file"
+  mv "$tmp_file" "$target_skill"
+}
+
 # Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
 _cleanup_skill_entry() {
   local entry="$1"
   if [ -L "$entry" ]; then
     rm -f "$entry"
-  elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
-    rm -rf "$entry"
+  elif [ -d "$entry" ]; then
+    if [ -L "$entry/SKILL.md" ]; then
+      rm -rf "$entry"
+    elif [ -f "$entry/SKILL.md" ] && grep -q '<!-- gstack-managed-skill-copy -->' "$entry/SKILL.md" 2>/dev/null; then
+      rm -rf "$entry"
+    fi
   fi
 }
 
@@ -74,14 +107,11 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   target="$SKILLS_DIR/$link_name"
   # Upgrade old directory symlinks to real directories
   [ -L "$target" ] && rm -f "$target"
-  # Create real directory with symlinked SKILL.md (absolute path)
+  # Create real directory with copied, patched SKILL.md so source skills stay unchanged.
   mkdir -p "$target"
-  ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
+  render_skill_copy "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md" "$link_name"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
-
-# Patch SKILL.md name: fields to match prefix setting
-"$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
 
 if [ "$PREFIX" = "true" ]; then
   echo "Relinked $SKILL_COUNT skills as gstack-*"

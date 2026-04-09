@@ -230,8 +230,11 @@ fi
 # ─── Remove SessionStart hook from Claude Code settings ─────
 SETTINGS_HOOK="$(dirname "$0")/gstack-settings-hook"
 SESSION_UPDATE="$(dirname "$0")/gstack-session-update"
+SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-$HOME/.claude/settings.json}"
 if [ -x "$SETTINGS_HOOK" ]; then
-  "$SETTINGS_HOOK" remove "$SESSION_UPDATE" 2>/dev/null && REMOVED+=("SessionStart hook") || true
+  if [ -f "$SETTINGS_FILE" ] && grep -q 'gstack-session-update' "$SETTINGS_FILE" 2>/dev/null; then
+    "$SETTINGS_HOOK" remove "$SESSION_UPDATE" 2>/dev/null && REMOVED+=("SessionStart hook") || true
+  fi
 fi
 
 # ─── Remove global state ────────────────────────────────────

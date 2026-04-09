@@ -103,11 +103,9 @@ describe('gstack-relink (#578)', () => {
     expect(output).toContain('flat');
   });
 
-  // REGRESSION: unprefixed skills must be real directories, not symlinks (#761)
-  // Claude Code auto-prefixes skills nested under a parent dir symlink.
-  // e.g., `qa -> gstack/qa` gets discovered as "gstack-qa", not "qa".
-  // The fix: create real directories with SKILL.md symlinks inside.
-  test('unprefixed skills are real directories with SKILL.md symlinks, not dir symlinks', () => {
+  // REGRESSION: unprefixed skills must be real directories, not symlinks (#761).
+  // Installed SKILL.md files are copied and patched so source skills stay unchanged.
+  test('unprefixed skills are real directories with copied SKILL.md files, not dir symlinks', () => {
     setupMockInstall(['qa', 'ship', 'review', 'plan-ceo-review']);
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix false`, {
       GSTACK_INSTALL_DIR: installDir,
@@ -123,18 +121,18 @@ describe('gstack-relink (#578)', () => {
       // Must be a real directory, NOT a symlink
       expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
       expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(false);
-      // Must contain a SKILL.md that IS a symlink
+      // Must contain a copied SKILL.md, not a symlink back to source
       expect(fs.existsSync(skillMdPath)).toBe(true);
-      expect(fs.lstatSync(skillMdPath).isSymbolicLink()).toBe(true);
-      // The SKILL.md symlink must point to the source skill's SKILL.md
-      const target = fs.readlinkSync(skillMdPath);
-      expect(target).toContain(skill);
-      expect(target).toEndWith('/SKILL.md');
+      expect(fs.lstatSync(skillMdPath).isSymbolicLink()).toBe(false);
+      const content = fs.readFileSync(skillMdPath, 'utf-8');
+      expect(content.startsWith('---\n')).toBe(true);
+      expect(content).toContain('<!-- gstack-managed-skill-copy -->');
+      expect(content).toContain(`name: ${skill}`);
     }
   });
 
   // Same invariant for prefixed mode
-  test('prefixed skills are real directories with SKILL.md symlinks, not dir symlinks', () => {
+  test('prefixed skills are real directories with copied SKILL.md files, not dir symlinks', () => {
     setupMockInstall(['qa', 'ship']);
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
       GSTACK_INSTALL_DIR: installDir,
@@ -149,7 +147,11 @@ describe('gstack-relink (#578)', () => {
       const skillMdPath = path.join(skillPath, 'SKILL.md');
       expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
       expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(false);
-      expect(fs.lstatSync(skillMdPath).isSymbolicLink()).toBe(true);
+      expect(fs.lstatSync(skillMdPath).isSymbolicLink()).toBe(false);
+      const content = fs.readFileSync(skillMdPath, 'utf-8');
+      expect(content.startsWith('---\n')).toBe(true);
+      expect(content).toContain('<!-- gstack-managed-skill-copy -->');
+      expect(content).toContain(`name: ${skill}`);
     }
   });
 
@@ -174,7 +176,10 @@ describe('gstack-relink (#578)', () => {
     // After relink: must be real directories, not symlinks
     expect(fs.lstatSync(path.join(skillsDir, 'qa')).isSymbolicLink()).toBe(false);
     expect(fs.lstatSync(path.join(skillsDir, 'qa')).isDirectory()).toBe(true);
-    expect(fs.lstatSync(path.join(skillsDir, 'qa', 'SKILL.md')).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(path.join(skillsDir, 'qa', 'SKILL.md')).isSymbolicLink()).toBe(false);
+    const qaContent = fs.readFileSync(path.join(skillsDir, 'qa', 'SKILL.md'), 'utf-8');
+    expect(qaContent.startsWith('---\n')).toBe(true);
+    expect(qaContent).toContain('<!-- gstack-managed-skill-copy -->');
   });
 
   // FIRST INSTALL: --no-prefix must create ONLY flat names, zero gstack-* pollution
@@ -419,12 +424,13 @@ describe('upgrade migrations', () => {
       GSTACK_SKILLS_DIR: skillsDir,
     });
 
-    // After migration: real directories with SKILL.md symlinks
+    // After migration: real directories with copied SKILL.md files
     for (const skill of ['qa', 'ship', 'review']) {
       const skillPath = path.join(skillsDir, skill);
       expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(false);
       expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
-      expect(fs.lstatSync(path.join(skillPath, 'SKILL.md')).isSymbolicLink()).toBe(true);
+      expect(fs.lstatSync(path.join(skillPath, 'SKILL.md')).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(skillPath, 'SKILL.md'), 'utf-8')).toContain('<!-- gstack-managed-skill-copy -->');
     }
   });
 });
@@ -437,7 +443,7 @@ describe('gstack-patch-names (#620/#578)', () => {
     return match ? match[1].trim() : null;
   }
 
-  test('prefix=true patches name: field in SKILL.md', () => {
+  test('prefix=true keeps source SKILL.md unchanged and patches installed copies', () => {
     setupMockInstall(['qa', 'ship', 'review']);
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
       GSTACK_INSTALL_DIR: installDir,
@@ -447,13 +453,13 @@ describe('gstack-patch-names (#620/#578)', () => {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
     });
-    // Verify name: field is patched with gstack- prefix
-    expect(readSkillName(path.join(installDir, 'qa'))).toBe('gstack-qa');
-    expect(readSkillName(path.join(installDir, 'ship'))).toBe('gstack-ship');
-    expect(readSkillName(path.join(installDir, 'review'))).toBe('gstack-review');
+    expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
+    expect(readSkillName(path.join(skillsDir, 'gstack-qa'))).toBe('gstack-qa');
+    expect(readSkillName(path.join(skillsDir, 'gstack-ship'))).toBe('gstack-ship');
+    expect(readSkillName(path.join(skillsDir, 'gstack-review'))).toBe('gstack-review');
   });
 
-  test('prefix=false restores name: field in SKILL.md', () => {
+  test('prefix=false restores installed copy names without mutating source', () => {
     setupMockInstall(['qa', 'ship']);
     // First, prefix them
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
@@ -464,7 +470,8 @@ describe('gstack-patch-names (#620/#578)', () => {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
     });
-    expect(readSkillName(path.join(installDir, 'qa'))).toBe('gstack-qa');
+    expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
+    expect(readSkillName(path.join(skillsDir, 'gstack-qa'))).toBe('gstack-qa');
     // Now switch to flat mode
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix false`, {
       GSTACK_INSTALL_DIR: installDir,
@@ -476,10 +483,11 @@ describe('gstack-patch-names (#620/#578)', () => {
     });
     // Verify name: field is restored to unprefixed
     expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
-    expect(readSkillName(path.join(installDir, 'ship'))).toBe('ship');
+    expect(readSkillName(path.join(skillsDir, 'qa'))).toBe('qa');
+    expect(readSkillName(path.join(skillsDir, 'ship'))).toBe('ship');
   });
 
-  test('gstack-upgrade name: not double-prefixed', () => {
+  test('gstack-upgrade name: not double-prefixed in installed copies', () => {
     setupMockInstall(['qa', 'gstack-upgrade']);
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
       GSTACK_INSTALL_DIR: installDir,
@@ -489,10 +497,10 @@ describe('gstack-patch-names (#620/#578)', () => {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
     });
-    // gstack-upgrade should keep its name, NOT become gstack-gstack-upgrade
     expect(readSkillName(path.join(installDir, 'gstack-upgrade'))).toBe('gstack-upgrade');
-    // Regular skill should be prefixed
-    expect(readSkillName(path.join(installDir, 'qa'))).toBe('gstack-qa');
+    expect(readSkillName(path.join(skillsDir, 'gstack-upgrade'))).toBe('gstack-upgrade');
+    expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
+    expect(readSkillName(path.join(skillsDir, 'gstack-qa'))).toBe('gstack-qa');
   });
 
   test('SKILL.md without frontmatter is a no-op', () => {

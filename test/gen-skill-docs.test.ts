@@ -2064,7 +2064,7 @@ describe('setup script validation', () => {
 
   test('Codex installs always create sidecar runtime assets for the real skill target', () => {
     expect(setupContent).toContain('if [ "$INSTALL_CODEX" -eq 1 ]; then');
-    expect(setupContent).toContain('create_agents_sidecar "$SOURCE_GSTACK_DIR"');
+    expect(setupContent).toContain('create_agents_sidecar "$GENERATED_GSTACK_DIR"');
   });
 
   test('link_codex_skill_dirs reads from .agents/skills/', () => {
@@ -2076,14 +2076,16 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
-  test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
-    // Claude links should be real directories with absolute SKILL.md symlinks
-    // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
+  test('link_claude_skill_dirs creates real directories with managed SKILL.md copies', () => {
+    // Claude installs keep real directories and write patched managed copies so
+    // source SKILL.md files stay unchanged while discovered names remain top-level.
     const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('mkdir -p "$target"');
-    expect(fnBody).toContain('ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
+    expect(fnBody).toContain('render_skill_copy() {');
+    expect(fnBody).toContain('render_skill_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md" "$link_name"');
+    expect(fnBody).toContain('<!-- gstack-managed-skill-copy -->');
   });
 
   // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
