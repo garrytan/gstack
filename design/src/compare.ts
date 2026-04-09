@@ -465,8 +465,8 @@ export function generateCompareHtml(images: string[]): string {
   });
 
   function postFeedback(feedback) {
-    if (!window.__GSTACK_SERVER_URL) return Promise.resolve(null);
-    return fetch(window.__GSTACK_SERVER_URL + '/api/feedback', {
+    if (!window.__NSTACK_SERVER_URL) return Promise.resolve(null);
+    return fetch(window.__NSTACK_SERVER_URL + '/api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(feedback),
@@ -509,7 +509,7 @@ export function generateCompareHtml(images: string[]): string {
   }
 
   function startProgressPolling() {
-    if (!window.__GSTACK_SERVER_URL) return;
+    if (!window.__NSTACK_SERVER_URL) return;
     var pollCount = 0;
     var maxPolls = 150; // 5 min at 2s intervals
     var pollInterval = setInterval(function() {
@@ -523,7 +523,7 @@ export function generateCompareHtml(images: string[]): string {
           '</div>';
         return;
       }
-      fetch(window.__GSTACK_SERVER_URL + '/api/progress')
+      fetch(window.__NSTACK_SERVER_URL + '/api/progress')
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.status === 'serving') {
@@ -563,7 +563,7 @@ export function generateCompareHtml(images: string[]): string {
     postFeedback(feedback).then(function(result) {
       if (result && result.received) {
         showRegeneratingState();
-      } else if (window.__GSTACK_SERVER_URL) {
+      } else if (window.__NSTACK_SERVER_URL) {
         showPostFailure(feedback);
       }
     });
@@ -578,7 +578,7 @@ export function generateCompareHtml(images: string[]): string {
     postFeedback(feedback).then(function(result) {
       if (result && result.received) {
         showPostSubmitState();
-      } else if (window.__GSTACK_SERVER_URL) {
+      } else if (window.__NSTACK_SERVER_URL) {
         showPostFailure(feedback);
       } else {
         // DOM-only mode (legacy / test)

@@ -9,7 +9,7 @@ description: |
   of truth. For existing sites, use /plan-design-review to infer the system instead.
   Use when asked to "design system", "brand guidelines", or "create DESIGN.md".
   Proactively suggest when starting a new project's UI with no existing
-  design system or DESIGN.md. (gstack)
+  design system or DESIGN.md. (nstack)
 allowed-tools:
   - Bash
   - Read
@@ -55,7 +55,7 @@ Look for office-hours output:
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 {{SLUG_EVAL}}
-ls ~/.gstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
+ls ~/.nstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
 ls .context/*office-hours* .context/attachments/*office-hours* 2>/dev/null | head -5
 ```
 
@@ -69,7 +69,7 @@ If the codebase is empty and purpose is unclear, say: *"I don't have a clear pic
 
 If browse is not available, that's fine — visual research is optional. The skill works without it using WebSearch and your built-in design knowledge.
 
-**Find the gstack designer (optional — enables AI mockup generation):**
+**Find the nstack designer (optional — enables AI mockup generation):**
 
 {{DESIGN_SETUP}}
 
@@ -249,15 +249,15 @@ Each drill-down is one focused AskUserQuestion. After the user decides, re-check
 
 ## Phase 5: Design System Preview (default ON)
 
-This phase generates visual previews of the proposed design system. Two paths depending on whether the gstack designer is available.
+This phase generates visual previews of the proposed design system. Two paths depending on whether the nstack designer is available.
 
 ### Path A: AI Mockups (if DESIGN_READY)
 
 Generate AI-rendered mockups showing the proposed design system applied to realistic screens for this product. This is far more powerful than an HTML preview — the user sees what their product could actually look like.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)
+eval "$(~/.claude/skills/nstack/bin/nstack-slug 2>/dev/null)"
+_DESIGN_DIR=~/.nstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```

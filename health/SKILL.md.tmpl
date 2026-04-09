@@ -7,7 +7,7 @@ description: |
   test runner, dead code detector, shell linter), computes a weighted composite
   0-10 score, and tracks trends over time. Use when: "health check",
   "code quality", "how healthy is the codebase", "run all checks",
-  "quality score". (gstack)
+  "quality score". (nstack)
 allowed-tools:
   - Bash
   - Read
@@ -201,7 +201,7 @@ DETAILS: Lint (3 warnings)
 {{SLUG_SETUP}}
 ```
 
-Append one JSONL line to `~/.gstack/projects/$SLUG/health-history.jsonl`:
+Append one JSONL line to `~/.nstack/projects/$SLUG/health-history.jsonl`:
 
 ```json
 {"ts":"2026-03-31T14:30:00Z","branch":"main","score":9.1,"typecheck":10,"lint":8,"test":10,"deadcode":7,"shell":10,"duration_s":23}
@@ -220,12 +220,12 @@ If a category was skipped, set its value to `null`.
 
 ## Step 6: Trend Analysis + Recommendations
 
-Read the last 10 entries from `~/.gstack/projects/$SLUG/health-history.jsonl` (if the
+Read the last 10 entries from `~/.nstack/projects/$SLUG/health-history.jsonl` (if the
 file exists and has prior entries).
 
 ```bash
 {{SLUG_SETUP}}
-tail -10 ~/.gstack/projects/$SLUG/health-history.jsonl 2>/dev/null || echo "NO_HISTORY"
+tail -10 ~/.nstack/projects/$SLUG/health-history.jsonl 2>/dev/null || echo "NO_HISTORY"
 ```
 
 **If prior entries exist, show the trend:**

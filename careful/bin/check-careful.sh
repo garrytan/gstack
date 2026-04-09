@@ -102,8 +102,8 @@ fi
 # --- Output ---
 if [ -n "$WARN" ]; then
   # Log hook fire event (pattern name only, never command content)
-  mkdir -p ~/.gstack/analytics 2>/dev/null || true
-  echo '{"event":"hook_fire","skill":"careful","pattern":"'"$PATTERN"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+  mkdir -p ~/.nstack/analytics 2>/dev/null || true
+  echo '{"event":"hook_fire","skill":"careful","pattern":"'"$PATTERN"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}' >> ~/.nstack/analytics/skill-usage.jsonl 2>/dev/null || true
 
   WARN_ESCAPED=$(printf '%s' "$WARN" | sed 's/"/\\"/g')
   printf '{"permissionDecision":"ask","message":"[careful] %s"}\n' "$WARN_ESCAPED"
