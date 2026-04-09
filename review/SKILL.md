@@ -937,7 +937,7 @@ source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || tr
 STACK=""
 [ -f Gemfile ] && STACK="${STACK}ruby "
 [ -f package.json ] && STACK="${STACK}node "
-[ -f requirements.txt ] || [ -f pyproject.toml ] && STACK="${STACK}python "
+{ [ -f requirements.txt ] || [ -f pyproject.toml ]; } && STACK="${STACK}python "
 [ -f go.mod ] && STACK="${STACK}go "
 [ -f Cargo.toml ] && STACK="${STACK}rust "
 echo "STACK: ${STACK:-unknown}"
@@ -951,9 +951,32 @@ TEST_FW=""
 [ -f vitest.config.ts ] && TEST_FW="vitest"
 { [ -f spec/spec_helper.rb ] || [ -f .rspec ]; } && TEST_FW="rspec"
 { [ -f pytest.ini ] || [ -f conftest.py ]; } && TEST_FW="pytest"
+if [ -z "$TEST_FW" ] && printf '%s' "$STACK" | grep -q "python"; then
+  if { [ -d tests ] || [ -d test ] || grep -qi "pytest" requirements.txt pyproject.toml 2>/dev/null; }; then
+    TEST_FW="pytest"
+  fi
+fi
 [ -f go.mod ] && TEST_FW="go-test"
 echo "TEST_FW: ${TEST_FW:-unknown}"
 ```
+
+### Pytest bootstrap for fresh workspaces
+
+If `TEST_FW` is `pytest` and you need to execute tests during the review, make sure the
+runner exists before any `pytest` command:
+
+```bash
+python3 ~/.claude/skills/gstack/review/scripts/ensure_pytest.py --dry-run
+```
+
+If the dry run says pytest is missing, run:
+
+```bash
+python3 ~/.claude/skills/gstack/review/scripts/ensure_pytest.py
+```
+
+This helper prefers the repo-local `.venv`, creates it if it does not exist, and installs
+pytest there. Do not install pytest globally just to unblock a review.
 
 ### Read specialist hit rates (adaptive gating)
 
