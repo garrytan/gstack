@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.16.1.1] - 2026-04-08
+
+### Fixed
+- `/office-hours` and `/plan-ceo-review` no longer accidentally tell users to cut implementation quality. "Narrow scope" now explicitly means the product surface, not tests or error handling. New "Two Axes of Scope" section in ETHOS.md makes the distinction permanent across all skills.
+
 ## [0.16.1.0] - 2026-04-08
 
 ### Fixed
