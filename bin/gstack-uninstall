@@ -66,6 +66,7 @@ if [ "$FORCE" -eq 0 ]; then
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
+  { [ -d "$HOME/.gemini/extensions/gstack" ] || [ -L "$HOME/.gemini/extensions/gstack" ]; } && echo "  ~/.gemini/extensions/gstack"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
 
   if [ -n "$_GIT_ROOT" ]; then
@@ -189,6 +190,13 @@ if [ -d "$KIRO_SKILLS" ]; then
     rm -rf "$_ITEM"
     REMOVED+=("kiro/$(basename "$_ITEM")")
   done
+fi
+
+# ─── Remove Gemini extension ───────────────────────────────
+GEMINI_EXT="$HOME/.gemini/extensions/gstack"
+if [ -d "$GEMINI_EXT" ] || [ -L "$GEMINI_EXT" ]; then
+  rm -rf "$GEMINI_EXT"
+  REMOVED+=("~/.gemini/extensions/gstack")
 fi
 
 # ─── Remove per-project .agents/ sidecar ─────────────────────

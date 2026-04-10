@@ -16,8 +16,8 @@ GSTACK_CONFIG="${SCRIPT_DIR}/gstack-config"
 # Detect install dir
 INSTALL_DIR="${GSTACK_INSTALL_DIR:-}"
 if [ -z "$INSTALL_DIR" ]; then
-  if [ -d "$HOME/.claude/skills/gstack" ]; then
-    INSTALL_DIR="$HOME/.claude/skills/gstack"
+  if [ -d "${GSTACK_SKILL_ROOT:-$HOME/.gemini/extensions/gstack}" ]; then
+    INSTALL_DIR="${GSTACK_SKILL_ROOT:-$HOME/.gemini/extensions/gstack}"
   elif [ -d "${SCRIPT_DIR}/.." ] && [ -f "${SCRIPT_DIR}/../setup" ]; then
     INSTALL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
   fi
@@ -25,7 +25,7 @@ fi
 
 if [ -z "$INSTALL_DIR" ] || [ ! -d "$INSTALL_DIR" ]; then
   echo "Error: gstack install directory not found." >&2
-  echo "Run: cd ~/.claude/skills/gstack && ./setup" >&2
+  echo "Run: cd <gstack-dir> && ./setup --host gemini" >&2
   exit 1
 fi
 

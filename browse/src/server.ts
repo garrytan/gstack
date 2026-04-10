@@ -229,8 +229,8 @@ let chatBuffer: ChatEntry[] = [];
 function findBrowseBin(): string {
   const candidates = [
     path.resolve(__dirname, '..', 'dist', 'browse'),
-    path.resolve(__dirname, '..', '..', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
-    path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
+    path.resolve(__dirname, '..', '..', '.gemini', 'extensions', 'gstack', 'browse', 'dist', 'browse'),
+    path.join(process.env.HOME || '', '.gemini', 'extensions', 'gstack', 'browse', 'dist', 'browse'),
   ];
   for (const c of candidates) {
     try { if (fs.existsSync(c)) return c; } catch {}
@@ -1286,7 +1286,7 @@ async function start() {
             console.warn('[browse] Error checking project welcome page:', err.message);
           }
           // Fallback: built-in welcome page from gstack install
-          const skillRoot = process.env.GSTACK_SKILL_ROOT || `${homeDir}/.claude/skills/gstack`;
+          const skillRoot = process.env.GSTACK_SKILL_ROOT || `${homeDir}/.gemini/extensions/gstack`;
           const builtinWelcome = `${skillRoot}/browse/src/welcome.html`;
           try { if (require('fs').existsSync(builtinWelcome)) return builtinWelcome; } catch (err: any) {
             console.warn('[browse] Error checking builtin welcome page:', err.message);

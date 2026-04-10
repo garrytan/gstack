@@ -6,7 +6,19 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 removed=()
 
-# ─── Clean up .claude/skills/ ─────────────────────────────────
+# ─── Clean up skills symlink ────────────────────────────────
+if [ -L "$REPO_ROOT/skills" ]; then
+  rm "$REPO_ROOT/skills"
+  removed+=("skills")
+fi
+
+# ─── Clean up generated .gemini/skills/ ─────────────────────
+if [ -d "$REPO_ROOT/.gemini/skills" ]; then
+  rm -rf "$REPO_ROOT/.gemini/skills"
+  removed+=(".gemini/skills")
+fi
+
+# ─── Clean up .claude/skills/ (legacy) ──────────────────────
 CLAUDE_SKILLS="$REPO_ROOT/.claude/skills"
 if [ -d "$CLAUDE_SKILLS" ]; then
   for link in "$CLAUDE_SKILLS"/*/; do
@@ -27,7 +39,7 @@ if [ -d "$CLAUDE_SKILLS" ]; then
   rmdir "$REPO_ROOT/.claude" 2>/dev/null || true
 fi
 
-# ─── Clean up .agents/skills/ ────────────────────────────────
+# ─── Clean up .agents/skills/ (legacy) ─────────────────────
 AGENTS_SKILLS="$REPO_ROOT/.agents/skills"
 if [ -d "$AGENTS_SKILLS" ]; then
   for link in "$AGENTS_SKILLS"/*/; do
@@ -53,4 +65,4 @@ if [ ${#removed[@]} -gt 0 ]; then
 else
   echo "No symlinks found."
 fi
-echo "Dev mode deactivated. Global gstack (~/.claude/skills/gstack) is now active."
+echo "Dev mode deactivated."

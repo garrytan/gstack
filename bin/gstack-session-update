@@ -9,7 +9,7 @@
 
 set +e
 
-GSTACK_DIR="${GSTACK_DIR:-$HOME/.claude/skills/gstack}"
+GSTACK_DIR="${GSTACK_DIR:-${GSTACK_SKILL_ROOT:-$HOME/.gemini/extensions/gstack}}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 THROTTLE_FILE="$STATE_DIR/.last-session-update"
 LOCK_DIR="$STATE_DIR/.setup-lock"

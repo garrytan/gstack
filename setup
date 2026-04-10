@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register skills with Claude Code / Codex
+# gstack setup — build browser binary + register skills with Gemini CLI (+ other hosts)
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
@@ -33,7 +33,7 @@ QUIET=0
 log() { [ "$QUIET" -eq 0 ] && echo "$@" || true; }
 
 # ─── Parse flags ──────────────────────────────────────────────
-HOST="claude"
+HOST="gemini"
 LOCAL_INSTALL=0
 SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
@@ -119,10 +119,8 @@ if [ "$LOCAL_INSTALL" -eq 1 ]; then
     echo "Error: --local is only supported for Claude Code (not Codex)." >&2
     exit 1
   fi
-  INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
-  mkdir -p "$INSTALL_SKILLS_DIR"
-  HOST="claude"
-  INSTALL_CODEX=0
+  echo "Error: --local is only supported for Claude Code, not the Gemini fork." >&2
+  exit 1
 fi
 
 # For auto: detect which agents are installed
@@ -137,9 +135,9 @@ if [ "$HOST" = "auto" ]; then
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v gemini >/dev/null 2>&1 && INSTALL_GEMINI=1
-  # If none found, default to claude
+  # If none found, default to gemini (this is the Gemini fork)
   if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_GEMINI" -eq 0 ]; then
-    INSTALL_CLAUDE=1
+    INSTALL_GEMINI=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
@@ -226,21 +224,17 @@ if [ ! -x "$BROWSE_BIN" ]; then
   exit 1
 fi
 
-# 1b. Generate .agents/ Codex skill docs — always regenerate to prevent stale descriptions.
-# .agents/ is no longer committed — generated at setup time from .tmpl templates.
-# bun run build already does this, but we need it when NEEDS_BUILD=0 (binary is fresh).
-# Always regenerate: generation is fast (<2s) and mtime-based staleness checks are fragile
-# (miss stale files when timestamps match after clone/checkout/upgrade).
+# 1b. Generate .agents/ Codex skill docs (only when Codex/Kiro is being installed)
 AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
-NEEDS_AGENTS_GEN=1
-
-if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
-  log "Generating .agents/ skill docs..."
-  (
-    cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run gen:skill-docs --host codex
-  )
+if [ "$INSTALL_CODEX" -eq 1 ] || [ "$INSTALL_KIRO" -eq 1 ]; then
+  if [ "$NEEDS_BUILD" -eq 0 ]; then
+    log "Generating .agents/ skill docs..."
+    (
+      cd "$SOURCE_GSTACK_DIR"
+      bun install --frozen-lockfile 2>/dev/null || bun install
+      bun run gen:skill-docs --host codex
+    )
+  fi
 fi
 
 # 1c. Generate .factory/ Factory Droid skill docs
@@ -813,9 +807,7 @@ if [ "$INSTALL_GEMINI" -eq 1 ]; then
   log "  skills: $SOURCE_GSTACK_DIR/skills -> .gemini/skills"
 fi
 
-# 7. Create .agents/ sidecar symlinks for the real Codex skill target.
-# The root Codex skill ends up pointing at $SOURCE_GSTACK_DIR/.agents/skills/gstack,
-# so the runtime assets must live there for both global and repo-local installs.
+# 7. Create .agents/ sidecar symlinks (only for Codex installs)
 if [ "$INSTALL_CODEX" -eq 1 ]; then
   create_agents_sidecar "$SOURCE_GSTACK_DIR"
 fi
@@ -855,35 +847,38 @@ fi
 rm -f /tmp/gstack-latest-version
 
 # 10. Team mode: register/unregister SessionStart hook
-SETTINGS_HOOK="$SOURCE_GSTACK_DIR/bin/gstack-settings-hook"
-HOOK_CMD="$SOURCE_GSTACK_DIR/bin/gstack-session-update"
+# SessionStart hooks are Claude Code-specific; skip for Gemini-only installs
+if [ "$INSTALL_CLAUDE" -eq 1 ]; then
+  SETTINGS_HOOK="$SOURCE_GSTACK_DIR/bin/gstack-settings-hook"
+  HOOK_CMD="$SOURCE_GSTACK_DIR/bin/gstack-session-update"
 
-if [ "$TEAM_MODE" -eq 1 ]; then
-  "$GSTACK_CONFIG" set auto_upgrade true 2>/dev/null || true
-  "$GSTACK_CONFIG" set team_mode true 2>/dev/null || true
+  if [ "$TEAM_MODE" -eq 1 ]; then
+    "$GSTACK_CONFIG" set auto_upgrade true 2>/dev/null || true
+    "$GSTACK_CONFIG" set team_mode true 2>/dev/null || true
 
-  # Register SessionStart hook in Claude Code settings
-  if [ -x "$SETTINGS_HOOK" ]; then
-    "$SETTINGS_HOOK" add "$HOOK_CMD" 2>/dev/null || true
+    if [ -x "$SETTINGS_HOOK" ]; then
+      "$SETTINGS_HOOK" add "$HOOK_CMD" 2>/dev/null || true
+    fi
+
+    log ""
+    log "Team mode enabled: gstack will auto-update at the start of each Claude Code session."
+    log "  Hook: $HOOK_CMD"
+    log "  To disable: ./setup --no-team"
+    log ""
+    log "Bootstrap your repo:"
+    log "  cd <your-repo> && $SOURCE_GSTACK_DIR/bin/gstack-team-init required"
   fi
 
-  log ""
-  log "Team mode enabled: gstack will auto-update at the start of each Claude Code session."
-  log "  Hook: $HOOK_CMD"
-  log "  To disable: ./setup --no-team"
-  log ""
-  log "Bootstrap your repo:"
-  log "  cd <your-repo> && $SOURCE_GSTACK_DIR/bin/gstack-team-init required"
-fi
+  if [ "$NO_TEAM_MODE" -eq 1 ]; then
+    "$GSTACK_CONFIG" set auto_upgrade false 2>/dev/null || true
+    "$GSTACK_CONFIG" set team_mode false 2>/dev/null || true
 
-if [ "$NO_TEAM_MODE" -eq 1 ]; then
-  "$GSTACK_CONFIG" set auto_upgrade false 2>/dev/null || true
-  "$GSTACK_CONFIG" set team_mode false 2>/dev/null || true
+    if [ -x "$SETTINGS_HOOK" ]; then
+      "$SETTINGS_HOOK" remove "$HOOK_CMD" 2>/dev/null || true
+    fi
 
-  # Remove SessionStart hook from Claude Code settings
-  if [ -x "$SETTINGS_HOOK" ]; then
-    "$SETTINGS_HOOK" remove "$HOOK_CMD" 2>/dev/null || true
+    log "Team mode disabled: auto-update hook removed."
   fi
-
-  log "Team mode disabled: auto-update hook removed."
+elif [ "$TEAM_MODE" -eq 1 ]; then
+  log "Note: --team is only supported for Claude Code. Skipping SessionStart hook."
 fi

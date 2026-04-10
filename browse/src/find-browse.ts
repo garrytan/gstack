@@ -27,17 +27,25 @@ function getGitRoot(): string | null {
 export function locateBinary(): string | null {
   const root = getGitRoot();
   const home = homedir();
-  const markers = ['.codex', '.agents', '.claude'];
+  // Check Gemini extension path first, then legacy paths
+  const geminiPaths = [
+    { base: root, sub: join('.gemini', 'extensions', 'gstack', 'browse', 'dist', 'browse') },
+    { base: home, sub: join('.gemini', 'extensions', 'gstack', 'browse', 'dist', 'browse') },
+  ];
+  for (const { base, sub } of geminiPaths) {
+    if (!base) continue;
+    const p = join(base, sub);
+    if (existsSync(p)) return p;
+  }
 
-  // Workspace-local takes priority (for development)
+  // Legacy fallback paths
+  const markers = ['.codex', '.agents', '.claude'];
   if (root) {
     for (const m of markers) {
       const local = join(root, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
       if (existsSync(local)) return local;
     }
   }
-
-  // Global fallback
   for (const m of markers) {
     const global = join(home, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
     if (existsSync(global)) return global;

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Set up gstack for local development — test skills from within this repo.
 #
-# Creates .claude/skills/gstack → (symlink to repo root) so Claude Code
-# discovers skills from your working tree. Changes take effect immediately.
+# Creates skills → .gemini/skills symlink so Gemini CLI discovers skills
+# from your working tree. Changes take effect immediately.
 #
-# Also copies .env from the main worktree if this is a Conductor workspace
-# or git worktree (so API keys carry over automatically).
+# Also copies .env from the main worktree if this is a git worktree
+# (so API keys carry over automatically).
 #
 # Usage: bin/dev-setup       # set up
 #        bin/dev-teardown    # clean up
@@ -28,41 +28,27 @@ if [ ! -d "$REPO_ROOT/node_modules" ]; then
   (cd "$REPO_ROOT" && bun install)
 fi
 
-# 3. Create .claude/skills/ inside the repo
-mkdir -p "$REPO_ROOT/.claude/skills"
+# 3. Generate Gemini skill docs
+echo "Generating Gemini skill docs..."
+(cd "$REPO_ROOT" && bun run gen:skill-docs --host gemini)
 
-# 4. Symlink .claude/skills/gstack → repo root
-# This makes setup think it's inside a real .claude/skills/ directory
-GSTACK_LINK="$REPO_ROOT/.claude/skills/gstack"
-if [ -L "$GSTACK_LINK" ]; then
+# 4. Create skills → .gemini/skills symlink
+SKILLS_LINK="$REPO_ROOT/skills"
+if [ -L "$SKILLS_LINK" ]; then
   echo "Updating existing symlink..."
-  rm "$GSTACK_LINK"
-elif [ -d "$GSTACK_LINK" ]; then
-  echo "Error: .claude/skills/gstack is a real directory, not a symlink." >&2
-  echo "Remove it manually if you want to use dev mode." >&2
-  exit 1
+  rm "$SKILLS_LINK"
 fi
-ln -s "$REPO_ROOT" "$GSTACK_LINK"
-
-# 5. Create .agents/skills/gstack → repo root (for Codex/Gemini/Cursor)
-mkdir -p "$REPO_ROOT/.agents/skills"
-AGENTS_LINK="$REPO_ROOT/.agents/skills/gstack"
-if [ -L "$AGENTS_LINK" ]; then
-  rm "$AGENTS_LINK"
-elif [ -d "$AGENTS_LINK" ]; then
-  echo "Warning: .agents/skills/gstack is a real directory, skipping." >&2
-fi
-if [ ! -e "$AGENTS_LINK" ]; then
-  ln -s "$REPO_ROOT" "$AGENTS_LINK"
+if [ ! -e "$SKILLS_LINK" ]; then
+  ln -s ".gemini/skills" "$SKILLS_LINK"
 fi
 
-# 6. Run setup via the symlink so it detects .claude/skills/ as its parent
-"$GSTACK_LINK/setup"
+# 5. Link as Gemini extension
+echo "Link this repo as a Gemini extension:"
+echo "  gemini extensions link $REPO_ROOT"
 
 echo ""
 echo "Dev mode active. Skills resolve from this working tree."
-echo "  .claude/skills/gstack → $REPO_ROOT"
-echo "  .agents/skills/gstack → $REPO_ROOT"
-echo "Edit any SKILL.md and test immediately — no copy/deploy needed."
+echo "  skills → .gemini/skills"
+echo "Edit any SKILL.md.tmpl, run 'bun run gen:skill-docs --host gemini', and test immediately."
 echo ""
 echo "To tear down: bin/dev-teardown"

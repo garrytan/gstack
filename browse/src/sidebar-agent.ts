@@ -18,7 +18,7 @@ const KILL_FILE = path.join(path.dirname(QUEUE), 'sidebar-agent-kill');
 const SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '34567', 10);
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const POLL_MS = 200;  // 200ms poll — keeps time-to-first-token low
-const B = process.env.BROWSE_BIN || path.resolve(__dirname, '../../.claude/skills/gstack/browse/dist/browse');
+const B = process.env.BROWSE_BIN || path.resolve(__dirname, '../../.gemini/extensions/gstack/browse/dist/browse');
 
 const CANCEL_DIR = path.join(process.env.HOME || '/tmp', '.gstack');
 function cancelFileForTab(tabId: number): string {

@@ -13,8 +13,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXT_DIR=""
 if [ -f "$REPO_ROOT/extension/manifest.json" ]; then
   EXT_DIR="$REPO_ROOT/extension"
-elif [ -f "$HOME/.claude/skills/gstack/extension/manifest.json" ]; then
-  EXT_DIR="$HOME/.claude/skills/gstack/extension"
+elif [ -f "${GSTACK_SKILL_ROOT:-$HOME/.gemini/extensions/gstack}/extension/manifest.json" ]; then
+  EXT_DIR="${GSTACK_SKILL_ROOT:-$HOME/.gemini/extensions/gstack}/extension"
 fi
 
 if [ -z "$EXT_DIR" ]; then
