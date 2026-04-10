@@ -205,12 +205,14 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/land-and-deploy` | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | `/canary` | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures. |
 | `/benchmark` | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. |
+| `/health` | **Quality Engineer** | Wraps your project's type checker, linter, test runner, dead code detector, and shell linter into one weighted 0-10 composite score. Tracks trends over time so you see whether the codebase is improving or rotting. Say "how healthy is the codebase" and you get one number plus a per-tool breakdown. |
 | `/document-release` | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
 | `/retro` | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. `/retro global` runs across all your projects and AI tools (Claude Code, Codex, Gemini). |
 | `/browse` | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. `/open-gstack-browser` launches GStack Browser with sidebar, anti-bot stealth, and auto model routing. |
 | `/setup-browser-cookies` | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | `/autoplan` | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
 | `/learn` | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns, pitfalls, and preferences. Learnings compound across sessions so gstack gets smarter on your codebase over time. |
+| `/checkpoint` | **Session Bookmark** | Save and resume working state mid-sprint. Captures git state, decisions made, and what's left to do so you can pick up exactly where you left off, even across Conductor workspace handoffs or after a long break. Say "where was I" or "pick up where I left off" and it reads the latest checkpoint. |
 
 ### Which review should I use?
 
