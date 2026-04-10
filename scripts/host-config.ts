@@ -109,6 +109,9 @@ export interface HostConfig {
   staticFiles?: Record<string, string>;
   /** Optional path to host-adapter module for complex transformations. */
   adapter?: string;
+
+  /** If set, injects a github CAUTION alert if generated skill exceeds this line count. */
+  paginationWarningLimit?: number;
 }
 
 // --- Validation ---

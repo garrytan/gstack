@@ -479,12 +479,27 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
 
   // Prepend generated header (after frontmatter)
   const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath));
-  const fmEnd = content.indexOf('---', content.indexOf('---') + 3);
+  let fmEnd = content.indexOf('---', content.indexOf('---') + 3);
   if (fmEnd !== -1) {
     const insertAt = content.indexOf('\n', fmEnd) + 1;
     content = content.slice(0, insertAt) + header + content.slice(insertAt);
   } else {
     content = header + content;
+  }
+
+  // Inject pagination warning if document exceeds the limit
+  if (currentHostConfig.paginationWarningLimit) {
+    const lineCount = content.split('\n').length;
+    if (lineCount > currentHostConfig.paginationWarningLimit) {
+      const paginationWarning = `> [!CAUTION]\n> PAGINATION WARNING: This file exceeds ${currentHostConfig.paginationWarningLimit} lines. Your \`view_file\` tool will artificially truncate this document. You MUST execute a follow-up \`view_file\` with \`StartLine: ${currentHostConfig.paginationWarningLimit + 1}\` to read the rest of the file before proceeding with the skill instructions!\n\n`;
+      fmEnd = content.indexOf('---', content.indexOf('---') + 3);
+      if (fmEnd !== -1) {
+        const insertAt = content.indexOf('\n', fmEnd) + 1;
+        content = content.slice(0, insertAt) + paginationWarning + content.slice(insertAt);
+      } else {
+        content = paginationWarning + content;
+      }
+    }
   }
 
   return { outputPath, content, symlinkLoop };
