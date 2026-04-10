@@ -402,7 +402,7 @@ describe('describeToolCall', () => {
   });
 
   test('full browse binary path recognized', () => {
-    const result = describeToolCall('Bash', { command: '/Users/garrytan/.claude/skills/gstack/browse/dist/browse goto https://example.com' });
+    const result = describeToolCall('Bash', { command: '/Users/garrytan/.gemini/extensions/gstack/browse/dist/browse goto https://example.com' });
     expect(result).toBe('Opening https://example.com');
   });
 
@@ -428,10 +428,10 @@ describe('per-tab agent concurrency', () => {
     expect(serverSrc).toContain('tabAgentStatus');
   });
 
-  test('spawnClaude accepts forTabId parameter', () => {
+  test('spawnAgent accepts forTabId parameter', () => {
     const spawnFn = serverSrc.slice(
-      serverSrc.indexOf('function spawnClaude('),
-      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnClaude(') + 1),
+      serverSrc.indexOf('function spawnAgent('),
+      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnAgent(') + 1),
     );
     expect(spawnFn).toContain('forTabId');
     expect(spawnFn).toContain('tabState.status');
@@ -462,21 +462,21 @@ describe('per-tab agent concurrency', () => {
   test('sidebar-agent sends tabId with all events', () => {
     // sendEvent should accept tabId parameter
     expect(agentSrc).toContain('async function sendEvent(event: Record<string, any>, tabId?: number)');
-    // askClaude should extract tabId from queue entry
+    // askAgent should extract tabId from queue entry
     expect(agentSrc).toContain('const { prompt, args, stateFile, cwd, tabId }');
   });
 
   test('sidebar-agent allows concurrent agents across tabs', () => {
     // poll() should not block globally — it should check per-tab
     expect(agentSrc).toContain('processingTabs.has(tid)');
-    // askClaude should be fire-and-forget (no await blocking the loop)
-    expect(agentSrc).toContain('askClaude(entry).catch');
+    // askAgent should be fire-and-forget (no await blocking the loop)
+    expect(agentSrc).toContain('askAgent(entry).catch');
   });
 
   test('queue entries include tabId', () => {
     const spawnFn = serverSrc.slice(
-      serverSrc.indexOf('function spawnClaude('),
-      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnClaude(') + 1),
+      serverSrc.indexOf('function spawnAgent('),
+      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnAgent(') + 1),
     );
     expect(spawnFn).toContain('tabId: agentTabId');
   });
@@ -491,7 +491,7 @@ describe('BROWSE_TAB tab pinning (cross-tab isolation)', () => {
   const agentSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'sidebar-agent.ts'), 'utf-8');
   const cliSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'cli.ts'), 'utf-8');
 
-  test('sidebar-agent passes BROWSE_TAB env var to claude process', () => {
+  test('sidebar-agent passes BROWSE_TAB env var to agent process', () => {
     // The env block should include BROWSE_TAB set to the tab ID
     expect(agentSrc).toContain('BROWSE_TAB');
     expect(agentSrc).toContain('String(tid)');

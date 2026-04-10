@@ -27,98 +27,8 @@ function run(cmd: string, opts: { cwd?: string; env?: Record<string, string> } =
   }
 }
 
-describe('gstack-settings-hook', () => {
-  let tmpDir: string;
-  let settingsFile: string;
-
-  beforeEach(() => {
-    tmpDir = mkTmpDir();
-    settingsFile = path.join(tmpDir, 'settings.json');
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  test('add creates settings.json if missing', () => {
-    const result = run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    expect(result.exitCode).toBe(0);
-    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-    expect(settings.hooks.SessionStart).toHaveLength(1);
-    expect(settings.hooks.SessionStart[0].hooks[0].command).toBe('/path/to/gstack-session-update');
-  });
-
-  test('add preserves existing settings', () => {
-    fs.writeFileSync(settingsFile, JSON.stringify({ effortLevel: 'high', permissions: { defaultMode: 'auto' } }, null, 2));
-    const result = run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    expect(result.exitCode).toBe(0);
-    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-    expect(settings.effortLevel).toBe('high');
-    expect(settings.permissions.defaultMode).toBe('auto');
-    expect(settings.hooks.SessionStart).toHaveLength(1);
-  });
-
-  test('add deduplicates (running twice does not double-add)', () => {
-    run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-    expect(settings.hooks.SessionStart).toHaveLength(1);
-  });
-
-  test('remove removes the hook', () => {
-    run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    const result = run(`${SETTINGS_HOOK} remove /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    expect(result.exitCode).toBe(0);
-    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-    expect(settings.hooks).toBeUndefined();
-  });
-
-  test('remove is safe when settings.json does not exist', () => {
-    const result = run(`${SETTINGS_HOOK} remove /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    expect(result.exitCode).toBe(0);
-  });
-
-  test('remove preserves other hooks', () => {
-    fs.writeFileSync(settingsFile, JSON.stringify({
-      hooks: {
-        SessionStart: [
-          { hooks: [{ type: 'command', command: '/path/to/gstack-session-update' }] },
-          { hooks: [{ type: 'command', command: '/other/hook' }] },
-        ],
-      },
-    }, null, 2));
-    run(`${SETTINGS_HOOK} remove /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-    expect(settings.hooks.SessionStart).toHaveLength(1);
-    expect(settings.hooks.SessionStart[0].hooks[0].command).toBe('/other/hook');
-  });
-
-  test('atomic write (no partial file on success)', () => {
-    run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
-    });
-    // .tmp file should not exist after successful write
-    expect(fs.existsSync(settingsFile + '.tmp')).toBe(false);
-    // File should be valid JSON
-    expect(() => JSON.parse(fs.readFileSync(settingsFile, 'utf-8'))).not.toThrow();
-  });
-});
+// gstack-settings-hook tests removed — Claude Code settings.json hooks
+// are not applicable to the Gemini fork.
 
 describe('gstack-session-update', () => {
   let tmpDir: string;
@@ -213,20 +123,20 @@ describe('gstack-team-init', () => {
     fs.rmSync(nonGitDir, { recursive: true, force: true });
   });
 
-  test('optional: creates CLAUDE.md with recommended section', () => {
+  test('optional: creates project instructions with recommended section', () => {
     const result = run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     expect(result.exitCode).toBe(0);
-    const claude = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-    expect(claude).toContain('## gstack (recommended)');
-    expect(claude).toContain('./setup --team');
+    const content = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
+    expect(content).toContain('## gstack (recommended)');
+    expect(content).toContain('./setup --team');
   });
 
-  test('required: creates CLAUDE.md with required section', () => {
+  test('required: creates project instructions with required section', () => {
     const result = run(`${TEAM_INIT} required`, { cwd: tmpDir });
     expect(result.exitCode).toBe(0);
-    const claude = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-    expect(claude).toContain('## gstack (REQUIRED');
-    expect(claude).toContain('GSTACK_MISSING');
+    const content = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
+    expect(content).toContain('## gstack (REQUIRED');
+    expect(content).toContain('GSTACK_MISSING');
   });
 
   test('required: creates enforcement hook', () => {
@@ -250,11 +160,11 @@ describe('gstack-team-init', () => {
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('check-gstack');
   });
 
-  test('idempotent: running twice does not duplicate CLAUDE.md section', () => {
+  test('idempotent: running twice does not duplicate section', () => {
     run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     run(`${TEAM_INIT} optional`, { cwd: tmpDir });
-    const claude = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-    const matches = claude.match(/## gstack/g);
+    const content = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
+    const matches = content.match(/## gstack/g);
     expect(matches).toHaveLength(1);
   });
 
@@ -331,9 +241,9 @@ describe('setup --team / --no-team / -q', () => {
     expect(result.stdout).not.toContain('gstack ready');
   });
 
-  test('setup --local prints deprecation warning', () => {
-    // stderr capture: run via bash redirect so we can capture stderr
+  test('setup --local is silently ignored (flag removed in Gemini fork)', () => {
+    // --local is parsed but not acted on — the setup continues normally
     const result = run(`bash -c '${path.join(ROOT, 'setup')} --local -q 2>&1'`, { cwd: ROOT });
-    expect(result.stdout).toContain('deprecated');
+    expect(result.exitCode).toBe(0);
   });
 });

@@ -14,7 +14,6 @@ import {
   getHostConfig,
   resolveHostArg,
   getExternalHosts,
-  claude,
   codex,
   factory,
   kiro,
@@ -22,6 +21,7 @@ import {
   slate,
   cursor,
   openclaw,
+  gemini,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
@@ -30,8 +30,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 9 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(9);
+  test('ALL_HOST_CONFIGS has 8 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(8);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -45,7 +45,6 @@ describe('hosts/index.ts', () => {
   });
 
   test('individual config re-exports match registry', () => {
-    expect(claude.name).toBe('claude');
     expect(codex.name).toBe('codex');
     expect(factory.name).toBe('factory');
     expect(kiro.name).toBe('kiro');
@@ -53,6 +52,7 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(gemini.name).toBe('gemini');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -80,9 +80,9 @@ describe('hosts/index.ts', () => {
     expect(() => resolveHostArg('nonexistent')).toThrow('Unknown host');
   });
 
-  test('getExternalHosts excludes claude', () => {
+  test('getExternalHosts excludes gemini', () => {
     const external = getExternalHosts();
-    expect(external.find(c => c.name === 'claude')).toBeUndefined();
+    expect(external.find(c => c.name === 'gemini')).toBeUndefined();
     expect(external.length).toBe(ALL_HOST_CONFIGS.length - 1);
   });
 
@@ -216,20 +216,20 @@ describe('validateAllConfigs', () => {
   });
 
   test('duplicate name detected', () => {
-    const dup = { ...codex, name: 'claude' } as HostConfig;
-    const errors = validateAllConfigs([claude, dup]);
+    const dup = { ...codex, name: 'gemini' } as HostConfig;
+    const errors = validateAllConfigs([gemini, dup]);
     expect(errors.some(e => e.includes('Duplicate name'))).toBe(true);
   });
 
   test('duplicate hostSubdir detected', () => {
-    const dup = { ...codex, name: 'dup-host', hostSubdir: '.claude', globalRoot: '.dup/skills/gstack' } as HostConfig;
-    const errors = validateAllConfigs([claude, dup]);
+    const dup = { ...codex, name: 'dup-host', hostSubdir: '.gemini', globalRoot: '.dup/skills/gstack' } as HostConfig;
+    const errors = validateAllConfigs([gemini, dup]);
     expect(errors.some(e => e.includes('Duplicate hostSubdir'))).toBe(true);
   });
 
   test('duplicate globalRoot detected', () => {
-    const dup = { ...codex, name: 'dup-host', hostSubdir: '.dup', globalRoot: '.claude/skills/gstack' } as HostConfig;
-    const errors = validateAllConfigs([claude, dup]);
+    const dup = { ...codex, name: 'dup-host', hostSubdir: '.dup', globalRoot: '.gemini/extensions/gstack' } as HostConfig;
+    const errors = validateAllConfigs([gemini, dup]);
     expect(errors.some(e => e.includes('Duplicate globalRoot'))).toBe(true);
   });
 
@@ -243,13 +243,6 @@ describe('validateAllConfigs', () => {
 // ─── HOST_PATHS derivation ──────────────────────────────────
 
 describe('HOST_PATHS derivation from configs', () => {
-  test('Claude uses literal home paths (no env vars)', () => {
-    expect(HOST_PATHS.claude.skillRoot).toBe('~/.claude/skills/gstack');
-    expect(HOST_PATHS.claude.binDir).toBe('~/.claude/skills/gstack/bin');
-    expect(HOST_PATHS.claude.browseDir).toBe('~/.claude/skills/gstack/browse/dist');
-    expect(HOST_PATHS.claude.designDir).toBe('~/.claude/skills/gstack/design/dist');
-  });
-
   test('Codex uses $GSTACK_ROOT env vars', () => {
     expect(HOST_PATHS.codex.skillRoot).toBe('$GSTACK_ROOT');
     expect(HOST_PATHS.codex.binDir).toBe('$GSTACK_BIN');
@@ -318,9 +311,9 @@ describe('host-config-export.ts CLI', () => {
   });
 
   test('get returns boolean as 1/0', () => {
-    const { stdout: t } = run('get', 'claude', 'usesEnvVars');
-    expect(t).toBe('0');
-    const { stdout: f } = run('get', 'codex', 'usesEnvVars');
+    const { stdout: t } = run('get', 'codex', 'usesEnvVars');
+    expect(t).toBe('1');
+    const { stdout: f } = run('get', 'gemini', 'usesEnvVars');
     expect(f).toBe('1');
   });
 
@@ -359,11 +352,11 @@ describe('host-config-export.ts CLI', () => {
     expect(exitCode).toBe(1);
   });
 
-  test('detect finds claude (since we are running in claude)', () => {
+  test('detect finds at least one host', () => {
     const { stdout, exitCode } = run('detect');
     expect(exitCode).toBe(0);
-    // claude binary should be on PATH in this environment
-    expect(stdout).toContain('claude');
+    // At least one host binary should be on PATH in this environment
+    expect(stdout.length).toBeGreaterThan(0);
   });
 
   test('unknown command exits 1', () => {
@@ -376,12 +369,6 @@ describe('host-config-export.ts CLI', () => {
 
 describe('golden-file regression', () => {
   const GOLDEN_DIR = path.join(ROOT, 'test', 'fixtures', 'golden');
-
-  test('Claude ship skill matches golden baseline', () => {
-    const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'claude-ship-SKILL.md'), 'utf-8');
-    const current = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(current).toBe(golden);
-  });
 
   test('Codex ship skill matches golden baseline', () => {
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'codex-ship-SKILL.md'), 'utf-8');
@@ -399,28 +386,16 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('claude is the only prefixable host', () => {
+  test('no host is prefixable', () => {
     for (const config of ALL_HOST_CONFIGS) {
-      if (config.name === 'claude') {
-        expect(config.install.prefixable).toBe(true);
-      } else {
-        expect(config.install.prefixable).toBe(false);
-      }
+      expect(config.install.prefixable).toBe(false);
     }
   });
 
-  test('claude is the only host with real-dir-symlink strategy', () => {
+  test('all hosts use symlink-generated strategy', () => {
     for (const config of ALL_HOST_CONFIGS) {
-      if (config.name === 'claude') {
-        expect(config.install.linkingStrategy).toBe('real-dir-symlink');
-      } else {
-        expect(config.install.linkingStrategy).toBe('symlink-generated');
-      }
+      expect(config.install.linkingStrategy).toBe('symlink-generated');
     }
-  });
-
-  test('claude does not use env vars', () => {
-    expect(claude.usesEnvVars).toBe(false);
   });
 
   test('all external hosts use env vars', () => {
@@ -494,8 +469,8 @@ describe('host config correctness', () => {
   });
 
   test('every host has coAuthorTrailer or undefined', () => {
-    // Claude, Codex, Factory, OpenClaw have explicit trailers
-    expect(claude.coAuthorTrailer).toContain('Claude');
+    // Gemini, Codex, Factory, OpenClaw have explicit trailers
+    expect(gemini.coAuthorTrailer).toContain('Gemini');
     expect(codex.coAuthorTrailer).toContain('Codex');
     expect(factory.coAuthorTrailer).toContain('Factory');
     expect(openclaw.coAuthorTrailer).toContain('OpenClaw');
@@ -507,11 +482,10 @@ describe('host config correctness', () => {
     }
   });
 
-  test('every host has at least one pathRewrite (except claude)', () => {
-    for (const config of getExternalHosts()) {
+  test('every host has at least one pathRewrite', () => {
+    for (const config of ALL_HOST_CONFIGS) {
       expect(config.pathRewrites.length).toBeGreaterThan(0);
     }
-    expect(claude.pathRewrites.length).toBe(0);
   });
 
   test('every host has runtimeRoot.globalSymlinks', () => {

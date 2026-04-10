@@ -89,7 +89,7 @@ describe('Sidebar prompt injection defense', () => {
   test('model routing defaults to opus for analysis tasks', () => {
     // pickSidebarModel returns opus for ambiguous/analysis messages
     expect(SERVER_SRC).toContain("return 'opus'");
-    // spawnClaude uses the model router
+    // spawnAgent uses the model router
     expect(SERVER_SRC).toContain("'--model', model");
   });
 

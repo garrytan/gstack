@@ -42,15 +42,15 @@ describe('gstack-uninstall', () => {
       mockGitRoot = path.join(tmpDir, 'repo');
 
       // Create mock gstack install layout
-      fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'gstack'), { recursive: true });
-      fs.writeFileSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'SKILL.md'), 'test');
+      fs.mkdirSync(path.join(mockHome, '.gemini', 'extensions', 'gstack'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.gemini', 'extensions', 'gstack', 'SKILL.md'), 'test');
 
       // Create per-skill symlinks (both old unprefixed and new prefixed)
-      fs.symlinkSync('gstack/review', path.join(mockHome, '.claude', 'skills', 'review'));
-      fs.symlinkSync('gstack/ship', path.join(mockHome, '.claude', 'skills', 'gstack-ship'));
+      fs.symlinkSync('gstack/review', path.join(mockHome, '.gemini', 'extensions', 'review'));
+      fs.symlinkSync('gstack/ship', path.join(mockHome, '.gemini', 'extensions', 'gstack-ship'));
 
       // Create a non-gstack symlink (should NOT be removed)
-      fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'other-tool'), { recursive: true });
+      fs.mkdirSync(path.join(mockHome, '.gemini', 'extensions', 'other-tool'), { recursive: true });
 
       // Create state directory
       fs.mkdirSync(path.join(mockHome, '.gstack', 'projects'), { recursive: true });
@@ -65,13 +65,13 @@ describe('gstack-uninstall', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('--force removes global Claude skills and state', () => {
+    test('--force removes global skills and state', () => {
       const result = spawnSync('bash', [UNINSTALL, '--force'], {
         stdio: 'pipe',
         env: {
           ...process.env,
           HOME: mockHome,
-          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
+          GSTACK_DIR: path.join(mockHome, '.gemini', 'extensions', 'gstack'),
           GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
         },
         cwd: mockGitRoot,
@@ -82,14 +82,14 @@ describe('gstack-uninstall', () => {
       expect(output).toContain('gstack uninstalled');
 
       // Global skill dir should be removed
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'extensions', 'gstack'))).toBe(false);
 
       // Per-skill symlinks pointing into gstack/ should be removed
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'review'))).toBe(false);
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack-ship'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'extensions', 'review'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'extensions', 'gstack-ship'))).toBe(false);
 
       // Non-gstack tool should still exist
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'extensions', 'other-tool'))).toBe(true);
 
       // State should be removed
       expect(fs.existsSync(path.join(mockHome, '.gstack'))).toBe(false);
@@ -101,7 +101,7 @@ describe('gstack-uninstall', () => {
         env: {
           ...process.env,
           HOME: mockHome,
-          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
+          GSTACK_DIR: path.join(mockHome, '.gemini', 'extensions', 'gstack'),
           GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
         },
         cwd: mockGitRoot,
@@ -110,7 +110,7 @@ describe('gstack-uninstall', () => {
       expect(result.status).toBe(0);
 
       // Skills should be removed
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'extensions', 'gstack'))).toBe(false);
 
       // State should still exist
       expect(fs.existsSync(path.join(mockHome, '.gstack'))).toBe(true);
@@ -146,7 +146,7 @@ describe('gstack-uninstall', () => {
         env: {
           ...process.env,
           HOME: mockHome,
-          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
+          GSTACK_DIR: path.join(mockHome, '.gemini', 'extensions', 'gstack'),
           GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
         },
         cwd: mockGitRoot,
@@ -155,11 +155,11 @@ describe('gstack-uninstall', () => {
       expect(result.status).toBe(0);
 
       // Both old (review) and new (gstack-ship) symlinks should be gone
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'review'))).toBe(false);
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack-ship'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'extensions', 'review'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'extensions', 'gstack-ship'))).toBe(false);
 
       // Non-gstack should survive
-      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'extensions', 'other-tool'))).toBe(true);
     });
   });
 });

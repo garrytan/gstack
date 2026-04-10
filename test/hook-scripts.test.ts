@@ -275,7 +275,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/Users/dev/project/src/index.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          { GSTACK_STATE_DIR: stateDir },
         );
         expect(exitCode).toBe(0);
         expect(output.permissionDecision).toBeUndefined();
@@ -287,7 +287,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/Users/dev/project/src/components/Button.tsx'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          { GSTACK_STATE_DIR: stateDir },
         );
         expect(exitCode).toBe(0);
         expect(output.permissionDecision).toBeUndefined();
@@ -301,7 +301,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/Users/dev/other-project/index.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          { GSTACK_STATE_DIR: stateDir },
         );
         expect(exitCode).toBe(0);
         expect(output.permissionDecision).toBe('deny');
@@ -315,7 +315,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/etc/hosts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          { GSTACK_STATE_DIR: stateDir },
         );
         expect(exitCode).toBe(0);
         expect(output.permissionDecision).toBe('deny');
@@ -331,7 +331,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/Users/dev/project/src-old/index.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          { GSTACK_STATE_DIR: stateDir },
         );
         expect(exitCode).toBe(0);
         expect(output.permissionDecision).toBe('deny');
@@ -347,7 +347,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/anywhere/at/all.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          { GSTACK_STATE_DIR: stateDir },
         );
         expect(exitCode).toBe(0);
         expect(output.permissionDecision).toBeUndefined();
@@ -363,7 +363,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           { tool_input: {} },
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          { GSTACK_STATE_DIR: stateDir },
         );
         expect(exitCode).toBe(0);
         expect(output.permissionDecision).toBeUndefined();

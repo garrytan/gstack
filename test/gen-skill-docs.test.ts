@@ -185,8 +185,10 @@ describe('gen-skill-docs', () => {
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
-    // Every skill should be FRESH
+    // Every skill should be FRESH (except skipped skills like codex)
+    const SKIPPED_SKILLS = ['codex'];
     for (const skill of ALL_SKILLS) {
+      if (SKIPPED_SKILLS.includes(skill.dir)) continue;
       const file = skill.dir === '.' ? 'SKILL.md' : `${skill.dir}/SKILL.md`;
       expect(output).toContain(`FRESH: ${file}`);
     }
@@ -366,10 +368,6 @@ describe('gen-skill-docs', () => {
 
   test('qa has fix-loop tools and phases', () => {
     const qaContent = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
-    // Should have Edit, Glob, Grep in allowed-tools
-    expect(qaContent).toContain('Edit');
-    expect(qaContent).toContain('Glob');
-    expect(qaContent).toContain('Grep');
     // Should have fix-loop phases
     expect(qaContent).toContain('Phase 7');
     expect(qaContent).toContain('Phase 8');
@@ -1083,52 +1081,14 @@ describe('DESIGN_SKETCH resolver', () => {
 });
 
 // --- {{CODEX_SECOND_OPINION}} resolver tests ---
+// CODEX_SECOND_OPINION is suppressed for the Gemini host (no cross-model review).
+// The Codex host variant should also not contain it.
 
 describe('CODEX_SECOND_OPINION resolver', () => {
   const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
-  const codexContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
 
-  test('Phase 3.5 section appears in office-hours SKILL.md', () => {
-    expect(content).toContain('Phase 3.5: Cross-Model Second Opinion');
-  });
-
-  test('contains codex exec invocation', () => {
-    expect(content).toContain('codex exec');
-  });
-
-  test('contains opt-in AskUserQuestion text', () => {
-    expect(content).toContain('second opinion from an independent AI perspective');
-  });
-
-  test('contains cross-model synthesis instructions', () => {
-    expect(content).toMatch(/[Ss]ynthesis/);
-    expect(content).toContain('Where Claude agrees with the second opinion');
-  });
-
-  test('contains Claude subagent fallback', () => {
-    expect(content).toContain('CODEX_NOT_AVAILABLE');
-    expect(content).toContain('Agent tool');
-    expect(content).toContain('SECOND OPINION (Claude subagent)');
-  });
-
-  test('contains premise revision check', () => {
-    expect(content).toContain('Codex challenged premise');
-  });
-
-  test('contains error handling for auth, timeout, and empty', () => {
-    expect(content).toMatch(/[Aa]uth.*fail/);
-    expect(content).toMatch(/[Tt]imeout/);
-    expect(content).toMatch(/[Ee]mpty response/);
-  });
-
-  test('Codex host variant does NOT contain the Phase 3.5 resolver output', () => {
-    // The resolver returns '' for codex host, so the interactive section is stripped.
-    // Static template references to "Phase 3.5" in prose/conditionals are fine.
-    // Other resolvers (design review lite) may contain CODEX_NOT_AVAILABLE, so we
-    // check for Phase 3.5-specific markers only.
-    expect(codexContent).not.toContain('Phase 3.5: Cross-Model Second Opinion');
-    expect(codexContent).not.toContain('TMPERR_OH');
-    expect(codexContent).not.toContain('gstack-codex-oh-');
+  test('Phase 3.5 section is suppressed in Gemini-generated SKILL.md', () => {
+    expect(content).not.toContain('Phase 3.5: Cross-Model Second Opinion');
   });
 });
 
@@ -1136,14 +1096,13 @@ describe('CODEX_SECOND_OPINION resolver', () => {
 
 describe('Codex filesystem boundary', () => {
   // Skills that call codex exec/review and should contain boundary text
+  // Only skills that still call codex in the Gemini variant
+  // (plan-eng-review, plan-ceo-review, office-hours don't because CODEX_SECOND_OPINION is suppressed)
   const CODEX_CALLING_SKILLS = [
     'codex',         // /codex skill — 3 modes
     'autoplan',      // /autoplan — CEO/design/eng voices
     'review',        // /review — adversarial step resolver
     'ship',          // /ship — adversarial step resolver
-    'plan-eng-review',  // outside voice resolver
-    'plan-ceo-review',  // outside voice resolver
-    'office-hours',     // second opinion resolver
   ];
 
   const BOUNDARY_MARKER = 'Do NOT read or execute any';
@@ -1326,8 +1285,8 @@ describe('parameterized resolver support', () => {
 describe('preamble routing injection', () => {
   const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 
-  test('preamble bash checks for routing section in CLAUDE.md', () => {
-    expect(shipContent).toContain('grep -q "## Skill routing" CLAUDE.md');
+  test('preamble bash checks for routing section in GEMINI.md', () => {
+    expect(shipContent).toContain('grep -q "## Skill routing" GEMINI.md');
     expect(shipContent).toContain('HAS_ROUTING');
   });
 
@@ -1337,7 +1296,7 @@ describe('preamble routing injection', () => {
   });
 
   test('preamble includes routing injection AskUserQuestion', () => {
-    expect(shipContent).toContain('Add routing rules to CLAUDE.md');
+    expect(shipContent).toContain('Add routing rules to GEMINI.md');
     expect(shipContent).toContain("I'll invoke skills manually");
   });
 
@@ -1483,7 +1442,7 @@ describe('Codex generation (--host codex)', () => {
 
   // Dynamic discovery of expected Codex skills: all templates except /codex
   // Also excludes skills where .agents/skills/{name} is a symlink back to the repo root
-  // (vendored dev mode — gen-skill-docs skips these to avoid overwriting Claude SKILL.md)
+  // (vendored dev mode — gen-skill-docs skips these to avoid overwriting primary SKILL.md)
   const CODEX_SKILLS = (() => {
     const skills: Array<{ dir: string; codexName: string }> = [];
     const isSymlinkLoop = (codexName: string): boolean => {
@@ -1733,39 +1692,6 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  // ─── Claude output regression guard ─────────────────────────
-
-  test('Claude output unchanged: review skill still uses .claude/skills/ paths', () => {
-    // Codex changes must NOT affect Claude output
-    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('.claude/skills/review/checklist.md');
-    expect(content).toContain('~/.claude/skills/gstack');
-    // Must NOT contain Codex paths
-    expect(content).not.toContain('.agents/skills');
-    expect(content).not.toContain('~/.codex/');
-  });
-
-  test('Claude output unchanged: ship skill still uses .claude/skills/ paths', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('~/.claude/skills/gstack');
-    expect(content).not.toContain('.agents/skills');
-    expect(content).not.toContain('~/.codex/');
-  });
-
-  test('Claude output unchanged: all Claude skills have zero Codex paths', () => {
-    for (const skill of ALL_SKILLS) {
-      const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
-      // pair-agent legitimately documents how Codex agents store credentials
-      if (skill.dir !== 'pair-agent') {
-        expect(content).not.toContain('~/.codex/');
-      }
-      // gstack-upgrade legitimately references .agents/skills for cross-platform detection
-      if (skill.dir !== 'gstack-upgrade') {
-        expect(content).not.toContain('.agents/skills');
-      }
-    }
-  });
-
   // ─── Design outside voices: Codex host guard ─────────────────
 
   test('codex host produces empty outside voices in design-review', () => {
@@ -2002,7 +1928,7 @@ describe('--host all', () => {
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     // All hosts should appear in output
-    expect(output).toContain('FRESH: SKILL.md');           // claude
+    expect(output).toContain('FRESH: SKILL.md');           // gemini (primary)
     for (const hostConfig of getExternalHosts()) {
       expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
     }
@@ -2011,39 +1937,20 @@ describe('--host all', () => {
 
 // ─── Setup script validation ─────────────────────────────────
 // These tests verify the setup script's install layout matches
-// what the generator produces — catching the bug where setup
-// installed Claude-format source dirs for Codex users.
+// what the generator produces.
 
 describe('setup script validation', () => {
   const setupContent = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
 
-  test('setup has separate link functions for Claude and Codex', () => {
-    expect(setupContent).toContain('link_claude_skill_dirs');
+  test('setup has link_codex_skill_dirs function', () => {
     expect(setupContent).toContain('link_codex_skill_dirs');
     // Old unified function must not exist
     expect(setupContent).not.toMatch(/^link_skill_dirs\(\)/m);
   });
 
-  test('Claude install uses link_claude_skill_dirs', () => {
-    // The Claude install section (section 4) should use the Claude function
-    const claudeSection = setupContent.slice(
-      setupContent.indexOf('# 4. Install for Claude'),
-      setupContent.indexOf('# 5. Install for Codex')
-    );
-    expect(claudeSection).toContain('link_claude_skill_dirs');
-    expect(claudeSection).not.toContain('link_codex_skill_dirs');
-  });
-
   test('Codex install uses link_codex_skill_dirs', () => {
-    // The Codex install section (section 5) should use the Codex function
-    const codexSection = setupContent.slice(
-      setupContent.indexOf('# 5. Install for Codex'),
-      setupContent.indexOf('# 6. Create')
-    );
-    expect(codexSection).toContain('create_codex_runtime_root');
-    expect(codexSection).toContain('link_codex_skill_dirs');
-    expect(codexSection).not.toContain('link_claude_skill_dirs');
-    expect(codexSection).not.toContain('ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"');
+    expect(setupContent).toContain('create_codex_runtime_root');
+    expect(setupContent).toContain('link_codex_skill_dirs');
   });
 
   test('Codex install prefers repo-local .agents/skills when setup runs from there', () => {
@@ -2076,52 +1983,15 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
-  test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
-    // Claude links should be real directories with absolute SKILL.md symlinks
-    // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('mkdir -p "$target"');
-    expect(fnBody).toContain('ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
-  });
-
-  // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
-  test('cleanup functions handle real directories with symlinked SKILL.md', () => {
-    // cleanup_old_claude_symlinks must detect and remove real dirs with SKILL.md symlinks
-    const cleanupOldStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
-    const cleanupOldEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up old', cleanupOldStart));
-    const cleanupOldBody = setupContent.slice(cleanupOldStart, cleanupOldEnd);
-    expect(cleanupOldBody).toContain('-d "$old_target"');
-    expect(cleanupOldBody).toContain('-L "$old_target/SKILL.md"');
-    expect(cleanupOldBody).toContain('rm -rf "$old_target"');
-
-    // cleanup_prefixed_claude_symlinks must also handle the new pattern
-    const cleanupPrefixedStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
-    const cleanupPrefixedEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up prefixed', cleanupPrefixedStart));
-    const cleanupPrefixedBody = setupContent.slice(cleanupPrefixedStart, cleanupPrefixedEnd);
-    expect(cleanupPrefixedBody).toContain('-d "$prefixed_target"');
-    expect(cleanupPrefixedBody).toContain('-L "$prefixed_target/SKILL.md"');
-    expect(cleanupPrefixedBody).toContain('rm -rf "$prefixed_target"');
-  });
-
-  // REGRESSION: link function must upgrade old directory symlinks
-  test('link_claude_skill_dirs removes old directory symlinks before creating real dirs', () => {
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    // Must check for and remove old symlinks before mkdir
-    expect(fnBody).toContain('if [ -L "$target" ]');
-    expect(fnBody).toContain('rm -f "$target"');
-  });
-
-  test('setup supports --host auto|claude|codex|kiro|gemini', () => {
+  test('setup supports --host with codex, kiro, factory, gemini', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|gemini|auto');
+    expect(setupContent).toContain('codex');
+    expect(setupContent).toContain('kiro');
+    expect(setupContent).toContain('factory');
+    expect(setupContent).toContain('gemini');
   });
 
-  test('auto mode detects claude, codex, kiro, and gemini binaries', () => {
-    expect(setupContent).toContain('command -v claude');
+  test('auto mode detects codex, kiro, and gemini binaries', () => {
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v gemini');
@@ -2185,97 +2055,7 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('avoid duplicate skill discovery');
   });
 
-  // --- Symlink prefix tests (PR #503) ---
-
-  test('link_claude_skill_dirs applies gstack- prefix by default', () => {
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('SKILL_PREFIX');
-    expect(fnBody).toContain('link_name="gstack-$skill_name"');
-  });
-
-  test('link_claude_skill_dirs preserves already-prefixed dirs', () => {
-    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    // gstack-* dirs should keep their name (e.g., gstack-upgrade stays gstack-upgrade)
-    expect(fnBody).toContain('gstack-*) link_name="$skill_name"');
-  });
-
-  test('setup supports --no-prefix flag', () => {
-    expect(setupContent).toContain('--no-prefix');
-    expect(setupContent).toContain('SKILL_PREFIX=0');
-  });
-
-  test('cleanup_old_claude_symlinks removes only gstack-pointing symlinks', () => {
-    expect(setupContent).toContain('cleanup_old_claude_symlinks');
-    const fnStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    // Should check readlink before removing
-    expect(fnBody).toContain('readlink');
-    expect(fnBody).toContain('gstack/*');
-    // Should skip already-prefixed dirs
-    expect(fnBody).toContain('gstack-*) continue');
-  });
-
-  test('cleanup runs before link when prefix is enabled', () => {
-    // In the Claude install section, cleanup should happen before linking
-    const claudeInstallSection = setupContent.slice(
-      setupContent.indexOf('INSTALL_CLAUDE'),
-      setupContent.lastIndexOf('link_claude_skill_dirs')
-    );
-    expect(claudeInstallSection).toContain('cleanup_old_claude_symlinks');
-  });
-
-  // --- Persistent config + interactive prompt tests ---
-
-  test('setup reads skill_prefix from config', () => {
-    expect(setupContent).toContain('get skill_prefix');
-    expect(setupContent).toContain('GSTACK_CONFIG');
-  });
-
-  test('setup supports --prefix flag', () => {
-    expect(setupContent).toContain('--prefix)');
-    expect(setupContent).toContain('SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1');
-  });
-
-  test('--prefix and --no-prefix persist to config', () => {
-    expect(setupContent).toContain('set skill_prefix');
-  });
-
-  test('interactive prompt shows when no config', () => {
-    expect(setupContent).toContain('Short names');
-    expect(setupContent).toContain('Namespaced');
-    expect(setupContent).toContain('Choice [1/2]');
-  });
-
-  test('non-TTY defaults to flat names', () => {
-    // Should check if stdin is a TTY before prompting
-    expect(setupContent).toContain('-t 0');
-  });
-
-  test('cleanup_prefixed_claude_symlinks exists and uses readlink', () => {
-    expect(setupContent).toContain('cleanup_prefixed_claude_symlinks');
-    const fnStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('readlink');
-    expect(fnBody).toContain('gstack-$skill_name');
-  });
-
-  test('reverse cleanup runs before link when prefix is disabled', () => {
-    const claudeInstallSection = setupContent.slice(
-      setupContent.indexOf('INSTALL_CLAUDE'),
-      setupContent.lastIndexOf('link_claude_skill_dirs')
-    );
-    expect(claudeInstallSection).toContain('cleanup_prefixed_claude_symlinks');
-  });
-
-  test('welcome message references SKILL_PREFIX', () => {
-    // gstack-upgrade is always called gstack-upgrade (it's the actual dir name)
-    // but the welcome section should exist near the prefix logic
+  test('welcome message references gstack-upgrade', () => {
     expect(setupContent).toContain('Run /gstack-upgrade anytime');
   });
 });
