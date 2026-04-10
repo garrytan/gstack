@@ -28,9 +28,15 @@ const gemini: HostConfig = {
 
   pathRewrites: [
     { from: '~/.claude/skills/gstack', to: '$GSTACK_ROOT' },
+    { from: '.claude/skills/gstack/', to: '.gemini/extensions/gstack/' },
     { from: '.claude/skills/gstack', to: '.gemini/extensions/gstack' },
     { from: '.claude/skills/review', to: '.gemini/extensions/gstack/review' },
     { from: '.claude/skills', to: '.gemini/extensions' },
+    { from: '$HOME/.claude/plans', to: '$HOME/.gemini/plans' },
+    { from: 'git add .claude/', to: 'git add .gemini/' },
+    { from: 'git rm -r .claude/skills/gstack/', to: 'git rm -r .gemini/extensions/gstack/' },
+    { from: 'CLAUDE.md', to: 'GEMINI.md' },
+    { from: 'cd ~/.claude/skills/gstack', to: 'cd ~/.gemini/extensions/gstack' },
   ],
 
   toolRewrites: {
