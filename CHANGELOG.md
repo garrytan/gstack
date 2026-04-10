@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.16.2.1] - 2026-04-10
+
+### Fixed
+- **`./setup` no longer prints a Node server bundle build error.** When `/pair-agent` landed, it added `@ngrok/ngrok` for remote tunneling. Ngrok ships prebuilt native binaries (darwin-universal, darwin-arm64, win32-x64). During the Windows Node.js fallback bundle step, bun tried to inline all of those `.node` binaries as separate asset files and failed with "cannot write multiple output files without an output directory." The rest of setup still worked, but every install printed the ugly error. Now `@ngrok/ngrok` is marked as external, same way we already handle playwright. Windows Node users who want `/pair-agent` tunneling install `@ngrok/ngrok` separately, same as playwright.
+- **README skill lists are consistent and complete.** The install command block and the CLAUDE.md example block now list the same 34 skills in the same order. Added `/pair-agent` to the install block (was missing), added `/plan-devex-review` and `/devex-review` to the CLAUDE.md example block (were missing), and swapped the legacy `/connect-chrome` reference for the canonical `/open-gstack-browser`. If you paste either block into a new project's CLAUDE.md, you now get every skill that `./setup` actually installs.
+
+### For contributors
+- Captured a follow-up TODO: `/checkpoint` and `/health` exist on disk and get registered by `./setup`, but are still missing from the README in three places (install block, CLAUDE.md example, skill table). Left for a narrow-scope follow-up PR since the fix requires new table rows, not just list entries.
+
 ## [0.16.2.0] - 2026-04-09
 
 ### Added
