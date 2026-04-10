@@ -571,7 +571,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 # /retro — Weekly Engineering Retrospective
 
-Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using Claude Code as a force multiplier.
+Generates a comprehensive engineering retrospective analyzing commit history, work patterns, and code quality metrics. Team-aware: identifies the user running the command, then analyzes every contributor with per-person praise and growth opportunities. Designed for a senior IC/CTO-level builder using AI coding agents as a force multiplier.
 
 ## User-invocable
 When the user types `/retro`, run this skill.
@@ -1224,7 +1224,7 @@ From the commit timestamps gathered in Step 3, group by date. For each date, cou
 From the discovery JSON, analyze tool usage patterns:
 - Which AI tool is used for which repos (exclusive vs. shared)
 - Session count per tool
-- Behavioral patterns (e.g., "Codex used exclusively for myapp, Claude Code for everything else")
+- Behavioral patterns (e.g., "Codex used exclusively for myapp, Gemini CLI for everything else")
 
 ### Global Step 7: Aggregate and generate narrative
 
@@ -1354,7 +1354,7 @@ Format:
 
 ### Tool Usage Analysis
 Per-tool breakdown with behavioral patterns:
-- Claude Code: N sessions across M repos — patterns observed
+- Gemini CLI: N sessions across M repos — patterns observed
 - Codex: N sessions across M repos — patterns observed
 - Gemini: N sessions across M repos — patterns observed
 

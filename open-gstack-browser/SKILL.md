@@ -737,7 +737,7 @@ After the activity feed demo, tell the user about the sidebar chat:
 >
 > The sidebar agent can navigate pages, click buttons, fill forms, and read
 > content. Each task gets up to 5 minutes. It runs in an isolated session, so
-> it won't interfere with this Claude Code window.
+> it won't interfere with this Gemini CLI session.
 
 ## Step 6: What's next
 

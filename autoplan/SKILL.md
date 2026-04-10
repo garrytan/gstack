@@ -809,11 +809,11 @@ Then prepend a one-line HTML comment to the plan file:
   false positives ("page" alone, "UI" in acronyms).
 - Detect DX scope: grep the plan for developer-facing terms (API, endpoint, REST,
   GraphQL, gRPC, webhook, CLI, command, flag, argument, terminal, shell, SDK, library,
-  package, npm, pip, import, require, SKILL.md, skill template, Claude Code, MCP, agent,
-  OpenClaw, action, developer docs, getting started, onboarding, integration, debug,
+  package, npm, pip, import, require, SKILL.md, skill template, Gemini CLI, MCP, agent,
+  developer docs, getting started, onboarding, integration, debug,
   implement, error message). Require 2+ matches. Also trigger DX scope if the product IS
   a developer tool (the plan describes something developers install, integrate, or build
-  on top of) or if an AI agent is the primary user (OpenClaw actions, Claude Code skills,
+  on top of) or if an AI agent is the primary user (Gemini CLI extensions,
   MCP servers).
 
 ### Step 3: Load skill files from disk

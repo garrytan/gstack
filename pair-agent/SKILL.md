@@ -2,8 +2,7 @@
 name: pair-agent
 description: |
   Pair a remote AI agent with your browser. One command generates a setup key and
-  prints instructions the other agent can follow to connect. Works with OpenClaw,
-  Hermes, Codex, Cursor, or any agent that can make HTTP requests. The remote agent
+  prints instructions the other agent can follow to connect. Works with Hermes, Codex, Cursor, or any agent that can make HTTP requests. The remote agent
   gets its own tab with scoped access (read+write by default, admin on request).
   Use when asked to "pair agent", "connect agent", "share browser", "remote browser",
   "let another agent use my browser", or "give browser access". (gstack)
@@ -552,8 +551,8 @@ plan's living status.
 
 # /pair-agent — Share Your Browser With Another AI Agent
 
-You're sitting in Claude Code with a browser running. You also have another AI agent
-open (OpenClaw, Hermes, Codex, Cursor, whatever). You want that other agent to be
+You're in Gemini CLI with a browser running. You also have another AI agent
+open (Hermes, Codex, Cursor, whatever). You want that other agent to be
 able to browse the web using YOUR browser. This skill makes that happen.
 
 ## How it works
@@ -566,7 +565,7 @@ browsing. Each agent gets its own tab. They can't mess with each other's tabs.
 The setup key expires in 5 minutes and can only be used once. If it leaks, it's dead
 before anyone can abuse it. The session token lasts 24 hours.
 
-**Same machine:** If the other agent is on the same machine (like OpenClaw running
+**Same machine:** If the other agent is on the same machine (like Codex running
 locally), you can skip the copy-paste ceremony and write the credentials directly to
 the agent's config directory.
 
@@ -631,18 +630,14 @@ Use AskUserQuestion:
 > instructions format and where credentials get written.
 
 Options:
-- A) OpenClaw (local or remote)
-- B) Codex / OpenAI Agents (local)
-- C) Cursor (local)
-- D) Another Claude Code session (local or remote)
-- E) Something else (generic HTTP instructions — use this for Hermes)
+- A) Codex / OpenAI Agents (local)
+- B) Cursor (local)
+- C) Something else (generic HTTP instructions — use this for Hermes)
 
 Based on the answer, set `TARGET_HOST`:
-- A → `openclaw`
-- B → `codex`
-- C → `cursor`
-- D → `claude`
-- E → generic (no host-specific config)
+- A → `codex`
+- B → `cursor`
+- C → generic (no host-specific config)
 
 ## Step 3: Local or remote?
 
@@ -672,7 +667,7 @@ Run pair-agent with --local flag:
 $B pair-agent --local TARGET_HOST
 ```
 
-Replace `TARGET_HOST` with the value from Step 2 (openclaw, codex, cursor, etc.).
+Replace `TARGET_HOST` with the value from Step 2 (codex, cursor, etc.).
 
 If it succeeds, tell the user:
 "Done. TARGET_HOST can now use your browser. It will read credentials from the
@@ -789,13 +784,6 @@ generate a new setup key.
 (`$B status`). If local, check the browse server is running.
 
 ## Platform-specific notes
-
-### OpenClaw / AlphaClaw
-
-OpenClaw agents use the `exec` tool instead of `Bash`. The instruction block uses
-`exec curl` syntax which OpenClaw understands natively. When using `--local openclaw`,
-credentials are written to `~/.openclaw/skills/gstack/browse-remote.json`.
-
 
 ### Codex
 

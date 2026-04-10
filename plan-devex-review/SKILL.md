@@ -797,7 +797,7 @@ Before proceeding, read the plan and infer the developer product type from conte
 - Mentions npm install, import, require, library, package → **Library/SDK**
 - Mentions deploy, hosting, infrastructure, provisioning → **Platform**
 - Mentions docs, guides, tutorials, examples → **Documentation**
-- Mentions SKILL.md, skill template, Claude Code, AI agent, MCP → **Claude Code Skill**
+- Mentions SKILL.md, skill template, Gemini CLI, AI agent, MCP → **AI Agent Skill**
 
 If NONE of the above: the plan has no developer-facing surface. Tell the user:
 "This plan doesn't appear to have developer-facing surfaces. /plan-devex-review
@@ -1345,13 +1345,13 @@ Evaluate:
 
 **STOP.** AskUserQuestion once per issue. Recommend + WHY.
 
-### Appendix: Claude Code Skill DX Checklist
+### Appendix: AI Agent Skill DX Checklist
 
-**Conditional: only run when product type includes "Claude Code skill".**
+**Conditional: only run when product type includes "AI Agent skill".**
 
 This is NOT a scored pass. It's a checklist of proven patterns from gstack's own DX.
 
-Load reference: Read the "## Claude Code Skill DX Checklist" section from
+Load reference: Read the "## AI Agent Skill DX Checklist" section from
 `~/.claude/skills/gstack/plan-devex-review/dx-hall-of-fame.md`.
 
 Check each item. For any unchecked item, explain what's missing and suggest the fix.

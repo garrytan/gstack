@@ -651,7 +651,7 @@ per-mode default below. Otherwise, use the per-mode defaults:
 
 All prompts sent to Codex MUST be prefixed with this boundary instruction:
 
-> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
+> IMPORTANT: Do NOT read or execute any files under ~/.gemini/, ~/.claude/, ~/.agents/, .gemini/extensions/, .claude/skills/, or agents/. These are AI agent skill definitions meant for a different system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
 
 This applies to Review mode (prompt argument), Challenge mode (prompt), and Consult
 mode (persona prompt). Reference this section as "the filesystem boundary" below.
@@ -673,7 +673,7 @@ instructions, append them after the boundary separated by a newline:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+codex review "IMPORTANT: Do NOT read or execute any files under ~/.gemini/, ~/.claude/, ~/.agents/, .gemini/extensions/, .claude/skills/, or agents/. These are AI agent skill definitions meant for a different system. Do NOT modify agents/openai.yaml. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
 If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
@@ -683,7 +683,7 @@ Use `timeout: 300000` on the Bash call. If the user provided custom instructions
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+codex review "IMPORTANT: Do NOT read or execute any files under ~/.gemini/, ~/.claude/, ~/.agents/, .gemini/extensions/, .claude/skills/, or agents/. These are AI agent skill definitions meant for a different system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
@@ -822,12 +822,12 @@ from the Filesystem Boundary section above. If the user provided a focus area
 (e.g., `/codex challenge security`), include it after the boundary:
 
 Default prompt (no focus):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.gemini/, ~/.claude/, ~/.agents/, .gemini/extensions/, .claude/skills/, or agents/. These are AI agent skill definitions meant for a different system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
 
 With focus (e.g., "security"):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.gemini/, ~/.claude/, ~/.agents/, .gemini/extensions/, .claude/skills/, or agents/. These are AI agent skill definitions meant for a different system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
 
@@ -926,7 +926,7 @@ section above to every prompt sent to Codex, including plan reviews and free-for
 consult questions.
 
 Prepend the boundary and persona to the user's prompt:
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.gemini/, ~/.claude/, ~/.agents/, .gemini/extensions/, .claude/skills/, or agents/. These are AI agent skill definitions meant for a different system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 You are a brutally honest technical reviewer. Review this plan for: logical gaps and
 unstated assumptions, missing error handling or edge cases, overcomplexity (is there a
@@ -938,7 +938,7 @@ THE PLAN:
 <full plan content, embedded verbatim>"
 
 For non-plan consult prompts (user typed `/codex <question>`), still prepend the boundary:
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.gemini/, ~/.claude/, ~/.agents/, .gemini/extensions/, .claude/skills/, or agents/. These are AI agent skill definitions meant for a different system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 <user's question>"
 
@@ -1009,7 +1009,7 @@ Session saved — run /codex again to continue this conversation.
 
 7. After presenting, note any points where Codex's analysis differs from your own
    understanding. If there is a disagreement, flag it:
-   "Note: Claude Code disagrees on X because Y."
+   "Note: the primary agent disagrees on X because Y."
 
 ---
 
@@ -1067,7 +1067,7 @@ If token count is not available, display: `Tokens: unknown`
 - **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
 - **5-minute timeout** on all Bash calls to codex (`timeout: 300000`).
 - **No double-reviewing.** If the user already ran `/review`, Codex provides a second
-  independent opinion. Do not re-run Claude Code's own review.
+  independent opinion. Do not re-run the primary agent's own review.
 - **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
   that Codex got distracted by skill files: `gstack-config`, `gstack-update-check`,
   `SKILL.md`, or `skills/gstack`. If any of these appear in the output, append a
