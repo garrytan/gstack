@@ -544,68 +544,6 @@ for (const currentHost of hostsToRun) {
       tokenBudget.push({ skill: relOutput, lines, tokens });
     }
 
-    // Generate gstack-lite and gstack-full for OpenClaw host
-    if (currentHost === 'openclaw' && !DRY_RUN) {
-      const openclawDir = path.join(ROOT, 'openclaw');
-      if (!fs.existsSync(openclawDir)) fs.mkdirSync(openclawDir, { recursive: true });
-
-      const gstackLite = `# gstack-lite Planning Discipline
-
-Injected by the orchestrator into spawned Gemini CLI sessions. Append to existing GEMINI.md.
-
-## Planning Discipline
-1. Read every file you will modify. Understand existing patterns first.
-2. Before writing code, state your plan: what, why, which files, test case, risk.
-3. When ambiguous, prefer: completeness over shortcuts, existing patterns over new ones,
-   reversible choices over irreversible ones, safe defaults over clever ones.
-4. Self-review your changes before reporting done. Check for: missed files, broken
-   imports, untested paths, style inconsistencies.
-5. Report when done: what shipped, what decisions you made, anything uncertain.
-`;
-      fs.writeFileSync(path.join(openclawDir, 'gstack-lite-GEMINI.md'), gstackLite);
-      console.log('GENERATED: openclaw/gstack-lite-GEMINI.md');
-
-      const gstackFull = `# gstack-full Pipeline
-
-Injected by the orchestrator for complete feature builds. Append to existing GEMINI.md.
-
-## Full Pipeline
-1. Read GEMINI.md and understand the project context.
-2. Run /autoplan to review your approach (CEO + eng + design review pipeline).
-3. Implement the approved plan. Follow the planning discipline above.
-4. Run /ship to create a PR with tests, changelog, and version bump.
-5. Report back: PR URL, what shipped, decisions made, anything uncertain.
-
-Do not ask for human input until the PR is ready for review.
-`;
-      fs.writeFileSync(path.join(openclawDir, 'gstack-full-GEMINI.md'), gstackFull);
-      console.log('GENERATED: openclaw/gstack-full-GEMINI.md');
-
-      const gstackPlan = `# gstack-plan: Full Review Gauntlet
-
-Injected by the orchestrator when the user wants to plan a Gemini CLI project.
-Append to existing GEMINI.md.
-
-## Planning Pipeline
-1. Read GEMINI.md and understand the project context.
-2. Run /office-hours to produce a design doc (problem statement, premises, alternatives).
-3. Run /autoplan to review the design (CEO + eng + design + DX reviews + codex adversarial).
-4. Save the final reviewed plan to a file the orchestrator can reference later.
-   Write it to: plans/<project-slug>-plan-<date>.md in the current repo.
-   Include the design doc, all review decisions, and the implementation sequence.
-5. Report back to the orchestrator:
-   - Plan file path
-   - One-paragraph summary of what was designed and the key decisions
-   - List of accepted scope expansions (if any)
-   - Recommended next step (usually: spawn a new session with gstack-full to implement)
-
-Do not implement anything. This is planning only.
-The orchestrator will persist the plan link to its own memory/knowledge store.
-`;
-      fs.writeFileSync(path.join(openclawDir, 'gstack-plan-GEMINI.md'), gstackPlan);
-      console.log('GENERATED: openclaw/gstack-plan-GEMINI.md');
-    }
-
     if (DRY_RUN && hasChanges) {
       console.error(`\nGenerated SKILL.md files are stale (${currentHost} host). Run: bun run gen:skill-docs --host ${currentHost}`);
       if (HOST_ARG_VAL !== 'all') process.exit(1);

@@ -1117,7 +1117,7 @@ describe('Codex filesystem boundary', () => {
   test('codex skill has Filesystem Boundary section', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(content).toContain('## Filesystem Boundary');
-    expect(content).toContain('skill definitions meant for a different AI system');
+    expect(content).toContain('AI agent skill definitions meant for a different system');
   });
 
   test('codex skill has rabbit-hole detection rule', () => {

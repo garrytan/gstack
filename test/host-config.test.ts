@@ -20,7 +20,6 @@ import {
   opencode,
   slate,
   cursor,
-  openclaw,
   gemini,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
@@ -30,8 +29,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 8 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(8);
+  test('ALL_HOST_CONFIGS has 7 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(7);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -51,7 +50,6 @@ describe('hosts/index.ts', () => {
     expect(opencode.name).toBe('opencode');
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
-    expect(openclaw.name).toBe('openclaw');
     expect(gemini.name).toBe('gemini');
   });
 
@@ -444,36 +442,10 @@ describe('host config correctness', () => {
     expect(codex.boundaryInstruction).toContain('Do NOT read');
   });
 
-  test('openclaw has tool rewrites for exec/read/write', () => {
-    expect(openclaw.toolRewrites).toBeDefined();
-    expect(openclaw.toolRewrites!['use the Bash tool']).toBe('use the exec tool');
-    expect(openclaw.toolRewrites!['use the Read tool']).toBe('use the read tool');
-  });
-
-  test('openclaw has CLAUDE.md→AGENTS.md path rewrite', () => {
-    expect(openclaw.pathRewrites.some(r => r.from === 'CLAUDE.md' && r.to === 'AGENTS.md')).toBe(true);
-  });
-
-  test('openclaw has adapter path', () => {
-    expect(openclaw.adapter).toBeDefined();
-    expect(openclaw.adapter).toContain('openclaw-adapter');
-  });
-
-  test('openclaw has no staticFiles (SOUL.md removed)', () => {
-    expect(openclaw.staticFiles).toBeUndefined();
-  });
-
-  test('openclaw includeSkills is empty (native skills replaced generated ones)', () => {
-    expect(openclaw.generation.includeSkills).toBeDefined();
-    expect(openclaw.generation.includeSkills!.length).toBe(0);
-  });
-
   test('every host has coAuthorTrailer or undefined', () => {
-    // Gemini, Codex, Factory, OpenClaw have explicit trailers
     expect(gemini.coAuthorTrailer).toContain('Gemini');
     expect(codex.coAuthorTrailer).toContain('Codex');
     expect(factory.coAuthorTrailer).toContain('Factory');
-    expect(openclaw.coAuthorTrailer).toContain('OpenClaw');
   });
 
   test('every external host skips the codex skill', () => {
