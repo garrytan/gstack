@@ -12,11 +12,11 @@ export const ALL_AGENTS: Array<{ agentType: string; department: string }> = [
   { agentType: 'business-analysis', department: 'planning' },
   { agentType: 'ux-research', department: 'planning' },
   { agentType: 'project-governance', department: 'planning' },
-  // Engineering
-  { agentType: 'frontend-engineering', department: 'engineering' },
-  { agentType: 'backend-engineering', department: 'engineering' },
-  { agentType: 'platform-devops', department: 'engineering' },
-  { agentType: 'data-integration', department: 'engineering' },
+  // Engineering (3-dept split matching bams-viz-emit.sh dept_map)
+  { agentType: 'frontend-engineering', department: 'engineering-frontend' },
+  { agentType: 'backend-engineering', department: 'engineering-backend' },
+  { agentType: 'platform-devops', department: 'engineering-platform' },
+  { agentType: 'data-integration', department: 'engineering-platform' },
   // Design
   { agentType: 'design-director', department: 'design' },
   { agentType: 'ui-designer', department: 'design' },
@@ -39,7 +39,9 @@ export const ALL_AGENTS: Array<{ agentType: string; department: string }> = [
 export const DEPT_INFO: Record<string, { color: string; label: string }> = {
   management: { color: '#ec4899', label: 'Executive' },
   planning: { color: '#3b82f6', label: 'Planning' },
-  engineering: { color: '#22c55e', label: 'Engineering' },
+  'engineering-frontend': { color: '#22c55e', label: 'Eng-Frontend' },
+  'engineering-backend':  { color: '#14b8a6', label: 'Eng-Backend' },
+  'engineering-platform': { color: '#06b6d4', label: 'Eng-Platform' },
   design: { color: '#ec4899', label: 'Design' },
   evaluation: { color: '#f97316', label: 'Evaluation' },
   qa: { color: '#a855f7', label: 'QA' },

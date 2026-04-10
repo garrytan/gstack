@@ -407,9 +407,18 @@ class TaskDB {
   }
   insertPipelineEvent(event) {
     const id = randomUUID();
-    const pipeline = this.getPipelineBySlug(event.pipeline_slug);
-    const pipelineId = pipeline?.id ?? null;
     const ts = event.ts ?? new Date().toISOString();
+    let pipeline = this.getPipelineBySlug(event.pipeline_slug);
+    if (!pipeline && event.pipeline_slug) {
+      this.upsertPipeline({
+        slug: event.pipeline_slug,
+        type: "auto-created",
+        status: "running",
+        started_at: ts
+      });
+      pipeline = this.getPipelineBySlug(event.pipeline_slug);
+    }
+    const pipelineId = pipeline?.id ?? null;
     this.db.prepare(`
       INSERT INTO pipeline_events (
         id, pipeline_id, event_type, call_id, agent_type, department, model,
@@ -528,6 +537,25 @@ class TaskDB {
         WHERE wu.slug = ?
         ORDER BY pe.ts ASC
       `).all(workUnitSlug);
+  }
+  insertRunLog(input) {
+    const pipeline = this.getPipelineBySlug(input.pipeline_slug);
+    if (!pipeline) {
+      throw new Error(`Pipeline not found for slug: ${input.pipeline_slug}`);
+    }
+    const id = randomUUID();
+    this.db.prepare(`INSERT INTO run_logs (id, pipeline_id, run_id, agent_slug, event_type, payload)
+        VALUES (?, ?, ?, ?, ?, ?)`).run(id, pipeline.id, input.run_id ?? null, input.agent_slug, input.event_type, input.payload ? JSON.stringify(input.payload) : null);
+    return id;
+  }
+  getRunLogs(pipelineSlug, limit = 100) {
+    const pipeline = this.getPipelineBySlug(pipelineSlug);
+    if (!pipeline)
+      return [];
+    return this.db.prepare(`SELECT * FROM run_logs
+        WHERE pipeline_id = ?
+        ORDER BY created_at ASC
+        LIMIT ?`).all(pipeline.id, limit);
   }
   close() {
     this.db.close();
@@ -828,7 +856,7 @@ function pushSseEvent(pipelineSlug, eventType, data) {
   broker.pushEvent({
     type: eventType,
     pipeline_slug: pipelineSlug,
-    agent_slug: data.agent_slug ?? "system",
+    agent_slug: data.agent_slug ?? data.agent_type ?? "system",
     run_id: data.run_id,
     ts: new Date().toISOString(),
     payload: data
@@ -1944,6 +1972,18 @@ async function handleRequest(req) {
             phase: body.phase ?? undefined,
             ts
           });
+          if (pipelineSlug) {
+            try {
+              db.insertRunLog({
+                pipeline_slug: pipelineSlug,
+                agent_slug: "pipeline",
+                event_type: "step_start",
+                payload: body
+              });
+            } catch (runLogErr) {
+              console.error("[bams-server] step_start run_log insert failed (non-fatal):", runLogErr);
+            }
+          }
           pushSseEvent(pipelineSlug, "step_start", body);
           break;
         }
@@ -1956,6 +1996,18 @@ async function handleRequest(req) {
             duration_ms: body.duration_ms ?? undefined,
             ts
           });
+          if (pipelineSlug) {
+            try {
+              db.insertRunLog({
+                pipeline_slug: pipelineSlug,
+                agent_slug: "pipeline",
+                event_type: "step_end",
+                payload: body
+              });
+            } catch (runLogErr) {
+              console.error("[bams-server] step_end run_log insert failed (non-fatal):", runLogErr);
+            }
+          }
           pushSseEvent(pipelineSlug, "step_end", body);
           break;
         }
@@ -1971,6 +2023,19 @@ async function handleRequest(req) {
             description: body.description ?? undefined,
             ts
           });
+          if (pipelineSlug) {
+            try {
+              db.insertRunLog({
+                pipeline_slug: pipelineSlug,
+                run_id: body.call_id ?? undefined,
+                agent_slug: body.agent_type ?? "unknown",
+                event_type: "agent_start",
+                payload: body
+              });
+            } catch (runLogErr) {
+              console.error("[bams-server] agent_start run_log insert failed (non-fatal):", runLogErr);
+            }
+          }
           pushSseEvent(pipelineSlug, "agent_start", body);
           break;
         }
@@ -1992,6 +2057,19 @@ async function handleRequest(req) {
             is_error: isError,
             ts
           });
+          if (pipelineSlug) {
+            try {
+              db.insertRunLog({
+                pipeline_slug: pipelineSlug,
+                run_id: callId || undefined,
+                agent_slug: agentType,
+                event_type: "agent_end",
+                payload: body
+              });
+            } catch (runLogErr) {
+              console.error("[bams-server] agent_end run_log insert failed (non-fatal):", runLogErr);
+            }
+          }
           if (pipelineSlug) {
             try {
               const pipeline = db.getPipelineBySlug(pipelineSlug);

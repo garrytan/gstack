@@ -13,12 +13,14 @@ const DEPT_MAP = DEPT_INFO
 
 /* ── Layout: management top-center, planning/engineering mid, design center, evaluation/qa bottom ── */
 const DEPT_LAYOUT: Record<string, { x: number; y: number; w: number; h: number }> = {
-  management:  { x: 250, y: 20,  w: 500, h: 200 },
-  planning:    { x: 20,  y: 260, w: 470, h: 240 },
-  engineering: { x: 510, y: 260, w: 470, h: 240 },
-  design:      { x: 175, y: 520, w: 650, h: 240 },
-  evaluation:  { x: 20,  y: 780, w: 470, h: 240 },
-  qa:          { x: 510, y: 780, w: 470, h: 240 },
+  management:            { x: 250, y: 20,  w: 500, h: 200 },
+  planning:              { x: 20,  y: 260, w: 470, h: 240 },
+  'engineering-frontend': { x: 510, y: 260, w: 470, h: 140 },
+  'engineering-backend':  { x: 510, y: 410, w: 470, h: 140 },
+  'engineering-platform': { x: 510, y: 560, w: 470, h: 140 },
+  design:                { x: 20,  y: 520, w: 470, h: 240 },
+  evaluation:            { x: 20,  y: 820, w: 470, h: 240 },
+  qa:                    { x: 510, y: 820, w: 470, h: 240 },
 }
 
 interface AgentNode {
@@ -239,7 +241,7 @@ export function MetaverseTab({ pipelineSlug, wuSlug, onNavigateToTraces }: Metav
   }
 
   const svgWidth = 1000
-  const svgHeight = 1040
+  const svgHeight = 1080
 
   const hasAnyActivity = nodes.some(n => n.callCount > 0)
   if (!hasAnyActivity && !isLoading) {

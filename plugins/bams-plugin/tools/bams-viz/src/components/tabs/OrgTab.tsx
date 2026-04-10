@@ -295,7 +295,7 @@ function DepartmentCard({ dept, agentDeptMap }: DepartmentCardProps) {
 export function OrgTab() {
   const { data, error, isLoading } = usePolling<OrgResponse>('/api/org', 3000)
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading org chart...</div>
   }
   if (error) {

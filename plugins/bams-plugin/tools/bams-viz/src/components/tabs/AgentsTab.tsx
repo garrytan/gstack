@@ -61,7 +61,7 @@ function buildAgentRows(data: AgentData | null): AgentRow[] {
 }
 
 function buildDeptSummaries(rows: AgentRow[]): DeptSummary[] {
-  const deptOrder = ['management', 'planning', 'engineering', 'design', 'evaluation', 'qa']
+  const deptOrder = ['management', 'planning', 'engineering-frontend', 'engineering-backend', 'engineering-platform', 'design', 'evaluation', 'qa']
   return deptOrder.map(dept => {
     const deptRows = rows.filter(r => r.department === dept)
     const info = DEPT_INFO[dept] || { color: '#6c757d', label: dept }
@@ -117,7 +117,7 @@ export function AgentsTab({ pipelineSlug }: { pipelineSlug?: string | null }) {
   const rows = useMemo(() => buildAgentRows(data ?? null), [data])
   const deptSummaries = useMemo(() => buildDeptSummaries(rows), [rows])
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading agents...</div>
   }
   if (error) {

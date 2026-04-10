@@ -56,7 +56,9 @@ export function pushSseEvent(
   broker.pushEvent({
     type: eventType as import("./sse-broker.ts").SseEventType,
     pipeline_slug: pipelineSlug,
-    agent_slug: (data as { agent_slug?: string }).agent_slug ?? "system",
+    agent_slug: (data as { agent_slug?: string; agent_type?: string }).agent_slug
+      ?? (data as { agent_type?: string }).agent_type
+      ?? "system",
     run_id: (data as { run_id?: string }).run_id,
     ts: new Date().toISOString(),
     payload: data,
@@ -1226,6 +1228,9 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   // ── GET /api/mermaid/:slug ───────────────────────────────────
+  // @deprecated 2026-04-09 — Dead code. Next.js viz DAG 탭은 /api/events/raw/:slug를
+  // 호출하여 로컬에서 parseEvents() + generateFlowchart() 수행.
+  // 이 엔드포인트를 호출하는 클라이언트 없음. 향후 활용 가능성 위해 삭제하지 않고 보존.
   // Mermaid flowchart + gantt for a pipeline (from DB events)
   const mermaidMatch = path.match(/^\/api\/mermaid\/([^/]+)$/);
   if (method === "GET" && mermaidMatch) {
@@ -1479,6 +1484,21 @@ async function handleRequest(req: Request): Promise<Response> {
             phase: (body.phase as string) ?? undefined,
             ts,
           });
+
+          // run_logs 기록 — Logs 탭에서 step 흐름 표시
+          if (pipelineSlug) {
+            try {
+              db.insertRunLog({
+                pipeline_slug: pipelineSlug,
+                agent_slug: "pipeline",
+                event_type: "step_start",
+                payload: body,
+              });
+            } catch (runLogErr) {
+              console.error("[bams-server] step_start run_log insert failed (non-fatal):", runLogErr);
+            }
+          }
+
           pushSseEvent(pipelineSlug, "step_start", body);
           break;
         }
@@ -1493,6 +1513,21 @@ async function handleRequest(req: Request): Promise<Response> {
             duration_ms: (body.duration_ms as number) ?? undefined,
             ts,
           });
+
+          // run_logs 기록 — Logs 탭에서 step 흐름 표시
+          if (pipelineSlug) {
+            try {
+              db.insertRunLog({
+                pipeline_slug: pipelineSlug,
+                agent_slug: "pipeline",
+                event_type: "step_end",
+                payload: body,
+              });
+            } catch (runLogErr) {
+              console.error("[bams-server] step_end run_log insert failed (non-fatal):", runLogErr);
+            }
+          }
+
           pushSseEvent(pipelineSlug, "step_end", body);
           break;
         }
@@ -1510,6 +1545,22 @@ async function handleRequest(req: Request): Promise<Response> {
             description: (body.description as string) ?? undefined,
             ts,
           });
+
+          // run_logs 기록 — Logs 탭 데이터 소스
+          if (pipelineSlug) {
+            try {
+              db.insertRunLog({
+                pipeline_slug: pipelineSlug,
+                run_id: (body.call_id as string) ?? undefined,
+                agent_slug: (body.agent_type as string) ?? "unknown",
+                event_type: "agent_start",
+                payload: body,
+              });
+            } catch (runLogErr) {
+              console.error("[bams-server] agent_start run_log insert failed (non-fatal):", runLogErr);
+            }
+          }
+
           pushSseEvent(pipelineSlug, "agent_start", body);
           break;
         }
@@ -1535,6 +1586,21 @@ async function handleRequest(req: Request): Promise<Response> {
             is_error: isError,
             ts,
           });
+
+          // run_logs 기록 — Logs 탭 데이터 소스
+          if (pipelineSlug) {
+            try {
+              db.insertRunLog({
+                pipeline_slug: pipelineSlug,
+                run_id: callId || undefined,
+                agent_slug: agentType,
+                event_type: "agent_end",
+                payload: body,
+              });
+            } catch (runLogErr) {
+              console.error("[bams-server] agent_end run_log insert failed (non-fatal):", runLogErr);
+            }
+          }
 
           // tasks 테이블 기록 (기존 POST /api/runs/events 로직 통합)
           if (pipelineSlug) {

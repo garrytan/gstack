@@ -744,7 +744,9 @@ function RetroJournalSection({ selectedRetroSlug }: { selectedRetroSlug?: string
 /* ------------------------------------------------------------------ */
 
 export function HRTab() {
-  const { data: reportList, isLoading: isListLoading } = usePolling<HRReportListItem[]>('/api/hr/reports', 10000)
+  // API Contract: /api/hr/reports returns { reports: HRReportListItem[] }
+  const { data: reportListData, isLoading: isListLoading } = usePolling<{ reports: HRReportListItem[] }>('/api/hr/reports', 10000)
+  const reportList = reportListData?.reports ?? []
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
 
   // Determine which report URL to poll
@@ -768,7 +770,7 @@ export function HRTab() {
     })
   }, [report])
 
-  if (isLoading) {
+  if (isLoading && !report) {
     return (
       <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
         Loading HR reports...

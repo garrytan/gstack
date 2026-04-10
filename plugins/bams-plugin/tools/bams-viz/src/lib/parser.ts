@@ -17,8 +17,8 @@ import { AGENT_DEPT_MAP } from './agents-config'
 export const DEPT_MAP: Record<string, string> = {
   ...AGENT_DEPT_MAP,
   // Non-org agents (Claude Code built-in agent types)
-  'general-purpose': 'engineering',
-  'Explore': 'engineering',
+  'general-purpose': 'engineering-frontend',
+  'Explore': 'engineering-frontend',
   'Plan': 'planning',
 }
 

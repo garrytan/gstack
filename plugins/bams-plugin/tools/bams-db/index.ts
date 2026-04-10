@@ -34,6 +34,7 @@ import {
   type WorkUnitRow,
   type PipelineEventRow,
   type WorkUnitEventRow,
+  type RunLog,
 } from "./schema.ts";
 
 /** DB 파일 기본 경로 — 글로벌 단일 DB */
@@ -528,9 +529,22 @@ export class TaskDB {
     ts?: string;
   }): string {
     const id = randomUUID();
-    const pipeline = this.getPipelineBySlug(event.pipeline_slug);
-    const pipelineId = pipeline?.id ?? null;
     const ts = event.ts ?? new Date().toISOString();
+
+    // pipeline_slug → pipeline_id resolve (auto-create if missing)
+    let pipeline = this.getPipelineBySlug(event.pipeline_slug);
+    if (!pipeline && event.pipeline_slug) {
+      // pipeline_start 이벤트 없이 다른 이벤트가 먼저 도착한 경우
+      // 최소한의 pipeline 레코드를 자동 생성하여 FK 연결 보장
+      this.upsertPipeline({
+        slug: event.pipeline_slug,
+        type: "auto-created",
+        status: "running",
+        started_at: ts,
+      });
+      pipeline = this.getPipelineBySlug(event.pipeline_slug);
+    }
+    const pipelineId = pipeline?.id ?? null;
 
     this.db.prepare(`
       INSERT INTO pipeline_events (
@@ -756,6 +770,59 @@ export class TaskDB {
         ORDER BY pe.ts ASC
       `)
       .all(workUnitSlug);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Run Logs CRUD
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * run_logs에 실행 로그를 insert한다.
+   * agent_start/agent_end 이벤트 수신 시 호출.
+   * @returns 생성된 run_log id
+   */
+  insertRunLog(input: {
+    pipeline_slug: string;
+    run_id?: string;
+    agent_slug: string;
+    event_type: string;
+    payload?: unknown;
+  }): string {
+    const pipeline = this.getPipelineBySlug(input.pipeline_slug);
+    if (!pipeline) {
+      throw new Error(`Pipeline not found for slug: ${input.pipeline_slug}`);
+    }
+    const id = randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO run_logs (id, pipeline_id, run_id, agent_slug, event_type, payload)
+        VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        pipeline.id,
+        input.run_id ?? null,
+        input.agent_slug,
+        input.event_type,
+        input.payload ? JSON.stringify(input.payload) : null
+      );
+    return id;
+  }
+
+  /**
+   * 파이프라인의 실행 로그를 조회한다 (slug 기준).
+   */
+  getRunLogs(pipelineSlug: string, limit = 100): RunLog[] {
+    const pipeline = this.getPipelineBySlug(pipelineSlug);
+    if (!pipeline) return [];
+    return this.db
+      .prepare<RunLog>(
+        `SELECT * FROM run_logs
+        WHERE pipeline_id = ?
+        ORDER BY created_at ASC
+        LIMIT ?`
+      )
+      .all(pipeline.id, limit);
   }
 
   /** DB 연결 종료 */

@@ -13,11 +13,12 @@ export async function GET() {
     })
     if (res.ok) {
       const data = await res.json()
-      // Unwrap: consumers expect a raw array, not { pipelines: [...] }
-      const list = data.pipelines ?? data
-      return NextResponse.json(list, { headers: headers('api') })
+      // API Contract: passthrough bams-server response as { pipelines: [...] }
+      // Consumers (bams-api.ts getPipelines) expect { pipelines: PipelineSummary[] }
+      const pipelines = data.pipelines ?? data
+      return NextResponse.json({ pipelines }, { headers: headers('api') })
     }
-    return NextResponse.json([], { headers: headers('error') })
+    return NextResponse.json({ pipelines: [] }, { headers: headers('error') })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error'
     return NextResponse.json({ error: message }, { status: 500, headers: headers('error') })

@@ -10,12 +10,13 @@ export async function GET() {
     })
     if (res.ok) {
       const data = await res.json()
-      // bams-server returns { reports: [...] }, but frontend expects raw array
+      // API Contract: passthrough bams-server response as { reports: [...] }
+      // Consumers (bams-api.ts getHRReports, HRTab.tsx) expect { reports: HRReportListItem[] }
       const reports = data.reports ?? data
-      return NextResponse.json(reports, { headers: corsHeaders })
+      return NextResponse.json({ reports }, { headers: corsHeaders })
     }
-    return NextResponse.json([], { headers: corsHeaders })
+    return NextResponse.json({ reports: [] }, { headers: corsHeaders })
   } catch {
-    return NextResponse.json([], { headers: corsHeaders })
+    return NextResponse.json({ reports: [] }, { headers: corsHeaders })
   }
 }

@@ -34,7 +34,8 @@ export async function GET(
     })
     if (res.ok) {
       const data = await res.json()
-      // Wrap in { workunit: ... } for consistency with frontend expectations
+      // API Contract: passthrough as { workunit: ... }
+      // Consumers (bams-api.ts getWorkUnit/getWorkUnitDetail, work/[slug]/page.tsx) expect { workunit: WorkUnit }
       const workunit = data.workunit ?? data
       return NextResponse.json({ workunit }, { headers: headers('bams-server') })
     }

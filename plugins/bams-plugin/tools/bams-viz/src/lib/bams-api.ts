@@ -23,15 +23,20 @@ import type {
   WorkUnitPatchRequest,
 } from "./types";
 
+/** bams-server 직접 접근이 필요한 경우에만 사용 (SSE, health 등 proxy 불가 경로) */
 const BAMS_SERVER_BASE =
   process.env.NEXT_PUBLIC_BAMS_SERVER_URL ?? "http://localhost:3099";
 
-/** 공통 fetch 래퍼 — bams-server 직접 호출 (GET 전용) */
+/**
+ * 공통 fetch 래퍼 — Next.js proxy 경유 (상대 URL)
+ * 모든 /api/* 경로는 Next.js API route를 통해 bams-server에 프록시된다.
+ * CORS 문제 해소 + 환경변수 의존 제거.
+ */
 async function apiFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
-  const res = await fetch(`${BAMS_SERVER_BASE}${path}`, {
+  const res = await fetch(path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -47,12 +52,14 @@ async function apiFetch<T>(
   return res.json() as Promise<T>;
 }
 
-/** Next.js 프록시 경유 fetch — PATCH/DELETE/POST 뮤테이션용 (CORS 우회) */
-async function proxyFetch<T>(
+/**
+ * bams-server 직접 호출 래퍼 — SSE, health 등 Next.js proxy를 경유할 수 없는 경로 전용
+ */
+async function directFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(`${BAMS_SERVER_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -269,7 +276,7 @@ es.addEventListener("agent_start", (e: MessageEvent) => {
     slug: string,
     body: WorkUnitPatchRequest
   ): Promise<{ workunit: WorkUnit }> {
-    return proxyFetch<{ workunit: WorkUnit }>(
+    return apiFetch<{ workunit: WorkUnit }>(
       `/api/workunits/${encodeURIComponent(slug)}`,
       {
         method: "PATCH",
@@ -279,7 +286,7 @@ es.addEventListener("agent_start", (e: MessageEvent) => {
   },
 
   async deleteWorkUnit(slug: string): Promise<{ ok: boolean }> {
-    // DELETE returns 204 No Content — cannot use proxyFetch (res.json() fails on empty body)
+    // DELETE returns 204 No Content — cannot use apiFetch (res.json() fails on empty body)
     const res = await fetch(`/api/workunits/${encodeURIComponent(slug)}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -297,7 +304,7 @@ es.addEventListener("agent_start", (e: MessageEvent) => {
     pipelineSlug: string,
     body: { status: "completed" | "failed" | "paused" }
   ): Promise<{ ok: boolean }> {
-    return proxyFetch<{ ok: boolean }>(
+    return apiFetch<{ ok: boolean }>(
       `/api/workunits/${encodeURIComponent(wuSlug)}/pipelines/${encodeURIComponent(pipelineSlug)}`,
       {
         method: "PATCH",
@@ -308,13 +315,13 @@ es.addEventListener("agent_start", (e: MessageEvent) => {
   // ── Work Unit 에이전트 통계 ───────────────────────────────────────
 
   async getWorkUnitAgents(slug: string): Promise<WorkUnitAgentsResponse> {
-    return proxyFetch<WorkUnitAgentsResponse>(
+    return apiFetch<WorkUnitAgentsResponse>(
       `/api/workunits/${encodeURIComponent(slug)}/agents`
     );
   },
 
   async getWorkUnitAgentsActive(slug: string): Promise<WorkUnitAgentsActiveResponse> {
-    return proxyFetch<WorkUnitAgentsActiveResponse>(
+    return apiFetch<WorkUnitAgentsActiveResponse>(
       `/api/workunits/${encodeURIComponent(slug)}/agents/active`
     );
   },
@@ -322,7 +329,7 @@ es.addEventListener("agent_start", (e: MessageEvent) => {
   // ── Work Unit Retro 연결 ─────────────────────────────────────────
 
   async getWorkUnitRetro(slug: string): Promise<WorkUnitRetroResponse> {
-    return proxyFetch<WorkUnitRetroResponse>(
+    return apiFetch<WorkUnitRetroResponse>(
       `/api/workunits/${encodeURIComponent(slug)}/retro`
     );
   },
@@ -331,6 +338,6 @@ es.addEventListener("agent_start", (e: MessageEvent) => {
   // ── Health ───────────────────────────────────────────────────
 
   async health(): Promise<{ ok: boolean; version: string; port: number }> {
-    return apiFetch<{ ok: boolean; version: string; port: number }>("/health");
+    return directFetch<{ ok: boolean; version: string; port: number }>("/health");
   },
 };

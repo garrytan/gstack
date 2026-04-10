@@ -128,7 +128,7 @@ export function TimelineTab({ pipelineSlug, onNavigateToLogs }: TimelineTabProps
     if (filter === 'all') return data
     return data.filter(e => e.type === filter)
   }, [data, filter])
-  if (isLoading) {
+  if (isLoading && !data) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading timeline...</div>
   }
   if (error) {
