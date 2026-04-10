@@ -26,3 +26,4 @@ extension/.auth.json
 .env.*
 !.env.example
 supabase/.temp/
+.nstack/

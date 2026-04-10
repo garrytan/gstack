@@ -918,6 +918,76 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 - Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
 - Passes can skip discovery and go straight to fixing for pre-identified issues
 
+
+## Visual Second Opinion (Codex Screenshot Analysis)
+
+**Privacy gate:** Before sending any screenshot to Codex, check if the user has consented.
+
+```bash
+_OUTSIDE_VOICES=$(~/.claude/skills/nstack/bin/nstack-config get outside_voices 2>/dev/null || echo "unset")
+echo "OUTSIDE_VOICES: $_OUTSIDE_VOICES"
+```
+
+If `OUTSIDE_VOICES` is `"false"`: skip this section entirely. Say: "Visual second opinion
+disabled. Enable with: `nstack-config set outside_voices true`"
+
+If `OUTSIDE_VOICES` is `"unset"` (first run): Use AskUserQuestion:
+
+> Design review can send screenshots to Codex (OpenAI) for a visual second opinion.
+> This catches spacing, hierarchy, and layout issues that a single model misses.
+> Screenshots are sent to OpenAI's API for analysis.
+>
+> A) Enable visual second opinion (recommended)
+> B) Skip — Claude-only analysis
+
+If A: run `~/.claude/skills/nstack/bin/nstack-config set outside_voices true`
+If B: run `~/.claude/skills/nstack/bin/nstack-config set outside_voices false` and skip this section.
+
+If `OUTSIDE_VOICES` is `"true"` or user chose A: proceed below.
+
+**If Codex is available**, run visual analysis on the primary screenshot.
+
+If mockup screenshots were generated during Step 0.5, use the approved variant. Otherwise, skip this section (no screenshot available for visual analysis).
+
+```bash
+TMPERR_VISUAL=$(mktemp /tmp/codex-visual-XXXXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+_SCREENSHOT="${_APPROVED_MOCKUP:-}"
+if [ -f "$_SCREENSHOT" ] && [ "$(stat -f%z "$_SCREENSHOT" 2>/dev/null || stat -c%s "$_SCREENSHOT" 2>/dev/null)" -lt 5242880 ]; then
+  codex exec "You are a visual design reviewer. Analyze this screenshot of a website. List the top 5 most significant visual design issues you see. For each: describe what is wrong, where on the page it occurs, and rate severity (P0 critical, P1 high, P2 medium, P3 low). Be specific about pixel measurements, colors, spacing if you can see them. Focus on: spacing rhythm and consistency, visual system coherence, grid alignment, information hierarchy, contrast and accessibility, and interaction affordances." -i "$_SCREENSHOT" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' 2>"$TMPERR_VISUAL"
+else
+  echo "Screenshot missing or >5MB — skipping visual second opinion"
+fi
+```
+Use a 2-minute timeout (`timeout: 120000`). After completion:
+```bash
+cat "$TMPERR_VISUAL" && rm -f "$TMPERR_VISUAL"
+```
+
+**Error handling:** Same as source-code voices above. All non-blocking.
+- Screenshot missing or >5MB: skip with note
+- Codex auth/timeout/empty: fall back to Claude-only visual analysis
+
+Present Codex visual output under: `CODEX SAYS (visual second opinion — screenshot analysis):`
+
+**Reconciliation:** Compare Codex's visual findings with your own Phase 1-6 findings.
+For each Codex finding:
+- If you already identified the same issue: mark as **Consensus** (high confidence)
+- If Codex found something you missed: mark as **SECOND OPINION** and add it to findings
+- If you disagree with Codex's finding: note the disagreement and your reasoning
+
+**Report the delta:** Lead with Codex-only findings (the value add), then consensus.
+
+```
+VISUAL SECOND OPINION SUMMARY:
+Codex-only findings: [N] (issues Claude missed)
+Consensus findings: [N] (both models agree)
+Disagreements: [N] (models differ — listed with reasoning)
+```
+
+For mockup-based reviews, run the visual second opinion on the approved variant only.
+One Codex invocation per mockup screen.
+
 **Log the result:**
 ```bash
 ~/.claude/skills/nstack/bin/nstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
