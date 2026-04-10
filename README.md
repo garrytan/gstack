@@ -28,14 +28,13 @@ git clone --depth 1 https://github.com/neilenatarajan/nstack.git ~/.claude/skill
 cd ~/.claude/skills/nstack && ./setup
 ```
 
-### After install
+### Option C: One-command global install
 
-Add this to your project's `CLAUDE.md`:
-
-```markdown
-## nstack
-Use /browse from nstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
+```bash
+./install
 ```
+
+Clones from GitHub, builds binaries, links skills, and adds routing rules to `~/.claude/CLAUDE.md`. Re-run to update to latest. Works in Conductor as a setup script.
 
 Then try it:
 
