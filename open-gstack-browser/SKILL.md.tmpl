@@ -51,8 +51,15 @@ echo "Pre-flight cleanup done"
 ## Step 1: Connect
 
 ```bash
-$B connect
+BROWSE_PARENT_PID=0 $B connect
 ```
+
+**CRITICAL: the `BROWSE_PARENT_PID=0` prefix is required.** When Claude Code spawns
+`$B connect` via a Bash tool call, the bash subprocess exits immediately after
+`connect` returns. The v0.15.15.0+ parent-process watchdog then sees "parent gone"
+and kills the headed Chromium ~15 seconds later — you'll see the window flash up
+and disappear. Setting `BROWSE_PARENT_PID=0` disables the watchdog for this
+session (same trick `/pair-agent` uses, see `cli.ts:847`).
 
 This launches GStack Browser (rebranded Chromium) in headed mode with:
 - A visible window you can watch (not your regular Chrome — it stays untouched)
@@ -67,16 +74,26 @@ directory. It always uses port **34567** so the extension can auto-connect.
 After connecting, print the full output to the user. Confirm you see
 `Mode: headed` in the output.
 
-If the output shows an error or the mode is not `headed`, run `$B status` and
-share the output with the user before proceeding.
+If the output shows an error or the mode is not `headed`, jump to Step 2 for
+verification (do NOT call `$B status` — see the warning in Step 2).
 
 ## Step 2: Verify
 
+**Do NOT use `$B status` for verification.** `status` is not read-only: if no
+server is running (because the watchdog killed it), `status` silently spawns a
+new server in default `launched` (headless) mode and reports `healthy` — masking
+the actual problem. Use `$B focus` instead, which fails loudly if the headed
+window is gone and never auto-spawns anything.
+
 ```bash
-$B status
+$B focus
 ```
 
-Confirm the output shows `Mode: headed`. Read the port from the state file:
+Expected output: `Browser window activated.` If you see `focus requires headed
+mode. Run $B connect first.`, the watchdog killed the session — re-run Step 0
+cleanup and Step 1 connect (making sure to include `BROWSE_PARENT_PID=0`).
+
+Read the port from the state file:
 
 ```bash
 cat "$(git rev-parse --show-toplevel 2>/dev/null)/.gstack/browse.json" 2>/dev/null | grep -o '"port":[0-9]*' | grep -o '[0-9]*'
@@ -138,10 +155,12 @@ If B: Tell the user:
 
 If C:
 
-1. Run `$B status` and show the output
-2. If the server is not healthy, re-run Step 0 cleanup + Step 1 connect
-3. If the server IS healthy but the browser isn't visible, try `$B focus`
-4. If that fails, ask the user what they see (error message, blank screen, etc.)
+1. Run `$B focus` (do NOT use `$B status` — it auto-spawns a headless server if
+   the headed one died, masking the real problem)
+2. If `focus` reports `requires headed mode`, the watchdog killed the session —
+   re-run Step 0 cleanup + Step 1 connect (with `BROWSE_PARENT_PID=0`)
+3. If `focus` reports `Browser window activated` but the user still can't see it,
+   ask what they see (error message, blank screen, window on another display, etc.)
 
 ## Step 4: Demo
 
