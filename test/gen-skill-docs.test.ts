@@ -2178,6 +2178,39 @@ describe('setup script validation', () => {
     expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$codex_gstack"');
   });
 
+  test('Factory install isolates copied skills from shared .agents names', () => {
+    const fnStart = setupContent.indexOf('link_factory_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('registered skills:', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('copy_name="gstack-factory"');
+    expect(fnBody).toContain('copy_name="gstack-factory-${skill_name#gstack-}"');
+    expect(fnBody).toContain('dest="$HOME/.agents/skills/$copy_name"');
+    expect(fnBody).toContain('target="$skills_dir/$skill_name"');
+    expect(fnBody).toContain('ln -snf "../../.agents/skills/$copy_name" "$target"');
+  });
+
+  test('Factory install bootstraps the skill lockfile on clean machines', () => {
+    const fnStart = setupContent.indexOf('link_factory_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('registered skills:', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('lock_path="$HOME/.agents/.skill-lock.json"');
+    expect(fnBody).toContain('if [ ! -f "$lock_path" ]; then');
+    expect(fnBody).toContain('"version": 3');
+    expect(fnBody).toContain('"lastSelectedAgents": []');
+    expect(fnBody).toContain('"skills": {}');
+  });
+
+  test('Factory lockfile registration keeps public skill names but points at isolated copies', () => {
+    const fnStart = setupContent.indexOf('link_factory_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('registered skills:', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain("copy_dir = os.path.join(agents_skills, copy_name)");
+    expect(fnBody).toContain("lock['skills'][entry] = {");
+    expect(fnBody).toContain("'source': 'gstack/' + entry");
+    expect(fnBody).toContain("'sourceUrl': 'file://' + copy_dir");
+    expect(fnBody).toContain("existing.get('installedAt', now_str)");
+  });
+
   test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {
     expect(setupContent).toContain('migrate_direct_codex_install');
     expect(setupContent).toContain('$HOME/.gstack/repos/gstack');
