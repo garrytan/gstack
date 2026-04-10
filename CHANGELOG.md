@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.16.1.0] - 2026-04-09
+
+### Added
+
+- **One-command global install.** New `./install` script clones nstack from GitHub, builds binaries, links skills, and adds routing rules to `~/.claude/CLAUDE.md`. Re-run to update to latest. Works as a Conductor setup script.
+
+### Fixed
+
+- `package.json` version now matches `VERSION` file (was stuck at 0.15.6.0 after rebrand).
+- Fixed zsh glob safety in `write-review` template (`ls -t *.md` now has `setopt +o nomatch` guard).
+
 ## [0.16.0.0] - 2026-04-08 — nstack
 
 The project formerly known as gstack is now **nstack**. Every file, binary, env var, storage path, and generated SKILL.md has been renamed. Telemetry is gone. Storage is per-repo by default.
