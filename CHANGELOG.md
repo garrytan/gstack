@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.2.0] - 2026-04-10
+
+### Added
+
+- **Visual second opinion in design review.** When you run `/design-review` or `/plan-design-review`, nstack can now send screenshots to Codex for an independent visual analysis. Codex catches spacing rhythm issues, grid alignment jitter, and visual system fragmentation that a single model misses. Validated on 10 diverse sites: 22 Codex-only findings, 5 at P0/P1 severity, zero false positives.
+- **Privacy consent gate.** First time Codex vision runs, you're asked whether to send screenshots to OpenAI. Persists via `nstack-config set outside_voices true/false`. Disable anytime.
+- **Disagreement-first reporting.** When Claude and Codex disagree on a visual finding, those disagreements surface first in the report, not buried after consensus items. That's where the highest-value signal lives.
+
 ## [0.16.1.0] - 2026-04-09
 
 ### Added
