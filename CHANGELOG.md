@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.16.2.1] - 2026-04-10
+
+### Added
+- **Every skill that `./setup` installs now appears in the README.** The two skill-list strings users paste into their CLAUDE.md (the install command block and the `## gstack` example block) had drifted apart and both were missing skills that actually ship. Now both blocks list the same 36 skills in the same order. Added `/pair-agent`, `/plan-devex-review`, `/devex-review`, `/health`, and `/checkpoint` where they were missing; replaced the legacy `/connect-chrome` reference with the canonical `/open-gstack-browser`. New users pasting either block now get the complete set.
+- **`/health` and `/checkpoint` now have rows in the big skill table.** Both have been working skills for a while but were never mentioned in the README, so new users had no way to discover them. `/health` is "Quality Engineer": wraps your project's type checker, linter, test runner, dead code detector, and shell linter into one weighted 0-10 composite score and tracks trends over time. Say "how healthy is the codebase" and you get a number plus a per-tool breakdown. `/checkpoint` is "Session Bookmark": saves and resumes working state mid-sprint by capturing git state, decisions made, and what's left to do. Say "where was I" or "pick up where I left off" and it reads the latest checkpoint, even across Conductor workspace handoffs or after a long break.
+
 ## [0.16.2.0] - 2026-04-09
 
 ### Added
