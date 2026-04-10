@@ -7,14 +7,12 @@
 #   gstack-uninstall --keep-state — remove skills but keep ~/.gstack/ data
 #
 # What gets REMOVED:
-#   ~/.claude/skills/gstack       — global Claude skill install (git clone or vendored)
-#   ~/.claude/skills/{skill}      — per-skill symlinks created by setup
 #   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
 #   ~/.factory/skills/gstack*     — Factory Droid skill install + per-skill symlinks
 #   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
+#   ~/.gemini/extensions/gstack   — Gemini extension install
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
-#   .claude/skills/gstack*        — project-local skill install (--local installs)
 #   .gstack/                      — per-project browse state (in current git repo)
 #   .gstack-worktrees/            — per-project test worktrees (in current git repo)
 #   .agents/skills/gstack*        — Codex/Gemini/Cursor sidecar (in current git repo)
@@ -62,7 +60,6 @@ done
 # ─── Confirmation ────────────────────────────────────────────
 if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
-  { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
@@ -70,7 +67,6 @@ if [ "$FORCE" -eq 0 ]; then
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
 
   if [ -n "$_GIT_ROOT" ]; then
-    [ -d "$_GIT_ROOT/.claude/skills/gstack" ] && echo "  $_GIT_ROOT/.claude/skills/gstack (project-local)"
     [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
     [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
@@ -127,39 +123,6 @@ if [ -d "$STATE_DIR/projects" ]; then
   while IFS= read -r _BJ; do
     stop_browse_daemon "$_BJ"
   done < <(find "$STATE_DIR/projects" -name browse.json -path '*/.gstack/*' 2>/dev/null || true)
-fi
-
-# ─── Remove global Claude skills ────────────────────────────
-CLAUDE_SKILLS="$HOME/.claude/skills"
-if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
-  # Remove per-skill symlinks that point into gstack/
-  for _LINK in "$CLAUDE_SKILLS"/*; do
-    [ -L "$_LINK" ] || continue
-    _NAME="$(basename "$_LINK")"
-    [ "$_NAME" = "gstack" ] && continue
-    _TARGET="$(readlink "$_LINK" 2>/dev/null || true)"
-    case "$_TARGET" in
-      gstack/*|*/gstack/*) rm -f "$_LINK"; REMOVED+=("claude/$_NAME") ;;
-    esac
-  done
-
-  rm -rf "$CLAUDE_SKILLS/gstack"
-  REMOVED+=("~/.claude/skills/gstack")
-fi
-
-# ─── Remove project-local Claude skills (--local installs) ──
-if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.claude/skills" ]; then
-  for _LINK in "$_GIT_ROOT/.claude/skills"/*; do
-    [ -L "$_LINK" ] || continue
-    _TARGET="$(readlink "$_LINK" 2>/dev/null || true)"
-    case "$_TARGET" in
-      gstack/*|*/gstack/*) rm -f "$_LINK"; REMOVED+=("local claude/$(basename "$_LINK")") ;;
-    esac
-  done
-  if [ -d "$_GIT_ROOT/.claude/skills/gstack" ] || [ -L "$_GIT_ROOT/.claude/skills/gstack" ]; then
-    rm -rf "$_GIT_ROOT/.claude/skills/gstack"
-    REMOVED+=("$_GIT_ROOT/.claude/skills/gstack")
-  fi
 fi
 
 # ─── Remove Codex skills ────────────────────────────────────
@@ -233,13 +196,6 @@ if [ -n "$_GIT_ROOT" ]; then
     rm -rf "$_GIT_ROOT/.gstack-worktrees"
     REMOVED+=("$_GIT_ROOT/.gstack-worktrees/")
   fi
-fi
-
-# ─── Remove SessionStart hook from Claude Code settings ─────
-SETTINGS_HOOK="$(dirname "$0")/gstack-settings-hook"
-SESSION_UPDATE="$(dirname "$0")/gstack-session-update"
-if [ -x "$SETTINGS_HOOK" ]; then
-  "$SETTINGS_HOOK" remove "$SESSION_UPDATE" 2>/dev/null && REMOVED+=("SessionStart hook") || true
 fi
 
 # ─── Remove global state ────────────────────────────────────

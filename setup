@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register skills with Gemini CLI (+ other hosts)
+# gstack setup — build browser binary + register skills with Gemini CLI (+ other hosts, no Claude)
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
@@ -41,7 +41,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected codex, kiro, factory, gemini, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -54,10 +54,10 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|gemini|auto) ;;
+  codex|kiro|factory|gemini|auto) ;;
   openclaw)
     echo ""
-    echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
+    echo "OpenClaw integration uses a different model — OpenClaw spawns AI agent"
     echo "sessions natively via ACP. gstack provides methodology artifacts, not a"
     echo "full skill installation."
     echo ""
@@ -67,7 +67,7 @@ case "$HOST" in
     echo "  3. See docs/OPENCLAW.md for the full architecture"
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, gemini, openclaw, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected codex, kiro, factory, gemini, openclaw, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -111,36 +111,20 @@ else
   "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
 fi
 
-# --local: install to .claude/skills/ in the current working directory (deprecated)
-if [ "$LOCAL_INSTALL" -eq 1 ]; then
-  echo "Warning: --local is deprecated. Use global install + --team instead." >&2
-  echo "  See: https://github.com/garrytan/gstack#team-mode" >&2
-  if [ "$HOST" = "codex" ]; then
-    echo "Error: --local is only supported for Claude Code (not Codex)." >&2
-    exit 1
-  fi
-  echo "Error: --local is only supported for Claude Code, not the Gemini fork." >&2
-  exit 1
-fi
-
 # For auto: detect which agents are installed
-INSTALL_CLAUDE=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_GEMINI=0
 if [ "$HOST" = "auto" ]; then
-  command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v gemini >/dev/null 2>&1 && INSTALL_GEMINI=1
   # If none found, default to gemini (this is the Gemini fork)
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_GEMINI" -eq 0 ]; then
+  if [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_GEMINI" -eq 0 ]; then
     INSTALL_GEMINI=1
   fi
-elif [ "$HOST" = "claude" ]; then
-  INSTALL_CLAUDE=1
 elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
@@ -295,133 +279,6 @@ fi
 
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
-
-# ─── Helper: link Claude skill subdirectories into a skills parent directory ──
-# Creates real directories (not symlinks) at the top level with a SKILL.md symlink
-# inside. This ensures Claude discovers them as top-level skills, not nested under
-# gstack/ (which would auto-prefix them as gstack-*).
-# When SKILL_PREFIX=1, directories are prefixed with "gstack-".
-# Use --no-prefix to restore flat names.
-link_claude_skill_dirs() {
-  local gstack_dir="$1"
-  local skills_dir="$2"
-  local linked=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      dir_name="$(basename "$skill_dir")"
-      # Skip node_modules
-      [ "$dir_name" = "node_modules" ] && continue
-      # Use frontmatter name: if present (e.g., run-tests/ with name: test → symlink as "test")
-      skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
-      [ -z "$skill_name" ] && skill_name="$dir_name"
-      # Apply gstack- prefix unless --no-prefix or already prefixed
-      if [ "$SKILL_PREFIX" -eq 1 ]; then
-        case "$skill_name" in
-          gstack-*) link_name="$skill_name" ;;
-          *)        link_name="gstack-$skill_name" ;;
-        esac
-      else
-        link_name="$skill_name"
-      fi
-      target="$skills_dir/$link_name"
-      # Upgrade old directory symlinks to real directories
-      if [ -L "$target" ]; then
-        rm -f "$target"
-      fi
-      # Create real directory with symlinked SKILL.md (absolute path)
-      # Use mkdir -p unconditionally (idempotent) to avoid TOCTOU race
-      mkdir -p "$target"
-      # Validate target isn't a symlink before creating the link
-      if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
-      ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
-      linked+=("$link_name")
-    fi
-  done
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
-  fi
-}
-
-# ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
-# Migration: when switching from flat names to gstack- prefixed names,
-# clean up stale symlinks or directories that point into the gstack directory.
-cleanup_old_claude_symlinks() {
-  local gstack_dir="$1"
-  local skills_dir="$2"
-  local removed=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
-      case "$skill_name" in gstack-*) continue ;; esac
-      old_target="$skills_dir/$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$old_target" ]; then
-        link_dest="$(readlink "$old_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$old_target" ] && [ -L "$old_target/SKILL.md" ]; then
-        link_dest="$(readlink "$old_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      fi
-    fi
-  done
-  if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up old entries: ${removed[*]}"
-  fi
-}
-
-# ─── Helper: remove old prefixed Claude skill entries ─────────────────────────
-# Reverse migration: when switching from gstack- prefixed names to flat names,
-# clean up stale gstack-* symlinks or directories that point into the gstack directory.
-cleanup_prefixed_claude_symlinks() {
-  local gstack_dir="$1"
-  local skills_dir="$2"
-  local removed=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Only clean up prefixed entries for dirs that AREN'T already prefixed
-      # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
-      case "$skill_name" in gstack-*) continue ;; esac
-      prefixed_target="$skills_dir/gstack-$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$prefixed_target" ]; then
-        link_dest="$(readlink "$prefixed_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$prefixed_target" ] && [ -L "$prefixed_target/SKILL.md" ]; then
-        link_dest="$(readlink "$prefixed_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      fi
-    fi
-  done
-  if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up prefixed entries: ${removed[*]}"
-  fi
-}
 
 # ─── Helper: link generated Codex skills into a skills parent directory ──
 # Installs from .agents/skills/gstack-* (the generated Codex-format skills)
@@ -610,79 +467,12 @@ link_factory_skill_dirs() {
   fi
 }
 
-# 4. Install for Claude (default)
+# 4. Detect repo-local Codex install
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
 CODEX_REPO_LOCAL=0
 if [ "$SKILLS_BASENAME" = "skills" ] && [ "$SKILLS_PARENT_BASENAME" = ".agents" ]; then
   CODEX_REPO_LOCAL=1
-fi
-
-if [ "$INSTALL_CLAUDE" -eq 1 ]; then
-  if [ "$SKILLS_BASENAME" = "skills" ]; then
-    # Clean up stale symlinks from the opposite prefix mode
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    else
-      cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    fi
-    # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
-    # reads the correct (patched) name: values for symlink naming
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
-    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    # Self-healing: re-run gstack-relink to ensure name: fields and directory
-    # names are consistent with the config. This catches cases where an interrupted
-    # setup, stale git state, or gen:skill-docs left name: fields out of sync.
-    GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
-    if [ -x "$GSTACK_RELINK" ]; then
-      GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
-    fi
-    # Backwards-compat alias: /connect-chrome → /open-gstack-browser
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-    fi
-    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
-    fi
-    if [ "$LOCAL_INSTALL" -eq 1 ]; then
-      log "gstack ready (project-local)."
-      log "  skills: $INSTALL_SKILLS_DIR"
-    else
-      log "gstack ready (claude)."
-    fi
-    log "  browse: $BROWSE_BIN"
-  else
-    # Not inside a skills/ directory — symlink into ~/.claude/skills/ and retry
-    CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
-    CLAUDE_GSTACK_LINK="$CLAUDE_SKILLS_DIR/gstack"
-    mkdir -p "$CLAUDE_SKILLS_DIR"
-    ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
-    log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
-    INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
-    INSTALL_GSTACK_DIR="$CLAUDE_GSTACK_LINK"
-    # Clean up stale symlinks from the opposite prefix mode
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    else
-      cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    fi
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
-    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
-    if [ -x "$GSTACK_RELINK" ]; then
-      GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
-    fi
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-    fi
-    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
-    fi
-    log "gstack ready (claude)."
-    log "  browse: $BROWSE_BIN"
-  fi
 fi
 
 # 5. Install for Codex
@@ -846,39 +636,7 @@ if [ ! -f "$HOME/.gstack/.welcome-seen" ]; then
 fi
 rm -f /tmp/gstack-latest-version
 
-# 10. Team mode: register/unregister SessionStart hook
-# SessionStart hooks are Claude Code-specific; skip for Gemini-only installs
-if [ "$INSTALL_CLAUDE" -eq 1 ]; then
-  SETTINGS_HOOK="$SOURCE_GSTACK_DIR/bin/gstack-settings-hook"
-  HOOK_CMD="$SOURCE_GSTACK_DIR/bin/gstack-session-update"
-
-  if [ "$TEAM_MODE" -eq 1 ]; then
-    "$GSTACK_CONFIG" set auto_upgrade true 2>/dev/null || true
-    "$GSTACK_CONFIG" set team_mode true 2>/dev/null || true
-
-    if [ -x "$SETTINGS_HOOK" ]; then
-      "$SETTINGS_HOOK" add "$HOOK_CMD" 2>/dev/null || true
-    fi
-
-    log ""
-    log "Team mode enabled: gstack will auto-update at the start of each Claude Code session."
-    log "  Hook: $HOOK_CMD"
-    log "  To disable: ./setup --no-team"
-    log ""
-    log "Bootstrap your repo:"
-    log "  cd <your-repo> && $SOURCE_GSTACK_DIR/bin/gstack-team-init required"
-  fi
-
-  if [ "$NO_TEAM_MODE" -eq 1 ]; then
-    "$GSTACK_CONFIG" set auto_upgrade false 2>/dev/null || true
-    "$GSTACK_CONFIG" set team_mode false 2>/dev/null || true
-
-    if [ -x "$SETTINGS_HOOK" ]; then
-      "$SETTINGS_HOOK" remove "$HOOK_CMD" 2>/dev/null || true
-    fi
-
-    log "Team mode disabled: auto-update hook removed."
-  fi
-elif [ "$TEAM_MODE" -eq 1 ]; then
-  log "Note: --team is only supported for Claude Code. Skipping SessionStart hook."
+# 10. Team mode is not supported in this Gemini-only fork
+if [ "$TEAM_MODE" -eq 1 ]; then
+  log "Note: --team is not supported in this Gemini-only fork."
 fi

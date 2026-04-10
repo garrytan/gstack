@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # gstack-session-update — auto-update gstack on session start (team mode)
 #
-# Called by Claude Code SessionStart hook. Must be fast, silent, non-fatal.
+# Called on session start. Must be fast, silent, non-fatal.
 # The entire update runs in background (forked). The hook itself exits
 # immediately so session startup is never delayed.
 #
-# Exit 0 always — errors must never block a Claude Code session.
+# Exit 0 always — errors must never block a session.
 
 set +e
 
