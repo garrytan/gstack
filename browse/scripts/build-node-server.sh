@@ -14,12 +14,21 @@ DIST_DIR="$GSTACK_DIR/browse/dist"
 echo "Building Node-compatible server bundle..."
 
 # Step 1: Transpile server.ts to a single .mjs bundle (externalize runtime deps)
+#
+# @ngrok/ngrok must be external: it ships prebuilt native .node binaries
+# (darwin-universal, darwin-arm64, win32-x64, etc.) which bun cannot inline
+# into a single JS bundle. Without --external, bun tries to emit the native
+# binaries as separate asset files and fails with
+# "cannot write multiple output files without an output directory".
+# Pair-agent users on Windows Node runtime install @ngrok/ngrok separately,
+# matching how we already handle playwright and playwright-core.
 bun build "$SRC_DIR/server.ts" \
   --target=node \
   --outfile "$DIST_DIR/server-node.mjs" \
   --external playwright \
   --external playwright-core \
   --external diff \
+  --external "@ngrok/ngrok" \
   --external "bun:sqlite"
 
 # Step 2: Post-process
