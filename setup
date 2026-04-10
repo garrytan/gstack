@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|auto) ;;
+  claude|codex|kiro|factory|gemini|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -67,7 +67,7 @@ case "$HOST" in
     echo "  3. See docs/OPENCLAW.md for the full architecture"
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, openclaw, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, gemini, openclaw, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -130,13 +130,15 @@ INSTALL_CLAUDE=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
+INSTALL_GEMINI=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
+  command -v gemini >/dev/null 2>&1 && INSTALL_GEMINI=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_GEMINI" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -147,6 +149,8 @@ elif [ "$HOST" = "kiro" ]; then
   INSTALL_KIRO=1
 elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
+elif [ "$HOST" = "gemini" ]; then
+  INSTALL_GEMINI=1
 fi
 
 migrate_direct_codex_install() {
@@ -246,6 +250,16 @@ if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host factory
+  )
+fi
+
+# 1d. Generate .gemini/ Gemini CLI skill docs
+if [ "$INSTALL_GEMINI" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .gemini/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host gemini
   )
 fi
 
@@ -762,6 +776,41 @@ if [ "$INSTALL_FACTORY" -eq 1 ]; then
   echo "gstack ready (factory)."
   echo "  browse: $BROWSE_BIN"
   echo "  factory skills: $FACTORY_SKILLS"
+fi
+
+# 6c. Install for Gemini CLI
+if [ "$INSTALL_GEMINI" -eq 1 ]; then
+  # Gemini extensions link points at the repo root as the extension.
+  # gen-skill-docs outputs to .gemini/skills/; we create a `skills` symlink
+  # at the repo root so Gemini discovers them at <extension>/skills/.
+  SKILLS_LINK="$SOURCE_GSTACK_DIR/skills"
+  if [ ! -e "$SKILLS_LINK" ]; then
+    ln -snf ".gemini/skills" "$SKILLS_LINK"
+    log "  created skills -> .gemini/skills symlink"
+  elif [ -L "$SKILLS_LINK" ]; then
+    # Already a symlink — update it
+    ln -snf ".gemini/skills" "$SKILLS_LINK"
+  fi
+
+  # Register with Gemini CLI if not already linked
+  GEMINI_EXT_DIR="$HOME/.gemini/extensions/gstack"
+  if [ -L "$GEMINI_EXT_DIR" ]; then
+    log "gstack ready (gemini) — already linked."
+  elif [ -d "$GEMINI_EXT_DIR" ]; then
+    # Old-style copied install — remove and re-link
+    rm -rf "$GEMINI_EXT_DIR"
+    log "  Registering gstack extension with Gemini CLI..."
+    log "  Run: gemini extensions link $SOURCE_GSTACK_DIR"
+    log "  (answer Y when prompted)"
+  else
+    log "  Registering gstack extension with Gemini CLI..."
+    log "  Run: gemini extensions link $SOURCE_GSTACK_DIR"
+    log "  (answer Y when prompted)"
+  fi
+
+  log "gstack ready (gemini)."
+  log "  browse: $BROWSE_BIN"
+  log "  skills: $SOURCE_GSTACK_DIR/skills -> .gemini/skills"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

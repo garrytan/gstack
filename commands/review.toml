@@ -1,0 +1,2 @@
+description = "Pre-landing PR review — finds bugs that pass CI but break in prod"
+prompt = "Read and follow the skill file at skills/gstack-review/SKILL.md"

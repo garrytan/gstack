@@ -1,0 +1,2 @@
+description = "Weekly engineering retrospective with shipping streaks"
+prompt = "Read and follow the skill file at skills/gstack-retro/SKILL.md"

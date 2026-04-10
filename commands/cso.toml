@@ -1,0 +1,2 @@
+description = "Chief Security Officer — OWASP Top 10 + STRIDE security audit"
+prompt = "Read and follow the skill file at skills/gstack-cso/SKILL.md"

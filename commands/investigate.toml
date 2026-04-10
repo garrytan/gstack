@@ -1,0 +1,2 @@
+description = "Systematic root-cause debugging — no fixes without investigation"
+prompt = "Read and follow the skill file at skills/gstack-investigate/SKILL.md"
