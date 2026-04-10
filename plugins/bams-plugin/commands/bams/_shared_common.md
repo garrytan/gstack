@@ -117,6 +117,8 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 ## ★ Work Unit 선택 (파이프라인 시작 전 필수)
 
+**`SELECTED_WU_SLUG`가 이미 설정되어 있으면 (이 파이프라인의 Parent Pipeline 상속 Step 0.5/0.6에서 `references/parent-wu-inheritance.md`를 통해 설정된 경우) 이 섹션 전체를 스킵한다.** 상속된 WU로 `pipeline_start` emit 및 DB 연결 기록만 수행한다. 다른 경로(예: 환경 변수 잔존)로 설정된 `SELECTED_WU_SLUG`는 스킵 조건에 해당하지 않는다.
+
 파이프라인 시작 전 활성 work unit 선택을 확인한다. `pipeline_start` emit 이전에 실행.
 
 ```bash

@@ -66,6 +66,12 @@ Options:
 _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" pipeline_start "{slug}" "deep-review" "/bams:deep-review" "{arguments}" "{parent_pipeline_slug}"
 ```
 
+### Parent Pipeline의 WU 자동 상속
+
+**`references/parent-wu-inheritance.md`를 Read하여 지시를 따른다.** 해당 파일의 bash 스크립트를 실행하여 WU를 상속한다.
+
+AskUserQuestion에서 "없음" 선택 시: `PARENT_PIPELINE_SLUG=""`로 설정하여 상속 로직을 스킵한다.
+
 > **위임 체계 (Canonical)**: 이 커맨드는 `_shared_common.md` §위임 원칙 + 부록 **루프 B**(Advised 병렬)를 따른다. Step 1-3의 5관점 리뷰·구조적 리뷰·Codex 리뷰는 메인이 qa-strategy 부서장 및 리뷰 스킬을 **직접** 병렬 spawn한다. Step 4는 orchestrator를 조언자로 1회 호출한다. orchestrator를 경유한 중첩 spawn 금지(harness 깊이 2 제약).
 
 ## Step 1-2-3: 리뷰 실행 전략 선택

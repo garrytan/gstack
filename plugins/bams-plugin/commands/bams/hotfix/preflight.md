@@ -23,10 +23,11 @@
 
 ### Viz 이벤트: pipeline_start
 
-진행 추적 파일 및 lock 파일 생성 직후, Bash로 다음을 실행합니다:
+진행 추적 파일 및 lock 파일 생성 직후, Bash로 다음을 실행합니다.
+**주의:** Step 0.6에서 parent_pipeline_slug가 결정된 후 아래 수정 라인으로 대체하여 emit한다:
 
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" pipeline_start "{slug}" "hotfix" "/bams:hotfix" "{arguments}"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" pipeline_start "{slug}" "hotfix" "/bams:hotfix" "{arguments}" "{parent_pipeline_slug}"
 ```
 
 ---
@@ -83,6 +84,12 @@ Options:
 ```bash
 _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" pipeline_start "{slug}" "hotfix" "/bams:hotfix" "{arguments}" "{parent_pipeline_slug}"
 ```
+
+### Parent Pipeline의 WU 자동 상속
+
+**`references/parent-wu-inheritance.md`를 Read하여 지시를 따른다.** 해당 파일의 bash 스크립트를 실행하여 WU를 상속한다.
+
+AskUserQuestion에서 "없음" 선택 시: `PARENT_PIPELINE_SLUG=""`로 설정하여 상속 로직을 스킵한다.
 
 ---
 
