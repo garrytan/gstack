@@ -13,9 +13,10 @@ import opencode from './opencode';
 import slate from './slate';
 import cursor from './cursor';
 import gemini from './gemini';
+import windsurf from './windsurf';
 
 /** All registered host configs. Add new hosts here. */
-export const ALL_HOST_CONFIGS: HostConfig[] = [codex, factory, kiro, opencode, slate, cursor, gemini];
+export const ALL_HOST_CONFIGS: HostConfig[] = [codex, factory, kiro, opencode, slate, cursor, gemini, windsurf];
 
 /** Map from host name to config. */
 export const HOST_CONFIG_MAP: Record<string, HostConfig> = Object.fromEntries(
@@ -62,4 +63,4 @@ export function getExternalHosts(): HostConfig[] {
 }
 
 // Re-export individual configs for direct import
-export { codex, factory, kiro, opencode, slate, cursor, gemini };
+export { codex, factory, kiro, opencode, slate, cursor, gemini, windsurf };

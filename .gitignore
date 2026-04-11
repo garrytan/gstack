@@ -13,6 +13,7 @@ bin/gstack-global-discover
 .slate/
 .cursor/
 .gemini/
+.windsurf/
 skills
 .context/
 extension/.auth.json
