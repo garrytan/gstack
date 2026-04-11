@@ -43,6 +43,36 @@ describe('parseGeminiJSONL', () => {
     expect(parsed.tokens).toBe(27147);
   });
 
+  test('extracts token breakdown from result stats', () => {
+    const parsed = parseGeminiJSONL(FIXTURE_LINES);
+    expect(parsed.inputTokens).toBe(26928);
+    expect(parsed.outputTokens).toBe(87);
+    expect(parsed.cachedTokens).toBe(0);
+  });
+
+  test('extracts model from init event', () => {
+    const parsed = parseGeminiJSONL(FIXTURE_LINES);
+    expect(parsed.model).toBe('auto-gemini-3');
+  });
+
+  test('extracts model from stats.models when not in init', () => {
+    const lines = [
+      '{"type":"result","status":"success","stats":{"total_tokens":100,"input_tokens":80,"output_tokens":20,"cached":0,"models":{"gemini-3-flash-preview":{"total_tokens":100}}}}',
+    ];
+    const parsed = parseGeminiJSONL(lines);
+    expect(parsed.model).toBe('gemini-3-flash-preview');
+  });
+
+  test('captures error message from result event', () => {
+    const lines = [
+      '{"type":"init","session_id":"s1","model":"gemini-3-flash"}',
+      '{"type":"result","status":"error","error":{"type":"unknown","message":"You have exhausted your capacity"},"stats":{"total_tokens":0}}',
+    ];
+    const parsed = parseGeminiJSONL(lines);
+    expect(parsed.errorMessage).toBe('You have exhausted your capacity');
+    expect(parsed.tokens).toBe(0);
+  });
+
   test('skips malformed lines without throwing', () => {
     const lines = [
       '{"type":"init","session_id":"ok"}',
@@ -75,7 +105,12 @@ describe('parseGeminiJSONL', () => {
     expect(parsed.output).toBe('');
     expect(parsed.toolCalls).toHaveLength(0);
     expect(parsed.tokens).toBe(0);
+    expect(parsed.inputTokens).toBe(0);
+    expect(parsed.outputTokens).toBe(0);
+    expect(parsed.cachedTokens).toBe(0);
     expect(parsed.sessionId).toBeNull();
+    expect(parsed.model).toBe('');
+    expect(parsed.errorMessage).toBe('');
   });
 
   test('handles missing fields gracefully', () => {
@@ -90,6 +125,10 @@ describe('parseGeminiJSONL', () => {
     expect(parsed.output).toBe('');
     expect(parsed.toolCalls).toHaveLength(0);
     expect(parsed.tokens).toBe(0);
+    expect(parsed.inputTokens).toBe(0);
+    expect(parsed.outputTokens).toBe(0);
+    expect(parsed.model).toBe('');
+    expect(parsed.errorMessage).toBe('');
   });
 
   test('handles multiple tool_use events', () => {

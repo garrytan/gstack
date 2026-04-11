@@ -21,10 +21,15 @@ export interface GeminiResult {
   output: string;           // Full assistant message text (concatenated deltas)
   toolCalls: string[];      // Tool names from tool_use events
   tokens: number;           // Total tokens used
+  inputTokens: number;      // Input tokens from stats
+  outputTokens: number;     // Output tokens from stats
+  cachedTokens: number;     // Cached input tokens from stats
   exitCode: number;         // Process exit code
   durationMs: number;       // Wall clock time
   sessionId: string | null; // Session ID from init event
   rawLines: string[];       // Raw JSONL lines for debugging
+  model: string;            // Model name from stats.models
+  errorMessage: string;     // Error message for debugging failures
 }
 
 // --- JSONL parser ---
@@ -33,7 +38,12 @@ export interface ParsedGeminiJSONL {
   output: string;
   toolCalls: string[];
   tokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
   sessionId: string | null;
+  model: string;
+  errorMessage: string;
 }
 
 /**
@@ -51,7 +61,12 @@ export function parseGeminiJSONL(lines: string[]): ParsedGeminiJSONL {
   const outputParts: string[] = [];
   const toolCalls: string[] = [];
   let tokens = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedTokens = 0;
   let sessionId: string | null = null;
+  let model = '';
+  let errorMessage = '';
 
   for (const line of lines) {
     if (!line.trim()) continue;
@@ -62,6 +77,7 @@ export function parseGeminiJSONL(lines: string[]): ParsedGeminiJSONL {
       if (t === 'init') {
         const sid = obj.session_id || '';
         if (sid) sessionId = sid;
+        if (obj.model) model = obj.model;
       } else if (t === 'message') {
         if (obj.role === 'assistant' && obj.content) {
           outputParts.push(obj.content);
@@ -71,7 +87,21 @@ export function parseGeminiJSONL(lines: string[]): ParsedGeminiJSONL {
         if (name) toolCalls.push(name);
       } else if (t === 'result') {
         const stats = obj.stats || {};
-        tokens = (stats.total_tokens || 0);
+        tokens = stats.total_tokens || 0;
+        inputTokens = stats.input_tokens || 0;
+        outputTokens = stats.output_tokens || 0;
+        cachedTokens = stats.cached || 0;
+        // Extract model from stats.models if not already set from init
+        if (!model && stats.models && typeof stats.models === 'object') {
+          const names = Object.keys(stats.models);
+          if (names.length > 0) model = names[0];
+        }
+        // Capture error from result event (e.g., quota exhaustion)
+        if (obj.error) {
+          const err = obj.error;
+          errorMessage = typeof err === 'string' ? err
+            : err.message || JSON.stringify(err);
+        }
       }
     } catch { /* skip malformed lines */ }
   }
@@ -80,7 +110,12 @@ export function parseGeminiJSONL(lines: string[]): ParsedGeminiJSONL {
     output: outputParts.join(''),
     toolCalls,
     tokens,
+    inputTokens,
+    outputTokens,
+    cachedTokens,
     sessionId,
+    model,
+    errorMessage,
   };
 }
 
@@ -112,10 +147,15 @@ export async function runGeminiSkill(opts: {
       output: 'SKIP: gemini binary not found',
       toolCalls: [],
       tokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
       exitCode: -1,
       durationMs: Date.now() - startTime,
       sessionId: null,
       rawLines: [],
+      model: '',
+      errorMessage: 'gemini binary not found',
     };
   }
 
@@ -193,9 +233,14 @@ export async function runGeminiSkill(opts: {
     output: parsed.output,
     toolCalls: parsed.toolCalls,
     tokens: parsed.tokens,
+    inputTokens: parsed.inputTokens,
+    outputTokens: parsed.outputTokens,
+    cachedTokens: parsed.cachedTokens,
     exitCode: timedOut ? 124 : exitCode,
     durationMs,
     sessionId: parsed.sessionId,
     rawLines: collectedLines,
+    model: parsed.model,
+    errorMessage: parsed.errorMessage || (stderr.trim() ? stderr.trim().slice(0, 500) : ''),
   };
 }
