@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# gstack-learnings-stats — summarize project learnings with legacy schema support
+# Usage: gstack-learnings-stats
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+LEARN_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+LEARNINGS_HELPER="file://$SCRIPT_DIR/../scripts/learnings-normalize.ts"
+
+if [ ! -f "$LEARN_FILE" ]; then
+  echo "NO_LEARNINGS"
+  exit 0
+fi
+
+TOTAL=$(wc -l < "$LEARN_FILE" | tr -d ' ')
+echo "TOTAL: $TOTAL entries"
+
+GSTACK_LEARNINGS_HELPER="$LEARNINGS_HELPER" cat "$LEARN_FILE" | GSTACK_LEARNINGS_HELPER="$LEARNINGS_HELPER" bun -e "
+const { normalizeLearningsEntry } = await import(process.env.GSTACK_LEARNINGS_HELPER);
+const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
+
+const seen = new Map();
+for (const line of lines) {
+  try {
+    const normalized = normalizeLearningsEntry(JSON.parse(line));
+    if (!normalized) continue;
+
+    const dedupeKey = normalized.key + '|' + normalized.type;
+    const existing = seen.get(dedupeKey);
+    if (!existing || new Date(normalized.ts || 0) > new Date(existing.ts || 0)) {
+      seen.set(dedupeKey, normalized);
+    }
+  } catch {}
+}
+
+const byType = {};
+const bySource = {};
+let totalConfidence = 0;
+for (const entry of seen.values()) {
+  byType[entry.type] = (byType[entry.type] || 0) + 1;
+  const source = entry.source || 'unknown';
+  bySource[source] = (bySource[source] || 0) + 1;
+  totalConfidence += entry.confidence || 0;
+}
+
+console.log('UNIQUE: ' + seen.size + ' (after dedup)');
+console.log('RAW_ENTRIES: ' + lines.length);
+console.log('BY_TYPE: ' + JSON.stringify(byType));
+console.log('BY_SOURCE: ' + JSON.stringify(bySource));
+console.log('AVG_CONFIDENCE: ' + (seen.size ? (totalConfidence / seen.size).toFixed(1) : '0.0'));
+" 2>/dev/null
