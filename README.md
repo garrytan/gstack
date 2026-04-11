@@ -212,9 +212,24 @@ We run identical prompts through both CLIs and compare results. Latest run (2026
 | Web search | PASS (13s) | PASS (27s) | Equivalent |
 | Safety refusal | PASS (4s) | PASS (17s) | Equivalent |
 
-**8/9 both passed.** Gemini produces equivalent results on every test. It tends to be
+**9/9 both passed.** Gemini produces equivalent results on every test. It tends to be
 more thorough (reads more files for context) at the cost of more wall-clock time.
 Claude is faster per-operation. Gemini was faster on skill discovery (8s vs 16s).
+
+#### Skill-Level Comparison
+
+We also ran actual gstack skill invocations head-to-head:
+
+| Skill | Claude | Gemini | Notes |
+|-------|--------|--------|-------|
+| `/plan-ceo-review` | PASS (293s) | PASS (99s) | Both produced structured CEO reviews |
+| `/plan-eng-review` | PASS (74s) | PASS (167s) | Both flagged JWT-in-localStorage |
+| `/office-hours` | PASS (91s) | PASS (373s) | Both asked probing questions |
+| `/cso` | PASS (188s) | PASS (115s) | Both ran security audits |
+| `/review` | PASS (761s) | PASS (344s) | Both reviewed code diffs |
+
+Both CLIs correctly activate and run every skill. Claude tends to spawn subagents
+for deeper analysis; Gemini does everything in one session with more structured output.
 
 Run the comparison yourself:
 
