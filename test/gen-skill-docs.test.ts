@@ -213,6 +213,22 @@ describe('gen-skill-docs', () => {
     expect(browseTmpl).toContain('{{PREAMBLE}}');
   });
 
+  test('skill templates do not reference legacy CLAUDE_SKILL_DIR hook paths', () => {
+    for (const skill of ALL_SKILLS) {
+      const tmplPath = path.join(ROOT, skill.dir, 'SKILL.md.tmpl');
+      const content = fs.readFileSync(tmplPath, 'utf-8');
+      expect(content).not.toContain('CLAUDE_SKILL_DIR');
+    }
+  });
+
+  test('generated skills do not reference legacy CLAUDE_SKILL_DIR hook paths', () => {
+    for (const skill of ALL_SKILLS) {
+      const mdPath = path.join(ROOT, skill.dir, 'SKILL.md');
+      const content = fs.readFileSync(mdPath, 'utf-8');
+      expect(content).not.toContain('CLAUDE_SKILL_DIR');
+    }
+  });
+
   test('generated SKILL.md contains operational self-improvement (replaced contributor mode)', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).not.toContain('Contributor Mode');
