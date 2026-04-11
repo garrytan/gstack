@@ -28,8 +28,8 @@ GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
   return `## Preamble (run first)
 
 \`\`\`bash
-${runtimeRoot}_UPD=$(${ctx.paths.binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
-[ -n "$_UPD" ] && echo "$_UPD" || true
+${runtimeRoot}${hostConfig.disableUpdateCheck ? '# Update check disabled for this host' : `_UPD=$(${ctx.paths.binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true`}
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -57,7 +57,11 @@ mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"${ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
-# zsh-compatible: use find instead of glob to avoid NOMATCH error
+${hostConfig.disableRemoteTelemetry ? `# Remote telemetry disabled for this host — clean up pending files only
+for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
+  [ -f "$_PF" ] && rm -f "$_PF" 2>/dev/null || true
+  break
+done` : `# zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "${ctx.paths.binDir}/gstack-telemetry-log" ]; then
@@ -66,7 +70,7 @@ for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null
     rm -f "$_PF" 2>/dev/null || true
   fi
   break
-done
+done`}
 # Learnings count
 eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" 2>/dev/null || true
 _LEARN_FILE="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}/learnings.jsonl"
@@ -103,6 +107,11 @@ echo "VENDORED_GSTACK: $_VENDORED"
 }
 
 function generateUpgradeCheck(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
+  const upgradeBlock = hostConfig.disableUpdateCheck
+    ? ''
+    : `\n\nIf output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`${ctx.paths.skillRoot}/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If \`JUST_UPGRADED <from> <to>\`: tell user "Running gstack v{to} (just updated!)" and continue.`;
+
   return `If \`PROACTIVE\` is \`"false"\`, do not proactively suggest gstack skills AND do not
 auto-invoke skills based on conversation context. Only run skills the user explicitly
 types (e.g., /qa, /ship). If you would have auto-invoked a skill, instead briefly say:
@@ -112,9 +121,7 @@ The user opted out of proactive behavior.
 If \`SKILL_PREFIX\` is \`"true"\`, the user has namespaced skill names. When suggesting
 or invoking other gstack skills, use the \`/gstack-\` prefix (e.g., \`/gstack-qa\` instead
 of \`/qa\`, \`/gstack-ship\` instead of \`/ship\`). Disk paths are unaffected — always use
-\`${ctx.paths.skillRoot}/[skill-name]/SKILL.md\` for reading skill files.
-
-If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`${ctx.paths.skillRoot}/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If \`JUST_UPGRADED <from> <to>\`: tell user "Running gstack v{to} (just updated!)" and continue.`;
+\`${ctx.paths.skillRoot}/[skill-name]/SKILL.md\` for reading skill files.${upgradeBlock}`;
 }
 
 function generateLakeIntro(): string {
@@ -132,6 +139,15 @@ Only run \`open\` if the user says yes. Always run \`touch\` to mark as seen. Th
 }
 
 function generateTelemetryPrompt(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
+  if (hostConfig.disableRemoteTelemetry) {
+    return `Telemetry is disabled for this host. Skip the telemetry prompt. Run:
+\`\`\`bash
+${ctx.paths.binDir}/gstack-config set telemetry off 2>/dev/null || true
+touch ~/.gstack/.telemetry-prompted
+\`\`\``;
+  }
+
   return `If \`TEL_PROMPTED\` is \`no\` AND \`LAKE_INTRO\` is \`yes\`: After the lake intro is handled,
 ask the user about telemetry. Use AskUserQuestion:
 
@@ -439,6 +455,7 @@ jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg b
 }
 
 function generateCompletionStatus(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
   return `## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -501,23 +518,23 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.gemini/extensions/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+${ctx.paths.binDir}/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
-fi
+fi${hostConfig.disableRemoteTelemetry ? '' : `
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.gemini/extensions/gstack/bin/gstack-telemetry-log ]; then
-  ~/.gemini/extensions/gstack/bin/gstack-telemetry-log \\
-    --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
+if [ "$_TEL" != "off" ] && [ -x ${ctx.paths.binDir}/gstack-telemetry-log ]; then
+  ${ctx.paths.binDir}/gstack-telemetry-log \\\\
+    --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\\\
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
-fi
+fi`}
 \`\`\`
 
 Replace \`SKILL_NAME\` with the actual skill name from frontmatter, \`OUTCOME\` with
 success/error/abort, and \`USED_BROWSE\` with true/false based on whether \`$B\` was used.
-If you cannot determine the outcome, use "unknown". The local JSONL always logs. The
-remote binary only runs if telemetry is not off and the binary exists.
+If you cannot determine the outcome, use "unknown". The local JSONL always logs.${hostConfig.disableRemoteTelemetry ? '' : ` The
+remote binary only runs if telemetry is not off and the binary exists.`}
 
 ## Plan Mode Safe Operations
 

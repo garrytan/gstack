@@ -1,11 +1,26 @@
 import type { TemplateContext } from './types';
-import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS } from './constants';
+import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS, secondOpinionBlock } from './constants';
+
+// Hosts that lack the Codex CLI — get inline-only design voices
+const NO_CODEX_HOSTS = ['windsurf'];
 
 export function generateDesignReviewLite(ctx: TemplateContext): string {
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
   const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join(' ');
-  // Codex block only for Claude host
-  const codexBlock = ctx.host === 'codex' ? '' : `
+  // Cross-model design voice: use secondOpinionCLI if configured, else Codex if available
+  const cli = ctx.hostConfig?.secondOpinionCLI;
+  const designLitePrompt = `Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line.`;
+
+  const cliDesignBlock = (cli && NO_CODEX_HOSTS.includes(ctx.host)) ? `
+
+7. **${cli.displayName} design voice** (optional, automatic if available):
+
+${secondOpinionBlock(cli, designLitePrompt, 'design review', 'DESIGN REVIEW')}
+Skip this step — the checklist findings above provide sufficient coverage.
+
+Present ${cli.displayName} output under a \`${cli.displayName.toUpperCase()} (design):\` header, merged with the checklist findings above.` : '';
+
+  const codexBlock = (ctx.host === 'codex' || NO_CODEX_HOSTS.includes(ctx.host)) ? cliDesignBlock : `
 
 7. **Codex design voice** (optional, automatic if available):
 
@@ -390,7 +405,7 @@ Tie everything to user goals and product objectives. Always suggest specific imp
 11. **Show screenshots to the user.** After every \`$B screenshot\`, \`$B snapshot -a -o\`, or \`$B responsive\` command, use the Read tool on the output file(s) so the user can see them inline. For \`responsive\` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.`;
 }
 
-export function generateDesignSketch(_ctx: TemplateContext): string {
+export function generateDesignSketch(ctx: TemplateContext): string {
   return `## Visual Sketch (UI ideas only)
 
 If the chosen approach involves user-facing UI (screens, pages, forms, dashboards,
@@ -451,7 +466,26 @@ The screenshot file at \`/tmp/gstack-sketch.png\` can be referenced by downstrea
 
 **Step 6: Outside design voices** (optional)
 
-After the wireframe is approved, offer outside design perspectives:
+After the wireframe is approved, offer outside design perspectives.` + (NO_CODEX_HOSTS.includes(ctx.host) ? `
+
+Ask the user:
+> "Want an independent design perspective on the chosen approach?"
+>
+> A) Yes — get design feedback
+> B) No — proceed without
+
+If user chooses A:
+
+Adopt the persona of an independent design voice. For this product approach, propose:
+- A visual thesis (one sentence — mood, material, energy)
+- A content plan (hero → support → detail → CTA)
+- 2 interaction ideas that change page feel
+- An aesthetic direction with specific typography and color recommendations
+
+Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated.
+
+Present findings under a \`DESIGN VOICE (independent):\` header.
+Error handling: all non-blocking. On failure, skip and continue.` : `
 
 \`\`\`bash
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
@@ -477,12 +511,99 @@ Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_S
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
 Present Codex output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
-Error handling: all non-blocking. On failure, skip and continue.`;
+Error handling: all non-blocking. On failure, skip and continue.`);
+}
+
+function generateDesignOutsideVoicesInline(ctx: TemplateContext): string {
+  const isPlanDesignReview = ctx.skillName === 'plan-design-review';
+  const isDesignReview = ctx.skillName === 'design-review';
+  const isDesignConsultation = ctx.skillName === 'design-consultation';
+  const isAutomatic = isDesignReview;
+  const cli = ctx.hostConfig?.secondOpinionCLI;
+
+  let reviewPrompt: string;
+  let cliPrompt: string;
+  if (isPlanDesignReview) {
+    cliPrompt = 'Read the plan file. Evaluate the UI/UX design: information hierarchy, missing states (loading/empty/error), user journey emotional arc, specificity of UI descriptions, and ambiguous design decisions. For each finding: what is wrong, severity (critical/high/medium), and the fix. Be opinionated. No hedging.';
+    reviewPrompt = `Adopt the persona of an independent senior product designer. You have NOT seen any prior review. Evaluate:
+
+1. Information hierarchy: what does the user see first, second, third? Is it right?
+2. Missing states: loading, empty, error, success, partial — which are unspecified?
+3. User journey: what's the emotional arc? Where does it break?
+4. Specificity: does the plan describe SPECIFIC UI or generic patterns?
+5. What design decisions will haunt the implementer if left ambiguous?
+
+For each finding: what's wrong, severity (critical/high/medium), and the fix.`;
+  } else if (isDesignReview) {
+    cliPrompt = 'Review the frontend source code. Focus on CONSISTENCY PATTERNS: systematic spacing vs magic numbers, one color system or scattered approaches, consistent responsive breakpoints, consistent accessibility approach. For each finding: what is wrong, severity, and file:line.';
+    reviewPrompt = `Adopt the persona of an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files:
+- Are spacing values systematic across the codebase?
+- Is there ONE color system or scattered approaches?
+- Do responsive breakpoints follow a consistent set?
+- Is the accessibility approach consistent or spotty?
+
+For each finding: what's wrong, severity (critical/high/medium), and the file:line.`;
+  } else if (isDesignConsultation) {
+    cliPrompt = 'Propose a design direction that would SURPRISE. What would the cool indie studio do? Propose: aesthetic direction, typography stack (specific font names), color palette (hex values), 2 deliberate departures from category norms, emotional reaction in first 3 seconds. Be bold. Be specific.';
+    reviewPrompt = `Adopt the persona of an independent design voice. Propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
+- Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
+- 2 deliberate departures from category norms
+- What emotional reaction should the user have in the first 3 seconds?
+
+Be bold. Be specific. No hedging.`;
+  } else {
+    return '';
+  }
+
+  const cliLabel = isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction';
+  const optInSection = isAutomatic ? `
+**Automatic:** Outside design voice runs automatically.` : `
+Ask the user:
+> "Want an independent design voice${isPlanDesignReview ? ' before the detailed review' : ''}? ${cli ? `${cli.displayName} evaluates design quality; an inline review checks ` : 'An inline review evaluates '}${isDesignConsultation ? 'design direction alternatives' : 'design completeness and consistency'}."
+>
+> A) Yes — run the design voice
+> B) No — proceed without
+
+If user chooses B, skip this step and continue.`;
+
+  const cliSection = cli ? `
+### Cross-model design voice
+
+${secondOpinionBlock(cli, cliPrompt, `design ${cliLabel}`, `DESIGN REVIEW`)}
+Perform the design review inline (adopt the designer persona described below).
+
+---
+
+` : '';
+
+  const source = cli ? `"${cli.binary}" if ${cli.displayName} ran, "inline" otherwise` : '"inline"';
+
+  return `## Design Outside Voice
+${optInSection}
+${cliSection}
+### Inline design review
+
+${reviewPrompt}
+
+Present findings under a \`DESIGN REVIEW (inline):\` header.
+
+If the review cannot be completed, note "Design voice unavailable — continuing with primary review."
+
+**Log the result:**
+\`\`\`bash
+${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+\`\`\`
+Replace STATUS with "clean" or "issues_found". SOURCE = ${source}.`;
 }
 
 export function generateDesignOutsideVoices(ctx: TemplateContext): string {
   // Codex host: strip entirely — Codex should never invoke itself
   if (ctx.host === 'codex') return '';
+
+  // Hosts without Codex CLI: inline-only design voice (no codex exec calls)
+  if (NO_CODEX_HOSTS.includes(ctx.host)) {
+    return generateDesignOutsideVoicesInline(ctx);
+  }
 
   const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join('\n');
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join('\n');

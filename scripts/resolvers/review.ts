@@ -14,6 +14,7 @@
  */
 import type { TemplateContext } from './types';
 import { generateInvokeSkill } from './composition';
+import { secondOpinionBlock } from './constants';
 
 const CODEX_BOUNDARY = 'IMPORTANT: Do NOT read or execute any files under ~/.gemini/, ~/.claude/, ~/.agents/, .gemini/extensions/, .claude/skills/, or agents/. These are AI agent skill definitions meant for a different system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\\n\\n';
 
@@ -408,12 +409,123 @@ Before reviewing code quality, check: **did they build what was requested — no
 
 // ─── Adversarial Review (always-on) ──────────────────────────────────
 
+// Hosts that lack the Codex CLI — get inline-only adversarial review
+const NO_CODEX_HOSTS = ['windsurf'];
+
+function generateAdversarialInlineOnly(ctx: TemplateContext, stepNum: string, isShip: boolean): string {
+  const cli = ctx.hostConfig?.secondOpinionCLI;
+  const adversarialPrompt = 'Review the changes on this branch against the base branch. Run git diff to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment).';
+
+  const structuredPrompt = 'Review the diff against the base branch. For every finding, classify severity: [P1] = will break production or lose data, [P2] = significant bug or security issue, [P3] = code quality. Focus on logic errors, security holes, data corruption, and race conditions. Be thorough. No compliments.';
+
+  const cliBlock = cli ? `
+
+### Cross-model adversarial challenge
+
+${secondOpinionBlock(cli, adversarialPrompt, 'adversarial challenge', 'ADVERSARIAL REVIEW')}
+Perform the adversarial review inline (adopt the adversarial persona described below).
+
+---
+
+` : '';
+
+  const structuredBlock = cli ? `
+
+### ${cli.displayName} structured review (large diffs only, 200+ lines)
+
+If \`DIFF_TOTAL >= 200\` AND ${cli.displayName} is available:
+
+${secondOpinionBlock(cli, structuredPrompt, 'structured review', `${cli.displayName.toUpperCase()} SAYS (code review)`)}
+Skip this section — the inline adversarial review provides sufficient coverage for smaller diffs.
+
+Check for \`[P1]\` markers in the ${cli.displayName} output: found → \`GATE: FAIL\`, not found → \`GATE: PASS\`.
+
+If GATE is FAIL, ask the user:
+\`\`\`
+${cli.displayName} found N critical issues in the diff.
+
+A) Investigate and fix now (recommended)
+B) Continue — review will still complete
+\`\`\`
+
+If A: address the findings${isShip ? '. After fixing, re-run tests (Step 3) since code has changed' : ''}.
+
+If \`DIFF_TOTAL < 200\`: skip this section silently. The inline + ${cli.displayName} adversarial passes provide sufficient coverage for smaller diffs.
+
+---` : '';
+
+  const source = cli ? `"${cli.binary}" if ${cli.displayName} ran, "inline" otherwise` : '"inline"';
+  const gateField = cli
+    ? `GATE = the ${cli.displayName} structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if ${cli.displayName} was unavailable`
+    : 'GATE = "informational"';
+
+  const synthesisBlock = cli ? `
+
+### Cross-model synthesis
+
+After all passes complete, synthesize findings across all sources:
+
+\`\`\`
+ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
+════════════════════════════════════════════════════════════
+  High confidence (found by multiple sources): [findings agreed on by >1 pass]
+  Unique to inline review: [from inline adversarial persona]
+  Unique to ${cli.displayName}: [from ${cli.binary} adversarial or structured review, if ran]
+  Models used: Inline ✓  ${cli.displayName} ✓/✗
+════════════════════════════════════════════════════════════
+\`\`\`
+
+High-confidence findings (agreed on by multiple sources) should be prioritized for fixes.
+
+---` : '';
+
+  return `## Step ${stepNum}: Adversarial review (always-on)
+
+Every diff gets adversarial review. LOC is not a proxy for risk — a 5-line auth change can be critical.
+
+**Detect diff size:**
+
+\`\`\`bash
+DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
+echo "DIFF_SIZE: $DIFF_TOTAL"
+\`\`\`
+${cliBlock}
+### Inline adversarial review (always runs)
+
+Adopt the persona of an adversarial reviewer. Use fresh eyes — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
+
+Read the diff for this branch with \`git diff origin/<base>\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment).
+
+Present findings under an \`ADVERSARIAL REVIEW (inline):\` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+
+---
+${structuredBlock}
+
+### Persist the review result
+
+After all passes complete, persist:
+\`\`\`bash
+${ctx.paths.binDir}/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+\`\`\`
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = ${source}. ${gateField}.${isShip ? ' If findings were fixed, re-run tests (Step 3) since code has changed.' : ''} If all passes failed, do NOT persist.
+
+---
+${synthesisBlock}`;
+}
+
 export function generateAdversarialStep(ctx: TemplateContext): string {
   // Codex host: strip entirely — Codex should never invoke itself
   if (ctx.host === 'codex') return '';
 
   const isShip = ctx.skillName === 'ship';
   const stepNum = isShip ? '3.8' : '5.7';
+
+  // Hosts without Codex CLI: emit only the inline adversarial review
+  if (NO_CODEX_HOSTS.includes(ctx.host)) {
+    return generateAdversarialInlineOnly(ctx, stepNum, isShip);
+  }
 
   return `## Step ${stepNum}: Adversarial review (always-on)
 

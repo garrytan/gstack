@@ -434,11 +434,11 @@ function processTemplate(tmplPath: string, host: Host = 'gemini'): { outputPath:
   const tierMatch = tmplContent.match(/^preamble-tier:\s*(\d+)$/m);
   const preambleTier = tierMatch ? parseInt(tierMatch[1], 10) : undefined;
 
-  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier };
+  const currentHostConfig = getHostConfig(host);
+  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, hostConfig: currentHostConfig, paths: HOST_PATHS[host], preambleTier };
 
   // Replace placeholders (supports parameterized: {{NAME:arg1:arg2}})
   // Config-driven: suppressedResolvers return empty string for this host
-  const currentHostConfig = getHostConfig(host);
   const suppressed = new Set(currentHostConfig.suppressedResolvers || []);
   let content = tmplContent.replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (match, fullKey) => {
     const parts = fullKey.split(':');
