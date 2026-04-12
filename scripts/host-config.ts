@@ -110,6 +110,14 @@ export interface HostConfig {
   /** Optional path to host-adapter module for complex transformations. */
   adapter?: string;
 
+  /**
+   * If true, skip this host when running `--host all`.
+   * The host stays registered (tests can target it explicitly) but
+   * `bun run build` and `bun run gen:skill-docs --host all` won't generate
+   * output for it. Prevents creating stale/duplicate skill directories.
+   */
+  skipFromAll?: boolean;
+
   // --- Upstream & Telemetry ---
   /**
    * Override the upstream repo URL for update checks and upgrades.

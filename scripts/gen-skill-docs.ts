@@ -494,7 +494,9 @@ function findTemplates(): string[] {
 }
 
 const ALL_HOSTS: Host[] = ALL_HOST_NAMES as Host[];
-const hostsToRun: Host[] = HOST_ARG_VAL === 'all' ? ALL_HOSTS : [HOST];
+const hostsToRun: Host[] = HOST_ARG_VAL === 'all'
+  ? ALL_HOSTS.filter(h => !getHostConfig(h).skipFromAll)
+  : [HOST];
 const failures: { host: string; error: Error }[] = [];
 
 for (const currentHost of hostsToRun) {

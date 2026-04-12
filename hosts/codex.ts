@@ -5,6 +5,7 @@ const codex: HostConfig = {
   displayName: 'OpenAI Codex CLI',
   cliCommand: 'codex',
   cliAliases: ['agents'],
+  skipFromAll: true, // Codex CLI is EOL — keep config for tests but don't generate on --host all
 
   globalRoot: '.codex/skills/gstack',
   localSkillRoot: '.agents/skills/gstack',

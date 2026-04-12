@@ -1931,9 +1931,10 @@ describe('--host all', () => {
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
-    // All hosts should appear in output (all are external hosts with prefixed paths)
+    // All non-skipped hosts should appear in output
     for (const hostConfig of ALL_HOST_CONFIGS) {
       if (hostConfig.name === 'claude') continue;  // claude outputs to skill dirs directly
+      if (hostConfig.skipFromAll) continue;         // hosts excluded from --host all
       expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
     }
   });
