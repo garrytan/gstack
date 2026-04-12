@@ -71,5 +71,24 @@ test("normalizeCaptainPlanForGoal corrects obvious repo questions toward backend
 
   expect(normalized.selectedRoles).toEqual(["backend"]);
   expect(normalized.taskGraph[0]?.role).toBe("backend");
-  expect(normalized.nextAction.includes("backend")).toBe(true);
+  expect(normalized.nextAction).toContain("원격 저장소");
+  expect(normalized.taskGraph[0]?.title).toContain("원격 저장소");
+});
+
+test("normalizeCaptainPlanForGoal expands empty task graphs into goal-sensitive delegation titles", () => {
+  const normalized = normalizeCaptainPlanForGoal(
+    "이 채널 목표를 한 줄로 제안해줘",
+    {
+      selectedRoles: ["planner", "customer-voice"],
+      nextAction: "planner 관점에서 핵심 전제와 다음 단계를 먼저 정리한다.",
+      blockedReason: null,
+      status: "active",
+      taskGraph: [],
+    },
+  );
+
+  expect(normalized.taskGraph).toHaveLength(2);
+  expect(normalized.taskGraph[0]?.title).not.toContain("1차 검토");
+  expect(normalized.taskGraph[0]?.title).toContain("목표");
+  expect(normalized.taskGraph[1]?.title).toContain("사용자");
 });
