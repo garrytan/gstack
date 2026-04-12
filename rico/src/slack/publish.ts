@@ -69,7 +69,7 @@ export function buildImpactMessage(input: ImpactMessageInput) {
 
 export function buildApprovalRequest(input: BuildApprovalRequestInput): ApprovalRequestMessage {
   return {
-    text: `Approval required for ${input.actionType}: ${input.blockingReason}`,
+    text: `[Governor] Approval required for ${input.actionType}: ${input.blockingReason}`,
     blocks: [
       {
         type: "section",

@@ -22,7 +22,7 @@ async function waitFor(condition: () => boolean, timeoutMs = 2000) {
   }
 }
 
-test("ai-ops app mention bootstraps work and drives the captain/governor Slack flow", async () => {
+test("ai-ops message bootstraps work and drives the captain/governor Slack flow", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "rico-runtime-"));
   const postedMessages: Array<{
     channel: string;
@@ -60,10 +60,11 @@ test("ai-ops app mention bootstraps work and drives the captain/governor Slack f
   const rawBody = JSON.stringify({
     type: "event_callback",
     event: {
-      type: "app_mention",
+      type: "message",
       text: "mypetroutine: 온보딩 개선, 리텐션 리포트, 배포까지 준비해",
       channel: "C_AI_OPS",
       ts: "1710000000.000200",
+      user: "U_TONY",
     },
   });
   const timestamp = `${Math.floor(Date.now() / 1000)}`;
@@ -109,16 +110,33 @@ test("ai-ops app mention bootstraps work and drives the captain/governor Slack f
     postedMessages.some(
       (message) =>
         message.channel === "C_MYPETROUTINE" &&
-        message.text.includes("[CUSTOMER VOICE Impact]"),
+        message.text.includes("[Customer Voice Impact]"),
     ),
   ).toBe(true);
   expect(
     postedMessages.some(
       (message) =>
         message.channel === "C_AI_OPS" &&
+        message.text.includes("[Governor]") &&
         message.text.includes("Approval required for deploy") &&
         JSON.stringify(message.blocks ?? []).includes("approval:approve") &&
         message.metadata?.approvalId === latestApproval?.id,
+    ),
+  ).toBe(true);
+
+  expect(
+    postedMessages.some(
+      (message) =>
+        message.channel === "C_AI_OPS" &&
+        message.text.includes("[Governor] Routed to #mypetroutine"),
+    ),
+  ).toBe(true);
+
+  expect(
+    postedMessages.some(
+      (message) =>
+        message.channel === "C_MYPETROUTINE" &&
+        message.text.includes("[Captain:mypetroutine]"),
     ),
   ).toBe(true);
 

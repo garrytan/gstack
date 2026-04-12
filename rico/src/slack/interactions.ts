@@ -99,6 +99,6 @@ export async function handleApprovalInteraction(
 
   return {
     nextState,
-    threadMessage: `Approval ${input.approvalId} ${nextState} for ${approval.type} by ${input.actor} at ${createdAt}.`,
+    threadMessage: `[Governor] Approval ${input.approvalId} ${nextState} for ${approval.type} by ${input.actor} at ${createdAt}.`,
   };
 }

@@ -18,6 +18,8 @@ interface GoalIntakePayload {
   aiOpsChannelId: string;
   intakeThreadTs: string;
   projectChannelId: string;
+  projectThreadTs?: string;
+  sourceChannelId: string;
   isFinalGoal: boolean;
   requiresDeployApproval: boolean;
 }
@@ -76,11 +78,102 @@ function resolveChannelId(payload: Record<string, unknown>, event: Record<string
       : "";
 }
 
-function isAiOpsAppMention(
+function isUserMessageEvent(
   payload: Record<string, unknown>,
   event: Record<string, unknown>,
 ) {
-  return payload.type === "event_callback" && event.type === "app_mention";
+  if (payload.type !== "event_callback") return false;
+  if (event.type !== "message" && event.type !== "app_mention") return false;
+  if (typeof event.subtype === "string" && event.subtype.length > 0) return false;
+  if (typeof event.bot_id === "string" && event.bot_id.length > 0) return false;
+  return typeof event.text === "string" && typeof event.channel === "string";
+}
+
+function createGoalIntakePayload(input: {
+  goalId: string;
+  projectId: string;
+  text: string;
+  aiOpsChannelId: string;
+  intakeThreadTs: string;
+  projectChannelId: string;
+  projectThreadTs?: string;
+  sourceChannelId: string;
+  isFinalGoal: boolean;
+  requiresDeployApproval: boolean;
+}) {
+  return {
+    goalId: input.goalId,
+    projectId: input.projectId,
+    text: input.text,
+    aiOpsChannelId: input.aiOpsChannelId,
+    intakeThreadTs: input.intakeThreadTs,
+    projectChannelId: input.projectChannelId,
+    projectThreadTs: input.projectThreadTs,
+    sourceChannelId: input.sourceChannelId,
+    isFinalGoal: input.isFinalGoal,
+    requiresDeployApproval: input.requiresDeployApproval,
+  } satisfies GoalIntakePayload;
+}
+
+function enqueueGoals(input: {
+  db: Database;
+  repositories: ReturnType<typeof createRepositories>;
+  split: ReturnType<typeof splitOversizedGoal>;
+  initiativeTitle: string;
+  projectId: string;
+  aiOpsChannelId: string;
+  intakeThreadTs: string;
+  projectChannelId: string;
+  projectThreadTs?: string;
+  sourceChannelId: string;
+  runIdFactory: () => string;
+  requiresDeployApproval: boolean;
+}) {
+  const initiativeId =
+    input.split.kind === "initiative"
+      ? `initiative-${input.projectId}-${randomUUID()}`
+      : null;
+  if (initiativeId) {
+    input.repositories.initiatives.create({
+      id: initiativeId,
+      projectId: input.projectId,
+      title: input.initiativeTitle,
+      status: "in_progress",
+    });
+  }
+
+  const goals =
+    input.split.kind === "initiative"
+      ? input.split.goals
+      : [{ title: input.initiativeTitle, tasks: input.split.tasks }];
+
+  goals.forEach((goal, index) => {
+    const goalId = `goal-${input.projectId}-${index + 1}-${randomUUID()}`;
+    input.repositories.goals.create({
+      id: goalId,
+      initiativeId,
+      projectId: input.projectId,
+      title: goal.title,
+      state: "planned",
+    });
+    const queueJob: QueueJob = {
+      kind: "event",
+      runId: input.runIdFactory(),
+      payload: createGoalIntakePayload({
+        goalId,
+        projectId: input.projectId,
+        text: input.initiativeTitle,
+        aiOpsChannelId: input.aiOpsChannelId,
+        intakeThreadTs: input.intakeThreadTs,
+        projectChannelId: input.projectChannelId,
+        projectThreadTs: input.projectThreadTs,
+        sourceChannelId: input.sourceChannelId,
+        isFinalGoal: index === goals.length - 1,
+        requiresDeployApproval: input.requiresDeployApproval,
+      }),
+    };
+    enqueueQueuedRun(input.db, queueJob);
+  });
 }
 
 function bootstrapAiOpsIntake(
@@ -90,85 +183,77 @@ function bootstrapAiOpsIntake(
 ) {
   const event = resolveEvent(payload);
   const channelId = resolveChannelId(payload, event);
-  if (!options.aiOpsChannelId || channelId !== options.aiOpsChannelId) {
+  if (!isUserMessageEvent(payload, event)) {
     return null;
   }
-  if (!isAiOpsAppMention(payload, event)) {
-    return "ignored";
-  }
-
-  const text =
-    typeof event.text === "string"
-      ? event.text
-      : typeof payload.text === "string"
-        ? payload.text
-        : "";
-  const normalized = normalizeEventText(text);
-  if (!normalized) return "ignored";
 
   const repositories = createRepositories(db);
-  const project = repositories.projects.get(normalized.projectId);
-  if (!project) {
-    return "ignored";
-  }
-
-  const taskList = deriveTaskList(normalized.goalText);
-  const split = splitOversizedGoal({
-    projectId: normalized.projectId,
-    title: normalized.goalText,
-    tasks: taskList,
-  });
-  const intakeThreadTs =
+  const text = event.text as string;
+  const messageTs =
     typeof event.thread_ts === "string"
       ? event.thread_ts
       : typeof event.ts === "string"
         ? event.ts
-        : `aiops-${Date.now()}`;
+        : `slack-${Date.now()}`;
 
-  const initiativeId =
-    split.kind === "initiative"
-      ? `initiative-${normalized.projectId}-${randomUUID()}`
-      : null;
-  if (initiativeId) {
-    repositories.initiatives.create({
-      id: initiativeId,
+  if (options.aiOpsChannelId && channelId === options.aiOpsChannelId) {
+    const normalized = normalizeEventText(text);
+    if (!normalized) return "ignored";
+
+    const project = repositories.projects.get(normalized.projectId);
+    if (!project) {
+      return "ignored";
+    }
+
+    const taskList = deriveTaskList(normalized.goalText);
+    const split = splitOversizedGoal({
       projectId: normalized.projectId,
       title: normalized.goalText,
-      status: "in_progress",
+      tasks: taskList,
     });
+    enqueueGoals({
+      db,
+      repositories,
+      split,
+      initiativeTitle: normalized.goalText,
+      projectId: normalized.projectId,
+      aiOpsChannelId: options.aiOpsChannelId,
+      intakeThreadTs: messageTs,
+      projectChannelId: project.slackChannelId,
+      sourceChannelId: channelId,
+      runIdFactory: options.runIdFactory,
+      requiresDeployApproval: /배포|deploy/i.test(normalized.goalText),
+    });
+    return "handled";
   }
 
-  const goals =
-    split.kind === "initiative"
-      ? split.goals
-      : [{ title: normalized.goalText, tasks: taskList }];
-
-  goals.forEach((goal, index) => {
-    const goalId = `goal-${normalized.projectId}-${index + 1}-${randomUUID()}`;
-    repositories.goals.create({
-      id: goalId,
-      initiativeId,
-      projectId: normalized.projectId,
-      title: goal.title,
-      state: "planned",
-    });
-    const queueJob: QueueJob = {
-      kind: "event",
-      runId: options.runIdFactory(),
-      payload: {
-        goalId,
-        projectId: normalized.projectId,
-        text: normalized.goalText,
-        aiOpsChannelId: options.aiOpsChannelId,
-        intakeThreadTs,
-        projectChannelId: project.slackChannelId,
-        isFinalGoal: index === goals.length - 1,
-        requiresDeployApproval: /배포|deploy/i.test(normalized.goalText),
-      } satisfies GoalIntakePayload,
-    };
-    enqueueQueuedRun(db, queueJob);
+  const project = repositories.projects.getBySlackChannelId(channelId);
+  if (!project) {
+    return null;
+  }
+  if (!text.trim()) {
+    return "ignored";
+  }
+  const taskList = deriveTaskList(text);
+  const split = splitOversizedGoal({
+    projectId: project.id,
+    title: text,
+    tasks: taskList,
   });
-
+  enqueueGoals({
+    db,
+    repositories,
+    split,
+    initiativeTitle: text,
+    projectId: project.id,
+    aiOpsChannelId: options.aiOpsChannelId,
+    intakeThreadTs: messageTs,
+    projectChannelId: project.slackChannelId,
+    projectThreadTs: messageTs,
+    sourceChannelId: channelId,
+    runIdFactory: options.runIdFactory,
+    requiresDeployApproval: /배포|deploy/i.test(text),
+  });
   return "handled";
 }
 

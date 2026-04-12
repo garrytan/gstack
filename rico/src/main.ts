@@ -27,6 +27,7 @@ export function createRicoRuntime(input: {
     db: store.db,
     aiOpsChannelId: config.aiOpsChannelId,
     signingSecret: config.slackSigningSecret,
+    slackClient,
     triggerDrain: () => runner.kick(),
   });
 

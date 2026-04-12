@@ -51,6 +51,7 @@ function seedContext(input: {
         aiOpsChannelId: "C_AI_OPS",
         intakeThreadTs: "1710000000.000200",
         projectChannelId: input.projectChannelId,
+        sourceChannelId: "C_AI_OPS",
         isFinalGoal: false,
         requiresDeployApproval: false,
         ...input.payload,

@@ -116,6 +116,16 @@ export function createRepositories(db: Database) {
         })),
       );
     },
+    getBySlackChannelId(channelId: string): ProjectRecord | null {
+      return one(
+        db.query("select * from projects where slack_channel_id = ?").all(channelId).map((row: any) => ({
+          id: row.id,
+          slackChannelId: row.slack_channel_id,
+          priority: row.priority,
+          paused: toBoolean(row.paused),
+        })),
+      );
+    },
     list(): ProjectRecord[] {
       return db.query("select * from projects order by id asc").all().map((row: any) => ({
         id: row.id,

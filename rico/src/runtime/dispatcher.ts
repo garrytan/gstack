@@ -14,6 +14,8 @@ interface GoalIntakePayload {
   aiOpsChannelId: string;
   intakeThreadTs: string;
   projectChannelId: string;
+  projectThreadTs?: string;
+  sourceChannelId: string;
   isFinalGoal: boolean;
   requiresDeployApproval: boolean;
 }
@@ -26,7 +28,8 @@ function asGoalIntakePayload(payload: unknown): GoalIntakePayload | null {
     typeof candidate.projectId !== "string" ||
     typeof candidate.text !== "string" ||
     typeof candidate.intakeThreadTs !== "string" ||
-    typeof candidate.projectChannelId !== "string"
+    typeof candidate.projectChannelId !== "string" ||
+    typeof candidate.sourceChannelId !== "string"
   ) {
     return null;
   }
@@ -38,13 +41,21 @@ function asGoalIntakePayload(payload: unknown): GoalIntakePayload | null {
     aiOpsChannelId: typeof candidate.aiOpsChannelId === "string" ? candidate.aiOpsChannelId : "",
     intakeThreadTs: candidate.intakeThreadTs,
     projectChannelId: candidate.projectChannelId,
+    projectThreadTs:
+      typeof candidate.projectThreadTs === "string" ? candidate.projectThreadTs : undefined,
+    sourceChannelId: candidate.sourceChannelId,
     isFinalGoal: candidate.isFinalGoal === true,
     requiresDeployApproval: candidate.requiresDeployApproval === true,
   };
 }
 
 function roleLabel(role: string) {
-  return role.replace(/-/g, " ").toUpperCase();
+  if (role === "qa") return "QA";
+  if (role === "customer-voice") return "Customer Voice";
+  return role
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function requestApproval(input: {
@@ -128,12 +139,25 @@ export function createRuntimeDispatcher(input: {
         "update goals set state = 'in_progress' where id = ?",
       ).run(payload.goalId);
 
-      const root = await input.slackClient.postMessage({
-        channel: portfolio.projectChannelId,
-        text: context.goal.title,
-      });
-      if (!root.ok || !root.ts) {
-        throw new Error("Slack rejected project thread root");
+      let projectThreadTs = payload.projectThreadTs;
+      if (!projectThreadTs) {
+        const root = await input.slackClient.postMessage({
+          channel: portfolio.projectChannelId,
+          text: `[Captain:${payload.projectId}] ${context.goal.title}`,
+        });
+        if (!root.ok || !root.ts) {
+          throw new Error("Slack rejected project thread root");
+        }
+        projectThreadTs = root.ts;
+      } else {
+        const ack = await input.slackClient.postMessage({
+          channel: portfolio.projectChannelId,
+          thread_ts: projectThreadTs,
+          text: `[Captain:${payload.projectId}] ${context.goal.title}`,
+        });
+        if (!ack.ok) {
+          throw new Error("Slack rejected project thread acknowledgement");
+        }
       }
 
       const qaResult = await runSpecialist({
@@ -159,7 +183,7 @@ export function createRuntimeDispatcher(input: {
       for (const result of [qaResult, customerVoiceResult]) {
         const message = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
-          thread_ts: root.ts,
+          thread_ts: projectThreadTs,
           text: `[${roleLabel(result.role)} Impact] ${result.summary}`,
         });
         if (!message.ok) {
@@ -169,8 +193,8 @@ export function createRuntimeDispatcher(input: {
 
       const summary = captain.composeProjectSummary({
         projectId: payload.projectId,
-        projectThreadTs: root.ts,
-        summary: `${context.goal.title} in progress`,
+        projectThreadTs: projectThreadTs,
+        summary: `[Captain:${payload.projectId}] ${context.goal.title} in progress`,
         impacts: [
           {
             role: qaResult.role,
@@ -226,6 +250,17 @@ export function createRuntimeDispatcher(input: {
           if (!approvalMessage.ok) {
             throw new Error("Slack rejected approval request");
           }
+        }
+      }
+
+      if (payload.sourceChannelId === payload.aiOpsChannelId) {
+        const governorUpdate = await input.slackClient.postMessage({
+          channel: payload.aiOpsChannelId,
+          thread_ts: payload.intakeThreadTs,
+          text: `[Governor] Routed to #${payload.projectId} (${portfolio.projectChannelId})`,
+        });
+        if (!governorUpdate.ok) {
+          throw new Error("Slack rejected governor routing update");
         }
       }
     } finally {
