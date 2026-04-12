@@ -38,6 +38,12 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 5. Run `/qa` on your staging URL
 6. Stop there. You'll know if this is for you.
 
+## Rico
+
+`rico/` contains the Slack-powered multi-agent runtime used by gstack. See
+[rico/README.md](./rico/README.md) for setup, local run commands, tests, and
+approval flow details.
+
 ## Install — 30 seconds
 
 **Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
