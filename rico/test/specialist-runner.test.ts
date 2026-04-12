@@ -251,3 +251,34 @@ test("runSpecialist derives role-specific summaries from the current goal when n
 
   db.db.close();
 });
+
+test("runSpecialist gives a more concrete planning summary for ideation prompts", async () => {
+  const db = openStore(":memory:");
+  const memoryStore = new MemoryStore(db.db);
+
+  const plannerResult = await runSpecialist({
+    role: "planner",
+    input: {
+      goalId: "goal-idea",
+      projectId: "test",
+      runId: "run-idea",
+      goalTitle: "이 채널 목표 제안해봐",
+    },
+    memoryStore,
+  });
+  const customerVoiceResult = await runSpecialist({
+    role: "customer-voice",
+    input: {
+      goalId: "goal-idea",
+      projectId: "test",
+      runId: "run-idea",
+      goalTitle: "이 채널 목표 제안해봐",
+    },
+    memoryStore,
+  });
+
+  expect(plannerResult.summary.includes("후보") || plannerResult.summary.includes("첫 목표")).toBe(true);
+  expect(customerVoiceResult.summary.includes("무엇을") || customerVoiceResult.summary.includes("바로 해야")).toBe(true);
+
+  db.db.close();
+});

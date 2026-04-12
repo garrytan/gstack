@@ -19,8 +19,9 @@ test("sanitizeIncomingSlackText strips ChatGPT send footers from Slack text", ()
 
 test("message style helpers produce human-sounding Slack copy without bracket prefixes", () => {
   expect(buildRoutingText("mypetroutine")).toBe("총괄: 이 건은 #mypetroutine 채널에서 이어갈게요.");
-  expect(buildCaptainStartText("온보딩 개선")).toContain("캡틴:");
-  expect(buildCaptainStartText("온보딩 개선")).toContain("기획, 디자인, 프론트엔드, 백엔드, QA, 고객 관점");
+  expect(buildCaptainStartText("온보딩 개선", ["planner", "customer-voice"])).toBe(
+    "캡틴: 이번 목표는 \"온보딩 개선\" 기준으로 바로 진행해볼게요. 이번 라운드에서는 기획과 고객 관점으로 먼저 볼게요.",
+  );
   expect(buildCaptainProgressText("온보딩 개선")).toBe("캡틴: 지금은 \"온보딩 개선\" 기준으로 정리하면서 진행 중이에요.");
   expect(buildApprovalText("deploy", "배포 전 최종 확인이 필요합니다.")).toContain("사람 확인이 필요해요");
   expect(buildImpactNarration("qa", "온보딩 흐름에 회귀가 보여요.")).toBe("QA: 온보딩 흐름에 회귀가 보여요.");

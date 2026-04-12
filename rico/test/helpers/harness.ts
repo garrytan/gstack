@@ -6,6 +6,7 @@ import { evaluateAction } from "../../src/orchestrator/approvals";
 import { Captain } from "../../src/orchestrator/captain";
 import { Governor } from "../../src/orchestrator/governor";
 import { splitOversizedGoal } from "../../src/orchestrator/initiative";
+import { selectSpecialistRoles } from "../../src/orchestrator/role-selection";
 import { runSpecialist } from "../../src/orchestrator/specialists";
 import {
   buildApprovalText,
@@ -40,14 +41,6 @@ export async function createHarness() {
   const memoryStore = new MemoryStore(store.db);
   const governor = new Governor({ maxActiveProjects: 2 });
   const captain = new Captain(memoryStore);
-  const specialistRoles = [
-    "planner",
-    "designer",
-    "frontend",
-    "backend",
-    "qa",
-    "customer-voice",
-  ] as const;
   const messages: HarnessMessage[] = [];
   let activeProjectId: string | null = null;
   let messageCounter = 0;
@@ -181,10 +174,11 @@ export async function createHarness() {
         title: goalPlan.title,
         state: "planned",
       });
+      const specialistRoles = selectSpecialistRoles(goalPlan.title);
       await recordMessage({
         channelId: mappedProjectChannelId,
         threadTs,
-        text: buildCaptainStartText(goalPlan.title),
+        text: buildCaptainStartText(goalPlan.title, specialistRoles),
         kind: "root",
       });
 

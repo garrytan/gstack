@@ -222,12 +222,51 @@ test("dispatcher uses goal-sensitive specialist narration instead of a fixed onb
   const joined = posted.map((message) => message.text).join("\n");
   expect(joined.includes("온보딩 흐름")).toBe(false);
   expect(joined.includes("원격") || joined.includes("저장소") || joined.includes("깃")).toBe(true);
-  expect(joined.includes("기획:")).toBe(true);
-  expect(joined.includes("디자인:")).toBe(true);
-  expect(joined.includes("프론트엔드:")).toBe(true);
   expect(joined.includes("백엔드:")).toBe(true);
-  expect(joined.includes("QA:")).toBe(true);
+  expect(joined.includes("기획:")).toBe(false);
+  expect(joined.includes("디자인:")).toBe(false);
+  expect(joined.includes("프론트엔드:")).toBe(false);
+  expect(joined.includes("QA:")).toBe(false);
+  expect(joined.includes("고객 관점:")).toBe(false);
+
+  store.db.close();
+});
+
+test("dispatcher keeps ideation prompts focused on planner and customer voice", async () => {
+  const store = openStore(":memory:");
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const dispatcher = createRuntimeDispatcher({
+    db: store.db,
+    maxActiveProjects: 1,
+    slackClient: {
+      async postMessage(input) {
+        posted.push(input);
+        return { ok: true, ts: `171000002${posted.length}.000100` };
+      },
+    },
+  });
+
+  const context = seedContext({
+    store,
+    projectId: "test",
+    projectChannelId: "C_TEST",
+    goalId: "goal-ideation",
+    goalTitle: "이 채널 목표 제안해봐",
+    runId: "run-ideation",
+    payload: {
+      sourceChannelId: "C_TEST",
+      intakeThreadTs: "1710002999.000100",
+    },
+  });
+
+  await expect(dispatcher(context)).resolves.toBeUndefined();
+
+  const joined = posted.map((message) => message.text).join("\n");
+  expect(joined.includes("기획:")).toBe(true);
   expect(joined.includes("고객 관점:")).toBe(true);
+  expect(joined.includes("QA:")).toBe(false);
+  expect(joined.includes("백엔드:")).toBe(false);
+  expect(joined.includes("프론트엔드:")).toBe(false);
 
   store.db.close();
 });

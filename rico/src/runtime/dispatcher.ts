@@ -3,6 +3,7 @@ import { MemoryStore } from "../memory/store";
 import { evaluateAction } from "../orchestrator/approvals";
 import { Captain } from "../orchestrator/captain";
 import { Governor } from "../orchestrator/governor";
+import { selectSpecialistRoles } from "../orchestrator/role-selection";
 import { runSpecialist } from "../orchestrator/specialists";
 import { buildApprovalRequest, type SlackMessageClient } from "../slack/publish";
 import {
@@ -106,14 +107,6 @@ export function createRuntimeDispatcher(input: {
   const memoryStore = new MemoryStore(input.db);
   const captain = new Captain(memoryStore);
   const governor = new Governor({ maxActiveProjects: input.maxActiveProjects });
-  const specialistRoles = [
-    "planner",
-    "designer",
-    "frontend",
-    "backend",
-    "qa",
-    "customer-voice",
-  ] as const;
 
   return async function dispatch(context: LoadedRunContext) {
     const payload = asGoalIntakePayload(context.job.payload);
@@ -145,10 +138,11 @@ export function createRuntimeDispatcher(input: {
       ).run(payload.goalId);
 
       let projectThreadTs = payload.projectThreadTs;
+      const specialistRoles = selectSpecialistRoles(context.goal.title);
       if (!projectThreadTs) {
         const root = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
-          text: buildCaptainStartText(context.goal.title),
+          text: buildCaptainStartText(context.goal.title, specialistRoles),
         });
         if (!root.ok || !root.ts) {
           throw new Error("Slack rejected project thread root");
@@ -158,7 +152,7 @@ export function createRuntimeDispatcher(input: {
         const ack = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
           thread_ts: projectThreadTs,
-          text: buildCaptainStartText(context.goal.title),
+          text: buildCaptainStartText(context.goal.title, specialistRoles),
         });
         if (!ack.ok) {
           throw new Error("Slack rejected project thread acknowledgement");

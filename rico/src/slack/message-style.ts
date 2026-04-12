@@ -1,3 +1,5 @@
+import type { RoleName } from "../roles";
+
 const CHATGPT_FOOTER_PATTERN =
   /\*?(?:다음을\s+사용하여\s+보냄|Sent using)\*?\s*ChatGPT/gi;
 const GREETING_PATTERN = /^(안녕+|안녕하세요|ㅎㅇ|hello|hi|hey|반가워)([!.?\s~]*)$/i;
@@ -47,8 +49,26 @@ export function buildProjectStatusText(projectId: string) {
   return `여기는 ${projectId} 프로젝트 채널이에요. 작업 요청을 남겨주시면 바로 이어서 진행할게요.`;
 }
 
-export function buildCaptainStartText(title: string) {
-  return `캡틴: 이번 목표는 "${title}" 기준으로 바로 진행해볼게요. 이번 라운드에서는 기획, 디자인, 프론트엔드, 백엔드, QA, 고객 관점 순서로 볼게요.`;
+function roleLabel(role: RoleName | string) {
+  if (role === "planner") return "기획";
+  if (role === "designer") return "디자인";
+  if (role === "frontend") return "프론트엔드";
+  if (role === "backend") return "백엔드";
+  if (role === "qa") return "QA";
+  if (role === "customer-voice") return "고객 관점";
+  return role;
+}
+
+function joinRoleLabels(roles: Array<RoleName | string>) {
+  const labels = roles.map(roleLabel);
+  if (labels.length === 0) return "캡틴";
+  if (labels.length === 1) return labels[0]!;
+  if (labels.length === 2) return `${labels[0]}과 ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, ${labels.at(-1)}`;
+}
+
+export function buildCaptainStartText(title: string, roles: RoleName[] = []) {
+  return `캡틴: 이번 목표는 "${title}" 기준으로 바로 진행해볼게요. 이번 라운드에서는 ${joinRoleLabels(roles)}으로 먼저 볼게요.`;
 }
 
 export function buildCaptainProgressText(title: string) {
@@ -70,23 +90,5 @@ export function buildApprovalResolutionText(input: {
 }
 
 export function buildImpactNarration(role: string, summary: string) {
-  if (role === "qa") {
-    return `QA: ${summary}`;
-  }
-  if (role === "customer-voice") {
-    return `고객 관점: ${summary}`;
-  }
-  if (role === "planner") {
-    return `기획: ${summary}`;
-  }
-  if (role === "designer") {
-    return `디자인: ${summary}`;
-  }
-  if (role === "frontend") {
-    return `프론트엔드: ${summary}`;
-  }
-  if (role === "backend") {
-    return `백엔드: ${summary}`;
-  }
-  return summary;
+  return `${roleLabel(role)}: ${summary}`;
 }

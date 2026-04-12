@@ -34,9 +34,27 @@ function buildQaSummary(goalTitle: string) {
   return `"${goalTitle}" 작업은 완료 기준과 실패 조건을 먼저 정해두면 검증이 쉬워져요.`;
 }
 
+function buildPlannerSummary(goalTitle: string) {
+  const normalized = goalTitle.toLowerCase();
+
+  if (includesAny(normalized, ["제안", "아이디어", "브레인스토밍", "기획안", "목표"])) {
+    return "첫 목표 후보를 세 개 정도로 줄인 뒤, 가장 빨리 끝낼 수 있는 것 하나를 먼저 고르는 게 좋아요.";
+  }
+  if (includesAny(normalized, ["온보딩", "signup", "가입", "회원가입"])) {
+    return "온보딩은 어디서 이탈하는지와 무엇을 바꾸려는지부터 좁혀두면 실행이 빨라져요.";
+  }
+  if (includesAny(normalized, ["리포트", "report", "대시보드", "요약"])) {
+    return "리포트는 누가 보고 어떤 결정을 내릴지부터 정하면 범위를 줄이기 쉬워요.";
+  }
+  return `"${goalTitle}" 작업은 범위와 완료 조건을 먼저 고정해두면 흐름이 매끄러워져요.`;
+}
+
 function buildCustomerVoiceSummary(goalTitle: string) {
   const normalized = goalTitle.toLowerCase();
 
+  if (includesAny(normalized, ["제안", "아이디어", "브레인스토밍", "기획안", "목표"])) {
+    return "이 채널을 보는 사람이 무엇을 바로 해야 하는지까지 드러나야 목표가 살아나요.";
+  }
   if (includesAny(normalized, ["git", "repo", "repository", "remote", "원격", "저장소", "레포"])) {
     return "어떤 저장소를 왜 확인하려는지와 기대하는 답을 한 줄 더 분명히 적어두면 덜 헷갈려요.";
   }
@@ -56,7 +74,7 @@ function buildDefaultSummary(role: RoleName, goalTitle: string) {
   if (role === "qa") return buildQaSummary(goalTitle);
   if (role === "customer-voice") return buildCustomerVoiceSummary(goalTitle);
   if (role === "planner") {
-    return `"${goalTitle}" 작업은 범위와 완료 조건을 먼저 고정해두면 흐름이 매끄러워져요.`;
+    return buildPlannerSummary(goalTitle);
   }
   if (role === "designer") {
     return `"${goalTitle}" 작업은 사용자가 한 번에 이해할 수 있는 흐름으로 정리하는 게 좋아요.`;
