@@ -36,6 +36,7 @@ export function createRicoRuntime(input: {
     fetch,
     port: input.port ?? Number(process.env.PORT ?? "3000"),
     runner,
+    slackClient,
     store,
   };
 }

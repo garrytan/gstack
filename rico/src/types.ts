@@ -6,9 +6,11 @@ export interface RicoConfig {
   aiOpsChannelId: string;
   slackSigningSecret: string;
   slackBotToken: string;
+  slackAppToken: string;
 }
 
 export interface ResolveConfigInput {
   cwd?: string;
   env?: Record<string, string | undefined>;
+  openclawConfig?: Record<string, unknown>;
 }
