@@ -269,7 +269,7 @@ test("approval interactions are applied immediately instead of being enqueued", 
   expect(response.status).toBe(200);
   expect(store.repositories.approvals.listByGoal("goal-approve")[0]?.status).toBe("approved");
   expect(store.repositories.goals.get("goal-approve")?.state).toBe("approved");
-  expect(postedMessages.some((message) => message.includes("[Governor] Approval"))).toBe(true);
+  expect(postedMessages.some((message) => message.includes("승인됐어요"))).toBe(true);
   expect(store.db.query("select count(*) as count from runs").get()).toEqual({ count: 0 });
   store.db.close();
 });

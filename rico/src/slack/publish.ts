@@ -3,6 +3,7 @@ import {
   type SlackArtifactReference,
   type SlackExternalUploadClient,
 } from "./files";
+import { buildApprovalText, buildImpactNarration } from "./message-style";
 
 export interface ImpactMessageInput {
   role: string;
@@ -55,27 +56,23 @@ export interface ApprovalRequestMessage {
   };
 }
 
-function roleLabel(role: string) {
-  return role.toUpperCase();
-}
-
 function artifactLinkText(artifact: SlackArtifactReference) {
   return artifact.permalink ?? artifact.fileId ?? artifact.title ?? "artifact";
 }
 
 export function buildImpactMessage(input: ImpactMessageInput) {
-  return `[${roleLabel(input.role)} Impact] ${input.summary} (${input.impact}) -> ${input.artifactLabel}`;
+  return `${buildImpactNarration(input.role, input.summary)} 자세한 내용은 ${input.artifactLabel}에 정리해뒀어요.`;
 }
 
 export function buildApprovalRequest(input: BuildApprovalRequestInput): ApprovalRequestMessage {
   return {
-    text: `[Governor] Approval required for ${input.actionType}: ${input.blockingReason}`,
+    text: buildApprovalText(input.actionType, input.blockingReason),
     blocks: [
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*Approval required:* \`${input.actionType}\`\n${input.blockingReason}`,
+          text: `*사람 확인이 필요해요:* \`${input.actionType}\`\n${input.blockingReason}`,
         },
       },
       {

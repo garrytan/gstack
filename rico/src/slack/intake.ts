@@ -3,6 +3,7 @@ import type { Database } from "bun:sqlite";
 import { splitOversizedGoal } from "../orchestrator/initiative";
 import { enqueueQueuedRun, type QueueJob } from "../runtime/queue";
 import { createRepositories } from "../state/repositories";
+import { sanitizeIncomingSlackText } from "./message-style";
 
 interface SlackIntakeOptions {
   aiOpsChannelId: string;
@@ -29,7 +30,7 @@ function stripLeadingMention(text: string) {
 }
 
 function deriveTaskList(text: string) {
-  const segments = stripLeadingMention(text)
+  const segments = sanitizeIncomingSlackText(stripLeadingMention(text))
     .split(/[,\n]+/)
     .map((segment) => segment.trim())
     .filter(Boolean);
@@ -50,7 +51,7 @@ function deriveTaskList(text: string) {
 }
 
 function normalizeEventText(text: string) {
-  const normalized = stripLeadingMention(text);
+  const normalized = sanitizeIncomingSlackText(stripLeadingMention(text));
   const projectSeparator = normalized.indexOf(":");
   if (projectSeparator === -1) return null;
 
@@ -188,7 +189,7 @@ function bootstrapAiOpsIntake(
   }
 
   const repositories = createRepositories(db);
-  const text = event.text as string;
+  const text = sanitizeIncomingSlackText(event.text as string);
   const messageTs =
     typeof event.thread_ts === "string"
       ? event.thread_ts

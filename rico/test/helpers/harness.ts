@@ -7,6 +7,12 @@ import { Captain } from "../../src/orchestrator/captain";
 import { Governor } from "../../src/orchestrator/governor";
 import { splitOversizedGoal } from "../../src/orchestrator/initiative";
 import { runSpecialist } from "../../src/orchestrator/specialists";
+import {
+  buildApprovalText,
+  buildCaptainProgressText,
+  buildCaptainStartText,
+  buildImpactNarration,
+} from "../../src/slack/message-style";
 import { buildApprovalRequest } from "../../src/slack/publish";
 import { openStore } from "../../src/state/store";
 
@@ -24,10 +30,6 @@ interface HarnessMessage {
 
 function projectChannelId(projectId: string) {
   return `C_${projectId.replace(/[^a-zA-Z0-9]+/g, "_").toUpperCase()}`;
-}
-
-function roleLabel(role: string) {
-  return role.replace(/-/g, " ").toUpperCase();
 }
 
 export async function createHarness() {
@@ -174,7 +176,7 @@ export async function createHarness() {
       await recordMessage({
         channelId: mappedProjectChannelId,
         threadTs,
-        text: goalPlan.title,
+        text: buildCaptainStartText(goalPlan.title),
         kind: "root",
       });
 
@@ -203,7 +205,7 @@ export async function createHarness() {
         input: {
           projectId: input.projectId,
           runId,
-          summary: "Customer value is not obvious enough yet",
+          summary: "지금 왜 중요한지 조금 더 분명하게 보여줄 필요가 있어요.",
         },
         memoryStore,
       });
@@ -212,7 +214,7 @@ export async function createHarness() {
         await recordMessage({
           channelId: mappedProjectChannelId,
           threadTs,
-          text: `[${roleLabel(result.role)} Impact] ${result.summary}`,
+          text: buildImpactNarration(result.role, result.summary),
           kind: "impact",
         });
       }
@@ -221,7 +223,7 @@ export async function createHarness() {
       const summary = captain.composeProjectSummary({
         projectId: input.projectId,
         projectThreadTs: threadTs,
-        summary: `${goalPlan.title} in progress`,
+        summary: buildCaptainProgressText(goalPlan.title),
         impacts: [
           {
             role: qaResult.role,
@@ -275,7 +277,10 @@ export async function createHarness() {
           await recordMessage({
             channelId: input.channelId,
             threadTs: aiOpsThreadTs,
-            text: approvalRequest.text,
+            text: buildApprovalText(
+              "deploy",
+              decision.blockingReason ?? "deployment requires human approval",
+            ),
             kind: "approval",
             blocks: approvalRequest.blocks,
             metadata: approvalRequest.metadata,

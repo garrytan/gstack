@@ -28,7 +28,7 @@ test("goal intake creates goal threads, splits oversized work, and requests depl
           message.channelId === "C_MYPETROUTINE" &&
           message.kind === "impact" &&
           message.threadTs === threadTs &&
-          message.text.includes("[QA Impact]"),
+          message.text.includes("QA에서 확인해보니"),
       ),
     ).toBe(true);
     expect(
@@ -37,7 +37,7 @@ test("goal intake creates goal threads, splits oversized work, and requests depl
           message.channelId === "C_MYPETROUTINE" &&
           message.kind === "impact" &&
           message.threadTs === threadTs &&
-          message.text.includes("[CUSTOMER VOICE Impact]"),
+          message.text.includes("고객 관점에서는"),
       ),
     ).toBe(true);
     expect(

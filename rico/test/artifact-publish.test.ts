@@ -31,7 +31,7 @@ test("buildImpactMessage keeps impact short and points to an artifact", () => {
     artifactLabel: "qa-report.md",
   });
 
-  expect(text).toContain("[QA Impact]");
+  expect(text).toContain("QA에서 확인해보니");
   expect(text).toContain("qa-report.md");
 });
 

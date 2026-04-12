@@ -5,6 +5,12 @@ import { Captain } from "../orchestrator/captain";
 import { Governor } from "../orchestrator/governor";
 import { runSpecialist } from "../orchestrator/specialists";
 import { buildApprovalRequest, type SlackMessageClient } from "../slack/publish";
+import {
+  buildCaptainProgressText,
+  buildCaptainStartText,
+  buildImpactNarration,
+  buildRoutingText,
+} from "../slack/message-style";
 import type { LoadedRunContext } from "./job-runner";
 
 interface GoalIntakePayload {
@@ -47,15 +53,6 @@ function asGoalIntakePayload(payload: unknown): GoalIntakePayload | null {
     isFinalGoal: candidate.isFinalGoal === true,
     requiresDeployApproval: candidate.requiresDeployApproval === true,
   };
-}
-
-function roleLabel(role: string) {
-  if (role === "qa") return "QA";
-  if (role === "customer-voice") return "Customer Voice";
-  return role
-    .split("-")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function requestApproval(input: {
@@ -143,7 +140,7 @@ export function createRuntimeDispatcher(input: {
       if (!projectThreadTs) {
         const root = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
-          text: `[Captain:${payload.projectId}] ${context.goal.title}`,
+          text: buildCaptainStartText(context.goal.title),
         });
         if (!root.ok || !root.ts) {
           throw new Error("Slack rejected project thread root");
@@ -153,7 +150,7 @@ export function createRuntimeDispatcher(input: {
         const ack = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
           thread_ts: projectThreadTs,
-          text: `[Captain:${payload.projectId}] ${context.goal.title}`,
+          text: buildCaptainStartText(context.goal.title),
         });
         if (!ack.ok) {
           throw new Error("Slack rejected project thread acknowledgement");
@@ -165,7 +162,7 @@ export function createRuntimeDispatcher(input: {
         input: {
           projectId: payload.projectId,
           runId: context.run.id,
-          summary: "Regression found in onboarding",
+          summary: "온보딩 흐름에 회귀로 보이는 부분이 있어요.",
         },
         memoryStore,
       });
@@ -174,7 +171,7 @@ export function createRuntimeDispatcher(input: {
         input: {
           projectId: payload.projectId,
           runId: context.run.id,
-          summary: "Customer value is not obvious enough yet",
+          summary: "지금 왜 중요한지 조금 더 분명하게 보여줄 필요가 있어요.",
         },
         memoryStore,
       });
@@ -184,7 +181,7 @@ export function createRuntimeDispatcher(input: {
         const message = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
           thread_ts: projectThreadTs,
-          text: `[${roleLabel(result.role)} Impact] ${result.summary}`,
+          text: buildImpactNarration(result.role, result.summary),
         });
         if (!message.ok) {
           throw new Error(`Slack rejected ${result.role} impact message`);
@@ -194,7 +191,7 @@ export function createRuntimeDispatcher(input: {
       const summary = captain.composeProjectSummary({
         projectId: payload.projectId,
         projectThreadTs: projectThreadTs,
-        summary: `[Captain:${payload.projectId}] ${context.goal.title} in progress`,
+        summary: buildCaptainProgressText(context.goal.title),
         impacts: [
           {
             role: qaResult.role,
@@ -257,7 +254,7 @@ export function createRuntimeDispatcher(input: {
         const governorUpdate = await input.slackClient.postMessage({
           channel: payload.aiOpsChannelId,
           thread_ts: payload.intakeThreadTs,
-          text: `[Governor] Routed to #${payload.projectId} (${portfolio.projectChannelId})`,
+          text: buildRoutingText(payload.projectId),
         });
         if (!governorUpdate.ok) {
           throw new Error("Slack rejected governor routing update");

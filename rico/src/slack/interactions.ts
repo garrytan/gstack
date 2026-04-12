@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { buildApprovalResolutionText } from "./message-style";
 
 export interface HandleApprovalInteractionInput {
   db: Database;
@@ -99,6 +100,11 @@ export async function handleApprovalInteraction(
 
   return {
     nextState,
-    threadMessage: `[Governor] Approval ${input.approvalId} ${nextState} for ${approval.type} by ${input.actor} at ${createdAt}.`,
+    threadMessage: buildApprovalResolutionText({
+      approvalId: input.approvalId,
+      nextState,
+      actionType: approval.type,
+      actor: input.actor,
+    }),
   };
 }

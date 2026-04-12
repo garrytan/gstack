@@ -99,7 +99,7 @@ test("approve callback transitions pending approval to approved", async () => {
     });
 
     expect(result.nextState).toBe("approved");
-    expect(result.threadMessage).toContain("approved");
+    expect(result.threadMessage).toContain("승인됐어요");
     expect(store.repositories.approvals.listByGoal("goal-1")[0]?.status).toBe("approved");
     expect(store.repositories.goals.get("goal-1")?.state).toBe("approved");
   });
@@ -118,7 +118,7 @@ test("reject callback updates approval row and returns a rejection thread summar
     });
 
     expect(result.nextState).toBe("rejected");
-    expect(result.threadMessage).toContain("rejected");
+    expect(result.threadMessage).toContain("반려됐어요");
     expect(store.repositories.approvals.listByGoal("goal-1")[0]?.status).toBe("rejected");
     expect(store.repositories.goals.get("goal-1")?.state).toBe("rejected");
   });

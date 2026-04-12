@@ -61,7 +61,7 @@ test("ai-ops message bootstraps work and drives the captain/governor Slack flow"
     type: "event_callback",
     event: {
       type: "message",
-      text: "mypetroutine: 온보딩 개선, 리텐션 리포트, 배포까지 준비해",
+      text: "mypetroutine: 온보딩 개선, 리텐션 리포트, 배포까지 준비해\n*다음을 사용하여 보냄* ChatGPT",
       channel: "C_AI_OPS",
       ts: "1710000000.000200",
       user: "U_TONY",
@@ -103,22 +103,22 @@ test("ai-ops message bootstraps work and drives the captain/governor Slack flow"
   expect(
     postedMessages.some(
       (message) =>
-        message.channel === "C_MYPETROUTINE" && message.text.includes("[QA Impact]"),
+        message.channel === "C_MYPETROUTINE" &&
+        message.text.includes("QA에서 확인해보니"),
     ),
   ).toBe(true);
   expect(
     postedMessages.some(
       (message) =>
         message.channel === "C_MYPETROUTINE" &&
-        message.text.includes("[Customer Voice Impact]"),
+        message.text.includes("고객 관점에서는"),
     ),
   ).toBe(true);
   expect(
     postedMessages.some(
       (message) =>
         message.channel === "C_AI_OPS" &&
-        message.text.includes("[Governor]") &&
-        message.text.includes("Approval required for deploy") &&
+        message.text.includes("사람 확인이 필요해요") &&
         JSON.stringify(message.blocks ?? []).includes("approval:approve") &&
         message.metadata?.approvalId === latestApproval?.id,
     ),
@@ -128,7 +128,7 @@ test("ai-ops message bootstraps work and drives the captain/governor Slack flow"
     postedMessages.some(
       (message) =>
         message.channel === "C_AI_OPS" &&
-        message.text.includes("[Governor] Routed to #mypetroutine"),
+        message.text.includes("#mypetroutine 채널에서 이어갈게요"),
     ),
   ).toBe(true);
 
@@ -136,7 +136,9 @@ test("ai-ops message bootstraps work and drives the captain/governor Slack flow"
     postedMessages.some(
       (message) =>
         message.channel === "C_MYPETROUTINE" &&
-        message.text.includes("[Captain:mypetroutine]"),
+        message.text.includes("이번 목표는") &&
+        !message.text.includes("다음을 사용하여 보냄") &&
+        !message.text.includes("ChatGPT"),
     ),
   ).toBe(true);
 
