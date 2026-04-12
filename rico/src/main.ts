@@ -1,4 +1,5 @@
 import { resolveConfig } from "./config";
+import { createCodexSpecialistExecutor } from "./codex/executor";
 import { createRuntimeDispatcher } from "./runtime/dispatcher";
 import { startJobRunner } from "./runtime/job-runner";
 import { createSlackWebClient } from "./slack/client";
@@ -10,6 +11,7 @@ export function createRicoRuntime(input: {
   config?: ReturnType<typeof resolveConfig>;
   port?: number;
   slackClient?: SlackMessageClient;
+  specialistExecutor?: Parameters<typeof createRuntimeDispatcher>[0]["specialistExecutor"];
 } = {}) {
   const config = input.config ?? resolveConfig();
   const store = openStore(config.dbPath);
@@ -18,6 +20,9 @@ export function createRicoRuntime(input: {
     db: store.db,
     slackClient,
     maxActiveProjects: config.maxActiveProjects,
+    specialistExecutor:
+      input.specialistExecutor
+      ?? (input.slackClient ? undefined : createCodexSpecialistExecutor()),
   });
   const runner = startJobRunner({
     db: store.db,

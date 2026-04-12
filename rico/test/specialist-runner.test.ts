@@ -50,6 +50,60 @@ test("runSpecialist validates, persists, and returns qa impact", async () => {
   db.db.close();
 });
 
+test("runSpecialist prefers executor output when a specialist executor is provided", async () => {
+  const db = openStore(":memory:");
+  const memoryStore = new MemoryStore(db.db);
+
+  const result = await runSpecialist({
+    role: "planner",
+    input: {
+      goalId: "goal-1",
+      projectId: "mypetroutine",
+      runId: "run-1",
+      goalTitle: "온보딩 개선",
+    },
+    memoryStore,
+    executor: async () => ({
+      role: "planner",
+      summary: "실제 Codex 실행기로 온보딩 흐름을 보고 우선순위를 정했어요.",
+      impact: "info",
+      artifacts: [{ kind: "report", title: "planner-report.md" }],
+      rawFindings: ["src/onboarding.tsx를 먼저 보는 게 좋아요."],
+    }),
+  });
+
+  expect(result.summary).toContain("실제 Codex 실행기");
+  expect(result.artifacts[0]?.title).toBe("planner-report.md");
+  expect(
+    memoryStore.getRunMemory("run-1")["specialist.planner.summary"],
+  ).toContain("실제 Codex 실행기");
+
+  db.db.close();
+});
+
+test("runSpecialist falls back to heuristic output when the executor fails", async () => {
+  const db = openStore(":memory:");
+  const memoryStore = new MemoryStore(db.db);
+
+  const result = await runSpecialist({
+    role: "planner",
+    input: {
+      goalId: "goal-1",
+      projectId: "test",
+      runId: "run-1",
+      goalTitle: "이 채널 목표 제안해봐",
+    },
+    memoryStore,
+    executor: async () => {
+      throw new Error("codex unavailable");
+    },
+  });
+
+  expect(result.summary.includes("후보") || result.summary.includes("첫 목표")).toBe(true);
+
+  db.db.close();
+});
+
 test("QA role profile stops on regression and keeps protected actions behind human sign-off", () => {
   expect(QA_ROLE_PROFILE.guardrails).toContain("stop_on_regression");
   expect(QA_ROLE_PROFILE.guardrails).toContain(

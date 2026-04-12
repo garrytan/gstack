@@ -4,7 +4,7 @@ import { evaluateAction } from "../orchestrator/approvals";
 import { Captain } from "../orchestrator/captain";
 import { Governor } from "../orchestrator/governor";
 import { selectSpecialistRoles } from "../orchestrator/role-selection";
-import { runSpecialist } from "../orchestrator/specialists";
+import { runSpecialist, type SpecialistExecutor } from "../orchestrator/specialists";
 import { buildApprovalRequest, type SlackMessageClient } from "../slack/publish";
 import {
   buildCaptainProgressText,
@@ -103,6 +103,7 @@ export function createRuntimeDispatcher(input: {
   db: Database;
   slackClient: SlackMessageClient;
   maxActiveProjects: number;
+  specialistExecutor?: SpecialistExecutor;
 }) {
   const memoryStore = new MemoryStore(input.db);
   const captain = new Captain(memoryStore);
@@ -169,6 +170,7 @@ export function createRuntimeDispatcher(input: {
               goalTitle: context.goal.title,
             },
             memoryStore,
+            executor: input.specialistExecutor,
           }),
         ),
       );

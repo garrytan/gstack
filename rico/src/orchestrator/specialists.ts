@@ -5,11 +5,26 @@ import {
   type SpecialistResult,
   validateSpecialistResult,
 } from "../roles/contracts";
+import type { CodexSpecialistExecution } from "../codex/executor";
 
 export interface SpecialistImpact {
   role: string;
   level: ImpactLevel;
   message: string;
+}
+
+export type SpecialistExecutor = (input: {
+  role: RoleName;
+  projectId: string;
+  goalTitle: string;
+  runId?: string | null;
+  memoryStore?: MemoryStore;
+}) => Promise<CodexSpecialistExecution | SpecialistResult>;
+
+function isWrappedExecution(
+  value: CodexSpecialistExecution | SpecialistResult,
+): value is CodexSpecialistExecution {
+  return "result" in value && "meta" in value;
 }
 
 function includesAny(text: string, needles: string[]) {
@@ -98,6 +113,7 @@ export async function runSpecialist(input: {
   role: RoleName;
   input: Record<string, unknown>;
   memoryStore?: MemoryStore;
+  executor?: SpecialistExecutor;
 }) {
   const profile = ROLE_REGISTRY[input.role];
   if (!profile) {
@@ -112,23 +128,54 @@ export async function runSpecialist(input: {
     typeof input.input.summary === "string" && input.input.summary.length > 0
       ? input.input.summary
       : buildDefaultSummary(input.role, goalTitle);
+  const projectId =
+    typeof input.input.projectId === "string" ? input.input.projectId : null;
+  const runId = typeof input.input.runId === "string" ? input.input.runId : null;
 
-  const result: SpecialistResult = {
-    role: input.role,
-    summary: requestedSummary,
-    impact: profile.defaultImpact,
-    artifacts: [{ kind: "report", title: `${input.role}-report.md` }],
-    rawFindings: [profile.invoke],
-  };
+  let result: SpecialistResult | null = null;
+  if (input.executor && projectId) {
+    try {
+      const executed = await input.executor({
+        role: input.role,
+        projectId,
+        goalTitle,
+        runId,
+        memoryStore: input.memoryStore,
+      });
+      result = isWrappedExecution(executed) ? executed.result : executed;
+      if (input.memoryStore && isWrappedExecution(executed)) {
+        input.memoryStore.putRunFact(
+          runId ?? `run-${input.role}`,
+          `specialist.${input.role}.codex_tokens`,
+          String(executed.meta.tokensUsed),
+        );
+        if (executed.meta.workspacePath) {
+          input.memoryStore.putProjectFact(
+            projectId,
+            "project.repo_root",
+            executed.meta.workspacePath,
+          );
+        }
+      }
+    } catch {
+      result = null;
+    }
+  }
+
+  if (!result) {
+    result = {
+      role: input.role,
+      summary: requestedSummary,
+      impact: profile.defaultImpact,
+      artifacts: [{ kind: "report", title: `${input.role}-report.md` }],
+      rawFindings: [profile.invoke],
+    };
+  }
 
   const validated = validateSpecialistResult(result);
   if (!validated.ok) {
     throw new Error("invalid specialist output");
   }
-
-  const projectId =
-    typeof input.input.projectId === "string" ? input.input.projectId : null;
-  const runId = typeof input.input.runId === "string" ? input.input.runId : null;
 
   if (input.memoryStore && projectId) {
     input.memoryStore.putProjectFact(
