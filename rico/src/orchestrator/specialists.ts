@@ -35,8 +35,7 @@ export async function runSpecialist(input: {
 
   const result: SpecialistResult = {
     role: input.role,
-    summary:
-      input.role === "qa" ? "Regression found" : requestedSummary,
+    summary: requestedSummary,
     impact: profile.defaultImpact,
     artifacts: [{ kind: "report", title: `${input.role}-report.md` }],
     rawFindings: [profile.invoke],

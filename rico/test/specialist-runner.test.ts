@@ -33,6 +33,7 @@ test("runSpecialist validates, persists, and returns qa impact", async () => {
   });
 
   expect(result.role).toBe("qa");
+  expect(result.summary).toBe("verify onboarding");
   expect(result.impact).toBe("blocking");
   expect(memoryStore.getRunMemory("run-1")["specialist.qa.impact"]).toBe(
     "blocking",
