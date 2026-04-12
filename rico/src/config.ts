@@ -7,12 +7,11 @@ export function resolveConfig(input: ResolveConfigInput = {}): RicoConfig {
   const stateDir = join(cwd, ".gstack", "rico");
 
   return {
-    cwd,
     stateDir,
     dbPath: join(stateDir, "rico.sqlite"),
     artifactDir: join(stateDir, "artifacts"),
     maxActiveProjects: Number(env.RICO_MAX_ACTIVE_PROJECTS ?? "2"),
-    slackSigningSecret: env.SLACK_SIGNING_SECRET ?? null,
-    slackBotToken: env.SLACK_BOT_TOKEN ?? null,
+    slackSigningSecret: env.SLACK_SIGNING_SECRET ?? "",
+    slackBotToken: env.SLACK_BOT_TOKEN ?? "",
   };
 }

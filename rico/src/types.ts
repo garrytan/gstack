@@ -1,11 +1,10 @@
 export interface RicoConfig {
-  cwd: string;
   stateDir: string;
   dbPath: string;
   artifactDir: string;
   maxActiveProjects: number;
-  slackSigningSecret: string | null;
-  slackBotToken: string | null;
+  slackSigningSecret: string;
+  slackBotToken: string;
 }
 
 export interface ResolveConfigInput {

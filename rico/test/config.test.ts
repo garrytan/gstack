@@ -7,8 +7,8 @@ test("resolveConfig defaults state paths under .gstack/rico", () => {
   expect(cfg.dbPath).toBe("/tmp/demo-repo/.gstack/rico/rico.sqlite");
   expect(cfg.artifactDir).toBe("/tmp/demo-repo/.gstack/rico/artifacts");
   expect(cfg.maxActiveProjects).toBe(2);
-  expect(cfg.slackSigningSecret).toBeNull();
-  expect(cfg.slackBotToken).toBeNull();
+  expect(cfg.slackSigningSecret).toBe("");
+  expect(cfg.slackBotToken).toBe("");
 });
 
 test("resolveConfig reads slack env fields when present", () => {
