@@ -235,9 +235,29 @@ The biggest improvement is **Gemini skill activation reliability**. The April 10
 
 ---
 
+## Post-Run Fix: Token Duplication Bug
+
+After analyzing why Gemini exhausted quota so quickly, we discovered **Gemini CLI was loading ~1M tokens of skill definitions per invocation** — double what was expected.
+
+**Root cause:** Two complete skill directories existed locally:
+- `.gemini/skills/` (36 skills, ~535K tokens) — the correct Gemini host output
+- `.agents/skills/` (36 skills, ~535K tokens) — stale Codex host output
+
+Gemini CLI loads both directories, producing 36 "Skill conflict" warnings and ~1M tokens of context per invocation.
+
+**Fixes applied:**
+1. Deleted `.agents/skills/` locally (immediate 50% token reduction)
+2. Added `skipFromAll` flag to HostConfig — Codex host now excluded from `--host all` generation, preventing `.agents/skills/` from being recreated
+3. `.agents/` was already in `.gitignore` — this was a local-only artifact
+
+**Expected impact on next run:** ~50% reduction in Gemini input tokens per skill invocation. The 200K-680K input token counts from this run should drop to ~100K-340K, allowing more tests to complete within quota.
+
+---
+
 ## Next Steps
 
 1. **Re-run with higher quota** — The 12 rate-limited tests need fresh quota on both CLIs to produce valid comparisons
-2. **Add `--parallel` flag** — Run Claude and Gemini for each test concurrently (halves wall-clock time)
-3. **Batch by priority** — Run safety skills (`/careful`, `/freeze`) first since they're fast (should complete in <60s each)
-4. **Track Gemini model upgrades** — Currently `gemini-3-flash-preview`; when GA model ships, re-run for updated baselines
+2. **Re-run after duplication fix** — Verify the ~50% token reduction from eliminating `.agents/skills/`
+3. **Add `--parallel` flag** — Run Claude and Gemini for each test concurrently (halves wall-clock time)
+4. **Batch by priority** — Run safety skills (`/careful`, `/freeze`) first since they're fast (should complete in <60s each)
+5. **Track Gemini model upgrades** — Currently `gemini-3-flash-preview`; when GA model ships, re-run for updated baselines
