@@ -91,4 +91,6 @@ test("normalizeCaptainPlanForGoal expands empty task graphs into goal-sensitive 
   expect(normalized.taskGraph[0]?.title).not.toContain("1차 검토");
   expect(normalized.taskGraph[0]?.title).toContain("목표");
   expect(normalized.taskGraph[1]?.title).toContain("사용자");
+  expect(normalized.nextAction).not.toContain("planner");
+  expect(normalized.nextAction).toContain("목표 후보");
 });

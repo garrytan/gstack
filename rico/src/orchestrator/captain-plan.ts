@@ -58,14 +58,43 @@ function needsTaskRewrite(task: CaptainTaskNode) {
   return /1차 검토/i.test(task.title) || task.title.trim().length === 0;
 }
 
+function replaceRoleIds(text: string) {
+  return text
+    .replace(/\bcustomer-voice\b/gi, "고객 관점")
+    .replace(/\bplanner\b/gi, "기획")
+    .replace(/\bdesigner\b/gi, "디자인")
+    .replace(/\bfrontend\b/gi, "프론트엔드")
+    .replace(/\bbackend\b/gi, "백엔드")
+    .replace(/\bqa\b/gi, "QA");
+}
+
+function buildDefaultNextAction(goalTitle: string, roles: RoleName[]) {
+  const normalized = goalTitle.toLowerCase();
+
+  if (includesAny(normalized, ["원격", "git", "repo", "repository", "저장소", "브랜치"])) {
+    return "원격 저장소, 현재 브랜치, upstream 연결 상태를 먼저 확인한다.";
+  }
+
+  if (
+    roles.includes("planner")
+    && roles.includes("customer-voice")
+    && includesAny(normalized, ["제안", "아이디어", "브레인스토밍", "기획안", "목표"])
+  ) {
+    return "목표 후보를 2~3개로 줄이고, 채널을 보는 사람이 바로 이해할 한 줄 약속을 먼저 고정한다.";
+  }
+
+  return replaceRoleIds(
+    roles.length > 0
+      ? `${roles[0]} 관점에서 핵심 전제와 다음 단계를 먼저 정리한다.`
+      : "범위와 리스크를 먼저 정리한다.",
+  );
+}
+
 export function buildFallbackCaptainPlan(goalTitle: string): CaptainPlan {
   const selectedRoles = selectSpecialistRoles(goalTitle);
   return {
     selectedRoles,
-    nextAction:
-      selectedRoles.length > 0
-        ? `${selectedRoles[0]} 관점에서 핵심 전제와 다음 단계를 먼저 정리한다.`
-        : "범위와 리스크를 먼저 정리한다.",
+    nextAction: buildDefaultNextAction(goalTitle, selectedRoles),
     blockedReason: null,
     status: "active",
     taskGraph: buildDefaultTaskGraph(goalTitle, selectedRoles),
@@ -86,12 +115,13 @@ export function normalizeCaptainPlanForGoal(goalTitle: string, plan: CaptainPlan
   if (includesAny(normalizedGoal, ["원격", "git", "repo", "repository", "저장소", "브랜치"])) {
     normalizedPlan.selectedRoles = ["backend"];
     normalizedPlan.taskGraph = buildDefaultTaskGraph(goalTitle, ["backend"]);
-    normalizedPlan.nextAction = "원격 저장소, 현재 브랜치, upstream 연결 상태를 먼저 확인한다.";
+    normalizedPlan.nextAction = buildDefaultNextAction(goalTitle, ["backend"]);
     return normalizedPlan;
   }
 
   if (normalizedPlan.taskGraph.length === 0) {
     normalizedPlan.taskGraph = buildDefaultTaskGraph(goalTitle, normalizedPlan.selectedRoles);
+    normalizedPlan.nextAction = buildDefaultNextAction(goalTitle, normalizedPlan.selectedRoles);
     return normalizedPlan;
   }
 
@@ -99,6 +129,7 @@ export function normalizeCaptainPlanForGoal(goalTitle: string, plan: CaptainPlan
     ...task,
     title: needsTaskRewrite(task) ? buildTaskTitle(goalTitle, task.role) : task.title,
   }));
+  normalizedPlan.nextAction = replaceRoleIds(normalizedPlan.nextAction);
 
   return normalizedPlan;
 }
