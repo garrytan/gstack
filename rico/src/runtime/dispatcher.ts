@@ -302,7 +302,7 @@ export function createRuntimeDispatcher(input: {
         const governorUpdate = await input.slackClient.postMessage({
           channel: payload.sourceChannelId,
           thread_ts: payload.intakeThreadTs,
-          text: buildRoutingText(payload.projectId),
+          text: buildRoutingText(payload.projectId, captainPlan),
         });
         if (!governorUpdate.ok) {
           throw new Error("Slack rejected governor routing update");

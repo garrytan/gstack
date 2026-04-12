@@ -29,18 +29,14 @@ export function detectConversationalIntent(text: string): ConversationalIntent {
   return null;
 }
 
-export function buildRoutingText(projectId: string) {
-  return `총괄: 이 건은 #${projectId} 채널에서 이어갈게요.`;
-}
-
 export function buildAiOpsGreetingText(projectIds: string[]) {
   const knownProjects = projectIds.length > 0 ? projectIds.join(", ") : "등록된 프로젝트";
-  return `안녕하세요. 여기서는 \`프로젝트명: 목표\` 형식으로 말해주시면 바로 넘길게요. 지금 연결된 프로젝트는 ${knownProjects}예요.`;
+  return `총괄: 여기서는 \`프로젝트명: 목표\` 형식으로 말해주시면 바로 넘길게요. 지금 연결된 프로젝트는 ${knownProjects}예요.`;
 }
 
 export function buildAiOpsStatusText(projectIds: string[]) {
   const knownProjects = projectIds.length > 0 ? projectIds.join(", ") : "아직 등록된 프로젝트가 없어요";
-  return `지금 연결된 프로젝트는 ${knownProjects}예요. 여기서는 \`프로젝트명: 목표\` 형식으로 요청해주시면 바로 진행할게요.`;
+  return `총괄: 지금 연결된 프로젝트는 ${knownProjects}예요. 여기서는 \`프로젝트명: 목표\` 형식으로 요청해주시면 바로 진행할게요.`;
 }
 
 export function buildProjectGreetingText(projectId: string) {
@@ -69,6 +65,38 @@ function joinRoleLabels(roles: Array<RoleName | string>) {
   return `${labels.slice(0, -1).join(", ")}, ${labels.at(-1)}`;
 }
 
+function hasFinalConsonant(text: string) {
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    const code = text.charCodeAt(index);
+    if (code < 0xac00 || code > 0xd7a3) continue;
+    return (code - 0xac00) % 28 !== 0;
+  }
+  return false;
+}
+
+function objectParticle(text: string) {
+  return hasFinalConsonant(text) ? "을" : "를";
+}
+
+function buildAssignmentText(plan?: CaptainPlan, roles: Array<RoleName | string> = []) {
+  const assignments = plan?.taskGraph?.length
+    ? plan.taskGraph.map((task) => `${roleLabel(task.role)}에게 ${task.title}${objectParticle(task.title)}`)
+    : roles.map((role) => {
+        const label = roleLabel(role);
+        const taskTitle = `${label} 1차 검토`;
+        return `${label}에게 ${taskTitle}${objectParticle(taskTitle)}`;
+      });
+  if (assignments.length === 0) return null;
+  return assignments.join(", ");
+}
+
+export function buildRoutingText(projectId: string, plan?: CaptainPlan) {
+  const base = `총괄: 이 건은 #${projectId} 채널에서 이어갈게요.`;
+  const assignmentText = buildAssignmentText(plan, plan?.selectedRoles ?? []);
+  if (!assignmentText) return base;
+  return `${base} 캡틴에게는 ${assignmentText} 먼저 보게 하라고 전달했어요.`;
+}
+
 function firstSentence(text: string, fallback: string) {
   const trimmed = text.trim();
   if (!trimmed) return fallback;
@@ -94,7 +122,7 @@ export function buildCaptainStartText(
   plan?: CaptainPlan,
 ) {
   const firstPass = joinRoleLabels(roles);
-  const nextAction = plan?.nextAction ? ` 다음 액션은 ${plan.nextAction}` : "";
+  const nextAction = plan?.nextAction ? ` 먼저 ${plan.nextAction}` : "";
   if (plan?.status === "blocked" && plan.blockedReason) {
     return `캡틴: 먼저 막힌 조건부터 푸는 게 맞아요. ${plan.blockedReason}${nextAction}`;
   }
@@ -103,6 +131,10 @@ export function buildCaptainStartText(
   }
   if (roles.length === 0) {
     return `캡틴: 요청 확인했어요. 먼저 범위와 리스크를 빠르게 정리하고, 바로 다음 액션을 제안할게요.${nextAction}`;
+  }
+  const assignmentText = buildAssignmentText(plan, roles);
+  if (assignmentText) {
+    return `캡틴: 이번 라운드에서는 ${assignmentText} 맡길게요.${nextAction}`;
   }
   return `캡틴: 요청 확인했어요. 먼저 ${firstPass}에서 봐야 할 핵심 전제와 리스크를 빠르게 확인한 뒤, 실행 순서를 제안할게요.${nextAction}`;
 }
@@ -146,7 +178,7 @@ export function buildCaptainProgressText(
 }
 
 export function buildApprovalText(actionType: string, blockingReason: string) {
-  return `이 단계는 ${actionType} 전에 사람 확인이 필요해요. ${blockingReason}`;
+  return `총괄: 이 단계는 ${actionType} 전에 사람 확인이 필요해요. ${blockingReason}`;
 }
 
 export function buildApprovalResolutionText(input: {

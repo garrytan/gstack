@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolveOpenClawWorkspaceRoot } from "./memory/openclaw-context";
 import type { RicoConfig, ResolveConfigInput } from "./types";
 
 function parseMaxActiveProjects(value: string | undefined): number {
@@ -44,6 +45,8 @@ export function resolveConfig(input: ResolveConfigInput = {}): RicoConfig {
     stateDir,
     dbPath: join(stateDir, "rico.sqlite"),
     artifactDir: join(stateDir, "artifacts"),
+    openclawWorkspacePath:
+      resolveOpenClawWorkspaceRoot({ env, home: env.HOME, openclawConfig }) ?? "",
     maxActiveProjects: parseMaxActiveProjects(env.RICO_MAX_ACTIVE_PROJECTS),
     aiOpsChannelId: env.RICO_AI_OPS_CHANNEL_ID ?? "",
     slackSigningSecret: env.SLACK_SIGNING_SECRET ?? "",

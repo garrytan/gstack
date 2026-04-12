@@ -2,6 +2,7 @@ export interface RicoConfig {
   stateDir: string;
   dbPath: string;
   artifactDir: string;
+  openclawWorkspacePath: string;
   maxActiveProjects: number;
   aiOpsChannelId: string;
   slackSigningSecret: string;

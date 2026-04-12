@@ -24,10 +24,18 @@ export function createRicoRuntime(input: {
     maxActiveProjects: config.maxActiveProjects,
     captainExecutor:
       input.captainExecutor
-      ?? (input.slackClient ? undefined : createCodexCaptainExecutor()),
+      ?? (input.slackClient
+        ? undefined
+        : createCodexCaptainExecutor({
+            openclawWorkspacePath: config.openclawWorkspacePath,
+          })),
     specialistExecutor:
       input.specialistExecutor
-      ?? (input.slackClient ? undefined : createCodexSpecialistExecutor()),
+      ?? (input.slackClient
+        ? undefined
+        : createCodexSpecialistExecutor({
+            openclawWorkspacePath: config.openclawWorkspacePath,
+          })),
   });
   const runner = startJobRunner({
     db: store.db,

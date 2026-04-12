@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRoleContext } from "../memory/context-loader";
+import { loadOpenClawContextArtifacts } from "../memory/openclaw-context";
 import { MemoryStore } from "../memory/store";
 import { resolveProjectWorkspace } from "../orchestrator/project-workspace";
 import type { SpecialistResult } from "../roles/contracts";
@@ -61,6 +62,7 @@ function buildPrompt(input: {
   workspacePath: string | null;
   memoryStore?: MemoryStore;
   runId?: string | null;
+  openclawWorkspacePath?: string | null;
 }) {
   const projectMemory = input.memoryStore
     ? pruneMemory(input.memoryStore.getSharedProjectMemory(input.projectId))
@@ -99,6 +101,10 @@ function buildPrompt(input: {
         title: "role-playbook.json",
         body: JSON.stringify(playbookMemory, null, 2),
       },
+      ...loadOpenClawContextArtifacts({
+        workspacePath: input.openclawWorkspacePath,
+        repoPath: input.workspacePath,
+      }),
     ],
     maxChars: 5000,
   });
@@ -287,6 +293,7 @@ export function sanitizeCodexSpecialistResponse(input: {
 
 export function createCodexSpecialistExecutor(input: {
   timeoutMs?: number;
+  openclawWorkspacePath?: string;
 } = {}) {
   return async function executeSpecialist(
     specialist: CodexSpecialistExecutorInput,
@@ -303,6 +310,7 @@ export function createCodexSpecialistExecutor(input: {
       workspacePath,
       memoryStore: specialist.memoryStore,
       runId: specialist.runId,
+      openclawWorkspacePath: input.openclawWorkspacePath,
     });
     const response = await runCodexPrompt({
       cwd,

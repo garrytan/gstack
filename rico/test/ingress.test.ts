@@ -61,6 +61,7 @@ test("processSlackPayload replies to greeting in ai-ops channel without creating
   expect(posted).toHaveLength(1);
   expect(posted[0]?.channel).toBe("C_TOTAL");
   expect(posted[0]?.thread_ts).toBe("1712900000.000100");
+  expect(posted[0]?.text).toContain("총괄:");
   expect(posted[0]?.text).toContain("프로젝트명: 목표");
   expect(store.db.query("select count(*) as count from runs").get()).toEqual({ count: 0 });
 });

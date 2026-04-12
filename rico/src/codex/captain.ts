@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRoleContext } from "../memory/context-loader";
+import { loadOpenClawContextArtifacts } from "../memory/openclaw-context";
 import { MemoryStore } from "../memory/store";
 import { resolveProjectWorkspace } from "../orchestrator/project-workspace";
 import {
@@ -38,6 +39,7 @@ function buildCaptainPrompt(input: {
   workspacePath: string | null;
   memoryStore?: MemoryStore;
   runId?: string | null;
+  openclawWorkspacePath?: string | null;
 }) {
   const projectMemory = input.memoryStore
     ? pruneMemory(input.memoryStore.getSharedProjectMemory(input.projectId))
@@ -63,6 +65,10 @@ function buildCaptainPrompt(input: {
       { title: "project-memory.json", body: JSON.stringify(projectMemory, null, 2) },
       { title: "run-memory.json", body: JSON.stringify(runMemory, null, 2) },
       { title: "role-playbooks.json", body: JSON.stringify(rolePlaybooks, null, 2) },
+      ...loadOpenClawContextArtifacts({
+        workspacePath: input.openclawWorkspacePath,
+        repoPath: input.workspacePath,
+      }),
     ],
     maxChars: 6000,
   });
@@ -251,6 +257,7 @@ export function parseCodexCaptainPlanResponse(text: string): CaptainPlan {
 
 export function createCodexCaptainExecutor(input: {
   timeoutMs?: number;
+  openclawWorkspacePath?: string;
 } = {}) {
   return async function executeCaptainPlan(
     captainInput: CaptainExecutorInput,
@@ -266,6 +273,7 @@ export function createCodexCaptainExecutor(input: {
       workspacePath,
       memoryStore: captainInput.memoryStore,
       runId: captainInput.runId,
+      openclawWorkspacePath: input.openclawWorkspacePath,
     });
     try {
       const text = await runCodexPrompt({

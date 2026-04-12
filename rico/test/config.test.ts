@@ -2,10 +2,11 @@ import { test, expect } from "bun:test";
 import { resolveConfig } from "../src/config";
 
 test("resolveConfig defaults state paths under .gstack/rico", () => {
-  const cfg = resolveConfig({ cwd: "/tmp/demo-repo", env: {} });
+  const cfg = resolveConfig({ cwd: "/tmp/demo-repo", env: { HOME: "/tmp/home" } });
   expect(cfg.stateDir).toBe("/tmp/demo-repo/.gstack/rico");
   expect(cfg.dbPath).toBe("/tmp/demo-repo/.gstack/rico/rico.sqlite");
   expect(cfg.artifactDir).toBe("/tmp/demo-repo/.gstack/rico/artifacts");
+  expect(cfg.openclawWorkspacePath).toBe("/tmp/home/.openclaw/workspace");
   expect(cfg.maxActiveProjects).toBe(2);
   expect(cfg.slackSigningSecret).toBe("");
   expect(cfg.slackBotToken).toBe("");
@@ -37,6 +38,11 @@ test("resolveConfig falls back to OpenClaw slack config when env tokens are abse
       HOME: "/tmp/demo-repo",
     },
     openclawConfig: {
+      agents: {
+        defaults: {
+          workspace: "/home/tony/.openclaw/workspace",
+        },
+      },
       channels: {
         slack: {
           botToken: "fallback-bot-token",
@@ -48,6 +54,7 @@ test("resolveConfig falls back to OpenClaw slack config when env tokens are abse
 
   expect(cfg.slackBotToken).toBe("fallback-bot-token");
   expect(cfg.slackAppToken).toBe("fallback-app-token");
+  expect(cfg.openclawWorkspacePath).toBe("/home/tony/.openclaw/workspace");
 });
 
 test("resolveConfig accepts a valid positive integer override", () => {

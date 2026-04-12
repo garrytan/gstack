@@ -289,6 +289,12 @@ test("dispatcher follows captain-selected roles instead of keyword fallback when
           title: "목표 문장 정리",
           dependsOn: [],
         },
+        {
+          id: "task-2",
+          role: "customer-voice",
+          title: "사용자 약속과 기대 결과 점검",
+          dependsOn: ["task-1"],
+        },
       ],
     }),
     slackClient: {
@@ -319,6 +325,66 @@ test("dispatcher follows captain-selected roles instead of keyword fallback when
   expect(joined.includes("고객 관점:")).toBe(true);
   expect(joined.includes("백엔드:")).toBe(false);
   expect(joined.includes("먼저 사용자 약속 문장부터 고정한다.")).toBe(true);
+  expect(joined.includes("기획에게 목표 문장 정리")).toBe(true);
+  expect(joined.includes("고객 관점에게 사용자 약속과 기대 결과 점검")).toBe(true);
+
+  store.db.close();
+});
+
+test("dispatcher keeps ai-ops voice on the governor and includes captain delegation in the routing note", async () => {
+  const store = openStore(":memory:");
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const dispatcher = createRuntimeDispatcher({
+    db: store.db,
+    maxActiveProjects: 1,
+    captainExecutor: async () => ({
+      selectedRoles: ["backend"],
+      nextAction: "백엔드에게 원격 저장소와 브랜치 상태를 먼저 확인하게 한다.",
+      blockedReason: null,
+      status: "active",
+      taskGraph: [
+        {
+          id: "task-1",
+          role: "backend",
+          title: "원격 저장소와 브랜치 상태 확인",
+          dependsOn: [],
+        },
+      ],
+    }),
+    slackClient: {
+      async postMessage(input) {
+        posted.push(input);
+        return { ok: true, ts: `171000004${posted.length}.000100` };
+      },
+    },
+  });
+
+  const context = seedContext({
+    store,
+    projectId: "mypetroutine",
+    projectChannelId: "C_MYPETROUTINE",
+    goalId: "goal-governor-voice",
+    goalTitle: "원격 깃 연결 상태만 확인해줘",
+    runId: "run-governor-voice",
+    payload: {
+      sourceChannelId: "C_AI_OPS",
+      intakeThreadTs: "1710004999.000100",
+    },
+  });
+
+  await expect(dispatcher(context)).resolves.toBeUndefined();
+
+  const aiOpsMessages = posted.filter((message) => message.channel === "C_AI_OPS");
+  expect(aiOpsMessages.some((message) => message.text.startsWith("총괄:"))).toBe(true);
+  expect(
+    aiOpsMessages.some(
+      (message) =>
+        message.text.includes("캡틴에게")
+        && message.text.includes("백엔드")
+        && message.text.includes("원격 저장소와 브랜치 상태 확인"),
+    ),
+  ).toBe(true);
+  expect(aiOpsMessages.every((message) => !message.text.startsWith("캡틴:"))).toBe(true);
 
   store.db.close();
 });
