@@ -3,6 +3,7 @@ import type { Database } from "bun:sqlite";
 import { splitOversizedGoal } from "../orchestrator/initiative";
 import { enqueueQueuedRun, type QueueJob } from "../runtime/queue";
 import { createRepositories } from "../state/repositories";
+import type { SlackMessageClient } from "./publish";
 import {
   buildAiOpsGreetingText,
   buildAiOpsStatusText,
@@ -15,6 +16,7 @@ import {
 interface SlackIntakeOptions {
   aiOpsChannelId: string;
   runIdFactory: () => string;
+  slackClient?: SlackMessageClient;
 }
 
 export interface SlackConversationReply {
@@ -40,6 +42,100 @@ interface GoalIntakePayload {
 
 function stripLeadingMention(text: string) {
   return text.replace(/^\s*<@[^>]+>\s*/, "").trim();
+}
+
+function normalizeProjectKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function canAutoRegisterProjectChannel(projectId: string) {
+  if (!projectId) return false;
+  if (["total", "general", "random"].includes(projectId)) return false;
+  if (/(?:^|-)sentry$/.test(projectId)) return false;
+  if (/(?:^|-)(?:noti|notification|notifications|alert|alerts|log|logs|ops)$/.test(projectId)) {
+    return false;
+  }
+  return true;
+}
+
+function findProjectByIdentifier(
+  repositories: ReturnType<typeof createRepositories>,
+  projectId: string,
+) {
+  const normalized = normalizeProjectKey(projectId);
+  if (!normalized) return null;
+
+  const direct = repositories.projects.get(normalized);
+  if (direct) return direct;
+
+  return repositories.projects.list().find(
+    (project) => normalizeProjectKey(project.id) === normalized,
+  ) ?? null;
+}
+
+async function resolveProjectByIdentifier(input: {
+  repositories: ReturnType<typeof createRepositories>;
+  projectId: string;
+  slackClient?: SlackMessageClient;
+}) {
+  const normalized = normalizeProjectKey(input.projectId);
+  if (!normalized) return null;
+
+  const existing = findProjectByIdentifier(input.repositories, normalized);
+  if (existing) return existing;
+
+  if (!input.slackClient?.findConversationByName) return null;
+
+  const found = await input.slackClient.findConversationByName(normalized);
+  const channelName = found.channel?.name ? normalizeProjectKey(found.channel.name) : normalized;
+  if (!found.ok || !found.channel?.id || !canAutoRegisterProjectChannel(channelName)) {
+    return null;
+  }
+
+  input.repositories.projects.create({
+    id: channelName,
+    slackChannelId: found.channel.id,
+  });
+  return input.repositories.projects.get(channelName);
+}
+
+async function resolveProjectForIncomingChannel(input: {
+  repositories: ReturnType<typeof createRepositories>;
+  channelId: string;
+  slackClient?: SlackMessageClient;
+}) {
+  const existing = input.repositories.projects.getBySlackChannelId(input.channelId);
+  if (existing) return existing;
+
+  if (!input.slackClient?.getConversationInfo) return null;
+
+  const info = await input.slackClient.getConversationInfo(input.channelId);
+  if (!info.ok || !info.channel?.name || !info.channel.id || info.channel.is_archived) {
+    return null;
+  }
+
+  const projectId = normalizeProjectKey(info.channel.name);
+  if (!canAutoRegisterProjectChannel(projectId)) {
+    return null;
+  }
+
+  const byId = findProjectByIdentifier(input.repositories, projectId);
+  if (byId) {
+    return byId;
+  }
+
+  input.repositories.projects.create({
+    id: projectId,
+    slackChannelId: info.channel.id,
+  });
+  return input.repositories.projects.get(projectId);
 }
 
 function deriveTaskList(text: string) {
@@ -68,7 +164,7 @@ function normalizeEventText(text: string) {
   const projectSeparator = normalized.indexOf(":");
   if (projectSeparator === -1) return null;
 
-  const projectId = normalized.slice(0, projectSeparator).trim();
+  const projectId = normalizeProjectKey(normalized.slice(0, projectSeparator));
   const goalText = normalized.slice(projectSeparator + 1).trim();
   if (!projectId || !goalText) return null;
 
@@ -190,7 +286,7 @@ function enqueueGoals(input: {
   });
 }
 
-function bootstrapAiOpsIntake(
+async function bootstrapAiOpsIntake(
   db: Database,
   payload: Record<string, unknown>,
   options: SlackIntakeOptions,
@@ -214,7 +310,11 @@ function bootstrapAiOpsIntake(
     const normalized = normalizeEventText(text);
     if (!normalized) return "ignored";
 
-    const project = repositories.projects.get(normalized.projectId);
+    const project = await resolveProjectByIdentifier({
+      repositories,
+      projectId: normalized.projectId,
+      slackClient: options.slackClient,
+    });
     if (!project) {
       return "ignored";
     }
@@ -241,48 +341,63 @@ function bootstrapAiOpsIntake(
     return "handled";
   }
 
-  const project = repositories.projects.getBySlackChannelId(channelId);
+  const sourceProject = await resolveProjectForIncomingChannel({
+    repositories,
+    channelId,
+    slackClient: options.slackClient,
+  });
+  const explicitProject = normalizeEventText(text);
+  const project = explicitProject
+    ? await resolveProjectByIdentifier({
+        repositories,
+        projectId: explicitProject.projectId,
+        slackClient: options.slackClient,
+      }) ?? sourceProject
+    : sourceProject;
   if (!project) {
     return null;
   }
-  if (!text.trim()) {
+  const goalText = explicitProject && project
+    ? explicitProject.goalText
+    : text;
+  if (!goalText.trim()) {
     return "ignored";
   }
-  const taskList = deriveTaskList(text);
+  const taskList = deriveTaskList(goalText);
   const split = splitOversizedGoal({
     projectId: project.id,
-    title: text,
+    title: goalText,
     tasks: taskList,
   });
   enqueueGoals({
     db,
     repositories,
     split,
-    initiativeTitle: text,
+    initiativeTitle: goalText,
     projectId: project.id,
     aiOpsChannelId: options.aiOpsChannelId,
     intakeThreadTs: messageTs,
     projectChannelId: project.slackChannelId,
-    projectThreadTs: messageTs,
+    projectThreadTs: channelId === project.slackChannelId ? messageTs : undefined,
     sourceChannelId: channelId,
     runIdFactory: options.runIdFactory,
-    requiresDeployApproval: /배포|deploy/i.test(text),
+    requiresDeployApproval: /배포|deploy/i.test(goalText),
   });
   return "handled";
 }
 
-export function bootstrapSlackIntake(
+export async function bootstrapSlackIntake(
   db: Database,
   payload: Record<string, unknown>,
   options: SlackIntakeOptions,
 ) {
-  return bootstrapAiOpsIntake(db, payload, options);
+  return await bootstrapAiOpsIntake(db, payload, options);
 }
 
-export function maybeBuildConversationReply(
+export async function maybeBuildConversationReply(
   db: Database,
   payload: Record<string, unknown>,
-  options: { aiOpsChannelId: string },
+  options: { aiOpsChannelId: string; slackClient?: SlackMessageClient },
 ) {
   const event = resolveEvent(payload);
   const channelId = resolveChannelId(payload, event);
@@ -315,7 +430,11 @@ export function maybeBuildConversationReply(
     } satisfies SlackConversationReply;
   }
 
-  const project = repositories.projects.getBySlackChannelId(channelId);
+  const project = await resolveProjectForIncomingChannel({
+    repositories,
+    channelId,
+    slackClient: options.slackClient,
+  });
   if (!project) return null;
 
   return {

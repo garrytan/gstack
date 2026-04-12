@@ -31,8 +31,9 @@ export async function processSlackPayload(
     }
   }
 
-  const conversationReply = maybeBuildConversationReply(options.db, payload, {
+  const conversationReply = await maybeBuildConversationReply(options.db, payload, {
     aiOpsChannelId: options.aiOpsChannelId,
+    slackClient: options.slackClient,
   });
   if (conversationReply && options.slackClient) {
     await options.slackClient.postMessage({
@@ -43,12 +44,13 @@ export async function processSlackPayload(
     return { queued: false, handled: true } as const;
   }
 
-  const intakeResult = bootstrapSlackIntake(
+  const intakeResult = await bootstrapSlackIntake(
     options.db,
     payload,
     {
       aiOpsChannelId: options.aiOpsChannelId,
       runIdFactory,
+      slackClient: options.slackClient,
     },
   );
 

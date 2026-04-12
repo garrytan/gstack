@@ -162,7 +162,7 @@ export function createRuntimeDispatcher(input: {
         input: {
           projectId: payload.projectId,
           runId: context.run.id,
-          summary: "온보딩 흐름에 회귀로 보이는 부분이 있어요.",
+          goalTitle: context.goal.title,
         },
         memoryStore,
       });
@@ -171,7 +171,7 @@ export function createRuntimeDispatcher(input: {
         input: {
           projectId: payload.projectId,
           runId: context.run.id,
-          summary: "지금 왜 중요한지 조금 더 분명하게 보여줄 필요가 있어요.",
+          goalTitle: context.goal.title,
         },
         memoryStore,
       });
@@ -250,9 +250,12 @@ export function createRuntimeDispatcher(input: {
         }
       }
 
-      if (payload.sourceChannelId === payload.aiOpsChannelId) {
+      if (
+        payload.sourceChannelId
+        && payload.sourceChannelId !== payload.projectChannelId
+      ) {
         const governorUpdate = await input.slackClient.postMessage({
-          channel: payload.aiOpsChannelId,
+          channel: payload.sourceChannelId,
           thread_ts: payload.intakeThreadTs,
           text: buildRoutingText(payload.projectId),
         });

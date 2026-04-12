@@ -148,3 +148,80 @@ test("dispatcher keeps approval state changes atomic when approval transition in
 
   store.db.close();
 });
+
+test("dispatcher posts a routing note back to the source thread when a project override changes channels", async () => {
+  const store = openStore(":memory:");
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const dispatcher = createRuntimeDispatcher({
+    db: store.db,
+    maxActiveProjects: 1,
+    slackClient: {
+      async postMessage(input) {
+        posted.push(input);
+        return { ok: true, ts: `171000000${posted.length}.000100` };
+      },
+    },
+  });
+
+  const context = seedContext({
+    store,
+    projectId: "pet-memorial",
+    projectChannelId: "C_PET_MEMORIAL",
+    goalId: "goal-cross-project",
+    goalTitle: "지금 원격 깃이 연결되어있나?",
+    runId: "run-cross-project",
+    payload: {
+      sourceChannelId: "C_MYPETROUTINE",
+      intakeThreadTs: "1710000999.000100",
+    },
+  });
+
+  await expect(dispatcher(context)).resolves.toBeUndefined();
+
+  expect(
+    posted.some(
+      (message) =>
+        message.channel === "C_MYPETROUTINE"
+        && message.thread_ts === "1710000999.000100"
+        && message.text.includes("#pet-memorial"),
+    ),
+  ).toBe(true);
+
+  store.db.close();
+});
+
+test("dispatcher uses goal-sensitive specialist narration instead of a fixed onboarding summary", async () => {
+  const store = openStore(":memory:");
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const dispatcher = createRuntimeDispatcher({
+    db: store.db,
+    maxActiveProjects: 1,
+    slackClient: {
+      async postMessage(input) {
+        posted.push(input);
+        return { ok: true, ts: `171000001${posted.length}.000100` };
+      },
+    },
+  });
+
+  const context = seedContext({
+    store,
+    projectId: "pet-memorial",
+    projectChannelId: "C_PET_MEMORIAL",
+    goalId: "goal-git-status",
+    goalTitle: "지금 원격 깃이 연결되어있나?",
+    runId: "run-git-status",
+    payload: {
+      sourceChannelId: "C_PET_MEMORIAL",
+      intakeThreadTs: "1710001999.000100",
+    },
+  });
+
+  await expect(dispatcher(context)).resolves.toBeUndefined();
+
+  const joined = posted.map((message) => message.text).join("\n");
+  expect(joined.includes("온보딩 흐름")).toBe(false);
+  expect(joined.includes("원격") || joined.includes("저장소") || joined.includes("깃")).toBe(true);
+
+  store.db.close();
+});

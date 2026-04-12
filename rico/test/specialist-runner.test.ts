@@ -218,3 +218,36 @@ test("planner, designer, customer voice, frontend, backend, and qa all flow thro
 
   db.db.close();
 });
+
+test("runSpecialist derives role-specific summaries from the current goal when no canned summary is given", async () => {
+  const db = openStore(":memory:");
+  const memoryStore = new MemoryStore(db.db);
+
+  const qaResult = await runSpecialist({
+    role: "qa",
+    input: {
+      goalId: "goal-git",
+      projectId: "pet-memorial",
+      runId: "run-git",
+      goalTitle: "지금 원격 깃이 연결되어있나?",
+    },
+    memoryStore,
+  });
+  const customerVoiceResult = await runSpecialist({
+    role: "customer-voice",
+    input: {
+      goalId: "goal-git",
+      projectId: "pet-memorial",
+      runId: "run-git",
+      goalTitle: "지금 원격 깃이 연결되어있나?",
+    },
+    memoryStore,
+  });
+
+  expect(qaResult.summary).not.toBe("verifyGoal completed");
+  expect(customerVoiceResult.summary).not.toBe("reviewCustomerValue completed");
+  expect(qaResult.summary.includes("원격") || qaResult.summary.includes("저장소") || qaResult.summary.includes("깃")).toBe(true);
+  expect(customerVoiceResult.summary.includes("원격") || customerVoiceResult.summary.includes("저장소") || customerVoiceResult.summary.includes("깃")).toBe(true);
+
+  db.db.close();
+});

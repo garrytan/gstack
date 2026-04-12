@@ -20,6 +20,24 @@ export interface SlackMessageClient {
     blocks?: Array<Record<string, unknown>>;
     metadata?: Record<string, unknown>;
   }): Promise<{ ok: boolean; ts?: string }>;
+  getConversationInfo?(channelId: string): Promise<{
+    ok: boolean;
+    channel?: {
+      id: string;
+      name?: string;
+      is_channel?: boolean;
+      is_archived?: boolean;
+    };
+  }>;
+  findConversationByName?(name: string): Promise<{
+    ok: boolean;
+    channel?: {
+      id: string;
+      name?: string;
+      is_channel?: boolean;
+      is_archived?: boolean;
+    };
+  }>;
 }
 
 export interface PublishImpactUpdateInput {
