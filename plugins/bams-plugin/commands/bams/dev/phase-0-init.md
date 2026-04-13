@@ -23,10 +23,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start를 emit합니다:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "resource-optimizer-0-$(date -u +%Y%m%d)" "resource-optimizer" "sonnet" "Step 0: 파이프라인 초기화 전략 수립"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "resource-optimizer-0-$(date -u +%Y%m%d)" "resource-optimizer" "opus" "Step 0: 파이프라인 초기화 전략 수립"
 ```
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:resource-optimizer"**, model: **"sonnet"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:resource-optimizer"**, model: **"opus"**):
 
 > **파이프라인 초기화 — dev 파이프라인 전략 수립**
 >

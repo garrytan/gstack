@@ -53,14 +53,16 @@ Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opu
 _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "pipeline-orchestrator-1-$(date -u +%Y%m%d)" "pipeline-orchestrator" "success" {duration_ms} "Step 1 Advisor 응답 수신"
 ```
 
+**CHAIN_VIOLATION 체크**: orchestrator 반환 내용 첫 줄에 "CHAIN_VIOLATION" 포함 시 즉시 중단 — agent_end status="error" + pipeline_end status="failed".
+
 ### Step 1-b. 메인이 qa-strategy 직접 spawn (결함 분류)
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-1-$(date -u +%Y%m%d)" "qa-strategy" "sonnet" "Step 1: 결함 분류"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-1-$(date -u +%Y%m%d)" "qa-strategy" "opus" "Step 1: 결함 분류"
 ```
 
-Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"sonnet"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"** — 메인이 직접 호출:
 
 > **Hotfix Step 1 — 결함 분류 + 근본 원인 추적**
 >
@@ -82,9 +84,12 @@ Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"sonnet"** —
 >
 > QA부장은 defect-triage specialist를 최대 1회 추가 spawn 가능(harness 깊이 2 한도).
 
-반환 후 agent_end emit:
+반환 후 결과를 확인합니다:
+- **성공 시**: agent_end status="success", Step 1-c로 진행
+- **에러 시**: agent_end status="error". 사용자에게 에러를 보고하고 AskUserQuestion으로 계속/중단 확인. 중단 선택 시 pipeline_end status="failed" emit 후 종료.
+
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "qa-strategy-1-$(date -u +%Y%m%d)" "qa-strategy" "success" {duration_ms} "Step 1 결함 분류 완료"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "qa-strategy-1-$(date -u +%Y%m%d)" "qa-strategy" "{success|error}" {duration_ms} "Step 1 결함 분류 완료"
 ```
 
 ### Step 1-c. 메인이 개발부장 직접 spawn (외과적 수정)
@@ -93,10 +98,10 @@ Advisor가 권고한 개발부장(frontend-engineering / backend-engineering / p
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "{dept}-1-$(date -u +%Y%m%d)" "{dept}" "sonnet" "Step 1: 외과적 수정"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "{dept}-1-$(date -u +%Y%m%d)" "{dept}" "opus" "Step 1: 외과적 수정"
 ```
 
-Task tool, subagent_type: **"bams-plugin:{dept}"**, model: **"sonnet"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:{dept}"**, model: **"opus"** — 메인이 직접 호출:
 
 > **Hotfix Step 1 — 외과적 수정 + 회귀 테스트**
 >
@@ -115,10 +120,23 @@ Task tool, subagent_type: **"bams-plugin:{dept}"**, model: **"sonnet"** — 메�
 >   scope: scope_lock_from_triage
 > ```
 
-반환 후 agent_end emit:
+반환 후 결과를 확인합니다:
+- **성공 시**: agent_end status="success", 다음 단계로 진행
+- **에러 시**: agent_end status="error". 사용자에게 에러를 보고하고 AskUserQuestion으로 계속/중단 확인. 중단 선택 시 pipeline_end status="failed" emit 후 종료.
+
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "{dept}-1-$(date -u +%Y%m%d)" "{dept}" "success" {duration_ms} "Step 1 외과적 수정 완료"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "{dept}-1-$(date -u +%Y%m%d)" "{dept}" "{success|error}" {duration_ms} "Step 1 외과적 수정 완료"
 ```
+
+### 디자인부 연동 (FE 영역 수정 시)
+
+수정 대상이 `*.tsx`, `*.css`, `src/components/**`, `src/app/**` (API 제외) 등 프론트엔드 파일인 경우, design-director를 병렬로 호출하여 UI 일관성을 검토합니다:
+
+Task tool, subagent_type: **"bams-plugin:design-director"**, model: **"opus"**:
+> **FE 핫픽스 디자인 영향 검토**
+> UI 변경이 디자인 시스템과 일관적인지 확인하고, 필요 시 디자인 가이드를 제공합니다.
+
+FE 영역이 아닌 경우 이 호출을 건너뜁니다 (비용 최적화).
 
 **기대 산출물**: 결함 분석 리포트, 수정된 코드, 회귀 테스트
 

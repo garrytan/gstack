@@ -190,10 +190,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "project-governance-2-$(date -u +%Y%m%d)" "project-governance" "sonnet" "Step 2: 스프린트 설정"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "project-governance-2-$(date -u +%Y%m%d)" "project-governance" "opus" "Step 2: 스프린트 설정"
 ```
 
-Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"sonnet"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"opus"** — 메인이 직접 호출:
 
 > **스프린트 설정 — 태스크 등록 + 스프린트 플랜**
 >
@@ -261,10 +261,10 @@ Advisor 판정이 GO 또는 CONDITIONAL-GO인 경우에 진행. NO-GO이면 미�
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "cross-department-coordinator-handoff1-$(date -u +%Y%m%d)" "cross-department-coordinator" "sonnet" "기획→구현 핸드오프 조율"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "cross-department-coordinator-handoff1-$(date -u +%Y%m%d)" "cross-department-coordinator" "opus" "기획→구현 핸드오프 조율"
 ```
 
-Task tool, subagent_type: **"bams-plugin:cross-department-coordinator"**, model: **"sonnet"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:cross-department-coordinator"**, model: **"opus"** — 메인이 직접 호출:
 
 > **Phase 1→2 핸드오프 조율**
 >

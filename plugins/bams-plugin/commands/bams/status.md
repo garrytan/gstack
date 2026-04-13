@@ -33,9 +33,9 @@ Glob으로 `.crew/config.md`가 존재하는지 확인합니다. 없으면:
 
 **2개 서브에이전트를 동시에 실행합니다:**
 
-### A. executive-reporter 에이전트 (sonnet):
+### A. executive-reporter 에이전트 (opus):
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"sonnet"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"opus"**):
 
 > **상태 집계 모드**로 프로젝트 현황을 대시보드로 요약합니다.
 >
@@ -50,9 +50,9 @@ Glob으로 `.crew/config.md`가 존재하는지 확인합니다. 없으면:
 > 3. 최근 파이프라인 실행 현황
 > 4. 에이전트 활동 요약
 
-### B. project-governance 에이전트 (sonnet):
+### B. project-governance 에이전트 (opus):
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"sonnet"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"opus"**):
 
 > **상태 분석 모드**로 프로젝트 리스크와 다음 액션을 분석합니다.
 >

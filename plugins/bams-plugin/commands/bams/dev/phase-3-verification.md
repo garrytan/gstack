@@ -60,7 +60,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 **단일 메시지에 2개 Task tool 호출을 묶어** 병렬 spawn합니다:
 
-1. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"sonnet"**:
+1. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"**:
 > ```
 > task_description: "3관점(정확성, 보안+성능, 코드품질) 병렬 리뷰를 실행하라"
 > input_artifacts:
@@ -79,7 +79,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 > - 관점 2: 보안 + 성능
 > - 관점 3: 코드 품질 + 유지보수성
 
-2. Task tool, subagent_type: **"bams-plugin:product-analytics"**, model: **"sonnet"**:
+2. Task tool, subagent_type: **"bams-plugin:product-analytics"**, model: **"opus"**:
 > ```
 > task_description: "구현 결과의 성능과 비즈니스 지표를 평가하라"
 > input_artifacts:

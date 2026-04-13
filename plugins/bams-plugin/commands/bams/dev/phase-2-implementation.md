@@ -91,9 +91,28 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 각 부서장은 자신의 도메인 내 specialist를 최대 1회 추가 spawn 가능(harness 깊이 2 한도). 파일 겹침 태스크는 cross-department-coordinator(메인이 추가로 직접 spawn)로 조율합니다.
 
-모든 부서장 완료 후, 각 부서장에 대해 agent_end를 일괄 emit합니다:
+### 디자인부 연동 (FE 태스크 포함 시)
+
+Advisor Response에 프론트엔드 태스크가 포함되어 있으면, design-director(디자인부장)를 FE 부서장과 **병렬로** 추가 호출합니다:
+
+Task tool, subagent_type: **"bams-plugin:design-director"**, model: **"opus"**:
+> **디자인 검토 및 UI 가이드 제공**
+> 
+> FE 구현 태스크에 대한 디자인 검토를 수행합니다:
+> - UI 컴포넌트 설계 리뷰
+> - 디자인 시스템 일관성 확인
+> - 접근성(a11y) 가이드라인 제공
+> 
+> design-director는 내부적으로 ui-designer, ux-designer, design-system-agent 등 specialist를 최대 1회 추가 spawn 가능.
+
+디자인부장은 FE 태스크가 없으면 호출하지 않습니다 (비용 최적화).
+
+모든 부서장 완료 후, 각 부서장에 대해 결과를 확인합니다:
+- **성공 시**: agent_end status="success", step 계속 진행
+- **에러 시**: agent_end status="error". 사용자에게 에러를 보고하고 AskUserQuestion으로 계속/중단 확인. 중단 선택 시 pipeline_end status="failed" emit 후 종료.
+
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "{dept}-5-{N}-$(date -u +%Y%m%d)" "{dept}" "success" {duration_ms} "Step 5 배치 {N} 부서장 완료"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "{dept}-5-{N}-$(date -u +%Y%m%d)" "{dept}" "{success|error}" {duration_ms} "Step 5 배치 {N} 부서장 완료"
 ```
 
 그 후:

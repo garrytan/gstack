@@ -32,16 +32,16 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 **2단 위임 — 루프 A**: orchestrator 조언 → 메인이 executive-reporter 직접 spawn.
 
-**Step 10a: Advisor 호출** — Agent tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, 조언자 모드. 컨텍스트: `.crew/artifacts/retro/{slug}/` 전체 Phase 1-4 산출물, retro-protocol.md. Advisor Response: 보고서 6개 섹션 검증, 신호등 임계값, 1페이지 요약 포맷, tracking.yml 스키마 재확인. spawn 지시 금지. (agent_start/end: `orchestrator-advisor-step10-{date}`)
+**Step 10a: Advisor 호출** — Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, 조언자 모드. 컨텍스트: `.crew/artifacts/retro/{slug}/` 전체 Phase 1-4 산출물, retro-protocol.md. Advisor Response: 보고서 6개 섹션 검증, 신호등 임계값, 1페이지 요약 포맷, tracking.yml 스키마 재확인. spawn 지시 금지. (agent_start/end: `orchestrator-advisor-step10-{date}`)
 
 **Step 10b: 메인이 executive-reporter 직접 spawn**
 
 Bash로 agent_start를 emit합니다:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "executive-reporter-10-$(date -u +%Y%m%d)" "executive-reporter" "sonnet" "Step 10: 종합 보고서 생성"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "executive-reporter-10-$(date -u +%Y%m%d)" "executive-reporter" "opus" "Step 10: 종합 보고서 생성"
 ```
 
-서브에이전트 실행 (Agent tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"sonnet"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"opus"**):
 
 > **Phase 5 Step 10 — 종합 보고서 생성**
 >

@@ -24,10 +24,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-2-$(date -u +%Y%m%d)" "qa-strategy" "sonnet" "Step 2: 핫픽스 QA 검증"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-2-$(date -u +%Y%m%d)" "qa-strategy" "opus" "Step 2: 핫픽스 QA 검증"
 ```
 
-Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"sonnet"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"** — 메인이 직접 호출:
 
 > **Hotfix Step 2 — 핫픽스 회귀 테스트**
 >
@@ -47,9 +47,12 @@ Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"sonnet"** —
 >
 > QA부장은 automation-qa specialist를 최대 1회 추가 spawn 가능(harness 깊이 2 한도)하여 테스트를 실행합니다.
 
-반환 후 agent_end emit:
+반환 후 결과를 확인합니다:
+- **성공 시**: agent_end status="success", 다음 단계로 진행
+- **에러 시**: agent_end status="error". 사용자에게 에러를 보고하고 AskUserQuestion으로 계속/중단 확인. 중단 선택 시 pipeline_end status="failed" emit 후 종료.
+
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "qa-strategy-2-$(date -u +%Y%m%d)" "qa-strategy" "success" {duration_ms} "Step 2 QA 검증 완료"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "qa-strategy-2-$(date -u +%Y%m%d)" "qa-strategy" "{success|error}" {duration_ms} "Step 2 QA 검증 완료"
 ```
 
 AskUserQuestion — "브라우저 QA 테스트를 진행할까요?"

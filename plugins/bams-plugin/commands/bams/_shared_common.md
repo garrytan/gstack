@@ -54,7 +54,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 - `{call_id}` 형식: `{agent_type}-{step_number}-{timestamp}` (예: `pipeline-orchestrator-1-20260403`)
 - `{status}`: `success` / `error` / `timeout`
-- 병렬 호출 시: 각 `agent_start`를 먼저 모두 emit → Agent tool 병렬 호출 → 완료 후 각 `agent_end` emit
+- 병렬 호출 시: 각 `agent_start`를 먼저 모두 emit → Task tool 병렬 호출 → 완료 후 각 `agent_end` emit
 
 ---
 

@@ -89,8 +89,8 @@ gantt
   axisFormat %H:%M
   section 기획
   product-strategy (opus)    :done, ps, {startedAt}, 133s
-  business-analysis (opus)   :done, ba, {startedAt}, 105s
-  frontend-engineering (sonnet) :done, fe, {startedAt}, 80s
+  business-analysis (sonnet)  :done, ba, {startedAt}, 105s
+  frontend-engineering (opus)   :done, fe, {startedAt}, 80s
   section 구현
   frontend-engineering (opus) :active, fe2, {startedAt}, 480s
   backend-engineering (opus)  :done, be2, {startedAt}, 720s

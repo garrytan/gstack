@@ -28,10 +28,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "product-strategy-11-$(date -u +%Y%m%d)" "product-strategy" "sonnet" "Step 11: 문서 갱신"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "product-strategy-11-$(date -u +%Y%m%d)" "product-strategy" "opus" "Step 11: 문서 갱신"
 ```
 
-Task tool, subagent_type: **"bams-plugin:product-strategy"**, model: **"sonnet"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:product-strategy"**, model: **"opus"** — 메인이 직접 호출:
 
 > **Phase 5 Step 11 — 문서 갱신**
 >
@@ -76,10 +76,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "product-strategy-12-$(date -u +%Y%m%d)" "product-strategy" "sonnet" "Step 12: 스프린트 종료"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "product-strategy-12-$(date -u +%Y%m%d)" "product-strategy" "opus" "Step 12: 스프린트 종료"
 ```
 
-Task tool, subagent_type: **"bams-plugin:product-strategy"**, model: **"sonnet"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:product-strategy"**, model: **"opus"** — 메인이 직접 호출:
 
 > **Phase 5 Step 12 — 스프린트 종료**
 >
@@ -159,7 +159,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Advisor가 권고한 부서장들에 대해 agent_start를 일괄 emit한 뒤, **단일 메시지에 복수 Task tool 호출**로 병렬 spawn합니다:
 
-1. Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"sonnet"** — 정량 데이터 수집:
+1. Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"opus"** — 정량 데이터 수집:
 
 > **Step 13 — 회고 정량 데이터 수집**
 > ```

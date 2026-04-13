@@ -56,13 +56,13 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 병렬 호출 전 2개의 agent_start를 일괄 emit:
 ```bash
 _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1)
-[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-3-$(date -u +%Y%m%d)" "platform-devops" "sonnet" "Step 3: CI/CD 프리플라이트"
-[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "sonnet" "Step 4: 출시 준비 검토"
+[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-3-$(date -u +%Y%m%d)" "platform-devops" "opus" "Step 3: CI/CD 프리플라이트"
+[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "opus" "Step 4: 출시 준비 검토"
 ```
 
 **단일 메시지에 2개 Task tool 호출을 묶어** 병렬 spawn합니다:
 
-1. Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"sonnet"** — CI/CD 프리플라이트 (Step 3):
+1. Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"opus"** — CI/CD 프리플라이트 (Step 3):
 
 > **Step 3 — CI/CD 프리플라이트 (`/bams:verify`)**
 > ```
@@ -74,7 +74,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 >   - FAIL 시 자동 수정(최대 2회) / 수동 / 무시 결과 보고
 > ```
 
-2. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"sonnet"** — 출시 준비 검토 (Step 4):
+2. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"** — 출시 준비 검토 (Step 4):
 
 > **Step 4 — 출시 준비 검토 (release-quality-gate)**
 > ```
@@ -90,11 +90,14 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 >
 > **최적화**: verify PASS 전제로 즉시 코드 리뷰 기반 검토를 시작합니다. verify 결과는 RQG에 후속 전달됩니다. QA부장은 release-quality-gate specialist를 최대 1회 추가 spawn 가능.
 
-병렬 완료 후 2개의 agent_end를 일괄 emit:
+병렬 완료 후 각 에이전트 결과를 확인합니다:
+- **성공 시**: agent_end status="success", 다음 단계로 진행
+- **에러 시**: agent_end status="error". 사용자에게 에러를 보고하고 AskUserQuestion으로 계속/중단 확인. 중단 선택 시 pipeline_end status="failed" emit 후 종료.
+
 ```bash
 _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1)
-[ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "platform-devops-3-$(date -u +%Y%m%d)" "platform-devops" "success" {duration_ms} "Step 3 CI/CD 완료"
-[ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "success" {duration_ms} "Step 4 RQG 완료"
+[ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "platform-devops-3-$(date -u +%Y%m%d)" "platform-devops" "{success|error}" {duration_ms} "Step 3 CI/CD 완료"
+[ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "{success|error}" {duration_ms} "Step 4 RQG 완료"
 ```
 
 AskUserQuestion — "PR을 생성할까요?"

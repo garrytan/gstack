@@ -37,10 +37,10 @@ Options:
 
 Bash로 agent_start를 emit합니다:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-6-$(date -u +%Y%m%d)" "qa-strategy" "sonnet" "Step 6: 테스트 작성"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-6-$(date -u +%Y%m%d)" "qa-strategy" "opus" "Step 6: 테스트 작성"
 ```
 
-Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"sonnet"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"** — 메인이 직접 호출:
 
 > **Phase 2.5 테스트 작성**
 >
