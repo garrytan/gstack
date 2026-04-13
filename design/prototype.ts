@@ -1,19 +1,19 @@
 /**
  * Commit 0: Prototype validation
- * Sends 3 design briefs to GPT Image API via Responses API.
+ * Sends 3 design briefs to Gemini API with native image generation.
  * Validates: text rendering quality, layout accuracy, visual coherence.
  *
- * Run: OPENAI_API_KEY=$(cat ~/.gstack/openai.json | python3 -c "import sys,json;print(json.load(sys.stdin)['api_key'])") bun run design/prototype.ts
+ * Run: GEMINI_API_KEY=$(cat ~/.gstack/gemini.json | python3 -c "import sys,json;print(json.load(sys.stdin)['api_key'])") bun run design/prototype.ts
  */
 
 import fs from "fs";
 import path from "path";
 
-const API_KEY = process.env.OPENAI_API_KEY
-  || JSON.parse(fs.readFileSync(path.join(process.env.HOME!, ".gstack/openai.json"), "utf-8")).api_key;
+const API_KEY = process.env.GEMINI_API_KEY
+  || JSON.parse(fs.readFileSync(path.join(process.env.HOME!, ".gstack/gemini.json"), "utf-8")).api_key;
 
 if (!API_KEY) {
-  console.error("No API key found. Set OPENAI_API_KEY or save to ~/.gstack/openai.json");
+  console.error("No API key found. Set GEMINI_API_KEY or save to ~/.gstack/gemini.json");
   process.exit(1);
 }
 
@@ -45,20 +45,16 @@ async function generateMockup(brief: { name: string; prompt: string }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000); // 2 min timeout
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o",
-      input: brief.prompt,
-      tools: [{
-        type: "image_generation",
-        size: "1536x1024",
-        quality: "high"
-      }],
+      contents: [{ parts: [{ text: brief.prompt }] }],
+      generationConfig: {
+        responseModalities: ["TEXT", "IMAGE"],
+      },
     }),
     signal: controller.signal,
   });
@@ -73,25 +69,24 @@ async function generateMockup(brief: { name: string; prompt: string }) {
   const data = await response.json() as any;
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-  // Find the image generation result in output
-  const imageItem = data.output?.find((item: any) =>
-    item.type === "image_generation_call"
-  );
+  // Find the image part in the response
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const imagePart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith("image/"));
 
-  if (!imageItem?.result) {
-    console.error("No image data in response. Output types:",
-      data.output?.map((o: any) => o.type));
+  if (!imagePart?.inlineData?.data) {
+    console.error("No image data in response. Part types:",
+      parts.map((p: any) => p.text ? "text" : p.inlineData?.mimeType || "unknown"));
     console.error("Full response:", JSON.stringify(data, null, 2).slice(0, 500));
     return null;
   }
 
   const outputPath = path.join(OUTPUT_DIR, `${brief.name}.png`);
-  const imageBuffer = Buffer.from(imageItem.result, "base64");
+  const imageBuffer = Buffer.from(imagePart.inlineData.data, "base64");
   fs.writeFileSync(outputPath, imageBuffer);
 
   console.log(`OK (${elapsed}s) → ${outputPath}`);
   console.log(`   Size: ${(imageBuffer.length / 1024).toFixed(0)} KB`);
-  console.log(`   Usage: ${JSON.stringify(data.usage || {})}`);
+  console.log(`   Usage: ${JSON.stringify(data.usageMetadata || {})}`);
 
   return outputPath;
 }

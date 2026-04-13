@@ -1,19 +1,19 @@
 /**
- * Auth resolution for OpenAI API access.
+ * Auth resolution for Gemini API access.
  *
  * Resolution order:
- * 1. ~/.gstack/openai.json → { "api_key": "sk-..." }
- * 2. OPENAI_API_KEY environment variable
+ * 1. ~/.gstack/gemini.json → { "api_key": "..." }
+ * 2. GEMINI_API_KEY environment variable
  * 3. null (caller handles guided setup or fallback)
  */
 
 import fs from "fs";
 import path from "path";
 
-const CONFIG_PATH = path.join(process.env.HOME || "~", ".gstack", "openai.json");
+const CONFIG_PATH = path.join(process.env.HOME || "~", ".gstack", "gemini.json");
 
 export function resolveApiKey(): string | null {
-  // 1. Check ~/.gstack/openai.json
+  // 1. Check ~/.gstack/gemini.json
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const content = fs.readFileSync(CONFIG_PATH, "utf-8");
@@ -27,15 +27,15 @@ export function resolveApiKey(): string | null {
   }
 
   // 2. Check environment variable
-  if (process.env.OPENAI_API_KEY) {
-    return process.env.OPENAI_API_KEY;
+  if (process.env.GEMINI_API_KEY) {
+    return process.env.GEMINI_API_KEY;
   }
 
   return null;
 }
 
 /**
- * Save an API key to ~/.gstack/openai.json with 0600 permissions.
+ * Save an API key to ~/.gstack/gemini.json with 0600 permissions.
  */
 export function saveApiKey(key: string): void {
   const dir = path.dirname(CONFIG_PATH);
@@ -50,13 +50,13 @@ export function saveApiKey(key: string): void {
 export function requireApiKey(): string {
   const key = resolveApiKey();
   if (!key) {
-    console.error("No OpenAI API key found.");
+    console.error("No Gemini API key found.");
     console.error("");
     console.error("Run: $D setup");
-    console.error("  or save to ~/.gstack/openai.json: { \"api_key\": \"sk-...\" }");
-    console.error("  or set OPENAI_API_KEY environment variable");
+    console.error("  or save to ~/.gstack/gemini.json: { \"api_key\": \"...\" }");
+    console.error("  or set GEMINI_API_KEY environment variable");
     console.error("");
-    console.error("Get a key at: https://platform.openai.com/api-keys");
+    console.error("Get a key at: https://aistudio.google.com/apikey");
     process.exit(1);
   }
   return key;

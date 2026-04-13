@@ -7,7 +7,7 @@
  *
  * Flow:
  *   1. Parse command + flags from argv
- *   2. Resolve auth (~/. gstack/openai.json → OPENAI_API_KEY → guided setup)
+ *   2. Resolve auth (~/.gstack/gemini.json → GEMINI_API_KEY → guided setup)
  *   3. Execute command (API call → write PNG/HTML)
  *   4. Print result JSON to stdout
  */
@@ -60,7 +60,7 @@ function printUsage(): void {
     console.log(`  ${name.padEnd(12)} ${info.description}`);
     console.log(`  ${"".padEnd(12)} ${info.usage}`);
   }
-  console.log("\nAuth: ~/.gstack/openai.json or OPENAI_API_KEY env var");
+  console.log("\nAuth: ~/.gstack/gemini.json or GEMINI_API_KEY env var");
   console.log("Setup: $D setup");
 }
 
@@ -69,9 +69,8 @@ async function runSetup(): Promise<void> {
   if (existing) {
     console.log("Existing API key found. Running smoke test...");
   } else {
-    console.log("No API key found. Please enter your OpenAI API key.");
-    console.log("Get one at: https://platform.openai.com/api-keys");
-    console.log("(Needs image generation permissions)\n");
+    console.log("No API key found. Please enter your Gemini API key.");
+    console.log("Get one at: https://aistudio.google.com/apikey\n");
 
     // Read from stdin
     process.stdout.write("API key: ");
@@ -80,13 +79,13 @@ async function runSetup(): Promise<void> {
     reader.releaseLock();
     const key = new TextDecoder().decode(value).trim();
 
-    if (!key || !key.startsWith("sk-")) {
-      console.error("Invalid key. Must start with 'sk-'.");
+    if (!key) {
+      console.error("Invalid key.");
       process.exit(1);
     }
 
     saveApiKey(key);
-    console.log("Key saved to ~/.gstack/openai.json (0600 permissions).");
+    console.log("Key saved to ~/.gstack/gemini.json (0600 permissions).");
   }
 
   // Smoke test
