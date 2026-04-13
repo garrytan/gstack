@@ -22,6 +22,7 @@ export function createRicoRuntime(input: {
     db: store.db,
     slackClient,
     maxActiveProjects: config.maxActiveProjects,
+    artifactRoot: config.artifactDir,
     captainExecutor:
       input.captainExecutor
       ?? (input.slackClient

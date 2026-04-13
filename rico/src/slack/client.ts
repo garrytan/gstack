@@ -1,6 +1,7 @@
+import type { SlackExternalUploadClient } from "./files";
 import type { SlackMessageClient } from "./publish";
 
-export function createSlackWebClient(token: string): SlackMessageClient {
+export function createSlackWebClient(token: string): SlackMessageClient & SlackExternalUploadClient {
   async function slackApiJson<T>(
     method: string,
     params: Record<string, string>,
@@ -98,6 +99,47 @@ export function createSlackWebClient(token: string): SlackMessageClient {
           };
         }
       }
+    },
+    async getUploadURLExternal(input) {
+      const body = await slackApiJson<{
+        ok: boolean;
+        upload_url?: string;
+        file_id?: string;
+        error?: string;
+      }>("files.getUploadURLExternal", {
+        filename: input.filename,
+        length: String(input.length),
+      });
+      if (!body.ok || !body.upload_url || !body.file_id) {
+        throw new Error(`Slack files.getUploadURLExternal failed: ${body.error ?? "unknown_error"}`);
+      }
+      return {
+        upload_url: body.upload_url,
+        file_id: body.file_id,
+      };
+    },
+    async uploadBinary(input) {
+      const response = await fetch(input.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/octet-stream",
+        },
+        body: input.content,
+      });
+      if (!response.ok) {
+        throw new Error(`Slack upload URL rejected binary with HTTP ${response.status}`);
+      }
+      return await response.text();
+    },
+    async completeUploadExternal(input) {
+      return await slackApiJson<{
+        ok: boolean;
+        files?: Array<{ id: string; title?: string; permalink?: string }>;
+      }>("files.completeUploadExternal", {
+        files: JSON.stringify(input.files),
+        ...(input.channel_id ? { channel_id: input.channel_id } : {}),
+        ...(input.thread_ts ? { thread_ts: input.thread_ts } : {}),
+      });
     },
   };
 }

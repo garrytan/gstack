@@ -187,7 +187,7 @@
 - QA와 Customer Voice가 근거 없이 `blocking`을 남길 수 없다
 - planner/designer/customer-voice write-mode가 문서/artifact 범위로 제한된다
 
-## 현재 남은 후속 과제
+## 이번 라운드로 닫힌 항목
 
 이번 하드닝 라운드로 아래는 닫혔다.
 
@@ -197,9 +197,14 @@
 - write-scope / artifact contract enforcement
 - `approved -> released -> archived` 운영 상태
 - stale state repair
+- QA evidence artifact mirror + Slack upload
+- Governor audit trail
+- command-audited capability enforcement
 
-아직 다음 라운드에서 다룰 만한 항목은 아래 정도다.
+## 남은 후속 과제
 
-- QA evidence를 더 구조화된 artifact schema로 고정
-- Governor 감사 로그를 별도 이벤트 스트림으로 분리할지 결정
-- specialist capability enforcement를 prompt 수준이 아니라 더 강한 런타임 capability gate로 올릴지 결정
+다음 라운드에서 다룰 만한 항목은 아래 정도다.
+
+- role별 OS-level sandbox 또는 더 강한 capability isolation
+- richer QA/browser evidence artifact
+- Governor manual reroute / force take-over

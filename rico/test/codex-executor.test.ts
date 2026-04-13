@@ -374,6 +374,61 @@ test("normalizeSpecialistResult blocks QA product code writes outside evidence s
   expect(normalized.summary).toContain("QA 역할");
 });
 
+test("normalizeSpecialistResult blocks disallowed deploy capabilities from executed commands", async () => {
+  const normalized = await normalizeSpecialistResult({
+    role: "backend",
+    executionMode: "write",
+    originalText: '{"summary":"API 보강을 마쳤다고 보고했습니다.","impact":"info","artifacts":[],"rawFindings":[],"executionMode":"write","changedFiles":["src/api/projects.ts"],"verificationNotes":["bun test src/api/projects.test.ts"]}',
+    workspacePath: null,
+    observedChangedFiles: ["src/api/projects.ts"],
+    executedCommands: ["vercel deploy --prod"],
+    playbookMemory: {
+      allowed_tools_json: JSON.stringify(["repo-read", "project-memory", "run-memory", "verification-log"]),
+      disallowed_tools_json: JSON.stringify(["external-message", "data-delete", "deploy", "destructive-write"]),
+    },
+    parsed: {
+      summary: "API 보강을 마쳤다고 보고했습니다.",
+      impact: "info",
+      artifacts: [],
+      rawFindings: [],
+      executionMode: "write",
+      changedFiles: ["src/api/projects.ts"],
+      verificationNotes: ["bun test src/api/projects.test.ts"],
+    },
+  });
+
+  expect(normalized.impact).toBe("blocking");
+  expect(normalized.summary).toContain("playbook이 금지한 실행");
+  expect(normalized.rawFindings.at(-1)).toContain("deploy");
+});
+
+test("normalizeSpecialistResult keeps allowed verification commands for backend specialists", async () => {
+  const normalized = await normalizeSpecialistResult({
+    role: "backend",
+    executionMode: "write",
+    originalText: '{"summary":"API 보강을 마쳤다고 보고했습니다.","impact":"info","artifacts":[],"rawFindings":[],"executionMode":"write","changedFiles":["src/api/projects.ts"],"verificationNotes":["bun test src/api/projects.test.ts"]}',
+    workspacePath: null,
+    observedChangedFiles: ["src/api/projects.ts"],
+    executedCommands: ["bun test src/api/projects.test.ts"],
+    playbookMemory: {
+      allowed_tools_json: JSON.stringify(["repo-read", "project-memory", "run-memory", "verification-log"]),
+      disallowed_tools_json: JSON.stringify(["external-message", "data-delete", "deploy", "destructive-write"]),
+    },
+    parsed: {
+      summary: "API 보강을 마쳤다고 보고했습니다.",
+      impact: "info",
+      artifacts: [],
+      rawFindings: [],
+      executionMode: "write",
+      changedFiles: ["src/api/projects.ts"],
+      verificationNotes: ["bun test src/api/projects.test.ts"],
+    },
+  });
+
+  expect(normalized.impact).toBe("info");
+  expect(normalized.rawFindings.join("\n")).not.toContain("capability violation");
+});
+
 test("buildSpecialistPromptForTest injects customer voice persona and simulation context", () => {
   const store = openStore(":memory:");
   const memoryStore = new MemoryStore(store.db);

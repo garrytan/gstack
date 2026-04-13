@@ -21,6 +21,7 @@ export interface CodexSpecialistMeta {
   workspacePath: string | null;
   tokensUsed: number;
   inspectedWorkspace: boolean;
+  executedCommands: string[];
 }
 
 export interface CodexSpecialistExecutorInput {
@@ -232,6 +233,17 @@ function parseJsonStringArray(value: string | undefined) {
     return [];
   }
 }
+
+const GATED_CAPABILITIES = new Set([
+  "browser-check",
+  "verification-log",
+  "schema-migration",
+  "deploy",
+  "external-message",
+  "data-delete",
+  "production-write",
+  "destructive-write",
+]);
 
 function includesAny(text: string, needles: string[]) {
   return needles.some((needle) => text.includes(needle));
@@ -795,6 +807,7 @@ async function runCodexPrompt(input: {
   let agentText = "";
   let tokensUsed = 0;
   let inspectedWorkspace = false;
+  const executedCommands: string[] = [];
 
   for (const line of stdout.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -806,8 +819,14 @@ async function runCodexPrompt(input: {
         if (item.type === "agent_message" && typeof item.text === "string") {
           agentText += `${item.text}\n`;
         }
-        if (item.type === "command_execution" && item.exit_code === 0) {
-          inspectedWorkspace = true;
+        if (item.type === "command_execution") {
+          const command = extractCommandText(item);
+          if (command) {
+            executedCommands.push(command);
+          }
+          if (item.exit_code === 0) {
+            inspectedWorkspace = true;
+          }
         }
       }
       if (event.type === "turn.completed" && event.usage && typeof event.usage === "object") {
@@ -829,7 +848,133 @@ async function runCodexPrompt(input: {
     text: agentText.trim(),
     tokensUsed,
     inspectedWorkspace,
+    executedCommands,
   };
+}
+
+function extractCommandText(item: Record<string, unknown>) {
+  const directCandidates = [
+    item.command,
+    item.command_line,
+    item.cmd,
+    item.commandLine,
+  ];
+  for (const candidate of directCandidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+
+  const objectCandidates = [item.command, item.command_input, item.payload];
+  for (const candidate of objectCandidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const record = candidate as Record<string, unknown>;
+    const nestedStrings = [
+      record.command,
+      record.command_line,
+      record.cmd,
+      record.raw,
+    ];
+    for (const nested of nestedStrings) {
+      if (typeof nested === "string" && nested.trim().length > 0) {
+        return nested.trim();
+      }
+    }
+    if (Array.isArray(record.argv)) {
+      const argv = record.argv.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+      if (argv.length > 0) {
+        return argv.join(" ");
+      }
+    }
+  }
+
+  if (Array.isArray(item.argv)) {
+    const argv = item.argv.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+    if (argv.length > 0) {
+      return argv.join(" ");
+    }
+  }
+
+  return null;
+}
+
+function classifyCommandCapabilities(command: string) {
+  const normalized = command.trim().toLowerCase();
+  const capabilities = new Set<string>();
+
+  if (/(^|\s)(git\s+(status|diff|show|log)|rg\b|grep\b|sed\s+-n|cat\b|ls\b|find\b)/.test(normalized)) {
+    capabilities.add("repo-read");
+  }
+  if (/(playwright|chromium|browser)/.test(normalized)) {
+    capabilities.add("browser-check");
+  }
+  if (/(^|\s)((bun|npm|pnpm|yarn)\s+(test|run test)|vitest\b|jest\b|pytest\b|playwright\s+test|cypress\b)/.test(normalized)) {
+    capabilities.add("verification-log");
+  }
+  if (/(vercel\s+deploy|flyctl\s+deploy|kubectl\s+(apply|rollout|set image)|netlify\s+deploy|render\s+deploy|railway\s+up|serverless\s+deploy)/.test(normalized)) {
+    capabilities.add("deploy");
+  }
+  if (/(--prod\b|\bproduction\b|\bprod\b)/.test(normalized) && /(vercel|flyctl|kubectl|netlify|render|railway|serverless)/.test(normalized)) {
+    capabilities.add("production-write");
+  }
+  if (/(rm\s+-rf|git\s+reset\s+--hard|git\s+checkout\s+--|drop\s+table|truncate\s+table|delete\s+from|supabase\s+db\s+reset)/.test(normalized)) {
+    capabilities.add("destructive-write");
+  }
+  if (/(drop\s+table|truncate\s+table|delete\s+from|supabase\s+db\s+reset)/.test(normalized)) {
+    capabilities.add("data-delete");
+  }
+  if (/(prisma\s+migrate|drizzle-kit|alembic|knex\s+migrate|supabase\s+(migration|db\s+push)|db\s+push)/.test(normalized)) {
+    capabilities.add("schema-migration");
+  }
+  if (/(hooks\.slack\.com|sendgrid|resend|mailgun|twilio)/.test(normalized)) {
+    capabilities.add("external-message");
+  }
+
+  return [...capabilities];
+}
+
+function capabilityViolationSummary(role: RoleName) {
+  if (role === "planner") {
+    return "기획 역할에서 playbook이 금지한 실행이 감지돼 이번 라운드는 문서/범위 정리로만 제한해야 해요.";
+  }
+  if (role === "designer") {
+    return "디자인 역할에서 playbook 범위를 벗어난 실행이 감지돼 이번 라운드는 UX/copy 검토와 artifact 작성으로만 제한해야 해요.";
+  }
+  if (role === "frontend") {
+    return "프론트엔드 역할에서 playbook이 금지한 실행이 감지돼 이번 라운드는 UI 구현과 허용된 검증 범위로만 제한해야 해요.";
+  }
+  if (role === "backend") {
+    return "백엔드 역할에서 playbook이 금지한 실행이 감지돼 이번 라운드는 서버 코드 수정과 허용된 검증 범위로만 제한해야 해요.";
+  }
+  if (role === "qa") {
+    return "QA 역할에서 playbook이 금지한 실행이 감지돼 이번 라운드는 검증과 evidence 수집 범위로만 제한해야 해요.";
+  }
+  return "고객 관점 역할에서 playbook이 금지한 실행이 감지돼 이번 라운드는 persona/simulation evidence 범위로만 제한해야 해요.";
+}
+
+function findCapabilityViolations(input: {
+  playbookMemory: Record<string, string>;
+  executedCommands: string[];
+}) {
+  const allowed = new Set(parseJsonStringArray(input.playbookMemory.allowed_tools_json));
+  const disallowed = new Set(parseJsonStringArray(input.playbookMemory.disallowed_tools_json));
+  const capabilityToCommands = new Map<string, string[]>();
+
+  for (const command of input.executedCommands) {
+    for (const capability of classifyCommandCapabilities(command)) {
+      capabilityToCommands.set(capability, [...(capabilityToCommands.get(capability) ?? []), command]);
+    }
+  }
+
+  const capabilityViolations = [...capabilityToCommands.keys()].filter((capability) =>
+    disallowed.has(capability)
+    || (GATED_CAPABILITIES.has(capability) && !allowed.has(capability))
+  );
+
+  return capabilityViolations.map((capability) => ({
+    capability,
+    commands: capabilityToCommands.get(capability) ?? [],
+  }));
 }
 
 export function parseCodexSpecialistResponse(text: string) {
@@ -1003,6 +1148,8 @@ export async function normalizeSpecialistResult(input: {
   originalText: string;
   workspacePath: string | null;
   observedChangedFiles?: string[] | null;
+  executedCommands?: string[];
+  playbookMemory?: Record<string, string>;
   timeoutMs?: number;
 }) {
   let parsed = input.parsed;
@@ -1087,6 +1234,30 @@ export async function normalizeSpecialistResult(input: {
     }
   }
 
+  if (input.executionMode === "write" && input.playbookMemory && (input.executedCommands?.length ?? 0) > 0) {
+    const capabilityViolations = findCapabilityViolations({
+      playbookMemory: input.playbookMemory,
+      executedCommands: input.executedCommands ?? [],
+    });
+    if (capabilityViolations.length > 0) {
+      parsed = {
+        ...parsed,
+        impact: "blocking",
+        summary: capabilityViolationSummary(input.role),
+        rawFindings: [
+          ...parsed.rawFindings,
+          ...capabilityViolations.map((violation) =>
+            `capability violation: ${violation.capability} via ${violation.commands.join(" | ")}`
+          ),
+        ],
+        verificationNotes: [
+          ...parsed.verificationNotes,
+          `runtime contract blocked disallowed capabilities: ${capabilityViolations.map((violation) => violation.capability).join(", ")}`,
+        ],
+      };
+    }
+  }
+
   return parsed;
 }
 
@@ -1139,6 +1310,7 @@ export function createCodexSpecialistExecutor(input: {
           workspacePath,
           tokensUsed: 0,
           inspectedWorkspace: false,
+          executedCommands: [],
         },
       };
     }
@@ -1181,6 +1353,9 @@ export function createCodexSpecialistExecutor(input: {
           : null
       )
       : null;
+    const playbookMemory = specialist.memoryStore
+      ? pruneMemory(specialist.memoryStore.getPlaybookMemory(specialist.role))
+      : {};
     const parsed = sanitizeCodexSpecialistResponse({
       parsed: await normalizeSpecialistResult({
         role: specialist.role,
@@ -1188,6 +1363,8 @@ export function createCodexSpecialistExecutor(input: {
         originalText: response.text,
         workspacePath,
         observedChangedFiles,
+        executedCommands: response.executedCommands,
+        playbookMemory,
         timeoutMs: input.timeoutMs,
         parsed: await parseOrRepairCodexSpecialistResponse({
           text: response.text,
@@ -1202,9 +1379,6 @@ export function createCodexSpecialistExecutor(input: {
       }),
       inspectedWorkspace: response.inspectedWorkspace,
     });
-    const playbookMemory = specialist.memoryStore
-      ? pruneMemory(specialist.memoryStore.getPlaybookMemory(specialist.role))
-      : {};
     const mergedChangedFiles = executionMode === "write"
       ? (
         Array.isArray(observedChangedFiles)
@@ -1239,6 +1413,7 @@ export function createCodexSpecialistExecutor(input: {
         workspacePath,
         tokensUsed: response.tokensUsed,
         inspectedWorkspace: response.inspectedWorkspace,
+        executedCommands: response.executedCommands,
       },
     };
   };

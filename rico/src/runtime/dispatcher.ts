@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+import { renderTextArtifact } from "../artifacts/render";
+import { writeArtifact } from "../artifacts/store";
 import { MemoryStore } from "../memory/store";
 import { evaluateAction } from "../orchestrator/approvals";
 import { Captain } from "../orchestrator/captain";
@@ -16,7 +18,7 @@ import { Governor } from "../orchestrator/governor";
 import { runSpecialist, type SpecialistExecutor } from "../orchestrator/specialists";
 import { ensureDefaultRolePlaybooks } from "../roles/playbooks";
 import type { SpecialistResult } from "../roles/contracts";
-import { buildApprovalRequest, type SlackMessageClient } from "../slack/publish";
+import { buildApprovalRequest, publishImpactUpdate, type SlackMessageClient } from "../slack/publish";
 import {
   buildCaptainFinalText,
   buildCaptainStartText,
@@ -26,6 +28,7 @@ import {
 } from "../slack/message-style";
 import type { LoadedRunContext } from "./job-runner";
 import { createRepositories } from "../state/repositories";
+import type { SlackExternalUploadClient } from "../slack/files";
 
 interface GoalIntakePayload {
   goalId: string;
@@ -152,6 +155,67 @@ function shouldPostSpecialistMessage(result: SpecialistResult) {
   return false;
 }
 
+function shouldPublishArtifact(result: SpecialistResult) {
+  if (result.role === "qa") return true;
+  if (result.role === "customer-voice" && ((result.verificationNotes?.length ?? 0) > 0 || result.personaLabel)) {
+    return true;
+  }
+  if (result.executionMode === "write") return true;
+  return false;
+}
+
+function supportsArtifactUpload(
+  client: SlackMessageClient,
+): client is SlackMessageClient & SlackExternalUploadClient {
+  return (
+    typeof (client as Partial<SlackExternalUploadClient>).getUploadURLExternal === "function"
+    && typeof (client as Partial<SlackExternalUploadClient>).uploadBinary === "function"
+    && typeof (client as Partial<SlackExternalUploadClient>).completeUploadExternal === "function"
+  );
+}
+
+function buildSpecialistArtifactBody(result: SpecialistResult) {
+  const lines = [
+    `역할: ${result.role}`,
+    `영향: ${result.impact}`,
+    `실행 모드: ${result.executionMode ?? "analyze"}`,
+  ];
+
+  if (result.personaLabel) {
+    lines.push(`페르소나: ${result.personaLabel}`);
+  }
+
+  lines.push("");
+  lines.push("요약");
+  lines.push(result.summary);
+
+  if ((result.changedFiles?.length ?? 0) > 0) {
+    lines.push("");
+    lines.push("변경 파일");
+    for (const file of result.changedFiles ?? []) {
+      lines.push(`- ${file}`);
+    }
+  }
+
+  if ((result.verificationNotes?.length ?? 0) > 0) {
+    lines.push("");
+    lines.push("검증");
+    for (const note of result.verificationNotes ?? []) {
+      lines.push(`- ${note}`);
+    }
+  }
+
+  if ((result.rawFindings?.length ?? 0) > 0) {
+    lines.push("");
+    lines.push("근거");
+    for (const finding of result.rawFindings ?? []) {
+      lines.push(`- ${finding}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 function shouldExposeCustomerVoicePersona(input: {
   decision?: ReturnType<typeof decideCustomerVoiceDelegation>;
   personaCount: number;
@@ -233,6 +297,7 @@ export function createRuntimeDispatcher(input: {
   db: Database;
   slackClient: SlackMessageClient;
   maxActiveProjects: number;
+  artifactRoot?: string;
   specialistExecutor?: SpecialistExecutor;
   captainExecutor?: (input: {
     projectId: string;
@@ -413,21 +478,62 @@ export function createRuntimeDispatcher(input: {
         for (const result of results) {
           specialistResults.push(result);
           if (shouldPostSpecialistMessage(result)) {
-            const message = await input.slackClient.postMessage({
-              channel: portfolio.projectChannelId,
-              thread_ts: projectThreadTs,
-              text: buildImpactNarration({
+            if (
+              input.artifactRoot
+              && shouldPublishArtifact(result)
+              && supportsArtifactUpload(input.slackClient)
+            ) {
+              const artifactTitle = result.artifacts[0]?.title ?? `${result.role}-report.md`;
+              const rendered = renderTextArtifact({
+                fileName: artifactTitle,
+                title: artifactTitle,
+                body: buildSpecialistArtifactBody(result),
+                format: artifactTitle.endsWith(".json") ? "json" : "md",
+              });
+              const stored = writeArtifact({
+                root: input.artifactRoot,
+                projectId: payload.projectId,
+                goalId: payload.goalId,
+                fileName: rendered.fileName,
+                content: rendered.content,
+              });
+              const published = await publishImpactUpdate({
+                client: input.slackClient,
+                channelId: portfolio.projectChannelId,
+                threadTs: projectThreadTs,
                 role: result.role,
                 summary: result.summary,
-                level: result.impact,
-                changedFiles: result.changedFiles,
-                verificationNotes: result.verificationNotes,
-                executionMode: result.executionMode,
-                personaLabel: result.personaLabel,
-              }),
-            });
-            if (!message.ok) {
-              throw new Error(`Slack rejected ${result.role} impact message`);
+                impact: result.impact,
+                artifact: {
+                  fileName: rendered.fileName,
+                  content: rendered.content,
+                  title: artifactTitle,
+                },
+              });
+              repositories.artifacts.create({
+                id: `artifact-${context.run.id}-${result.role}-${Date.now()}`,
+                goalId: payload.goalId,
+                kind: result.role,
+                localPath: stored.path,
+                slackFileId: published.uploaded.fileId ?? null,
+              });
+            } else {
+              const message = await input.slackClient.postMessage({
+                channel: portfolio.projectChannelId,
+                thread_ts: projectThreadTs,
+                text: buildImpactNarration({
+                  role: result.role,
+                  summary: result.summary,
+                  level: result.impact,
+                  changedFiles: result.changedFiles,
+                  verificationNotes: result.verificationNotes,
+                  executionMode: result.executionMode,
+                  personaLabel: result.personaLabel,
+                }),
+              });
+              if (!message.ok) {
+                throw new Error(`Slack rejected ${result.role} impact message`);
+              }
             }
           }
         }

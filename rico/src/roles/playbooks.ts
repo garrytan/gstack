@@ -61,7 +61,7 @@ const DEFAULT_ROLE_PLAYBOOKS: Record<
     artifactTemplate: "frontend-slice.md",
     whenToUse: "클라이언트 동작, 화면 구현, 상호작용 리스크를 볼 때",
     skillPack: ["component-trace", "state-transition-check", "ui-risk-review"],
-    allowedTools: ["repo-read", "artifact-read", "browser-check"],
+    allowedTools: ["repo-read", "artifact-read", "browser-check", "verification-log"],
     disallowedTools: ["deploy", "destructive-write"],
   },
   backend: {
@@ -74,8 +74,8 @@ const DEFAULT_ROLE_PLAYBOOKS: Record<
     artifactTemplate: "backend-slice.md",
     whenToUse: "저장소, 원격, API, auth, 배포, 환경설정을 볼 때",
     skillPack: ["api-contract-review", "auth-check", "integration-risk-review"],
-    allowedTools: ["repo-read", "project-memory", "run-memory"],
-    disallowedTools: ["external-message", "data-delete"],
+    allowedTools: ["repo-read", "project-memory", "run-memory", "verification-log"],
+    disallowedTools: ["external-message", "data-delete", "deploy", "destructive-write"],
   },
   qa: {
     charter: "완료 선언을 믿지 않고 회귀, 차단 조건, 재현 경로를 기준으로 릴리즈 가능성을 본다.",
