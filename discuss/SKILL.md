@@ -362,4 +362,6 @@ Discussion saved:
 Related:
   Report:  research/reports/<slug>.md
   Results: research/results/<slug>/<timestamp>/
+
+Next step: /peer-review <slug>
 ```
