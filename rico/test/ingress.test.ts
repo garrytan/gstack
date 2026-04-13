@@ -621,3 +621,204 @@ test("processSlackPayload summarizes queued and pending approval projects in ai-
   expect(posted[1]?.text).toContain("#sherpalabs");
   expect(posted[1]?.text).toContain("deploy");
 });
+
+test("processSlackPayload marks the latest approved deployment goal as released from ai-ops", async () => {
+  const store = openStore(":memory:");
+  store.repositories.projects.create({
+    id: "sherpalabs",
+    slackChannelId: "C_SHERPALABS",
+  });
+  store.repositories.goals.create({
+    id: "goal-release",
+    projectId: "sherpalabs",
+    initiativeId: null,
+    title: "메인 랜딩 배포",
+    state: "approved",
+  });
+  store.repositories.stateTransitions.append({
+    id: "transition-goal-release-approved",
+    goalId: "goal-release",
+    fromState: "awaiting_human_approval",
+    toState: "approved",
+    createdAt: "2026-04-14T03:00:00.000Z",
+    actor: "captain",
+  });
+
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      slackClient: {
+        async postMessage(input) {
+          posted.push(input);
+          return { ok: true, ts: "1710000000.000800" };
+        },
+      },
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_TOTAL",
+        user: "U_TONY",
+        text: "배포 완료 sherpalabs",
+        ts: "1712900000.001500",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: false, handled: true });
+  expect(store.repositories.goals.get("goal-release")?.state).toBe("released");
+  expect(
+    store.repositories.stateTransitions.listByGoal("goal-release").some((transition) =>
+      transition.fromState === "approved"
+      && transition.toState === "released"
+      && transition.actor === "governor"
+    ),
+  ).toBe(true);
+  expect(posted[0]?.text).toContain("총괄 릴리즈");
+  expect(posted[0]?.text).toContain("#sherpalabs");
+});
+
+test("processSlackPayload archives the latest released goal from ai-ops", async () => {
+  const store = openStore(":memory:");
+  store.repositories.projects.create({
+    id: "sherpalabs",
+    slackChannelId: "C_SHERPALABS",
+  });
+  store.repositories.goals.create({
+    id: "goal-archive",
+    projectId: "sherpalabs",
+    initiativeId: null,
+    title: "배포 후 정리",
+    state: "released",
+  });
+  store.repositories.stateTransitions.append({
+    id: "transition-goal-archive-released",
+    goalId: "goal-archive",
+    fromState: "approved",
+    toState: "released",
+    createdAt: "2026-04-14T03:10:00.000Z",
+    actor: "governor",
+  });
+
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      slackClient: {
+        async postMessage(input) {
+          posted.push(input);
+          return { ok: true, ts: "1710000000.000810" };
+        },
+      },
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_TOTAL",
+        user: "U_TONY",
+        text: "보관 sherpalabs",
+        ts: "1712900000.001600",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: false, handled: true });
+  expect(store.repositories.goals.get("goal-archive")?.state).toBe("archived");
+  expect(
+    store.repositories.stateTransitions.listByGoal("goal-archive").some((transition) =>
+      transition.fromState === "released"
+      && transition.toState === "archived"
+      && transition.actor === "governor"
+    ),
+  ).toBe(true);
+  expect(posted[0]?.text).toContain("총괄 보관");
+  expect(posted[0]?.text).toContain("#sherpalabs");
+});
+
+test("processSlackPayload repairs stale in-progress goals from ai-ops", async () => {
+  const store = openStore(":memory:");
+  store.repositories.projects.create({
+    id: "sherpalabs",
+    slackChannelId: "C_SHERPALABS",
+  });
+  store.repositories.goals.create({
+    id: "goal-stale",
+    projectId: "sherpalabs",
+    initiativeId: null,
+    title: "스테일 상태 복구",
+    state: "in_progress",
+  });
+  store.repositories.runs.create({
+    id: "run-stale",
+    goalId: "goal-stale",
+    status: "succeeded",
+    queuedAt: "2026-04-14T03:20:00.000Z",
+    startedAt: "2026-04-14T03:21:00.000Z",
+    finishedAt: "2026-04-14T03:25:00.000Z",
+  });
+  store.repositories.tasks.create({
+    id: "run-stale:task-1",
+    goalId: "goal-stale",
+    runId: "run-stale",
+    role: "backend",
+    state: "succeeded",
+    payloadJson: "{\"title\":\"backend\"}",
+    attemptCount: 1,
+    startedAt: "2026-04-14T03:21:00.000Z",
+    finishedAt: "2026-04-14T03:22:00.000Z",
+  });
+  store.repositories.tasks.create({
+    id: "run-stale:task-2",
+    goalId: "goal-stale",
+    runId: "run-stale",
+    role: "qa",
+    state: "succeeded",
+    payloadJson: "{\"title\":\"qa\"}",
+    attemptCount: 1,
+    startedAt: "2026-04-14T03:23:00.000Z",
+    finishedAt: "2026-04-14T03:25:00.000Z",
+  });
+
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      slackClient: {
+        async postMessage(input) {
+          posted.push(input);
+          return { ok: true, ts: "1710000000.000820" };
+        },
+      },
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_TOTAL",
+        user: "U_TONY",
+        text: "복구 sherpalabs",
+        ts: "1712900000.001700",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: false, handled: true });
+  expect(store.repositories.goals.get("goal-stale")?.state).toBe("approved");
+  expect(store.repositories.stateTransitions.listByGoal("goal-stale").at(-1)).toMatchObject({
+    fromState: "in_progress",
+    toState: "approved",
+    actor: "repair-script",
+  });
+  expect(posted[0]?.text).toContain("총괄 복구");
+  expect(posted[0]?.text).toContain("#sherpalabs");
+  expect(posted[0]?.text).toContain("1건");
+});

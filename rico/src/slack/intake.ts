@@ -12,12 +12,18 @@ import {
   parseCustomerVoiceCommand,
 } from "./customer-voice-commands";
 import {
+  archiveProjectGoal,
   buildGovernorApprovalBacklogText,
+  buildGovernorArchiveText,
   buildGovernorPolicyChangeText,
   buildGovernorQueueText,
+  buildGovernorReleaseText,
+  buildGovernorRepairText,
   buildGovernorSnapshot,
   buildGovernorStatusSnapshotText,
+  markProjectGoalReleased,
   parseGovernorCommand,
+  repairProjectGoals,
 } from "./governor-commands";
 import {
   buildAiOpsGreetingText,
@@ -497,6 +503,53 @@ export async function maybeBuildConversationReply(
           channelId,
           threadTs,
           text: `총괄: #${governorCommand.projectId} 프로젝트를 찾지 못했어요.`,
+        } satisfies SlackConversationReply;
+      }
+
+      if (governorCommand.type === "mark_released") {
+        const released = markProjectGoalReleased({
+          repositories,
+          projectId: project.id,
+        });
+        return {
+          channelId,
+          threadTs,
+          text: buildGovernorReleaseText({
+            projectId: project.id,
+            changed: released?.changed === true,
+            goalTitle: "goalTitle" in (released ?? {}) ? released?.goalTitle : undefined,
+          }),
+        } satisfies SlackConversationReply;
+      }
+
+      if (governorCommand.type === "archive") {
+        const archived = archiveProjectGoal({
+          repositories,
+          projectId: project.id,
+        });
+        return {
+          channelId,
+          threadTs,
+          text: buildGovernorArchiveText({
+            projectId: project.id,
+            changed: archived?.changed === true,
+            goalTitle: "goalTitle" in (archived ?? {}) ? archived?.goalTitle : undefined,
+          }),
+        } satisfies SlackConversationReply;
+      }
+
+      if (governorCommand.type === "repair") {
+        const repaired = repairProjectGoals({
+          repositories,
+          projectId: project.id,
+        });
+        return {
+          channelId,
+          threadTs,
+          text: buildGovernorRepairText({
+            projectId: project.id,
+            repaired: repaired.repaired,
+          }),
         } satisfies SlackConversationReply;
       }
 

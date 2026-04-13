@@ -7,7 +7,10 @@ export type GovernorCommand =
   | { type: "approval_backlog" }
   | { type: "pause"; projectId: string }
   | { type: "resume"; projectId: string }
-  | { type: "reprioritize"; projectId: string; priority: number };
+  | { type: "reprioritize"; projectId: string; priority: number }
+  | { type: "mark_released"; projectId: string }
+  | { type: "archive"; projectId: string }
+  | { type: "repair"; projectId: string };
 
 export interface GovernorProjectSnapshot {
   projectId: string;
@@ -73,8 +76,180 @@ export function parseGovernorCommand(text: string): GovernorCommand | null {
       priority: Number(reprioritizeMatch[2]),
     };
   }
+  const releaseMatch = normalized.match(/^배포\s*완료\s+(.+)$/);
+  if (releaseMatch) {
+    return { type: "mark_released", projectId: normalizeProjectKey(releaseMatch[1] ?? "") };
+  }
+  const archiveMatch = normalized.match(/^보관\s+(.+)$/);
+  if (archiveMatch) {
+    return { type: "archive", projectId: normalizeProjectKey(archiveMatch[1] ?? "") };
+  }
+  const repairMatch = normalized.match(/^복구\s+(.+)$/);
+  if (repairMatch) {
+    return { type: "repair", projectId: normalizeProjectKey(repairMatch[1] ?? "") };
+  }
 
   return null;
+}
+
+function latestGoalTimestamp(
+  repositories: ReturnType<typeof createRepositories>,
+  goalId: string,
+) {
+  const transitions = repositories.stateTransitions.listByGoal(goalId);
+  const latestTransition = transitions.at(-1)?.createdAt ?? "";
+  const latestRunTime = repositories.runs
+    .listByGoal(goalId)
+    .map((run) => run.finishedAt ?? run.startedAt ?? run.queuedAt ?? "")
+    .sort()
+    .at(-1) ?? "";
+  return latestTransition > latestRunTime ? latestTransition : latestRunTime;
+}
+
+function pickLatestGoalForProject(
+  repositories: ReturnType<typeof createRepositories>,
+  projectId: string,
+) {
+  const goals = repositories.goals.listByProject(projectId);
+  return goals
+    .sort((left, right) => {
+      const leftTime = latestGoalTimestamp(repositories, left.id);
+      const rightTime = latestGoalTimestamp(repositories, right.id);
+      if (leftTime !== rightTime) return rightTime.localeCompare(leftTime);
+      return right.id.localeCompare(left.id);
+    })[0] ?? null;
+}
+
+function appendGoalTransition(input: {
+  repositories: ReturnType<typeof createRepositories>;
+  goalId: string;
+  fromState: string;
+  toState: string;
+  actor: string;
+}) {
+  input.repositories.stateTransitions.append({
+    id: `transition-${input.goalId}-${input.toState}-${Date.now()}`,
+    goalId: input.goalId,
+    fromState: input.fromState,
+    toState: input.toState,
+    createdAt: new Date().toISOString(),
+    actor: input.actor,
+  });
+}
+
+function repairGoalState(input: {
+  repositories: ReturnType<typeof createRepositories>;
+  goalId: string;
+}) {
+  const goal = input.repositories.goals.get(input.goalId);
+  if (!goal) return null;
+
+  const approvals = input.repositories.approvals
+    .listByGoal(goal.id)
+    .filter((approval) => approval.status === "pending");
+  if (approvals.length > 0 && goal.state !== "awaiting_human_approval") {
+    return "awaiting_human_approval";
+  }
+
+  const snapshot = input.repositories.goals.getCurrentExecutionSnapshot(goal.id);
+  const run = snapshot.run;
+  const tasks = snapshot.tasks;
+  if (!run) return null;
+
+  if (run.status === "running") {
+    return goal.state === "in_progress" ? null : "in_progress";
+  }
+
+  if (run.status === "queued") {
+    return goal.state === "planned" ? null : "planned";
+  }
+
+  if (run.status === "failed") {
+    return goal.state === "blocked" ? null : "blocked";
+  }
+
+  if (run.status === "succeeded") {
+    const qaTask = tasks.find((task) => task.role === "qa");
+    const blockedTask = tasks.find((task) => task.state === "blocked" || task.state === "failed");
+    if (blockedTask) {
+      return goal.state === "qa_failed" || goal.state === "blocked"
+        ? null
+        : blockedTask.role === "qa"
+          ? "qa_failed"
+          : "blocked";
+    }
+    const allSucceeded = tasks.length > 0 && tasks.every((task) => task.state === "succeeded");
+    if (allSucceeded && qaTask) {
+      return goal.state === "approved" ? null : "approved";
+    }
+    if (allSucceeded) {
+      return goal.state === "awaiting_qa" ? null : "awaiting_qa";
+    }
+  }
+
+  return null;
+}
+
+export function markProjectGoalReleased(input: {
+  repositories: ReturnType<typeof createRepositories>;
+  projectId: string;
+}) {
+  const goal = pickLatestGoalForProject(input.repositories, input.projectId);
+  if (!goal) return null;
+  if (goal.state !== "approved") {
+    return { goal, changed: false };
+  }
+  appendGoalTransition({
+    repositories: input.repositories,
+    goalId: goal.id,
+    fromState: goal.state,
+    toState: "released",
+    actor: "governor",
+  });
+  return { goalId: goal.id, goalTitle: goal.title, changed: true };
+}
+
+export function archiveProjectGoal(input: {
+  repositories: ReturnType<typeof createRepositories>;
+  projectId: string;
+}) {
+  const goal = pickLatestGoalForProject(input.repositories, input.projectId);
+  if (!goal) return null;
+  if (goal.state !== "released" && goal.state !== "approved") {
+    return { goal, changed: false };
+  }
+  appendGoalTransition({
+    repositories: input.repositories,
+    goalId: goal.id,
+    fromState: goal.state,
+    toState: "archived",
+    actor: "governor",
+  });
+  return { goalId: goal.id, goalTitle: goal.title, changed: true };
+}
+
+export function repairProjectGoals(input: {
+  repositories: ReturnType<typeof createRepositories>;
+  projectId: string;
+}) {
+  const goals = input.repositories.goals.listByProject(input.projectId);
+  let repaired = 0;
+  for (const goal of goals) {
+    const repairedState = repairGoalState({
+      repositories: input.repositories,
+      goalId: goal.id,
+    });
+    if (!repairedState || repairedState === goal.state) continue;
+    appendGoalTransition({
+      repositories: input.repositories,
+      goalId: goal.id,
+      fromState: goal.state,
+      toState: repairedState,
+      actor: "repair-script",
+    });
+    repaired += 1;
+  }
+  return { repaired };
 }
 
 export function buildGovernorSnapshot(
@@ -263,4 +438,55 @@ export function buildGovernorPolicyChangeText(input: {
     lines.push("- 영향: 다음 arbitration부터 순서에 반영돼요.");
   }
   return lines.join("\n");
+}
+
+export function buildGovernorReleaseText(input: {
+  projectId: string;
+  changed: boolean;
+  goalTitle?: string;
+}) {
+  const lines = [
+    "🚢 총괄 릴리즈",
+    `- 프로젝트: #${input.projectId}`,
+  ];
+  if (!input.changed) {
+    lines.push("- 상태: 지금 릴리즈로 넘길 수 있는 승인 완료 Goal이 없어요.");
+    return lines.join("\n");
+  }
+  lines.push("- 상태: 배포 완료로 기록했어요.");
+  if (input.goalTitle) {
+    lines.push(`- 목표: ${input.goalTitle}`);
+  }
+  return lines.join("\n");
+}
+
+export function buildGovernorArchiveText(input: {
+  projectId: string;
+  changed: boolean;
+  goalTitle?: string;
+}) {
+  const lines = [
+    "🗄️ 총괄 보관",
+    `- 프로젝트: #${input.projectId}`,
+  ];
+  if (!input.changed) {
+    lines.push("- 상태: 지금 보관할 수 있는 released/approved Goal이 없어요.");
+    return lines.join("\n");
+  }
+  lines.push("- 상태: 최신 Goal을 archived로 옮겼어요.");
+  if (input.goalTitle) {
+    lines.push(`- 목표: ${input.goalTitle}`);
+  }
+  return lines.join("\n");
+}
+
+export function buildGovernorRepairText(input: {
+  projectId: string;
+  repaired: number;
+}) {
+  return [
+    "🛠️ 총괄 복구",
+    `- 프로젝트: #${input.projectId}`,
+    `- 상태: stale state ${input.repaired}건을 복구했어요.`,
+  ].join("\n");
 }
