@@ -227,25 +227,28 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
 
   let proc: any = null;
 
+  // Use Node's child_process.spawn with detached=true for all platforms.
+  // In practice this is more reliable than Bun.spawn(...).unref() for long-lived
+  // headed browser servers that must survive the launcher process exiting.
+  const detachedEnv = JSON.stringify({
+    BROWSE_STATE_FILE: config.stateFile,
+    BROWSE_PARENT_PID: String(process.pid),
+    ...(extraEnv || {}),
+  });
   if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
-    // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
-    // when the CLI exits, the server dies with it. Use Node's child_process.spawn
-    // with { detached: true } instead, which is the gold standard for Windows
-    // process independence. Credit: PR #191 by @fqueiro.
-    const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: String(process.pid), ...(extraEnv || {}) });
     const launcherCode =
       `const{spawn}=require('child_process');` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
       `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
-      `${extraEnvStr})}).unref()`;
+      `${detachedEnv})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
-    // macOS/Linux: Bun.spawn + unref works correctly
-    proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: String(process.pid), ...extraEnv },
-    });
-    proc.unref();
+    const launcherCode =
+      `const{spawn}=require('child_process');` +
+      `spawn('bun',['run',${JSON.stringify(SERVER_SCRIPT)}],` +
+      `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
+      `${detachedEnv})}).unref()`;
+    Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   }
 
   // Wait for server to become healthy.
@@ -261,26 +264,16 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   }
 
   // Server didn't start in time — try to get error details
-  if (proc?.stderr) {
-    // macOS/Linux: read stderr from the spawned process
-    const reader = proc.stderr.getReader();
-    const { value } = await reader.read();
-    if (value) {
-      const errText = new TextDecoder().decode(value);
-      throw new Error(`Server failed to start:\n${errText}`);
+  // Detached launches write startup failures to disk because stderr is
+  // intentionally ignored for process independence.
+  const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+  try {
+    const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
+    if (errorLog) {
+      throw new Error(`Server failed to start:\n${errorLog}`);
     }
-  } else {
-    // Windows: check startup error log (server writes errors to disk since
-    // stderr is unavailable due to stdio: 'ignore' for detachment)
-    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    try {
-      const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
-      if (errorLog) {
-        throw new Error(`Server failed to start:\n${errorLog}`);
-      }
-    } catch (e: any) {
-      if (e.code !== 'ENOENT') throw e;
-    }
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') throw e;
   }
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
@@ -842,11 +835,10 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         BROWSE_PORT: '34567',
         BROWSE_SIDEBAR_CHAT: '1',
       };
-      // If parent explicitly set BROWSE_PARENT_PID=0 (pair-agent disabling
-      // self-termination), pass it through so startServer doesn't override it.
-      if (process.env.BROWSE_PARENT_PID === '0') {
-        serverEnv.BROWSE_PARENT_PID = '0';
-      }
+      // Headed mode must outlive this short-lived `browse connect` CLI process.
+      // If the server monitors this launcher PID, the watchdog will shut the
+      // headed browser down shortly after connect returns.
+      serverEnv.BROWSE_PARENT_PID = '0';
       const newState = await startServer(serverEnv);
 
       // Print connected status
