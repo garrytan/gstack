@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# gstack-timeline-log — append a timeline event to the project timeline
-# Usage: gstack-timeline-log '{"skill":"review","event":"started","branch":"main"}'
+# rstack-timeline-log — append a timeline event to the project timeline
+# Usage: rstack-timeline-log '{"skill":"review","event":"started","branch":"main"}'
 #
 # Session timeline: local-only, never sent anywhere.
 # Required fields: skill, event (started|completed).
@@ -8,9 +8,9 @@
 # Validation failure → skip silently (non-blocking).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-mkdir -p "$GSTACK_HOME/projects/$SLUG"
+eval "$("$SCRIPT_DIR/rstack-slug" 2>/dev/null)"
+RSTACK_HOME="${RSTACK_HOME:-$HOME/.research-stack}"
+mkdir -p "$RSTACK_HOME/projects/$SLUG"
 
 INPUT="$1"
 
@@ -31,4 +31,4 @@ if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); 
   " 2>/dev/null) || true
 fi
 
-echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
+echo "$INPUT" >> "$RSTACK_HOME/projects/$SLUG/timeline.jsonl"

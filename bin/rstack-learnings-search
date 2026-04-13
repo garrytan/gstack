@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# gstack-learnings-search — read and filter project learnings
-# Usage: gstack-learnings-search [--type TYPE] [--query KEYWORD] [--limit N] [--cross-project]
+# rstack-learnings-search — read and filter project learnings
+# Usage: rstack-learnings-search [--type TYPE] [--query KEYWORD] [--limit N] [--cross-project]
 #
-# Reads ~/.gstack/projects/$SLUG/learnings.jsonl, applies confidence decay,
+# Reads ~/.research-stack/projects/$SLUG/learnings.jsonl, applies confidence decay,
 # resolves duplicates (latest winner per key+type), and outputs formatted text.
 # Exit 0 silently if no learnings file exists.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+eval "$("$SCRIPT_DIR/rstack-slug" 2>/dev/null)"
+RSTACK_HOME="${RSTACK_HOME:-$HOME/.research-stack}"
 
 TYPE=""
 QUERY=""
@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-LEARNINGS_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+LEARNINGS_FILE="$RSTACK_HOME/projects/$SLUG/learnings.jsonl"
 
 # Collect all JSONL files to search
 FILES=()
@@ -33,7 +33,7 @@ FILES=()
 
 if [ "$CROSS_PROJECT" = true ]; then
   # Add other projects' learnings (max 5, sorted by mtime)
-  for f in $(find "$GSTACK_HOME/projects" -name "learnings.jsonl" -not -path "*/$SLUG/*" 2>/dev/null | head -5); do
+  for f in $(find "$RSTACK_HOME/projects" -name "learnings.jsonl" -not -path "*/$SLUG/*" 2>/dev/null | head -5); do
     FILES+=("$f")
   done
 fi

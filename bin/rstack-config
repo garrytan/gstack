@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# rstack-config — read/write ~/.research-stack/config.yaml
+#
+# Usage:
+#   rstack-config get <key>          — read a config value
+#   rstack-config set <key> <value>  — write a config value
+#   rstack-config list               — show all config
+#
+# Env overrides (for testing):
+#   RSTACK_STATE_DIR  — override ~/.research-stack state directory
+set -euo pipefail
+
+STATE_DIR="${RSTACK_STATE_DIR:-$HOME/.research-stack}"
+CONFIG_FILE="$STATE_DIR/config.yaml"
+
+# Annotated header for new config files. Written once on first `set`.
+CONFIG_HEADER='# research-stack configuration — edit freely, changes take effect on next skill run.
+#
+# ─── Learnings ───────────────────────────────────────────────────────
+# cross_project_learnings: false  # true = search learnings from other projects
+#
+'
+
+case "${1:-}" in
+  get)
+    KEY="${2:?Usage: rstack-config get <key>}"
+    # Validate key (alphanumeric + underscore only)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
+      echo "Error: key must contain only alphanumeric characters and underscores" >&2
+      exit 1
+    fi
+    grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true
+    ;;
+  set)
+    KEY="${2:?Usage: rstack-config set <key> <value>}"
+    VALUE="${3:?Usage: rstack-config set <key> <value>}"
+    # Validate key (alphanumeric + underscore only)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
+      echo "Error: key must contain only alphanumeric characters and underscores" >&2
+      exit 1
+    fi
+    mkdir -p "$STATE_DIR"
+    # Write annotated header on first creation
+    if [ ! -f "$CONFIG_FILE" ]; then
+      printf '%s' "$CONFIG_HEADER" > "$CONFIG_FILE"
+    fi
+    # Escape sed special chars in value and drop embedded newlines
+    ESC_VALUE="$(printf '%s' "$VALUE" | head -1 | sed 's/[&/\]/\\&/g')"
+    if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
+      # Portable in-place edit (BSD sed uses -i '', GNU sed uses -i without arg)
+      _tmpfile="$(mktemp "${CONFIG_FILE}.XXXXXX")"
+      sed "/^${KEY}:/s/.*/${KEY}: ${ESC_VALUE}/" "$CONFIG_FILE" > "$_tmpfile" && mv "$_tmpfile" "$CONFIG_FILE"
+    else
+      echo "${KEY}: ${VALUE}" >> "$CONFIG_FILE"
+    fi
+    ;;
+  list)
+    cat "$CONFIG_FILE" 2>/dev/null || true
+    ;;
+  *)
+    echo "Usage: rstack-config {get|set|list} [key] [value]"
+    exit 1
+    ;;
+esac
