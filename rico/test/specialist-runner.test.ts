@@ -81,6 +81,41 @@ test("runSpecialist prefers executor output when a specialist executor is provid
   db.db.close();
 });
 
+test("runSpecialist persists backend write-mode metadata from the specialist executor", async () => {
+  const db = openStore(":memory:");
+  const memoryStore = new MemoryStore(db.db);
+
+  const result = await runSpecialist({
+    role: "backend",
+    input: {
+      goalId: "goal-1",
+      projectId: "mypetroutine",
+      runId: "run-backend-write",
+      goalTitle: "회원가입 API 에러 응답 스키마를 수정해줘",
+    },
+    memoryStore,
+    executor: async () => ({
+      role: "backend",
+      summary: "회원가입 API 에러 응답 스키마를 정리했어요.",
+      impact: "info",
+      artifacts: [{ kind: "report", title: "backend-write-report.md" }],
+      rawFindings: ["src/api/signup.ts를 수정했다."],
+      executionMode: "write",
+      changedFiles: ["src/api/signup.ts", "src/routes/signup.ts"],
+      verificationNotes: ["bun test test/signup.test.ts"],
+    }),
+  });
+
+  expect(result.executionMode).toBe("write");
+  expect(result.changedFiles).toEqual(["src/api/signup.ts", "src/routes/signup.ts"]);
+  expect(result.verificationNotes).toEqual(["bun test test/signup.test.ts"]);
+  expect(
+    memoryStore.getRunMemory("run-backend-write")["specialist.backend.result_json"],
+  ).toContain('"executionMode":"write"');
+
+  db.db.close();
+});
+
 test("runSpecialist falls back to heuristic output when the executor fails", async () => {
   const db = openStore(":memory:");
   const memoryStore = new MemoryStore(db.db);

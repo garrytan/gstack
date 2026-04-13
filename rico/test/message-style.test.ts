@@ -54,6 +54,9 @@ test("message style helpers produce human-sounding Slack copy without bracket pr
   );
   expect(buildApprovalText("deploy", "배포 전 최종 확인이 필요합니다.")).toContain("총괄:");
   expect(buildImpactNarration("qa", "온보딩 흐름에 회귀가 보여요.")).toBe("QA: 온보딩 흐름에 회귀가 보여요.");
+  expect(
+    buildImpactNarration("backend", "회원가입 API 응답을 정리했어요.", ["src/api/signup.ts", "src/routes/signup.ts"]),
+  ).toBe("백엔드: 회원가입 API 응답을 정리했어요. 수정 파일: src/api/signup.ts, src/routes/signup.ts");
   expect(buildImpactNarration("customer-voice", "지금 왜 중요한지 조금 더 분명해야 해요.")).toBe(
     "고객 관점: 지금 왜 중요한지 조금 더 분명해야 해요.",
   );

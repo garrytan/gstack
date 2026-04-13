@@ -5,7 +5,7 @@ import { buildRoleContext } from "../memory/context-loader";
 import { loadOpenClawContextArtifacts } from "../memory/openclaw-context";
 import { MemoryStore } from "../memory/store";
 import { resolveProjectWorkspace } from "../orchestrator/project-workspace";
-import type { SpecialistResult } from "../roles/contracts";
+import type { SpecialistExecutionMode, SpecialistResult } from "../roles/contracts";
 import { ROLE_REGISTRY, type RoleName } from "../roles";
 
 export interface CodexSpecialistMeta {
@@ -45,6 +45,44 @@ const ROLE_INSTRUCTIONS: Record<RoleName, string> = {
     "Focus on why the request matters to the user, where the value is unclear, and what outcome should be sharper.",
 };
 
+const BACKEND_ANALYZE_KEYWORDS = [
+  "원격",
+  "git",
+  "repo",
+  "repository",
+  "저장소",
+  "레포",
+  "브랜치",
+  "branch",
+  "상태",
+  "확인",
+  "점검",
+  "분석",
+  "로그",
+  "log",
+];
+
+const BACKEND_WRITE_KEYWORDS = [
+  "구현",
+  "수정",
+  "고쳐",
+  "고치",
+  "추가",
+  "만들",
+  "작성",
+  "반영",
+  "연결해줘",
+  "붙여",
+  "리팩토링",
+  "패치",
+  "fix",
+  "patch",
+  "refactor",
+  "rename",
+  "schema",
+  "migration",
+];
+
 function emptyCodexSandbox() {
   const sandbox = join(tmpdir(), "rico-codex-sandbox");
   mkdirSync(sandbox, { recursive: true });
@@ -55,11 +93,35 @@ function pruneMemory(memory: Record<string, string>, limit = 12) {
   return Object.fromEntries(Object.entries(memory).slice(0, limit));
 }
 
+function includesAny(text: string, needles: string[]) {
+  return needles.some((needle) => text.includes(needle));
+}
+
+export function determineSpecialistExecutionMode(input: {
+  role: RoleName;
+  goalTitle: string;
+}): SpecialistExecutionMode {
+  if (input.role !== "backend") return "analyze";
+  const normalized = input.goalTitle.trim().toLowerCase();
+  if (!normalized) return "analyze";
+  if (includesAny(normalized, BACKEND_ANALYZE_KEYWORDS)) return "analyze";
+  if (includesAny(normalized, BACKEND_WRITE_KEYWORDS)) return "write";
+  return "analyze";
+}
+
+function buildJsonSchema(executionMode: SpecialistExecutionMode) {
+  if (executionMode === "write") {
+    return '{"summary":"string","impact":"info|approval_needed|blocking","artifacts":[{"kind":"report","title":"string"}],"rawFindings":["string"],"executionMode":"write","changedFiles":["path/from/repo/root"],"verificationNotes":["string"]}';
+  }
+  return '{"summary":"string","impact":"info|approval_needed|blocking","artifacts":[{"kind":"report","title":"string"}],"rawFindings":["string"],"executionMode":"analyze"}';
+}
+
 function buildPrompt(input: {
   role: RoleName;
   projectId: string;
   goalTitle: string;
   workspacePath: string | null;
+  executionMode: SpecialistExecutionMode;
   memoryStore?: MemoryStore;
   runId?: string | null;
   openclawWorkspacePath?: string | null;
@@ -112,6 +174,15 @@ function buildPrompt(input: {
   const workspaceInstruction = input.workspacePath
     ? `Inspect the workspace and ground your answer in the codebase when possible. Workspace root: ${input.workspacePath}`
     : "No project workspace was resolved. Be explicit that repo-grounded inspection is missing, and reason only from the goal and saved state.";
+  const executionInstruction = input.executionMode === "write"
+    ? [
+        "This is write-mode execution for the backend specialist.",
+        "Make the smallest backend-only code change that satisfies the goal.",
+        "You may edit files inside the resolved workspace root, run focused verification, and inspect git status.",
+        "Do not modify files outside the workspace root, do not deploy, do not send external messages, do not delete data, and do not rewrite unrelated code.",
+        "If the goal is ambiguous or unsafe to execute, do not write code; return approval_needed or blocking with a concrete reason.",
+      ].join(" ")
+    : "This is read-only analysis. Never modify files, create files, install packages, or change git state.";
 
   return [
     FILESYSTEM_BOUNDARY,
@@ -119,7 +190,7 @@ function buildPrompt(input: {
     `You are the ${input.role} specialist in a Slack-based multi-agent engineering runtime.`,
     ROLE_INSTRUCTIONS[input.role],
     workspaceInstruction,
-    "This is read-only analysis. Never modify files, create files, install packages, or change git state.",
+    executionInstruction,
     "Inspect only the minimum number of files needed. Avoid broad repository inventories.",
     "In most cases, read at most 3 directly relevant files before answering.",
     "Answer in Korean.",
@@ -131,11 +202,46 @@ function buildPrompt(input: {
     "Return exactly one JSON object and nothing else.",
     "",
     "JSON schema:",
-    '{"summary":"string","impact":"info|approval_needed|blocking","artifacts":[{"kind":"report","title":"string"}],"rawFindings":["string"]}',
+    buildJsonSchema(input.executionMode),
     "",
     "Context:",
     context,
   ].join("\n");
+}
+
+function parseGitStatusPath(line: string) {
+  const candidate = line.slice(3).trim();
+  if (!candidate) return null;
+  if (candidate.includes(" -> ")) {
+    return candidate.split(" -> ").at(-1)?.trim() ?? null;
+  }
+  return candidate;
+}
+
+async function listGitChangedFiles(cwd: string) {
+  const proc = Bun.spawn(["git", "status", "--porcelain=v1", "--untracked-files=all"], {
+    cwd,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, exitCode] = await Promise.all([
+    readText(proc.stdout),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    return [] as string[];
+  }
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map(parseGitStatusPath)
+    .filter((path): path is string => Boolean(path));
+}
+
+function mergeChangedFiles(...groups: Array<string[] | undefined>) {
+  return [...new Set(groups.flatMap((group) => group ?? []).filter(Boolean))];
 }
 
 async function readText(stream: ReadableStream<Uint8Array> | null | undefined) {
@@ -260,6 +366,13 @@ export function parseCodexSpecialistResponse(text: string) {
   const rawFindings = Array.isArray(parsed.rawFindings)
     ? parsed.rawFindings.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+  const executionMode = parsed.executionMode === "write" ? "write" : "analyze";
+  const changedFiles = Array.isArray(parsed.changedFiles)
+    ? parsed.changedFiles.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const verificationNotes = Array.isArray(parsed.verificationNotes)
+    ? parsed.verificationNotes.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
 
   if (!summary || (impact !== "info" && impact !== "approval_needed" && impact !== "blocking")) {
     throw new Error("Codex specialist response was not valid JSON");
@@ -270,6 +383,9 @@ export function parseCodexSpecialistResponse(text: string) {
     impact,
     artifacts,
     rawFindings,
+    executionMode,
+    changedFiles,
+    verificationNotes,
   } satisfies Omit<SpecialistResult, "role">;
 }
 
@@ -298,16 +414,43 @@ export function createCodexSpecialistExecutor(input: {
   return async function executeSpecialist(
     specialist: CodexSpecialistExecutorInput,
   ): Promise<CodexSpecialistExecution> {
+    const executionMode = determineSpecialistExecutionMode({
+      role: specialist.role,
+      goalTitle: specialist.goalTitle,
+    });
     const workspacePath = resolveProjectWorkspace({
       projectId: specialist.projectId,
       memoryStore: specialist.memoryStore,
     });
+    if (executionMode === "write" && !workspacePath) {
+      return {
+        result: {
+          role: specialist.role,
+          summary: "작업 저장소를 찾지 못해서 실제 수정을 시작하지 않았어요. 먼저 프로젝트 작업 경로를 연결해야 해요.",
+          impact: "blocking",
+          artifacts: [{ kind: "report", title: `${ROLE_REGISTRY[specialist.role].role}-report.md` }],
+          rawFindings: ["project workspace unresolved for backend write mode"],
+          executionMode,
+          changedFiles: [],
+          verificationNotes: [],
+        },
+        meta: {
+          workspacePath,
+          tokensUsed: 0,
+          inspectedWorkspace: false,
+        },
+      };
+    }
     const cwd = workspacePath ?? emptyCodexSandbox();
+    const beforeChangedFiles = executionMode === "write"
+      ? await listGitChangedFiles(cwd)
+      : [];
     const prompt = buildPrompt({
       role: specialist.role,
       projectId: specialist.projectId,
       goalTitle: specialist.goalTitle,
       workspacePath,
+      executionMode,
       memoryStore: specialist.memoryStore,
       runId: specialist.runId,
       openclawWorkspacePath: input.openclawWorkspacePath,
@@ -321,6 +464,15 @@ export function createCodexSpecialistExecutor(input: {
       parsed: parseCodexSpecialistResponse(response.text),
       inspectedWorkspace: response.inspectedWorkspace,
     });
+    const afterChangedFiles = executionMode === "write"
+      ? await listGitChangedFiles(cwd)
+      : [];
+    const mergedChangedFiles = executionMode === "write"
+      ? mergeChangedFiles(
+          parsed.changedFiles,
+          afterChangedFiles.filter((path) => !beforeChangedFiles.includes(path)),
+        )
+      : [];
 
     return {
       result: {
@@ -331,6 +483,9 @@ export function createCodexSpecialistExecutor(input: {
           ? parsed.artifacts
           : [{ kind: "report", title: `${ROLE_REGISTRY[specialist.role].role}-report.md` }],
         rawFindings: parsed.rawFindings,
+        executionMode,
+        changedFiles: mergedChangedFiles,
+        verificationNotes: parsed.verificationNotes,
       },
       meta: {
         workspacePath,

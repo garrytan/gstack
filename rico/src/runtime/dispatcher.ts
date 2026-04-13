@@ -225,7 +225,7 @@ export function createRuntimeDispatcher(input: {
         const message = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
           thread_ts: projectThreadTs,
-          text: buildImpactNarration(result.role, result.summary),
+          text: buildImpactNarration(result.role, result.summary, result.changedFiles),
         });
         if (!message.ok) {
           throw new Error(`Slack rejected ${result.role} impact message`);
@@ -241,6 +241,7 @@ export function createRuntimeDispatcher(input: {
             role: result.role,
             level: result.impact,
             message: result.summary,
+            changedFiles: result.changedFiles,
           })),
           captainPlan,
         ),

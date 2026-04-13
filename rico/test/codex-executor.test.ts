@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  determineSpecialistExecutionMode,
   parseCodexSpecialistResponse,
   sanitizeCodexSpecialistResponse,
 } from "../src/codex/executor";
@@ -28,6 +29,20 @@ test("parseCodexSpecialistResponse extracts fenced JSON", () => {
   });
 });
 
+test("parseCodexSpecialistResponse keeps write-mode metadata when provided", () => {
+  const parsed = parseCodexSpecialistResponse(
+    '{"summary":"회원가입 API 응답 스키마를 정리했어요.","impact":"info","artifacts":[{"kind":"report","title":"backend-report.md"}],"rawFindings":["src/api/signup.ts를 수정했다."],"executionMode":"write","changedFiles":["src/api/signup.ts","src/routes/signup.ts"],"verificationNotes":["bun test test/signup.test.ts"]}',
+  );
+
+  expect(parsed).toMatchObject({
+    summary: "회원가입 API 응답 스키마를 정리했어요.",
+    impact: "info",
+    executionMode: "write",
+    changedFiles: ["src/api/signup.ts", "src/routes/signup.ts"],
+    verificationNotes: ["bun test test/signup.test.ts"],
+  });
+});
+
 test("parseCodexSpecialistResponse rejects non-json output", () => {
   expect(() => parseCodexSpecialistResponse("not-json")).toThrow(
     "Codex specialist response was not valid JSON",
@@ -49,4 +64,22 @@ test("sanitizeCodexSpecialistResponse drops fake sandbox-limit findings after su
   });
 
   expect(sanitized.rawFindings).toEqual(["src/app/routes.ts를 확인했다."]);
+});
+
+test("determineSpecialistExecutionMode keeps repo-check questions in analyze mode", () => {
+  expect(
+    determineSpecialistExecutionMode({
+      role: "backend",
+      goalTitle: "지금 원격 깃이 연결되어있나?",
+    }),
+  ).toBe("analyze");
+});
+
+test("determineSpecialistExecutionMode promotes concrete backend implementation work to write mode", () => {
+  expect(
+    determineSpecialistExecutionMode({
+      role: "backend",
+      goalTitle: "회원가입 API 에러 응답 스키마를 수정해줘",
+    }),
+  ).toBe("write");
 });

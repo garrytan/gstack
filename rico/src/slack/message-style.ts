@@ -141,7 +141,7 @@ export function buildCaptainStartText(
 
 export function buildCaptainProgressText(
   _title: string,
-  impacts: Array<{ role: string; level: ImpactLevel; message: string }> = [],
+  impacts: Array<{ role: string; level: ImpactLevel; message: string; changedFiles?: string[] }> = [],
   plan?: CaptainPlan,
 ) {
   if (impacts.length === 0) {
@@ -160,21 +160,24 @@ export function buildCaptainProgressText(
   const leadSummary = trimMessage(
     firstSentence(lead.message, "핵심 쟁점을 먼저 정리하고 있어요."),
   );
+  const changedFilesText = lead.changedFiles && lead.changedFiles.length > 0
+    ? ` 수정 파일은 ${lead.changedFiles.slice(0, 2).join(", ")}${lead.changedFiles.length > 2 ? ` 외 ${lead.changedFiles.length - 2}개` : ""}예요.`
+    : "";
 
   if (lead.level === "blocking") {
     const nextAction = plan?.nextAction ? ` 다음 액션은 ${plan.nextAction}` : "";
-    return `캡틴: 지금은 ${roleLabel(lead.role)}에서 막히는 조건이 보여서 그 이슈부터 정리하고 있어요.${supportingText} ${leadSummary}${nextAction}`;
+    return `캡틴: 지금은 ${roleLabel(lead.role)}에서 막히는 조건이 보여서 그 이슈부터 정리하고 있어요.${supportingText} ${leadSummary}${nextAction}${changedFilesText}`;
   }
 
   if (lead.level === "approval_needed") {
     const nextAction = plan?.nextAction ? ` 다음 액션은 ${plan.nextAction}` : "";
-    return `캡틴: 지금은 ${roleLabel(lead.role)} 기준으로 먼저 결정이 필요한 지점을 모으고 있어요.${supportingText} ${leadSummary}${nextAction}`;
+    return `캡틴: 지금은 ${roleLabel(lead.role)} 기준으로 먼저 결정이 필요한 지점을 모으고 있어요.${supportingText} ${leadSummary}${nextAction}${changedFilesText}`;
   }
 
   const nextAction = plan?.nextAction
     ? ` 다음 액션은 ${plan.nextAction}`
     : " 다음 단계는 여기서 바로 이어갈게요.";
-  return `캡틴: 지금까지는 ${roleLabel(lead.role)} 중심으로 실행 순서를 좁혔어요.${supportingText}${nextAction} ${leadSummary}`;
+  return `캡틴: 지금까지는 ${roleLabel(lead.role)} 중심으로 실행 순서를 좁혔어요.${supportingText}${nextAction} ${leadSummary}${changedFilesText}`;
 }
 
 export function buildApprovalText(actionType: string, blockingReason: string) {
@@ -191,6 +194,9 @@ export function buildApprovalResolutionText(input: {
   return `${input.actionType} 요청(${input.approvalId})은 ${action}. 처리한 사람은 ${input.actor}예요.`;
 }
 
-export function buildImpactNarration(role: string, summary: string) {
-  return `${roleLabel(role)}: ${summary}`;
+export function buildImpactNarration(role: string, summary: string, changedFiles: string[] = []) {
+  const changedFilesText = changedFiles.length > 0
+    ? ` 수정 파일: ${changedFiles.slice(0, 3).join(", ")}${changedFiles.length > 3 ? ` 외 ${changedFiles.length - 3}개` : ""}`
+    : "";
+  return `${roleLabel(role)}: ${summary}${changedFilesText}`;
 }
