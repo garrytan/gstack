@@ -39,6 +39,15 @@ When the user's request matches a skill, invoke it via the Skill tool:
 - Discuss results, ask questions about a report, annotate → invoke `/discuss`
 - Review experiment, check methodology, peer review, critique → invoke `/peer-review`
 
+## Which Skill Do I Need?
+
+- **Starting fresh?** You have an idea but no files yet → `/hypothesis`
+- **Spec exists, code doesn't?** You have spec.yaml → `/run-experiment`
+- **Results exist, no report?** You have metrics.json → `/report`
+- **Report exists, questions remain?** → `/discuss`
+- **Ready for critical review?** → `/peer-review`
+- **Starting a new cycle?** → `/hypothesis` with insights from prior work
+
 ## Core Principles
 
 1. **Convention enforcement.** All generated code follows the project's conventions from CLAUDE.md.
