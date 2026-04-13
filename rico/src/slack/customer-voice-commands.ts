@@ -32,6 +32,12 @@ function splitList(value: string) {
     .filter(Boolean);
 }
 
+export function stripSlackLinkWrapping(value: string) {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^<([^|>]+)(?:\|[^>]+)?>$/);
+  return match?.[1]?.trim() ?? trimmed;
+}
+
 function toBoolean(value: string) {
   const normalized = value.trim().toLowerCase();
   return ["on", "true", "enabled", "enable", "켜기", "활성", "활성화"].includes(normalized);
@@ -56,7 +62,7 @@ export function parseCustomerVoiceCommand(text: string): CustomerVoiceCommand | 
   if (baseUrlMatch?.[1]) {
     return {
       type: "set-base-url",
-      baseUrl: baseUrlMatch[1].trim(),
+      baseUrl: stripSlackLinkWrapping(baseUrlMatch[1]),
     };
   }
 
@@ -146,7 +152,7 @@ export function applyCustomerVoiceCommand(input: {
       nextProfile.needsSetup = false;
       break;
     case "set-base-url":
-      nextProfile.simulation.baseUrl = input.command.baseUrl;
+      nextProfile.simulation.baseUrl = stripSlackLinkWrapping(input.command.baseUrl);
       break;
     case "set-journeys":
       nextProfile.simulation.allowedJourneys = [...new Set(input.command.journeys)];

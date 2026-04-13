@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { stripSlackLinkWrapping } from "../slack/customer-voice-commands";
 
 export interface BrowserSimulationVisit {
   path: string;
@@ -75,15 +76,17 @@ function resolveBaseUrl(input: {
   baseUrl?: string | null;
   env: Record<string, string | undefined>;
 }) {
-  if (input.baseUrl) return input.baseUrl;
+  if (input.baseUrl) return stripSlackLinkWrapping(input.baseUrl);
   const projectKey = input.projectId
     ? input.projectId.toUpperCase().replace(/[^A-Z0-9]+/g, "_")
     : null;
   if (projectKey) {
     const fromProjectEnv = input.env[`RICO_SIMULATION_BASE_URL_${projectKey}`];
-    if (fromProjectEnv) return fromProjectEnv;
+    if (fromProjectEnv) return stripSlackLinkWrapping(fromProjectEnv);
   }
-  return input.env.RICO_SIMULATION_BASE_URL ?? null;
+  return input.env.RICO_SIMULATION_BASE_URL
+    ? stripSlackLinkWrapping(input.env.RICO_SIMULATION_BASE_URL)
+    : null;
 }
 
 export async function runBrowserSimulation(input: {

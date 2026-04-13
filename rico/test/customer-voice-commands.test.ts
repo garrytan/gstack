@@ -19,6 +19,13 @@ test("parseCustomerVoiceCommand parses mode updates", () => {
   });
 });
 
+test("parseCustomerVoiceCommand strips Slack auto-link wrapping from base urls", () => {
+  expect(parseCustomerVoiceCommand("고객관점 base-url: <https://example.com>")).toEqual({
+    type: "set-base-url",
+    baseUrl: "https://example.com",
+  });
+});
+
 test("parseCustomerVoiceCommand parses persona additions", () => {
   expect(
     parseCustomerVoiceCommand(
