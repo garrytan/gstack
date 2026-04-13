@@ -49,7 +49,7 @@ Search for related hypotheses and experiments. If similar work was done before:
 
 ```bash
 {{SLUG_EVAL}}
-_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+_LEARN_FILE="${RSTACK_HOME:-$HOME/.research-stack}/projects/${SLUG:-unknown}/learnings.jsonl"
 if [ -f "$_LEARN_FILE" ]; then
   grep -i "<relevant_keyword>" "$_LEARN_FILE" | tail -5
 fi
@@ -163,7 +163,7 @@ Log the hypothesis creation:
 
 ```bash
 {{SLUG_EVAL}}
-_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+_LEARN_FILE="${RSTACK_HOME:-$HOME/.research-stack}/projects/${SLUG:-unknown}/learnings.jsonl"
 mkdir -p "$(dirname "$_LEARN_FILE")"
 echo '{"type":"hypothesis","slug":"<slug>","claim":"<claim>","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> "$_LEARN_FILE"
 ```

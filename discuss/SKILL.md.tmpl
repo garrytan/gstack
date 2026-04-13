@@ -197,7 +197,7 @@ Log the discussion:
 
 ```bash
 {{SLUG_EVAL}}
-_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+_LEARN_FILE="${RSTACK_HOME:-$HOME/.research-stack}/projects/${SLUG:-unknown}/learnings.jsonl"
 mkdir -p "$(dirname "$_LEARN_FILE")"
 echo '{"type":"discussion","slug":"<slug>","entries":<count>,"annotations":<count>,"followups":<count>,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> "$_LEARN_FILE"
 ```
