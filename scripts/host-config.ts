@@ -52,6 +52,8 @@ export interface HostConfig {
     renameFields?: Record<string, string>;
     /** Conditionally add fields based on template frontmatter values. */
     conditionalFields?: Array<{ if: Record<string, unknown>; add: Record<string, unknown> }>;
+    /** Prefix name: field with 'gstack-' to match output directory name. Pi requires name == dirname. */
+    prefixName?: boolean;
   };
 
   // --- Generation ---

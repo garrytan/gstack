@@ -41,7 +41,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, pi, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|auto) ;;
+  claude|codex|kiro|factory|pi|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -67,13 +67,19 @@ case "$HOST" in
     echo "  3. See docs/OPENCLAW.md for the full architecture"
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, openclaw, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, pi, openclaw, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
 # Priority: CLI flag > saved config > interactive prompt (or flat default for non-TTY)
+# Pi always uses gstack-* prefixed names (Pi requires name: to match dirname).
 GSTACK_CONFIG="$SOURCE_GSTACK_DIR/bin/gstack-config"
 export GSTACK_SETUP_RUNNING=1  # Prevent gstack-config post-set hook from triggering relink mid-setup
+# Pi-only: always prefixed, skip the prompt (Pi requires name: == dirname, always gstack-*)
+if [ "$HOST" = "pi" ] && [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
+  SKILL_PREFIX=1
+  SKILL_PREFIX_FLAG=1
+fi
 if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
   _saved_prefix="$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || true)"
   if [ "$_saved_prefix" = "true" ]; then
@@ -130,17 +136,21 @@ INSTALL_CLAUDE=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
+INSTALL_PI=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
+  command -v pi >/dev/null 2>&1 && INSTALL_PI=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_PI" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
+elif [ "$HOST" = "pi" ]; then
+  INSTALL_PI=1
 elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
@@ -246,6 +256,16 @@ if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host factory
+  )
+fi
+
+# 1d. Generate .pi/ Pi skill docs
+if [ "$INSTALL_PI" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  echo "Generating .pi/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host pi
   )
 fi
 
@@ -762,6 +782,53 @@ if [ "$INSTALL_FACTORY" -eq 1 ]; then
   echo "gstack ready (factory)."
   echo "  browse: $BROWSE_BIN"
   echo "  factory skills: $FACTORY_SKILLS"
+fi
+
+# 6c. Install for Pi
+if [ "$INSTALL_PI" -eq 1 ]; then
+  PI_SKILLS="$HOME/.pi/agent/skills"
+  PI_GEN_DIR="$SOURCE_GSTACK_DIR/.pi/skills"
+  mkdir -p "$PI_SKILLS"
+
+  # Create gstack runtime root with symlinks for runtime assets
+  PI_GSTACK="$PI_SKILLS/gstack"
+  # Remove old whole-dir symlink from previous installs
+  [ -L "$PI_GSTACK" ] && rm -f "$PI_GSTACK"
+  mkdir -p "$PI_GSTACK" "$PI_GSTACK/browse" "$PI_GSTACK/gstack-upgrade" "$PI_GSTACK/review"
+  ln -snf "$SOURCE_GSTACK_DIR/bin" "$PI_GSTACK/bin"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$PI_GSTACK/browse/dist"
+  ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$PI_GSTACK/browse/bin"
+  # ETHOS.md — referenced by "Search Before Building" in all skill preambles
+  if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
+    ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$PI_GSTACK/ETHOS.md"
+  fi
+  # Review runtime assets (individual files, not whole dir)
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$SOURCE_GSTACK_DIR/review/$f" ]; then
+      ln -snf "$SOURCE_GSTACK_DIR/review/$f" "$PI_GSTACK/review/$f"
+    fi
+  done
+
+  # Copy generated Pi-native skills from .pi/skills/ into ~/.pi/agent/skills/
+  if [ ! -d "$PI_GEN_DIR" ]; then
+    echo "  warning: no .pi/skills/ directory found — run 'bun run gen:skill-docs --host pi' first" >&2
+  else
+    for skill_dir in "$PI_GEN_DIR"/gstack*/; do
+      [ -f "$skill_dir/SKILL.md" ] || continue
+      skill_name="$(basename "$skill_dir")"
+      target_dir="$PI_SKILLS/$skill_name"
+      mkdir -p "$target_dir"
+      # Pi-native SKILL.md already has correct $GSTACK_ROOT paths — no sed needed
+      cp "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
+    done
+    # The root gstack SKILL.md is also generated natively
+    if [ -f "$PI_GEN_DIR/gstack/SKILL.md" ]; then
+      cp "$PI_GEN_DIR/gstack/SKILL.md" "$PI_GSTACK/SKILL.md"
+    fi
+    echo "gstack ready (pi)."
+    echo "  browse: $BROWSE_BIN"
+    echo "  pi skills: $PI_SKILLS"
+  fi
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

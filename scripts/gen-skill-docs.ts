@@ -263,8 +263,12 @@ function transformFrontmatter(content: string, host: Host): string {
   }
 
   // Build frontmatter with allowed fields
+  // Pi requires name: to match the parent directory name (e.g., gstack-review)
+  const outputName = (fm.prefixName && name && name !== 'gstack' && !name.startsWith('gstack-'))
+    ? `gstack-${name}`
+    : name;
   const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
-  let newFm = `---\nname: ${name}\ndescription: |\n${indentedDesc}\n`;
+  let newFm = `---\nname: ${outputName}\ndescription: |\n${indentedDesc}\n`;
 
   // Add extra fields (host-wide)
   if (fm.extraFields) {
@@ -649,7 +653,7 @@ if (!DRY_RUN) {
     const configPath = path.join(process.env.HOME || '', '.gstack', 'config.yaml');
     if (fs.existsSync(configPath)) {
       const config = fs.readFileSync(configPath, 'utf-8');
-      if (/^skill_prefix:\s*true/m.test(config)) {
+      if (/^skill_prefix:\s*true/m.test(config) && HOST !== 'pi') {
         console.log('\nNote: skill_prefix is true. Run gstack-relink to re-apply name: patches.');
       }
     }

@@ -89,12 +89,18 @@ elif [ -d ".claude/skills/gstack/.git" ]; then
 elif [ -d ".agents/skills/gstack/.git" ]; then
   INSTALL_TYPE="local-git"
   INSTALL_DIR=".agents/skills/gstack"
+elif [ -d ".pi/skills/gstack/.git" ]; then
+  INSTALL_TYPE="local-git"
+  INSTALL_DIR=".pi/skills/gstack"
 elif [ -d ".claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored"
   INSTALL_DIR=".claude/skills/gstack"
 elif [ -d "$HOME/.claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored-global"
   INSTALL_DIR="$HOME/.claude/skills/gstack"
+elif [ -d "$HOME/.pi/agent/skills/gstack" ]; then
+  INSTALL_TYPE="vendored-global"
+  INSTALL_DIR="$HOME/.pi/agent/skills/gstack"
 else
   echo "ERROR: gstack not found"
   exit 1
@@ -149,6 +155,12 @@ if [ -n "$_ROOT" ] && [ -d "$_ROOT/.claude/skills/gstack" ]; then
   _RESOLVED_PRIMARY=$(cd "$INSTALL_DIR" && pwd -P)
   if [ "$_RESOLVED_LOCAL" != "$_RESOLVED_PRIMARY" ]; then
     LOCAL_GSTACK="$_ROOT/.claude/skills/gstack"
+  fi
+elif [ -n "$_ROOT" ] && [ -d "$_ROOT/.pi/skills/gstack" ]; then
+  _RESOLVED_LOCAL=$(cd "$_ROOT/.pi/skills/gstack" && pwd -P)
+  _RESOLVED_PRIMARY=$(cd "$INSTALL_DIR" && pwd -P)
+  if [ "$_RESOLVED_LOCAL" != "$_RESOLVED_PRIMARY" ]; then
+    LOCAL_GSTACK="$_ROOT/.pi/skills/gstack"
   fi
 fi
 _TEAM_MODE=$(~/.claude/skills/gstack/bin/gstack-config get team_mode 2>/dev/null || echo "false")

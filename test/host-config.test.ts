@@ -30,8 +30,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 8 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(8);
+  test('ALL_HOST_CONFIGS has 9 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(9);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {

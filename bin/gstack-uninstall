@@ -12,11 +12,13 @@
 #   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
 #   ~/.factory/skills/gstack*     — Factory Droid skill install + per-skill symlinks
 #   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
+#   ~/.pi/agent/skills/gstack*    — Pi skill install + per-skill copies
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
 #   .claude/skills/gstack*        — project-local skill install (--local installs)
 #   .gstack/                      — per-project browse state (in current git repo)
 #   .gstack-worktrees/            — per-project test worktrees (in current git repo)
+#   .pi/skills/gstack*             — Pi project-local sidecar (in current git repo)
 #   .agents/skills/gstack*        — Codex/Gemini/Cursor sidecar (in current git repo)
 #   Running browse daemons        — stopped via SIGTERM before cleanup
 #
@@ -66,6 +68,7 @@ if [ "$FORCE" -eq 0 ]; then
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
+  [ -d "$HOME/.pi/agent/skills" ] && echo "  ~/.pi/agent/skills/gstack*"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
 
   if [ -n "$_GIT_ROOT" ]; then
@@ -73,6 +76,7 @@ if [ "$FORCE" -eq 0 ]; then
     [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
     [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
+    [ -d "$_GIT_ROOT/.pi/skills" ] && echo "  $_GIT_ROOT/.pi/skills/gstack*"
   fi
 
   # Preview running daemons
@@ -191,6 +195,16 @@ if [ -d "$KIRO_SKILLS" ]; then
   done
 fi
 
+# ─── Remove Pi skills ───────────────────────────────────────
+PI_SKILLS="$HOME/.pi/agent/skills"
+if [ -d "$PI_SKILLS" ]; then
+  for _ITEM in "$PI_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("pi/$(basename "$_ITEM")")
+  done
+fi
+
 # ─── Remove per-project .agents/ sidecar ─────────────────────
 if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.agents/skills" ]; then
   for _ITEM in "$_GIT_ROOT/.agents/skills"/gstack*; do
@@ -213,6 +227,18 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.factory/skills" ]; then
 
   rmdir "$_GIT_ROOT/.factory/skills" 2>/dev/null || true
   rmdir "$_GIT_ROOT/.factory" 2>/dev/null || true
+fi
+
+# ─── Remove per-project .pi/ sidecar ─────────────────────────
+if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.pi/skills" ]; then
+  for _ITEM in "$_GIT_ROOT/.pi/skills"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("pi-local/$(basename "$_ITEM")")
+  done
+
+  rmdir "$_GIT_ROOT/.pi/skills" 2>/dev/null || true
+  # Don't rmdir .pi/ itself — Pi may have other files there (settings.json, etc.)
 fi
 
 # ─── Remove per-project state ───────────────────────────────
