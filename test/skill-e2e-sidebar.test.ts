@@ -4,10 +4,10 @@
  * sidebar-url-accuracy: Deterministic test that verifies the activeTabUrl fix.
  *   Starts server (no browser), POSTs to /sidebar-command with different activeTabUrl
  *   values, reads the queue file, and verifies the prompt uses the extension URL.
- *   No real Claude needed — this is a fast, cheap, deterministic test.
+ *   No real Gemini needed — this is a fast, cheap, deterministic test.
  *
- * sidebar-navigate: Full E2E with real Claude (requires ANTHROPIC_API_KEY).
- *   Starts server + sidebar-agent, sends a message, waits for Claude to respond.
+ * sidebar-navigate: Full E2E with real Gemini (requires GEMINI_API_KEY).
+ *   Starts server + sidebar-agent, sends a message, waits for Gemini to respond.
  *   Tests the complete message flow through the queue.
  */
 
@@ -24,7 +24,7 @@ import {
 
 const evalCollector = createEvalCollector('e2e-sidebar');
 
-// --- Sidebar URL Accuracy (deterministic, no Claude) ---
+// --- Sidebar URL Accuracy (deterministic, no Gemini) ---
 
 describeIfSelected('Sidebar URL accuracy E2E', ['sidebar-url-accuracy'], () => {
   let serverProc: Subprocess | null = null;
@@ -150,7 +150,7 @@ describeIfSelected('Sidebar URL accuracy E2E', ['sidebar-url-accuracy'], () => {
   }, 30_000);
 });
 
-// --- Sidebar CSS Interaction E2E (real Claude + real browser) ---
+// --- Sidebar CSS Interaction E2E (real Gemini + real browser) ---
 // Goes to HN, reads comments, identifies the most insightful one, highlights it.
 // Exercises: navigation, snapshot, text reading, LLM judgment, CSS style injection.
 
@@ -341,7 +341,7 @@ describeIfSelected('Sidebar CSS interaction E2E', ['sidebar-css-interaction'], (
   }, 300_000);
 });
 
-// --- Sidebar Navigate (real Claude, requires ANTHROPIC_API_KEY) ---
+// --- Sidebar Navigate (real Gemini, requires GEMINI_API_KEY) ---
 
 describeIfSelected('Sidebar navigate E2E', ['sidebar-navigate'], () => {
   let serverProc: Subprocess | null = null;
@@ -369,13 +369,13 @@ describeIfSelected('Sidebar navigate E2E', ['sidebar-navigate'], () => {
     queueFile = path.join(tmpDir, 'sidebar-queue.jsonl');
     fs.mkdirSync(path.dirname(queueFile), { recursive: true });
 
-    // Start server WITHOUT headless skip — we need a real browser for Claude to use
+    // Start server WITHOUT headless skip — we need a real browser for Gemini to use
     const serverScript = path.resolve(ROOT, 'browse', 'src', 'server.ts');
     serverProc = spawn(['bun', 'run', serverScript], {
       env: {
         ...process.env,
         BROWSE_STATE_FILE: stateFile,
-        BROWSE_HEADLESS_SKIP: '1',  // Still skip browser — Claude uses curl/fetch instead
+        BROWSE_HEADLESS_SKIP: '1',  // Still skip browser — Gemini uses curl/fetch instead
         BROWSE_PORT: '0',
         SIDEBAR_QUEUE_PATH: queueFile,
         BROWSE_IDLE_TIMEOUT: '300',
@@ -408,7 +408,7 @@ describeIfSelected('Sidebar navigate E2E', ['sidebar-navigate'], () => {
         BROWSE_STATE_FILE: stateFile,
         SIDEBAR_QUEUE_PATH: queueFile,
         SIDEBAR_AGENT_TIMEOUT: '90000',
-        BROWSE_BIN: 'echo',  // browse commands won't work, but Claude can use curl
+        BROWSE_BIN: 'echo',  // browse commands won't work, but Gemini can use curl
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -428,7 +428,7 @@ describeIfSelected('Sidebar navigate E2E', ['sidebar-navigate'], () => {
     fs.writeFileSync(queueFile, '');
     const startTime = Date.now();
 
-    // Ask Claude a simple question — it doesn't need browse commands for this
+    // Ask Gemini a simple question — it doesn't need browse commands for this
     const resp = await api('/sidebar-command', {
       method: 'POST',
       body: JSON.stringify({
@@ -453,7 +453,7 @@ describeIfSelected('Sidebar navigate E2E', ['sidebar-navigate'], () => {
     const doneEntry = entries.find((e: any) => e.type === 'agent_done');
     expect(doneEntry).toBeDefined();
 
-    // Claude should have responded with something
+    // Gemini should have responded with something
     const agentText = entries
       .filter((e: any) => e.role === 'agent' && (e.type === 'text' || e.type === 'result'))
       .map((e: any) => e.text || '')

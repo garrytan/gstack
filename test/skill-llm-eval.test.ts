@@ -1,17 +1,16 @@
 /**
  * LLM-as-a-Judge evals for generated SKILL.md quality.
  *
- * Uses the Anthropic API directly (not Agent SDK) to evaluate whether
- * generated command docs are clear, complete, and actionable for an AI agent.
+ * Uses the Gemini API to evaluate whether generated command docs are
+ * clear, complete, and actionable for an AI agent.
  *
- * Requires: ANTHROPIC_API_KEY env var (or EVALS=1 with key already set)
+ * Requires: GEMINI_API_KEY env var (or EVALS=1 with key already set)
  * Run: EVALS=1 bun run test:eval
  *
- * Cost: ~$0.05-0.15 per run (sonnet)
+ * Cost: ~$0.05-0.15 per run (flash)
  */
 
 import { describe, test, expect, afterAll } from 'bun:test';
-import Anthropic from '@anthropic-ai/sdk';
 import * as fs from 'fs';
 import * as path from 'path';
 import { callJudge, judge } from './helpers/llm-judge';
@@ -20,7 +19,7 @@ import { EvalCollector } from './helpers/eval-store';
 import { selectTests, detectBaseBranch, getChangedFiles, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-// Run when EVALS=1 is set (requires ANTHROPIC_API_KEY in env)
+// Run when EVALS=1 is set (requires GEMINI_API_KEY in env)
 const evalsEnabled = !!process.env.EVALS;
 const describeEval = evalsEnabled ? describe : describe.skip;
 
@@ -210,13 +209,7 @@ describeIfSelected('LLM-as-judge quality evals', [
 | \`is <prop> <sel>\` | State check (visible/hidden/enabled/disabled/checked/editable/focused) |
 | \`console [--clear\\|--errors]\` | Console messages (--errors filters to error/warning) |`;
 
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      messages: [{
-        role: 'user',
-        content: `You are comparing two versions of CLI documentation for an AI coding agent.
+    const result = await callJudge<{ winner: string; reasoning: string; a_score: number; b_score: number }>(`You are comparing two versions of CLI documentation for an AI coding agent.
 
 VERSION A (baseline — hand-maintained):
 ${baseline}
@@ -232,14 +225,7 @@ Which version is better for an AI agent trying to use these commands? Consider:
 Respond with ONLY valid JSON:
 {"winner": "A" or "B" or "tie", "reasoning": "brief explanation", "a_score": N, "b_score": N}
 
-Scores are 1-5 overall quality.`,
-      }],
-    });
-
-    const text = response.content[0].type === 'text' ? response.content[0].text : '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error(`Judge returned non-JSON: ${text.slice(0, 200)}`);
-    const result = JSON.parse(jsonMatch[0]);
+Scores are 1-5 overall quality.`);
     console.log('Regression comparison:', JSON.stringify(result, null, 2));
 
     evalCollector?.addTest({

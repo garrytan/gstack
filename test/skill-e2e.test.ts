@@ -673,8 +673,8 @@ Important: The design checklist should catch issues like blacklisted fonts, smal
 
 // --- B6/B7/B8: Planted-bug outcome evals ---
 
-// Outcome evals also need ANTHROPIC_API_KEY for the LLM judge
-const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+// Outcome evals also need GEMINI_API_KEY for the LLM judge
+const hasApiKey = !!process.env.GEMINI_API_KEY;
 const describeOutcome = (evalsEnabled && hasApiKey) ? describe : describe.skip;
 
 // Wrap describeOutcome with selection — skip if no planted-bug tests are selected

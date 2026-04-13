@@ -81,8 +81,8 @@ export const runId = new Date().toISOString().replace(/[:.]/g, '').replace('T', 
 
 export const browseBin = path.resolve(ROOT, 'browse', 'dist', 'browse');
 
-// Check if Anthropic API key is available (needed for outcome evals)
-export const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+// Check if Gemini API key is available (needed for outcome evals)
+export const hasApiKey = !!process.env.GEMINI_API_KEY;
 
 /**
  * Copy a directory tree recursively (files only, follows structure).

@@ -4,10 +4,8 @@
  * Provides callJudge (generic JSON-from-LLM), judge (doc quality scorer),
  * and outcomeJudge (planted-bug detection scorer).
  *
- * Requires: ANTHROPIC_API_KEY env var
+ * Requires: GEMINI_API_KEY env var
  */
-
-import Anthropic from '@anthropic-ai/sdk';
 
 export interface JudgeScore {
   clarity: number;       // 1-5
@@ -25,32 +23,45 @@ export interface OutcomeJudgeResult {
   reasoning: string;
 }
 
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
 /**
- * Call claude-sonnet-4-6 with a prompt, extract JSON response.
+ * Call Gemini with a prompt, extract JSON response.
  * Retries once on 429 rate limit errors.
  */
 export async function callJudge<T>(prompt: string): Promise<T> {
-  const client = new Anthropic();
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
-  const makeRequest = () => client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+
+  const makeRequest = () => fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 1024 },
+    }),
   });
 
   let response;
   try {
     response = await makeRequest();
-  } catch (err: any) {
-    if (err.status === 429) {
+    if (response.status === 429) {
       await new Promise(r => setTimeout(r, 1000));
       response = await makeRequest();
-    } else {
-      throw err;
     }
+  } catch (err: any) {
+    throw new Error(`Gemini API request failed: ${err.message}`);
   }
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Gemini API error (${response.status}): ${error.slice(0, 200)}`);
+  }
+
+  const data = await response.json() as any;
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`Judge returned non-JSON: ${text.slice(0, 200)}`);
   return JSON.parse(jsonMatch[0]) as T;
