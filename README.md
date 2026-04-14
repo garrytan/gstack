@@ -236,6 +236,10 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 
 **[Deep dives with examples and philosophy for every skill →](docs/skills.md)**
 
+### Karpathy's four failure modes? Already covered.
+
+Andrej Karpathy's [AI coding rules](https://github.com/forrestchang/andrej-karpathy-skills) (17K stars) nail four failure modes: wrong assumptions, overcomplexity, orthogonal edits, imperative over declarative. gstack's workflow skills enforce all four. `/office-hours` forces assumptions into the open before code is written. The Confusion Protocol stops Claude from guessing on architectural decisions. `/review` catches unnecessary complexity and drive-by edits. `/ship` transforms tasks into verifiable goals with test-first execution. If you already use Karpathy-style CLAUDE.md rules, gstack is the workflow enforcement layer that makes them stick across entire sprints, not just single prompts.
+
 ## Parallel sprints
 
 gstack works well with one sprint. It gets interesting with ten running at once.
