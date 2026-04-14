@@ -24,25 +24,37 @@ export function createRicoRuntime(input: {
   const config = input.config ?? resolveConfig();
   const store = openStore(config.dbPath);
   const slackClient = input.slackClient ?? createSlackWebClient(config.slackBotToken);
+  const captainExecutor =
+    input.captainExecutor
+    ?? (input.slackClient
+      ? undefined
+      : createCodexCaptainExecutor({
+          openclawWorkspacePath: config.openclawWorkspacePath,
+        }));
+  const specialistExecutor =
+    input.specialistExecutor
+    ?? (input.slackClient
+      ? undefined
+      : createCodexSpecialistExecutor({
+          openclawWorkspacePath: config.openclawWorkspacePath,
+        }));
+  const governorConversationExecutor =
+    input.governorConversationExecutor
+    ?? (input.slackClient ? undefined : createCodexGovernorConversationExecutor());
+  const captainConversationExecutor =
+    input.captainConversationExecutor
+    ?? (input.slackClient
+      ? undefined
+      : createCodexCaptainConversationExecutor({
+          openclawWorkspacePath: config.openclawWorkspacePath,
+        }));
   const dispatch = createRuntimeDispatcher({
     db: store.db,
     slackClient,
     maxActiveProjects: config.maxActiveProjects,
     artifactRoot: config.artifactDir,
-    captainExecutor:
-      input.captainExecutor
-      ?? (input.slackClient
-        ? undefined
-        : createCodexCaptainExecutor({
-            openclawWorkspacePath: config.openclawWorkspacePath,
-          })),
-    specialistExecutor:
-      input.specialistExecutor
-      ?? (input.slackClient
-        ? undefined
-        : createCodexSpecialistExecutor({
-            openclawWorkspacePath: config.openclawWorkspacePath,
-          })),
+    captainExecutor,
+    specialistExecutor,
   });
   const runner = startJobRunner({
     db: store.db,
@@ -54,25 +66,21 @@ export function createRicoRuntime(input: {
     maxActiveProjects: config.maxActiveProjects,
     signingSecret: config.slackSigningSecret,
     slackClient,
-    governorConversationExecutor:
-      input.governorConversationExecutor
-      ?? (input.slackClient ? undefined : createCodexGovernorConversationExecutor()),
-    captainConversationExecutor:
-      input.captainConversationExecutor
-      ?? (input.slackClient
-        ? undefined
-        : createCodexCaptainConversationExecutor({
-            openclawWorkspacePath: config.openclawWorkspacePath,
-          })),
+    governorConversationExecutor,
+    captainConversationExecutor,
     triggerDrain: () => runner.kick(),
   });
 
   return {
+    captainConversationExecutor,
+    captainExecutor,
     config,
     fetch,
+    governorConversationExecutor,
     port: input.port ?? Number(process.env.PORT ?? "3000"),
     runner,
     slackClient,
+    specialistExecutor,
     store,
   };
 }

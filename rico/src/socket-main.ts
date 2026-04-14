@@ -14,6 +14,8 @@ if (import.meta.main) {
           db: runtime.store.db,
           aiOpsChannelId: runtime.config.aiOpsChannelId,
           maxActiveProjects: runtime.config.maxActiveProjects,
+          governorConversationExecutor: runtime.governorConversationExecutor,
+          captainConversationExecutor: runtime.captainConversationExecutor,
           slackClient: runtime.slackClient,
           triggerDrain: () => runtime.runner.kick(),
         },

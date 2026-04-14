@@ -601,7 +601,7 @@ export function createRepositories(db: Database) {
     listByGoal(goalId: string): StateTransitionRecord[] {
       return db
         .query(
-          "select * from state_transitions where goal_id = ? order by created_at asc, id asc",
+          "select * from state_transitions where goal_id = ? order by created_at asc, rowid asc",
         )
         .all(goalId)
         .map((row: any) => ({
