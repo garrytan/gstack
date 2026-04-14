@@ -23,6 +23,9 @@ import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from 
 import type { HostConfig } from './host-config';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const OUTPUT_ROOT = process.env.GSTACK_OUTPUT_ROOT
+  ? path.resolve(process.env.GSTACK_OUTPUT_ROOT)
+  : ROOT;
 const DRY_RUN = process.argv.includes('--dry-run');
 
 // ─── Host Detection (config-driven) ─────────────────────────
@@ -357,7 +360,7 @@ function processExternalHost(
   const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
-  const outputDir = path.join(ROOT, hostConfig.hostSubdir, 'skills', name);
+  const outputDir = path.join(OUTPUT_ROOT, hostConfig.hostSubdir, 'skills', name);
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
 
