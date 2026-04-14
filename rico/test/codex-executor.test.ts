@@ -168,6 +168,15 @@ test("determineSpecialistExecutionMode keeps frontend navigation connection goal
   ).toBe("write");
 });
 
+test("determineSpecialistExecutionMode promotes frontend copy-touch goals to write mode", () => {
+  expect(
+    determineSpecialistExecutionMode({
+      role: "frontend",
+      goalTitle: "랜딩 문구만 실제로 손봐줘",
+    }),
+  ).toBe("write");
+});
+
 test("determineSpecialistExecutionMode promotes QA verification-and-report goals to write mode", () => {
   expect(
     determineSpecialistExecutionMode({

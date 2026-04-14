@@ -834,6 +834,47 @@ test("processSlackPayload delegates project deliverable requests even when disco
   );
 });
 
+test("processSlackPayload does not let captain conversation replies hijack project deliverable requests in live mode", async () => {
+  const store = openStore(":memory:");
+  store.repositories.projects.create({
+    id: "test",
+    slackChannelId: "C_TEST",
+  });
+
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      slackClient: {
+        async postMessage(input) {
+          posted.push(input);
+          return { ok: true, ts: "1710000000.000822" };
+        },
+      },
+      captainConversationExecutor: async () => ({
+        mode: "reply",
+        reply: "캡틴: 이건 대화예요.",
+      }),
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_TEST",
+        user: "U_TONY",
+        text: "그럼 이 채널 목표를 한 줄 문서로 정리해줘",
+        ts: "1712900000.000822",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: true, handled: true });
+  expect(posted).toHaveLength(0);
+  expect(store.repositories.goals.listByProject("test")).toHaveLength(1);
+});
+
 test("processSlackPayload shows a structured governor status snapshot in ai-ops", async () => {
   const store = openStore(":memory:");
   store.repositories.projects.create({
