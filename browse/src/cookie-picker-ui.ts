@@ -7,7 +7,7 @@
  * No cookie values exposed anywhere.
  */
 
-export function getCookiePickerHTML(serverPort: number, authToken?: string): string {
+export function getCookiePickerHTML(serverPort: number): string {
   const baseUrl = `http://127.0.0.1:${serverPort}`;
 
   return `<!DOCTYPE html>
@@ -341,7 +341,6 @@ export function getCookiePickerHTML(serverPort: number, authToken?: string): str
 <script>
 (function() {
   const BASE = '${baseUrl}';
-  const AUTH_TOKEN = '${authToken || ''}';
   let activeBrowser = null;
   let activeProfile = 'Default';
   let allProfiles = [];
@@ -384,9 +383,7 @@ export function getCookiePickerHTML(serverPort: number, authToken?: string): str
 
   // ─── API ────────────────────────────────
   async function api(path, opts) {
-    const headers = { ...(opts?.headers || {}) };
-    if (AUTH_TOKEN) headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
-    const res = await fetch(BASE + '/cookie-picker' + path, { ...opts, headers });
+    const res = await fetch(BASE + '/cookie-picker' + path, { ...opts, credentials: 'same-origin' });
     const data = await res.json();
     if (!res.ok) {
       const err = new Error(data.error || 'Request failed');

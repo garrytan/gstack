@@ -159,7 +159,8 @@
   function isUnique(selector) {
     try {
       return document.querySelectorAll(selector).length === 1;
-    } catch {
+    } catch (e) {
+      if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e;
       return false;
     }
   }
@@ -244,11 +245,11 @@
                   source: sheet.href || 'inline',
                 });
               }
-            } catch { /* skip rules that can't be matched */ }
+            } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
           }
-        } catch { /* cross-origin sheet — silently skip */ }
+        } catch (e) { if (!(e instanceof DOMException)) throw e; }
       }
-    } catch { /* CSSOM not available */ }
+    } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
 
     return { computedStyles, boxModel, matchedRules };
   }
@@ -290,7 +291,7 @@
       try {
         frameInfo.frameSrc = window.location.href;
         frameInfo.frameName = window.name || null;
-      } catch { /* cross-origin frame */ }
+      } catch (e) { if (!(e instanceof DOMException)) throw e; }
     }
 
     chrome.runtime.sendMessage({
@@ -347,7 +348,8 @@
   function findElement(selector) {
     try {
       return document.querySelector(selector);
-    } catch {
+    } catch (e) {
+      if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e;
       return null;
     }
   }

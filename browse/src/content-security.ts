@@ -85,7 +85,7 @@ const ARIA_INJECTION_PATTERNS = [
  *   - ARIA labels with injection patterns
  */
 export async function markHiddenElements(page: Page | Frame): Promise<string[]> {
-  return await page.evaluate((ariaPatterns: string[]) => {
+  return page.evaluate((ariaPatterns: string[]) => {
     const found: string[] = [];
     const elements = document.querySelectorAll('body *');
 
@@ -167,7 +167,7 @@ export async function markHiddenElements(page: Page | Frame): Promise<string[]> 
  * Uses clone + remove approach: clones body, removes marked elements, returns innerText.
  */
 export async function getCleanTextWithStripping(page: Page | Frame): Promise<string> {
-  return await page.evaluate(() => {
+  return page.evaluate(() => {
     const body = document.body;
     if (!body) return '';
     const clone = body.cloneNode(true) as HTMLElement;

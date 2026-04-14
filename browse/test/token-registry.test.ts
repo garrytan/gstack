@@ -5,7 +5,7 @@ import {
   validateToken, checkScope, checkDomain, checkRate,
   revokeToken, rotateRoot, listTokens, recordCommand,
   serializeRegistry, restoreRegistry, checkConnectRateLimit,
-  SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SCOPE_META,
+  SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SCOPE_CONTROL, SCOPE_META,
 } from '../src/token-registry';
 
 describe('token-registry', () => {
@@ -25,7 +25,7 @@ describe('token-registry', () => {
       const info = validateToken('root-token-for-tests');
       expect(info).not.toBeNull();
       expect(info!.clientId).toBe('root');
-      expect(info!.scopes).toEqual(['read', 'write', 'admin', 'meta']);
+      expect(info!.scopes).toEqual(['read', 'write', 'admin', 'meta', 'control']);
       expect(info!.rateLimit).toBe(0);
     });
   });
@@ -324,7 +324,7 @@ describe('token-registry', () => {
     it('every command in commands.ts is covered by a scope', () => {
       // Import the command sets to verify coverage
       const allInScopes = new Set([
-        ...SCOPE_READ, ...SCOPE_WRITE, ...SCOPE_ADMIN, ...SCOPE_META,
+        ...SCOPE_READ, ...SCOPE_WRITE, ...SCOPE_ADMIN, ...SCOPE_CONTROL, ...SCOPE_META,
       ]);
       // chain is a special case (checked via meta scope but dispatches subcommands)
       allInScopes.add('chain');
@@ -339,8 +339,12 @@ describe('token-registry', () => {
       expect(SCOPE_ADMIN.has('cookies')).toBe(true);
       expect(SCOPE_ADMIN.has('storage')).toBe(true);
       expect(SCOPE_ADMIN.has('useragent')).toBe(true);
-      expect(SCOPE_ADMIN.has('state')).toBe(true);
-      expect(SCOPE_ADMIN.has('handoff')).toBe(true);
+      // Browser-wide destructive commands moved to SCOPE_CONTROL
+      expect(SCOPE_CONTROL.has('state')).toBe(true);
+      expect(SCOPE_CONTROL.has('handoff')).toBe(true);
+      expect(SCOPE_CONTROL.has('stop')).toBe(true);
+      expect(SCOPE_CONTROL.has('restart')).toBe(true);
+      expect(SCOPE_CONTROL.has('disconnect')).toBe(true);
 
       // Verify safe read commands are NOT in admin
       expect(SCOPE_ADMIN.has('text')).toBe(false);

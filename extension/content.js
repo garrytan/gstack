@@ -207,11 +207,11 @@ function captureBasicData(el) {
                 source: sheet.href || 'inline',
               });
             }
-          } catch { /* skip rules that can't be matched */ }
+          } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
         }
-      } catch { /* cross-origin sheet — silently skip */ }
+      } catch (e) { if (!(e instanceof DOMException)) throw e; }
     }
-  } catch { /* CSSOM not available */ }
+  } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
 
   return { computedStyles, boxModel, matchedRules };
 }
@@ -219,7 +219,7 @@ function captureBasicData(el) {
 function basicBuildSelector(el) {
   if (el.id) {
     const sel = '#' + CSS.escape(el.id);
-    try { if (document.querySelectorAll(sel).length === 1) return sel; } catch {}
+    try { if (document.querySelectorAll(sel).length === 1) return sel; } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
   }
   const parts = [];
   let current = el;

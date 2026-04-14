@@ -1456,7 +1456,7 @@ Replace ITERATIONS, FOUND, FIXED, REMAINING, SCORE with actual values from the r
 ---
 
 Present the reviewed design doc to the user via AskUserQuestion:
-- A) Approve — mark Status: APPROVED and proceed to next-skill recommendations
+- A) Approve — mark Status: APPROVED and proceed to handoff
 - B) Revise — specify which sections need changes (loop back to revise those sections)
 - C) Start over — return to Phase 2
 

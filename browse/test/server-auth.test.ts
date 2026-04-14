@@ -317,4 +317,28 @@ describe('Server auth security', () => {
     // The ownership check condition must exclude newtab
     expect(ownershipBlock).toContain("command !== 'newtab'");
   });
+
+  // CVE fix: cookie-picker HTML must NOT inline the auth token.
+  // getCookiePickerHTML() must not accept an authToken parameter.
+  test('cookie-picker UI does not accept or inline auth token', () => {
+    const uiSrc = fs.readFileSync(path.join(import.meta.dir, '../src/cookie-picker-ui.ts'), 'utf-8');
+    // Function signature must not include authToken
+    expect(uiSrc).not.toMatch(/getCookiePickerHTML\([^)]*authToken/);
+    // No AUTH_TOKEN interpolation in template
+    expect(uiSrc).not.toContain("AUTH_TOKEN = '${authToken");
+    expect(uiSrc).not.toContain("AUTH_TOKEN = '${auth");
+  });
+
+  // CVE fix: cookie-picker route handler uses one-time code exchange, not open access.
+  test('cookie-picker HTML route requires code or session cookie', () => {
+    const routeSrc = fs.readFileSync(path.join(import.meta.dir, '../src/cookie-picker-routes.ts'), 'utf-8');
+    // Must have code validation
+    expect(routeSrc).toContain('pendingCodes');
+    expect(routeSrc).toContain('validSessions');
+    // Must NOT pass authToken to getCookiePickerHTML
+    expect(routeSrc).not.toMatch(/getCookiePickerHTML\([^)]*authToken/);
+    // Must set HttpOnly session cookie
+    expect(routeSrc).toContain('HttpOnly');
+    expect(routeSrc).toContain('SameSite=Strict');
+  });
 });

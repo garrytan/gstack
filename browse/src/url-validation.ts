@@ -7,6 +7,8 @@ export const BLOCKED_METADATA_HOSTS = new Set([
   '169.254.169.254',  // AWS/GCP/Azure instance metadata
   'fe80::1',          // IPv6 link-local — common metadata endpoint alias
   '::ffff:169.254.169.254', // IPv4-mapped IPv6 form of the metadata IP
+  '::ffff:a9fe:a9fe', // Hex-encoded IPv4-mapped form (URL constructor normalizes to this)
+  '::a9fe:a9fe',      // Deprecated IPv4-compatible hex form
   'metadata.google.internal', // GCP metadata
   'metadata.azure.internal',  // Azure IMDS
 ]);

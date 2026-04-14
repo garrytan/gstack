@@ -13,7 +13,7 @@ export function generateCommandReference(_ctx: TemplateContext): string {
 
   // Category display order
   const categoryOrder = [
-    'Navigation', 'Reading', 'Interaction', 'Inspection',
+    'Navigation', 'Reading', 'Extraction', 'Interaction', 'Inspection',
     'Visual', 'Snapshot', 'Meta', 'Tabs', 'Server',
   ];
 

@@ -1,5 +1,75 @@
 # Changelog
 
+## [0.16.4.0] - 2026-04-13
+
+### Added
+- **Cookie origin pinning.** When you import cookies for specific domains, JS execution is now blocked on pages that don't match those domains. This prevents the attack where a prompt injection navigates to an attacker's site and runs `document.cookie` to steal your imported cookies. Subdomain matching works automatically (importing `.github.com` allows `api.github.com`). When no cookies are imported, everything works as before. 3 PRs from @halbert04.
+- **Command audit log.** Every browse command now gets a persistent forensic trail in `~/.gstack/.browse/browse-audit.jsonl`. Timestamp, command, args, page origin, duration, status, error, and whether cookies were imported. Append-only, never truncated, survives server restarts. Best-effort writes that never block command execution. From @halbert04.
+- **Cookie domain tracking.** gstack now tracks which domains cookies were imported from. Foundation for origin pinning above. Direct imports via `--domain` track automatically. New `--all` flag makes full-browser cookie import an explicit opt-in instead of the default.
+
+### Fixed
+- **Symlink bypass in file writes.** `validateOutputPath` only checked the parent directory for symlinks, not the file itself. A symlink at `/tmp/evil.png` pointing to `/etc/crontab` passed validation because the parent `/tmp` was safe. Now checks the file with `lstatSync` before writing. From @Hybirdss.
+- **Cookie-import path bypass.** Two issues: relative paths bypassed all validation (the `path.isAbsolute()` gate let `sensitive-file.json` through), and symlink resolution was missing (`path.resolve` without `realpathSync`). Now resolves to absolute, resolves symlinks, and checks against safe directories. From @urbantech.
+- **Shell injection in setup scripts.** `gstack-settings-hook` interpolated file paths directly into `bun -e` JavaScript blocks. A path with quotes broke the JS string context. Now uses environment variables (`process.env`). Systematic audit confirmed only this script was vulnerable. From @garagon.
+- **Form field credential leak.** Snapshot redaction only applied to `type="password"` fields. Hidden and text fields named `csrf_token`, `api_key`, `session_id` were exposed unredacted in LLM context. Now checks field name and id against sensitive patterns. From @garagon.
+- **Learnings prompt injection.** Three fixes: input validation (type/key/confidence allowlists), injection pattern detection in insight field (blocks "ignore previous instructions" etc.), and cross-project trust gate (only user-stated learnings cross project boundaries). From @Ziadstr.
+- **IPv6 metadata bypass.** The URL constructor normalizes `::ffff:169.254.169.254` to `::ffff:a9fe:a9fe` (hex), which wasn't in the blocklist. Added both hex-encoded forms. From @mehmoodosman.
+- **Session files world-readable.** Design session files in `/tmp` were created with default permissions (0644). Now 0600 (owner-only). From @garagon.
+- **Frozen lockfile in setup.** `bun install` now uses `--frozen-lockfile` to prevent supply chain attacks via floating semver ranges. From @halbert04.
+- **Dockerfile chmod fix.** Removed duplicate recursive `chmod -R 1777 /tmp` (recursive sticky bit on files has no defined behavior). From @Gonzih.
+- **Hardcoded /tmp in cookie import.** `cookie-import-browser` used `/tmp` directly instead of `os.tmpdir()`, breaking Windows support.
+
+### Security
+- Closed 14 security issues (#665-#675, #566, #479, #467, #545) that were fixed in prior waves but still open on GitHub.
+- Closed 17 community security PRs with thank-you messages and commit references.
+- Security wave 3: 12 fixes, 7 contributors. Big thanks to @Hybirdss, @urbantech, @garagon, @Ziadstr, @halbert04, @mehmoodosman, @Gonzih.
+
+## [0.16.3.0] - 2026-04-09
+
+### Changed
+- **AI slop cleanup.** Ran [slop-scan](https://github.com/benvinegar/slop-scan) and dropped from 100 findings (2.38 score/file) to 90 findings (1.96 score/file). The good part: `safeUnlink()` and `safeKill()` utilities that catch real bugs (swallowed EPERM in shutdown was a silent data loss risk). `safeUnlinkQuiet()` for cleanup paths where throwing is worse than swallowing. `isProcessAlive()` extracted to a shared module with Windows support. Redundant `return await` removed. Typed exception catches (TypeError, DOMException, ENOENT) replace empty catches in system boundary code. The part we tried and reverted: string-matching on error messages was brittle, extension catch-and-log was correct as-is, pass-through wrapper comments were linter gaming. We are AI-coded and proud of it. The goal is code quality, not hiding.
+
+### Added
+- **`bun run slop:diff`** shows only NEW slop-scan findings introduced on your branch vs main. Line-number-insensitive comparison so shifted code doesn't create false positives. Runs automatically after `bun test`.
+- **Slop-scan usage guidelines** in CLAUDE.md: what to fix (genuine quality) vs what NOT to fix (linter gaming). Includes utility function reference table.
+- **Design doc** for future slop-scan integration in `/review` and `/ship` skills (`docs/designs/SLOP_SCAN_FOR_REVIEW_SHIP.md`).
+
+## [0.16.2.0] - 2026-04-09
+
+### Added
+- **Office hours now remembers you.** The closing experience adapts based on how many sessions you've done. First time: full YC plea and founder resources. Sessions 2-3: "Welcome back. Last time you were working on [your project]. How's it going?" Sessions 4-7: arc-level callbacks across your whole journey, accumulated signal visibility, and an auto-generated Builder Journey narrative. Sessions 8+: the data speaks for itself.
+- **Builder profile** tracks your office hours journey in a single append-only session log. Signals, design docs, assignments, topics, and resources shown, all in one file. No split-brain state, no separate config keys.
+- **Builder-to-founder nudge** for repeat builder-mode users who accumulate founder signals. Evidence-gated: only triggers when you've shown 5+ signals across 3+ builder sessions. Not a pitch. An observation.
+- **Journey-matched resources.** Instead of category-matching from the static pool, resources now match your accumulated session context. "You've been iterating on a fintech idea for 3 sessions... Tom Blomfield built Monzo from exactly this kind of persistence."
+- **Builder Journey Summary** auto-generates at session 5+ and opens in your browser. A narrative arc of your journey, not a data table. Written in second person, referencing specific things you said across sessions.
+- **Global resource dedup.** Resource links now dedup globally (not per-project), so switching repos doesn't reset your watch history. Each link shows only once, ever.
+
+### Fixed
+- package.json version now stays in sync with VERSION file.
+
+## [0.16.1.0] - 2026-04-08
+
+### Fixed
+- Cookie picker no longer leaks the browse server auth token. Previously, opening the cookie picker page exposed the master bearer token in the HTML source, letting any local process extract it and execute arbitrary JavaScript in your browser session. Now uses a one-time code exchange with an HttpOnly session cookie. The token never appears in HTML, URLs, or browser history. (Reported by Horoshi at Vagabond Research, CVSS 7.8)
+
+## [0.16.0.0] - 2026-04-07
+
+### Added
+- **Browser data platform.** Six new browse commands that turn gstack browser from "a thing that clicks buttons" into a full scraping and data extraction tool for AI agents.
+- `media` command: discover every image, video, and audio element on a page. Returns URLs, dimensions, srcset, lazy-load state, and detects HLS/DASH streams. Filter with `--images`, `--videos`, `--audio`, or scope with a CSS selector.
+- `data` command: extract structured data embedded in pages. JSON-LD (product prices, recipes, events), Open Graph, Twitter Cards, and meta tags. One command gives you what used to take 50 lines of DOM scraping.
+- `download` command: fetch any URL or `@ref` element to disk using the browser's session cookies. Handles blob URLs via in-page base64 conversion. `--base64` flag returns inline data URI for remote agents. Detects HLS/DASH and tells you to use yt-dlp instead of silently failing.
+- `scrape` command: bulk download all media from a page. Combines `media` discovery + `download` in a loop with URL deduplication, configurable limits, and a `manifest.json` for machine consumption.
+- `archive` command: save complete pages as MHTML via CDP. One command, full page with all resources.
+- `scroll --times N`: automated repeated scrolling for infinite feed content loading. Configurable delay between scrolls with `--wait`.
+- `screenshot --base64`: return screenshots as inline data URIs instead of file paths. Eliminates the two-step screenshot-then-file-serve dance for remote agents.
+- **Network response body capture.** `network --capture` intercepts API response bodies so agents get structured JSON instead of fragile DOM scraping. Filter by URL pattern (`--filter graphql`), export as JSONL (`--export`), view summary (`--bodies`). 50MB size-capped buffer with automatic eviction.
+- `GET /file` endpoint: remote paired agents can now retrieve downloaded files (images, scraped media, screenshots) over HTTP. TEMP_DIR only to prevent project file exfiltration. Bearer token auth, MIME detection, zero-copy streaming via `Bun.file()`.
+
+### Changed
+- Paired agents now get full access by default (read+write+admin+meta). The trust boundary is the pairing ceremony, not the scope. An agent that can click any button doesn't gain meaningful attack surface from also being able to run `js`. Browser-wide destructive commands (stop, restart, disconnect) moved to new `control` scope, still opt-in via `--control`.
+- Path validation extracted to shared `path-security.ts` module. Was duplicated across three files with slightly different implementations. Now one source of truth with `validateOutputPath`, `validateReadPath`, and `validateTempPath`.
+
 ## [0.15.16.0] - 2026-04-06
 
 ### Added

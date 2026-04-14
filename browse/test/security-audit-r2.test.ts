@@ -17,6 +17,7 @@ const WRITE_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/write-comma
 const SERVER_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/server.ts'), 'utf-8');
 const AGENT_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/sidebar-agent.ts'), 'utf-8');
 const SNAPSHOT_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/snapshot.ts'), 'utf-8');
+const PATH_SECURITY_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/path-security.ts'), 'utf-8');
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
@@ -159,26 +160,25 @@ describe('Task 2: CSS value validator blocks dangerous patterns', () => {
 
 describe('Task 1: validateOutputPath uses realpathSync', () => {
   describe('source-level checks', () => {
-    it('meta-commands.ts validateOutputPath contains realpathSync', () => {
-      const fn = extractFunction(META_SRC, 'validateOutputPath');
+    it('path-security.ts validateOutputPath contains realpathSync', () => {
+      const fn = extractFunction(PATH_SECURITY_SRC, 'validateOutputPath');
       expect(fn).toBeTruthy();
       expect(fn).toContain('realpathSync');
     });
 
-    it('write-commands.ts validateOutputPath contains realpathSync', () => {
-      const fn = extractFunction(WRITE_SRC, 'validateOutputPath');
-      expect(fn).toBeTruthy();
-      expect(fn).toContain('realpathSync');
-    });
-
-    it('meta-commands.ts SAFE_DIRECTORIES resolves with realpathSync', () => {
-      const safeBlock = sliceBetween(META_SRC, 'const SAFE_DIRECTORIES', ';');
+    it('path-security.ts SAFE_DIRECTORIES resolves with realpathSync', () => {
+      const safeBlock = sliceBetween(PATH_SECURITY_SRC, 'const SAFE_DIRECTORIES', ';');
       expect(safeBlock).toContain('realpathSync');
     });
 
-    it('write-commands.ts SAFE_DIRECTORIES resolves with realpathSync', () => {
-      const safeBlock = sliceBetween(WRITE_SRC, 'const SAFE_DIRECTORIES', ';');
-      expect(safeBlock).toContain('realpathSync');
+    it('meta-commands.ts re-exports validateOutputPath from path-security', () => {
+      expect(META_SRC).toContain("from './path-security'");
+      expect(META_SRC).toContain('validateOutputPath');
+    });
+
+    it('write-commands.ts imports validateOutputPath from path-security', () => {
+      expect(WRITE_SRC).toContain("from './path-security'");
+      expect(WRITE_SRC).toContain('validateOutputPath');
     });
   });
 

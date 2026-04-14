@@ -40,6 +40,7 @@ export const SCOPE_READ = new Set([
   'snapshot', 'text', 'html', 'links', 'forms', 'accessibility',
   'console', 'network', 'perf', 'dialog', 'is', 'inspect',
   'url', 'tabs', 'status', 'screenshot', 'pdf', 'css', 'attrs',
+  'media', 'data',
 ]);
 
 /** Commands that modify page state or navigate */
@@ -48,15 +49,19 @@ export const SCOPE_WRITE = new Set([
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
   'upload', 'viewport', 'newtab', 'closetab',
   'dialog-accept', 'dialog-dismiss',
+  'download', 'scrape', 'archive',
 ]);
 
-/** Dangerous commands — JS execution, credential access, browser-wide mutations */
+/** Page-level power tools — JS execution, credential access, page mutations */
 export const SCOPE_ADMIN = new Set([
   'eval', 'js', 'cookies', 'storage',
   'cookie', 'cookie-import', 'cookie-import-browser',
   'header', 'useragent',
   'style', 'cleanup', 'prettyscreenshot',
-  // Browser-wide destructive commands (from Codex adversarial finding):
+]);
+
+/** Browser-wide destructive commands — can kill the server, disconnect headed mode */
+export const SCOPE_CONTROL = new Set([
   'state', 'handoff', 'resume', 'stop', 'restart', 'connect', 'disconnect',
 ]);
 
@@ -66,12 +71,13 @@ export const SCOPE_META = new Set([
   'watch', 'inbox', 'focus',
 ]);
 
-export type ScopeCategory = 'read' | 'write' | 'admin' | 'meta';
+export type ScopeCategory = 'read' | 'write' | 'admin' | 'meta' | 'control';
 
 const SCOPE_MAP: Record<ScopeCategory, Set<string>> = {
   read: SCOPE_READ,
   write: SCOPE_WRITE,
   admin: SCOPE_ADMIN,
+  control: SCOPE_CONTROL,
   meta: SCOPE_META,
 };
 
@@ -170,7 +176,7 @@ export function createToken(opts: CreateTokenOptions): TokenInfo {
   } = opts;
 
   // Validate inputs
-  const validScopes: ScopeCategory[] = ['read', 'write', 'admin', 'meta'];
+  const validScopes: ScopeCategory[] = ['read', 'write', 'admin', 'meta', 'control'];
   for (const s of scopes) {
     if (!validScopes.includes(s as ScopeCategory)) {
       throw new Error(`Invalid scope: ${s}. Valid: ${validScopes.join(', ')}`);
@@ -297,7 +303,7 @@ export function validateToken(token: string): TokenInfo | null {
       token: rootToken,
       clientId: 'root',
       type: 'session',
-      scopes: ['read', 'write', 'admin', 'meta'],
+      scopes: ['read', 'write', 'admin', 'meta', 'control'],
       tabPolicy: 'shared',
       rateLimit: 0, // unlimited
       expiresAt: null,

@@ -98,8 +98,9 @@ async function getOrCreateSession(page: Page): Promise<any> {
     try {
       await session.send('DOM.getDocument', { depth: 0 });
       return session;
-    } catch {
-      // Session is stale — recreate
+    } catch (err: any) {
+      // Session is stale — recreate (CDP disconnects throw on closed/Target errors)
+      if (!err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('detached')) throw err;
       cdpSessions.delete(page);
       initializedPages.delete(page);
     }
@@ -117,7 +118,9 @@ async function getOrCreateSession(page: Page): Promise<any> {
   page.once('framenavigated', () => {
     try {
       session.detach().catch(() => {});
-    } catch {}
+    } catch (err: any) {
+      if (!err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('detached')) throw err;
+    }
     cdpSessions.delete(page);
     initializedPages.delete(page);
   });
@@ -258,8 +261,9 @@ export async function inspectElement(
         left: border[0] - margin[0],
       },
     };
-  } catch {
-    // Element may not have a box model (e.g., display:none)
+  } catch (err: any) {
+    // Element may not have a box model (e.g., display:none) — CDP returns "Could not compute box model"
+    if (!err?.message?.includes('box model') && !err?.message?.includes('Could not compute')) throw err;
   }
 
   // Get matched styles
@@ -315,10 +319,8 @@ export async function inspectElement(
 
       if (rule.styleSheetId) {
         styleSheetId = rule.styleSheetId;
-        try {
-          // Try to resolve stylesheet URL
-          source = rule.origin === 'regular' ? (rule.styleSheetId || 'stylesheet') : rule.origin;
-        } catch {}
+        // Resolve stylesheet source name
+        source = rule.origin === 'regular' ? (rule.styleSheetId || 'stylesheet') : rule.origin;
       }
 
       if (rule.style?.range) {
@@ -328,15 +330,7 @@ export async function inspectElement(
       }
 
       // Try to get a friendly source name from stylesheet
-      if (styleSheetId) {
-        try {
-          // Stylesheet URL might be embedded in the rule data
-          // CDP provides sourceURL in some cases
-          if (rule.style?.cssText) {
-            // Parse source from the styleSheetId metadata
-          }
-        } catch {}
-      }
+      // (styleSheetId metadata is available via CDP — see stylesheet URL resolution below)
 
       // Get media query if present
       let media: string | undefined;
@@ -433,15 +427,9 @@ export async function inspectElement(
   }
 
   // Resolve stylesheet URLs for better source info
-  for (const rule of matchedRules) {
-    if (rule.styleSheetId && rule.source !== 'inline') {
-      try {
-        const sheetMeta = await session.send('CSS.getStyleSheetText', { styleSheetId: rule.styleSheetId }).catch(() => null);
-        // Try to get the stylesheet header for URL info
-        // The styleSheetId itself is opaque, but we can try to get source URL
-      } catch {}
-    }
-  }
+  // Note: CSS.getStyleSheetText is called per-rule but result is unused — the styleSheetId
+  // is opaque and CDP doesn't expose a direct URL lookup. Left as a placeholder for future
+  // enhancement (e.g., CSS.styleSheetAdded event tracking).
 
   return {
     selector,
@@ -531,8 +519,9 @@ export async function modifyStyle(
         method = 'setStyleTexts';
         source = `${targetRule.source}:${targetRule.sourceLine}`;
         sourceLine = targetRule.sourceLine;
-      } catch {
-        // Fall back to inline
+      } catch (err: any) {
+        // Fall back to inline — setStyleTexts fails on immutable stylesheets or stale ranges
+        if (!err?.message?.includes('style') && !err?.message?.includes('range') && !err?.message?.includes('closed') && !err?.message?.includes('Target')) throw err;
       }
     }
 
@@ -591,8 +580,9 @@ export async function undoModification(page: Page, index?: number): Promise<void
       await modifyStyle(page, mod.selector, mod.property, mod.oldValue);
       // Remove the undo modification from history (it's a restore, not a new mod)
       modificationHistory.pop();
-    } catch {
-      // Fall back to inline restore
+    } catch (err: any) {
+      // Fall back to inline restore — CDP may have disconnected or stylesheet changed
+      if (!err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('style') && !err?.message?.includes('not found') && !err?.message?.includes('Element')) throw err;
       await page.evaluate(
         ([sel, prop, val]) => {
           const el = document.querySelector(sel);
@@ -652,8 +642,9 @@ export async function resetModifications(page: Page): Promise<void> {
         },
         [mod.selector, mod.property, mod.oldValue]
       );
-    } catch {
-      // Best effort
+    } catch (err: any) {
+      // Best effort — page may have navigated or element may be gone
+      if (!err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('Execution context')) throw err;
     }
   }
   modificationHistory.length = 0;
@@ -757,7 +748,7 @@ export function detachSession(page?: Page): void {
   if (page) {
     const session = cdpSessions.get(page);
     if (session) {
-      try { session.detach().catch(() => {}); } catch {}
+      try { session.detach().catch(() => {}); } catch (err: any) { if (!err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('detached')) throw err; }
       cdpSessions.delete(page);
       initializedPages.delete(page);
     }

@@ -12,6 +12,7 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { safeUnlink } from './error-handling';
 
 const QUEUE = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
 const KILL_FILE = path.join(path.dirname(QUEUE), 'sidebar-agent-kill');
@@ -290,7 +291,7 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
 
     // Clear any stale cancel signal for this tab before starting
     const cancelFile = cancelFileForTab(tid);
-    try { fs.unlinkSync(cancelFile); } catch {}
+    safeUnlink(cancelFile);
 
     const proc = spawn('claude', claudeArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -321,12 +322,12 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
       try {
         if (fs.existsSync(cancelFile)) {
           console.log(`[sidebar-agent] Cancel signal received for tab ${tid} — killing claude subprocess`);
-          try { proc.kill('SIGTERM'); } catch {}
-          setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 3000);
+          try { proc.kill('SIGTERM'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; }
+          setTimeout(() => { try { proc.kill('SIGKILL'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; } }, 3000);
           fs.unlinkSync(cancelFile);
           clearInterval(cancelCheck);
         }
-      } catch {}
+      } catch (err: any) { if (err?.code !== 'ENOENT') throw err; }
     }, 500);
 
     let buffer = '';
@@ -385,7 +386,7 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
       try { proc.kill('SIGTERM'); } catch (killErr: any) {
         console.warn(`[sidebar-agent] Tab ${tid}: Failed to kill timed-out process:`, killErr.message);
       }
-      setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 3000);
+      setTimeout(() => { try { proc.kill('SIGKILL'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; } }, 3000);
       const timeoutMsg = stderrBuffer.trim()
         ? `Timed out after ${timeoutMs / 1000}s\nstderr: ${stderrBuffer.trim().slice(-500)}`
         : `Timed out after ${timeoutMs / 1000}s`;
@@ -464,8 +465,8 @@ function pollKillFile(): void {
       if (activeProcs.size > 0) {
         console.log(`[sidebar-agent] Kill signal received — terminating ${activeProcs.size} active agent(s)`);
         for (const [tid, proc] of activeProcs) {
-          try { proc.kill('SIGTERM'); } catch {}
-          setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);
+          try { proc.kill('SIGTERM'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; }
+          setTimeout(() => { try { proc.kill('SIGKILL'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; } }, 2000);
           processingTabs.delete(tid);
         }
         activeProcs.clear();
@@ -480,7 +481,7 @@ async function main() {
   const dir = path.dirname(QUEUE);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (!fs.existsSync(QUEUE)) fs.writeFileSync(QUEUE, '', { mode: 0o600 });
-  try { fs.chmodSync(QUEUE, 0o600); } catch {}
+  try { fs.chmodSync(QUEUE, 0o600); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; }
 
   lastLine = countLines();
   await refreshToken();

@@ -1811,7 +1811,8 @@ describe('Path traversal prevention', () => {
       await handleWriteCommand('cookie-import', ['../../etc/shadow'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Path traversal');
+      // Traversal blocked by safe-directory check (#707) or explicit .. check
+      expect(err.message).toMatch(/Path must be within|Path traversal/);
     }
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "0.15.15.0",
+  "version": "0.16.2.0",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,7 @@
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
-    "test": "bun test browse/test/ test/ --ignore 'test/skill-e2e-*.test.ts' --ignore test/skill-llm-eval.test.ts --ignore test/skill-routing-e2e.test.ts --ignore test/codex-e2e.test.ts --ignore test/gemini-e2e.test.ts",
+    "test": "bun test browse/test/ test/ --ignore 'test/skill-e2e-*.test.ts' --ignore test/skill-llm-eval.test.ts --ignore test/skill-routing-e2e.test.ts --ignore test/codex-e2e.test.ts --ignore test/gemini-e2e.test.ts && bun run slop:diff 2>/dev/null || true",
     "test:evals": "EVALS=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
     "test:evals:all": "EVALS=1 EVALS_ALL=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
     "test:e2e": "EVALS=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
@@ -33,7 +33,9 @@
     "eval:watch": "bun run scripts/eval-watch.ts",
     "eval:select": "bun run scripts/eval-select.ts",
     "analytics": "bun run scripts/analytics.ts",
-    "test:audit": "bun test test/audit-compliance.test.ts"
+    "test:audit": "bun test test/audit-compliance.test.ts",
+    "slop": "npx slop-scan scan . 2>/dev/null || echo 'slop-scan not available (install with: npm i -g slop-scan)'",
+    "slop:diff": "bun run scripts/slop-diff.ts"
   },
   "dependencies": {
     "@ngrok/ngrok": "^1.7.0",

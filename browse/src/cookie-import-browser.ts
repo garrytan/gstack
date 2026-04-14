@@ -386,7 +386,8 @@ function openDb(dbPath: string, browserName: string): Database {
 }
 
 function openDbFromCopy(dbPath: string, browserName: string): Database {
-  const tmpPath = `/tmp/browse-cookies-${browserName.toLowerCase()}-${crypto.randomUUID()}.db`;
+  // Use os.tmpdir() instead of hardcoded /tmp for cross-platform support (#708)
+  const tmpPath = path.join(os.tmpdir(), `browse-cookies-${browserName.toLowerCase()}-${crypto.randomUUID()}.db`);
   try {
     fs.copyFileSync(dbPath, tmpPath);
     // Also copy WAL and SHM if they exist (for consistent reads)

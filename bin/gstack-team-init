@@ -139,9 +139,9 @@ HOOK_EOF
 
   # Add hook to project-level settings.json
   if command -v bun >/dev/null 2>&1; then
-    bun -e "
+    GSTACK_SETTINGS_PATH="$SETTINGS" bun -e "
       const fs = require('fs');
-      const settingsPath = '$SETTINGS';
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
 
       let settings = {};
       try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}

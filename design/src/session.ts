@@ -49,7 +49,7 @@ export function createSession(
     updatedAt: new Date().toISOString(),
   };
 
-  fs.writeFileSync(sessionPath(id), JSON.stringify(session, null, 2));
+  fs.writeFileSync(sessionPath(id), JSON.stringify(session, null, 2), { mode: 0o600 });
   return session;
 }
 

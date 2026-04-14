@@ -167,8 +167,11 @@ function getGitRemote(cwd: string): string | null {
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
     return remote || null;
-  } catch {
-    return null;
+  } catch (err: any) {
+    // Expected: no remote configured, repo not found, git not installed
+    if (err?.status !== undefined) return null; // non-zero exit from git
+    if (err?.code === 'ENOENT') return null;    // git binary not found
+    throw err;
   }
 }
 
@@ -183,8 +186,9 @@ function scanClaudeCode(since: Date): Session[] {
   let dirs: string[];
   try {
     dirs = readdirSync(projectsDir);
-  } catch {
-    return [];
+  } catch (err: any) {
+    if (err?.code === 'ENOENT' || err?.code === 'EACCES') return [];
+    throw err;
   }
 
   for (const dirName of dirs) {
@@ -209,8 +213,9 @@ function scanClaudeCode(since: Date): Session[] {
     const hasRecentFile = jsonlFiles.some((f) => {
       try {
         return statSync(join(dirPath, f)).mtime >= since;
-      } catch {
-        return false;
+      } catch (err: any) {
+        if (err?.code === 'ENOENT' || err?.code === 'EACCES') return false;
+        throw err;
       }
     });
     if (!hasRecentFile) continue;
@@ -223,8 +228,9 @@ function scanClaudeCode(since: Date): Session[] {
     const recentFiles = jsonlFiles.filter((f) => {
       try {
         return statSync(join(dirPath, f)).mtime >= since;
-      } catch {
-        return false;
+      } catch (err: any) {
+        if (err?.code === 'ENOENT' || err?.code === 'EACCES') return false;
+        throw err;
       }
     });
     for (let i = 0; i < recentFiles.length; i++) {
@@ -251,8 +257,9 @@ function resolveClaudeCodeCwd(
     .map((f) => {
       try {
         return { name: f, mtime: statSync(join(dirPath, f)).mtime.getTime() };
-      } catch {
-        return null;
+      } catch (err: any) {
+        if (err?.code === 'ENOENT' || err?.code === 'EACCES') return null;
+        throw err;
       }
     })
     .filter(Boolean)
@@ -381,8 +388,9 @@ function scanGemini(since: Date): Session[] {
   let projectDirs: string[];
   try {
     projectDirs = readdirSync(tmpDir);
-  } catch {
-    return [];
+  } catch (err: any) {
+    if (err?.code === 'ENOENT' || err?.code === 'EACCES') return [];
+    throw err;
   }
 
   for (const projectName of projectDirs) {

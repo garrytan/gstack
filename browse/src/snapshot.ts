@@ -331,7 +331,9 @@ export async function handleSnapshot(
           output.push(`@${ref} [${elem.reason}] "${elem.text}"`);
         }
       }
-    } catch {
+    } catch (err: any) {
+      // Cursor scan fails on pages with strict CSP or when page has navigated
+      if (!err?.message?.includes('Execution context') && !err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('Content Security')) throw err;
       output.push('');
       output.push('(cursor scan failed — CSP restriction)');
     }
@@ -355,7 +357,7 @@ export async function handleSnapshot(
       const nodeFs = require('fs') as typeof import('fs');
       const absolute = nodePath.resolve(screenshotPath);
       const safeDirs = [TEMP_DIR, process.cwd()].map((d: string) => {
-        try { return nodeFs.realpathSync(d); } catch { return d; }
+        try { return nodeFs.realpathSync(d); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; return d; }
       });
       let realPath: string;
       try {
@@ -365,7 +367,8 @@ export async function handleSnapshot(
           try {
             const dir = nodeFs.realpathSync(nodePath.dirname(absolute));
             realPath = nodePath.join(dir, nodePath.basename(absolute));
-          } catch {
+          } catch (err2: any) {
+            if (err2?.code !== 'ENOENT') throw err2;
             realPath = absolute;
           }
         } else {
@@ -385,8 +388,9 @@ export async function handleSnapshot(
           if (box) {
             boxes.push({ ref: `@${ref}`, box });
           }
-        } catch {
-          // Element may be offscreen or hidden — skip
+        } catch (err: any) {
+          // Element may be offscreen, hidden, or page navigated — skip
+          if (!err?.message?.includes('Timeout') && !err?.message?.includes('timeout') && !err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('Execution context')) throw err;
         }
       }
 
@@ -418,13 +422,16 @@ export async function handleSnapshot(
 
       output.push('');
       output.push(`[annotated screenshot: ${screenshotPath}]`);
-    } catch {
-      // Remove overlays even on screenshot failure
+    } catch (err: any) {
+      // Remove overlays even on screenshot failure — but only swallow page/browser errors
+      if (!err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('Execution context') && !err?.message?.includes('screenshot')) throw err;
       try {
         await page.evaluate(() => {
           document.querySelectorAll('.__browse_annotation__').forEach(el => el.remove());
         });
-      } catch {}
+      } catch (err2: any) {
+        if (!err2?.message?.includes('closed') && !err2?.message?.includes('Target') && !err2?.message?.includes('Execution context')) throw err2;
+      }
     }
   }
 

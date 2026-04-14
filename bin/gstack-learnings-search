@@ -68,7 +68,13 @@ for (const line of lines) {
 
     // Determine if this is from the current project or cross-project
     // Cross-project entries are tagged for display
-    e._crossProject = !line.includes(slug) && process.env.GSTACK_SEARCH_CROSS === 'true';
+    const isCrossProject = !line.includes(slug) && process.env.GSTACK_SEARCH_CROSS === 'true';
+    e._crossProject = isCrossProject;
+
+    // Trust gate: cross-project learnings only loaded if trusted (user-stated)
+    // This prevents prompt injection from one project's AI-generated learnings
+    // silently influencing reviews in another project.
+    if (isCrossProject && e.trusted === false) continue;
 
     entries.push(e);
   } catch {}

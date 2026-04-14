@@ -663,10 +663,19 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | Command | Description |
 |---------|-------------|
 | `accessibility` | Full ARIA tree |
+| `data [--jsonld|--og|--meta|--twitter]` | Structured data: JSON-LD, Open Graph, Twitter Cards, meta tags |
 | `forms` | Form fields as JSON |
 | `html [selector]` | innerHTML of selector (throws if not found), or full page HTML if no selector given |
 | `links` | All links as "text → href" |
+| `media [--images|--videos|--audio] [selector]` | All media elements (images, videos, audio) with URLs, dimensions, types |
 | `text` | Cleaned page text |
+
+### Extraction
+| Command | Description |
+|---------|-------------|
+| `archive [path]` | Save complete page as MHTML via CDP |
+| `download <url|@ref> [path] [--base64]` | Download URL or media element to disk using browser cookies |
+| `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]` | Bulk download all media from page. Writes manifest.json |
 
 ### Interaction
 | Command | Description |

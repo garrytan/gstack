@@ -8,47 +8,15 @@ import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
 import { validateNavigationUrl } from './url-validation';
 import { checkScope, type TokenInfo } from './token-registry';
+import { validateOutputPath, escapeRegExp } from './path-security';
+// Re-export for backward compatibility (tests import from meta-commands)
+export { validateOutputPath, escapeRegExp } from './path-security';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TEMP_DIR, isPathWithin } from './platform';
+import { TEMP_DIR } from './platform';
 import { resolveConfig } from './config';
 import type { Frame } from 'playwright';
-
-// Security: Path validation to prevent path traversal attacks
-// Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp → /private/tmp)
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()].map(d => {
-  try { return fs.realpathSync(d); } catch { return d; }
-});
-
-export function validateOutputPath(filePath: string): void {
-  const resolved = path.resolve(filePath);
-
-  // Resolve real path of the parent directory to catch symlinks.
-  // The file itself may not exist yet (e.g., screenshot output).
-  let dir = path.dirname(resolved);
-  let realDir: string;
-  try {
-    realDir = fs.realpathSync(dir);
-  } catch {
-    try {
-      realDir = fs.realpathSync(path.dirname(dir));
-    } catch {
-      throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
-    }
-  }
-
-  const realResolved = path.join(realDir, path.basename(resolved));
-  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realResolved, dir));
-  if (!isSafe) {
-    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
-  }
-}
-
-/** Escape special regex metacharacters in a user-supplied string to prevent ReDoS. */
-export function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /** Tokenize a pipe segment respecting double-quoted strings. */
 function tokenizePipeSegment(segment: string): string[] {
@@ -117,7 +85,7 @@ export async function handleMetaCommand(
 
     // ─── Server Control ────────────────────────────────
     case 'status': {
-      const page = session.getPage();
+      const page = bm.getPage();
       const tabs = bm.getTabCount();
       const mode = bm.getConnectionMode();
       return [
@@ -147,17 +115,20 @@ export async function handleMetaCommand(
 
     // ─── Visual ────────────────────────────────────────
     case 'screenshot': {
-      // Parse priority: flags (--viewport, --clip) → selector (@ref, CSS) → output path
-      const page = session.getPage();
+      // Parse priority: flags (--viewport, --clip, --base64) → selector (@ref, CSS) → output path
+      const page = bm.getPage();
       let outputPath = `${TEMP_DIR}/browse-screenshot.png`;
       let clipRect: { x: number; y: number; width: number; height: number } | undefined;
       let targetSelector: string | undefined;
       let viewportOnly = false;
+      let base64Mode = false;
 
       const remaining: string[] = [];
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--viewport') {
           viewportOnly = true;
+        } else if (args[i] === '--base64') {
+          base64Mode = true;
         } else if (args[i] === '--clip') {
           const coords = args[++i];
           if (!coords) throw new Error('Usage: screenshot --clip x,y,w,h [path]');
@@ -194,8 +165,26 @@ export async function handleMetaCommand(
         throw new Error('Cannot use --viewport with --clip — choose one');
       }
 
+      // --base64 mode: capture to buffer instead of disk
+      if (base64Mode) {
+        let buffer: Buffer;
+        if (targetSelector) {
+          const resolved = await bm.resolveRef(targetSelector);
+          const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
+          buffer = await locator.screenshot({ timeout: 5000 });
+        } else if (clipRect) {
+          buffer = await page.screenshot({ clip: clipRect });
+        } else {
+          buffer = await page.screenshot({ fullPage: !viewportOnly });
+        }
+        if (buffer.length > 10 * 1024 * 1024) {
+          throw new Error('Screenshot too large for --base64 (>10MB). Use disk path instead.');
+        }
+        return `data:image/png;base64,${buffer.toString('base64')}`;
+      }
+
       if (targetSelector) {
-        const resolved = await session.resolveRef(targetSelector);
+        const resolved = await bm.resolveRef(targetSelector);
         const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
         await locator.screenshot({ path: outputPath, timeout: 5000 });
         return `Screenshot saved (element): ${outputPath}`;
@@ -211,7 +200,7 @@ export async function handleMetaCommand(
     }
 
     case 'pdf': {
-      const page = session.getPage();
+      const page = bm.getPage();
       const pdfPath = args[0] || `${TEMP_DIR}/browse-page.pdf`;
       validateOutputPath(pdfPath);
       await page.pdf({ path: pdfPath, format: 'A4' });
@@ -219,7 +208,7 @@ export async function handleMetaCommand(
     }
 
     case 'responsive': {
-      const page = session.getPage();
+      const page = bm.getPage();
       const prefix = args[0] || `${TEMP_DIR}/browse-responsive`;
       validateOutputPath(prefix);
       const viewports = [
@@ -259,8 +248,9 @@ export async function handleMetaCommand(
       try {
         commands = JSON.parse(jsonStr);
         if (!Array.isArray(commands)) throw new Error('not array');
-      } catch {
+      } catch (err: any) {
         // Fallback: pipe-delimited format "goto url | click @e5 | snapshot -ic"
+        if (!(err instanceof SyntaxError) && err?.message !== 'not array') throw err;
         commands = jsonStr.split(' | ')
           .filter(seg => seg.trim().length > 0)
           .map(seg => tokenizePipeSegment(seg.trim()));
@@ -302,7 +292,7 @@ export async function handleMetaCommand(
           } else {
             // Parse error from JSON result
             let errMsg = cr.result;
-            try { errMsg = JSON.parse(cr.result).error || cr.result; } catch {}
+            try { errMsg = JSON.parse(cr.result).error || cr.result; } catch (err: any) { if (!(err instanceof SyntaxError)) throw err; }
             results.push(`[${name}] ERROR: ${errMsg}`);
           }
           lastWasWrite = WRITE_COMMANDS.has(name);
@@ -344,7 +334,7 @@ export async function handleMetaCommand(
 
       // Wait for network to settle after write commands before returning
       if (lastWasWrite) {
-        await session.getPage().waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
+        await bm.getPage().waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
       }
 
       return results.join('\n\n');
@@ -355,7 +345,7 @@ export async function handleMetaCommand(
       const [url1, url2] = args;
       if (!url1 || !url2) throw new Error('Usage: browse diff <url1> <url2>');
 
-      const page = session.getPage();
+      const page = bm.getPage();
       await validateNavigationUrl(url1);
       await page.goto(url1, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const text1 = await getCleanText(page);
@@ -442,8 +432,9 @@ export async function handleMetaCommand(
             execSync(`osascript -e 'tell application "${appName}" to activate'`, { stdio: 'pipe', timeout: 3000 });
             activated = true;
             break;
-          } catch {
-            // Try next browser
+          } catch (err: any) {
+            // Try next browser — osascript fails if app not found or AppleScript errors
+            if (err?.status === undefined && !err?.message?.includes('Command failed')) throw err;
           }
         }
 
@@ -454,13 +445,14 @@ export async function handleMetaCommand(
         // If a ref was passed, scroll it into view
         if (args.length > 0 && args[0].startsWith('@')) {
           try {
-            const resolved = await session.resolveRef(args[0]);
+            const resolved = await bm.resolveRef(args[0]);
             if ('locator' in resolved) {
               await resolved.locator.scrollIntoViewIfNeeded({ timeout: 5000 });
               return `Browser activated. Scrolled ${args[0]} into view.`;
             }
-          } catch {
-            // Ref not found — still activated the browser
+          } catch (err: any) {
+            // Ref not found or element gone — still activated the browser
+            if (!err?.message?.includes('not found') && !err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('timeout')) throw err;
           }
         }
 
@@ -502,7 +494,9 @@ export async function handleMetaCommand(
       let gitRoot: string;
       try {
         gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-      } catch {
+      } catch (err: any) {
+        // execSync throws with exit status on non-git directories
+        if (err?.status === undefined && !err?.message?.includes('Command failed')) throw err;
         return 'Not in a git repository — cannot locate inbox.';
       }
 
@@ -525,8 +519,9 @@ export async function handleMetaCommand(
             url: data.page?.url || 'unknown',
             userMessage: data.userMessage || '',
           });
-        } catch {
-          // Skip malformed files
+        } catch (err: any) {
+          // Skip malformed JSON or unreadable files
+          if (!(err instanceof SyntaxError) && err?.code !== 'ENOENT' && err?.code !== 'EACCES') throw err;
         }
       }
 
@@ -548,7 +543,7 @@ export async function handleMetaCommand(
       // Handle --clear flag
       if (args.includes('--clear')) {
         for (const file of files) {
-          try { fs.unlinkSync(path.join(inboxDir, file)); } catch {}
+          try { fs.unlinkSync(path.join(inboxDir, file)); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; }
         }
         lines.push(`Cleared ${files.length} message${files.length === 1 ? '' : 's'}.`);
       }
@@ -611,7 +606,7 @@ export async function handleMetaCommand(
           }
         }
         // Close existing pages, then restore (replace, not merge)
-        session.setFrame(null);
+        bm.setFrame(null);
         await bm.closeAllPages();
         await bm.restoreState({
           cookies: validatedCookies,
@@ -629,12 +624,12 @@ export async function handleMetaCommand(
       if (!target) throw new Error('Usage: frame <selector|@ref|--name name|--url pattern|main>');
 
       if (target === 'main') {
-        session.setFrame(null);
-        session.clearRefs();
+        bm.setFrame(null);
+        bm.clearRefs();
         return 'Switched to main frame';
       }
 
-      const page = session.getPage();
+      const page = bm.getPage();
       let frame: Frame | null = null;
 
       if (target === '--name') {
@@ -645,7 +640,7 @@ export async function handleMetaCommand(
         frame = page.frame({ url: new RegExp(escapeRegExp(args[1])) });
       } else {
         // CSS selector or @ref for the iframe element
-        const resolved = await session.resolveRef(target);
+        const resolved = await bm.resolveRef(target);
         const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
         const elementHandle = await locator.elementHandle({ timeout: 5000 });
         frame = await elementHandle?.contentFrame() ?? null;
@@ -653,8 +648,8 @@ export async function handleMetaCommand(
       }
 
       if (!frame) throw new Error(`Frame not found: ${target}`);
-      session.setFrame(frame);
-      session.clearRefs();
+      bm.setFrame(frame);
+      bm.clearRefs();
       return `Switched to frame: ${frame.url()}`;
     }
 

@@ -113,15 +113,15 @@ describe('generateInstructionBlock', () => {
     expect(block).not.toContain('re-pair with --admin');
   });
 
-  it('shows re-pair hint when admin not included', () => {
+  it('shows re-pair hint when control not included', () => {
     const block = generateInstructionBlock({
-      setupKey: 'gsk_setup_nonadmin',
+      setupKey: 'gsk_setup_nocontrol',
       serverUrl: 'https://test.ngrok.dev',
-      scopes: ['read', 'write'],
+      scopes: ['read', 'write', 'admin', 'meta'],
       expiresAt: '2026-04-06T00:00:00Z',
     });
 
-    expect(block).toContain('re-pair with --admin');
+    expect(block).toContain('re-pair with --control');
   });
 
   it('includes newtab as step 2 (agents must own their tab)', () => {

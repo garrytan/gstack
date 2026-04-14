@@ -12,19 +12,75 @@ mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
 INPUT="$1"
 
-# Validate: input must be parseable JSON
-if ! printf '%s' "$INPUT" | bun -e "JSON.parse(await Bun.stdin.text())" 2>/dev/null; then
-  echo "gstack-learnings-log: invalid JSON, skipping" >&2
+# Validate and sanitize input
+VALIDATED=$(printf '%s' "$INPUT" | bun -e "
+const raw = await Bun.stdin.text();
+let j;
+try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-learnings-log: invalid JSON, skipping\n'); process.exit(1); }
+
+// Field validation: type must be from allowed list
+const ALLOWED_TYPES = ['pattern', 'pitfall', 'preference', 'architecture', 'tool', 'operational'];
+if (!j.type || !ALLOWED_TYPES.includes(j.type)) {
+  process.stderr.write('gstack-learnings-log: invalid type \"' + (j.type || '') + '\", must be one of: ' + ALLOWED_TYPES.join(', ') + '\n');
+  process.exit(1);
+}
+
+// Field validation: key must be alphanumeric, hyphens, underscores (no injection surface)
+if (!j.key || !/^[a-zA-Z0-9_-]+$/.test(j.key)) {
+  process.stderr.write('gstack-learnings-log: invalid key, must be alphanumeric with hyphens/underscores only\n');
+  process.exit(1);
+}
+
+// Field validation: confidence must be 1-10
+const conf = Number(j.confidence);
+if (!Number.isInteger(conf) || conf < 1 || conf > 10) {
+  process.stderr.write('gstack-learnings-log: confidence must be integer 1-10\n');
+  process.exit(1);
+}
+j.confidence = conf;
+
+// Field validation: source must be from allowed list
+const ALLOWED_SOURCES = ['observed', 'user-stated', 'inferred', 'cross-model'];
+if (j.source && !ALLOWED_SOURCES.includes(j.source)) {
+  process.stderr.write('gstack-learnings-log: invalid source, must be one of: ' + ALLOWED_SOURCES.join(', ') + '\n');
+  process.exit(1);
+}
+
+// Content sanitization: strip instruction-like patterns from insight field
+// These patterns could be used for prompt injection when learnings are loaded into agent context
+if (j.insight) {
+  const INJECTION_PATTERNS = [
+    /ignore\s+(all\s+)?previous\s+(instructions|context|rules)/i,
+    /you\s+are\s+now\s+/i,
+    /always\s+output\s+no\s+findings/i,
+    /skip\s+(all\s+)?(security|review|checks)/i,
+    /override[:\s]/i,
+    /\bsystem\s*:/i,
+    /\bassistant\s*:/i,
+    /\buser\s*:/i,
+    /do\s+not\s+(report|flag|mention)/i,
+    /approve\s+(all|every|this)/i,
+  ];
+  for (const pat of INJECTION_PATTERNS) {
+    if (pat.test(j.insight)) {
+      process.stderr.write('gstack-learnings-log: insight contains suspicious instruction-like content, rejected\n');
+      process.exit(1);
+    }
+  }
+}
+
+// Inject timestamp if not present
+if (!j.ts) j.ts = new Date().toISOString();
+
+// Mark trust level based on source
+// user-stated = user explicitly told the agent this. All others are AI-generated.
+j.trusted = j.source === 'user-stated';
+
+console.log(JSON.stringify(j));
+" 2>/dev/null)
+
+if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
   exit 1
 fi
 
-# Inject timestamp if not present
-if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); if(!j.ts) process.exit(1)" 2>/dev/null; then
-  INPUT=$(printf '%s' "$INPUT" | bun -e "
-    const j = JSON.parse(await Bun.stdin.text());
-    j.ts = new Date().toISOString();
-    console.log(JSON.stringify(j));
-  " 2>/dev/null) || true
-fi
-
-echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
