@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, expect } from "bun:test";
 import { processSlackPayload } from "../src/slack/ingress";
 import { MemoryStore } from "../src/memory/store";
@@ -366,6 +369,114 @@ test("processSlackPayload updates customer voice settings from ai-ops with expli
   expect(posted[0]?.channel).toBe("C_TOTAL");
   expect(posted[0]?.text).toContain("#sherpalabs");
   expect(posted[0]?.text).toContain("persona-driven");
+});
+
+test("processSlackPayload treats project-thread feedback as a follow-up run for the existing goal", async () => {
+  const store = openStore(":memory:");
+  const memoryStore = new MemoryStore(store.db);
+  store.repositories.projects.create({
+    id: "mypetroutine",
+    slackChannelId: "C_MYPETROUTINE",
+  });
+  store.repositories.goals.create({
+    id: "goal-existing",
+    projectId: "mypetroutine",
+    initiativeId: null,
+    title: "온보딩 개선",
+    state: "approved",
+  });
+  memoryStore.putProjectFact(
+    "mypetroutine",
+    "captain.thread.1712900000.000710.goal_id",
+    "goal-existing",
+  );
+
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_MYPETROUTINE",
+        user: "U_TONY",
+        text: "이 피드백 반영해서 다시 봐줘",
+        ts: "1712900000.000720",
+        thread_ts: "1712900000.000710",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: true, handled: true });
+  expect(store.repositories.goals.listByProject("mypetroutine")).toHaveLength(1);
+  expect(store.repositories.runs.listByGoal("goal-existing")).toHaveLength(1);
+  expect(store.repositories.runs.listByGoal("goal-existing")[0]?.status).toBe("queued");
+  expect(memoryStore.getRunMemory(store.repositories.runs.listByGoal("goal-existing")[0]!.id)).toMatchObject({
+    "queue.kind": "event",
+  });
+  expect(
+    JSON.parse(
+      memoryStore.getRunMemory(store.repositories.runs.listByGoal("goal-existing")[0]!.id)["queue.payload_json"]!,
+    ),
+  ).toMatchObject({
+    goalId: "goal-existing",
+    projectId: "mypetroutine",
+    followUpText: "이 피드백 반영해서 다시 봐줘",
+    projectThreadTs: "1712900000.000710",
+  });
+});
+
+test("processSlackPayload updates project repo root in a project channel without queueing work", async () => {
+  const store = openStore(":memory:");
+  store.repositories.projects.create({
+    id: "crypto",
+    slackChannelId: "C_CRYPTO",
+  });
+
+  const repoRoot = mkdtempSync(join(tmpdir(), "rico-crypto-repo-"));
+  mkdirSync(join(repoRoot, ".git"));
+  mkdirSync(join(repoRoot, "src"));
+  writeFileSync(join(repoRoot, "package.json"), "{}");
+
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      slackClient: {
+        async postMessage(input) {
+          posted.push(input);
+          return { ok: true, ts: "1710000000.000100" };
+        },
+      },
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_CRYPTO",
+        user: "U_TONY",
+        text: `저장소: ${repoRoot}`,
+        ts: "1712900000.000730",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: false, handled: true });
+  expect(posted).toHaveLength(1);
+  expect(posted[0]?.text).toContain("#crypto");
+  expect(posted[0]?.text).toContain(repoRoot);
+  expect(new MemoryStore(store.db).getProjectMemory("crypto")).toMatchObject({
+    "project.repo_root": repoRoot,
+    "project.repo_root_source": "manual",
+  });
+  expect(store.repositories.goals.listByProject("crypto")).toHaveLength(0);
+
+  rmSync(repoRoot, { recursive: true, force: true });
 });
 
 test("processSlackPayload shows a structured governor status snapshot in ai-ops", async () => {

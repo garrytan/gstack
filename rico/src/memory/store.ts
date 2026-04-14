@@ -37,6 +37,10 @@ export class MemoryStore {
     this.putProjectFact(projectId, `${prefix}:${key}`, value);
   }
 
+  deleteProjectFact(projectId: string, key: string) {
+    this.db.query("delete from project_memory where project_id = ? and key = ?").run(projectId, key);
+  }
+
   getProjectMemory(projectId: string) {
     return rowsToRecord(
       this.db

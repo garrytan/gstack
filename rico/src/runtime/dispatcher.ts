@@ -34,6 +34,7 @@ interface GoalIntakePayload {
   goalId: string;
   projectId: string;
   text: string;
+  followUpText?: string;
   aiOpsChannelId: string;
   intakeThreadTs: string;
   projectChannelId: string;
@@ -61,6 +62,7 @@ function asGoalIntakePayload(payload: unknown): GoalIntakePayload | null {
     goalId: candidate.goalId,
     projectId: candidate.projectId,
     text: candidate.text,
+    followUpText: typeof candidate.followUpText === "string" ? candidate.followUpText : undefined,
     aiOpsChannelId: typeof candidate.aiOpsChannelId === "string" ? candidate.aiOpsChannelId : "",
     intakeThreadTs: candidate.intakeThreadTs,
     projectChannelId: candidate.projectChannelId,
@@ -70,6 +72,18 @@ function asGoalIntakePayload(payload: unknown): GoalIntakePayload | null {
     isFinalGoal: candidate.isFinalGoal === true,
     requiresDeployApproval: candidate.requiresDeployApproval === true,
   };
+}
+
+function buildEffectiveGoalTitle(baseTitle: string, followUpText?: string) {
+  const normalizedFollowUp = followUpText?.trim();
+  if (!normalizedFollowUp) return baseTitle;
+  return `${baseTitle}\n\n후속 피드백:\n${normalizedFollowUp}`;
+}
+
+function buildDisplayGoalTitle(baseTitle: string, followUpText?: string) {
+  const normalizedFollowUp = followUpText?.trim();
+  if (!normalizedFollowUp) return baseTitle;
+  return `${baseTitle} — 후속 피드백 반영`;
 }
 
 function requestApproval(input: {
@@ -233,13 +247,17 @@ async function executeRole(input: {
   specialistExecutor?: SpecialistExecutor;
   customerVoiceDecision?: ReturnType<typeof decideCustomerVoiceDelegation>;
 }) {
+  const effectiveGoalTitle = buildEffectiveGoalTitle(
+    input.context.goal.title,
+    input.payload.followUpText,
+  );
   if (input.role !== "customer-voice" || !input.customerVoiceDecision?.enabled) {
     const result = await runSpecialist({
       role: input.role as Parameters<typeof runSpecialist>[0]["role"],
       input: {
         projectId: input.payload.projectId,
         runId: input.context.run.id,
-        goalTitle: input.context.goal.title,
+        goalTitle: effectiveGoalTitle,
       },
       memoryStore: input.memoryStore,
       executor: input.specialistExecutor,
@@ -257,7 +275,7 @@ async function executeRole(input: {
       input: {
         projectId: input.payload.projectId,
         runId: input.context.run.id,
-        goalTitle: input.context.goal.title,
+        goalTitle: effectiveGoalTitle,
         customerVoiceDecision: input.customerVoiceDecision,
       },
       memoryStore: input.memoryStore,
@@ -277,7 +295,7 @@ async function executeRole(input: {
       input: {
         projectId: input.payload.projectId,
         runId: input.context.run.id,
-        goalTitle: input.context.goal.title,
+        goalTitle: effectiveGoalTitle,
         personaLabel: persona.label,
         customerVoiceDecision: input.customerVoiceDecision,
         customerVoicePersona: persona,
@@ -342,6 +360,8 @@ export function createRuntimeDispatcher(input: {
           intakeThreadTs: payload.intakeThreadTs,
           title: payload.text,
         }).portfolioRecord;
+      const effectiveGoalTitle = buildEffectiveGoalTitle(context.goal.title, payload.followUpText);
+      const displayGoalTitle = buildDisplayGoalTitle(context.goal.title, payload.followUpText);
 
       const currentGoalState = repositories.goals.get(payload.goalId)?.state ?? context.goal.state;
       if (currentGoalState !== "in_progress") {
@@ -361,26 +381,26 @@ export function createRuntimeDispatcher(input: {
 
       let projectThreadTs = payload.projectThreadTs;
       const rawCaptainPlan = normalizeCaptainPlanForGoal(
-        context.goal.title,
+        effectiveGoalTitle,
         input.captainExecutor
         ? await input.captainExecutor({
             projectId: payload.projectId,
-            goalTitle: context.goal.title,
+            goalTitle: effectiveGoalTitle,
             runId: context.run.id,
             memoryStore,
           })
-        : buildFallbackCaptainPlan(context.goal.title),
+        : buildFallbackCaptainPlan(effectiveGoalTitle),
       );
       const customerVoiceDecision = decideCustomerVoiceDelegation({
         memoryStore,
         projectId: payload.projectId,
-        goalTitle: context.goal.title,
+        goalTitle: effectiveGoalTitle,
         selectedRoles: rawCaptainPlan.selectedRoles,
       });
       const captainPlan = applyCustomerVoiceDecisionToPlan({
         plan: rawCaptainPlan,
         decision: customerVoiceDecision,
-        goalTitle: context.goal.title,
+        goalTitle: effectiveGoalTitle,
       });
       if (context.run.id) {
         memoryStore.putRunFact(
@@ -391,7 +411,7 @@ export function createRuntimeDispatcher(input: {
       }
       const specialistRoles = captainPlan.selectedRoles.length > 0
         ? captainPlan.selectedRoles
-        : buildFallbackCaptainPlan(context.goal.title).selectedRoles;
+        : buildFallbackCaptainPlan(effectiveGoalTitle).selectedRoles;
       captain.capturePlan(payload.projectId, context.run.id, captainPlan);
       for (const task of captainPlan.taskGraph) {
         input.db.query(
@@ -435,7 +455,7 @@ export function createRuntimeDispatcher(input: {
       if (!projectThreadTs) {
         const root = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
-          text: buildCaptainStartText(context.goal.title, specialistRoles, captainPlan),
+          text: buildCaptainStartText(displayGoalTitle, specialistRoles, captainPlan),
         });
         if (!root.ok || !root.ts) {
           throw new Error("Slack rejected project thread root");
@@ -445,12 +465,14 @@ export function createRuntimeDispatcher(input: {
         const ack = await input.slackClient.postMessage({
           channel: portfolio.projectChannelId,
           thread_ts: projectThreadTs,
-          text: buildCaptainStartText(context.goal.title, specialistRoles, captainPlan),
+          text: buildCaptainStartText(displayGoalTitle, specialistRoles, captainPlan),
         });
         if (!ack.ok) {
           throw new Error("Slack rejected project thread acknowledgement");
         }
       }
+      memoryStore.putProjectFact(payload.projectId, `captain.thread.${projectThreadTs}.goal_id`, payload.goalId);
+      memoryStore.putProjectFact(payload.projectId, `captain.goal.${payload.goalId}.thread_ts`, projectThreadTs);
 
       const specialistResults = [];
       for (const role of buildRoleExecutionOrder(captainPlan, specialistRoles)) {

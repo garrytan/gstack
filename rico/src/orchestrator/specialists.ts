@@ -193,6 +193,11 @@ export async function runSpecialist(input: {
             "project.repo_root",
             executed.meta.workspacePath,
           );
+          input.memoryStore.putProjectFact(
+            projectId,
+            "project.repo_root_source",
+            "auto",
+          );
         }
       }
     } catch (error) {

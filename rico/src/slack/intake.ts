@@ -27,6 +27,10 @@ import {
   repairProjectGoals,
 } from "./governor-commands";
 import {
+  applyProjectWorkspaceCommand,
+  parseProjectWorkspaceCommand,
+} from "./project-workspace-commands";
+import {
   buildAiOpsGreetingText,
   buildAiOpsStatusText,
   buildProjectGreetingText,
@@ -53,6 +57,7 @@ interface GoalIntakePayload {
   goalId: string;
   projectId: string;
   text: string;
+  followUpText?: string;
   aiOpsChannelId: string;
   intakeThreadTs: string;
   projectChannelId: string;
@@ -218,6 +223,7 @@ function createGoalIntakePayload(input: {
   goalId: string;
   projectId: string;
   text: string;
+  followUpText?: string;
   aiOpsChannelId: string;
   intakeThreadTs: string;
   projectChannelId: string;
@@ -230,6 +236,7 @@ function createGoalIntakePayload(input: {
     goalId: input.goalId,
     projectId: input.projectId,
     text: input.text,
+    followUpText: input.followUpText,
     aiOpsChannelId: input.aiOpsChannelId,
     intakeThreadTs: input.intakeThreadTs,
     projectChannelId: input.projectChannelId,
@@ -238,6 +245,38 @@ function createGoalIntakePayload(input: {
     isFinalGoal: input.isFinalGoal,
     requiresDeployApproval: input.requiresDeployApproval,
   } satisfies GoalIntakePayload;
+}
+
+function enqueueFollowUpRun(input: {
+  db: Database;
+  goalId: string;
+  projectId: string;
+  goalTitle: string;
+  followUpText: string;
+  aiOpsChannelId: string;
+  intakeThreadTs: string;
+  projectChannelId: string;
+  projectThreadTs: string;
+  sourceChannelId: string;
+  runIdFactory: () => string;
+}) {
+  enqueueQueuedRun(input.db, {
+    kind: "event",
+    runId: input.runIdFactory(),
+    payload: createGoalIntakePayload({
+      goalId: input.goalId,
+      projectId: input.projectId,
+      text: input.goalTitle,
+      followUpText: input.followUpText,
+      aiOpsChannelId: input.aiOpsChannelId,
+      intakeThreadTs: input.intakeThreadTs,
+      projectChannelId: input.projectChannelId,
+      projectThreadTs: input.projectThreadTs,
+      sourceChannelId: input.sourceChannelId,
+      isFinalGoal: true,
+      requiresDeployApproval: /배포|deploy/i.test(`${input.goalTitle}\n${input.followUpText}`),
+    }),
+  });
 }
 
 function enqueueGoals(input: {
@@ -313,10 +352,12 @@ async function bootstrapAiOpsIntake(
   }
 
   const repositories = createRepositories(db);
+  const memoryStore = new MemoryStore(db);
   const text = sanitizeIncomingSlackText(event.text as string);
+  const incomingThreadTs = typeof event.thread_ts === "string" ? event.thread_ts : undefined;
   const messageTs =
-    typeof event.thread_ts === "string"
-      ? event.thread_ts
+    incomingThreadTs
+      ? incomingThreadTs
       : typeof event.ts === "string"
         ? event.ts
         : `slack-${Date.now()}`;
@@ -379,6 +420,32 @@ async function bootstrapAiOpsIntake(
   if (!goalText.trim()) {
     return "ignored";
   }
+  if (
+    sourceProject
+    && !explicitProjectMatch
+    && incomingThreadTs
+    && channelId === sourceProject.slackChannelId
+  ) {
+    const threadGoalId =
+      memoryStore.getProjectMemory(sourceProject.id)[`captain.thread.${incomingThreadTs}.goal_id`];
+    const goal = threadGoalId ? repositories.goals.get(threadGoalId) : null;
+    if (goal && goal.projectId === sourceProject.id) {
+      enqueueFollowUpRun({
+        db,
+        goalId: goal.id,
+        projectId: sourceProject.id,
+        goalTitle: goal.title,
+        followUpText: goalText,
+        aiOpsChannelId: options.aiOpsChannelId,
+        intakeThreadTs: incomingThreadTs,
+        projectChannelId: sourceProject.slackChannelId,
+        projectThreadTs: incomingThreadTs,
+        sourceChannelId: channelId,
+        runIdFactory: options.runIdFactory,
+      });
+      return "handled";
+    }
+  }
   const taskList = deriveTaskList(goalText);
   const split = splitOversizedGoal({
     projectId: project.id,
@@ -434,6 +501,24 @@ export async function maybeBuildConversationReply(
   if (options.aiOpsChannelId && channelId === options.aiOpsChannelId) {
     const normalized = normalizeEventText(text);
     if (normalized) {
+      const workspaceCommand = parseProjectWorkspaceCommand(normalized.goalText);
+      if (workspaceCommand) {
+        const project = await resolveProjectByIdentifier({
+          repositories,
+          projectId: normalized.projectId,
+          slackClient: options.slackClient,
+        });
+        if (!project) return null;
+        return {
+          channelId,
+          threadTs,
+          text: applyProjectWorkspaceCommand({
+            memoryStore,
+            projectId: project.id,
+            command: workspaceCommand,
+          }),
+        } satisfies SlackConversationReply;
+      }
       const command = parseCustomerVoiceCommand(normalized.goalText);
       if (command) {
         const project = await resolveProjectByIdentifier({
@@ -611,6 +696,19 @@ export async function maybeBuildConversationReply(
     slackClient: options.slackClient,
   });
   if (!project) return null;
+
+  const workspaceCommand = parseProjectWorkspaceCommand(text);
+  if (workspaceCommand) {
+    return {
+      channelId,
+      threadTs,
+      text: applyProjectWorkspaceCommand({
+        memoryStore,
+        projectId: project.id,
+        command: workspaceCommand,
+      }),
+    } satisfies SlackConversationReply;
+  }
 
   const command = parseCustomerVoiceCommand(text);
   if (command) {

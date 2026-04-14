@@ -10,6 +10,7 @@ test("resolveProjectWorkspace uses stored override before scanning", () => {
   const db = openStore(":memory:");
   const memoryStore = new MemoryStore(db.db);
   memoryStore.putProjectFact("mypetroutine", "project.repo_root", "/tmp/override-root");
+  memoryStore.putProjectFact("mypetroutine", "project.repo_root_source", "manual");
 
   const resolved = resolveProjectWorkspace({
     projectId: "mypetroutine",
@@ -88,4 +89,22 @@ test("resolveProjectWorkspace replaces a stale override when a richer candidate 
 
   rmSync(root, { recursive: true, force: true });
   db.db.close();
+});
+
+test("resolveProjectWorkspace does not pick an unrelated repo-shaped candidate", () => {
+  const root = mkdtempSync(join(tmpdir(), "rico-workspaces-unrelated-"));
+  const unrelated = join(root, "mypetroutine-workspace");
+  mkdirSync(unrelated);
+  mkdirSync(join(unrelated, "src"));
+  mkdirSync(join(unrelated, ".git"));
+  writeFileSync(join(unrelated, "package.json"), "{}");
+
+  const resolved = resolveProjectWorkspace({
+    projectId: "crypto",
+    candidateRoots: [root],
+  });
+
+  expect(resolved).toBeNull();
+
+  rmSync(root, { recursive: true, force: true });
 });

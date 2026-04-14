@@ -49,6 +49,13 @@ function scoreWorkspaceContents(
   return score;
 }
 
+export function looksLikeProjectWorkspace(
+  candidatePath: string,
+  pathExists: (path: string) => boolean = existsSync,
+) {
+  return pathExists(candidatePath) && scoreWorkspaceContents(candidatePath, pathExists) >= 40;
+}
+
 function defaultCandidateRoots() {
   const home = process.env.HOME ?? "";
   const envRoots = (process.env.RICO_PROJECT_ROOTS ?? "")
@@ -83,11 +90,11 @@ export function resolveProjectWorkspace(input: {
   const pathExists = input.pathExists ?? existsSync;
   const listDirectories = input.listDirectories ?? defaultListDirectories;
 
-  const override = input.memoryStore?.getProjectMemory(input.projectId)?.["project.repo_root"];
-  const overrideLooksLikeRepo = override
-    && pathExists(override)
-    && scoreWorkspaceContents(override, pathExists) >= 40;
-  if (overrideLooksLikeRepo) {
+  const projectMemory = input.memoryStore?.getProjectMemory(input.projectId) ?? {};
+  const override = projectMemory["project.repo_root"];
+  const overrideSource = projectMemory["project.repo_root_source"];
+  const overrideLooksLikeRepo = override && looksLikeProjectWorkspace(override, pathExists);
+  if (overrideLooksLikeRepo && overrideSource === "manual") {
     return override;
   }
 
@@ -100,8 +107,9 @@ export function resolveProjectWorkspace(input: {
 
   for (const candidate of candidates) {
     const name = candidate.split("/").at(-1) ?? candidate;
-    const score = scoreCandidate(input.projectId, name)
-      + scoreWorkspaceContents(candidate, pathExists);
+    const nameScore = scoreCandidate(input.projectId, name);
+    if (nameScore < 0) continue;
+    const score = nameScore + scoreWorkspaceContents(candidate, pathExists);
     if (score > bestScore) {
       bestScore = score;
       bestPath = candidate;
@@ -110,10 +118,15 @@ export function resolveProjectWorkspace(input: {
 
   if (bestPath && bestScore >= 20) {
     input.memoryStore?.putProjectFact(input.projectId, "project.repo_root", bestPath);
+    input.memoryStore?.putProjectFact(input.projectId, "project.repo_root_source", "auto");
     return bestPath;
   }
 
-  if (override && pathExists(override)) {
+  if (
+    override
+    && overrideLooksLikeRepo
+    && scoreCandidate(input.projectId, override.split("/").at(-1) ?? override) >= 0
+  ) {
     return override;
   }
 
