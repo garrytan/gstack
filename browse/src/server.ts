@@ -759,12 +759,18 @@ const idleCheckInterval = setInterval(() => {
 // and self-terminate if it is gone.
 const BROWSE_PARENT_PID = parseInt(process.env.BROWSE_PARENT_PID || '0', 10);
 if (BROWSE_PARENT_PID > 0) {
+  let parentGone = false;
   setInterval(() => {
     try {
       process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only, no signal sent
     } catch {
-      console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited, shutting down`);
-      shutdown();
+      // Parent exited. Don't shutdown — the server should persist across
+      // Bash calls (e.g. Claude Code sandbox kills the parent shell).
+      // The idle timeout (30 min) handles eventual cleanup instead.
+      if (!parentGone) {
+        parentGone = true;
+        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited (server stays alive, idle timeout will clean up)`);
+      }
     }
   }, 15_000);
 }
@@ -1225,8 +1231,13 @@ async function shutdown() {
 }
 
 // Handle signals
-process.on('SIGTERM', shutdown);
+// SIGINT (Ctrl+C): user intentionally stopping → shutdown
 process.on('SIGINT', shutdown);
+// SIGTERM: may come from sandbox killing parent → ignore and let idle timeout handle cleanup.
+// Explicit shutdown is available via the /stop command or SIGINT.
+process.on('SIGTERM', () => {
+  console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
+});
 // Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
 // Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
 if (process.platform === 'win32') {
