@@ -3,7 +3,9 @@
 gstack uses a declarative host config system. Each supported AI coding agent
 (Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw) is defined
 as a typed TypeScript config object. Adding a new host means creating one file
-and re-exporting it. Zero code changes to the generator, setup, or tooling.
+and re-exporting it. Generator and most tooling changes are automatic; simple
+symlink-generated hosts that opt into the generic setup strategy also work with
+setup automatically.
 
 ## How it works
 
@@ -29,7 +31,8 @@ Each config file exports a `HostConfig` object that tells the generator:
 - What assets to symlink at install time
 
 The generator, setup script, platform-detect, uninstall, health checks, worktree
-copy, and tests all read from these configs. None of them have per-host code.
+copy, and tests all read from these configs. Some hosts still keep bespoke setup
+branches where the install flow differs materially (for example Claude or Kiro).
 
 ## Step-by-step: add a new host
 

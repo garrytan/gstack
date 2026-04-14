@@ -2115,15 +2115,19 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports documented generic hosts in addition to legacy hosts', () => {
     expect(setupContent).toContain('--host');
     expect(setupContent).toContain('claude|codex|kiro|factory|auto');
+    expect(setupContent).toContain('generic-setup-hosts');
+    expect(setupContent).toContain('HOST_EXPECTED_VALUES');
+    expect(setupContent).toContain('is_generic_setup_host');
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
+  test('auto mode detects legacy binaries plus generic setup hosts', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
+    expect(setupContent).toContain('detect-generic-setup-hosts');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
@@ -2149,6 +2153,13 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('kiro-cli');
     expect(setupContent).toContain('KIRO_SKILLS=');
     expect(setupContent).toContain('~/.kiro/skills/gstack');
+  });
+
+  test('generic setup hosts use exported config-driven install helpers', () => {
+    expect(setupContent).toContain('install_generic_host()');
+    expect(setupContent).toContain('run_host_config_export get "$host" globalRoot');
+    expect(setupContent).toContain('run_host_config_export symlinks "$host"');
+    expect(setupContent).toContain('INSTALL_GENERIC_HOSTS');
   });
 
   test('create_agents_sidecar links runtime assets', () => {

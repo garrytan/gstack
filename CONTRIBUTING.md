@@ -289,7 +289,9 @@ See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md) for the full guide. Short ver
 4. Run `bun run gen:skill-docs --host myhost`
 5. Run `bun test` (parameterized tests auto-cover it)
 
-Zero generator, setup, or tooling code changes needed.
+Zero generator changes needed. Setup is automatic for hosts that opt into the
+generic symlink-generated installer; hosts with bespoke install flows may still
+need a targeted setup branch.
 
 ### Adding a new skill
 

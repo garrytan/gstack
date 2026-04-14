@@ -36,6 +36,7 @@ const claude: HostConfig = {
   install: {
     prefixable: true,
     linkingStrategy: 'real-dir-symlink',
+    setupStrategy: 'bespoke',
   },
 
   coAuthorTrailer: 'Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>',

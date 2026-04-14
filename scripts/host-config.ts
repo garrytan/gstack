@@ -95,6 +95,8 @@ export interface HostConfig {
     prefixable: boolean;
     /** How skills are linked into the host dir. */
     linkingStrategy: 'real-dir-symlink' | 'symlink-generated';
+    /** Whether setup can use the generic installer or needs a bespoke branch. */
+    setupStrategy?: 'generic' | 'bespoke';
   };
 
   // --- Host-Specific Behavioral Config ---
@@ -150,6 +152,9 @@ export function validateHostConfig(config: HostConfig): string[] {
   }
   if (!['real-dir-symlink', 'symlink-generated'].includes(config.install.linkingStrategy)) {
     errors.push(`install.linkingStrategy must be 'real-dir-symlink' or 'symlink-generated'`);
+  }
+  if (config.install.setupStrategy && !['generic', 'bespoke'].includes(config.install.setupStrategy)) {
+    errors.push(`install.setupStrategy must be 'generic' or 'bespoke' when provided`);
   }
 
   return errors;

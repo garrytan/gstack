@@ -42,7 +42,7 @@ const codex: HostConfig = {
   runtimeRoot: {
     globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
     globalFiles: {
-      'review': ['checklist.md', 'TODOS-format.md'],
+      'review': ['checklist.md', 'design-checklist.md', 'greptile-triage.md', 'TODOS-format.md'],
     },
   },
   sidecar: {
@@ -53,6 +53,7 @@ const codex: HostConfig = {
   install: {
     prefixable: false,
     linkingStrategy: 'symlink-generated',
+    setupStrategy: 'bespoke',
   },
 
   coAuthorTrailer: 'Co-Authored-By: OpenAI Codex <noreply@openai.com>',

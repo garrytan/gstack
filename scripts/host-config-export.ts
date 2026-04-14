@@ -6,14 +6,17 @@
  *
  * Commands:
  *   list                    Print all host names, one per line
+ *   generic-setup-hosts     Print hosts supported by setup's generic install path
  *   get <host> <field>      Print a single config field value
  *   detect                  Print names of hosts whose CLI binary is on PATH
+ *   detect-generic-setup-hosts
+ *                           Print generic-setup hosts whose CLI binary is on PATH
  *   validate                Validate all configs, exit 1 on error
  *
  * All output is shell-safe (single-quoted values, no eval needed).
  */
 
-import { ALL_HOST_CONFIGS, getHostConfig, ALL_HOST_NAMES } from '../hosts/index';
+import { ALL_HOST_CONFIGS, getHostConfig, ALL_HOST_NAMES, getGenericSetupHosts } from '../hosts/index';
 import { validateAllConfigs } from './host-config';
 import { execSync } from 'child_process';
 
@@ -36,6 +39,12 @@ switch (command) {
   case 'list':
     for (const name of ALL_HOST_NAMES) {
       console.log(name);
+    }
+    break;
+
+  case 'generic-setup-hosts':
+    for (const config of getGenericSetupHosts()) {
+      console.log(config.name);
     }
     break;
 
@@ -67,6 +76,22 @@ switch (command) {
 
   case 'detect': {
     for (const config of ALL_HOST_CONFIGS) {
+      const commands = [config.cliCommand, ...(config.cliAliases || [])];
+      for (const cmd of commands) {
+        try {
+          execSync(`command -v ${shellEscape(cmd)}`, { stdio: 'pipe' });
+          console.log(config.name);
+          break;  // Found this host, move to next
+        } catch {
+          // Binary not found, try next alias
+        }
+      }
+    }
+    break;
+  }
+
+  case 'detect-generic-setup-hosts': {
+    for (const config of getGenericSetupHosts()) {
       const commands = [config.cliCommand, ...(config.cliAliases || [])];
       for (const cmd of commands) {
         try {
@@ -114,6 +139,6 @@ switch (command) {
   }
 
   default:
-    console.error('Usage: host-config-export.ts <list|get|detect|validate|symlinks> [args]');
+    console.error('Usage: host-config-export.ts <list|generic-setup-hosts|get|detect|detect-generic-setup-hosts|validate|symlinks> [args]');
     process.exit(1);
 }

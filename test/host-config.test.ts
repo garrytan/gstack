@@ -14,6 +14,8 @@ import {
   getHostConfig,
   resolveHostArg,
   getExternalHosts,
+  getGenericSetupHosts,
+  GENERIC_SETUP_HOST_NAMES,
   claude,
   codex,
   factory,
@@ -26,6 +28,63 @@ import {
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+
+function walkFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkFiles(fullPath));
+    } else {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function exportedRuntimeAssets(config: HostConfig): Set<string> {
+  const assets = new Set<string>(config.runtimeRoot.globalSymlinks);
+  for (const [dir, files] of Object.entries(config.runtimeRoot.globalFiles ?? {})) {
+    for (const file of files) {
+      assets.add(`${dir}/${file}`);
+    }
+  }
+  return assets;
+}
+
+function collectGeneratedRuntimeReferences(config: HostConfig): Set<string> {
+  const skillsRoot = path.join(ROOT, config.hostSubdir, 'skills');
+  const references = new Set<string>();
+  const patterns = [
+    new RegExp(`${escapeRegex(`${config.hostSubdir}/skills/gstack/`)}(review/[A-Za-z0-9_./-]+|design/dist/[A-Za-z0-9_./-]+)`, 'g'),
+    /\$GSTACK_ROOT\/(review\/[A-Za-z0-9_./-]+|design\/dist\/[A-Za-z0-9_./-]+)/g,
+  ];
+
+  for (const file of walkFiles(skillsRoot)) {
+    if (!file.endsWith('.md')) continue;
+    const content = fs.readFileSync(file, 'utf-8');
+    for (const pattern of patterns) {
+      for (const match of content.matchAll(pattern)) {
+        references.add(match[1]);
+      }
+    }
+  }
+
+  return references;
+}
+
+function isCoveredByExport(requiredAsset: string, exportedAssets: Set<string>): boolean {
+  for (const exported of exportedAssets) {
+    if (requiredAsset === exported || requiredAsset.startsWith(`${exported}/`)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // ─── hosts/index.ts ─────────────────────────────────────────
 
@@ -84,6 +143,20 @@ describe('hosts/index.ts', () => {
     const external = getExternalHosts();
     expect(external.find(c => c.name === 'claude')).toBeUndefined();
     expect(external.length).toBe(ALL_HOST_CONFIGS.length - 1);
+  });
+
+  test('generic setup hosts match the documented compatibility hosts', () => {
+    expect(GENERIC_SETUP_HOST_NAMES).toEqual(['opencode', 'slate', 'cursor']);
+    expect(getGenericSetupHosts().map(c => c.name)).toEqual(GENERIC_SETUP_HOST_NAMES);
+  });
+
+  test('generic setup hosts export the runtime assets their generated skills reference', () => {
+    for (const config of getGenericSetupHosts()) {
+      const exported = exportedRuntimeAssets(config);
+      const referenced = collectGeneratedRuntimeReferences(config);
+      const missing = [...referenced].filter(asset => !isCoveredByExport(asset, exported));
+      expect(missing).toEqual([]);
+    }
   });
 
   test('every host has a unique name', () => {
@@ -191,6 +264,12 @@ describe('validateHostConfig', () => {
     const c = makeValid();
     (c.install as any).linkingStrategy = 'invalid';
     expect(validateHostConfig(c).some(e => e.includes('linkingStrategy'))).toBe(true);
+  });
+
+  test('invalid setupStrategy is caught', () => {
+    const c = makeValid();
+    (c.install as any).setupStrategy = 'invalid';
+    expect(validateHostConfig(c).some(e => e.includes('setupStrategy'))).toBe(true);
   });
 
   test('paths with $ and ~ are valid', () => {
@@ -311,6 +390,13 @@ describe('host-config-export.ts CLI', () => {
     expect(names).toEqual(ALL_HOST_NAMES);
   });
 
+  test('generic-setup-hosts prints setup-compatible host names', () => {
+    const { stdout, exitCode } = run('generic-setup-hosts');
+    expect(exitCode).toBe(0);
+    const names = stdout.split('\n');
+    expect(names).toEqual(GENERIC_SETUP_HOST_NAMES);
+  });
+
   test('get returns string field', () => {
     const { stdout, exitCode } = run('get', 'codex', 'globalRoot');
     expect(exitCode).toBe(0);
@@ -364,6 +450,11 @@ describe('host-config-export.ts CLI', () => {
     expect(exitCode).toBe(0);
     // claude binary should be on PATH in this environment
     expect(stdout).toContain('claude');
+  });
+
+  test('detect-generic-setup-hosts exits cleanly', () => {
+    const { exitCode } = run('detect-generic-setup-hosts');
+    expect(exitCode).toBe(0);
   });
 
   test('unknown command exits 1', () => {

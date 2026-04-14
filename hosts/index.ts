@@ -29,6 +29,14 @@ export type Host = (typeof ALL_HOST_CONFIGS)[number]['name'];
 /** All host names as a string array (for CLI arg validation, etc.). */
 export const ALL_HOST_NAMES: string[] = ALL_HOST_CONFIGS.map(c => c.name);
 
+/** Hosts supported by setup's generic install path. */
+export function getGenericSetupHosts(): HostConfig[] {
+  return ALL_HOST_CONFIGS.filter(c => c.install.setupStrategy === 'generic');
+}
+
+/** Generic-setup host names as a string array. */
+export const GENERIC_SETUP_HOST_NAMES: string[] = getGenericSetupHosts().map(c => c.name);
+
 /** Get a host config by name. Throws if not found. */
 export function getHostConfig(name: string): HostConfig {
   const config = HOST_CONFIG_MAP[name];

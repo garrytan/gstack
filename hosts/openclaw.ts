@@ -65,6 +65,7 @@ const openclaw: HostConfig = {
   install: {
     prefixable: false,
     linkingStrategy: 'symlink-generated',
+    setupStrategy: 'bespoke',
   },
 
   coAuthorTrailer: 'Co-Authored-By: OpenClaw Agent <agent@openclaw.ai>',
