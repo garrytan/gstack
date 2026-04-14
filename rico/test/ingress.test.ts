@@ -479,6 +479,86 @@ test("processSlackPayload updates project repo root in a project channel without
   rmSync(repoRoot, { recursive: true, force: true });
 });
 
+test("processSlackPayload stores project repo url in a project channel without queueing work", async () => {
+  const store = openStore(":memory:");
+  store.repositories.projects.create({
+    id: "crypto",
+    slackChannelId: "C_CRYPTO",
+  });
+
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      slackClient: {
+        async postMessage(input) {
+          posted.push(input);
+          return { ok: true, ts: "1710000000.000100" };
+        },
+      },
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_CRYPTO",
+        user: "U_TONY",
+        text: "저장소: git@github.com:xogjs/Crypto.git",
+        ts: "1712900000.000731",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: false, handled: true });
+  expect(posted).toHaveLength(1);
+  expect(posted[0]?.text).toContain("git@github.com:xogjs/Crypto.git");
+  expect(new MemoryStore(store.db).getProjectMemory("crypto")).toMatchObject({
+    "project.repo_url": "git@github.com:xogjs/Crypto.git",
+    "project.repo_url_source": "manual",
+  });
+  expect(store.repositories.goals.listByProject("crypto")).toHaveLength(0);
+});
+
+test("processSlackPayload treats natural-language repository discovery asks as workspace commands", async () => {
+  const store = openStore(":memory:");
+  store.repositories.projects.create({
+    id: "crypto",
+    slackChannelId: "C_CRYPTO",
+  });
+
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      slackClient: {
+        async postMessage(input) {
+          posted.push(input);
+          return { ok: true, ts: "1710000000.000100" };
+        },
+      },
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_CRYPTO",
+        user: "U_TONY",
+        text: "로컬 경로 탐색을 해서 찾아봐",
+        ts: "1712900000.000732",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: false, handled: true });
+  expect(posted).toHaveLength(1);
+  expect(posted[0]?.text).toContain("저장소 설정");
+  expect(store.repositories.goals.listByProject("crypto")).toHaveLength(0);
+});
+
 test("processSlackPayload answers lightweight ai-ops discussion through governor without queueing work", async () => {
   const store = openStore(":memory:");
   store.repositories.projects.create({

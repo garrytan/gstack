@@ -216,6 +216,8 @@ const CUSTOMER_VOICE_WRITE_KEYWORDS = [
 const HANGUL_PATTERN = /[가-힣]/;
 const QA_ROUTE_BLOCK_PATTERN =
   /(not a registered route|broken link|등록된\s*라우트가\s*아니|라우트가\s*없|깨진\s*링크)/i;
+const CUSTOMER_VOICE_HARD_STOP_PATTERN =
+  /(simulation failed|browser simulation failed|base-url|credentials?|로그인 필요|접근 불가|404|500|network error|실패|재현하지 못|must stop|멈춰야|차단|cannot access)/i;
 
 function emptyCodexSandbox() {
   const sandbox = join(tmpdir(), "rico-codex-sandbox");
@@ -291,6 +293,11 @@ export function determineSpecialistExecutionMode(input: {
     return "analyze";
   }
   return "analyze";
+}
+
+export function canWriteWithoutWorkspace(role: RoleName, executionMode: SpecialistExecutionMode) {
+  if (executionMode !== "write") return false;
+  return role === "planner" || role === "designer" || role === "customer-voice";
 }
 
 function buildJsonSchema(executionMode: SpecialistExecutionMode) {
@@ -1220,6 +1227,23 @@ export async function normalizeSpecialistResult(input: {
     };
   }
 
+  if (
+    input.role === "customer-voice"
+    && (parsed.impact === "approval_needed" || parsed.impact === "blocking")
+  ) {
+    const joined = [parsed.summary, ...parsed.rawFindings, ...(parsed.verificationNotes ?? [])].join("\n");
+    if (!CUSTOMER_VOICE_HARD_STOP_PATTERN.test(joined)) {
+      parsed = {
+        ...parsed,
+        impact: "info",
+        rawFindings: [
+          ...parsed.rawFindings,
+          "customer-voice advisory feedback: no hard blocking evidence was present.",
+        ],
+      };
+    }
+  }
+
   if (input.executionMode === "write") {
     const violations = findWriteScopeViolations(input.role, parsed.changedFiles);
     if (violations.length > 0) {
@@ -1299,7 +1323,7 @@ export function createCodexSpecialistExecutor(input: {
       projectId: specialist.projectId,
       memoryStore: specialist.memoryStore,
     });
-    if (executionMode === "write" && !workspacePath) {
+    if (executionMode === "write" && !workspacePath && !canWriteWithoutWorkspace(specialist.role, executionMode)) {
       return {
         result: {
           role: specialist.role,

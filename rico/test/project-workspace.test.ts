@@ -108,3 +108,37 @@ test("resolveProjectWorkspace does not pick an unrelated repo-shaped candidate",
 
   rmSync(root, { recursive: true, force: true });
 });
+
+test("resolveProjectWorkspace can match a stored repo URL to a local repo root", () => {
+  const root = mkdtempSync(join(tmpdir(), "rico-workspaces-remote-"));
+  const candidate = join(root, "workspace-123");
+  mkdirSync(candidate);
+  mkdirSync(join(candidate, ".git"));
+  mkdirSync(join(candidate, "src"));
+  writeFileSync(
+    join(candidate, ".git", "config"),
+    [
+      '[remote "origin"]',
+      "  url = https://github.com/xogjs/Crypto.git",
+    ].join("\n"),
+  );
+  writeFileSync(join(candidate, "package.json"), "{}");
+
+  const db = openStore(":memory:");
+  const memoryStore = new MemoryStore(db.db);
+  memoryStore.putProjectFact("crypto", "project.repo_url", "git@github.com:xogjs/Crypto.git");
+  memoryStore.putProjectFact("crypto", "project.repo_url_source", "manual");
+
+  const resolved = resolveProjectWorkspace({
+    projectId: "crypto",
+    memoryStore,
+    candidateRoots: [root],
+  });
+
+  expect(resolved).toBe(candidate);
+  expect(memoryStore.getProjectMemory("crypto")["project.repo_root"]).toBe(candidate);
+  expect(memoryStore.getProjectMemory("crypto")["project.repo_root_source"]).toBe("auto-url-match");
+
+  rmSync(root, { recursive: true, force: true });
+  db.db.close();
+});

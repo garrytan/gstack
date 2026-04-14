@@ -1,5 +1,5 @@
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { MemoryStore } from "../memory/store";
 
 function normalizeSlug(value: string) {
@@ -49,6 +49,53 @@ function scoreWorkspaceContents(
   return score;
 }
 
+function normalizeGitRemoteUrl(value: string) {
+  return value
+    .trim()
+    .replace(/^git@github\.com:/i, "github.com/")
+    .replace(/^ssh:\/\/git@github\.com\//i, "github.com/")
+    .replace(/^https?:\/\/github\.com\//i, "github.com/")
+    .replace(/\.git$/i, "")
+    .replace(/\/+$/g, "")
+    .toLowerCase();
+}
+
+function resolveGitConfigPath(candidatePath: string, pathExists: (path: string) => boolean) {
+  const dotGitDirConfig = join(candidatePath, ".git", "config");
+  if (pathExists(dotGitDirConfig)) {
+    return dotGitDirConfig;
+  }
+
+  const dotGitFile = join(candidatePath, ".git");
+  if (!pathExists(dotGitFile)) {
+    return null;
+  }
+
+  try {
+    const text = readFileSync(dotGitFile, "utf8");
+    const gitdir = text.match(/gitdir:\s*(.+)/i)?.[1]?.trim();
+    if (!gitdir) return null;
+    const resolved = resolve(candidatePath, gitdir, "config");
+    return pathExists(resolved) ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+export function readOriginRemoteUrl(candidatePath: string, pathExists: (path: string) => boolean = existsSync) {
+  const configPath = resolveGitConfigPath(candidatePath, pathExists);
+  if (!configPath) return null;
+
+  try {
+    const text = readFileSync(configPath, "utf8");
+    const remoteSection = text.match(/\[remote "origin"\]([\s\S]*?)(?:\n\[|$)/i)?.[1];
+    const url = remoteSection?.match(/^\s*url\s*=\s*(.+)\s*$/im)?.[1]?.trim();
+    return url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function looksLikeProjectWorkspace(
   candidatePath: string,
   pathExists: (path: string) => boolean = existsSync,
@@ -68,6 +115,7 @@ function defaultCandidateRoots() {
     home ? join(home, ".openclaw", "worktrees") : "",
     home ? join(home, ".openclaw", "workspace", "projects") : "",
     home ? join(home, "ai-server", "projects") : "",
+    home ? join(home, "srv") : "",
     home ? join(home, "repos-watch") : "",
     home ? join(home, "Documents") : "",
   ].filter(Boolean);
@@ -93,6 +141,8 @@ export function resolveProjectWorkspace(input: {
   const projectMemory = input.memoryStore?.getProjectMemory(input.projectId) ?? {};
   const override = projectMemory["project.repo_root"];
   const overrideSource = projectMemory["project.repo_root_source"];
+  const storedRepoUrl = projectMemory["project.repo_url"];
+  const normalizedRepoUrl = storedRepoUrl ? normalizeGitRemoteUrl(storedRepoUrl) : "";
   const overrideLooksLikeRepo = override && looksLikeProjectWorkspace(override, pathExists);
   if (overrideLooksLikeRepo && overrideSource === "manual") {
     return override;
@@ -104,21 +154,30 @@ export function resolveProjectWorkspace(input: {
 
   let bestPath: string | null = null;
   let bestScore = -1;
+  let bestSource = "auto";
 
   for (const candidate of candidates) {
+    const remoteUrl = readOriginRemoteUrl(candidate, pathExists);
+    const remoteScore =
+      normalizedRepoUrl
+      && remoteUrl
+      && normalizeGitRemoteUrl(remoteUrl) === normalizedRepoUrl
+        ? 200
+        : -1;
     const name = candidate.split("/").at(-1) ?? candidate;
     const nameScore = scoreCandidate(input.projectId, name);
-    if (nameScore < 0) continue;
-    const score = nameScore + scoreWorkspaceContents(candidate, pathExists);
+    if (nameScore < 0 && remoteScore < 0) continue;
+    const score = Math.max(nameScore, remoteScore) + scoreWorkspaceContents(candidate, pathExists);
     if (score > bestScore) {
       bestScore = score;
       bestPath = candidate;
+      bestSource = remoteScore >= 0 ? "auto-url-match" : "auto";
     }
   }
 
   if (bestPath && bestScore >= 20) {
     input.memoryStore?.putProjectFact(input.projectId, "project.repo_root", bestPath);
-    input.memoryStore?.putProjectFact(input.projectId, "project.repo_root_source", "auto");
+    input.memoryStore?.putProjectFact(input.projectId, "project.repo_root_source", bestSource);
     return bestPath;
   }
 

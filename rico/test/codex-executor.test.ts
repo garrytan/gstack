@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
   buildSpecialistPromptForTest,
+  canWriteWithoutWorkspace,
   determineSpecialistExecutionMode,
   finalizeSpecialistResultForRuntime,
   normalizeSpecialistResult,
@@ -213,6 +214,14 @@ test("determineSpecialistExecutionMode promotes customer voice simulation goals 
   ).toBe("write");
 });
 
+test("canWriteWithoutWorkspace allows artifact-only specialists to run in write mode", () => {
+  expect(canWriteWithoutWorkspace("planner", "write")).toBe(true);
+  expect(canWriteWithoutWorkspace("designer", "write")).toBe(true);
+  expect(canWriteWithoutWorkspace("customer-voice", "write")).toBe(true);
+  expect(canWriteWithoutWorkspace("backend", "write")).toBe(false);
+  expect(canWriteWithoutWorkspace("frontend", "write")).toBe(false);
+});
+
 test("normalizeSpecialistResult downgrades false QA blockers when the route is declared", async () => {
   const workspace = mkdtempSync(join(tmpdir(), "rico-qa-route-"));
   mkdirSync(join(workspace, "src", "app"), { recursive: true });
@@ -249,6 +258,45 @@ test("normalizeSpecialistResult downgrades false QA blockers when the route is d
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
+});
+
+test("normalizeSpecialistResult softens customer-voice approval gating when the feedback is advisory", async () => {
+  const normalized = await normalizeSpecialistResult({
+    role: "customer-voice",
+    executionMode: "analyze",
+    originalText: '{"summary":"메시지 선명도가 아직 조금 약해서 사용자가 바로 이해하기 어렵습니다.","impact":"approval_needed","artifacts":[],"rawFindings":["도입 효과가 첫 화면에서 바로 읽히지 않습니다."],"executionMode":"analyze"}',
+    workspacePath: null,
+    parsed: {
+      summary: "메시지 선명도가 아직 조금 약해서 사용자가 바로 이해하기 어렵습니다.",
+      impact: "approval_needed",
+      artifacts: [],
+      rawFindings: ["도입 효과가 첫 화면에서 바로 읽히지 않습니다."],
+      executionMode: "analyze",
+    },
+  });
+
+  expect(normalized.impact).toBe("info");
+  expect(normalized.summary).toContain("메시지");
+});
+
+test("normalizeSpecialistResult keeps customer-voice blocking when simulation or access fails", async () => {
+  const normalized = await normalizeSpecialistResult({
+    role: "customer-voice",
+    executionMode: "write",
+    originalText: '{"summary":"실제 고객 흐름을 재현하지 못해서 이번 판단은 멈춰야 합니다.","impact":"blocking","artifacts":[],"rawFindings":["browser simulation failed: base-url responded 404"],"executionMode":"write","changedFiles":[],"verificationNotes":["browser simulation failed: GET / => 404"]}',
+    workspacePath: null,
+    parsed: {
+      summary: "실제 고객 흐름을 재현하지 못해서 이번 판단은 멈춰야 합니다.",
+      impact: "blocking",
+      artifacts: [],
+      rawFindings: ["browser simulation failed: base-url responded 404"],
+      executionMode: "write",
+      changedFiles: [],
+      verificationNotes: ["browser simulation failed: GET / => 404"],
+    },
+  });
+
+  expect(normalized.impact).toBe("blocking");
 });
 
 test("normalizeSpecialistResult replaces changed files with observed git delta when available", async () => {
