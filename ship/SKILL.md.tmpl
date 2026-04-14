@@ -611,7 +611,29 @@ EOF
 **If neither CLI is available:**
 Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
 
-**Output the PR/MR URL** — then proceed to Step 8.5.
+**Output the PR/MR URL** — then proceed to Step 8.25.
+
+---
+
+## Step 8.25: Ship Log
+
+Log shipping data so `/retro` can track velocity trends:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-ship-log '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","version":"VERSION","branch":"'"$BRANCH"'","repo":"'"$SLUG"'","pr_url":"PR_URL","review_findings":N,"review_auto_fixed":N,"greptile_comments":N,"greptile_fixed":N,"greptile_fps":N,"todos_completed":N,"tests_passed":true,"coverage_before":N,"coverage_after":N}'
+```
+
+Substitute from earlier steps:
+- **VERSION**: from Step 4
+- **PR_URL**: the PR/MR URL from Step 8
+- **review_findings** / **review_auto_fixed**: from Step 3.5 (0 if none)
+- **greptile_comments** / **greptile_fixed** / **greptile_fps**: from Step 3.75 (0 if skipped)
+- **todos_completed**: from Step 5.5 (0 if none)
+- **tests_passed**: always `true` (Step 3 stops on failure)
+- **coverage_before** / **coverage_after**: test file counts from Step 3.4 (0 if skipped)
+
+This step is automatic — never skip it, never ask for confirmation. If `gstack-ship-log` is not found, warn once and continue.
 
 ---
 

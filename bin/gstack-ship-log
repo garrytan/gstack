@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# gstack-ship-log — append a structured JSON entry to the ship log
+#
+# Usage:
+#   gstack-ship-log '{"ts":"...","version":"...","branch":"...","pr_url":"..."}'
+#   gstack-ship-log read              — print ship log contents (or NO_SHIP_LOG)
+#   gstack-ship-log read --window 7d  — print entries from last N days
+#
+# The ship log lives at ~/.gstack/analytics/ship-log.jsonl.
+# /ship appends an entry after each PR creation.
+# /retro reads the log for shipping velocity metrics.
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR  — override ~/.gstack state directory
+set -uo pipefail
+
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+JSONL_FILE="$STATE_DIR/analytics/ship-log.jsonl"
+
+case "${1:-}" in
+  read)
+    if [ ! -f "$JSONL_FILE" ]; then
+      echo "NO_SHIP_LOG"
+      exit 0
+    fi
+    # Optional --window filter
+    if [ "${2:-}" = "--window" ] && [ -n "${3:-}" ]; then
+      _WINDOW="${3}"
+      _DAYS=0
+      case "$_WINDOW" in
+        *d) _DAYS="${_WINDOW%d}" ;;
+        *h) _DAYS=0 ;;  # sub-day: include everything (awk filters by timestamp)
+        *)  _DAYS=7 ;;
+      esac
+      if [ "$_DAYS" -gt 0 ] 2>/dev/null; then
+        if date -v-1d +%Y-%m-%d >/dev/null 2>&1; then
+          _CUTOFF="$(date -v-${_DAYS}d -u +%Y-%m-%dT%H:%M:%SZ)"
+        else
+          _CUTOFF="$(date -u -d "$_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "2000-01-01T00:00:00Z")"
+        fi
+        awk -F'"' -v cutoff="$_CUTOFF" '
+          /"ts":"/ {
+            for (i=1; i<=NF; i++) {
+              if ($i == "ts" && $(i+1) ~ /^:/) {
+                if ($(i+2) >= cutoff) { print; break }
+              }
+            }
+          }
+        ' "$JSONL_FILE"
+      else
+        cat "$JSONL_FILE"
+      fi
+    else
+      cat "$JSONL_FILE"
+    fi
+    ;;
+  -h|--help)
+    sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p; }' "$0"
+    exit 0
+    ;;
+  "")
+    echo "Usage: gstack-ship-log '{json}' or gstack-ship-log read" >&2
+    exit 1
+    ;;
+  *)
+    # Append mode: $1 is a JSON string
+    mkdir -p "$STATE_DIR/analytics" 2>/dev/null || true
+    echo "$1" >> "$JSONL_FILE" 2>/dev/null || true
+    ;;
+esac
+
+exit 0

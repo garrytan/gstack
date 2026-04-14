@@ -1167,7 +1167,7 @@ describe('Retro test health tracking', () => {
     const content = fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md'), 'utf-8');
     expect(content).toContain('# 10. Test file count');
     expect(content).toContain('# 11. Regression test commits');
-    expect(content).toContain('# 12. Test files changed');
+    expect(content).toContain('# 13. Test files changed');
   });
 
   test('retro/SKILL.md has Test Health metrics row', () => {

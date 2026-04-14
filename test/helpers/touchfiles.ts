@@ -91,9 +91,10 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'review-dashboard-via': ['ship/**', 'scripts/resolvers/review.ts', 'codex/**', 'autoplan/**', 'land-and-deploy/**'],
   'ship-plan-completion': ['ship/**', 'scripts/gen-skill-docs.ts'],
   'ship-plan-verification': ['ship/**', 'scripts/gen-skill-docs.ts'],
+  'ship-log':          ['ship/**', 'bin/gstack-ship-log'],
 
   // Retro
-  'retro':             ['retro/**'],
+  'retro':             ['retro/**', 'bin/gstack-ship-log'],
   'retro-base-branch': ['retro/**'],
 
   // Global discover
@@ -259,6 +260,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'ship-plan-completion': 'gate',
   'ship-plan-verification': 'gate',
   'ship-idempotency': 'periodic',
+  'ship-log': 'periodic',
 
   // Retro — gate for cheap branch detection, periodic for full Opus retro
   'retro': 'periodic',

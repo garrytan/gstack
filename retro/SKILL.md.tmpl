@@ -113,8 +113,11 @@ git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep=
 # 12. gstack skill usage telemetry (if available)
 cat ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 
-# 12. Test files changed in window
+# 13. Test files changed in window
 git log origin/<default> --since="<window>" --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
+
+# 14. Ship run log (if available)
+~/.claude/skills/gstack/bin/gstack-ship-log read --window <window> 2>/dev/null || true
 ```
 
 ### Step 2: Compute Metrics
@@ -186,6 +189,21 @@ If moments exist, list them:
 ```
 
 If the JSONL file doesn't exist or has no entries in the window, skip the Eureka Moments row.
+
+**Ship Velocity (if ship log exists):** Read the ship log output from Step 1, command 14. If entries exist within the retro window, aggregate:
+- Total `/ship` runs
+- PRs created (count entries with non-empty `pr_url`)
+- Average review findings per ship run (`review_findings`)
+- Total Greptile catches vs false positives (`greptile_fixed` vs `greptile_fps`)
+- TODOs completed via `/ship` (sum of `todos_completed`)
+- Test coverage delta (average `coverage_after - coverage_before`)
+
+Include in the metrics table:
+```
+| Ship Velocity | N /ship runs · M PRs · avg X review findings · Y Greptile catches |
+```
+
+If the ship log doesn't exist or has no entries in the window (`NO_SHIP_LOG` returned), skip the Ship Velocity row.
 
 ### Step 3: Commit Time Distribution
 
@@ -386,7 +404,7 @@ Use the Write tool to save the JSON file with this schema:
 }
 ```
 
-**Note:** Only include the `greptile` field if `~/.gstack/greptile-history.md` exists and has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. Only include the `test_health` field if test files were found (command 10 returns > 0). If any has no data, omit the field entirely.
+**Note:** Only include the `greptile` field if `~/.gstack/greptile-history.md` exists and has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. Only include the `test_health` field if test files were found (command 10 returns > 0). Only include `ship_velocity` if the ship log has entries in the window. If any has no data, omit the field entirely.
 
 Include test health data in the JSON when test files exist:
 ```json
@@ -406,6 +424,19 @@ Include backlog data in the JSON when TODOS.md exists:
     "p2": 8,
     "completed_this_period": 3,
     "added_this_period": 1
+  }
+```
+
+Include ship velocity data in the JSON when the ship log has entries in the window:
+```json
+  "ship_velocity": {
+    "ship_runs": 5,
+    "prs_created": 5,
+    "avg_review_findings": 2.4,
+    "greptile_catches": 3,
+    "greptile_fps": 1,
+    "todos_completed": 8,
+    "avg_coverage_delta": 3
   }
 ```
 
@@ -438,13 +469,14 @@ Narrative interpreting what the team-wide patterns mean:
 - Notable patterns: do team members code at the same time or in shifts?
 
 ### Shipping Velocity
-(from Steps 5-7)
+(from Steps 5-7 + ship log)
 
 Narrative covering:
 - Commit type mix and what it reveals
 - PR size distribution and what it reveals about shipping cadence
 - Fix-chain detection (sequences of fix commits on the same subsystem)
 - Version bump discipline
+- Ship log trends (if data exists): `/ship` runs per period, review finding rates, Greptile signal over time, test coverage growth from `/ship` auto-generation
 
 ### Code Quality Signals
 - Test LOC ratio trend
@@ -453,7 +485,7 @@ Narrative covering:
 
 ### Test Health
 - Total test files: N (from command 10)
-- Tests added this period: M (from command 12 — test files changed)
+- Tests added this period: M (from command 13 — test files changed)
 - Regression test commits: list `test(qa):` and `test(design):` and `test: coverage` commits from command 11
 - If prior retro exists and has `test_health`: show delta "Test count: {last} → {now} (+{delta})"
 - If test ratio < 20%: flag as growth area — "100% test coverage is the goal. Tests make vibe coding safe."
