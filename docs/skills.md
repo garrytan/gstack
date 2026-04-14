@@ -1,44 +1,56 @@
 # Skill Deep Dives
 
-Detailed guides for every nstack skill — philosophy, workflow, and examples.
+Philosophy, workflow, and examples for every nstack skill, organized by sprint phase.
 
-| Skill | Your specialist | What they do |
-|-------|----------------|--------------|
-| [`/office-hours`](#office-hours) | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
-| [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
-| [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
-| [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
-| [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
-| [`/review`](#review) | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
-| [`/investigate`](#investigate) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
-| [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
-| [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
-| [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
-| [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
-| [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
-| [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
-| [`/land-and-deploy`](#land-and-deploy) | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
-| [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures using the browse daemon. |
-| [`/benchmark`](#benchmark) | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. Track trends over time. |
-| [`/cso`](#cso) | **Chief Security Officer** | OWASP Top 10 + STRIDE threat modeling security audit. Scans for injection, auth, crypto, and access control issues. |
-| [`/document-release`](#document-release) | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
-| [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
-| [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
-| [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
-| [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
-| [`/learn`](#learn) | **Memory** | Manage what nstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
-| | | |
-| **Multi-AI** | | |
-| [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
-| | | |
-| **Safety & Utility** | | |
-| [`/careful`](#safety--guardrails) | **Safety Guardrails** | Warns before destructive commands (rm -rf, DROP TABLE, force-push, git reset --hard). Override any warning. Common build cleanups whitelisted. |
-| [`/freeze`](#safety--guardrails) | **Edit Lock** | Restrict all file edits to a single directory. Blocks Edit and Write outside the boundary. Accident prevention for debugging. |
-| [`/guard`](#safety--guardrails) | **Full Safety** | Combines /careful + /freeze in one command. Maximum safety for prod work. |
-| [`/unfreeze`](#safety--guardrails) | **Unlock** | Remove the /freeze boundary, allowing edits everywhere again. |
-| [`/open-nstack-browser`](#open-nstack-browser) | **NStack Browser** | Launch NStack Browser with sidebar, anti-bot stealth, auto model routing, cookie import, and Claude Code integration. Watch every action live. |
-| [`/setup-deploy`](#setup-deploy) | **Deploy Configurator** | One-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
-| [`/nstack-upgrade`](#nstack-upgrade) | **Self-Updater** | Upgrade nstack to the latest version. Detects global vs vendored install, syncs both, shows what changed. |
+For the sprint overview, see the [Sprint Guide](SPRINT_GUIDE.md).
+
+### Think
+- [`/office-hours`](#office-hours) — Reframe the problem. Six forcing questions. Design doc.
+
+### Plan
+- [`/plan-ceo-review`](#plan-ceo-review) — Rethink the problem. Find the 10-star product. Four scope modes.
+- [`/plan-eng-review`](#plan-eng-review) — Architecture, data flow, edge cases, test coverage.
+- [`/plan-design-review`](#plan-design-review) — Rate each design dimension 0-10. Fix the plan.
+- [`/plan-devex-review`](#plan-devex-review) — DX audit: developer personas, TTHW, friction tracing.
+- [`/autoplan`](#autoplan) — All reviews in sequence. Auto-decides. Surfaces taste decisions only.
+- [`/design-consultation`](#design-consultation) — Build a design system from scratch. Realistic mockups.
+- [`/design-shotgun`](#design-shotgun) — Generate AI mockup variants. Comparison board. Iterate.
+- [`/design-html`](#design-html) — Approved mockup → production HTML. Framework detection.
+
+### Review
+- [`/review`](#review) — Staff-engineer code review. Auto-fixes the obvious ones.
+- [`/codex`](#codex) — Independent second opinion from OpenAI Codex CLI. Three modes.
+- [`/investigate`](#investigate) — Root-cause debugging. No fixes without investigation.
+- [`/design-review`](#design-review) — Visual audit + fix loop. Before/after screenshots.
+- [`/devex-review`](#devex-review) — Live DX audit. Tests onboarding, times TTHW.
+
+### Test
+- [`/qa`](#qa) — Real browser. Find bugs, fix, re-verify. Regression tests.
+- [`/qa-only`](#qa) — Same methodology, report only.
+- [`/benchmark`](#benchmark) — Page load times, Core Web Vitals, resource sizes.
+- [`/browse`](#browse) — Persistent Chromium browser. ~100ms per command.
+- [`/open-nstack-browser`](#open-nstack-browser) — NStack Browser with sidebar and anti-bot stealth.
+- [`/setup-browser-cookies`](#setup-browser-cookies) — Import cookies from your real browser.
+
+### Ship
+- [`/ship`](#ship) — Tests, coverage audit, PR. Bootstraps test frameworks.
+- [`/land-and-deploy`](#land-and-deploy) — Merge, deploy, verify production health.
+- [`/canary`](#canary) — Post-deploy monitoring loop.
+- [`/cso`](#cso) — OWASP Top 10 + STRIDE security audit.
+
+### Reflect
+- [`/retro`](#retro) — Weekly retro. Per-person breakdowns. Cross-project mode.
+- [`/document-release`](#document-release) — Update all docs to match what shipped.
+- [`/learn`](#learn) — Manage what nstack learned across sessions.
+
+### Safety & Utility
+- [`/careful`](#safety--guardrails) — Warns before destructive commands.
+- [`/freeze`](#safety--guardrails) — Lock edits to one directory.
+- [`/guard`](#safety--guardrails) — `/careful` + `/freeze` in one command.
+- [`/unfreeze`](#safety--guardrails) — Remove the freeze boundary.
+- [`/pair-agent`](#pair-agent) — Share your browser with any AI agent.
+- [`/setup-deploy`](#setup-deploy) — One-time deploy config for `/land-and-deploy`.
+- [`/nstack-upgrade`](#nstack-upgrade) — Upgrade to latest version.
 
 ---
 
@@ -46,7 +58,7 @@ Detailed guides for every nstack skill — philosophy, workflow, and examples.
 
 This is where every project should start.
 
-Before you plan, before you review, before you write code — sit down with a YC-style partner and think about what you're actually building. Not what you think you're building. What you're *actually* building.
+Before you plan, before you review, before you write code, sit down and think about what you're actually building. Not what you think you're building. What you're *actually* building.
 
 ### The reframe
 

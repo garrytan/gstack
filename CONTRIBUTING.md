@@ -1,6 +1,6 @@
 # Contributing to nstack
 
-Thanks for wanting to make nstack better. Whether you're fixing a typo in a skill prompt or building an entirely new workflow, this guide will get you up and running fast.
+This guide gets you from clone to working changes in under 5 minutes. Fork, clone, `bin/dev-setup`, and your edits are live.
 
 ## Quick start
 
@@ -389,22 +389,19 @@ bun install && bun run build && ./setup
 
 This affects all projects. To revert: `git checkout main && git pull && bun run build && ./setup`.
 
-## Community PR triage (wave process)
+## Community PR triage
 
 When community PRs accumulate, batch them into themed waves:
 
-1. **Categorize** — group by theme (security, features, infra, docs)
-2. **Deduplicate** — if two PRs fix the same thing, pick the one that
+1. **Categorize** -- group by theme (security, features, infra, docs)
+2. **Deduplicate** -- if two PRs fix the same thing, pick the one that
    changes fewer lines. Close the other with a note pointing to the winner.
-3. **Collector branch** — create `pr-wave-N`, merge clean PRs, resolve
+3. **Collector branch** -- create `pr-wave-N`, merge clean PRs, resolve
    conflicts for dirty ones, verify with `bun test && bun run build`
-4. **Close with context** — every closed PR gets a comment explaining
-   why and what (if anything) supersedes it. Contributors did real work;
-   respect that with clear communication.
-5. **Ship as one PR** — single PR to main with all attributions preserved
-   in merge commits. Include a summary table of what merged and what closed.
-
-See [PR #205](../../pull/205) (v0.8.3) for the first wave as an example.
+4. **Close with context** -- every closed PR gets a comment explaining
+   why and what (if anything) supersedes it.
+5. **Ship as one PR** -- single PR to main with attributions preserved
+   in merge commits.
 
 ## Upgrade migrations
 

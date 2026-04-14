@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.16.6.1] - 2026-04-13
+
+### Changed
+
+- **Full documentation rewrite.** README, ETHOS, CONTRIBUTING, docs/skills.md, Sprint Guide, OPENCLAW, and REMOTE_BROWSER_ACCESS all rewritten in the fork maintainer's voice. Sprint-phase organization throughout. Install URLs point to neilenatarajan/nstack.
+
+### Added
+
+- **Sprint Guide** (`docs/SPRINT_GUIDE.md`). Canonical walkthrough of the 7-phase sprint with examples, skill tables for each phase, and a parallel sprints section.
+
+### Fixed
+
+- All remaining `gstack`/`GStack` references in OPENCLAW.md and REMOTE_BROWSER_ACCESS.md renamed to nstack/NStack.
+
 ## [0.16.6.0] - 2026-04-13
 
 ### Added
