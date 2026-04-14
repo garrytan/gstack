@@ -651,6 +651,17 @@ function killAgent(targetTabId?: number | null): void {
   agentStartTime = null;
   currentMessage = null;
   agentStatus = 'idle';
+  // Also reset the per-tab state — killAgent resets the global but the tab-level
+  // status gates spawnClaude, so without this every subsequent message is queued
+  // instead of dispatched.
+  const resetTabId = targetTabId ?? agentTabId ?? null;
+  if (resetTabId !== null && tabAgents.has(resetTabId)) {
+    const ts = tabAgents.get(resetTabId)!;
+    ts.status = 'idle';
+    ts.startTime = null;
+    ts.currentMessage = null;
+    ts.queue = [];
+  }
 }
 
 // Agent health check — detect hung processes
