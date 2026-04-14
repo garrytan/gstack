@@ -215,6 +215,23 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   if [ ! -f "$SOURCE_GSTACK_DIR/browse/dist/.version" ]; then
     git -C "$SOURCE_GSTACK_DIR" rev-parse HEAD > "$SOURCE_GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
   fi
+
+  # macOS Apple Silicon: ad-hoc codesign compiled binaries.
+  # Bun's --compile can produce a corrupt or linker-only code signature that
+  # macOS kills with SIGKILL (exit 137). The two-step remove+re-sign is
+  # required because a naive `codesign -s - -f` fails when the existing
+  # signature block is corrupt. This is idempotent and costs <1s.
+  # See: https://github.com/garrytan/gstack/issues/997
+  if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+    for _bin in browse/dist/browse browse/dist/find-browse design/dist/design bin/gstack-global-discover; do
+      _bin_path="$SOURCE_GSTACK_DIR/$_bin"
+      [ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue
+      codesign --remove-signature "$_bin_path" 2>/dev/null || true
+      if ! codesign -s - -f "$_bin_path" 2>/dev/null; then
+        log "warning: codesign failed for $_bin (binary may not run on Apple Silicon)"
+      fi
+    done
+  fi
 fi
 
 if [ ! -x "$BROWSE_BIN" ]; then
