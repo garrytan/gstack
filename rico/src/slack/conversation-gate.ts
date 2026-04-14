@@ -1,8 +1,14 @@
 import type { MemoryStore } from "../memory/store";
 
+export interface ConversationTurn {
+  speaker: "user" | "assistant";
+  text: string;
+}
+
 export interface GovernorConversationInput {
   text: string;
   knownProjects: string[];
+  threadHistory?: ConversationTurn[];
 }
 
 export interface GovernorConversationReply {
@@ -14,6 +20,7 @@ export interface CaptainConversationInput {
   text: string;
   threadGoalTitle?: string | null;
   memoryStore?: MemoryStore;
+  threadHistory?: ConversationTurn[];
 }
 
 export interface CaptainConversationDecision {

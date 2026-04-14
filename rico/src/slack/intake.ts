@@ -33,6 +33,7 @@ import {
 import type {
   CaptainConversationDecision,
   CaptainConversationInput,
+  ConversationTurn,
   GovernorConversationInput,
   GovernorConversationReply,
 } from "./conversation-gate";
@@ -221,6 +222,59 @@ function readThreadGoal(input: {
     input.memoryStore.getProjectMemory(input.projectId)[`captain.thread.${input.threadTs}.goal_id`];
   if (!goalId) return null;
   return input.repositories.goals.get(goalId);
+}
+
+const GOVERNOR_CONVERSATION_SCOPE = "__governor__";
+
+function conversationHistoryKey(threadTs: string) {
+  return `conversation.thread.${threadTs}.history_json`;
+}
+
+function readConversationHistory(input: {
+  memoryStore: MemoryStore;
+  scopeId: string;
+  threadTs?: string;
+}) {
+  if (!input.threadTs) return [] as ConversationTurn[];
+  const raw = input.memoryStore.getProjectMemory(input.scopeId)[conversationHistoryKey(input.threadTs)];
+  if (!raw) return [] as ConversationTurn[];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is ConversationTurn =>
+        Boolean(item)
+        && typeof item === "object"
+        && (item as { speaker?: unknown }).speaker !== undefined
+        && ((item as { speaker?: unknown }).speaker === "user"
+          || (item as { speaker?: unknown }).speaker === "assistant")
+        && typeof (item as { text?: unknown }).text === "string")
+      : [];
+  } catch {
+    return [] as ConversationTurn[];
+  }
+}
+
+function appendConversationHistory(input: {
+  memoryStore: MemoryStore;
+  scopeId: string;
+  threadTs: string;
+  userText: string;
+  assistantText: string;
+}) {
+  const history = readConversationHistory({
+    memoryStore: input.memoryStore,
+    scopeId: input.scopeId,
+    threadTs: input.threadTs,
+  });
+  history.push(
+    { speaker: "user", text: input.userText.trim() },
+    { speaker: "assistant", text: input.assistantText.trim() },
+  );
+  input.memoryStore.putProjectFact(
+    input.scopeId,
+    conversationHistoryKey(input.threadTs),
+    JSON.stringify(history.slice(-8)),
+  );
 }
 
 function resolveEvent(payload: Record<string, unknown>) {
@@ -538,6 +592,11 @@ export async function maybeBuildConversationReply(
         : `slack-${Date.now()}`;
 
   if (options.aiOpsChannelId && channelId === options.aiOpsChannelId) {
+    const governorThreadHistory = readConversationHistory({
+      memoryStore,
+      scopeId: GOVERNOR_CONVERSATION_SCOPE,
+      threadTs,
+    });
     const normalized = normalizeEventText(text);
     if (normalized) {
       const workspaceCommand = parseProjectWorkspaceCommand(normalized.goalText);
@@ -733,6 +792,14 @@ export async function maybeBuildConversationReply(
       const reply = await options.governorConversationExecutor({
         text,
         knownProjects: projectIds,
+        threadHistory: governorThreadHistory,
+      });
+      appendConversationHistory({
+        memoryStore,
+        scopeId: GOVERNOR_CONVERSATION_SCOPE,
+        threadTs,
+        userText: text,
+        assistantText: reply.reply,
       });
       return {
         channelId,
@@ -740,11 +807,19 @@ export async function maybeBuildConversationReply(
         text: reply.reply,
       } satisfies SlackConversationReply;
     }
+    const fallbackReply =
+      `총괄: 이건 여기서 바로 얘기해도 돼요. 실행이 필요해지면 \`프로젝트명: 목표\` 형식으로 넘기거나 해당 프로젝트 채널에서 이어가 주세요.`;
+    appendConversationHistory({
+      memoryStore,
+      scopeId: GOVERNOR_CONVERSATION_SCOPE,
+      threadTs,
+      userText: text,
+      assistantText: fallbackReply,
+    });
     return {
       channelId,
       threadTs,
-      text:
-        `총괄: 이건 여기서 바로 얘기해도 돼요. 실행이 필요해지면 \`프로젝트명: 목표\` 형식으로 넘기거나 해당 프로젝트 채널에서 이어가 주세요.`,
+      text: fallbackReply,
     } satisfies SlackConversationReply;
   }
 
@@ -838,14 +913,27 @@ export async function maybeBuildConversationReply(
         )
       : false;
   if (shouldConsultCaptainConversation) {
+    const captainThreadHistory = readConversationHistory({
+      memoryStore,
+      scopeId: project.id,
+      threadTs,
+    });
     if (options.captainConversationExecutor) {
       const decision = await options.captainConversationExecutor({
         projectId: project.id,
         text,
         threadGoalTitle: threadGoal?.title ?? null,
         memoryStore,
+        threadHistory: captainThreadHistory,
       });
       if (decision.mode === "reply") {
+        appendConversationHistory({
+          memoryStore,
+          scopeId: project.id,
+          threadTs,
+          userText: text,
+          assistantText: decision.reply,
+        });
         return {
           channelId,
           threadTs,
@@ -854,13 +942,21 @@ export async function maybeBuildConversationReply(
       }
       return null;
     }
+    const fallbackReply =
+      threadGoal
+        ? `캡틴: 이건 새 라운드로 태우기보다 지금 스레드 맥락에서 바로 얘기할 수 있어요. 실제 수정이나 검증이 필요해지면 한 줄로 요청해 주세요.`
+        : `캡틴: 이건 바로 대화로 정리할 수 있어요. 실제 작업으로 돌릴 필요가 생기면 한 문장으로 요청해 주세요.`;
+    appendConversationHistory({
+      memoryStore,
+      scopeId: project.id,
+      threadTs,
+      userText: text,
+      assistantText: fallbackReply,
+    });
     return {
       channelId,
       threadTs,
-      text:
-        threadGoal
-          ? `캡틴: 이건 새 라운드로 태우기보다 지금 스레드 맥락에서 바로 얘기할 수 있어요. 실제 수정이나 검증이 필요해지면 한 줄로 요청해 주세요.`
-          : `캡틴: 이건 바로 대화로 정리할 수 있어요. 실제 작업으로 돌릴 필요가 생기면 한 문장으로 요청해 주세요.`,
+      text: fallbackReply,
     } satisfies SlackConversationReply;
   }
   return null;

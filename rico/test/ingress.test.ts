@@ -521,6 +521,72 @@ test("processSlackPayload answers lightweight ai-ops discussion through governor
   expect(store.repositories.goals.listByProject("mypetroutine")).toHaveLength(0);
 });
 
+test("processSlackPayload passes prior governor thread history into follow-up conversation turns", async () => {
+  const store = openStore(":memory:");
+  store.repositories.projects.create({
+    id: "mypetroutine",
+    slackChannelId: "C_MYPETROUTINE",
+  });
+
+  const seenHistory: string[] = [];
+  const slackClient = {
+    async postMessage() {
+      return { ok: true, ts: "1710000000.000100" };
+    },
+  };
+
+  await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      governorConversationExecutor: async () => ({
+        reply: "총괄: 가볍게 질문해도 괜찮아요.",
+      }),
+      slackClient,
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_TOTAL",
+        user: "U_TONY",
+        text: "지금 가볍게 질문해도 돼?",
+        ts: "1712900000.000900",
+      },
+    },
+  );
+
+  await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      governorConversationExecutor: async (input) => {
+        seenHistory.push(...(input.threadHistory ?? []).map((turn) => `${turn.speaker}:${turn.text}`));
+        return {
+          reply: "총괄: 그럼 지금 가장 먼저 볼 만한 건 mypetroutine 쪽 우선순위예요.",
+        };
+      },
+      slackClient,
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_TOTAL",
+        user: "U_TONY",
+        text: "그래 그럼 아무거나 얘기해봐",
+        ts: "1712900000.000901",
+        thread_ts: "1712900000.000900",
+      },
+    },
+  );
+
+  expect(seenHistory).toContain("user:지금 가볍게 질문해도 돼?");
+  expect(seenHistory).toContain("assistant:총괄: 가볍게 질문해도 괜찮아요.");
+});
+
 test("processSlackPayload answers lightweight project-thread discussion through captain without queueing follow-up work", async () => {
   const store = openStore(":memory:");
   const memoryStore = new MemoryStore(store.db);
@@ -577,6 +643,88 @@ test("processSlackPayload answers lightweight project-thread discussion through 
   expect(posted[0]?.thread_ts).toBe("1712900000.000800");
   expect(posted[0]?.text).toContain("캡틴");
   expect(store.repositories.runs.listByGoal("goal-existing")).toHaveLength(0);
+});
+
+test("processSlackPayload passes prior captain thread history into project follow-up discussion", async () => {
+  const store = openStore(":memory:");
+  const memoryStore = new MemoryStore(store.db);
+  store.repositories.projects.create({
+    id: "mypetroutine",
+    slackChannelId: "C_MYPETROUTINE",
+  });
+  store.repositories.goals.create({
+    id: "goal-existing",
+    projectId: "mypetroutine",
+    initiativeId: null,
+    title: "온보딩 개선",
+    state: "in_progress",
+  });
+  memoryStore.putProjectFact(
+    "mypetroutine",
+    "captain.thread.1712900000.000950.goal_id",
+    "goal-existing",
+  );
+
+  const seenHistory: string[] = [];
+  const slackClient = {
+    async postMessage() {
+      return { ok: true, ts: "1710000000.000100" };
+    },
+  };
+
+  await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      captainConversationExecutor: async () => ({
+        mode: "reply",
+        reply: "캡틴: 이건 이번 스레드에서 바로 설명할 수 있어요.",
+      }),
+      slackClient,
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_MYPETROUTINE",
+        user: "U_TONY",
+        text: "왜 이 방향으로 보고 있어?",
+        ts: "1712900000.000951",
+        thread_ts: "1712900000.000950",
+      },
+    },
+  );
+
+  await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      captainConversationExecutor: async (input) => {
+        seenHistory.push(...(input.threadHistory ?? []).map((turn) => `${turn.speaker}:${turn.text}`));
+        return {
+          mode: "reply",
+          reply: "캡틴: 방금 설명했던 흐름을 이어서 정리해볼게요.",
+        };
+      },
+      slackClient,
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_MYPETROUTINE",
+        user: "U_TONY",
+        text: "좋아, 그럼 이어서 말해봐",
+        ts: "1712900000.000952",
+        thread_ts: "1712900000.000950",
+      },
+    },
+  );
+
+  expect(seenHistory).toContain("user:왜 이 방향으로 보고 있어?");
+  expect(seenHistory).toContain("assistant:캡틴: 이건 이번 스레드에서 바로 설명할 수 있어요.");
 });
 
 test("processSlackPayload delegates project discussion into a new run when captain gate says execution is needed", async () => {
