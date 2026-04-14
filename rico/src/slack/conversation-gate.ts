@@ -60,10 +60,12 @@ export function shouldUseGovernorConversation(text: string) {
 export function shouldUseCaptainConversation(input: {
   text: string;
   hasThreadGoal: boolean;
+  hasConversationHistory: boolean;
   hasExplicitProjectOverride: boolean;
 }) {
   if (input.hasExplicitProjectOverride) return false;
   if (!input.text.trim()) return false;
+  if (input.hasConversationHistory) return true;
   if (input.hasThreadGoal && !looksLikeExecutionRequest(input.text)) {
     return true;
   }

@@ -881,6 +881,63 @@ test("processSlackPayload passes prior captain thread history into project follo
   expect(seenHistory).toContain("assistant:캡틴: 이건 이번 스레드에서 바로 설명할 수 있어요.");
 });
 
+test("processSlackPayload consults captain conversation for follow-up replies in a thread with conversation history even without a goal", async () => {
+  const store = openStore(":memory:");
+  const memoryStore = new MemoryStore(store.db);
+  store.repositories.projects.create({
+    id: "crypto",
+    slackChannelId: "C_CRYPTO",
+  });
+  memoryStore.putProjectFact(
+    "crypto",
+    "conversation.thread.1712900000.000980.history_json",
+    JSON.stringify([
+      { speaker: "user", text: "지금 원격 깃이 연결되어있나?" },
+      { speaker: "assistant", text: "캡틴: 원격 설정은 연결돼 있어요." },
+    ]),
+  );
+
+  const posted: Array<{ channel: string; thread_ts?: string; text: string }> = [];
+  const result = await processSlackPayload(
+    {
+      db: store.db,
+      aiOpsChannelId: "C_TOTAL",
+      slackClient: {
+        async postMessage(input) {
+          posted.push(input);
+          return { ok: true, ts: "1710000000.000980" };
+        },
+      },
+      captainConversationExecutor: async (input) => {
+        expect(input.threadHistory?.map((turn) => `${turn.speaker}:${turn.text}`)).toContain(
+          "assistant:캡틴: 원격 설정은 연결돼 있어요.",
+        );
+        return {
+          mode: "reply",
+          reply: "캡틴: 지금 바로 남은 조치를 정리해볼게요.",
+        };
+      },
+    },
+    "event",
+    {
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C_CRYPTO",
+        user: "U_TONY",
+        text: "남은 조치 해봐",
+        ts: "1712900000.000981",
+        thread_ts: "1712900000.000980",
+      },
+    },
+  );
+
+  expect(result).toEqual({ queued: false, handled: true });
+  expect(posted).toHaveLength(1);
+  expect(posted[0]?.thread_ts).toBe("1712900000.000980");
+  expect(store.repositories.goals.listByProject("crypto")).toHaveLength(0);
+});
+
 test("processSlackPayload delegates project discussion into a new run when captain gate says execution is needed", async () => {
   const store = openStore(":memory:");
   store.repositories.projects.create({

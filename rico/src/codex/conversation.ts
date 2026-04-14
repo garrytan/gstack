@@ -66,6 +66,91 @@ export function sanitizeConversationReplyForSlack(text: string) {
     .trim();
 }
 
+const REPO_STATUS_QUESTION_PATTERN =
+  /(git|repo|repository|저장소|레포|브랜치|origin|upstream|remote|원격).*(연결|상태|확인|있나|맞아|봐줘|알려줘)|지금 원격 깃/i;
+const FOLLOW_UP_ACTION_PATTERN = /(남은 조치|다음 조치|뭘 하면 돼|그걸 어떻게 해|해봐|이어서 해봐)/i;
+const URL_OR_REMOTE_PATTERN = /(`(?:https?:\/\/|git@)[^`]+`|(?:https?:\/\/|git@)[^\s<>()]+)/g;
+const PATH_PATTERN = /(^|[\s(])`?(\/[A-Za-z0-9._/@-]+(?:\/[A-Za-z0-9._@-]+)+)`?(?=$|[\s),.])/gm;
+const BRANCH_TO_UPSTREAM_PATTERN = /`?([A-Za-z0-9._/-]+)`?\s*(?:은|는|이|가|도)?\s*`?(origin\/[A-Za-z0-9._/-]+)`?\s*(?:을|를)?\s*(?:추적|tracking|track)/i;
+const BRANCH_TRACKING_PATTERN = /`?([A-Za-z0-9._/-]+)`?\s*(?:브랜치(?:가)?\s*)?(?:`?(origin\/[A-Za-z0-9._/-]+)`?\s*)?(?:추적|tracking|track)/i;
+const AUTH_LIMIT_PATTERN = /(git ls-remote|인증 없이|인증 없|인증이 없어|could not read username|실제 원격 접속|실제 접근|확정 못|미확인|보류)/i;
+
+function unique<T>(values: T[]) {
+  return [...new Set(values)];
+}
+
+function extractRepoFacts(text: string) {
+  const urls = unique(
+    [...text.matchAll(URL_OR_REMOTE_PATTERN)]
+      .map((match) => match[1]?.replace(/^`|`$/g, ""))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const paths = unique(
+    [...text.matchAll(PATH_PATTERN)]
+      .map((match) => match[2])
+      .filter((value): value is string => Boolean(value)),
+  );
+  const tracking = text.match(BRANCH_TO_UPSTREAM_PATTERN) ?? text.match(BRANCH_TRACKING_PATTERN);
+  const branch = tracking?.[1] ?? null;
+  const upstream = tracking?.[2] ?? null;
+  const authLimited = AUTH_LIMIT_PATTERN.test(text);
+  return { urls, paths, branch, upstream, authLimited };
+}
+
+export function shapeCaptainConversationReplyForSlack(input: {
+  message: string;
+  reply: string;
+  threadHistory?: ConversationTurn[];
+}) {
+  const normalizedReply = sanitizeConversationReplyForSlack(input.reply);
+  const looksLikeRepoStatus =
+    REPO_STATUS_QUESTION_PATTERN.test(input.message)
+    || (
+      FOLLOW_UP_ACTION_PATTERN.test(input.message)
+      && (input.threadHistory ?? []).some((turn) =>
+        turn.speaker === "assistant" && REPO_STATUS_QUESTION_PATTERN.test(turn.text))
+    );
+  if (!looksLikeRepoStatus) {
+    return normalizedReply;
+  }
+
+  const facts = extractRepoFacts(normalizedReply);
+  if (facts.urls.length === 0 && facts.paths.length === 0 && !facts.branch) {
+    return normalizedReply;
+  }
+
+  const confirmedParts: string[] = [];
+  if (facts.paths[0]) confirmedParts.push(`workspace \`${facts.paths[0]}\``);
+  if (facts.urls[0]) confirmedParts.push(`origin \`${facts.urls[0]}\``);
+  if (facts.branch && facts.upstream) {
+    confirmedParts.push(`브랜치 \`${facts.branch} -> ${facts.upstream}\``);
+  } else if (facts.branch) {
+    confirmedParts.push(`브랜치 \`${facts.branch}\``);
+  }
+
+  const lines = ["캡틴:"];
+  if (FOLLOW_UP_ACTION_PATTERN.test(input.message)) {
+    lines.push(`- 지금 확인된 것: ${confirmedParts.join(", ")}${confirmedParts.length > 0 ? "예요." : " 현재 확인 범위는 정리했어요."}`);
+    if (facts.authLimited) {
+      lines.push("- 아직 못 본 것: GitHub 인증이 없어 실제 원격 fetch/ls-remote 성공 여부는 확인 못 했어요.");
+      lines.push("- 바로 할 다음 단계: 인증이 붙은 환경에서 `git ls-remote --heads origin`이나 `git fetch origin` 한 번만 더 보면 끝나요.");
+    } else {
+      lines.push("- 바로 할 다음 단계: 현재 기준으로는 remote/branch 확인은 끝났고, 이어서 작업 범위를 정하면 돼요.");
+    }
+    return lines.join("\n");
+  }
+
+  lines.push(`- 결론: ${facts.authLimited ? "원격 설정은 연결돼 있어요. 다만 실제 원격 접근은 아직 미확인이에요." : "원격 설정과 현재 추적 상태는 확인됐어요."}`);
+  if (confirmedParts.length > 0) {
+    lines.push(`- 확인됨: ${confirmedParts.join(", ")}`);
+  }
+  if (facts.authLimited) {
+    lines.push("- 미확인: GitHub 인증이 없어 `git ls-remote` 기준 실제 원격 접근까지는 아직 못 봤어요.");
+    lines.push("- 다음 단계: 인증이 붙은 환경에서 `git ls-remote --heads origin` 또는 `git fetch origin` 한 번만 더 보면 끝나요.");
+  }
+  return lines.join("\n");
+}
+
 function lastAssistantReply(history: ConversationTurn[] | undefined) {
   return [...(history ?? [])].reverse().find((turn) => turn.speaker === "assistant")?.text ?? null;
 }
@@ -268,6 +353,9 @@ function buildCaptainPrompt(input: {
     "Choose mode=delegate for: actual implementation, repo inspection, QA verification, structured specialist work, or anything that should become a tracked run.",
     "Do not create tasks here. Just decide reply vs delegate.",
     "Use the thread history to continue the existing conversation naturally. Do not just restate the goal title or repeat your previous answer.",
+    "If the message is a simple repo/status/fact-check question or a follow-up like '남은 조치 해봐', prefer reply unless you truly need a tracked run.",
+    "For repo/status/fact-check replies, use a compact bullet shape: conclusion, confirmed facts, what's still unverified, next step.",
+    "When mentioning remotes or URLs, put them in backticks and on their own field, not inline with Korean particles.",
     "Avoid phrases like '이 세션', '이번 라운드', or stiff workflow jargon. Speak like a pragmatic PM in Slack.",
     "If mode=reply, write a short human response as the Captain. 2-5 lines max. Answer in Korean.",
     "If mode=delegate, explain the reason briefly in delegateReason and keep reply empty or very short.",
@@ -367,10 +455,14 @@ export function createCodexCaptainConversationExecutor(input: {
       ...parsed,
       reply:
         parsed.mode === "reply"
-          ? stabilizeCaptainReply({
-              reply: parsed.reply,
-              history: conversation.threadHistory,
-              threadGoalTitle: conversation.threadGoalTitle,
+          ? shapeCaptainConversationReplyForSlack({
+              message: conversation.text,
+              reply: stabilizeCaptainReply({
+                reply: parsed.reply,
+                history: conversation.threadHistory,
+                threadGoalTitle: conversation.threadGoalTitle,
+              }),
+              threadHistory: conversation.threadHistory,
             })
           : parsed.reply,
     };

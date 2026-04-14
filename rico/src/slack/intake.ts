@@ -955,6 +955,11 @@ export async function maybeBuildConversationReply(
   ) {
     return null;
   }
+  const captainThreadHistory = readConversationHistory({
+    memoryStore,
+    scopeId: project.id,
+    threadTs,
+  });
   const shouldConsultCaptainConversation =
     !explicitProjectMatch
       ? (
@@ -962,21 +967,18 @@ export async function maybeBuildConversationReply(
             ? Boolean(threadGoal) || shouldUseCaptainConversation({
                 text,
                 hasThreadGoal: Boolean(threadGoal),
+                hasConversationHistory: captainThreadHistory.length > 0,
                 hasExplicitProjectOverride: false,
               })
             : shouldUseCaptainConversation({
                 text,
                 hasThreadGoal: Boolean(threadGoal),
+                hasConversationHistory: captainThreadHistory.length > 0,
                 hasExplicitProjectOverride: false,
               })
         )
       : false;
   if (shouldConsultCaptainConversation) {
-    const captainThreadHistory = readConversationHistory({
-      memoryStore,
-      scopeId: project.id,
-      threadTs,
-    });
     if (options.captainConversationExecutor) {
       const decision = await options.captainConversationExecutor({
         projectId: project.id,
