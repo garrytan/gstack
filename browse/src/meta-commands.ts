@@ -653,6 +653,116 @@ export async function handleMetaCommand(
       return `Switched to frame: ${frame.url()}`;
     }
 
+    // ─── UX Audit ─────────────────────────────────────
+    case 'ux-audit': {
+      const page = bm.getPage();
+
+      // Extract page structure for UX behavioral analysis
+      // Agent interprets the data and applies Krug's 6 usability tests
+      // Uses textContent (not innerText) to avoid layout computation on large DOMs
+      const data = await page.evaluate(() => {
+        const HEADING_CAP = 50;
+        const INTERACTIVE_CAP = 200;
+        const TEXT_BLOCK_CAP = 50;
+
+        // Site ID: logo or brand element
+        const logoEl = document.querySelector('[class*="logo"], [id*="logo"], header img, [aria-label*="home"], a[href="/"]');
+        const siteId = logoEl ? {
+          found: true,
+          text: (logoEl.textContent || '').trim().slice(0, 100),
+          tag: logoEl.tagName,
+          alt: (logoEl as HTMLImageElement).alt || null,
+        } : { found: false, text: null, tag: null, alt: null };
+
+        // Page name: main heading
+        const h1 = document.querySelector('h1');
+        const pageName = h1 ? {
+          found: true,
+          text: h1.textContent?.trim().slice(0, 200) || '',
+        } : { found: false, text: null };
+
+        // Navigation: primary nav elements
+        const navEls = document.querySelectorAll('nav, [role="navigation"]');
+        const navItems: Array<{ text: string; links: number }> = [];
+        navEls.forEach((nav, i) => {
+          if (i >= 5) return;
+          const links = nav.querySelectorAll('a');
+          navItems.push({
+            text: (nav.getAttribute('aria-label') || `nav-${i}`).slice(0, 50),
+            links: links.length,
+          });
+        });
+
+        // "You are here" indicator: current/active nav items
+        // Scoped to nav containers to avoid false positives from animation classes
+        const activeNavItems = document.querySelectorAll('nav [aria-current], nav .active, nav .current, [role="navigation"] [aria-current], [role="navigation"] .active, [role="navigation"] .current');
+        const youAreHere = Array.from(activeNavItems).slice(0, 5).map(el => ({
+          text: (el.textContent || '').trim().slice(0, 50),
+          tag: el.tagName,
+        }));
+
+        // Search: search box presence
+        const searchEl = document.querySelector('input[type="search"], [role="search"], input[name*="search"], input[placeholder*="search" i], input[aria-label*="search" i]');
+        const search = { found: !!searchEl };
+
+        // Breadcrumbs
+        const breadcrumbEl = document.querySelector('[aria-label*="breadcrumb" i], .breadcrumb, .breadcrumbs, [class*="breadcrumb"]');
+        const breadcrumbs = breadcrumbEl ? {
+          found: true,
+          items: Array.from(breadcrumbEl.querySelectorAll('a, span, li')).slice(0, 10).map(el => (el.textContent || '').trim().slice(0, 30)),
+        } : { found: false, items: [] };
+
+        // Headings: heading hierarchy
+        const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).slice(0, HEADING_CAP).map(h => ({
+          tag: h.tagName,
+          text: (h.textContent || '').trim().slice(0, 80),
+          size: getComputedStyle(h).fontSize,
+        }));
+
+        // Interactive elements: buttons, links, inputs
+        const interactiveEls = Array.from(document.querySelectorAll('a, button, input, select, textarea, [role="button"], [tabindex]')).slice(0, INTERACTIVE_CAP);
+        const interactive = interactiveEls.map(el => {
+          const rect = el.getBoundingClientRect();
+          return {
+            tag: el.tagName,
+            text: (el.textContent || (el as HTMLInputElement).placeholder || '').trim().slice(0, 50),
+            type: (el as HTMLInputElement).type || null,
+            role: el.getAttribute('role'),
+            w: Math.round(rect.width),
+            h: Math.round(rect.height),
+            visible: rect.width > 0 && rect.height > 0,
+          };
+        }).filter(el => el.visible);
+
+        // Text blocks: paragraphs and large text areas
+        const textBlocks = Array.from(document.querySelectorAll('p, [class*="description"], [class*="intro"], [class*="welcome"], [class*="hero"] p, main p')).slice(0, TEXT_BLOCK_CAP).map(el => ({
+          text: (el.textContent || '').trim().slice(0, 200),
+          wordCount: (el.textContent || '').trim().split(/\s+/).filter(Boolean).length,
+        }));
+
+        // Total visible text word count (textContent avoids layout computation)
+        const bodyText = (document.body?.textContent || '').trim();
+        const totalWords = bodyText.split(/\s+/).filter(Boolean).length;
+
+        return {
+          url: window.location.href,
+          title: document.title,
+          siteId,
+          pageName,
+          navigation: navItems,
+          youAreHere,
+          search,
+          breadcrumbs,
+          headings,
+          interactive,
+          textBlocks,
+          totalWords,
+        };
+      });
+
+      return JSON.stringify(data, null, 2);
+    }
+
     default:
       throw new Error(`Unknown meta command: ${command}`);
   }

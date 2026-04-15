@@ -39,6 +39,7 @@ interface SnapshotOptions {
   annotate?: boolean;          // -a / --annotate: annotated screenshot
   outputPath?: string;         // -o / --output: path for annotated screenshot
   cursorInteractive?: boolean; // -C / --cursor-interactive: scan cursor:pointer etc.
+  heatmap?: string;            // -H / --heatmap: JSON color map for ref overlays
 }
 
 /**
@@ -64,6 +65,7 @@ export const SNAPSHOT_FLAGS: Array<{
   { short: '-a', long: '--annotate', description: 'Annotated screenshot with red overlay boxes and ref labels', optionKey: 'annotate' },
   { short: '-o', long: '--output', description: 'Output path for annotated screenshot (default: <temp>/browse-annotated.png)', takesValue: true, valueHint: '<path>', optionKey: 'outputPath' },
   { short: '-C', long: '--cursor-interactive', description: 'Cursor-interactive elements (@c refs — divs with pointer, onclick). Auto-enabled when -i is used.', optionKey: 'cursorInteractive' },
+  { short: '-H', long: '--heatmap', description: 'Color-coded overlay screenshot from JSON map: \'{"@e1":"green","@e3":"red"}\'. Valid colors: green, yellow, red, blue, orange, gray.', takesValue: true, valueHint: '<json>', optionKey: 'heatmap' },
 ];
 
 interface ParsedNode {
@@ -432,6 +434,124 @@ export async function handleSnapshot(
       } catch (err2: any) {
         if (!err2?.message?.includes('closed') && !err2?.message?.includes('Target') && !err2?.message?.includes('Execution context')) throw err2;
       }
+    }
+  }
+
+  // ─── Heatmap mode (-H) ──────────────────────────────────────
+  if (opts.heatmap) {
+    const heatmapPath = opts.outputPath || `${TEMP_DIR}/browse-heatmap.png`;
+    // Validate output path
+    {
+      const nodePath = require('path') as typeof import('path');
+      const nodeFs = require('fs') as typeof import('fs');
+      const absolute = nodePath.resolve(heatmapPath);
+      const safeDirs = [TEMP_DIR, process.cwd()].map((d: string) => {
+        try { return nodeFs.realpathSync(d); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; return d; }
+      });
+      let realPath: string;
+      try {
+        realPath = nodeFs.realpathSync(absolute);
+      } catch (err: any) {
+        if (err.code === 'ENOENT') {
+          try {
+            const dir = nodeFs.realpathSync(nodePath.dirname(absolute));
+            realPath = nodePath.join(dir, nodePath.basename(absolute));
+          } catch (err2: any) {
+            if (err2?.code !== 'ENOENT') throw err2;
+            realPath = absolute;
+          }
+        } else {
+          throw new Error(`Cannot resolve real path: ${heatmapPath} (${err.code})`);
+        }
+      }
+      if (!safeDirs.some((dir: string) => isPathWithin(realPath, dir))) {
+        throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+      }
+    }
+
+    // Parse and validate color map
+    const VALID_COLORS = new Set(['green', 'yellow', 'red', 'blue', 'orange', 'gray']);
+    const COLOR_MAP: Record<string, { border: string; bg: string }> = {
+      green:  { border: '#00b400', bg: 'rgba(0,180,0,0.15)' },
+      yellow: { border: '#ffb400', bg: 'rgba(255,180,0,0.15)' },
+      red:    { border: '#ff0000', bg: 'rgba(255,0,0,0.15)' },
+      blue:   { border: '#0066ff', bg: 'rgba(0,102,255,0.15)' },
+      orange: { border: '#ff6600', bg: 'rgba(255,102,0,0.15)' },
+      gray:   { border: '#888888', bg: 'rgba(136,136,136,0.15)' },
+    };
+
+    let colorAssignments: Record<string, string>;
+    try {
+      const parsed = JSON.parse(opts.heatmap);
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('not an object');
+      }
+      colorAssignments = parsed;
+    } catch {
+      throw new Error('Invalid heatmap JSON. Expected object: \'{"@e1":"green","@e3":"red"}\'');
+    }
+
+    // Validate colors
+    for (const [ref, color] of Object.entries(colorAssignments)) {
+      if (!VALID_COLORS.has(color)) {
+        throw new Error(`Invalid heatmap color "${color}" for ${ref}. Valid: ${[...VALID_COLORS].join(', ')}`);
+      }
+    }
+
+    try {
+      const boxes: Array<{ ref: string; box: { x: number; y: number; width: number; height: number }; color: string }> = [];
+      for (const [refKey, color] of Object.entries(colorAssignments)) {
+        const cleanRef = refKey.startsWith('@') ? refKey.slice(1) : refKey;
+        const entry = refMap.get(cleanRef);
+        if (!entry) continue; // Skip refs not found on page
+        try {
+          const box = await entry.locator.boundingBox({ timeout: 1000 });
+          if (box) {
+            const colors = COLOR_MAP[color] || COLOR_MAP.gray;
+            boxes.push({ ref: `@${cleanRef}`, box, color: JSON.stringify(colors) });
+          }
+        } catch {
+          // Element may be offscreen or hidden — skip
+        }
+      }
+
+      await page.evaluate((boxes) => {
+        for (const { ref, box, color } of boxes) {
+          const colors = JSON.parse(color);
+          const overlay = document.createElement('div');
+          overlay.className = '__browse_heatmap__';
+          overlay.style.cssText = `
+            position: absolute; top: ${box.y}px; left: ${box.x}px;
+            width: ${box.width}px; height: ${box.height}px;
+            border: 2px solid ${colors.border}; background: ${colors.bg};
+            pointer-events: none; z-index: 99999;
+            font-size: 10px; color: ${colors.border}; font-weight: bold;
+          `;
+          const label = document.createElement('span');
+          label.textContent = ref;
+          label.style.cssText = `position: absolute; top: -14px; left: 0; background: ${colors.border}; color: white; padding: 0 3px; font-size: 10px;`;
+          overlay.appendChild(label);
+          document.body.appendChild(overlay);
+        }
+      }, boxes);
+
+      await page.screenshot({ path: heatmapPath, fullPage: true });
+
+      // Remove heatmap overlays
+      await page.evaluate(() => {
+        document.querySelectorAll('.__browse_heatmap__').forEach(el => el.remove());
+      });
+
+      output.push('');
+      output.push(`[heatmap screenshot: ${heatmapPath}]`);
+    } catch (err: any) {
+      // Cleanup on failure
+      try {
+        await page.evaluate(() => {
+          document.querySelectorAll('.__browse_heatmap__').forEach(el => el.remove());
+        });
+      } catch {}
+      if (!err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('Execution context') && !err?.message?.includes('screenshot')) throw err;
     }
   }
 

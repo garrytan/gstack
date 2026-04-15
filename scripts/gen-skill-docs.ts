@@ -542,6 +542,12 @@ for (const currentHost of hostsToRun) {
       const lines = content.split('\n').length;
       const tokens = Math.round(content.length / 4); // ~4 chars per token
       tokenBudget.push({ skill: relOutput, lines, tokens });
+
+      // Token ceiling check: warn if any generated SKILL.md exceeds ~25K tokens (100KB)
+      const TOKEN_CEILING_BYTES = 100_000;
+      if (content.length > TOKEN_CEILING_BYTES) {
+        console.warn(`⚠️  TOKEN CEILING: ${relOutput} is ${content.length} bytes (~${tokens} tokens), exceeds ${TOKEN_CEILING_BYTES} byte ceiling (~25K tokens)`);
+      }
     }
 
     // Generate gstack-lite and gstack-full for OpenClaw host

@@ -159,6 +159,11 @@ SKILL.md files are **generated** from `.tmpl` templates. To update docs:
 To add a new browse command: add it to `browse/src/commands.ts` and rebuild.
 To add a snapshot flag: add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts` and rebuild.
 
+**Token ceiling:** Generated SKILL.md files must stay under 100KB (~25K tokens).
+`gen-skill-docs` warns if any file exceeds this. If a skill template grows past the
+ceiling, consider extracting optional sections into separate resolvers that only
+inject when relevant, or making verbose evaluation rubrics more concise.
+
 **Merge conflicts on SKILL.md files:** NEVER resolve conflicts on generated SKILL.md
 files by accepting either side. Instead: (1) resolve conflicts on the `.tmpl` templates
 and `scripts/gen-skill-docs.ts` (the sources of truth), (2) run `bun run gen:skill-docs`

@@ -143,6 +143,7 @@ describe('Command registry consistency', () => {
     const validKeys = new Set([
       'interactive', 'compact', 'depth', 'selector',
       'diff', 'annotate', 'outputPath', 'cursorInteractive',
+      'heatmap',
     ]);
     for (const flag of SNAPSHOT_FLAGS) {
       expect(validKeys.has(flag.optionKey)).toBe(true);

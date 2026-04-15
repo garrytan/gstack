@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.0.0] - 2026-04-14
+
+### Added
+- **UX behavioral foundations.** Every design skill now thinks about how users actually behave, not just how the interface looks. A shared `{{UX_PRINCIPLES}}` resolver distills Steve Krug's "Don't Make Me Think" into actionable guidance: scanning behavior, satisficing, the goodwill reservoir, navigation wayfinding, and the trunk test. Injected into /design-html, /design-shotgun, /design-review, and /plan-design-review. Your design reviews now catch "this navigation is confusing" problems, not just "the contrast ratio is 4.3:1."
+- **6 usability tests woven into design-review.** The methodology now runs the Trunk Test (can you tell what site this is, what page you're on, and how to search?), 3-Second Scan (what do users see first?), Page Area Test (can you name each section's purpose?), Happy Talk Detection with word count (how much of this page is "blah blah blah"?), Mindless Choice Audit (does every click feel obvious?), and Goodwill Reservoir tracking with a visual dashboard (what depletes the user's patience at each step?).
+- **First-person narration mode.** Design review reports now read like a usability consultant watching someone use your site: "I'm looking at this page... my eye goes to the logo, then a wall of text I skip entirely. Wait, is that a button?" With anti-slop guardrail: if the agent can't name the specific element, it's generating platitudes.
+- **`$B ux-audit` command.** Standalone UX structural extraction. One command extracts site ID, navigation, headings, interactive elements, text blocks, and search presence as structured JSON. The agent applies the 6 usability tests to the data. Pure data extraction with element caps (50 headings, 100 links, 200 interactive, 50 text blocks).
+- **`snapshot -H` / `--heatmap` flag.** Color-coded overlay screenshots. Pass a JSON map of ref IDs to colors (`green`/`yellow`/`red`/`blue`/`orange`/`gray`) and get an annotated screenshot with per-element colored boxes. Color whitelist prevents CSS injection. Composable: any skill can use it.
+- **Token ceiling enforcement.** `gen-skill-docs` now warns if any generated SKILL.md exceeds 100KB (~25K tokens). Catches prompt bloat before it degrades agent performance.
+
+### Changed
+- **Krug's always/never rules** added to the design hard rules: never placeholder-as-label, never floating headings, always visited link distinction, never sub-16px body text. These join the existing AI slop blacklist as mechanical checks.
+- **Plan-design-review references** now include Steve Krug, Ginny Redish (Letting Go of the Words), and Caroline Jarrett (Forms that Work) alongside Rams, Norman, and Nielsen.
+
 ## [0.16.4.0] - 2026-04-13
 
 ### Added

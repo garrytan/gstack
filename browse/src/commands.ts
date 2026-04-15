@@ -40,6 +40,7 @@ export const META_COMMANDS = new Set([
   'watch',
   'state',
   'frame',
+  'ux-audit',
 ]);
 
 export const ALL_COMMANDS = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
@@ -49,6 +50,7 @@ export const PAGE_CONTENT_COMMANDS = new Set([
   'text', 'html', 'links', 'forms', 'accessibility', 'attrs',
   'console', 'dialog',
   'media', 'data',
+  'ux-audit',
 ]);
 
 /** Wrap output from untrusted-content commands with trust boundary markers */
@@ -146,6 +148,8 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'style':   { category: 'Interaction', description: 'Modify CSS property on element (with undo support)', usage: 'style <sel> <prop> <value> | style --undo [N]' },
   'cleanup': { category: 'Interaction', description: 'Remove page clutter (ads, cookie banners, sticky elements, social widgets)', usage: 'cleanup [--ads] [--cookies] [--sticky] [--social] [--all]' },
   'prettyscreenshot': { category: 'Visual', description: 'Clean screenshot with optional cleanup, scroll positioning, and element hiding', usage: 'prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]' },
+  // UX Audit
+  'ux-audit': { category: 'Inspection', description: 'Extract page structure for UX behavioral analysis — site ID, nav, headings, text blocks, interactive elements. Returns JSON for agent interpretation.', usage: 'ux-audit' },
 };
 
 // Load-time validation: descriptions must cover exactly the command sets
