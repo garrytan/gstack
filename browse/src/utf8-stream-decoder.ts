@@ -8,6 +8,11 @@
  * chunks so decoded strings round-trip the original bytes.
  *
  * Pure ASCII streams are unaffected: every byte is a complete code point.
+ *
+ * This is a thin wrapper around the built-in StringDecoder rather than a
+ * direct usage at the call site so the contract (write/end) can be
+ * unit-tested in isolation — see browse/test/utf8-stream-decoder.test.ts,
+ * which splits multi-byte text at every byte offset to pin the behavior.
  */
 
 import { StringDecoder } from 'string_decoder';

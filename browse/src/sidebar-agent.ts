@@ -356,6 +356,10 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
       clearInterval(cancelCheck);
       activeProc = null;
       activeProcs.delete(tid);
+      // Flush any bytes held back by the UTF-8 decoder (e.g. a trailing
+      // incomplete multi-byte sequence at end-of-stream). Normally empty;
+      // if the child exited mid-codepoint StringDecoder emits U+FFFD here
+      // rather than silently dropping the bytes.
       buffer += stdoutDecoder.end();
       stderrBuffer += stderrDecoder.end();
       if (buffer.trim()) {
