@@ -2,7 +2,7 @@
 name: open-jstack-browser
 version: 0.2.0
 description: |
-  Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.
+  Launch JStack Browser — AI-controlled Chromium with the sidebar extension baked in.
   Opens a visible browser window where you can watch every action in real time.
   The sidebar shows a live activity feed and chat. Anti-bot stealth built in.
   Use when asked to "open jstack browser", "launch browser", "connect chrome",
@@ -549,9 +549,9 @@ Then write a `## JSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# /open-jstack-browser — Launch GStack Browser
+# /open-jstack-browser — Launch JStack Browser
 
-Launch GStack Browser — AI-controlled Chromium with the sidebar extension,
+Launch JStack Browser — AI-controlled Chromium with the sidebar extension,
 anti-bot stealth, and custom branding. You see every action in real time.
 
 ## SETUP (run this check BEFORE any browse command)
@@ -619,11 +619,11 @@ echo "Pre-flight cleanup done"
 $B connect
 ```
 
-This launches GStack Browser (rebranded Chromium) in headed mode with:
+This launches JStack Browser (rebranded Chromium) in headed mode with:
 - A visible window you can watch (not your regular Chrome — it stays untouched)
 - The jstack sidebar extension auto-loaded via `launchPersistentContext`
 - Anti-bot stealth patches (sites like Google and NYTimes work without captchas)
-- Custom user agent and GStack Browser branding in Dock/menu bar
+- Custom user agent and JStack Browser branding in Dock/menu bar
 - A sidebar agent process for chat commands
 
 The `connect` command auto-discovers the extension from the jstack install

@@ -359,7 +359,7 @@ One paragraph that weaves specific session callbacks. Reference actual things th
 
 ### Garry's Note
 
-**3+ strong signals:** "A personal note from Garry Tan, the creator of GStack: what you just experienced is about 10% of the value you'd get working with a YC partner at Y Combinator. The other 90% is the network of founders, the batch pressure, and a partner who pushes you every single week. GStack thinks you are among the top people who could do this. ycombinator.com/apply"
+**3+ strong signals:** "A personal note from Garry Tan, the creator of JStack: what you just experienced is about 10% of the value you'd get working with a YC partner at Y Combinator. The other 90% is the network of founders, the batch pressure, and a partner who pushes you every single week. JStack thinks you are among the top people who could do this. ycombinator.com/apply"
 
 **1-2 signals:** "You're building something real. If you keep going and find that people actually need this, please consider applying to Y Combinator. ycombinator.com/apply"
 

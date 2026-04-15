@@ -1,4 +1,4 @@
-# GStack Browser V0 — The AI-Native Development Browser
+# JStack Browser V0 — The AI-Native Development Browser
 
 **Date:** 2026-03-30
 **Author:** Garry Tan + Claude Code
@@ -8,7 +8,7 @@
 ## The Thesis
 
 Every other AI browser (Atlas, Dia, Comet, Chrome Auto Browse) starts with a
-consumer browser and bolts AI onto it. GStack Browser inverts this. It starts
+consumer browser and bolts AI onto it. JStack Browser inverts this. It starts
 with Claude Code as the runtime and gives it a browser viewport.
 
 The agent is the primary citizen. The browser is the canvas. Skills are
@@ -17,7 +17,7 @@ an AI that can see and interact with the web.
 
 This is the IDE for the post-IDE era. Code lives in the terminal. The product
 lives in the browser. The AI works across both simultaneously. What Cursor did
-for text editors, GStack Browser does for the browser.
+for text editors, JStack Browser does for the browser.
 
 ## What It Is Today (Phase 1a, shipped)
 
@@ -27,7 +27,7 @@ navigate pages, fill forms, take screenshots, inspect CSS, clean up overlays,
 and run any jstack skill. All without touching a terminal.
 
 ```
-GStack Browser.app (389MB, 189MB DMG)
+JStack Browser.app (389MB, 189MB DMG)
 ├── Compiled browse binary (58MB) — CLI + HTTP server
 ├── Chrome extension (172KB) — sidebar, activity feed, inspector
 ├── Playwright's Chromium (330MB) — the actual browser
@@ -82,7 +82,7 @@ deployments. Cross-platform compilation (linux-arm64/x64) required.
 
 ### Phase 4: Chromium Fork (trigger-gated)
 
-When the extension side panel hits hard API limits, GStack Browser ships to
+When the extension side panel hits hard API limits, JStack Browser ships to
 external users, build infra exists, and the business justifies maintenance:
 fork Chromium. Brave's `chromium_src` override pattern, CC-powered 6-week
 rebases (2-4 hours with CC vs 1-2 weeks human). ~20-30 files modified.
@@ -253,7 +253,7 @@ Synthetic monitoring with AI judgment. Not just "did the page return 200" but
 
 ```
 +-------------------------------------------------------+
-|                  GStack Browser                        |
+|                  JStack Browser                        |
 |                                                        |
 |  +------------------+  +---------------------------+  |
 |  |   Chromium        |  |   Extension Side Panel    |  |
@@ -295,9 +295,9 @@ Synthetic monitoring with AI judgment. Not just "did the page return 200" but
 | **Comet** | AI browser | Multi-agent browsing | Early, unclear dev workflow |
 | **Chrome Auto Browse** | Extension | Google's own, deep Chrome integration | Extension-only, no code editing |
 | **Cursor** | VSCode fork + AI | Best-in-class code editing | No browser viewport |
-| **GStack Browser** | CC runtime + browser viewport | See bug in browser, fix in code, verify | Currently macOS-only, no consumer features |
+| **JStack Browser** | CC runtime + browser viewport | See bug in browser, fix in code, verify | Currently macOS-only, no consumer features |
 
-GStack Browser doesn't compete with consumer browsers. It competes with the
+JStack Browser doesn't compete with consumer browsers. It competes with the
 workflow of switching between browser and editor. The goal is to make that switch
 invisible.
 
@@ -350,7 +350,7 @@ Manual skill invocation       Autonomous QA loops            Skill marketplace
                               Real-time collaboration         Enterprise features
 ```
 
-The 12-month ideal: you open GStack Browser, it detects your project, starts
+The 12-month ideal: you open JStack Browser, it detects your project, starts
 your dev server, runs your test suite, and reports what's broken. You say "fix
 it" and the AI fixes every bug, verifies each fix visually, and creates a PR.
 You review the PR in the same browser, approve it, and the AI deploys it and

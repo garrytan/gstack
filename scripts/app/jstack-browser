@@ -1,12 +1,12 @@
 #!/bin/bash
-# GStack Browser launcher — starts browse server + headed Chromium with extension
+# JStack Browser launcher — starts browse server + headed Chromium with extension
 #
 # Works in two modes:
 #   1. Inside .app bundle: Contents/MacOS/jstack-browser → Resources are at ../Resources/
 #   2. Dev mode (run directly): uses global jstack install at ~/.claude/skills/jstack/
 #
 # Usage:
-#   open "GStack Browser.app"          # .app bundle mode
+#   open "JStack Browser.app"          # .app bundle mode
 #   scripts/app/jstack-browser         # dev mode (uses global jstack install)
 
 set -euo pipefail
@@ -57,7 +57,7 @@ for candidate in "$DIR/browse" "$DIR/browse/dist/browse" "$HOME/.claude/skills/j
 done
 
 if [ -z "$BROWSE_BIN" ]; then
-  echo "ERROR: browse binary not found. Run 'bun run build' in the jstack repo or reinstall GStack Browser."
+  echo "ERROR: browse binary not found. Run 'bun run build' in the jstack repo or reinstall JStack Browser."
   exit 1
 fi
 
