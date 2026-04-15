@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# jstack-open-url — cross-platform URL opener
+#
+# Usage: jstack-open-url <url>
+set -euo pipefail
+
+URL="${1:?Usage: jstack-open-url <url>}"
+
+case "$(uname -s)" in
+  Darwin)  open "$URL" ;;
+  Linux)   xdg-open "$URL" 2>/dev/null || echo "$URL" ;;
+  MINGW*|MSYS*|CYGWIN*) start "$URL" ;;
+  *)       echo "$URL" ;;
+esac

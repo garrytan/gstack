@@ -442,36 +442,36 @@ describe('Cookie Import Browser', () => {
   describe('Real Profile Imports', () => {
     test('imports Linux v10 cookies from ~/.config/chromium', async () => {
       await withInstalledProfile('.config/chromium', LINUX_FIXTURE_DB, async () => {
-        const result = await importCookies('chromium', ['.linux-v10.com'], 'GstackLinuxV10');
+        const result = await importCookies('chromium', ['.linux-v10.com'], 'JstackLinuxV10');
 
         expect(result.count).toBe(1);
         expect(result.failed).toBe(0);
         expect(result.cookies[0].name).toBe('sid');
         expect(result.cookies[0].value).toBe('linux-v10-value');
-      }, 'GstackLinuxV10');
+      }, 'JstackLinuxV10');
     });
 
     test('imports Linux v11 cookies when secret-tool returns a key', async () => {
       await withInstalledProfile('.config/chromium', LINUX_FIXTURE_DB, async () => {
-        const result = await importCookies('chromium', ['.linux-v11.com'], 'GstackLinuxV11');
+        const result = await importCookies('chromium', ['.linux-v11.com'], 'JstackLinuxV11');
 
         expect(result.count).toBe(1);
         expect(result.failed).toBe(0);
         expect(result.cookies[0].name).toBe('auth');
         expect(result.cookies[0].value).toBe('linux-v11-value');
-      }, 'GstackLinuxV11');
+      }, 'JstackLinuxV11');
     });
 
     test('lists domains from Linux Chromium profiles', async () => {
       await withInstalledProfile('.config/chromium', LINUX_FIXTURE_DB, async () => {
-        const result = listDomains('chromium', 'GstackLinuxDomains');
+        const result = listDomains('chromium', 'JstackLinuxDomains');
         const domains = result.domains.map((entry: any) => entry.domain);
 
         expect(result.browser).toBe('Chromium');
         expect(domains).toContain('.linux-v10.com');
         expect(domains).toContain('.linux-v11.com');
         expect(domains).toContain('.linux-plain.com');
-      }, 'GstackLinuxDomains');
+      }, 'JstackLinuxDomains');
     });
   });
 

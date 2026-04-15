@@ -7,7 +7,7 @@
 -- (which allowed UPDATE on ALL columns). This replacement uses:
 --   1. An RLS policy to allow UPDATE (required for any row access)
 --   2. Column-level GRANT to restrict anon to only the tracking columns
---      the edge function actually writes (last_seen, gstack_version, os)
+--      the edge function actually writes (last_seen, jstack_version, os)
 --
 -- This means anon callers cannot UPDATE first_seen or installation_id,
 -- closing the residual risk from the broad RLS-only approach.
@@ -22,4 +22,4 @@ CREATE POLICY "anon_update_tracking" ON installations
 -- PostgreSQL GRANT UPDATE (col, ...) is enforced at the query level —
 -- any UPDATE touching other columns will be rejected with a permission error.
 REVOKE UPDATE ON installations FROM anon;
-GRANT UPDATE (last_seen, gstack_version, os) ON installations TO anon;
+GRANT UPDATE (last_seen, jstack_version, os) ON installations TO anon;

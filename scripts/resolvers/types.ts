@@ -18,18 +18,18 @@ export interface HostPaths {
 /**
  * HOST_PATHS — derived from host configs.
  * Each config's globalRoot/localSkillRoot determines the path structure.
- * Non-Claude hosts use $GSTACK_ROOT env vars (set by preamble).
+ * Non-Claude hosts use $JSTACK_ROOT env vars (set by preamble).
  */
 function buildHostPaths(): Record<string, HostPaths> {
   const paths: Record<string, HostPaths> = {};
   for (const config of ALL_HOST_CONFIGS) {
     if (config.usesEnvVars) {
       paths[config.name] = {
-        skillRoot: '$GSTACK_ROOT',
+        skillRoot: '$JSTACK_ROOT',
         localSkillRoot: config.localSkillRoot,
-        binDir: '$GSTACK_BIN',
-        browseDir: '$GSTACK_BROWSE',
-        designDir: '$GSTACK_DESIGN',
+        binDir: '$JSTACK_BIN',
+        browseDir: '$JSTACK_BROWSE',
+        designDir: '$JSTACK_DESIGN',
       };
     } else {
       const root = `~/${config.globalRoot}`;

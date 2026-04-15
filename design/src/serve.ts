@@ -3,7 +3,7 @@
  *
  * Replaces the broken file:// + DOM polling approach. The server:
  * 1. Serves the comparison board HTML over HTTP
- * 2. Injects __GSTACK_SERVER_URL so the board POSTs feedback here
+ * 2. Injects __JSTACK_SERVER_URL so the board POSTs feedback here
  * 3. Prints feedback JSON to stdout (agent reads it)
  * 4. Stays alive across regeneration rounds (stateful)
  * 5. Auto-opens in the user's default browser
@@ -74,7 +74,7 @@ export async function serve(options: ServeOptions): Promise<void> {
         // Inject the server URL so the board can POST feedback
         const injected = htmlContent.replace(
           "</head>",
-          `<script>window.__GSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
+          `<script>window.__JSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
         );
         return new Response(injected, {
           headers: { "Content-Type": "text/html; charset=utf-8" },

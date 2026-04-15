@@ -1,5 +1,5 @@
 /**
- * gstack browse server — persistent Chromium daemon
+ * jstack browse server — persistent Chromium daemon
  *
  * Architecture:
  *   Bun.serve HTTP on localhost → routes commands to Playwright
@@ -8,8 +8,8 @@
  *   Auto-shutdown after BROWSE_IDLE_TIMEOUT (default 30 min)
  *
  * State:
- *   State file: <project-root>/.gstack/browse.json (set via BROWSE_STATE_FILE env)
- *   Log files:  <project-root>/.gstack/browse-{console,network,dialog}.log
+ *   State file: <project-root>/.jstack/browse.json (set via BROWSE_STATE_FILE env)
+ *   Log files:  <project-root>/.jstack/browse-{console,network,dialog}.log
  *   Port:       random 10000-60000 (or BROWSE_PORT env for debug override)
  */
 
@@ -128,7 +128,7 @@ function generateHelpText(): string {
     'Visual', 'Snapshot', 'Meta', 'Tabs', 'Server',
   ];
 
-  const lines = ['gstack browse — headless browser for AI agents', '', 'Commands:'];
+  const lines = ['jstack browse — headless browser for AI agents', '', 'Commands:'];
   for (const cat of categoryOrder) {
     const cmds = groups.get(cat);
     if (!cmds) continue;
@@ -184,7 +184,7 @@ interface SidebarSession {
   lastActiveAt: string;
 }
 
-const SESSIONS_DIR = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-sessions');
+const SESSIONS_DIR = path.join(process.env.HOME || '/tmp', '.jstack', 'sidebar-sessions');
 const AGENT_TIMEOUT_MS = 300_000; // 5 minutes — multi-page tasks need time
 const MAX_QUEUE = 5;
 
@@ -232,8 +232,8 @@ let chatBuffer: ChatEntry[] = [];
 function findBrowseBin(): string {
   const candidates = [
     path.resolve(__dirname, '..', 'dist', 'browse'),
-    path.resolve(__dirname, '..', '..', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
-    path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
+    path.resolve(__dirname, '..', '..', '.claude', 'skills', 'jstack', 'browse', 'dist', 'browse'),
+    path.join(process.env.HOME || '', '.claude', 'skills', 'jstack', 'browse', 'dist', 'browse'),
   ];
   for (const c of candidates) {
     try { if (fs.existsSync(c)) return c; } catch (err: any) {
@@ -290,7 +290,7 @@ function shortenPath(str: string): string {
     .replace(new RegExp(BROWSE_BIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '$B')
     .replace(/\/Users\/[^/]+/g, '~')
     .replace(/\/conductor\/workspaces\/[^/]+\/[^/]+/g, '')
-    .replace(/\.claude\/skills\/gstack\//g, '')
+    .replace(/\.claude\/skills\/jstack\//g, '')
     .replace(/browse\/dist\/browse/g, '$B');
 }
 
@@ -380,7 +380,7 @@ function createWorktree(sessionId: string): string | null {
     if (gitCheck.exitCode !== 0) return null;
     const repoRoot = gitCheck.stdout.toString().trim();
 
-    const worktreeDir = path.join(process.env.HOME || '/tmp', '.gstack', 'worktrees', sessionId.slice(0, 8));
+    const worktreeDir = path.join(process.env.HOME || '/tmp', '.jstack', 'worktrees', sessionId.slice(0, 8));
 
     // Clean up if dir exists from prior crash
     if (fs.existsSync(worktreeDir)) {
@@ -595,8 +595,8 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
   // fails with ENOENT on everything, including /bin/bash). Instead,
   // write the command to a queue file that the sidebar-agent process
   // (running as non-compiled bun) picks up and spawns claude.
-  const agentQueue = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
-  const gstackDir = path.dirname(agentQueue);
+  const agentQueue = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.jstack', 'sidebar-agent-queue.jsonl');
+  const jstackDir = path.dirname(agentQueue);
   const entry = JSON.stringify({
     ts: new Date().toISOString(),
     message: userMessage,
@@ -609,7 +609,7 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
     tabId: agentTabId,
   });
   try {
-    fs.mkdirSync(gstackDir, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(jstackDir, { recursive: true, mode: 0o700 });
     fs.appendFileSync(agentQueue, entry + '\n');
     try { fs.chmodSync(agentQueue, 0o600); } catch (err: any) {
       if (err?.code !== 'ENOENT') throw err;
@@ -638,7 +638,7 @@ function killAgent(targetTabId?: number | null): void {
   // Using per-tab files prevents race conditions where one agent's cancel
   // signal is consumed by a different tab's agent in concurrent mode.
   // When targetTabId is provided, only that tab's agent is cancelled.
-  const cancelDir = path.join(process.env.HOME || '/tmp', '.gstack');
+  const cancelDir = path.join(process.env.HOME || '/tmp', '.jstack');
   const tabId = targetTabId ?? agentTabId ?? 0;
   const cancelFile = path.join(cancelDir, `sidebar-agent-cancel-${tabId}`);
   try {
@@ -1213,7 +1213,7 @@ async function shutdown() {
   await browserManager.close();
 
   // Clean up Chromium profile locks (prevent SingletonLock on next launch)
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+  const profileDir = path.join(process.env.HOME || '/tmp', '.jstack', 'chromium-profile');
   for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
     safeUnlinkQuiet(path.join(profileDir, lockFile));
   }
@@ -1248,7 +1248,7 @@ function emergencyCleanup() {
     console.error('[browse] Emergency: failed to save session:', err.message);
   }
   // Clean Chromium profile locks
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+  const profileDir = path.join(process.env.HOME || '/tmp', '.jstack', 'chromium-profile');
   for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
     safeUnlinkQuiet(path.join(profileDir, lockFile));
   }
@@ -1299,16 +1299,16 @@ async function start() {
         return handleCookiePickerRoute(url, req, browserManager, AUTH_TOKEN);
       }
 
-      // Welcome page — served when GStack Browser launches in headed mode
+      // Welcome page — served when JStack Browser launches in headed mode
       if (url.pathname === '/welcome') {
         const welcomePath = (() => {
           // Check project-local designs first, then global
-          const slug = process.env.GSTACK_SLUG || 'unknown';
+          const slug = process.env.JSTACK_SLUG || 'unknown';
           const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
-          const projectWelcome = `${homeDir}/.gstack/projects/${slug}/designs/welcome-page-20260331/finalized.html`;
+          const projectWelcome = `${homeDir}/.jstack/projects/${slug}/designs/welcome-page-20260331/finalized.html`;
           if (fs.existsSync(projectWelcome)) return projectWelcome;
-          // Fallback: built-in welcome page from gstack install
-          const skillRoot = process.env.GSTACK_SKILL_ROOT || `${homeDir}/.claude/skills/gstack`;
+          // Fallback: built-in welcome page from jstack install
+          const skillRoot = process.env.JSTACK_SKILL_ROOT || `${homeDir}/.claude/skills/jstack`;
           const builtinWelcome = `${skillRoot}/browse/src/welcome.html`;
           if (fs.existsSync(builtinWelcome)) return builtinWelcome;
           return null;
@@ -1323,10 +1323,10 @@ async function start() {
         }
         // No welcome page found — serve a simple fallback (avoid ERR_UNSAFE_REDIRECT on Windows)
         return new Response(
-          `<!DOCTYPE html><html><head><title>GStack Browser</title>
+          `<!DOCTYPE html><html><head><title>JStack Browser</title>
           <style>body{background:#111;color:#fff;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
           .msg{text-align:center;opacity:.7;}.gold{color:#f5a623;font-size:2em;margin-bottom:12px;}</style></head>
-          <body><div class="msg"><div class="gold">◈</div><p>GStack Browser ready.</p><p style="font-size:.85em">Waiting for commands from Claude Code.</p></div></body></html>`,
+          <body><div class="msg"><div class="gold">◈</div><p>JStack Browser ready.</p><p style="font-size:.85em">Waiting for commands from Claude Code.</p></div></body></html>`,
           { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
         );
       }
@@ -1554,10 +1554,10 @@ async function start() {
           tunnelListener = null;
         }
         try {
-          // Read ngrok authtoken: env var > ~/.gstack/ngrok.env > ngrok native config
+          // Read ngrok authtoken: env var > ~/.jstack/ngrok.env > ngrok native config
           let authtoken = process.env.NGROK_AUTHTOKEN;
           if (!authtoken) {
-            const ngrokEnvPath = path.join(process.env.HOME || '', '.gstack', 'ngrok.env');
+            const ngrokEnvPath = path.join(process.env.HOME || '', '.jstack', 'ngrok.env');
             if (fs.existsSync(ngrokEnvPath)) {
               const envContent = fs.readFileSync(ngrokEnvPath, 'utf-8');
               const match = envContent.match(/^NGROK_AUTHTOKEN=(.+)$/m);
@@ -2348,14 +2348,14 @@ async function start() {
 
   // ─── Tunnel startup (optional) ────────────────────────────────
   // Start ngrok tunnel if BROWSE_TUNNEL=1 is set.
-  // Reads NGROK_AUTHTOKEN from env or ~/.gstack/ngrok.env.
+  // Reads NGROK_AUTHTOKEN from env or ~/.jstack/ngrok.env.
   // Reads NGROK_DOMAIN for dedicated domain (stable URL).
   if (process.env.BROWSE_TUNNEL === '1') {
     try {
       // Read ngrok authtoken from env or config file
       let authtoken = process.env.NGROK_AUTHTOKEN;
       if (!authtoken) {
-        const ngrokEnvPath = path.join(process.env.HOME || '', '.gstack', 'ngrok.env');
+        const ngrokEnvPath = path.join(process.env.HOME || '', '.jstack', 'ngrok.env');
         if (fs.existsSync(ngrokEnvPath)) {
           const envContent = fs.readFileSync(ngrokEnvPath, 'utf-8');
           const match = envContent.match(/^NGROK_AUTHTOKEN=(.+)$/m);
@@ -2363,7 +2363,7 @@ async function start() {
         }
       }
       if (!authtoken) {
-        console.error('[browse] BROWSE_TUNNEL=1 but no NGROK_AUTHTOKEN found. Set it via env var or ~/.gstack/ngrok.env');
+        console.error('[browse] BROWSE_TUNNEL=1 but no NGROK_AUTHTOKEN found. Set it via env var or ~/.jstack/ngrok.env');
       } else {
         const ngrok = await import('@ngrok/ngrok');
         const domain = process.env.NGROK_DOMAIN;

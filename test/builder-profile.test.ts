@@ -12,11 +12,11 @@ let tmpDir: string;
 function runProfile(): Record<string, string> {
   const execOpts: ExecSyncOptionsWithStringEncoding = {
     cwd: ROOT,
-    env: { ...process.env, GSTACK_HOME: tmpDir },
+    env: { ...process.env, JSTACK_HOME: tmpDir },
     encoding: 'utf-8',
     timeout: 15000,
   };
-  const stdout = execSync(`${BIN}/gstack-builder-profile`, execOpts).trim();
+  const stdout = execSync(`${BIN}/jstack-builder-profile`, execOpts).trim();
   const result: Record<string, string> = {};
   for (const line of stdout.split('\n')) {
     const idx = line.indexOf(':');
@@ -59,14 +59,14 @@ function makeEntry(overrides: Partial<{
 }
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-profile-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jstack-profile-'));
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('gstack-builder-profile', () => {
+describe('jstack-builder-profile', () => {
   describe('empty/missing state', () => {
     test('no profile file → introduction tier with defaults', () => {
       const r = runProfile();

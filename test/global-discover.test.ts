@@ -6,15 +6,15 @@ import { spawnSync } from "child_process";
 
 // Import normalizeRemoteUrl for unit testing
 // We test the script end-to-end via CLI and normalizeRemoteUrl via import
-const scriptPath = join(import.meta.dir, "..", "bin", "gstack-global-discover.ts");
+const scriptPath = join(import.meta.dir, "..", "bin", "jstack-global-discover.ts");
 
-describe("gstack-global-discover", () => {
+describe("jstack-global-discover", () => {
   describe("normalizeRemoteUrl", () => {
     // Dynamically import to test the exported function
     let normalizeRemoteUrl: (url: string) => string;
 
     beforeEach(async () => {
-      const mod = await import("../bin/gstack-global-discover.ts");
+      const mod = await import("../bin/jstack-global-discover.ts");
       normalizeRemoteUrl = mod.normalizeRemoteUrl;
     });
 
@@ -43,9 +43,9 @@ describe("gstack-global-discover", () => {
     });
 
     test("SSH and HTTPS for same repo normalize to same URL", () => {
-      const ssh = normalizeRemoteUrl("git@github.com:garrytan/gstack.git");
-      const https = normalizeRemoteUrl("https://github.com/garrytan/gstack.git");
-      const httpsNoDotGit = normalizeRemoteUrl("https://github.com/garrytan/gstack");
+      const ssh = normalizeRemoteUrl("git@github.com:JerkyJesse/jstack.git");
+      const https = normalizeRemoteUrl("https://github.com/JerkyJesse/jstack.git");
+      const httpsNoDotGit = normalizeRemoteUrl("https://github.com/JerkyJesse/jstack");
       expect(ssh).toBe(https);
       expect(https).toBe(httpsNoDotGit);
     });
@@ -136,7 +136,7 @@ describe("gstack-global-discover", () => {
     let tmpDir: string;
 
     beforeEach(() => {
-      tmpDir = mkdtempSync(join(tmpdir(), "gstack-codex-test-"));
+      tmpDir = mkdtempSync(join(tmpdir(), "jstack-codex-test-"));
       // Build a realistic ~/.codex/sessions/YYYY/MM/DD structure
       const now = new Date();
       const y = now.getFullYear().toString();

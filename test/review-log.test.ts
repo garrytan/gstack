@@ -13,12 +13,12 @@ let slugDir: string;
 function run(input: string, opts: { expectFail?: boolean } = {}): { stdout: string; exitCode: number } {
   const execOpts: ExecSyncOptionsWithStringEncoding = {
     cwd: ROOT,
-    env: { ...process.env, GSTACK_HOME: tmpDir },
+    env: { ...process.env, JSTACK_HOME: tmpDir },
     encoding: 'utf-8',
     timeout: 10000,
   };
   try {
-    const stdout = execSync(`${BIN}/gstack-review-log '${input.replace(/'/g, "'\\''")}'`, execOpts).trim();
+    const stdout = execSync(`${BIN}/jstack-review-log '${input.replace(/'/g, "'\\''")}'`, execOpts).trim();
     return { stdout, exitCode: 0 };
   } catch (e: any) {
     if (opts.expectFail) {
@@ -29,8 +29,8 @@ function run(input: string, opts: { expectFail?: boolean } = {}): { stdout: stri
 }
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-revlog-'));
-  // gstack-review-log uses gstack-slug which needs a git repo — create the projects dir
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jstack-revlog-'));
+  // jstack-review-log uses jstack-slug which needs a git repo — create the projects dir
   // with a predictable slug by pre-creating the directory structure
   slugDir = path.join(tmpDir, 'projects');
   fs.mkdirSync(slugDir, { recursive: true });
@@ -40,7 +40,7 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('gstack-review-log', () => {
+describe('jstack-review-log', () => {
   test('appends valid JSON to review JSONL file', () => {
     const input = '{"skill":"plan-eng-review","status":"clean"}';
     const result = run(input);

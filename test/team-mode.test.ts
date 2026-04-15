@@ -5,12 +5,12 @@ import * as os from 'os';
 import { execSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const SETTINGS_HOOK = path.join(ROOT, 'bin', 'gstack-settings-hook');
-const SESSION_UPDATE = path.join(ROOT, 'bin', 'gstack-session-update');
-const TEAM_INIT = path.join(ROOT, 'bin', 'gstack-team-init');
+const SETTINGS_HOOK = path.join(ROOT, 'bin', 'jstack-settings-hook');
+const SESSION_UPDATE = path.join(ROOT, 'bin', 'jstack-session-update');
+const TEAM_INIT = path.join(ROOT, 'bin', 'jstack-team-init');
 
 function mkTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-team-test-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'jstack-team-test-'));
 }
 
 function run(cmd: string, opts: { cwd?: string; env?: Record<string, string> } = {}): { stdout: string; stderr: string; exitCode: number } {
@@ -27,7 +27,7 @@ function run(cmd: string, opts: { cwd?: string; env?: Record<string, string> } =
   }
 }
 
-describe('gstack-settings-hook', () => {
+describe('jstack-settings-hook', () => {
   let tmpDir: string;
   let settingsFile: string;
 
@@ -41,19 +41,19 @@ describe('gstack-settings-hook', () => {
   });
 
   test('add creates settings.json if missing', () => {
-    const result = run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    const result = run(`${SETTINGS_HOOK} add /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
     expect(result.exitCode).toBe(0);
     const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
     expect(settings.hooks.SessionStart).toHaveLength(1);
-    expect(settings.hooks.SessionStart[0].hooks[0].command).toBe('/path/to/gstack-session-update');
+    expect(settings.hooks.SessionStart[0].hooks[0].command).toBe('/path/to/jstack-session-update');
   });
 
   test('add preserves existing settings', () => {
     fs.writeFileSync(settingsFile, JSON.stringify({ effortLevel: 'high', permissions: { defaultMode: 'auto' } }, null, 2));
-    const result = run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    const result = run(`${SETTINGS_HOOK} add /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
     expect(result.exitCode).toBe(0);
     const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
@@ -63,22 +63,22 @@ describe('gstack-settings-hook', () => {
   });
 
   test('add deduplicates (running twice does not double-add)', () => {
-    run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    run(`${SETTINGS_HOOK} add /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
-    run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    run(`${SETTINGS_HOOK} add /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
     const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
     expect(settings.hooks.SessionStart).toHaveLength(1);
   });
 
   test('remove removes the hook', () => {
-    run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    run(`${SETTINGS_HOOK} add /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
-    const result = run(`${SETTINGS_HOOK} remove /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    const result = run(`${SETTINGS_HOOK} remove /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
     expect(result.exitCode).toBe(0);
     const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
@@ -86,8 +86,8 @@ describe('gstack-settings-hook', () => {
   });
 
   test('remove is safe when settings.json does not exist', () => {
-    const result = run(`${SETTINGS_HOOK} remove /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    const result = run(`${SETTINGS_HOOK} remove /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
     expect(result.exitCode).toBe(0);
   });
@@ -96,13 +96,13 @@ describe('gstack-settings-hook', () => {
     fs.writeFileSync(settingsFile, JSON.stringify({
       hooks: {
         SessionStart: [
-          { hooks: [{ type: 'command', command: '/path/to/gstack-session-update' }] },
+          { hooks: [{ type: 'command', command: '/path/to/jstack-session-update' }] },
           { hooks: [{ type: 'command', command: '/other/hook' }] },
         ],
       },
     }, null, 2));
-    run(`${SETTINGS_HOOK} remove /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    run(`${SETTINGS_HOOK} remove /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
     const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
     expect(settings.hooks.SessionStart).toHaveLength(1);
@@ -110,8 +110,8 @@ describe('gstack-settings-hook', () => {
   });
 
   test('atomic write (no partial file on success)', () => {
-    run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
-      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    run(`${SETTINGS_HOOK} add /path/to/jstack-session-update`, {
+      env: { JSTACK_SETTINGS_FILE: settingsFile },
     });
     // .tmp file should not exist after successful write
     expect(fs.existsSync(settingsFile + '.tmp')).toBe(false);
@@ -120,28 +120,28 @@ describe('gstack-settings-hook', () => {
   });
 });
 
-describe('gstack-session-update', () => {
+describe('jstack-session-update', () => {
   let tmpDir: string;
-  let gstackDir: string;
+  let jstackDir: string;
   let stateDir: string;
 
   beforeEach(() => {
     tmpDir = mkTmpDir();
-    gstackDir = path.join(tmpDir, 'gstack');
+    jstackDir = path.join(tmpDir, 'jstack');
     stateDir = path.join(tmpDir, 'state');
-    fs.mkdirSync(gstackDir, { recursive: true });
+    fs.mkdirSync(jstackDir, { recursive: true });
     fs.mkdirSync(stateDir, { recursive: true });
 
     // Init a git repo to pass the .git guard
-    execSync('git init', { cwd: gstackDir });
-    execSync('git commit --allow-empty -m "init"', { cwd: gstackDir });
-    fs.writeFileSync(path.join(gstackDir, 'VERSION'), '0.1.0');
+    execSync('git init', { cwd: jstackDir });
+    execSync('git commit --allow-empty -m "init"', { cwd: jstackDir });
+    fs.writeFileSync(path.join(jstackDir, 'VERSION'), '0.1.0');
 
-    // Create a minimal gstack-config that returns auto_upgrade=true
-    const binDir = path.join(gstackDir, 'bin');
+    // Create a minimal jstack-config that returns auto_upgrade=true
+    const binDir = path.join(jstackDir, 'bin');
     fs.mkdirSync(binDir, { recursive: true });
-    fs.writeFileSync(path.join(binDir, 'gstack-config'), '#!/bin/bash\necho "true"');
-    fs.chmodSync(path.join(binDir, 'gstack-config'), 0o755);
+    fs.writeFileSync(path.join(binDir, 'jstack-config'), '#!/bin/bash\necho "true"');
+    fs.chmodSync(path.join(binDir, 'jstack-config'), 0o755);
   });
 
   afterEach(() => {
@@ -149,18 +149,18 @@ describe('gstack-session-update', () => {
   });
 
   test('exits 0 when .git is missing', () => {
-    fs.rmSync(path.join(gstackDir, '.git'), { recursive: true });
+    fs.rmSync(path.join(jstackDir, '.git'), { recursive: true });
     const result = run(SESSION_UPDATE, {
-      env: { GSTACK_DIR: gstackDir, GSTACK_STATE_DIR: stateDir },
+      env: { JSTACK_DIR: jstackDir, JSTACK_STATE_DIR: stateDir },
     });
     expect(result.exitCode).toBe(0);
   });
 
   test('exits 0 when auto_upgrade is not true', () => {
-    // Override gstack-config to return false
-    fs.writeFileSync(path.join(gstackDir, 'bin', 'gstack-config'), '#!/bin/bash\necho "false"');
+    // Override jstack-config to return false
+    fs.writeFileSync(path.join(jstackDir, 'bin', 'jstack-config'), '#!/bin/bash\necho "false"');
     const result = run(SESSION_UPDATE, {
-      env: { GSTACK_DIR: gstackDir, GSTACK_STATE_DIR: stateDir },
+      env: { JSTACK_DIR: jstackDir, JSTACK_STATE_DIR: stateDir },
     });
     expect(result.exitCode).toBe(0);
   });
@@ -171,7 +171,7 @@ describe('gstack-session-update', () => {
     fs.writeFileSync(throttleFile, String(Math.floor(Date.now() / 1000)));
 
     const result = run(SESSION_UPDATE, {
-      env: { GSTACK_DIR: gstackDir, GSTACK_STATE_DIR: stateDir },
+      env: { JSTACK_DIR: jstackDir, JSTACK_STATE_DIR: stateDir },
     });
     expect(result.exitCode).toBe(0);
     // No log file should be created (throttled before forking)
@@ -180,13 +180,13 @@ describe('gstack-session-update', () => {
   test('always exits 0 (non-fatal)', () => {
     // Even with a broken setup, should exit 0
     const result = run(SESSION_UPDATE, {
-      env: { GSTACK_DIR: '/nonexistent/path', GSTACK_STATE_DIR: stateDir },
+      env: { JSTACK_DIR: '/nonexistent/path', JSTACK_STATE_DIR: stateDir },
     });
     expect(result.exitCode).toBe(0);
   });
 });
 
-describe('gstack-team-init', () => {
+describe('jstack-team-init', () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -217,7 +217,7 @@ describe('gstack-team-init', () => {
     const result = run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     expect(result.exitCode).toBe(0);
     const claude = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-    expect(claude).toContain('## gstack (recommended)');
+    expect(claude).toContain('## jstack (recommended)');
     expect(claude).toContain('./setup --team');
   });
 
@@ -225,16 +225,16 @@ describe('gstack-team-init', () => {
     const result = run(`${TEAM_INIT} required`, { cwd: tmpDir });
     expect(result.exitCode).toBe(0);
     const claude = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-    expect(claude).toContain('## gstack (REQUIRED');
-    expect(claude).toContain('GSTACK_MISSING');
+    expect(claude).toContain('## jstack (REQUIRED');
+    expect(claude).toContain('JSTACK_MISSING');
   });
 
   test('required: creates enforcement hook', () => {
     run(`${TEAM_INIT} required`, { cwd: tmpDir });
-    const hookPath = path.join(tmpDir, '.claude', 'hooks', 'check-gstack.sh');
+    const hookPath = path.join(tmpDir, '.claude', 'hooks', 'check-jstack.sh');
     expect(fs.existsSync(hookPath)).toBe(true);
     const hook = fs.readFileSync(hookPath, 'utf-8');
-    expect(hook).toContain('BLOCKED: gstack is not installed');
+    expect(hook).toContain('BLOCKED: jstack is not installed');
     // Should be executable
     const stat = fs.statSync(hookPath);
     expect(stat.mode & 0o111).toBeGreaterThan(0);
@@ -247,66 +247,66 @@ describe('gstack-team-init', () => {
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     expect(settings.hooks.PreToolUse).toHaveLength(1);
     expect(settings.hooks.PreToolUse[0].matcher).toBe('Skill');
-    expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('check-gstack');
+    expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('check-jstack');
   });
 
   test('idempotent: running twice does not duplicate CLAUDE.md section', () => {
     run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     const claude = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-    const matches = claude.match(/## gstack/g);
+    const matches = claude.match(/## jstack/g);
     expect(matches).toHaveLength(1);
   });
 
   test('removes vendored copy when present', () => {
-    // Create a fake vendored gstack with VERSION file
-    const vendoredDir = path.join(tmpDir, '.claude', 'skills', 'gstack');
+    // Create a fake vendored jstack with VERSION file
+    const vendoredDir = path.join(tmpDir, '.claude', 'skills', 'jstack');
     fs.mkdirSync(vendoredDir, { recursive: true });
     fs.writeFileSync(path.join(vendoredDir, 'VERSION'), '0.14.0.0');
     fs.writeFileSync(path.join(vendoredDir, 'README.md'), 'vendored');
     // Track it in git
-    execSync('git add .claude/skills/gstack/', { cwd: tmpDir });
-    execSync('git commit -m "add vendored gstack"', { cwd: tmpDir });
+    execSync('git add .claude/skills/jstack/', { cwd: tmpDir });
+    execSync('git commit -m "add vendored jstack"', { cwd: tmpDir });
 
     const result = run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Found vendored gstack copy');
+    expect(result.stdout).toContain('Found vendored jstack copy');
     expect(result.stdout).toContain('Removed vendored copy');
     // Vendored dir should be gone
     expect(fs.existsSync(vendoredDir)).toBe(false);
     // .gitignore should have the entry
     const gitignore = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
-    expect(gitignore).toContain('.claude/skills/gstack/');
+    expect(gitignore).toContain('.claude/skills/jstack/');
   });
 
   test('skips when no vendored copy present', () => {
     const result = run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).not.toContain('Found vendored gstack copy');
+    expect(result.stdout).not.toContain('Found vendored jstack copy');
   });
 
-  test('skips when .claude/skills/gstack is a symlink', () => {
+  test('skips when .claude/skills/jstack is a symlink', () => {
     // Create a symlink (not a real vendored copy)
     const skillsDir = path.join(tmpDir, '.claude', 'skills');
     fs.mkdirSync(skillsDir, { recursive: true });
     const targetDir = mkTmpDir();
     fs.writeFileSync(path.join(targetDir, 'VERSION'), '0.14.0.0');
-    fs.symlinkSync(targetDir, path.join(skillsDir, 'gstack'));
+    fs.symlinkSync(targetDir, path.join(skillsDir, 'jstack'));
 
     const result = run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).not.toContain('Found vendored gstack copy');
+    expect(result.stdout).not.toContain('Found vendored jstack copy');
     // Symlink should still exist
-    expect(fs.lstatSync(path.join(skillsDir, 'gstack')).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(path.join(skillsDir, 'jstack')).isSymbolicLink()).toBe(true);
     fs.rmSync(targetDir, { recursive: true, force: true });
   });
 
   test('does not duplicate .gitignore entry on re-run', () => {
     // Create vendored copy
-    const vendoredDir = path.join(tmpDir, '.claude', 'skills', 'gstack');
+    const vendoredDir = path.join(tmpDir, '.claude', 'skills', 'jstack');
     fs.mkdirSync(vendoredDir, { recursive: true });
     fs.writeFileSync(path.join(vendoredDir, 'VERSION'), '0.14.0.0');
-    execSync('git add .claude/skills/gstack/', { cwd: tmpDir });
+    execSync('git add .claude/skills/jstack/', { cwd: tmpDir });
     execSync('git commit -m "add vendored"', { cwd: tmpDir });
 
     run(`${TEAM_INIT} optional`, { cwd: tmpDir });
@@ -317,7 +317,7 @@ describe('gstack-team-init', () => {
     run(`${TEAM_INIT} optional`, { cwd: tmpDir });
 
     const gitignore = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
-    const matches = gitignore.match(/\.claude\/skills\/gstack\//g);
+    const matches = gitignore.match(/\.claude\/skills\/jstack\//g);
     expect(matches).toHaveLength(1);
   });
 });
@@ -326,9 +326,9 @@ describe('setup --team / --no-team / -q', () => {
   test('setup -q produces no stdout', () => {
     const result = run(`${path.join(ROOT, 'setup')} -q`, { cwd: ROOT });
     // -q should suppress informational output (may still have some output from build)
-    // The key test is that the "Skill naming:" prompt and "gstack ready" messages are suppressed
+    // The key test is that the "Skill naming:" prompt and "jstack ready" messages are suppressed
     expect(result.stdout).not.toContain('Skill naming:');
-    expect(result.stdout).not.toContain('gstack ready');
+    expect(result.stdout).not.toContain('jstack ready');
   });
 
   test('setup --local prints deprecation warning', () => {

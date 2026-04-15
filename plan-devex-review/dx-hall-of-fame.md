@@ -124,4 +124,4 @@ Use when reviewing plans for Claude Code skills, MCP servers, or AI agent tools.
 - [ ] **Session continuity**: Timeline events. Compaction recovery. Cross-session learnings.
 - [ ] **Bounded autonomy**: Clear operational limits. Mandatory escalation for destructive actions. Audit trails.
 
-Reference implementations: gstack's design-shotgun loop, auto-upgrade flow, progressive consent, hierarchical storage.
+Reference implementations: jstack's design-shotgun loop, auto-upgrade flow, progressive consent, hierarchical storage.

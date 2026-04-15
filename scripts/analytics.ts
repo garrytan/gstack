@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * analytics — CLI for viewing gstack skill usage statistics.
+ * analytics — CLI for viewing jstack skill usage statistics.
  *
- * Reads ~/.gstack/analytics/skill-usage.jsonl and displays:
+ * Reads ~/.jstack/analytics/skill-usage.jsonl and displays:
  *   - Top skills by invocation count
  *   - Per-repo skill breakdown
  *   - Safety hook fire events
@@ -23,7 +23,7 @@ export interface AnalyticsEvent {
   pattern?: string;
 }
 
-const ANALYTICS_FILE = path.join(os.homedir(), '.gstack', 'analytics', 'skill-usage.jsonl');
+const ANALYTICS_FILE = path.join(os.homedir(), '.jstack', 'analytics', 'skill-usage.jsonl');
 
 /**
  * Parse JSONL content into AnalyticsEvent[], skipping malformed lines.
@@ -71,7 +71,7 @@ export function formatReport(events: AnalyticsEvent[], period: string = 'all'): 
   const hookEvents = events.filter(e => e.event === 'hook_fire');
 
   const lines: string[] = [];
-  lines.push('gstack skill usage analytics');
+  lines.push('jstack skill usage analytics');
   lines.push('\u2550'.repeat(39));
   lines.push('');
 

@@ -1,5 +1,5 @@
 /**
- * gstack browse — CSS Inspector content script
+ * jstack browse — CSS Inspector content script
  *
  * Dynamically injected via chrome.scripting.executeScript.
  * Provides element picker, selector generation, basic computed style capture,
@@ -8,8 +8,8 @@
 
 (() => {
   // Guard against double-injection
-  if (window.__gstackInspectorActive) return;
-  window.__gstackInspectorActive = true;
+  if (window.__jstackInspectorActive) return;
+  window.__jstackInspectorActive = true;
 
   // ─── State ──────────────────────────────────────────────────────
   let pickerActive = false;
@@ -28,7 +28,7 @@
     if (highlightEl) return;
 
     highlightEl = document.createElement('div');
-    highlightEl.id = 'gstack-inspector-highlight';
+    highlightEl.id = 'jstack-inspector-highlight';
     highlightEl.style.cssText = `
       position: fixed;
       pointer-events: none;
@@ -41,7 +41,7 @@
     document.documentElement.appendChild(highlightEl);
 
     tooltipEl = document.createElement('div');
-    tooltipEl.id = 'gstack-inspector-tooltip';
+    tooltipEl.id = 'jstack-inspector-tooltip';
     tooltipEl.style.cssText = `
       position: fixed;
       pointer-events: none;
@@ -261,7 +261,7 @@
     // Ignore our own overlay elements
     const target = e.target;
     if (target === highlightEl || target === tooltipEl) return;
-    if (target.id === 'gstack-inspector-highlight' || target.id === 'gstack-inspector-tooltip') return;
+    if (target.id === 'jstack-inspector-highlight' || target.id === 'jstack-inspector-tooltip') return;
 
     updateHighlight(target);
   }
@@ -280,7 +280,7 @@
 
     const target = e.target;
     if (target === highlightEl || target === tooltipEl) return;
-    if (target.id === 'gstack-inspector-highlight' || target.id === 'gstack-inspector-tooltip') return;
+    if (target.id === 'jstack-inspector-highlight' || target.id === 'jstack-inspector-tooltip') return;
 
     const selector = buildSelector(target);
     const basicData = captureBasicData(target);
@@ -402,7 +402,7 @@
     if (/url\s*\(|expression\s*\(|@import|javascript:|data:/i.test(css)) {
       return { error: 'CSS contains blocked pattern (url, expression, @import)' };
     }
-    const styleId = `gstack-inject-${id}`;
+    const styleId = `jstack-inject-${id}`;
     let styleEl = document.getElementById(styleId);
     if (!styleEl) {
       styleEl = document.createElement('style');

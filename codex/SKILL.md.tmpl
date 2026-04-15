@@ -7,7 +7,7 @@ description: |
   codex review with pass/fail gate. Challenge: adversarial mode that tries to break
   your code. Consult: ask codex anything with session continuity for follow-ups.
   The "200 IQ autistic developer" second opinion. Use when asked to "codex review",
-  "codex challenge", "ask codex", "second opinion", or "consult codex". (gstack)
+  "codex challenge", "ask codex", "second opinion", or "consult codex". (jstack)
 voice-triggers:
   - "code x"
   - "code ex"
@@ -160,7 +160,7 @@ CROSS-MODEL ANALYSIS:
 
 7. Persist the review result:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/jstack/bin/jstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 
 Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
@@ -433,7 +433,7 @@ If token count is not available, display: `Tokens: unknown`
 - **No double-reviewing.** If the user already ran `/review`, Codex provides a second
   independent opinion. Do not re-run Claude Code's own review.
 - **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
-  that Codex got distracted by skill files: `gstack-config`, `gstack-update-check`,
-  `SKILL.md`, or `skills/gstack`. If any of these appear in the output, append a
-  warning: "Codex appears to have read gstack skill files instead of reviewing your
+  that Codex got distracted by skill files: `jstack-config`, `jstack-update-check`,
+  `SKILL.md`, or `skills/jstack`. If any of these appear in the output, append a
+  warning: "Codex appears to have read jstack skill files instead of reviewing your
   code. Consider retrying."

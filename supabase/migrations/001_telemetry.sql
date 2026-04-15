@@ -1,4 +1,4 @@
--- gstack telemetry schema
+-- jstack telemetry schema
 -- Tables for tracking usage, installations, and update checks.
 
 -- Main telemetry events (skill runs, upgrades)
@@ -7,7 +7,7 @@ CREATE TABLE telemetry_events (
   received_at TIMESTAMPTZ DEFAULT now(),
   schema_version INTEGER NOT NULL DEFAULT 1,
   event_type TEXT NOT NULL DEFAULT 'skill_run',
-  gstack_version TEXT NOT NULL,
+  jstack_version TEXT NOT NULL,
   os TEXT NOT NULL,
   arch TEXT,
   event_timestamp TIMESTAMPTZ NOT NULL,
@@ -24,14 +24,14 @@ CREATE TABLE telemetry_events (
 -- Index for skill_sequences view performance
 CREATE INDEX idx_telemetry_session_ts ON telemetry_events (session_id, event_timestamp);
 -- Index for crash clustering
-CREATE INDEX idx_telemetry_error ON telemetry_events (error_class, gstack_version) WHERE outcome = 'error';
+CREATE INDEX idx_telemetry_error ON telemetry_events (error_class, jstack_version) WHERE outcome = 'error';
 
 -- Retention tracking per installation
 CREATE TABLE installations (
   installation_id TEXT PRIMARY KEY,
   first_seen TIMESTAMPTZ DEFAULT now(),
   last_seen TIMESTAMPTZ DEFAULT now(),
-  gstack_version TEXT,
+  jstack_version TEXT,
   os TEXT
 );
 
@@ -39,7 +39,7 @@ CREATE TABLE installations (
 CREATE TABLE update_checks (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   checked_at TIMESTAMPTZ DEFAULT now(),
-  gstack_version TEXT NOT NULL,
+  jstack_version TEXT NOT NULL,
   os TEXT NOT NULL
 );
 
@@ -62,7 +62,7 @@ CREATE POLICY "anon_select" ON update_checks FOR SELECT USING (true);
 CREATE VIEW crash_clusters AS
 SELECT
   error_class,
-  gstack_version,
+  jstack_version,
   COUNT(*) as total_occurrences,
   COUNT(DISTINCT installation_id) as identified_users,  -- community tier only
   COUNT(*) - COUNT(installation_id) as anonymous_occurrences,  -- events without installation_id
@@ -70,7 +70,7 @@ SELECT
   MAX(event_timestamp) as last_seen
 FROM telemetry_events
 WHERE outcome = 'error' AND error_class IS NOT NULL
-GROUP BY error_class, gstack_version
+GROUP BY error_class, jstack_version
 ORDER BY total_occurrences DESC;
 
 -- Skill sequence co-occurrence view

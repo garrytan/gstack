@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Output the remote slug (owner-repo) for the current git repo.
-# Used by SKILL.md files to derive project-specific paths in ~/.gstack/projects/.
+# Used by SKILL.md files to derive project-specific paths in ~/.jstack/projects/.
 set -e
 URL=$(git remote get-url origin 2>/dev/null || true)
 if [ -n "$URL" ]; then

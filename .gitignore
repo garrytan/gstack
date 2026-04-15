@@ -3,9 +3,10 @@ node_modules/
 dist/
 browse/dist/
 design/dist/
-bin/gstack-global-discover
-.gstack/
+bin/jstack-global-discover
+.jstack/
 .claude/skills/
+.claude/settings.local.json
 .agents/
 .factory/
 .kiro/
@@ -15,7 +16,7 @@ bin/gstack-global-discover
 .openclaw/
 .context/
 extension/.auth.json
-.gstack-worktrees/
+.jstack-worktrees/
 /tmp/
 *.log
 *.bun-build

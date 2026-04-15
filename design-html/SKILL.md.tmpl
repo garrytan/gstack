@@ -10,7 +10,7 @@ description: |
   30KB overhead, zero deps. Smart API routing: picks the right Pretext patterns
   for each design type. Use when: "finalize this design", "turn this into HTML",
   "build me a page", "implement this design", or after any planning skill.
-  Proactively suggest when user has approved a design or has a plan ready. (gstack)
+  Proactively suggest when user has approved a design or has a plan ready. (jstack)
 voice-triggers:
   - "build the design"
   - "code the mockup"
@@ -46,32 +46,32 @@ around obstacles.
 ## Step 0: Input Detection
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.claude/skills/jstack/bin/jstack-slug 2>/dev/null)"
 ```
 
 Detect what design context exists for this project. Run all four checks:
 
 ```bash
 setopt +o nomatch 2>/dev/null || true
-_CEO=$(ls -t ~/.gstack/projects/$SLUG/ceo-plans/*.md 2>/dev/null | head -1)
+_CEO=$(ls -t ~/.jstack/projects/$SLUG/ceo-plans/*.md 2>/dev/null | head -1)
 [ -n "$_CEO" ] && echo "CEO_PLAN: $_CEO" || echo "NO_CEO_PLAN"
 ```
 
 ```bash
 setopt +o nomatch 2>/dev/null || true
-_APPROVED=$(ls -t ~/.gstack/projects/$SLUG/designs/*/approved.json 2>/dev/null | head -1)
+_APPROVED=$(ls -t ~/.jstack/projects/$SLUG/designs/*/approved.json 2>/dev/null | head -1)
 [ -n "$_APPROVED" ] && echo "APPROVED: $_APPROVED" || echo "NO_APPROVED"
 ```
 
 ```bash
 setopt +o nomatch 2>/dev/null || true
-_VARIANTS=$(ls -t ~/.gstack/projects/$SLUG/designs/*/variant-*.png 2>/dev/null | head -1)
+_VARIANTS=$(ls -t ~/.jstack/projects/$SLUG/designs/*/variant-*.png 2>/dev/null | head -1)
 [ -n "$_VARIANTS" ] && echo "VARIANTS: $_VARIANTS" || echo "NO_VARIANTS"
 ```
 
 ```bash
 setopt +o nomatch 2>/dev/null || true
-_FINALIZED=$(ls -t ~/.gstack/projects/$SLUG/designs/*/finalized.html 2>/dev/null | head -1)
+_FINALIZED=$(ls -t ~/.jstack/projects/$SLUG/designs/*/finalized.html 2>/dev/null | head -1)
 [ -n "$_FINALIZED" ] && echo "FINALIZED: $_FINALIZED" || echo "NO_FINALIZED"
 [ -f DESIGN.md ] && echo "DESIGN_MD: exists" || echo "NO_DESIGN_MD"
 ```
@@ -222,8 +222,8 @@ For **vanilla HTML output**, check for the vendored Pretext bundle:
 ```bash
 _PRETEXT_VENDOR=""
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-[ -n "$_ROOT" ] && [ -f "$_ROOT/.claude/skills/gstack/design-html/vendor/pretext.js" ] && _PRETEXT_VENDOR="$_ROOT/.claude/skills/gstack/design-html/vendor/pretext.js"
-[ -z "$_PRETEXT_VENDOR" ] && [ -f ~/.claude/skills/gstack/design-html/vendor/pretext.js ] && _PRETEXT_VENDOR=~/.claude/skills/gstack/design-html/vendor/pretext.js
+[ -n "$_ROOT" ] && [ -f "$_ROOT/.claude/skills/jstack/design-html/vendor/pretext.js" ] && _PRETEXT_VENDOR="$_ROOT/.claude/skills/jstack/design-html/vendor/pretext.js"
+[ -z "$_PRETEXT_VENDOR" ] && [ -f ~/.claude/skills/jstack/design-html/vendor/pretext.js ] && _PRETEXT_VENDOR=~/.claude/skills/jstack/design-html/vendor/pretext.js
 [ -n "$_PRETEXT_VENDOR" ] && echo "VENDOR: $_PRETEXT_VENDOR" || echo "VENDOR_MISSING"
 ```
 
@@ -246,10 +246,10 @@ Run the detected install command. Then use standard imports in the component.
 ### HTML Generation
 
 Write a single file using the Write tool. Save to:
-`~/.gstack/projects/$SLUG/designs/<screen-name>-YYYYMMDD/finalized.html`
+`~/.jstack/projects/$SLUG/designs/<screen-name>-YYYYMMDD/finalized.html`
 
 For framework output, save to:
-`~/.gstack/projects/$SLUG/designs/<screen-name>-YYYYMMDD/finalized.[tsx|svelte|vue]`
+`~/.jstack/projects/$SLUG/designs/<screen-name>-YYYYMMDD/finalized.[tsx|svelte|vue]`
 
 **Always include in vanilla HTML:**
 - Pretext source (inlined or CDN, see above)
@@ -471,9 +471,9 @@ If `$B` is available (browse binary), take verification screenshots at 3 viewpor
 
 ```bash
 $B goto "file://<path-to-finalized.html>"
-$B screenshot /tmp/gstack-verify-mobile.png --width 375
-$B screenshot /tmp/gstack-verify-tablet.png --width 768
-$B screenshot /tmp/gstack-verify-desktop.png --width 1440
+$B screenshot /tmp/jstack-verify-mobile.png --width 375
+$B screenshot /tmp/jstack-verify-tablet.png --width 768
+$B screenshot /tmp/jstack-verify-desktop.png --width 1440
 ```
 
 Show all three screenshots inline using the Read tool. Check for:

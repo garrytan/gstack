@@ -12,7 +12,7 @@
  *   POST /cookie-picker/remove       → requires Bearer token or session cookie
  *   GET  /cookie-picker/imported     → requires Bearer token or session cookie
  *
- * The session cookie (gstack_picker) is isolated from the scoped token system.
+ * The session cookie (jstack_picker) is isolated from the scoped token system.
  * It is NOT valid for /command. This prevents session cookie extraction from
  * re-enabling the auth token leak vulnerability.
  */
@@ -40,11 +40,11 @@ export function generatePickerCode(): string {
   return code;
 }
 
-/** Extract session ID from the gstack_picker cookie. */
+/** Extract session ID from the jstack_picker cookie. */
 function getSessionFromCookie(req: Request): string | null {
   const cookie = req.headers.get('cookie');
   if (!cookie) return null;
-  const match = cookie.match(/gstack_picker=([^;]+)/);
+  const match = cookie.match(/jstack_picker=([^;]+)/);
   return match ? match[1] : null;
 }
 
@@ -131,7 +131,7 @@ export async function handleCookiePickerRoute(
           status: 302,
           headers: {
             'Location': '/cookie-picker',
-            'Set-Cookie': `gstack_picker=${session}; HttpOnly; SameSite=Strict; Path=/cookie-picker; Max-Age=3600`,
+            'Set-Cookie': `jstack_picker=${session}; HttpOnly; SameSite=Strict; Path=/cookie-picker; Max-Age=3600`,
             'Cache-Control': 'no-store',
           },
         });
@@ -148,7 +148,7 @@ export async function handleCookiePickerRoute(
       }
 
       // No code, no session: reject
-      return new Response('Access denied. Open the cookie picker from gstack.', {
+      return new Response('Access denied. Open the cookie picker from jstack.', {
         status: 403,
         headers: { 'Content-Type': 'text/plain' },
       });

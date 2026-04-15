@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GStack Browser</title>
+<title>JStack Browser</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://api.fontshare.com/v2/css?f[]=satoshi@700,900&display=swap" rel="stylesheet">
 <style>
@@ -167,7 +167,7 @@
 <body>
 
 <div class="sidebar-prompt" id="sidebar-prompt">
-  <div class="bubble">Open the sidebar to get started. Click the puzzle piece icon in the toolbar, then pin gstack browse.</div>
+  <div class="bubble">Open the sidebar to get started. Click the puzzle piece icon in the toolbar, then pin jstack browse.</div>
   <span class="arrow-right">&#x2192;</span>
 </div>
 
@@ -175,7 +175,7 @@
   <header class="hero">
     <div class="logo-row">
       <div class="logo-dot"></div>
-      <span class="logo-text">GStack Browser</span>
+      <span class="logo-text">JStack Browser</span>
     </div>
     <p class="tagline">This browser is connected to your Claude Code session. The sidebar is your co-pilot: it can control this window, read pages, edit CSS, and pass everything back to your terminal.</p>
   </header>
@@ -219,16 +219,16 @@
   </div>
 
   <footer class="footer">
-    <p><a href="https://github.com/garrytan/gstack">gstack</a> is open source. Built by <a href="https://x.com/garrytan">Garry Tan</a>.</p>
+    <p><a href="https://github.com/JerkyJesse/jstack">jstack</a> is a personal fork of <a href="https://github.com/garrytan/gstack">gstack</a> by <a href="https://x.com/garrytan">Garry Tan</a>, with <a href="https://github.com/JuliusBrussee/caveman">caveman</a> by Julius Brussee baked in. MIT.</p>
   </footer>
 </div>
 
 <script>
 // Hide sidebar prompt ONLY when the sidebar is actually opened.
-// The content script dispatches 'gstack-extension-ready' when it receives
+// The content script dispatches 'jstack-extension-ready' when it receives
 // a 'sidebarOpened' message from the side panel (via background.js).
 // This means the arrow stays visible until the user actually opens the sidebar.
-document.addEventListener('gstack-extension-ready', () => {
+document.addEventListener('jstack-extension-ready', () => {
   const prompt = document.getElementById('sidebar-prompt');
   if (prompt) prompt.classList.add('hidden');
 });

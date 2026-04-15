@@ -1,12 +1,18 @@
-# gstack
+# jstack
 
-> "I don't think I've typed like a line of code probably since December, basically, which is an extremely large change." — [Andrej Karpathy](https://fortune.com/2026/03/21/andrej-karpathy-openai-cofounder-ai-agents-coding-state-of-psychosis-openclaw/), No Priors podcast, March 2026
+> **jstack is a personal fork.** It combines [garrytan/gstack](https://github.com/garrytan/gstack) — Garry Tan's AI builder framework of ~49 Claude Code skills — with [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) baked in as an always-on terse-response layer. All upstream credit belongs to Garry Tan (gstack) and Julius Brussee (caveman). Both MIT.
+>
+> Install path is `~/.claude/skills/jstack`, runs alongside an upstream `gstack` install without collision. Commands are j-prefixed (e.g. `/jship`, `/jqa`, `/jreview`) so both can coexist. Caveman fires on every session start via `hooks/caveman-activate.js`, making terse output the default without needing to type `/caveman` each time.
+>
+> Upstream tagline, preserved: *"'I don't think I've typed like a line of code probably since December, basically, which is an extremely large change.' — [Andrej Karpathy](https://fortune.com/2026/03/21/andrej-karpathy-openai-cofounder-ai-agents-coding-state-of-psychosis-openclaw/), No Priors podcast, March 2026"*
 
-When I heard Karpathy say this, I wanted to find out how. How does one person ship like a team of twenty? Peter Steinberger built [OpenClaw](https://github.com/openclaw/openclaw) — 247K GitHub stars — essentially solo with AI agents. The revolution is here. A single builder with the right tooling can move faster than a traditional team.
+---
 
-I'm [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https://www.ycombinator.com/). I've worked with thousands of startups — Coinbase, Instacart, Rippling — when they were one or two people in a garage. Before YC, I was one of the first eng/PM/designers at Palantir, cofounded Posterous (sold to Twitter), and built Bookface, YC's internal social network.
+## Original gstack preamble (from Garry Tan)
 
-**gstack is my answer.** I've been building products for twenty years, and right now I'm shipping more code than I ever have. In the last 60 days: **600,000+ lines of production code** (35% tests), **10,000-20,000 lines per day**, part-time, while running YC full-time. Here's my last `/retro` across 3 projects: **140,751 lines added, 362 commits, ~115k net LOC** in one week.
+When Garry heard Karpathy say this, he wanted to find out how. How does one person ship like a team of twenty? Peter Steinberger built [OpenClaw](https://github.com/openclaw/openclaw) — 247K GitHub stars — essentially solo with AI agents. The revolution is here. A single builder with the right tooling can move faster than a traditional team.
+
+gstack is Garry Tan's answer. He'd been building products for twenty years, and shipping more code than ever. In 60 days: **600,000+ lines of production code** (35% tests), **10,000-20,000 lines per day**, part-time, while running YC full-time. Last `/retro` across 3 projects: **140,751 lines added, 362 commits, ~115k net LOC** in one week.
 
 **2026 — 1,237 contributions and counting:**
 
@@ -18,7 +24,7 @@ I'm [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https
 
 Same person. Different era. The difference is the tooling.
 
-**gstack is how I do it.** It turns Claude Code into a virtual engineering team — a CEO who rethinks the product, an eng manager who locks architecture, a designer who catches AI slop, a reviewer who finds production bugs, a QA lead who opens a real browser, a security officer who runs OWASP + STRIDE audits, and a release engineer who ships the PR. Twenty-three specialists and eight power tools, all slash commands, all Markdown, all free, MIT license.
+**jstack is how I do it.** It turns Claude Code into a virtual engineering team — a CEO who rethinks the product, an eng manager who locks architecture, a designer who catches AI slop, a reviewer who finds production bugs, a QA lead who opens a real browser, a security officer who runs OWASP + STRIDE audits, and a release engineer who ships the PR. Twenty-three specialists and eight power tools, all slash commands, all Markdown, all free, MIT license.
 
 This is my open source software factory. I use it every day. I'm sharing it because these tools should be available to everyone.
 
@@ -31,7 +37,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Quick start
 
-1. Install gstack (30 seconds — see below)
+1. Install jstack (30 seconds — see below)
 2. Run `/office-hours` — describe what you're building
 3. Run `/plan-ceo-review` on any feature idea
 4. Run `/review` on any branch with changes
@@ -46,49 +52,49 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 Open Claude Code and paste this. Claude does the rest.
 
-> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /plan-devex-review, /devex-review, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn. Then ask the user if they also want to add gstack to the current project so teammates get it.
+> Install jstack: run **`git clone --single-branch --depth 1 https://github.com/JerkyJesse/jstack.git ~/.claude/skills/jstack && cd ~/.claude/skills/jstack && ./setup`** then add a "jstack" section to CLAUDE.md that says to use the /browse skill from jstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /plan-devex-review, /devex-review, /careful, /freeze, /guard, /unfreeze, /jstack-upgrade, /learn. Then ask the user if they also want to add jstack to the current project so teammates get it.
 
 ### Step 2: Team mode — auto-update for shared repos (recommended)
 
 Every developer installs globally, updates happen automatically:
 
 ```bash
-cd ~/.claude/skills/gstack && ./setup --team
+cd ~/.claude/skills/jstack && ./setup --team
 ```
 
 Then bootstrap your repo so teammates get it:
 
 ```bash
 cd <your-repo>
-~/.claude/skills/gstack/bin/gstack-team-init required  # or: optional
-git add .claude/ CLAUDE.md && git commit -m "require gstack for AI-assisted work"
+~/.claude/skills/jstack/bin/jstack-team-init required  # or: optional
+git add .claude/ CLAUDE.md && git commit -m "require jstack for AI-assisted work"
 ```
 
 No vendored files in your repo, no version drift, no manual upgrades. Every Claude Code session starts with a fast auto-update check (throttled to once/hour, network-failure-safe, completely silent).
 
 > **Contributing or need full history?** The commands above use `--depth 1` for a fast install. If you plan to contribute or need full git history, do a full clone instead:
 > ```bash
-> git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+> git clone https://github.com/JerkyJesse/jstack.git ~/.claude/skills/jstack
 > ```
 
 ### OpenClaw
 
-OpenClaw spawns Claude Code sessions via ACP, so every gstack skill just works
-when Claude Code has gstack installed. Paste this to your OpenClaw agent:
+OpenClaw spawns Claude Code sessions via ACP, so every jstack skill just works
+when Claude Code has jstack installed. Paste this to your OpenClaw agent:
 
-> Install gstack: run `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` to install gstack for Claude Code. Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use gstack skills. Include these examples — security audit: "Load gstack. Run /cso", code review: "Load gstack. Run /review", QA test a URL: "Load gstack. Run /qa https://...", build a feature end-to-end: "Load gstack. Run /autoplan, implement the plan, then run /ship", plan before building: "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
+> Install jstack: run `git clone --single-branch --depth 1 https://github.com/JerkyJesse/jstack.git ~/.claude/skills/jstack && cd ~/.claude/skills/jstack && ./setup` to install jstack for Claude Code. Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use jstack skills. Include these examples — security audit: "Load jstack. Run /cso", code review: "Load jstack. Run /review", QA test a URL: "Load jstack. Run /qa https://...", build a feature end-to-end: "Load jstack. Run /autoplan, implement the plan, then run /ship", plan before building: "Load jstack. Run /office-hours then /autoplan. Save the plan, don't implement."
 
 **After setup, just talk to your OpenClaw agent naturally:**
 
 | You say | What happens |
 |---------|-------------|
-| "Fix the typo in README" | Simple — Claude Code session, no gstack needed |
+| "Fix the typo in README" | Simple — Claude Code session, no jstack needed |
 | "Run a security audit on this repo" | Spawns Claude Code with `Run /cso` |
 | "Build me a notifications feature" | Spawns Claude Code with /autoplan → implement → /ship |
 | "Help me plan the v2 API redesign" | Spawns Claude Code with /office-hours → /autoplan, saves plan |
 
 See [docs/OPENCLAW.md](docs/OPENCLAW.md) for advanced dispatch routing and
-the gstack-lite/gstack-full prompt templates.
+the jstack-lite/jstack-full prompt templates.
 
 ### Native OpenClaw Skills (via ClawHub)
 
@@ -96,38 +102,38 @@ Four methodology skills that work directly in your OpenClaw agent, no Claude Cod
 session needed. Install from ClawHub:
 
 ```
-clawhub install gstack-openclaw-office-hours gstack-openclaw-ceo-review gstack-openclaw-investigate gstack-openclaw-retro
+clawhub install jstack-openclaw-office-hours jstack-openclaw-ceo-review jstack-openclaw-investigate jstack-openclaw-retro
 ```
 
 | Skill | What it does |
 |-------|-------------|
-| `gstack-openclaw-office-hours` | Product interrogation with 6 forcing questions |
-| `gstack-openclaw-ceo-review` | Strategic challenge with 4 scope modes |
-| `gstack-openclaw-investigate` | Root cause debugging methodology |
-| `gstack-openclaw-retro` | Weekly engineering retrospective |
+| `jstack-openclaw-office-hours` | Product interrogation with 6 forcing questions |
+| `jstack-openclaw-ceo-review` | Strategic challenge with 4 scope modes |
+| `jstack-openclaw-investigate` | Root cause debugging methodology |
+| `jstack-openclaw-retro` | Weekly engineering retrospective |
 
 These are conversational skills. Your OpenClaw agent runs them directly via chat.
 
 ### Other AI Agents
 
-gstack works on 8 AI coding agents, not just Claude. Setup auto-detects which
+jstack works on 8 AI coding agents, not just Claude. Setup auto-detects which
 agents you have installed:
 
 ```bash
-git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/gstack
-cd ~/gstack && ./setup
+git clone --single-branch --depth 1 https://github.com/JerkyJesse/jstack.git ~/jstack
+cd ~/jstack && ./setup
 ```
 
 Or target a specific agent with `./setup --host <name>`:
 
 | Agent | Flag | Skills install to |
 |-------|------|-------------------|
-| OpenAI Codex CLI | `--host codex` | `~/.codex/skills/gstack-*/` |
-| OpenCode | `--host opencode` | `~/.config/opencode/skills/gstack-*/` |
-| Cursor | `--host cursor` | `~/.cursor/skills/gstack-*/` |
-| Factory Droid | `--host factory` | `~/.factory/skills/gstack-*/` |
-| Slate | `--host slate` | `~/.slate/skills/gstack-*/` |
-| Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
+| OpenAI Codex CLI | `--host codex` | `~/.codex/skills/jstack-*/` |
+| OpenCode | `--host opencode` | `~/.config/opencode/skills/jstack-*/` |
+| Cursor | `--host cursor` | `~/.cursor/skills/jstack-*/` |
+| Factory Droid | `--host factory` | `~/.factory/skills/jstack-*/` |
+| Slate | `--host slate` | `~/.slate/skills/jstack-*/` |
+| Kiro | `--host kiro` | `~/.kiro/skills/jstack-*/` |
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
@@ -177,7 +183,7 @@ You said "daily briefing app." The agent said "you're building a chief of staff 
 
 ## The sprint
 
-gstack is a process, not a collection of tools. The skills run in the order a sprint runs:
+jstack is a process, not a collection of tools. The skills run in the order a sprint runs:
 
 **Think → Plan → Build → Review → Test → Ship → Reflect**
 
@@ -207,10 +213,10 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/benchmark` | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. |
 | `/document-release` | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
 | `/retro` | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. `/retro global` runs across all your projects and AI tools (Claude Code, Codex, Gemini). |
-| `/browse` | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. `/open-gstack-browser` launches GStack Browser with sidebar, anti-bot stealth, and auto model routing. |
+| `/browse` | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. `/open-jstack-browser` launches JStack Browser with sidebar, anti-bot stealth, and auto model routing. |
 | `/setup-browser-cookies` | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | `/autoplan` | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
-| `/learn` | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns, pitfalls, and preferences. Learnings compound across sessions so gstack gets smarter on your codebase over time. |
+| `/learn` | **Memory** | Manage what jstack learned across sessions. Review, search, prune, and export project-specific patterns, pitfalls, and preferences. Learnings compound across sessions so jstack gets smarter on your codebase over time. |
 
 ### Which review should I use?
 
@@ -230,15 +236,15 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/freeze` | **Edit Lock** — restrict file edits to one directory. Prevents accidental changes outside scope while debugging. |
 | `/guard` | **Full Safety** — `/careful` + `/freeze` in one command. Maximum safety for prod work. |
 | `/unfreeze` | **Unlock** — remove the `/freeze` boundary. |
-| `/open-gstack-browser` | **GStack Browser** — launch GStack Browser with sidebar, anti-bot stealth, auto model routing (Sonnet for actions, Opus for analysis), one-click cookie import, and Claude Code integration. Clean up pages, take smart screenshots, edit CSS, and pass info back to your terminal. |
+| `/open-jstack-browser` | **JStack Browser** — launch JStack Browser with sidebar, anti-bot stealth, auto model routing (Sonnet for actions, Opus for analysis), one-click cookie import, and Claude Code integration. Clean up pages, take smart screenshots, edit CSS, and pass info back to your terminal. |
 | `/setup-deploy` | **Deploy Configurator** — one-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
-| `/gstack-upgrade` | **Self-Updater** — upgrade gstack to latest. Detects global vs vendored install, syncs both, shows what changed. |
+| `/jstack-upgrade` | **Self-Updater** — upgrade jstack to latest. Detects global vs vendored install, syncs both, shows what changed. |
 
 **[Deep dives with examples and philosophy for every skill →](docs/skills.md)**
 
 ## Parallel sprints
 
-gstack works well with one sprint. It gets interesting with ten running at once.
+jstack works well with one sprint. It gets interesting with ten running at once.
 
 **Design is at the heart.** `/design-consultation` builds your design system from scratch, researches what's out there, proposes creative risks, and writes `DESIGN.md`. But the real magic is the shotgun-to-HTML pipeline.
 
@@ -248,13 +254,13 @@ gstack works well with one sprint. It gets interesting with ten running at once.
 
 **`/qa` was a massive unlock.** It let me go from 6 to 12 parallel workers. Claude Code saying *"I SEE THE ISSUE"* and then actually fixing it, generating a regression test, and verifying the fix — that changed how I work. The agent has eyes now.
 
-**Smart review routing.** Just like at a well-run startup: CEO doesn't have to look at infra bug fixes, design review isn't needed for backend changes. gstack tracks what reviews are run, figures out what's appropriate, and just does the smart thing. The Review Readiness Dashboard tells you where you stand before you ship.
+**Smart review routing.** Just like at a well-run startup: CEO doesn't have to look at infra bug fixes, design review isn't needed for backend changes. jstack tracks what reviews are run, figures out what's appropriate, and just does the smart thing. The Review Readiness Dashboard tells you where you stand before you ship.
 
 **Test everything.** `/ship` bootstraps test frameworks from scratch if your project doesn't have one. Every `/ship` run produces a coverage audit. Every `/qa` bug fix generates a regression test. 100% test coverage is the goal — tests make vibe coding safe instead of yolo coding.
 
 **`/document-release` is the engineer you never had.** It reads every doc file in your project, cross-references the diff, and updates everything that drifted. README, ARCHITECTURE, CONTRIBUTING, CLAUDE.md, TODOS — all kept current automatically. And now `/ship` auto-invokes it — docs stay current without an extra command.
 
-**Real browser mode.** `/open-gstack-browser` launches GStack Browser, an AI-controlled Chromium with anti-bot stealth, custom branding, and the sidebar extension baked in. Sites like Google and NYTimes work without captchas. The menu bar says "GStack Browser" instead of "Chrome for Testing." Your regular Chrome stays untouched. All existing browse commands work unchanged. `$B disconnect` returns to headless. The browser stays alive as long as the window is open... no idle timeout killing it while you're working.
+**Real browser mode.** `/open-jstack-browser` launches JStack Browser, an AI-controlled Chromium with anti-bot stealth, custom branding, and the sidebar extension baked in. Sites like Google and NYTimes work without captchas. The menu bar says "JStack Browser" instead of "Chrome for Testing." Your regular Chrome stays untouched. All existing browse commands work unchanged. `$B disconnect` returns to headless. The browser stays alive as long as the window is open... no idle timeout killing it while you're working.
 
 **Sidebar agent — your AI browser assistant.** Type natural language in the Chrome side panel and a child Claude instance executes it. "Navigate to the settings page and screenshot it." "Fill out this form with test data." "Go through every item in this list and extract the prices." The sidebar auto-routes to the right model: Sonnet for fast actions (click, navigate, screenshot) and Opus for reading and analysis. Each task gets up to 5 minutes. The sidebar agent runs in an isolated session, so it won't interfere with your main Claude Code window. One-click cookie import right from the sidebar footer.
 
@@ -262,17 +268,17 @@ gstack works well with one sprint. It gets interesting with ten running at once.
 
 **Browser handoff when the AI gets stuck.** Hit a CAPTCHA, auth wall, or MFA prompt? `$B handoff` opens a visible Chrome at the exact same page with all your cookies and tabs intact. Solve the problem, tell Claude you're done, `$B resume` picks up right where it left off. The agent even suggests it automatically after 3 consecutive failures.
 
-**`/pair-agent` is cross-agent coordination.** You're in Claude Code. You also have OpenClaw running. Or Hermes. Or Codex. You want them both looking at the same website. Type `/pair-agent`, pick your agent, and a GStack Browser window opens so you can watch. The skill prints a block of instructions. Paste that block into the other agent's chat. It exchanges a one-time setup key for a session token, creates its own tab, and starts browsing. You see both agents working in the same browser, each in their own tab, neither able to interfere with the other. If ngrok is installed, the tunnel starts automatically so the other agent can be on a completely different machine. Same-machine agents get a zero-friction shortcut that writes credentials directly. This is the first time AI agents from different vendors can coordinate through a shared browser with real security: scoped tokens, tab isolation, rate limiting, domain restrictions, and activity attribution.
+**`/pair-agent` is cross-agent coordination.** You're in Claude Code. You also have OpenClaw running. Or Hermes. Or Codex. You want them both looking at the same website. Type `/pair-agent`, pick your agent, and a JStack Browser window opens so you can watch. The skill prints a block of instructions. Paste that block into the other agent's chat. It exchanges a one-time setup key for a session token, creates its own tab, and starts browsing. You see both agents working in the same browser, each in their own tab, neither able to interfere with the other. If ngrok is installed, the tunnel starts automatically so the other agent can be on a completely different machine. Same-machine agents get a zero-friction shortcut that writes credentials directly. This is the first time AI agents from different vendors can coordinate through a shared browser with real security: scoped tokens, tab isolation, rate limiting, domain restrictions, and activity attribution.
 
 **Multi-AI second opinion.** `/codex` gets an independent review from OpenAI's Codex CLI — a completely different AI looking at the same diff. Three modes: code review with a pass/fail gate, adversarial challenge that actively tries to break your code, and open consultation with session continuity. When both `/review` (Claude) and `/codex` (OpenAI) have reviewed the same branch, you get a cross-model analysis showing which findings overlap and which are unique to each.
 
 **Safety guardrails on demand.** Say "be careful" and `/careful` warns before any destructive command — rm -rf, DROP TABLE, force-push, git reset --hard. `/freeze` locks edits to one directory while debugging so Claude can't accidentally "fix" unrelated code. `/guard` activates both. `/investigate` auto-freezes to the module being investigated.
 
-**Proactive skill suggestions.** gstack notices what stage you're in — brainstorming, reviewing, debugging, testing — and suggests the right skill. Don't like it? Say "stop suggesting" and it remembers across sessions.
+**Proactive skill suggestions.** jstack notices what stage you're in — brainstorming, reviewing, debugging, testing — and suggests the right skill. Don't like it? Say "stop suggesting" and it remembers across sessions.
 
 ## 10-15 parallel sprints
 
-gstack is powerful with one sprint. It is transformative with ten running at once.
+jstack is powerful with one sprint. It is transformative with ten running at once.
 
 [Conductor](https://conductor.build) runs multiple Claude Code sessions in parallel — each in its own isolated workspace. One session running `/office-hours` on a new idea, another doing `/review` on a PR, a third implementing a feature, a fourth running `/qa` on staging, and six more on other branches. All at the same time. I regularly run 10-15 parallel sprints — that's the practical max right now.
 
@@ -280,7 +286,7 @@ The sprint structure is what makes parallelism work. Without a process, ten agen
 
 ### Voice input (AquaVoice, Whisper, etc.)
 
-gstack skills have voice-friendly trigger phrases. Say what you want naturally —
+jstack skills have voice-friendly trigger phrases. Say what you want naturally —
 "run a security check", "test the website", "do an engineering review" — and the
 right skill activates. You don't need to remember slash command names or acronyms.
 
@@ -288,13 +294,13 @@ right skill activates. You don't need to remember slash command names or acronym
 
 ### Option 1: Run the uninstall script
 
-If gstack is installed on your machine:
+If jstack is installed on your machine:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-uninstall
+~/.claude/skills/jstack/bin/jstack-uninstall
 ```
 
-This handles skills, symlinks, global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics. Use `--force` to skip confirmation.
+This handles skills, symlinks, global state (`~/.jstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics. Use `--force` to skip confirmation.
 
 ### Option 2: Manual removal (no local repo)
 
@@ -302,36 +308,36 @@ If you don't have the repo cloned (e.g. you installed via a Claude Code paste an
 
 ```bash
 # 1. Stop browse daemons
-pkill -f "gstack.*browse" 2>/dev/null || true
+pkill -f "jstack.*browse" 2>/dev/null || true
 
-# 2. Remove per-skill symlinks pointing into gstack/
+# 2. Remove per-skill symlinks pointing into jstack/
 find ~/.claude/skills -maxdepth 1 -type l 2>/dev/null | while read -r link; do
-  case "$(readlink "$link" 2>/dev/null)" in gstack/*|*/gstack/*) rm -f "$link" ;; esac
+  case "$(readlink "$link" 2>/dev/null)" in jstack/*|*/jstack/*) rm -f "$link" ;; esac
 done
 
-# 3. Remove gstack
-rm -rf ~/.claude/skills/gstack
+# 3. Remove jstack
+rm -rf ~/.claude/skills/jstack
 
 # 4. Remove global state
-rm -rf ~/.gstack
+rm -rf ~/.jstack
 
 # 5. Remove integrations (skip any you never installed)
-rm -rf ~/.codex/skills/gstack* 2>/dev/null
-rm -rf ~/.factory/skills/gstack* 2>/dev/null
-rm -rf ~/.kiro/skills/gstack* 2>/dev/null
-rm -rf ~/.openclaw/skills/gstack* 2>/dev/null
+rm -rf ~/.codex/skills/jstack* 2>/dev/null
+rm -rf ~/.factory/skills/jstack* 2>/dev/null
+rm -rf ~/.kiro/skills/jstack* 2>/dev/null
+rm -rf ~/.openclaw/skills/jstack* 2>/dev/null
 
 # 6. Remove temp files
-rm -f /tmp/gstack-* 2>/dev/null
+rm -f /tmp/jstack-* 2>/dev/null
 
 # 7. Per-project cleanup (run from each project root)
-rm -rf .gstack .gstack-worktrees .claude/skills/gstack 2>/dev/null
-rm -rf .agents/skills/gstack* .factory/skills/gstack* 2>/dev/null
+rm -rf .jstack .jstack-worktrees .claude/skills/jstack 2>/dev/null
+rm -rf .agents/skills/jstack* .factory/skills/jstack* 2>/dev/null
 ```
 
 ### Clean up CLAUDE.md
 
-The uninstall script does not edit CLAUDE.md. In each project where gstack was added, remove the `## gstack` and `## Skill routing` sections.
+The uninstall script does not edit CLAUDE.md. In each project where jstack was added, remove the `## jstack` and `## Skill routing` sections.
 
 ### Playwright
 
@@ -343,7 +349,7 @@ Free, MIT licensed, open source. No premium tier, no waitlist.
 
 I open sourced how I build software. You can fork it and make it your own.
 
-> **We're hiring.** Want to ship 10K+ LOC/day and help harden gstack?
+> **We're hiring.** Want to ship 10K+ LOC/day and help harden jstack?
 > Come work at YC — [ycombinator.com/software](https://ycombinator.com/software)
 > Extremely competitive salary and equity. San Francisco, Dogpatch District.
 
@@ -360,44 +366,44 @@ I open sourced how I build software. You can fork it and make it your own.
 
 ## Privacy & Telemetry
 
-gstack includes **opt-in** usage telemetry to help improve the project. Here's exactly what happens:
+jstack includes **opt-in** usage telemetry to help improve the project. Here's exactly what happens:
 
 - **Default is off.** Nothing is sent anywhere unless you explicitly say yes.
-- **On first run,** gstack asks if you want to share anonymous usage data. You can say no.
-- **What's sent (if you opt in):** skill name, duration, success/fail, gstack version, OS. That's it.
+- **On first run,** jstack asks if you want to share anonymous usage data. You can say no.
+- **What's sent (if you opt in):** skill name, duration, success/fail, jstack version, OS. That's it.
 - **What's never sent:** code, file paths, repo names, branch names, prompts, or any user-generated content.
-- **Change anytime:** `gstack-config set telemetry off` disables everything instantly.
+- **Change anytime:** `jstack-config set telemetry off` disables everything instantly.
 
 Data is stored in [Supabase](https://supabase.com) (open source Firebase alternative). The schema is in [`supabase/migrations/`](supabase/migrations/) — you can verify exactly what's collected. The Supabase publishable key in the repo is a public key (like a Firebase API key) — row-level security policies deny all direct access. Telemetry flows through validated edge functions that enforce schema checks, event type allowlists, and field length limits.
 
-**Local analytics are always available.** Run `gstack-analytics` to see your personal usage dashboard from the local JSONL file — no remote data needed.
+**Local analytics are always available.** Run `jstack-analytics` to see your personal usage dashboard from the local JSONL file — no remote data needed.
 
 ## Troubleshooting
 
-**Skill not showing up?** `cd ~/.claude/skills/gstack && ./setup`
+**Skill not showing up?** `cd ~/.claude/skills/jstack && ./setup`
 
-**`/browse` fails?** `cd ~/.claude/skills/gstack && bun install && bun run build`
+**`/browse` fails?** `cd ~/.claude/skills/jstack && bun install && bun run build`
 
-**Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`
+**Stale install?** Run `/jstack-upgrade` — or set `auto_upgrade: true` in `~/.jstack/config.yaml`
 
-**Want shorter commands?** `cd ~/.claude/skills/gstack && ./setup --no-prefix` — switches from `/gstack-qa` to `/qa`. Your choice is remembered for future upgrades.
+**Want shorter commands?** `cd ~/.claude/skills/jstack && ./setup --no-prefix` — switches from `/jstack-qa` to `/qa`. Your choice is remembered for future upgrades.
 
-**Want namespaced commands?** `cd ~/.claude/skills/gstack && ./setup --prefix` — switches from `/qa` to `/gstack-qa`. Useful if you run other skill packs alongside gstack.
+**Want namespaced commands?** `cd ~/.claude/skills/jstack && ./setup --prefix` — switches from `/qa` to `/jstack-qa`. Useful if you run other skill packs alongside jstack.
 
-**Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/gstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`
+**Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/jstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/jstack)" && git pull && ./setup --host codex`
 
-**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH.
+**Windows users:** jstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH.
 
-**Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a gstack section. Add this:
+**Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a jstack section. Add this:
 
 ```
-## gstack
-Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
+## jstack
+Use /browse from jstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
 Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
 /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy,
-/canary, /benchmark, /browse, /open-gstack-browser, /qa, /qa-only, /design-review,
+/canary, /benchmark, /browse, /open-jstack-browser, /qa, /qa-only, /design-review,
 /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex,
-/cso, /autoplan, /pair-agent, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn.
+/cso, /autoplan, /pair-agent, /careful, /freeze, /guard, /unfreeze, /jstack-upgrade, /learn.
 ```
 
 ## License

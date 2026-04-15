@@ -1,7 +1,7 @@
 # Design: Design Shotgun — Browser-to-Agent Feedback Loop
 
 Generated on 2026-03-27
-Branch: garrytan/agent-design-tools
+Branch: JerkyJesse/agent-design-tools
 Status: LIVING DOCUMENT — update as bugs are found and fixed
 
 ## What This Feature Does
@@ -43,7 +43,7 @@ no shared memory, no shared event bus, no WebSocket connection.
        │                                   │                           │
        │  GET /                            │                           │
        │ ◄─────── serves board HTML ──────►│                           │
-       │    (with __GSTACK_SERVER_URL      │                           │
+       │    (with __JSTACK_SERVER_URL      │                           │
        │     injected into <head>)         │                           │
        │                                   │                           │
        │  [user rates, picks, comments]    │                           │
@@ -290,7 +290,7 @@ proving it's writable). But a try/catch with a 500 response would be cleaner.
 2. $D serve starts Bun.serve() on random port (e.g. 54321)
 3. $D serve opens http://127.0.0.1:54321 in user's browser
 4. $D serve prints to stderr: SERVE_STARTED: port=54321 html=/path/board.html
-5. $D serve writes board HTML with injected __GSTACK_SERVER_URL
+5. $D serve writes board HTML with injected __JSTACK_SERVER_URL
 6. User sees comparison board with 3 variants side by side
 7. User picks Option B, rates A: 3/5, B: 5/5, C: 2/5
 8. User writes "B has better spacing, go with that" in overall feedback
@@ -408,7 +408,7 @@ Same as regeneration, except:
 | Spinner after regenerate | DOM shows loading text | `feedback-roundtrip.test.ts` |
 | Full regen → reload → submit | 2-round trip | `feedback-roundtrip.test.ts` |
 | Server starts on random port | port 0 binding | `serve.test.ts` |
-| HTML injection of server URL | __GSTACK_SERVER_URL check | `serve.test.ts` |
+| HTML injection of server URL | __JSTACK_SERVER_URL check | `serve.test.ts` |
 | Invalid JSON rejection | 400 response | `serve.test.ts` |
 | HTML file validation | exit 1 if missing | `serve.test.ts` |
 | Timeout behavior | exit 1 after timeout | `serve.test.ts` |

@@ -6,8 +6,8 @@ const kiro: HostConfig = {
   cliCommand: 'kiro-cli',
   cliAliases: [],
 
-  globalRoot: '.kiro/skills/gstack',
-  localSkillRoot: '.kiro/skills/gstack',
+  globalRoot: '.kiro/skills/jstack',
+  localSkillRoot: '.kiro/skills/jstack',
   hostSubdir: '.kiro',
   usesEnvVars: true,
 
@@ -23,15 +23,15 @@ const kiro: HostConfig = {
   },
 
   pathRewrites: [
-    { from: '~/.claude/skills/gstack', to: '~/.kiro/skills/gstack' },
-    { from: '.claude/skills/gstack', to: '.kiro/skills/gstack' },
+    { from: '~/.claude/skills/jstack', to: '~/.kiro/skills/jstack' },
+    { from: '.claude/skills/jstack', to: '.kiro/skills/jstack' },
     { from: '.claude/skills', to: '.kiro/skills' },
-    { from: '~/.codex/skills/gstack', to: '~/.kiro/skills/gstack' },
+    { from: '~/.codex/skills/jstack', to: '~/.kiro/skills/jstack' },
     { from: '.codex/skills', to: '.kiro/skills' },
   ],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'jstack-upgrade', 'ETHOS.md'],
     globalFiles: {
       'review': ['checklist.md', 'TODOS-format.md'],
     },

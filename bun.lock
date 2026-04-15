@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "gstack",
+      "name": "jstack",
       "dependencies": {
         "@ngrok/ngrok": "^1.7.0",
         "diff": "^7.0.0",

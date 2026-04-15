@@ -13,8 +13,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/config.sh"
 
-URL="$GSTACK_SUPABASE_URL"
-KEY="$GSTACK_SUPABASE_ANON_KEY"
+URL="$JSTACK_SUPABASE_URL"
+KEY="$JSTACK_SUPABASE_ANON_KEY"
 PASS=0
 FAIL=0
 TOTAL=0
@@ -122,12 +122,12 @@ check "SELECT skill_sequences"  deny GET "skill_sequences?select=skill_a&limit=1
 
 echo ""
 echo "Update denial (should be blocked):"
-check "UPDATE installations"    deny PATCH "installations?installation_id=eq.test_verify_rls" '{"gstack_version":"hacked"}'
+check "UPDATE installations"    deny PATCH "installations?installation_id=eq.test_verify_rls" '{"jstack_version":"hacked"}'
 
 echo ""
 echo "Insert allowed (kept for old client compat):"
-check "INSERT telemetry_events" allow POST "telemetry_events" '{"gstack_version":"verify_rls_test","os":"test","event_timestamp":"2026-01-01T00:00:00Z","outcome":"test"}'
-check "INSERT update_checks"    allow POST "update_checks"    '{"gstack_version":"verify_rls_test","os":"test"}'
+check "INSERT telemetry_events" allow POST "telemetry_events" '{"jstack_version":"verify_rls_test","os":"test","event_timestamp":"2026-01-01T00:00:00Z","outcome":"test"}'
+check "INSERT update_checks"    allow POST "update_checks"    '{"jstack_version":"verify_rls_test","os":"test"}'
 check "INSERT installations"    allow POST "installations"    '{"installation_id":"verify_rls_test"}'
 
 echo ""

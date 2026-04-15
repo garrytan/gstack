@@ -54,7 +54,7 @@ export function generateCommandReference(_ctx: TemplateContext): string {
 export function generateSnapshotFlags(_ctx: TemplateContext): string {
   const lines: string[] = [
     'The snapshot is your primary tool for understanding and interacting with pages.',
-    '`$B` is the browse binary (resolved from `$_ROOT/.claude/skills/gstack/browse/dist/browse` or `~/.claude/skills/gstack/browse/dist/browse`).',
+    '`$B` is the browse binary (resolved from `$_ROOT/.claude/skills/jstack/browse/dist/browse` or `~/.claude/skills/jstack/browse/dist/browse`).',
     '',
     '**Syntax:** `$B snapshot [flags]`',
     '',
@@ -115,7 +115,7 @@ fi
 \`\`\`
 
 If \`NEEDS_SETUP\`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+1. Tell the user: "jstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
 2. Run: \`cd <SKILL_DIR> && ./setup\`
 3. If \`bun\` is not installed:
    \`\`\`bash

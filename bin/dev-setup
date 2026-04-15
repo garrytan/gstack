@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Set up gstack for local development — test skills from within this repo.
+# Set up jstack for local development — test skills from within this repo.
 #
-# Creates .claude/skills/gstack → (symlink to repo root) so Claude Code
+# Creates .claude/skills/jstack → (symlink to repo root) so Claude Code
 # discovers skills from your working tree. Changes take effect immediately.
 #
 # Also copies .env from the main worktree if this is a Conductor workspace
@@ -31,38 +31,38 @@ fi
 # 3. Create .claude/skills/ inside the repo
 mkdir -p "$REPO_ROOT/.claude/skills"
 
-# 4. Symlink .claude/skills/gstack → repo root
+# 4. Symlink .claude/skills/jstack → repo root
 # This makes setup think it's inside a real .claude/skills/ directory
-GSTACK_LINK="$REPO_ROOT/.claude/skills/gstack"
-if [ -L "$GSTACK_LINK" ]; then
+JSTACK_LINK="$REPO_ROOT/.claude/skills/jstack"
+if [ -L "$JSTACK_LINK" ]; then
   echo "Updating existing symlink..."
-  rm "$GSTACK_LINK"
-elif [ -d "$GSTACK_LINK" ]; then
-  echo "Error: .claude/skills/gstack is a real directory, not a symlink." >&2
+  rm "$JSTACK_LINK"
+elif [ -d "$JSTACK_LINK" ]; then
+  echo "Error: .claude/skills/jstack is a real directory, not a symlink." >&2
   echo "Remove it manually if you want to use dev mode." >&2
   exit 1
 fi
-ln -s "$REPO_ROOT" "$GSTACK_LINK"
+ln -s "$REPO_ROOT" "$JSTACK_LINK"
 
-# 5. Create .agents/skills/gstack → repo root (for Codex/Gemini/Cursor)
+# 5. Create .agents/skills/jstack → repo root (for Codex/Gemini/Cursor)
 mkdir -p "$REPO_ROOT/.agents/skills"
-AGENTS_LINK="$REPO_ROOT/.agents/skills/gstack"
+AGENTS_LINK="$REPO_ROOT/.agents/skills/jstack"
 if [ -L "$AGENTS_LINK" ]; then
   rm "$AGENTS_LINK"
 elif [ -d "$AGENTS_LINK" ]; then
-  echo "Warning: .agents/skills/gstack is a real directory, skipping." >&2
+  echo "Warning: .agents/skills/jstack is a real directory, skipping." >&2
 fi
 if [ ! -e "$AGENTS_LINK" ]; then
   ln -s "$REPO_ROOT" "$AGENTS_LINK"
 fi
 
 # 6. Run setup via the symlink so it detects .claude/skills/ as its parent
-"$GSTACK_LINK/setup"
+"$JSTACK_LINK/setup"
 
 echo ""
 echo "Dev mode active. Skills resolve from this working tree."
-echo "  .claude/skills/gstack → $REPO_ROOT"
-echo "  .agents/skills/gstack → $REPO_ROOT"
+echo "  .claude/skills/jstack → $REPO_ROOT"
+echo "  .agents/skills/jstack → $REPO_ROOT"
 echo "Edit any SKILL.md and test immediately — no copy/deploy needed."
 echo ""
 echo "To tear down: bin/dev-teardown"

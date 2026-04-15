@@ -9,7 +9,7 @@
 PORT="${1:-9222}"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 REAL_PROFILE="$HOME/Library/Application Support/Google/Chrome"
-CDP_DATA_DIR="$HOME/.gstack/cdp-profile/chrome"
+CDP_DATA_DIR="$HOME/.jstack/cdp-profile/chrome"
 
 if ! [ -f "$CHROME" ]; then
   echo "Chrome not found at $CHROME" >&2

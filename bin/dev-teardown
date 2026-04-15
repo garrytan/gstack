@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remove local dev skill symlinks. Restores global gstack as the active install.
+# Remove local dev skill symlinks. Restores global jstack as the active install.
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,16 +11,16 @@ CLAUDE_SKILLS="$REPO_ROOT/.claude/skills"
 if [ -d "$CLAUDE_SKILLS" ]; then
   for link in "$CLAUDE_SKILLS"/*/; do
     name="$(basename "$link")"
-    [ "$name" = "gstack" ] && continue
+    [ "$name" = "jstack" ] && continue
     if [ -L "${link%/}" ]; then
       rm "${link%/}"
       removed+=("claude/$name")
     fi
   done
 
-  if [ -L "$CLAUDE_SKILLS/gstack" ]; then
-    rm "$CLAUDE_SKILLS/gstack"
-    removed+=("claude/gstack")
+  if [ -L "$CLAUDE_SKILLS/jstack" ]; then
+    rm "$CLAUDE_SKILLS/jstack"
+    removed+=("claude/jstack")
   fi
 
   rmdir "$CLAUDE_SKILLS" 2>/dev/null || true
@@ -32,16 +32,16 @@ AGENTS_SKILLS="$REPO_ROOT/.agents/skills"
 if [ -d "$AGENTS_SKILLS" ]; then
   for link in "$AGENTS_SKILLS"/*/; do
     name="$(basename "$link")"
-    [ "$name" = "gstack" ] && continue
+    [ "$name" = "jstack" ] && continue
     if [ -L "${link%/}" ]; then
       rm "${link%/}"
       removed+=("agents/$name")
     fi
   done
 
-  if [ -L "$AGENTS_SKILLS/gstack" ]; then
-    rm "$AGENTS_SKILLS/gstack"
-    removed+=("agents/gstack")
+  if [ -L "$AGENTS_SKILLS/jstack" ]; then
+    rm "$AGENTS_SKILLS/jstack"
+    removed+=("agents/jstack")
   fi
 
   rmdir "$AGENTS_SKILLS" 2>/dev/null || true
@@ -53,4 +53,4 @@ if [ ${#removed[@]} -gt 0 ]; then
 else
   echo "No symlinks found."
 fi
-echo "Dev mode deactivated. Global gstack (~/.claude/skills/gstack) is now active."
+echo "Dev mode deactivated. Global jstack (~/.claude/skills/jstack) is now active."

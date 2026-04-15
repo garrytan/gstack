@@ -67,7 +67,7 @@ describe('Serve HTTP endpoints', () => {
         if (req.method === 'GET' && url.pathname === '/') {
           const injected = htmlContent.replace(
             '</head>',
-            `<script>window.__GSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
+            `<script>window.__JSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
           );
           return new Response(injected, {
             headers: { 'Content-Type': 'text/html; charset=utf-8' },
@@ -118,11 +118,11 @@ describe('Serve HTTP endpoints', () => {
     server.stop();
   });
 
-  test('GET / serves HTML with injected __GSTACK_SERVER_URL', async () => {
+  test('GET / serves HTML with injected __JSTACK_SERVER_URL', async () => {
     const res = await fetch(baseUrl);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('__GSTACK_SERVER_URL');
+    expect(html).toContain('__JSTACK_SERVER_URL');
     expect(html).toContain(baseUrl);
     expect(html).toContain('Design Exploration');
   });

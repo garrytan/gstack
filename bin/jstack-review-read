@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# jstack-review-read — read review log and config for dashboard
+# Usage: jstack-review-read
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/jstack-slug" 2>/dev/null)"
+JSTACK_HOME="${JSTACK_HOME:-$HOME/.jstack}"
+cat "$JSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null || echo "NO_REVIEWS"
+echo "---CONFIG---"
+"$SCRIPT_DIR/jstack-config" get skip_eng_review 2>/dev/null || echo "false"
+echo "---HEAD---"
+git rev-parse --short HEAD 2>/dev/null || echo "unknown"

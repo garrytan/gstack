@@ -187,7 +187,7 @@ describe('Task 1: validateOutputPath uses realpathSync', () => {
     let symlinkPath: string;
 
     beforeAll(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-sec-test-'));
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jstack-sec-test-'));
       symlinkPath = path.join(tmpDir, 'evil-link');
       try {
         fs.symlinkSync('/etc', symlinkPath);
@@ -236,7 +236,7 @@ describe('Task 1: validateOutputPath uses realpathSync', () => {
       const mod = await import('../src/meta-commands.ts');
       // Use /tmp (which resolves to /private/tmp on macOS) — matches SAFE_DIRECTORIES
       const tmpBase = process.platform === 'darwin' ? '/tmp' : os.tmpdir();
-      const legitimatePath = path.join(tmpBase, 'gstack-screenshot.png');
+      const legitimatePath = path.join(tmpBase, 'jstack-screenshot.png');
       expect(() => mod.validateOutputPath(legitimatePath)).not.toThrow();
     });
 

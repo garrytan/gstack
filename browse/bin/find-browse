@@ -8,12 +8,12 @@ fi
 # Fallback: basic discovery with priority chain
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 for MARKER in .codex .agents .claude; do
-  if [ -n "$ROOT" ] && test -x "$ROOT/$MARKER/skills/gstack/browse/dist/browse"; then
-    echo "$ROOT/$MARKER/skills/gstack/browse/dist/browse"
+  if [ -n "$ROOT" ] && test -x "$ROOT/$MARKER/skills/jstack/browse/dist/browse"; then
+    echo "$ROOT/$MARKER/skills/jstack/browse/dist/browse"
     exit 0
   fi
-  if test -x "$HOME/$MARKER/skills/gstack/browse/dist/browse"; then
-    echo "$HOME/$MARKER/skills/gstack/browse/dist/browse"
+  if test -x "$HOME/$MARKER/skills/jstack/browse/dist/browse"; then
+    echo "$HOME/$MARKER/skills/jstack/browse/dist/browse"
     exit 0
   fi
 done

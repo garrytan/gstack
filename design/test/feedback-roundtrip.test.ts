@@ -55,7 +55,7 @@ beforeAll(async () => {
   serverState = 'serving';
 
   // This server mirrors the real serve.ts behavior:
-  // - Injects __GSTACK_SERVER_URL into the HTML
+  // - Injects __JSTACK_SERVER_URL into the HTML
   // - Handles POST /api/feedback with file writes
   // - Handles GET /api/progress for regeneration polling
   // - Handles POST /api/reload for board swapping
@@ -69,7 +69,7 @@ beforeAll(async () => {
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
         const injected = currentHtml.replace(
           '</head>',
-          `<script>window.__GSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
+          `<script>window.__JSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
         );
         return new Response(injected, {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
@@ -140,12 +140,12 @@ describe('Submit: browser click → feedback.json on disk', () => {
     if (fs.existsSync(feedbackPath)) fs.unlinkSync(feedbackPath);
     serverState = 'serving';
 
-    // Navigate to the board (served with __GSTACK_SERVER_URL injected)
+    // Navigate to the board (served with __JSTACK_SERVER_URL injected)
     await handleWriteCommand('goto', [baseUrl], bm);
 
-    // Verify __GSTACK_SERVER_URL was injected
+    // Verify __JSTACK_SERVER_URL was injected
     const hasServerUrl = await handleReadCommand('js', [
-      '!!window.__GSTACK_SERVER_URL'
+      '!!window.__JSTACK_SERVER_URL'
     ], bm);
     expect(hasServerUrl).toBe('true');
 

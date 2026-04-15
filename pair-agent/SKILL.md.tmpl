@@ -7,7 +7,7 @@ description: |
   Hermes, Codex, Cursor, or any agent that can make HTTP requests. The remote agent
   gets its own tab with scoped access (read+write by default, admin on request).
   Use when asked to "pair agent", "connect agent", "share browser", "remote browser",
-  "let another agent use my browser", or "give browser access". (gstack)
+  "let another agent use my browser", or "give browser access". (jstack)
 voice-triggers:
   - "pair agent"
   - "connect agent"
@@ -30,7 +30,7 @@ able to browse the web using YOUR browser. This skill makes that happen.
 
 ## How it works
 
-Your gstack browser runs a local HTTP server. This skill creates a one-time setup key,
+Your jstack browser runs a local HTTP server. This skill creates a one-time setup key,
 prints a block of instructions, and you paste those instructions into the other agent.
 The other agent exchanges the key for a session token, creates its own tab, and starts
 browsing. Each agent gets its own tab. They can't mess with each other's tabs.
@@ -195,7 +195,7 @@ $B status
 
 Look for the connected agent in the status output. If it appears, tell the user:
 "The remote agent is connected and has its own tab. You'll see its activity in the
-side panel if you have GStack Browser open."
+side panel if you have JStack Browser open."
 
 ## What the remote agent can do
 
@@ -232,20 +232,20 @@ generate a new setup key.
 
 OpenClaw agents use the `exec` tool instead of `Bash`. The instruction block uses
 `exec curl` syntax which OpenClaw understands natively. When using `--local openclaw`,
-credentials are written to `~/.openclaw/skills/gstack/browse-remote.json`.
+credentials are written to `~/.openclaw/skills/jstack/browse-remote.json`.
 
 
 ### Codex
 
 Codex agents can execute shell commands via `codex exec`. The instruction block's
 curl commands work directly. When using `--local codex`, credentials are written
-to `~/.codex/skills/gstack/browse-remote.json`.
+to `~/.codex/skills/jstack/browse-remote.json`.
 
 ### Cursor
 
 Cursor's AI can run terminal commands. The instruction block works as-is.
 When using `--local cursor`, credentials are written to
-`~/.cursor/skills/gstack/browse-remote.json`.
+`~/.cursor/skills/jstack/browse-remote.json`.
 
 ## Revoking access
 

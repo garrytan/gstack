@@ -1,5 +1,5 @@
 /**
- * gstack browse — Side Panel
+ * jstack browse — Side Panel
  *
  * Chat tab: two-way messaging with Claude Code via file queue.
  * Debug tabs: activity feed (SSE) + refs (REST).
@@ -402,7 +402,7 @@ async function pollChat() {
       signal: AbortSignal.timeout(3000),
     });
     if (!resp.ok) {
-      console.warn(`[gstack sidebar] Chat poll failed: ${resp.status} ${resp.statusText}`);
+      console.warn(`[jstack sidebar] Chat poll failed: ${resp.status} ${resp.statusText}`);
       return;
     }
     const data = await resp.json();
@@ -451,7 +451,7 @@ async function pollChat() {
     // Show/hide stop button based on agent status
     updateStopButton(data.agentStatus === 'processing');
   } catch (err) {
-    console.error('[gstack sidebar] Chat poll error:', err.message);
+    console.error('[jstack sidebar] Chat poll error:', err.message);
   } finally {
     pollInProgress = false;
   }
@@ -527,9 +527,9 @@ async function stopAgent() {
   if (!serverUrl) return;
   try {
     const resp = await fetch(`${serverUrl}/sidebar-agent/stop`, { method: 'POST', headers: authHeaders() });
-    if (!resp.ok) console.warn(`[gstack sidebar] Stop agent failed: ${resp.status}`);
+    if (!resp.ok) console.warn(`[jstack sidebar] Stop agent failed: ${resp.status}`);
   } catch (err) {
-    console.error('[gstack sidebar] Stop agent error:', err.message);
+    console.error('[jstack sidebar] Stop agent error:', err.message);
   }
   // Immediately clean up UI
   const thinking = document.getElementById('agent-thinking');
@@ -577,7 +577,7 @@ async function pollTabs() {
       const chromeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
       activeTabUrl = chromeTabs?.[0]?.url || null;
     } catch (err) {
-      console.debug('[gstack sidebar] Failed to get active tab URL:', err.message);
+      console.debug('[jstack sidebar] Failed to get active tab URL:', err.message);
     }
 
     const resp = await fetch(`${serverUrl}/sidebar-tabs${activeTabUrl ? '?activeUrl=' + encodeURIComponent(activeTabUrl) : ''}`, {
@@ -585,7 +585,7 @@ async function pollTabs() {
       signal: AbortSignal.timeout(2000),
     });
     if (!resp.ok) {
-      console.warn(`[gstack sidebar] Tab poll failed: ${resp.status} ${resp.statusText}`);
+      console.warn(`[jstack sidebar] Tab poll failed: ${resp.status} ${resp.statusText}`);
       return;
     }
     const data = await resp.json();
@@ -598,7 +598,7 @@ async function pollTabs() {
 
     renderTabBar(data.tabs);
   } catch (err) {
-    console.error('[gstack sidebar] Tab poll error:', err.message);
+    console.error('[jstack sidebar] Tab poll error:', err.message);
   }
 }
 
@@ -646,7 +646,7 @@ async function switchBrowserTab(tabId) {
     switchChatTab(tabId);
     pollTabs();
   } catch (err) {
-    console.error('[gstack sidebar] Failed to switch browser tab:', err.message);
+    console.error('[jstack sidebar] Failed to switch browser tab:', err.message);
   }
 }
 
@@ -656,9 +656,9 @@ document.getElementById('clear-chat').addEventListener('click', async () => {
   if (!serverUrl) return;
   try {
     const resp = await fetch(`${serverUrl}/sidebar-chat/clear`, { method: 'POST', headers: authHeaders() });
-    if (!resp.ok) console.warn(`[gstack sidebar] Clear chat failed: ${resp.status}`);
+    if (!resp.ok) console.warn(`[jstack sidebar] Clear chat failed: ${resp.status}`);
   } catch (err) {
-    console.error('[gstack sidebar] Clear chat error:', err.message);
+    console.error('[jstack sidebar] Clear chat error:', err.message);
   }
   // Reset local state
   chatLineCount = 0;
@@ -690,7 +690,7 @@ document.getElementById('chat-cookies-btn').addEventListener('click', async () =
       body: JSON.stringify({ command: 'goto', args: [`${serverUrl}/cookie-picker`] }),
     });
   } catch (err) {
-    console.error('[gstack sidebar] Failed to open cookie picker:', err.message);
+    console.error('[jstack sidebar] Failed to open cookie picker:', err.message);
   }
 });
 
@@ -827,7 +827,7 @@ function connectSSE() {
 
   eventSource.addEventListener('activity', (e) => {
     try { addEntry(JSON.parse(e.data)); } catch (err) {
-      console.error('[gstack sidebar] Failed to parse activity event:', err.message);
+      console.error('[jstack sidebar] Failed to parse activity event:', err.message);
     }
   });
 
@@ -840,7 +840,7 @@ function connectSSE() {
       banner.textContent = `Missed ${data.availableFrom - data.gapFrom} events`;
       feed.appendChild(banner);
     } catch (err) {
-      console.error('[gstack sidebar] Failed to parse gap event:', err.message);
+      console.error('[jstack sidebar] Failed to parse gap event:', err.message);
     }
   });
 }
@@ -877,7 +877,7 @@ async function fetchRefs() {
     `).join('');
     footer.textContent = `${data.refs.length} refs`;
   } catch (err) {
-    console.error('[gstack sidebar] Failed to fetch refs:', err.message);
+    console.error('[jstack sidebar] Failed to fetch refs:', err.message);
   }
 }
 
@@ -1391,7 +1391,7 @@ function connectInspectorSSE() {
         const data = JSON.parse(e.data);
         inspectorShowData(data);
       } catch (err) {
-        console.error('[gstack sidebar] Failed to parse inspectResult:', err.message);
+        console.error('[jstack sidebar] Failed to parse inspectResult:', err.message);
       }
     });
 
@@ -1400,7 +1400,7 @@ function connectInspectorSSE() {
       if (inspectorSSE) { inspectorSSE.close(); inspectorSSE = null; }
     });
   } catch (err) {
-    console.debug('[gstack sidebar] Inspector SSE not available:', err.message);
+    console.debug('[jstack sidebar] Inspector SSE not available:', err.message);
   }
 }
 
@@ -1485,10 +1485,10 @@ document.getElementById('conn-reconnect').addEventListener('click', () => {
 });
 
 document.getElementById('conn-copy').addEventListener('click', () => {
-  navigator.clipboard.writeText('/open-gstack-browser').then(() => {
+  navigator.clipboard.writeText('/open-jstack-browser').then(() => {
     const btn = document.getElementById('conn-copy');
     btn.textContent = 'copied!';
-    setTimeout(() => { btn.textContent = '/open-gstack-browser'; }, 2000);
+    setTimeout(() => { btn.textContent = '/open-jstack-browser'; }, 2000);
   });
 });
 
@@ -1576,7 +1576,7 @@ async function tryConnect() {
   } catch (e) {
     setLoadingStatus(
       `Server not reachable on port ${port} (attempt ${connectAttempts})`,
-      `GET /health failed: ${e.message}\n\nThe browse server may still be starting.\nRun /open-gstack-browser in Claude Code.`
+      `GET /health failed: ${e.message}\n\nThe browse server may still be starting.\nRun /open-jstack-browser in Claude Code.`
     );
   }
 

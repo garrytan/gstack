@@ -55,7 +55,7 @@ if (!evalsEnabled) {
 // Codex E2E touchfiles — keyed by test name, same pattern as E2E_TOUCHFILES
 const CODEX_E2E_TOUCHFILES: Record<string, string[]> = {
   'codex-discover-skill':    ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
-  'codex-review-findings':   ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts'],
+  'codex-review-findings':   ['review/**', '.agents/skills/jstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts'],
 };
 
 let selectedTests: string[] | null = null; // null = run all
@@ -130,15 +130,15 @@ describeCodex('Codex E2E', () => {
   });
 
   testIfSelected('codex-discover-skill', async () => {
-    // Install gstack-review skill to a temp HOME and ask Codex to list skills
-    const skillDir = path.join(testWorktree, '.agents', 'skills', 'gstack-review');
+    // Install jstack-review skill to a temp HOME and ask Codex to list skills
+    const skillDir = path.join(testWorktree, '.agents', 'skills', 'jstack-review');
 
     const result = await runCodexSkill({
       skillDir,
       prompt: 'List any skills or instructions you have available. Just list the names.',
       timeoutMs: 60_000,
       cwd: testWorktree,
-      skillName: 'gstack-review',
+      skillName: 'jstack-review',
     });
 
     logCodexCost('codex-discover-skill', result);
@@ -155,23 +155,23 @@ describeCodex('Codex E2E', () => {
     // The output should reference the skill name in some form
     const outputLower = result.output.toLowerCase();
     expect(
-      outputLower.includes('review') || outputLower.includes('gstack') || outputLower.includes('skill'),
+      outputLower.includes('review') || outputLower.includes('jstack') || outputLower.includes('skill'),
     ).toBe(true);
   }, 120_000);
 
-  // Validates that Codex can invoke the gstack-review skill, run a diff-based
+  // Validates that Codex can invoke the jstack-review skill, run a diff-based
   // code review, and produce structured review output with findings/issues.
   // Accepts Codex timeout (exit 124/137) as non-failure since that's a CLI perf issue.
   testIfSelected('codex-review-findings', async () => {
-    // Install gstack-review skill and ask Codex to review the worktree
-    const skillDir = path.join(testWorktree, '.agents', 'skills', 'gstack-review');
+    // Install jstack-review skill and ask Codex to review the worktree
+    const skillDir = path.join(testWorktree, '.agents', 'skills', 'jstack-review');
 
     const result = await runCodexSkill({
       skillDir,
-      prompt: 'Run the gstack-review skill on this repository. Review the current branch diff and report your findings.',
+      prompt: 'Run the jstack-review skill on this repository. Review the current branch diff and report your findings.',
       timeoutMs: 540_000,
       cwd: testWorktree,
-      skillName: 'gstack-review',
+      skillName: 'jstack-review',
     });
 
     logCodexCost('codex-review-findings', result);

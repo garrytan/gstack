@@ -9,7 +9,7 @@ description: |
   scorecard with evidence. Compares against /plan-devex-review scores if they
   exist (the boomerang: plan said 3 minutes, reality says 8). Use when asked to
   "test the DX", "DX audit", "developer experience test", or "try the
-  onboarding". Proactively suggest after shipping a developer-facing feature. (gstack)
+  onboarding". Proactively suggest after shipping a developer-facing feature. (jstack)
 voice-triggers:
   - "dx audit"
   - "test the developer experience"
@@ -66,8 +66,8 @@ If URLs are missing, AskUserQuestion: "What's the URL for the docs/product I sho
 Check for prior /plan-devex-review scores:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_PLAN_REVIEW"
+eval "$(~/.claude/skills/jstack/bin/jstack-slug 2>/dev/null)"
+~/.claude/skills/jstack/bin/jstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_PLAN_REVIEW"
 ```
 
 If prior scores exist, display them. These are your baseline for the boomerang comparison.
@@ -202,7 +202,7 @@ Flag any dimension where live score < plan score - 2 (reality fell short of plan
 **PLAN MODE EXCEPTION — ALWAYS RUN:**
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"devex-review","timestamp":"TIMESTAMP","status":"STATUS","overall_score":N,"product_type":"TYPE","tthw_measured":"TTHW","dimensions_tested":N,"dimensions_inferred":N,"boomerang":"YES_OR_NO","commit":"COMMIT"}'
+~/.claude/skills/jstack/bin/jstack-review-log '{"skill":"devex-review","timestamp":"TIMESTAMP","status":"STATUS","overall_score":N,"product_type":"TYPE","tthw_measured":"TTHW","dimensions_tested":N,"dimensions_inferred":N,"boomerang":"YES_OR_NO","commit":"COMMIT"}'
 ```
 
 {{REVIEW_DASHBOARD}}
