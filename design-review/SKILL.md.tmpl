@@ -25,11 +25,11 @@ allowed-tools:
 
 # /design-review: Design Audit → Fix → Verify
 
-You are a senior product designer AND a frontend engineer. Review live sites with exacting visual standards — then fix what you find. You have strong opinions about typography, spacing, and visual hierarchy, and zero tolerance for generic or AI-generated-looking interfaces.
+Senior product designer + frontend engineer. Review live sites with exacting visual standards — fix what you find. Strong opinions on typography, spacing, visual hierarchy. Zero tolerance for generic or AI-slop interfaces.
 
 ## Setup
 
-**Parse the user's request for these parameters:**
+**Parse user request for these parameters:**
 
 | Parameter | Default | Override example |
 |-----------|---------|-----------------:|
@@ -38,19 +38,19 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 | Depth | Standard (5-8 pages) | `--quick` (homepage + 2), `--deep` (10-15 pages) |
 | Auth | None | `Sign in as user@example.com`, `Import cookies` |
 
-**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below).
+**If no URL given + feature branch:** Auto-enter **diff-aware mode** (see Modes below).
 
-**If no URL is given and you're on main/master:** Ask the user for a URL.
+**If no URL given + main/master:** Ask user for URL.
 
-**CDP mode detection:** Check if browse is connected to the user's real browser:
+**CDP mode detection:** Check if browse connected to user's real browser:
 ```bash
 $B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
 ```
-If `CDP_MODE=true`: skip cookie import steps — the real browser already has cookies and auth sessions. Skip headless detection workarounds.
+If `CDP_MODE=true`: skip cookie import — real browser already has cookies + auth. Skip headless detection workarounds.
 
 **Check for DESIGN.md:**
 
-Look for `DESIGN.md`, `design-system.md`, or similar in the repo root. If found, read it — all design decisions must be calibrated against it. Deviations from the project's stated design system are higher severity. If not found, use universal design principles and offer to create one from the inferred system.
+Look for `DESIGN.md`, `design-system.md`, or similar in repo root. If found, read it — calibrate all design decisions against it. Deviations from stated design system = higher severity. If not found, use universal design principles, offer to create one from inferred system.
 
 **Check for clean working tree:**
 
@@ -58,7 +58,7 @@ Look for `DESIGN.md`, `design-system.md`, or similar in the repo root. If found,
 git status --porcelain
 ```
 
-If the output is non-empty (working tree is dirty), **STOP** and use AskUserQuestion:
+If output non-empty (dirty tree), **STOP** and use AskUserQuestion:
 
 "Your working tree has uncommitted changes. /design-review needs a clean tree so each design fix gets its own atomic commit."
 
@@ -66,9 +66,9 @@ If the output is non-empty (working tree is dirty), **STOP** and use AskUserQues
 - B) Stash my changes — stash, run design review, pop the stash after
 - C) Abort — I'll clean up manually
 
-RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before design review adds its own fix commits.
+RECOMMENDATION: Choose A — preserve uncommitted work as commit before design review adds fix commits.
 
-After the user chooses, execute their choice (commit or stash), then continue with setup.
+After user chooses, execute their choice (commit or stash), then continue setup.
 
 **Find the browse binary:**
 
@@ -78,13 +78,13 @@ After the user chooses, execute their choice (commit or stash), then continue wi
 
 {{TEST_BOOTSTRAP}}
 
-**Find the cavestack designer (optional — enables target mockup generation):**
+**Find cavestack designer (optional — enables target mockup generation):**
 
 {{DESIGN_SETUP}}
 
-If `DESIGN_READY`: during the fix loop, you can generate "target mockups" showing what a finding should look like after fixing. This makes the gap between current and intended design visceral, not abstract.
+If `DESIGN_READY`: can generate "target mockups" in fix loop showing what finding should look like post-fix. Gap between current and intended = visceral, not abstract.
 
-If `DESIGN_NOT_AVAILABLE`: skip mockup generation — the fix loop works without it.
+If `DESIGN_NOT_AVAILABLE`: skip mockup generation — fix loop works without it.
 
 **Create output directories:**
 
@@ -107,7 +107,7 @@ echo "REPORT_DIR: $REPORT_DIR"
 
 {{DESIGN_HARD_RULES}}
 
-Record baseline design score and AI slop score at end of Phase 6.
+Record baseline design score + AI slop score at end of Phase 6.
 
 ---
 
@@ -135,19 +135,19 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 ## Phase 7: Triage
 
-Sort all discovered findings by impact, then decide which to fix:
+Sort findings by impact, decide which to fix:
 
-- **High Impact:** Fix first. These affect the first impression and hurt user trust.
-- **Medium Impact:** Fix next. These reduce polish and are felt subconsciously.
-- **Polish:** Fix if time allows. These separate good from great.
+- **High Impact:** Fix first. Affects first impression, hurts user trust.
+- **Medium Impact:** Fix next. Reduces polish, felt subconsciously.
+- **Polish:** Fix if time allows. Separates good from great.
 
-Mark findings that cannot be fixed from source code (e.g., third-party widget issues, content problems requiring copy from the team) as "deferred" regardless of impact.
+Mark findings unfixable from source (third-party widget issues, content needing copy from team) as "deferred" regardless of impact.
 
 ---
 
 ## Phase 8: Fix Loop
 
-For each fixable finding, in impact order:
+Each fixable finding, impact order:
 
 ### 8a. Locate source
 
@@ -156,28 +156,28 @@ For each fixable finding, in impact order:
 # Glob for file patterns matching the affected page
 ```
 
-- Find the source file(s) responsible for the design issue
-- ONLY modify files directly related to the finding
-- Prefer CSS/styling changes over structural component changes
+- Find source file(s) responsible for design issue
+- ONLY modify files directly related to finding
+- Prefer CSS/styling over structural component changes
 
 ### 8a.5. Target Mockup (if DESIGN_READY)
 
-If the cavestack designer is available and the finding involves visual layout, hierarchy, or spacing (not just a CSS value fix like wrong color or font-size), generate a target mockup showing what the corrected version should look like:
+If cavestack designer available and finding involves visual layout, hierarchy, or spacing (not just CSS value fix like wrong color or font-size), generate target mockup showing corrected version:
 
 ```bash
 $D generate --brief "<description of the page/component with the finding fixed, referencing DESIGN.md constraints>" --output "$REPORT_DIR/screenshots/finding-NNN-target.png"
 ```
 
-Show the user: "Here's the current state (screenshot) and here's what it should look like (mockup). Now I'll fix the source to match."
+Show user: "Here's current state (screenshot) and what it should look like (mockup). Now I'll fix source to match."
 
-This step is optional — skip for trivial CSS fixes (wrong hex color, missing padding value). Use it for findings where the intended design isn't obvious from the description alone.
+Optional — skip for trivial CSS fixes (wrong hex color, missing padding value). Use for findings where intended design isn't obvious from description alone.
 
 ### 8b. Fix
 
-- Read the source code, understand the context
-- Make the **minimal fix** — smallest change that resolves the design issue
-- If a target mockup was generated in 8a.5, use it as the visual reference for the fix
-- CSS-only changes are preferred (safer, more reversible)
+- Read source, understand context
+- **Minimal fix** — smallest change resolving design issue
+- If target mockup generated in 8a.5, use as visual reference
+- CSS-only preferred (safer, more reversible)
 - Do NOT refactor surrounding code, add features, or "improve" unrelated things
 
 ### 8c. Commit
@@ -187,12 +187,12 @@ git add <only-changed-files>
 git commit -m "style(design): FINDING-NNN — short description"
 ```
 
-- One commit per fix. Never bundle multiple fixes.
-- Message format: `style(design): FINDING-NNN — short description`
+- One commit per fix. Never bundle.
+- Format: `style(design): FINDING-NNN — short description`
 
 ### 8d. Re-test
 
-Navigate back to the affected page and verify the fix:
+Navigate back to affected page, verify fix:
 
 ```bash
 $B goto <affected-url>
@@ -205,25 +205,21 @@ Take **before/after screenshot pair** for every fix.
 
 ### 8e. Classify
 
-- **verified**: re-test confirms the fix works, no new errors introduced
-- **best-effort**: fix applied but couldn't fully verify (e.g., needs specific browser state)
-- **reverted**: regression detected → `git revert HEAD` → mark finding as "deferred"
+- **verified**: re-test confirms fix works, no new errors
+- **best-effort**: fix applied, couldn't fully verify (needs specific browser state)
+- **reverted**: regression detected → `git revert HEAD` → mark "deferred"
 
 ### 8e.5. Regression Test (design-review variant)
 
-Design fixes are typically CSS-only. Only generate regression tests for fixes involving
-JavaScript behavior changes — broken dropdowns, animation failures, conditional rendering,
-interactive state issues.
+Design fixes typically CSS-only. Only generate regression tests for JS behavior changes — broken dropdowns, animation failures, conditional rendering, interactive state.
 
-For CSS-only fixes: skip entirely. CSS regressions are caught by re-running /design-review.
+CSS-only fixes: skip entirely. CSS regressions caught by re-running /design-review.
 
-If the fix involved JS behavior: follow the same procedure as /qa Phase 8e.5 (study existing
-test patterns, write a regression test encoding the exact bug condition, run it, commit if
-passes or defer if fails). Commit format: `test(design): regression test for FINDING-NNN`.
+JS behavior fix: follow same procedure as /qa Phase 8e.5 (study existing test patterns, write regression test encoding exact bug condition, run it, commit if passes or defer if fails). Format: `test(design): regression test for FINDING-NNN`.
 
 ### 8f. Self-Regulation (STOP AND EVALUATE)
 
-Every 5 fixes (or after any revert), compute the design-fix risk level:
+Every 5 fixes (or after any revert), compute design-fix risk level:
 
 ```
 DESIGN-FIX RISK:
@@ -235,34 +231,34 @@ DESIGN-FIX RISK:
   Touching unrelated files:           +20%
 ```
 
-**If risk > 20%:** STOP immediately. Show the user what you've done so far. Ask whether to continue.
+**If risk > 20%:** STOP. Show user what's done so far. Ask whether to continue.
 
-**Hard cap: 30 fixes.** After 30 fixes, stop regardless of remaining findings.
+**Hard cap: 30 fixes.** Stop regardless of remaining findings.
 
 ---
 
 ## Phase 9: Final Design Audit
 
-After all fixes are applied:
+After all fixes applied:
 
-1. Re-run the design audit on all affected pages
-2. If target mockups were generated during the fix loop AND `DESIGN_READY`: run `$D verify --mockup "$REPORT_DIR/screenshots/finding-NNN-target.png" --screenshot "$REPORT_DIR/screenshots/finding-NNN-after.png"` to compare the fix result against the target. Include pass/fail in the report.
-3. Compute final design score and AI slop score
-4. **If final scores are WORSE than baseline:** WARN prominently — something regressed
+1. Re-run design audit on all affected pages
+2. If target mockups generated during fix loop AND `DESIGN_READY`: run `$D verify --mockup "$REPORT_DIR/screenshots/finding-NNN-target.png" --screenshot "$REPORT_DIR/screenshots/finding-NNN-after.png"` to compare fix vs target. Include pass/fail in report.
+3. Compute final design score + AI slop score
+4. **If final scores WORSE than baseline:** WARN prominently — something regressed
 
 ---
 
 ## Phase 10: Report
 
-Write the report to `$REPORT_DIR` (already set up in the setup phase):
+Write report to `$REPORT_DIR` (set up in setup phase):
 
 **Primary:** `$REPORT_DIR/design-audit-{domain}.md`
 
-**Also write a summary to the project index:**
+**Also write summary to project index:**
 ```bash
 {{SLUG_SETUP}}
 ```
-Write a one-line summary to `~/.cavestack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md` with a pointer to the full report in `$REPORT_DIR`.
+Write one-line summary to `~/.cavestack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md` with pointer to full report in `$REPORT_DIR`.
 
 **Per-finding additions** (beyond standard design audit report):
 - Fix Status: verified / best-effort / reverted / deferred
@@ -270,24 +266,24 @@ Write a one-line summary to `~/.cavestack/projects/{slug}/{user}-{branch}-design
 - Files Changed (if fixed)
 - Before/After screenshots (if fixed)
 
-**Summary section:**
+**Summary:**
 - Total findings
 - Fixes applied (verified: X, best-effort: Y, reverted: Z)
 - Deferred findings
 - Design score delta: baseline → final
 - AI slop score delta: baseline → final
 
-**PR Summary:** Include a one-line summary suitable for PR descriptions:
+**PR Summary:** One-line summary for PR descriptions:
 > "Design review found N issues, fixed M. Design score X → Y, AI slop score X → Y."
 
 ---
 
 ## Phase 11: TODOS.md Update
 
-If the repo has a `TODOS.md`:
+If repo has `TODOS.md`:
 
-1. **New deferred design findings** → add as TODOs with impact level, category, and description
-2. **Fixed findings that were in TODOS.md** → annotate with "Fixed by /design-review on {branch}, {date}"
+1. **New deferred findings** → add as TODOs with impact level, category, description
+2. **Fixed findings in TODOS.md** → annotate "Fixed by /design-review on {branch}, {date}"
 
 ---
 
@@ -295,10 +291,10 @@ If the repo has a `TODOS.md`:
 
 ## Additional Rules (design-review specific)
 
-11. **Clean working tree required.** If dirty, use AskUserQuestion to offer commit/stash/abort before proceeding.
-12. **One commit per fix.** Never bundle multiple design fixes into one commit.
-13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
-14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
-15. **Self-regulate.** Follow the design-fix risk heuristic. When in doubt, stop and ask.
-16. **CSS-first.** Prefer CSS/styling changes over structural component changes. CSS-only changes are safer and more reversible.
-17. **DESIGN.md export.** You MAY write a DESIGN.md file if the user accepts the offer from Phase 2.
+11. **Clean tree required.** Dirty tree → AskUserQuestion: commit/stash/abort.
+12. **One commit per fix.** Never bundle.
+13. **Only modify tests for regression tests in Phase 8e.5.** Never modify CI config. Never modify existing tests — only create new test files.
+14. **Revert on regression.** Fix makes things worse → `git revert HEAD` immediately.
+15. **Self-regulate.** Follow design-fix risk heuristic. When in doubt, stop and ask.
+16. **CSS-first.** Prefer CSS/styling over structural component changes. Safer, more reversible.
+17. **DESIGN.md export.** MAY write DESIGN.md if user accepts offer from Phase 2.

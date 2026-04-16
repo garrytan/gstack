@@ -34,26 +34,22 @@ allowed-tools:
 
 # /autoplan — Auto-Review Pipeline
 
-One command. Rough plan in, fully reviewed plan out.
+Rough plan in, reviewed plan out.
 
-/autoplan reads the full CEO, design, eng, and DX review skill files from disk and follows
-them at full depth — same rigor, same sections, same methodology as running each skill
-manually. The only difference: intermediate AskUserQuestion calls are auto-decided using
-the 6 principles below. Taste decisions (where reasonable people could disagree) are
-surfaced at a final approval gate.
+Reads CEO, design, eng, DX review skills from disk. Full depth — same rigor as manual. Only change: intermediate AskUserQuestion auto-decided via 6 principles. Taste decisions surfaced at final gate.
 
 ---
 
 ## The 6 Decision Principles
 
-These rules auto-answer every intermediate question:
+Auto-answer rules for every intermediate question:
 
-1. **Choose completeness** — Ship the whole thing. Pick the approach that covers more edge cases.
-2. **Boil lakes** — Fix everything in the blast radius (files modified by this plan + direct importers). Auto-approve expansions that are in blast radius AND < 1 day CC effort (< 5 files, no new infra).
-3. **Pragmatic** — If two options fix the same thing, pick the cleaner one. 5 seconds choosing, not 5 minutes.
-4. **DRY** — Duplicates existing functionality? Reject. Reuse what exists.
-5. **Explicit over clever** — 10-line obvious fix > 200-line abstraction. Pick what a new contributor reads in 30 seconds.
-6. **Bias toward action** — Merge > review cycles > stale deliberation. Flag concerns but don't block.
+1. **Completeness** — Ship whole thing. Pick approach covering more edge cases.
+2. **Boil lakes** — Fix everything in blast radius (modified files + direct importers). Auto-approve if in radius AND < 1d CC (< 5 files, no new infra).
+3. **Pragmatic** — Two options fix same thing? Cleaner one. 5 seconds, not 5 minutes.
+4. **DRY** — Duplicates existing? Reject. Reuse.
+5. **Explicit over clever** — 10-line obvious > 200-line abstraction. Readable in 30s.
+6. **Bias toward action** — Merge > review cycles > stale deliberation. Flag, don't block.
 
 **Conflict resolution (context-dependent tiebreakers):**
 - **CEO phase:** P1 (completeness) + P2 (boil lakes) dominate.
@@ -64,94 +60,74 @@ These rules auto-answer every intermediate question:
 
 ## Decision Classification
 
-Every auto-decision is classified:
+Every auto-decision classified:
 
-**Mechanical** — one clearly right answer. Auto-decide silently.
-Examples: run codex (always yes), run evals (always yes), reduce scope on a complete plan (always no).
+**Mechanical** — one right answer. Auto-decide silently.
+Examples: run codex (always yes), run evals (always yes), reduce scope on complete plan (always no).
 
-**Taste** — reasonable people could disagree. Auto-decide with recommendation, but surface at the final gate. Three natural sources:
-1. **Close approaches** — top two are both viable with different tradeoffs.
-2. **Borderline scope** — in blast radius but 3-5 files, or ambiguous radius.
-3. **Codex disagreements** — codex recommends differently and has a valid point.
+**Taste** — reasonable people disagree. Auto-decide with recommendation, surface at gate. Three sources:
+1. **Close approaches** — top two viable, different tradeoffs.
+2. **Borderline scope** — in blast radius but 3-5 files, ambiguous radius.
+3. **Codex disagreements** — codex recommends differently, valid point.
 
-**User Challenge** — both models agree the user's stated direction should change.
-This is qualitatively different from taste decisions. When Claude and Codex both
-recommend merging, splitting, adding, or removing features/skills/workflows that
-the user specified, this is a User Challenge. It is NEVER auto-decided.
+**User Challenge** — both models agree user's direction should change. Different from taste. Claude and Codex both recommend merging/splitting/adding/removing user-specified features — NEVER auto-decided.
 
-User Challenges go to the final approval gate with richer context than taste
-decisions:
-- **What the user said:** (their original direction)
-- **What both models recommend:** (the change)
-- **Why:** (the models' reasoning)
-- **What context we might be missing:** (explicit acknowledgment of blind spots)
-- **If we're wrong, the cost is:** (what happens if the user's original direction
-  was right and we changed it)
+User Challenges go to final gate with richer context:
+- **What user said:** (original direction)
+- **What both models recommend:** (change)
+- **Why:** (reasoning)
+- **Missing context:** (blind spots)
+- **If wrong, cost is:** (downside if user was right)
 
-The user's original direction is the default. The models must make the case for
-change, not the other way around.
+User's original direction = default. Models must make case for change.
 
-**Exception:** If both models flag the change as a security vulnerability or
-feasibility blocker (not a preference), the AskUserQuestion framing explicitly
-warns: "Both models believe this is a security/feasibility risk, not just a
-preference." The user still decides, but the framing is appropriately urgent.
+**Exception:** Both models flag security vulnerability or feasibility blocker (not preference) = AskUserQuestion warns: "Both models believe this is a security/feasibility risk, not just a preference." User still decides, framing urgent.
 
 ---
 
 ## Sequential Execution — MANDATORY
 
 Phases MUST execute in strict order: CEO → Design → Eng → DX.
-Each phase MUST complete fully before the next begins.
-NEVER run phases in parallel — each builds on the previous.
+Each phase MUST complete fully before next begins.
+NEVER run phases in parallel — each builds on previous.
 
-Between each phase, emit a phase-transition summary and verify that all required
-outputs from the prior phase are written before starting the next.
+Between phases, emit transition summary. Verify all prior phase outputs written before starting next.
 
 ---
 
 ## What "Auto-Decide" Means
 
-Auto-decide replaces the USER'S judgment with the 6 principles. It does NOT replace
-the ANALYSIS. Every section in the loaded skill files must still be executed at the
-same depth as the interactive version. The only thing that changes is who answers the
-AskUserQuestion: you do, using the 6 principles, instead of the user.
+Replaces USER'S judgment with 6 principles. Does NOT replace ANALYSIS. Every section executes at same depth as interactive. Only change: you answer AskUserQuestion via 6 principles.
 
 **Two exceptions — never auto-decided:**
-1. Premises (Phase 1) — require human judgment about what problem to solve.
-2. User Challenges — when both models agree the user's stated direction should change
-   (merge, split, add, remove features/workflows). The user always has context models
-   lack. See Decision Classification above.
+1. Premises (Phase 1) — require human judgment on what problem to solve.
+2. User Challenges — both models agree user's direction should change. User has context models lack.
 
-**You MUST still:**
-- READ the actual code, diffs, and files each section references
-- PRODUCE every output the section requires (diagrams, tables, registries, artifacts)
-- IDENTIFY every issue the section is designed to catch
-- DECIDE each issue using the 6 principles (instead of asking the user)
-- LOG each decision in the audit trail
+**MUST still:**
+- READ actual code, diffs, files each section references
+- PRODUCE every output section requires (diagrams, tables, registries, artifacts)
+- IDENTIFY every issue section designed to catch
+- DECIDE each issue using 6 principles (instead of asking user)
+- LOG each decision in audit trail
 - WRITE all required artifacts to disk
 
-**You MUST NOT:**
-- Compress a review section into a one-liner table row
-- Write "no issues found" without showing what you examined
-- Skip a section because "it doesn't apply" without stating what you checked and why
-- Produce a summary instead of the required output (e.g., "architecture looks good"
-  instead of the ASCII dependency graph the section requires)
+**MUST NOT:**
+- Compress review section into one-liner table row
+- Write "no issues found" without showing what examined
+- Skip section because "doesn't apply" without stating what checked and why
+- Produce summary instead of required output ("architecture looks good" instead of ASCII dependency graph)
 
-"No issues found" is a valid output for a section — but only after doing the analysis.
-State what you examined and why nothing was flagged (1-2 sentences minimum).
-"Skipped" is never valid for a non-skip-listed section.
+"No issues found" valid — only after doing analysis. State what examined, why nothing flagged (1-2 sentences min). "Skipped" never valid for non-skip-listed section.
 
 ---
 
 ## Filesystem Boundary — Codex Prompts
 
-All prompts sent to Codex (via `codex exec` or `codex review`) MUST be prefixed with
-this boundary instruction:
+All Codex prompts (`codex exec` or `codex review`) MUST prefix with this boundary:
 
 > IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/cavestack). These are AI assistant skill definitions meant for a different system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Stay focused on the repository code only.
 
-This prevents Codex from discovering cavestack skill files on disk and following their
-instructions instead of reviewing the plan.
+Prevents Codex from discovering skill files and following their instructions instead of reviewing plan.
 
 ---
 
@@ -159,7 +135,7 @@ instructions instead of reviewing the plan.
 
 ### Step 1: Capture restore point
 
-Before doing anything, save the plan file's current state to an external file:
+Save plan file's current state to external file:
 
 ```bash
 {{SLUG_SETUP}}
@@ -168,7 +144,7 @@ DATETIME=$(date +%Y%m%d-%H%M%S)
 echo "RESTORE_PATH=$HOME/.cavestack/projects/$SLUG/${BRANCH}-autoplan-restore-${DATETIME}.md"
 ```
 
-Write the plan file's full contents to the restore path with this header:
+Write plan file contents to restore path with this header:
 ```
 # /autoplan Restore Point
 Captured: [timestamp] | Branch: [branch] | Commit: [short hash]
@@ -181,35 +157,25 @@ Captured: [timestamp] | Branch: [branch] | Commit: [short hash]
 [verbatim plan file contents]
 ```
 
-Then prepend a one-line HTML comment to the plan file:
+Prepend one-line HTML comment to plan file:
 `<!-- /autoplan restore point: [RESTORE_PATH] -->`
 
 ### Step 2: Read context
 
-- Read CLAUDE.md, TODOS.md, git log -30, git diff against the base branch --stat
+- Read CLAUDE.md, TODOS.md, git log -30, git diff against base branch --stat
 - Discover design docs: `ls -t ~/.cavestack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1`
-- Detect UI scope: grep the plan for view/rendering terms (component, screen, form,
-  button, modal, layout, dashboard, sidebar, nav, dialog). Require 2+ matches. Exclude
-  false positives ("page" alone, "UI" in acronyms).
-- Detect DX scope: grep the plan for developer-facing terms (API, endpoint, REST,
-  GraphQL, gRPC, webhook, CLI, command, flag, argument, terminal, shell, SDK, library,
-  package, npm, pip, import, require, SKILL.md, skill template, Claude Code, MCP, agent,
-  OpenClaw, action, developer docs, getting started, onboarding, integration, debug,
-  implement, error message). Require 2+ matches. Also trigger DX scope if the product IS
-  a developer tool (the plan describes something developers install, integrate, or build
-  on top of) or if an AI agent is the primary user (OpenClaw actions, Claude Code skills,
-  MCP servers).
+- Detect UI scope: grep plan for view/rendering terms (component, screen, form, button, modal, layout, dashboard, sidebar, nav, dialog). 2+ matches required. Exclude false positives ("page" alone, "UI" in acronyms).
+- Detect DX scope: grep plan for dev-facing terms (API, endpoint, REST, GraphQL, gRPC, webhook, CLI, command, flag, argument, terminal, shell, SDK, library, package, npm, pip, import, require, SKILL.md, skill template, Claude Code, MCP, agent, OpenClaw, action, developer docs, getting started, onboarding, integration, debug, implement, error message). 2+ matches required. Also trigger if product IS dev tool or AI agent is primary user.
 
 ### Step 3: Load skill files from disk
 
-Read each file using the Read tool:
+Read each via Read tool:
 - `~/.claude/skills/cavestack/plan-ceo-review/SKILL.md`
 - `~/.claude/skills/cavestack/plan-design-review/SKILL.md` (only if UI scope detected)
 - `~/.claude/skills/cavestack/plan-eng-review/SKILL.md`
 - `~/.claude/skills/cavestack/plan-devex-review/SKILL.md` (only if DX scope detected)
 
-**Section skip list — when following a loaded skill file, SKIP these sections
-(they are already handled by /autoplan):**
+**Section skip list — SKIP these (already handled by /autoplan):**
 - Preamble (run first)
 - AskUserQuestion Format
 - Completeness Principle — Boil the Lake
@@ -223,32 +189,25 @@ Read each file using the Read tool:
 - Outside Voice — Independent Plan Challenge
 - Design Outside Voices (parallel)
 
-Follow ONLY the review-specific methodology, sections, and required outputs.
+Follow ONLY review-specific methodology, sections, required outputs.
 
-Output: "Here's what I'm working with: [plan summary]. UI scope: [yes/no]. DX scope: [yes/no].
-Loaded review skills from disk. Starting full review pipeline with auto-decisions."
+Output: "Working with: [plan summary]. UI scope: [yes/no]. DX scope: [yes/no]. Loaded skills. Starting pipeline with auto-decisions."
 
 ---
 
 ## Phase 1: CEO Review (Strategy & Scope)
 
 Follow plan-ceo-review/SKILL.md — all sections, full depth.
-Override: every AskUserQuestion → auto-decide using the 6 principles.
+Override: every AskUserQuestion → auto-decide using 6 principles.
 
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION
-- Premises: accept reasonable ones (P6), challenge only clearly wrong ones
-- **GATE: Present premises to user for confirmation** — this is the ONE AskUserQuestion
-  that is NOT auto-decided. Premises require human judgment.
-- Alternatives: pick highest completeness (P1). If tied, pick simplest (P5).
-  If top 2 are close → mark TASTE DECISION.
-- Scope expansion: in blast radius + <1d CC → approve (P2). Outside → defer to TODOS.md (P3).
-  Duplicates → reject (P4). Borderline (3-5 files) → mark TASTE DECISION.
-- All 10 review sections: run fully, auto-decide each issue, log every decision.
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
-  Run them sequentially in foreground. First the Claude subagent (Agent tool,
-  foreground — do NOT use run_in_background), then Codex (Bash). Both must
-  complete before building the consensus table.
+- Premises: accept reasonable (P6), challenge only clearly wrong
+- **GATE: Present premises to user** — ONE AskUserQuestion NOT auto-decided. Human judgment required.
+- Alternatives: highest completeness (P1). Tied = simplest (P5). Top 2 close = TASTE DECISION.
+- Scope expansion: blast radius + <1d CC = approve (P2). Outside = defer to TODOS.md (P3). Duplicates = reject (P4). Borderline (3-5 files) = TASTE DECISION.
+- All 10 review sections: run fully, auto-decide each, log every decision.
+- Dual voices: always BOTH subagent AND Codex if available (P6). Sequential foreground. Subagent first (Agent tool — NOT run_in_background), then Codex (Bash). Both complete before consensus table.
 
   **Codex CEO voice** (via Bash):
   ```bash
@@ -275,21 +234,16 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   5. What's the competitive risk — could someone else solve this first/better?
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
-  **Error handling:** Both calls block in foreground. Codex auth/timeout/empty → proceed with
-  Claude subagent only, tagged `[single-model]`. If Claude subagent also fails →
-  "Outside voices unavailable — continuing with primary review."
+  **Error handling:** Both block foreground. Codex auth/timeout/empty = subagent only, tagged `[single-model]`. Both fail = "Outside voices unavailable — continuing with primary review."
 
-  **Degradation matrix:** Both fail → "single-reviewer mode". Codex only →
-  tag `[codex-only]`. Subagent only → tag `[subagent-only]`.
+  **Degradation:** Both fail = "single-reviewer mode". Codex only = `[codex-only]`. Subagent only = `[subagent-only]`.
 
-- Strategy choices: if codex disagrees with a premise or scope decision with valid
-  strategic reason → TASTE DECISION. If both models agree the user's stated structure
-  should change (merge, split, add, remove) → USER CHALLENGE (never auto-decided).
+- Strategy: codex disagrees with premise/scope with valid reason = TASTE DECISION. Both models agree user's structure should change (merge, split, add, remove) = USER CHALLENGE (never auto-decided).
 
 **Required execution checklist (CEO):**
 
-Step 0 (0A-0F) — run each sub-step and produce:
-- 0A: Premise challenge with specific premises named and evaluated
+Step 0 (0A-0F) — run each, produce:
+- 0A: Premise challenge with specific premises named/evaluated
 - 0B: Existing code leverage map (sub-problems → existing code)
 - 0C: Dream state diagram (CURRENT → THIS PLAN → 12-MONTH IDEAL)
 - 0C-bis: Implementation alternatives table (2-3 approaches with effort/risk/pros/cons)
@@ -297,10 +251,7 @@ Step 0 (0A-0F) — run each sub-step and produce:
 - 0E: Temporal interrogation (HOUR 1 → HOUR 6+)
 - 0F: Mode selection confirmation
 
-Step 0.5 (Dual Voices): Run Claude subagent (foreground Agent tool) first, then
-Codex (Bash). Present Codex output under CODEX SAYS (CEO — strategy challenge)
-header. Present subagent output under CLAUDE SUBAGENT (CEO — strategic independence)
-header. Produce CEO consensus table:
+Step 0.5 (Dual Voices): Subagent first (foreground Agent), then Codex (Bash). Present under CODEX SAYS (CEO — strategy challenge) and CLAUDE SUBAGENT (CEO — strategic independence) headers. Produce CEO consensus table:
 
 ```
 CEO DUAL VOICES — CONSENSUS TABLE:
@@ -318,27 +269,25 @@ CONFIRMED = both agree. DISAGREE = models differ (→ taste decision).
 Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = flagged regardless.
 ```
 
-Sections 1-10 — for EACH section, run the evaluation criteria from the loaded skill file:
-- Sections WITH findings: full analysis, auto-decide each issue, log to audit trail
-- Sections with NO findings: 1-2 sentences stating what was examined and why nothing
-  was flagged. NEVER compress a section to just its name in a table row.
-- Section 11 (Design): run only if UI scope was detected in Phase 0
+Sections 1-10 — EACH section, run eval criteria from loaded skill:
+- WITH findings: full analysis, auto-decide each, log to audit trail
+- NO findings: 1-2 sentences on what examined, why nothing flagged. NEVER compress to table row.
+- Section 11 (Design): only if UI scope detected
 
-**Mandatory outputs from Phase 1:**
-- "NOT in scope" section with deferred items and rationale
-- "What already exists" section mapping sub-problems to existing code
-- Error & Rescue Registry table (from Section 2)
-- Failure Modes Registry table (from review sections)
-- Dream state delta (where this plan leaves us vs 12-month ideal)
-- Completion Summary (the full summary table from the CEO skill)
+**Mandatory Phase 1 outputs:**
+- "NOT in scope" + deferred items + rationale
+- "What already exists" mapping sub-problems to code
+- Error & Rescue Registry table (Section 2)
+- Failure Modes Registry table (review sections)
+- Dream state delta (plan vs 12-month ideal)
+- Completion Summary (full table from CEO skill)
 
-**PHASE 1 COMPLETE.** Emit phase-transition summary:
+**PHASE 1 COMPLETE.** Emit:
 > **Phase 1 complete.** Codex: [N concerns]. Claude subagent: [N issues].
 > Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
 > Passing to Phase 2.
 
-Do NOT begin Phase 2 until all Phase 1 outputs are written to the plan file
-and the premise gate has been passed.
+Do NOT begin Phase 2 until all Phase 1 outputs written and premise gate passed.
 
 ---
 
@@ -352,71 +301,58 @@ and the premise gate has been passed.
 ## Phase 2: Design Review (conditional — skip if no UI scope)
 
 Follow plan-design-review/SKILL.md — all 7 dimensions, full depth.
-Override: every AskUserQuestion → auto-decide using the 6 principles.
+Override: every AskUserQuestion → auto-decide using 6 principles.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)
 - Structural issues (missing states, broken hierarchy): auto-fix (P5)
-- Aesthetic/taste issues: mark TASTE DECISION
-- Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Aesthetic/taste: TASTE DECISION
+- Design system: auto-fix if DESIGN.md exists, fix obvious
+- Dual voices: always BOTH subagent AND Codex if available (P6).
 
   **Codex design voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
   codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/cavestack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
-  Read the plan file at <plan_path>. Evaluate this plan's
-  UI/UX design decisions.
+  Read plan at <plan_path>. Evaluate UI/UX design decisions.
 
-  Also consider these findings from the CEO review phase:
+  Also consider CEO review phase findings:
   <insert CEO dual voice findings summary — key concerns, disagreements>
 
-  Does the information hierarchy serve the user or the developer? Are interaction
-  states (loading, empty, error, partial) specified or left to the implementer's
-  imagination? Is the responsive strategy intentional or afterthought? Are
-  accessibility requirements (keyboard nav, contrast, touch targets) specified or
-  aspirational? Does the plan describe specific UI decisions or generic patterns?
-  What design decisions will haunt the implementer if left ambiguous?
+  Info hierarchy serve user or dev? Interaction states (loading, empty, error, partial) specified or left to imagination? Responsive intentional or afterthought? A11y (keyboard nav, contrast, touch targets) specified or aspirational? Specific UI decisions or generic patterns? What haunts implementer if left ambiguous?
   Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only --enable web_search_cached
   ```
   Timeout: 10 minutes
 
   **Claude design subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent senior product designer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Information hierarchy: what does the user see first, second, third? Is it right?
-  2. Missing states: loading, empty, error, success, partial — which are unspecified?
-  3. User journey: what's the emotional arc? Where does it break?
-  4. Specificity: does the plan describe SPECIFIC UI or generic patterns?
-  5. What design decisions will haunt the implementer if left ambiguous?
-  For each finding: what's wrong, severity (critical/high/medium), and the fix."
-  NO prior-phase context — subagent must be truly independent.
+  "Read plan at <plan_path>. Independent senior product designer. NOT seen prior review. Evaluate:
+  1. Info hierarchy: user sees first/second/third? Right?
+  2. Missing states: loading, empty, error, success, partial — which unspecified?
+  3. User journey: emotional arc? Where breaks?
+  4. Specificity: SPECIFIC UI or generic patterns?
+  5. What haunts implementer if ambiguous?
+  Each finding: what's wrong, severity (critical/high/medium), fix."
+  NO prior-phase context — subagent truly independent.
 
-  Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
+  Error handling: same as Phase 1.
 
-- Design choices: if codex disagrees with a design decision with valid UX reasoning
-  → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
+- Design: codex disagrees with valid UX reasoning = TASTE DECISION. Both agree on scope change = USER CHALLENGE.
 
 **Required execution checklist (Design):**
 
 1. Step 0 (Design Scope): Rate completeness 0-10. Check DESIGN.md. Map existing patterns.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present under
-   CODEX SAYS (design — UX challenge) and CLAUDE SUBAGENT (design — independent review)
-   headers. Produce design litmus scorecard (consensus table). Use the litmus scorecard
-   format from plan-design-review. Include CEO phase findings in Codex prompt ONLY
-   (not Claude subagent — stays independent).
+2. Step 0.5 (Dual Voices): Subagent first (foreground), then Codex. Present under CODEX SAYS (design — UX challenge) and CLAUDE SUBAGENT (design — independent review) headers. Produce litmus scorecard (consensus table) per plan-design-review format. CEO findings in Codex prompt ONLY (subagent stays independent).
 
-3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
-   DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
+3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each. DISAGREE items raised in relevant pass with both perspectives.
 
-**PHASE 2 COMPLETE.** Emit phase-transition summary:
+**PHASE 2 COMPLETE.** Emit:
 > **Phase 2 complete.** Codex: [N concerns]. Claude subagent: [N issues].
 > Consensus: [X/Y confirmed, Z disagreements → surfaced at gate].
 > Passing to Phase 3.
 
-Do NOT begin Phase 3 until all Phase 2 outputs (if run) are written to the plan file.
+Do NOT begin Phase 3 until all Phase 2 outputs written.
 
 ---
 
@@ -430,21 +366,20 @@ Do NOT begin Phase 3 until all Phase 2 outputs (if run) are written to the plan 
 ## Phase 3: Eng Review + Dual Voices
 
 Follow plan-eng-review/SKILL.md — all sections, full depth.
-Override: every AskUserQuestion → auto-decide using the 6 principles.
+Override: every AskUserQuestion → auto-decide using 6 principles.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Dual voices: always BOTH subagent AND Codex if available (P6).
 
   **Codex eng voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
   codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/cavestack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
-  Review this plan for architectural issues, missing edge cases,
-  and hidden complexity. Be adversarial.
+  Review plan for architectural issues, missing edge cases, hidden complexity. Be adversarial.
 
-  Also consider these findings from prior review phases:
+  Prior phase findings:
   CEO: <insert CEO consensus table summary — key concerns, DISAGREEs>
   Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
 
@@ -453,32 +388,27 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   Timeout: 10 minutes
 
   **Claude eng subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent senior engineer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Architecture: Is the component structure sound? Coupling concerns?
-  2. Edge cases: What breaks under 10x load? What's the nil/empty/error path?
-  3. Tests: What's missing from the test plan? What would break at 2am Friday?
-  4. Security: New attack surface? Auth boundaries? Input validation?
-  5. Hidden complexity: What looks simple but isn't?
-  For each finding: what's wrong, severity, and the fix."
-  NO prior-phase context — subagent must be truly independent.
+  "Read plan at <plan_path>. Independent senior engineer. NOT seen prior review. Evaluate:
+  1. Architecture: structure sound? Coupling?
+  2. Edge cases: what breaks at 10x load? nil/empty/error?
+  3. Tests: gaps in test plan? What breaks 2am Friday?
+  4. Security: attack surface? Auth? Input validation?
+  5. Hidden complexity: looks simple but isn't?
+  Each finding: what's wrong, severity, fix."
+  NO prior-phase context — subagent truly independent.
 
-  Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
+  Error handling: same as Phase 1.
 
-- Architecture choices: explicit over clever (P5). If codex disagrees with valid reason → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
-- Evals: always include all relevant suites (P1)
-- Test plan: generate artifact at `~/.cavestack/projects/$SLUG/{user}-{branch}-test-plan-{datetime}.md`
-- TODOS.md: collect all deferred scope expansions from Phase 1, auto-write
+- Architecture: explicit over clever (P5). Codex disagrees validly = TASTE DECISION. Both agree on scope change = USER CHALLENGE.
+- Evals: all relevant suites (P1)
+- Test plan: generate at `~/.cavestack/projects/$SLUG/{user}-{branch}-test-plan-{datetime}.md`
+- TODOS.md: collect deferred scope expansions from Phase 1, auto-write
 
 **Required execution checklist (Eng):**
 
-1. Step 0 (Scope Challenge): Read actual code referenced by the plan. Map each
-   sub-problem to existing code. Run the complexity check. Produce concrete findings.
+1. Step 0 (Scope Challenge): Read actual code plan references. Map sub-problems to existing code. Run complexity check. Concrete findings.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present
-   Codex output under CODEX SAYS (eng — architecture challenge) header. Present subagent
-   output under CLAUDE SUBAGENT (eng — independent review) header. Produce eng consensus
-   table:
+2. Step 0.5 (Dual Voices): Subagent first (foreground), then Codex. Present under CODEX SAYS (eng — architecture challenge) and CLAUDE SUBAGENT (eng — independent review) headers. Produce eng consensus table:
 
 ```
 ENG DUAL VOICES — CONSENSUS TABLE:
@@ -496,22 +426,18 @@ CONFIRMED = both agree. DISAGREE = models differ (→ taste decision).
 Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = flagged regardless.
 ```
 
-3. Section 1 (Architecture): Produce ASCII dependency graph showing new components
-   and their relationships to existing ones. Evaluate coupling, scaling, security.
+3. Section 1 (Architecture): ASCII dependency graph of new components + relationships to existing. Evaluate coupling, scaling, security.
 
-4. Section 2 (Code Quality): Identify DRY violations, naming issues, complexity.
-   Reference specific files and patterns. Auto-decide each finding.
+4. Section 2 (Code Quality): DRY violations, naming, complexity. Reference specific files/patterns. Auto-decide each.
 
 5. **Section 3 (Test Review) — NEVER SKIP OR COMPRESS.**
-   This section requires reading actual code, not summarizing from memory.
-   - Read the diff or the plan's affected files
-   - Build the test diagram: list every NEW UX flow, data flow, codepath, and branch
-   - For EACH item in the diagram: what type of test covers it? Does one exist? Gaps?
-   - For LLM/prompt changes: which eval suites must run?
-   - Auto-deciding test gaps means: identify the gap → decide whether to add a test
-     or defer (with rationale and principle) → log the decision. It does NOT mean
-     skipping the analysis.
-   - Write the test plan artifact to disk
+   Requires reading actual code, not summarizing from memory.
+   - Read diff or plan's affected files
+   - Build test diagram: every NEW UX flow, data flow, codepath, branch
+   - EACH item: what test covers it? Exists? Gaps?
+   - LLM/prompt changes: which eval suites?
+   - Auto-deciding gaps = identify gap → decide add test or defer (rationale + principle) → log. NOT skipping analysis.
+   - Write test plan artifact to disk
 
 6. Section 4 (Performance): Evaluate N+1 queries, memory, caching, slow paths.
 
@@ -522,8 +448,8 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - Test diagram mapping codepaths to coverage (Section 3)
 - Test plan artifact written to disk (Section 3)
 - Failure modes registry with critical gap flags
-- Completion Summary (the full summary from the Eng skill)
-- TODOS.md updates (collected from all phases)
+- Completion Summary (full summary from Eng skill)
+- TODOS.md updates (all phases)
 
 **PHASE 3 COMPLETE.** Emit phase-transition summary:
 > **Phase 3 complete.** Codex: [N concerns]. Claude subagent: [N issues].
@@ -542,60 +468,55 @@ Log: "Phase 3.5 skipped — no developer-facing scope detected."
 
 **Override rules:**
 - Mode selection: DX POLISH
-- Persona: infer from README/docs, pick the most common developer type (P6)
-- Competitive benchmark: run searches if WebSearch available, use reference benchmarks otherwise (P1)
-- Magical moment: pick the lowest-effort delivery vehicle that achieves the competitive tier (P5)
-- Getting started friction: always optimize toward fewer steps (P5, simpler over clever)
-- Error message quality: always require problem + cause + fix (P1, completeness)
-- API/CLI naming: consistency wins over cleverness (P5)
-- DX taste decisions (e.g., opinionated defaults vs flexibility): mark TASTE DECISION
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Persona: infer from README/docs, most common dev type (P6)
+- Competitive benchmark: WebSearch if available, reference benchmarks otherwise (P1)
+- Magical moment: lowest-effort vehicle achieving competitive tier (P5)
+- Getting started: optimize toward fewer steps (P5)
+- Error messages: always require problem + cause + fix (P1)
+- API/CLI naming: consistency > cleverness (P5)
+- DX taste (opinionated defaults vs flexibility): TASTE DECISION
+- Dual voices: always BOTH subagent AND Codex if available (P6).
 
   **Codex DX voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
   codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/cavestack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
-  Read the plan file at <plan_path>. Evaluate this plan's developer experience.
+  Read plan at <plan_path>. Evaluate developer experience.
 
-  Also consider these findings from prior review phases:
+  Prior phase findings:
   CEO: <insert CEO consensus summary>
   Eng: <insert Eng consensus summary>
 
-  You are a developer who has never seen this product. Evaluate:
-  1. Time to hello world: how many steps from zero to working? Target is under 5 minutes.
-  2. Error messages: when something goes wrong, does the dev know what, why, and how to fix?
-  3. API/CLI design: are names guessable? Are defaults sensible? Is it consistent?
-  4. Docs: can a dev find what they need in under 2 minutes? Are examples copy-paste-complete?
-  5. Upgrade path: can devs upgrade without fear? Migration guides? Deprecation warnings?
-  Be adversarial. Think like a developer who is evaluating this against 3 competitors." -C "$_REPO_ROOT" -s read-only --enable web_search_cached
+  Developer who never seen this product. Evaluate:
+  1. Time to hello world: steps from zero to working? Target under 5 min.
+  2. Error messages: dev knows what, why, how to fix?
+  3. API/CLI design: names guessable? Defaults sensible? Consistent?
+  4. Docs: find needs in under 2 min? Examples copy-paste-complete?
+  5. Upgrade path: upgrade without fear? Migration guides? Deprecation warnings?
+  Be adversarial. Evaluating against 3 competitors." -C "$_REPO_ROOT" -s read-only --enable web_search_cached
   ```
   Timeout: 10 minutes
 
   **Claude DX subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent DX engineer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Getting started: how many steps from zero to hello world? What's the TTHW?
+  "Read plan at <plan_path>. Independent DX engineer. NOT seen prior review. Evaluate:
+  1. Getting started: steps to hello world? TTHW?
   2. API/CLI ergonomics: naming consistency, sensible defaults, progressive disclosure?
-  3. Error handling: does every error path specify problem + cause + fix + docs link?
-  4. Documentation: copy-paste examples? Information architecture? Interactive elements?
-  5. Escape hatches: can developers override every opinionated default?
-  For each finding: what's wrong, severity (critical/high/medium), and the fix."
-  NO prior-phase context — subagent must be truly independent.
+  3. Error handling: every error path specify problem + cause + fix + docs link?
+  4. Documentation: copy-paste examples? Info architecture? Interactive elements?
+  5. Escape hatches: override every opinionated default?
+  For each: what's wrong, severity (critical/high/medium), fix."
+  NO prior-phase context — subagent truly independent.
 
-  Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
+  Error handling: same as Phase 1.
 
-- DX choices: if codex disagrees with a DX decision with valid developer empathy reasoning
-  → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
+- DX: codex disagrees with valid dev empathy reasoning = TASTE DECISION. Both agree on scope change = USER CHALLENGE.
 
 **Required execution checklist (DX):**
 
-1. Step 0 (DX Scope Assessment): Auto-detect product type. Map the developer journey.
-   Rate initial DX completeness 0-10. Assess TTHW.
+1. Step 0 (DX Scope): Auto-detect product type. Map dev journey. Rate DX 0-10. Assess TTHW.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present
-   under CODEX SAYS (DX — developer experience challenge) and CLAUDE SUBAGENT
-   (DX — independent review) headers. Produce DX consensus table:
+2. Step 0.5 (Dual Voices): Subagent first (foreground), then Codex. Present under CODEX SAYS (DX — dev experience challenge) and CLAUDE SUBAGENT (DX — independent review) headers. Produce DX consensus table:
 
 ```
 DX DUAL VOICES — CONSENSUS TABLE:
@@ -613,10 +534,9 @@ CONFIRMED = both agree. DISAGREE = models differ (→ taste decision).
 Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = flagged regardless.
 ```
 
-3. Passes 1-8: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
-   DISAGREE items from consensus table → raised in the relevant pass with both perspectives.
+3. Passes 1-8: Run each from loaded skill. Rate 0-10. Auto-decide each. DISAGREE items raised in relevant pass with both perspectives.
 
-4. DX Scorecard: Produce the full scorecard with all 8 dimensions scored.
+4. DX Scorecard: Full scorecard, all 8 dimensions scored.
 
 **Mandatory outputs from Phase 3.5:**
 - Developer journey map (9-stage table)
@@ -635,7 +555,7 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 
 ## Decision Audit Trail
 
-After each auto-decision, append a row to the plan file using Edit:
+After each auto-decision, append row to plan file via Edit:
 
 ```markdown
 <!-- AUTONOMOUS DECISION LOG -->
@@ -645,15 +565,13 @@ After each auto-decision, append a row to the plan file using Edit:
 |---|-------|----------|-----------|-----------|----------|
 ```
 
-Write one row per decision incrementally (via Edit). This keeps the audit on disk,
-not accumulated in conversation context.
+One row per decision, incremental. Keeps audit on disk, not in conversation context.
 
 ---
 
 ## Pre-Gate Verification
 
-Before presenting the Final Approval Gate, verify that required outputs were actually
-produced. Check the plan file and conversation for each item.
+Before Final Approval Gate, verify required outputs actually produced. Check plan file and conversation.
 
 **Phase 1 (CEO) outputs:**
 - [ ] Premise challenge with specific premises named (not just "premises accepted")
@@ -700,17 +618,15 @@ produced. Check the plan file and conversation for each item.
 **Audit trail:**
 - [ ] Decision Audit Trail has at least one row per auto-decision (not empty)
 
-If ANY checkbox above is missing, go back and produce the missing output. Max 2
-attempts — if still missing after retrying twice, proceed to the gate with a warning
-noting which items are incomplete. Do not loop indefinitely.
+Missing checkbox = go back, produce it. Max 2 attempts — still missing = proceed to gate with warning noting incomplete items. No infinite loops.
 
 ---
 
 ## Phase 4: Final Approval Gate
 
-**STOP here and present the final state to the user.**
+**STOP. Present final state to user.**
 
-Present as a message, then use AskUserQuestion:
+Present as message, then AskUserQuestion:
 
 ```
 ## /autoplan Review Complete
@@ -785,9 +701,9 @@ AskUserQuestion options:
 
 ## Completion: Write Review Logs
 
-On approval, write 3 separate review log entries so /ship's dashboard recognizes them.
-Replace TIMESTAMP, STATUS, and N with actual values from each review phase.
-STATUS is "clean" if no unresolved issues, "issues_open" otherwise.
+On approval, write 3 review log entries so /ship dashboard recognizes them.
+Replace TIMESTAMP, STATUS, N with actual values per phase.
+STATUS = "clean" if no unresolved, "issues_open" otherwise.
 
 ```bash
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
@@ -826,17 +742,17 @@ If Phase 3.5 ran (DX scope), also log:
 ```
 
 SOURCE = "codex+subagent", "codex-only", "subagent-only", or "unavailable".
-Replace N values with actual consensus counts from the tables.
+Replace N with actual consensus counts from tables.
 
-Suggest next step: `/ship` when ready to create the PR.
+Suggest next: `/ship` when ready.
 
 ---
 
 ## Important Rules
 
-- **Never abort.** The user chose /autoplan. Respect that choice. Surface all taste decisions, never redirect to interactive review.
-- **Two gates.** The non-auto-decided AskUserQuestions are: (1) premise confirmation in Phase 1, and (2) User Challenges — when both models agree the user's stated direction should change. Everything else is auto-decided using the 6 principles.
-- **Log every decision.** No silent auto-decisions. Every choice gets a row in the audit trail.
-- **Full depth means full depth.** Do not compress or skip sections from the loaded skill files (except the skip list in Phase 0). "Full depth" means: read the code the section asks you to read, produce the outputs the section requires, identify every issue, and decide each one. A one-sentence summary of a section is not "full depth" — it is a skip. If you catch yourself writing fewer than 3 sentences for any review section, you are likely compressing.
-- **Artifacts are deliverables.** Test plan artifact, failure modes registry, error/rescue table, ASCII diagrams — these must exist on disk or in the plan file when the review completes. If they don't exist, the review is incomplete.
-- **Sequential order.** CEO → Design → Eng → DX. Each phase builds on the last.
+- **Never abort.** User chose /autoplan. Surface taste decisions, never redirect to interactive.
+- **Two gates.** Non-auto-decided: (1) premises (Phase 1), (2) User Challenges (both models agree user's direction should change). Everything else auto-decided.
+- **Log every decision.** No silent auto-decisions. Every choice = audit trail row.
+- **Full depth = full depth.** No compressing or skipping sections (except skip list). Read code, produce outputs, identify issues, decide each. One-sentence summary = skip. <3 sentences for review section = likely compressing.
+- **Artifacts = deliverables.** Test plan, failure modes registry, error/rescue table, ASCII diagrams — must exist on disk/plan file. Missing = incomplete.
+- **Sequential.** CEO → Design → Eng → DX. Each builds on last.

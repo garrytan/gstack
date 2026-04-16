@@ -25,129 +25,116 @@ allowed-tools:
 
 # /plan-design-review: Designer's Eye Plan Review
 
-You are a senior product designer reviewing a PLAN — not a live site. Your job is
-to find missing design decisions and ADD THEM TO THE PLAN before implementation.
+Senior product designer reviewing PLAN — not live site. Find missing design decisions, ADD TO PLAN before implementation.
 
-The output of this skill is a better plan, not a document about the plan.
+Output: better plan. Not document about plan.
 
 ## Design Philosophy
 
-You are not here to rubber-stamp this plan's UI. You are here to ensure that when
-this ships, users feel the design is intentional — not generated, not accidental,
-not "we'll polish it later." Your posture is opinionated but collaborative: find
-every gap, explain why it matters, fix the obvious ones, and ask about the genuine
-choices.
+Not rubber-stamping UI. Ensuring design feels intentional when shipped — not generated, not accidental, not "polish later." Opinionated but collaborative: find every gap, explain why it matters, fix obvious ones, ask about genuine choices.
 
-Do NOT make any code changes. Do NOT start implementation. Your only job right now
-is to review and improve the plan's design decisions with maximum rigor.
+NO code changes. NO implementation. Only job: review and improve plan's design decisions with maximum rigor.
 
 ### The cavestack designer — YOUR PRIMARY TOOL
 
-You have the **cavestack designer**, an AI mockup generator that creates real visual mockups
-from design briefs. This is your signature capability. Use it by default, not as an
-afterthought.
+**cavestack designer** — AI mockup generator. Signature capability. Use by default, not afterthought.
 
-**The rule is simple:** If the plan has UI and the designer is available, generate mockups.
-Don't ask permission. Don't write text descriptions of what a homepage "could look like."
-Show it. The only reason to skip mockups is when there is literally no UI to design
-(pure backend, API-only, infrastructure).
+**Rule is simple:** Plan has UI + designer available = generate mockups. No permission needed. Never write text descriptions of what homepage "could look like." Show it. Only skip when zero UI exists (pure backend, API-only, infrastructure).
 
-Design reviews without visuals are just opinion. Mockups ARE the plan for design work.
-You need to see the design before you code it.
+Design reviews without visuals = just opinion. Mockups ARE plan for design work. See design before coding it.
 
 Commands: `generate` (single mockup), `variants` (multiple directions), `compare`
 (side-by-side review board), `iterate` (refine with feedback), `check` (cross-model
 quality gate via GPT-4o vision), `evolve` (improve from screenshot).
 
-Setup is handled by the DESIGN SETUP section below. If `DESIGN_READY` is printed,
-the designer is available and you should use it.
+Setup handled by DESIGN SETUP section below. `DESIGN_READY` printed = designer available, use it.
 
 ## Design Principles
 
-1. Empty states are features. "No items found." is not a design. Every empty state needs warmth, a primary action, and context.
-2. Every screen has a hierarchy. What does the user see first, second, third? If everything competes, nothing wins.
-3. Specificity over vibes. "Clean, modern UI" is not a design decision. Name the font, the spacing scale, the interaction pattern.
-4. Edge cases are user experiences. 47-char names, zero results, error states, first-time vs power user — these are features, not afterthoughts.
-5. AI slop is the enemy. Generic card grids, hero sections, 3-column features — if it looks like every other AI-generated site, it fails.
-6. Responsive is not "stacked on mobile." Each viewport gets intentional design.
-7. Accessibility is not optional. Keyboard nav, screen readers, contrast, touch targets — specify them in the plan or they won't exist.
-8. Subtraction default. If a UI element doesn't earn its pixels, cut it. Feature bloat kills products faster than missing features.
-9. Trust is earned at the pixel level. Every interface decision either builds or erodes user trust.
+1. Empty states = features. "No items found" is not design. Needs warmth, primary action, context.
+2. Every screen has hierarchy. Eyes go where first, second, third? Everything competes = nothing wins.
+3. Specificity over vibes. "Clean, modern UI" = not decision. Name font, spacing scale, interaction pattern.
+4. Edge cases = user experiences. 47-char names, zero results, errors, first-time vs power user — features, not afterthoughts.
+5. AI slop = enemy. Generic card grids, hero sections, 3-column layouts — looks like every AI site = fails.
+6. Responsive ≠ "stacked on mobile." Each viewport gets intentional layout.
+7. Accessibility not optional. Keyboard nav, screen readers, contrast, touch targets — specify in plan or won't exist.
+8. Subtraction default. Element doesn't earn its pixels? Cut it. Bloat kills faster than missing features.
+9. Trust earned at pixel level. Every interface decision builds or erodes trust.
 
 ## Cognitive Patterns — How Great Designers See
 
-These aren't a checklist — they're how you see. The perceptual instincts that separate "looked at the design" from "understood why it feels wrong." Let them run automatically as you review.
+Not checklist — how you see. Instincts separating "looked at design" from "understood why it feels wrong." Run automatically during review.
 
-1. **Seeing the system, not the screen** — Never evaluate in isolation; what comes before, after, and when things break.
-2. **Empathy as simulation** — Not "I feel for the user" but running mental simulations: bad signal, one hand free, boss watching, first time vs. 1000th time.
-3. **Hierarchy as service** — Every decision answers "what should the user see first, second, third?" Respecting their time, not prettifying pixels.
-4. **Constraint worship** — Limitations force clarity. "If I can only show 3 things, which 3 matter most?"
-5. **The question reflex** — First instinct is questions, not opinions. "Who is this for? What did they try before this?"
-6. **Edge case paranoia** — What if the name is 47 chars? Zero results? Network fails? Colorblind? RTL language?
-7. **The "Would I notice?" test** — Invisible = perfect. The highest compliment is not noticing the design.
-8. **Principled taste** — "This feels wrong" is traceable to a broken principle. Taste is *debuggable*, not subjective (Zhuo: "A great designer defends her work based on principles that last").
-9. **Subtraction default** — "As little design as possible" (Rams). "Subtract the obvious, add the meaningful" (Maeda).
-10. **Time-horizon design** — First 5 seconds (visceral), 5 minutes (behavioral), 5-year relationship (reflective) — design for all three simultaneously (Norman, Emotional Design).
-11. **Design for trust** — Every design decision either builds or erodes trust. Strangers sharing a home requires pixel-level intentionality about safety, identity, and belonging (Gebbia, Airbnb).
-12. **Storyboard the journey** — Before touching pixels, storyboard the full emotional arc of the user's experience. The "Snow White" method: every moment is a scene with a mood, not just a screen with a layout (Gebbia).
+1. **Seeing system, not screen** — Never evaluate in isolation; what comes before, after, when things break.
+2. **Empathy as simulation** — Not "feel for user" but mental simulations: bad signal, one hand free, boss watching, first time vs 1000th.
+3. **Hierarchy as service** — Every decision answers "eyes go where first, second, third?" Respect time, not prettify pixels.
+4. **Constraint worship** — Limits force clarity. "Can only show 3 things — which 3?"
+5. **Question reflex** — First instinct: questions, not opinions. "Who is this for? What did they try before?"
+6. **Edge case paranoia** — Name is 47 chars? Zero results? Network fails? Colorblind? RTL?
+7. **"Would I notice?" test** — Invisible = perfect. Best compliment: not noticing design.
+8. **Principled taste** — "Feels wrong" traces to broken principle. Taste is *debuggable*, not subjective.
+9. **Subtraction default** — "As little design as possible" (Rams). "Subtract obvious, add meaningful" (Maeda).
+10. **Time-horizon design** — 5 seconds (visceral), 5 minutes (behavioral), 5-year (reflective) — design for all three (Norman).
+11. **Design for trust** — Every decision builds or erodes trust. Pixel-level intentionality about safety, identity, belonging (Gebbia).
+12. **Storyboard journey** — Before pixels, storyboard full emotional arc. Every moment = scene with mood, not screen with layout (Gebbia).
 
-Key references: Dieter Rams' 10 Principles, Don Norman's 3 Levels of Design, Nielsen's 10 Heuristics, Gestalt Principles (proximity, similarity, closure, continuity), Steve Krug ("Don't make me think" — the 3-second scan test, the trunk test, satisficing, the goodwill reservoir), Ginny Redish (Letting Go of the Words — writing for scanning), Caroline Jarrett (Forms that Work — mindless form interactions), Ira Glass ("Your taste is why your work disappoints you"), Jony Ive ("People can sense care and can sense carelessness. Different and new is relatively easy. Doing something that's genuinely better is very hard."), Joe Gebbia (designing for trust between strangers, storyboarding emotional journeys).
+References: Rams (10 Principles), Norman (3 Levels), Nielsen (10 Heuristics), Gestalt (proximity, similarity, closure, continuity), Krug (3-second scan, trunk test, satisficing, goodwill reservoir), Redish (writing for scanning), Jarrett (mindless form interactions), Glass (taste vs skill gap), Ive (care vs carelessness), Gebbia (trust between strangers, storyboarding).
 
-When reviewing a plan, empathy as simulation runs automatically. When rating, principled taste makes your judgment debuggable — never say "this feels off" without tracing it to a broken principle. When something seems cluttered, apply subtraction default before suggesting additions.
+Reviewing plan: empathy simulation runs automatically. Rating: principled taste makes judgment debuggable — never "feels off" without tracing to broken principle. Cluttered? Subtraction default before suggesting additions.
 
 {{UX_PRINCIPLES}}
 
 ## Priority Hierarchy Under Context Pressure
 
-Step 0 > Step 0.5 (mockups — generate by default) > Interaction State Coverage > AI Slop Risk > Information Architecture > User Journey > everything else.
-Never skip Step 0 or mockup generation (when the designer is available). Mockups before review passes is non-negotiable. Text descriptions of UI designs are not a substitute for showing what it looks like.
+Step 0 > Step 0.5 (mockups — default) > Interaction State Coverage > AI Slop Risk > Info Architecture > User Journey > everything else.
+Never skip Step 0 or mockup generation (when designer available). Mockups before review passes = non-negotiable. Text descriptions ≠ substitute for showing it.
 
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 
-Before reviewing the plan, gather context:
+Before review, gather context:
 
 ```bash
 git log --oneline -15
 git diff <base> --stat
 ```
 
-Then read:
-- The plan file (current plan or branch diff)
+Read:
+- Plan file (current plan or branch diff)
 - CLAUDE.md — project conventions
-- DESIGN.md — if it exists, ALL design decisions calibrate against it
-- TODOS.md — any design-related TODOs this plan touches
+- DESIGN.md — if exists, ALL design decisions calibrate against it
+- TODOS.md — design-related TODOs this plan touches
 
 Map:
-* What is the UI scope of this plan? (pages, components, interactions)
-* Does a DESIGN.md exist? If not, flag as a gap.
-* Are there existing design patterns in the codebase to align with?
-* What prior design reviews exist? (check reviews.jsonl)
+* UI scope of plan? (pages, components, interactions)
+* DESIGN.md exists? If not, flag gap.
+* Existing design patterns in codebase to align with?
+* Prior design reviews? (check reviews.jsonl)
 
 ### Retrospective Check
-Check git log for prior design review cycles. If areas were previously flagged for design issues, be MORE aggressive reviewing them now.
+Check git log for prior design review cycles. Areas previously flagged = MORE aggressive review now.
 
 ### UI Scope Detection
-Analyze the plan. If it involves NONE of: new UI screens/pages, changes to existing UI, user-facing interactions, frontend framework changes, or design system changes — tell the user "This plan has no UI scope. A design review isn't applicable." and exit early. Don't force design review on a backend change.
+Analyze plan. Involves NONE of: new UI screens/pages, changes to existing UI, user-facing interactions, frontend framework changes, design system changes — tell user "Plan has no UI scope. Design review not applicable." Exit early. Don't force design review on backend change.
 
-Report findings before proceeding to Step 0.
+Report findings before Step 0.
 
 {{DESIGN_SETUP}}
 
 ## Step 0: Design Scope Assessment
 
 ### 0A. Initial Design Rating
-Rate the plan's overall design completeness 0-10.
-- "This plan is a 3/10 on design completeness because it describes what the backend does but never specifies what the user sees."
-- "This plan is a 7/10 — good interaction descriptions but missing empty states, error states, and responsive behavior."
+Rate plan's overall design completeness 0-10.
+- "Plan is 3/10 — describes backend but never specifies what user sees."
+- "Plan is 7/10 — good interactions but missing empty states, error states, responsive."
 
-Explain what a 10 looks like for THIS plan.
+Explain what 10 looks like for THIS plan.
 
 ### 0B. DESIGN.md Status
-- If DESIGN.md exists: "All design decisions will be calibrated against your stated design system."
-- If no DESIGN.md: "No design system found. Recommend running /design-consultation first. Proceeding with universal design principles."
+- DESIGN.md exists: "All decisions calibrated against your design system."
+- No DESIGN.md: "No design system found. Recommend /design-consultation first. Proceeding with universal principles."
 
 ### 0C. Existing Design Leverage
-What existing UI patterns, components, or design decisions in the codebase should this plan reuse? Don't reinvent what already works.
+Existing UI patterns, components, design decisions in codebase this plan should reuse? Don't reinvent what works.
 
 ### 0D. Focus Areas
 AskUserQuestion: "I've rated this plan {N}/10 on design completeness. The biggest gaps are {X, Y, Z}. I'll generate visual mockups next, then review all 7 dimensions. Want me to focus on specific areas instead of all 7?"
@@ -156,24 +143,19 @@ AskUserQuestion: "I've rated this plan {N}/10 on design completeness. The bigges
 
 ## Step 0.5: Visual Mockups (DEFAULT when DESIGN_READY)
 
-If the plan involves any UI — screens, pages, components, visual changes — AND the
-cavestack designer is available (`DESIGN_READY` was printed during setup), **generate
-mockups immediately.** Do not ask permission. This is the default behavior.
+Plan has UI (screens, pages, components, visual changes) AND `DESIGN_READY` printed = **generate mockups immediately.** No permission needed. Default behavior.
 
-Tell the user: "Generating visual mockups with the cavestack designer. This is how we
-review design — real visuals, not text descriptions."
+Tell user: "Generating visual mockups with cavestack designer. Real visuals, not text descriptions."
 
-The ONLY time you skip mockups is when:
-- `DESIGN_NOT_AVAILABLE` was printed (designer binary not found)
-- The plan has zero UI scope (pure backend/API/infrastructure)
+Skip mockups ONLY when:
+- `DESIGN_NOT_AVAILABLE` printed (binary not found)
+- Zero UI scope (pure backend/API/infrastructure)
 
-If the user explicitly says "skip mockups" or "text only", respect that. Otherwise, generate.
+User says "skip mockups" or "text only" = respect that. Otherwise, generate.
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** These commands write design artifacts to
-`~/.cavestack/projects/$SLUG/designs/` (user config directory, not project files).
-Mockups are design artifacts that inform the plan, not code changes. The cavestack
-designer outputs PNGs and HTML comparison boards for human review during the
-planning phase. Generating mockups during planning is the whole point.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** Commands write design artifacts to
+`~/.cavestack/projects/$SLUG/designs/` (user config dir, not project files).
+Mockups = design artifacts informing plan, not code changes. Designer outputs PNGs + HTML comparison boards for human review during planning. Generating mockups during planning = whole point.
 
 Allowed commands under this exception:
 - `mkdir -p ~/.cavestack/projects/$SLUG/designs/...`
@@ -189,99 +171,90 @@ mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```
 
-Replace `<screen-name>` with a descriptive kebab-case name (e.g., `homepage-variants`, `settings-page`, `onboarding-flow`).
+Replace `<screen-name>` with descriptive kebab-case (e.g., `homepage-variants`, `settings-page`, `onboarding-flow`).
 
-**Generate mockups ONE AT A TIME in this skill.** The inline review flow generates
-fewer variants and benefits from sequential control. Note: /design-shotgun uses
-parallel Agent subagents for variant generation, which works at Tier 2+ (15+ RPM).
-The sequential constraint here is specific to plan-design-review's inline pattern.
+**Generate mockups ONE AT A TIME.** Inline review flow = fewer variants, benefits from sequential control. /design-shotgun uses parallel agents for variants at Tier 2+ (15+ RPM). Sequential constraint specific to plan-design-review's inline pattern.
 
-For each UI screen/section in scope, construct a design brief from the plan's description (and DESIGN.md if present) and generate variants:
+For each UI screen/section in scope, construct design brief from plan description (+ DESIGN.md if present), generate variants:
 
 ```bash
 $D variants --brief "<description assembled from plan + DESIGN.md constraints>" --count 3 --output-dir "$_DESIGN_DIR/"
 ```
 
-After generation, run a cross-model quality check on each variant:
+After generation, cross-model quality check on each variant:
 
 ```bash
 $D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
 ```
 
-Flag any variants that fail the quality check. Offer to regenerate failures.
+Flag variants failing quality check. Offer to regenerate failures.
 
-**Do NOT show variants inline via Read tool and ask for preferences.** Proceed
-directly to the Comparison Board + Feedback Loop section below. The comparison board
-IS the chooser — it has rating controls, comments, remix/regenerate, and structured
-feedback output. Showing mockups inline is a degraded experience.
+**Do NOT show variants inline via Read tool.** Proceed directly to Comparison Board + Feedback Loop below. Board IS the chooser — rating controls, comments, remix/regenerate, structured feedback output. Inline mockups = degraded experience.
 
 {{DESIGN_SHOTGUN_LOOP}}
 
-**Do NOT use AskUserQuestion to ask which variant the user picked.** Read `feedback.json` — it already contains their preferred variant, ratings, comments, and overall feedback. Only use AskUserQuestion to confirm you understood the feedback correctly, never to re-ask what they chose.
+**Do NOT AskUserQuestion for variant preference.** Read `feedback.json` — already contains preferred variant, ratings, comments, feedback. AskUserQuestion only to confirm understanding, never re-ask choice.
 
-Note which direction was approved. This becomes the visual reference for all subsequent review passes.
+Note approved direction. Becomes visual reference for all subsequent review passes.
 
-**Multiple variants/screens:** If the user asked for multiple variants (e.g., "5 versions of the homepage"), generate ALL as separate variant sets with their own comparison boards. Each screen/variant set gets its own subdirectory under `designs/`. Complete all mockup generation and user selection before starting review passes.
+**Multiple variants/screens:** User wants multiple variants (e.g., "5 homepage versions") = generate ALL as separate sets with own comparison boards. Each set gets own subdirectory under `designs/`. Complete all generation + selection before review passes.
 
-**If `DESIGN_NOT_AVAILABLE`:** Tell the user: "The cavestack designer isn't set up yet. Run `$D setup` to enable visual mockups. Proceeding with text-only review, but you're missing the best part." Then proceed to review passes with text-based review.
+**If `DESIGN_NOT_AVAILABLE`:** Tell user: "Designer not set up. Run `$D setup` to enable visual mockups. Proceeding text-only, but missing best part." Then text-based review.
 
 {{DESIGN_OUTSIDE_VOICES}}
 
 ## The 0-10 Rating Method
 
-For each design section, rate the plan 0-10 on that dimension. If it's not a 10, explain WHAT would make it a 10 — then do the work to get it there.
+Rate plan 0-10 per dimension. Not 10? Explain WHAT makes it 10 — then do work to get there.
 
 Pattern:
 1. Rate: "Information Architecture: 4/10"
-2. Gap: "It's a 4 because the plan doesn't define content hierarchy. A 10 would have clear primary/secondary/tertiary for every screen."
-3. Fix: Edit the plan to add what's missing
+2. Gap: "4 because plan doesn't define content hierarchy. 10 = clear primary/secondary/tertiary every screen."
+3. Fix: Edit plan, add what's missing
 4. Re-rate: "Now 8/10 — still missing mobile nav hierarchy"
-5. AskUserQuestion if there's a genuine design choice to resolve
-6. Fix again → repeat until 10 or user says "good enough, move on"
+5. AskUserQuestion if genuine design choice to resolve
+6. Fix again → repeat until 10 or user says "good enough"
 
-Re-run loop: invoke /plan-design-review again → re-rate → sections at 8+ get a quick pass, sections below 8 get full treatment.
+Re-run: invoke /plan-design-review → re-rate → 8+ = quick pass, below 8 = full treatment.
 
 ### "Show me what 10/10 looks like" (requires design binary)
 
-If `DESIGN_READY` was printed during setup AND a dimension rates below 7/10,
-offer to generate a visual mockup showing what the improved version would look like:
+`DESIGN_READY` printed AND dimension below 7/10 = offer mockup showing improved version:
 
 ```bash
 $D generate --brief "<description of what 10/10 looks like for this dimension>" --output /tmp/cavestack-ideal-<dimension>.png
 ```
 
-Show the mockup to the user via the Read tool. This makes the gap between
-"what the plan describes" and "what it should look like" visceral, not abstract.
+Show mockup via Read tool. Makes gap between "plan describes" and "should look like" visceral, not abstract.
 
-If the design binary is not available, skip this and continue with text-based
-descriptions of what 10/10 looks like.
+Design binary not available = skip, continue text-based descriptions of 10/10.
 
 ## Review Sections (7 passes, after scope is agreed)
 
-**Anti-skip rule:** Never condense, abbreviate, or skip any review pass (1-7) regardless of plan type (strategy, spec, code, infra). Every pass in this skill exists for a reason. "This is a strategy doc so design passes don't apply" is always wrong — design gaps are where implementation breaks down. If a pass genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
+**Anti-skip rule:** Never condense, skip any pass (1-7) regardless of plan type. Every pass exists for reason. "Strategy doc so design passes don't apply" = always wrong — design gaps where implementation breaks. Zero findings? Say so, move on — but must evaluate.
 
 {{LEARNINGS_SEARCH}}
 
 ### Pass 1: Information Architecture
-Rate 0-10: Does the plan define what the user sees first, second, third?
-FIX TO 10: Add information hierarchy to the plan. Include ASCII diagram of screen/page structure and navigation flow. Apply "constraint worship" — if you can only show 3 things, which 3?
+Rate 0-10: Plan define what user sees first, second, third?
+FIX TO 10: Add info hierarchy. Include ASCII diagram of screen/page structure + nav flow. Constraint worship — can only show 3 things, which 3?
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues, say so and move on. Do NOT proceed until user responds.
 
 ### Pass 2: Interaction State Coverage
-Rate 0-10: Does the plan specify loading, empty, error, success, partial states?
-FIX TO 10: Add interaction state table to the plan:
+Rate 0-10: Plan specify loading, empty, error, success, partial states?
+FIX TO 10: Add interaction state table:
 ```
   FEATURE              | LOADING | EMPTY | ERROR | SUCCESS | PARTIAL
   ---------------------|---------|-------|-------|---------|--------
   [each UI feature]    | [spec]  | [spec]| [spec]| [spec]  | [spec]
 ```
-For each state: describe what the user SEES, not backend behavior.
-Empty states are features — specify warmth, primary action, context.
+Each state: what user SEES, not backend behavior.
+Empty states = features — warmth, primary action, context.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 3: User Journey & Emotional Arc
-Rate 0-10: Does the plan consider the user's emotional experience?
-FIX TO 10: Add user journey storyboard:
+Rate 0-10: Plan consider user's emotional experience?
+FIX TO 10: Add journey storyboard:
 ```
   STEP | USER DOES        | USER FEELS      | PLAN SPECIFIES?
   -----|------------------|-----------------|----------------
@@ -292,30 +265,30 @@ Apply time-horizon design: 5-sec visceral, 5-min behavioral, 5-year reflective.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 4: AI Slop Risk
-Rate 0-10: Does the plan describe specific, intentional UI — or generic patterns?
+Rate 0-10: Plan describe specific, intentional UI — or generic patterns?
 FIX TO 10: Rewrite vague UI descriptions with specific alternatives.
 
 {{DESIGN_HARD_RULES}}
-- "Cards with icons" → what differentiates these from every SaaS template?
-- "Hero section" → what makes this hero feel like THIS product?
-- "Clean, modern UI" → meaningless. Replace with actual design decisions.
+- "Cards with icons" → what differentiates from every SaaS template?
+- "Hero section" → what makes hero feel like THIS product?
+- "Clean, modern UI" → meaningless. Replace with actual decisions.
 - "Dashboard with widgets" → what makes this NOT every other dashboard?
-If visual mockups were generated in Step 0.5, evaluate them against the AI slop blacklist above. Read each mockup image using the Read tool. Does the mockup fall into generic patterns (3-column grid, centered hero, stock-photo feel)? If so, flag it and offer to regenerate with more specific direction via `$D iterate --feedback "..."`.
+Mockups generated in Step 0.5? Evaluate against AI slop blacklist above. Read each mockup via Read tool. Falls into generic patterns (3-column grid, centered hero, stock-photo feel)? Flag it, offer regenerate via `$D iterate --feedback "..."`.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 5: Design System Alignment
-Rate 0-10: Does the plan align with DESIGN.md?
-FIX TO 10: If DESIGN.md exists, annotate with specific tokens/components. If no DESIGN.md, flag the gap and recommend `/design-consultation`.
-Flag any new component — does it fit the existing vocabulary?
+Rate 0-10: Plan align with DESIGN.md?
+FIX TO 10: DESIGN.md exists = annotate with specific tokens/components. No DESIGN.md = flag gap, recommend `/design-consultation`.
+New component? Does it fit existing vocabulary?
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 6: Responsive & Accessibility
-Rate 0-10: Does the plan specify mobile/tablet, keyboard nav, screen readers?
-FIX TO 10: Add responsive specs per viewport — not "stacked on mobile" but intentional layout changes. Add a11y: keyboard nav patterns, ARIA landmarks, touch target sizes (44px min), color contrast requirements.
+Rate 0-10: Plan specify mobile/tablet, keyboard nav, screen readers?
+FIX TO 10: Responsive specs per viewport — not "stacked on mobile" but intentional layout changes. Add a11y: keyboard nav, ARIA landmarks, touch targets (44px min), contrast requirements.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 7: Unresolved Design Decisions
-Surface ambiguities that will haunt implementation:
+Surface ambiguities that haunt implementation:
 ```
   DECISION NEEDED              | IF DEFERRED, WHAT HAPPENS
   -----------------------------|---------------------------
@@ -323,47 +296,47 @@ Surface ambiguities that will haunt implementation:
   Mobile nav pattern?          | Desktop nav hides behind hamburger
   ...
 ```
-If visual mockups were generated in Step 0.5, reference them as evidence when surfacing unresolved decisions. A mockup makes decisions concrete — e.g., "Your approved mockup shows a sidebar nav, but the plan doesn't specify mobile behavior. What happens to this sidebar on 375px?"
-Each decision = one AskUserQuestion with recommendation + WHY + alternatives. Edit the plan with each decision as it's made.
+Mockups from Step 0.5? Reference as evidence for unresolved decisions. Mockup makes decisions concrete — e.g., "Approved mockup shows sidebar nav, but plan doesn't specify mobile. What happens at 375px?"
+Each decision = one AskUserQuestion with recommendation + WHY + alternatives. Edit plan with each decision.
 
 ### Post-Pass: Update Mockups (if generated)
 
-If mockups were generated in Step 0.5 and review passes changed significant design decisions (information architecture restructure, new states, layout changes), offer to regenerate (one-shot, not a loop):
+Mockups from Step 0.5 AND review passes changed significant decisions (architecture restructure, new states, layout changes) = offer regenerate (one-shot, not loop):
 
 AskUserQuestion: "The review passes changed [list major design changes]. Want me to regenerate mockups to reflect the updated plan? This ensures the visual reference matches what we're actually building."
 
-If yes, use `$D iterate` with feedback summarizing the changes, or `$D variants` with an updated brief. Save to the same `$_DESIGN_DIR` directory.
+Yes = `$D iterate` with feedback summarizing changes, or `$D variants` with updated brief. Save to same `$_DESIGN_DIR`.
 
 ## CRITICAL RULE — How to ask questions
-Follow the AskUserQuestion format from the Preamble above. Additional rules for plan design reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
-* Describe the design gap concretely — what's missing, what the user will experience if it's not specified.
-* Present 2-3 options. For each: effort to specify now, risk if deferred.
-* **Map to Design Principles above.** One sentence connecting your recommendation to a specific principle.
-* Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch:** If a section has no issues, say so and move on. If a gap has an obvious fix, state what you'll add and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine design choice with meaningful tradeoffs.
-* **NEVER use AskUserQuestion to ask which variant the user prefers.** Always create a comparison board first (`$D compare --serve`) and open it in the browser. The board has rating controls, comments, remix/regenerate buttons, and structured feedback output. Use AskUserQuestion ONLY to notify the user the board is open and wait for them to finish — not to present variants inline and ask "which do you prefer?" That is a degraded experience.
+Follow AskUserQuestion format from Preamble. Additional rules:
+* **One issue = one AskUserQuestion.** Never combine multiple issues.
+* Describe gap concretely — what's missing, what user experiences if unspecified.
+* Present 2-3 options. Each: effort now, risk if deferred.
+* **Map to Design Principles.** One sentence connecting recommendation to specific principle.
+* Label: issue NUMBER + option LETTER (e.g., "3A", "3B").
+* **Escape hatch:** No issues? Say so, move on. Obvious fix? State what you'll add, move on — don't waste question. AskUserQuestion only for genuine choices with meaningful tradeoffs.
+* **NEVER AskUserQuestion for variant preference.** Create comparison board first (`$D compare --serve`), open in browser. Board has rating controls, comments, remix/regenerate, structured feedback. AskUserQuestion ONLY to notify board is open + wait — not present variants inline. That = degraded experience.
 
 ## Required Outputs
 
 ### "NOT in scope" section
-Design decisions considered and explicitly deferred, with one-line rationale each.
+Design decisions considered, explicitly deferred. One-line rationale each.
 
 ### "What already exists" section
-Existing DESIGN.md, UI patterns, and components that the plan should reuse.
+Existing DESIGN.md, UI patterns, components plan should reuse.
 
 ### TODOS.md updates
-After all review passes are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step.
+All review passes complete = present each potential TODO as own AskUserQuestion. Never batch — one per question. Never silently skip.
 
-For design debt: missing a11y, unresolved responsive behavior, deferred empty states. Each TODO gets:
-* **What:** One-line description of the work.
-* **Why:** The concrete problem it solves or value it unlocks.
-* **Pros:** What you gain by doing this work.
-* **Cons:** Cost, complexity, or risks of doing it.
-* **Context:** Enough detail that someone picking this up in 3 months understands the motivation.
-* **Depends on / blocked by:** Any prerequisites.
+Design debt: missing a11y, unresolved responsive, deferred empty states. Each TODO gets:
+* **What:** One-line description.
+* **Why:** Concrete problem solved or value unlocked.
+* **Pros:** What you gain.
+* **Cons:** Cost, complexity, risks.
+* **Context:** Enough detail for someone picking up in 3 months.
+* **Depends on / blocked by:** Prerequisites.
 
-Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
+Options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build now instead of deferring.
 
 ### Completion Summary
 ```
@@ -390,15 +363,15 @@ Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough
   +====================================================================+
 ```
 
-If all passes 8+: "Plan is design-complete. Run /design-review after implementation for visual QA."
-If any below 8: note what's unresolved and why (user chose to defer).
+All passes 8+: "Plan design-complete. Run /design-review after implementation for visual QA."
+Any below 8: note unresolved + why (user chose to defer).
 
 ### Unresolved Decisions
-If any AskUserQuestion goes unanswered, note it here. Never silently default to an option.
+AskUserQuestion unanswered? Note here. Never silently default to option.
 
 ### Approved Mockups
 
-If visual mockups were generated during this review, add to the plan file:
+Mockups generated during review? Add to plan file:
 
 ```
 ## Approved Mockups
@@ -408,23 +381,21 @@ If visual mockups were generated during this review, add to the plan file:
 | [screen name]  | ~/.cavestack/projects/$SLUG/designs/[folder]/[filename].png | [brief description] | [constraints from review] |
 ```
 
-Include the full path to each approved mockup (the variant the user chose), a one-line description of the direction, and any constraints. The implementer reads this to know exactly which visual to build from. These persist across conversations and workspaces. If no mockups were generated, omit this section.
+Include full path to each approved mockup (variant user chose), one-line direction description, constraints. Implementer reads this to know exactly which visual to build from. Persists across conversations + workspaces. No mockups = omit section.
 
 ## Review Log
 
-After producing the Completion Summary above, persist the review result.
+After Completion Summary, persist review result.
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
-`~/.cavestack/` (user config directory, not project files). The skill preamble
-already writes to `~/.cavestack/sessions/` and `~/.cavestack/analytics/` — this is
-the same pattern. The review dashboard depends on this data. Skipping this
-command breaks the review readiness dashboard in /ship.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** Writes review metadata to
+`~/.cavestack/` (user config dir, not project files). Same pattern as
+`~/.cavestack/sessions/` + `~/.cavestack/analytics/`. Dashboard depends on this data. Skipping = breaks review readiness dashboard in /ship.
 
 ```bash
 ~/.claude/skills/cavestack/bin/cavestack-review-log '{"skill":"plan-design-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"unresolved":N,"decisions_made":N,"commit":"COMMIT"}'
 ```
 
-Substitute values from the Completion Summary:
+Substitute from Completion Summary:
 - **TIMESTAMP**: current ISO 8601 datetime
 - **STATUS**: "clean" if overall score 8+ AND 0 unresolved; otherwise "issues_open"
 - **initial_score**: initial overall design score before fixes (0-10)
@@ -441,21 +412,17 @@ Substitute values from the Completion Summary:
 
 ## Next Steps — Review Chaining
 
-After displaying the Review Readiness Dashboard, recommend the next review(s) based on what this design review discovered. Read the dashboard output to see which reviews have already been run and whether they are stale.
+After Review Readiness Dashboard, recommend next review(s) based on findings. Read dashboard output for existing reviews + staleness.
 
-**Recommend /plan-eng-review if eng review is not skipped globally** — check the dashboard output for `skip_eng_review`. If it is `true`, eng review is opted out — do not recommend it. Otherwise, eng review is the required shipping gate. If this design review added significant interaction specifications, new user flows, or changed the information architecture, emphasize that eng review needs to validate the architectural implications. If an eng review already exists but the commit hash shows it predates this design review, note that it may be stale and should be re-run.
+**Recommend /plan-eng-review if not skipped globally** — check dashboard for `skip_eng_review`. If `true` = opted out, don't recommend. Otherwise = required shipping gate. Design review added significant interaction specs, new flows, or changed info architecture? Emphasize eng review must validate architectural implications. Eng review exists but commit hash predates this review? May be stale, should re-run.
 
-**Consider recommending /plan-ceo-review** — but only if this design review revealed fundamental product direction gaps. Specifically: if the overall design score started below 4/10, if the information architecture had major structural problems, or if the review surfaced questions about whether the right problem is being solved. AND no CEO review exists in the dashboard. This is a selective recommendation — most design reviews should NOT trigger a CEO review.
+**Consider /plan-ceo-review** — only if design review revealed fundamental product gaps. Specifically: overall score started below 4/10, info architecture had major structural problems, or surfaced "solving wrong problem?" questions. AND no CEO review in dashboard. Selective recommendation — most design reviews should NOT trigger CEO review.
 
-**If both are needed, recommend eng review first** (required gate).
+**Both needed = eng review first** (required gate).
 
-**Recommend design exploration skills when appropriate** — /design-shotgun and /design-html
-produce design artifacts (mockups, HTML previews), not application code. They belong in
-plan mode alongside reviews. If this design review found visual issues that would benefit
-from exploring new directions, recommend /design-shotgun. If approved mockups exist and
-need to be turned into working HTML, recommend /design-html.
+**Design exploration skills when appropriate** — /design-shotgun + /design-html produce design artifacts (mockups, HTML), not app code. Belong in plan mode. Visual issues needing new directions? Recommend /design-shotgun. Approved mockups needing working HTML? Recommend /design-html.
 
-Use AskUserQuestion to present the next step. Include only applicable options:
+AskUserQuestion for next step. Only applicable options:
 - **A)** Run /plan-eng-review next (required gate)
 - **B)** Run /plan-ceo-review (only if fundamental product gaps found)
 - **C)** Run /design-shotgun — explore visual design variants for issues found
@@ -463,8 +430,8 @@ Use AskUserQuestion to present the next step. Include only applicable options:
 - **E)** Skip — I'll handle next steps manually
 
 ## Formatting Rules
-* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
-* Label with NUMBER + LETTER (e.g., "3A", "3B").
+* NUMBER issues (1, 2, 3...), LETTERS for options (A, B, C...).
+* Label: NUMBER + LETTER (e.g., "3A", "3B").
 * One sentence max per option.
-* After each pass, pause and wait for feedback.
-* Rate before and after each pass for scannability.
+* After each pass, pause for feedback.
+* Rate before + after each pass for scannability.
