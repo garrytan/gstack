@@ -259,15 +259,20 @@ class CaveTerminal {
       const cavemanEl = content.querySelector('.pane-caveman pre');
       const verbosePane = content.querySelector('.pane-verbose');
 
-      // Animate verbose side first
-      this.typewrite(verboseEl, scenario.verbose, scenario.typeSpeed, () => {
-        // Then animate caveman side
-        this.typewrite(cavemanEl, scenario.caveman, scenario.typeSpeed * 0.6, () => {
+      // Both panes animate simultaneously.
+      // Verbose: fast line-by-line (not per-char) to show wall of text filling up.
+      // Caveman: slower per-char typewriter to emphasize how little text there is.
+      // The contrast is the point: verbose floods while caveman finishes quickly.
+      this.typewriteLines(verboseEl, scenario.verbose, 80, () => {});
+
+      // Caveman starts after a short beat (400ms) so the eye sees verbose first
+      const cavemanDelay = setTimeout(() => {
+        this.typewrite(cavemanEl, scenario.caveman, scenario.typeSpeed, () => {
           this.isAnimating = false;
         });
-        // Animate word counter while caveman types
         this.animateCounter(scenario);
-      });
+      }, 400);
+      this.animationTimers.push(cavemanDelay);
 
       // Auto-scroll verbose pane
       const scrollInterval = setInterval(() => {
@@ -295,6 +300,24 @@ class CaveTerminal {
         el.textContent += text[i];
         i++;
         const id = setTimeout(tick, speed);
+        this.animationTimers.push(id);
+      } else if (onComplete) {
+        onComplete();
+      }
+    };
+    tick();
+  }
+
+  typewriteLines(el, text, msPerLine, onComplete) {
+    if (!el) return;
+    el.textContent = '';
+    const lines = text.split('\n');
+    let i = 0;
+    const tick = () => {
+      if (i < lines.length) {
+        el.textContent += (i > 0 ? '\n' : '') + lines[i];
+        i++;
+        const id = setTimeout(tick, msPerLine);
         this.animationTimers.push(id);
       } else if (onComplete) {
         onComplete();
