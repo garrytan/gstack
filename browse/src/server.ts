@@ -757,8 +757,16 @@ const idleCheckInterval = setInterval(() => {
 // server can become an orphan — keeping chrome-headless-shell alive and
 // causing console-window flicker on Windows. Poll the parent PID every 15s
 // and self-terminate if it is gone.
+//
+// Headed mode (BROWSE_HEADED=1 or BROWSE_PARENT_PID=0): The user controls
+// the browser window lifecycle. The CLI exits immediately after connect,
+// so the watchdog would kill the server prematurely. Disabled in both cases
+// as defense-in-depth — the CLI sets PID=0 for headed mode, and the server
+// also checks BROWSE_HEADED in case a future launcher forgets.
+// Cleanup happens via browser disconnect event or $B disconnect.
 const BROWSE_PARENT_PID = parseInt(process.env.BROWSE_PARENT_PID || '0', 10);
-if (BROWSE_PARENT_PID > 0) {
+const IS_HEADED_WATCHDOG = process.env.BROWSE_HEADED === '1';
+if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
   setInterval(() => {
     try {
       process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only, no signal sent
@@ -767,6 +775,10 @@ if (BROWSE_PARENT_PID > 0) {
       shutdown();
     }
   }, 15_000);
+} else if (IS_HEADED_WATCHDOG) {
+  console.log('[browse] Parent-process watchdog disabled (headed mode)');
+} else if (BROWSE_PARENT_PID === 0) {
+  console.log('[browse] Parent-process watchdog disabled (BROWSE_PARENT_PID=0)');
 }
 
 // ─── Command Sets (from commands.ts — single source of truth) ───
