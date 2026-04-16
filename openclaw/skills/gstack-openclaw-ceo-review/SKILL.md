@@ -1,8 +1,6 @@
 ---
 name: gstack-openclaw-ceo-review
-description: CEO/founder-mode plan review. Rethink the problem, find the 10-star product, challenge premises, expand scope when it creates a better product. Four modes: SCOPE EXPANSION (dream big), SELECTIVE EXPANSION (hold scope + cherry-pick), HOLD SCOPE (maximum rigor), SCOPE REDUCTION (strip to essentials). Use when asked to review a plan, challenge this, CEO review, poke holes, think bigger, or expand scope.
-version: 1.0.0
-metadata: { "openclaw": { "emoji": "👑" } }
+description: Use when asked to review a plan, challenge a proposal, run a CEO review, poke holes in an approach, think bigger about scope, or decide whether to expand or reduce the plan.
 ---
 
 # CEO Plan Review
