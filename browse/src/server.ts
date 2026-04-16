@@ -805,6 +805,10 @@ function emitInspectorEvent(event: any): void {
 
 // ─── Server ────────────────────────────────────────────────────
 const browserManager = new BrowserManager();
+// When the user closes the headed browser window, run full cleanup
+// (kill sidebar-agent, save session, remove profile locks, delete state file)
+// before exiting with code 2. Exit code 2 distinguishes user-close from crashes (1).
+browserManager.onDisconnect = () => shutdown(2);
 let isShuttingDown = false;
 
 // Test if a port is available by binding and immediately releasing.
@@ -1192,7 +1196,7 @@ async function handleCommand(body: any, tokenInfo?: TokenInfo | null): Promise<R
   });
 }
 
-async function shutdown() {
+async function shutdown(exitCode: number = 0) {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
@@ -1233,7 +1237,7 @@ async function shutdown() {
   // Clean up state file
   safeUnlinkQuiet(config.stateFile);
 
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 // Handle signals
