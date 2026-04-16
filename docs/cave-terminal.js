@@ -266,15 +266,19 @@ class CaveTerminal {
       // Verbose: fast line-by-line (not per-char) to show wall of text filling up.
       // Caveman: slower per-char typewriter to emphasize how little text there is.
       // The contrast is the point: verbose floods while caveman finishes quickly.
-      // Auto-scroll verbose pane while typing, stop when done
+
+      // Auto-scroll verbose pane ONLY while lines are still being added.
+      // Uses a simple counter: verbose has N lines, scroll stops at line N.
+      const totalLines = scenario.verbose.split('\n').length;
+      let linesRendered = 0;
       const scrollInterval = setInterval(() => {
         if (verbosePane) verbosePane.scrollTop = verbosePane.scrollHeight;
+        if (linesRendered >= totalLines) clearInterval(scrollInterval);
       }, 50);
       this.animationIntervals.push(scrollInterval);
 
       this.typewriteLines(verboseEl, scenario.verbose, 80, () => {
-        // Verbose done — stop auto-scroll so user can scroll freely
-        clearInterval(scrollInterval);
+        linesRendered = totalLines; // signal scroll to stop
       });
 
       // Caveman starts after a short beat (400ms) so the eye sees verbose first
