@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Backwards compatibility shim: jstack-* -> cavestack-*
+# The project was renamed from jstack to cavestack. This shim ensures old
+# scripts and integrations continue to work.
+exec "$(dirname "$0")/cavestack-${0##*jstack-}" "$@"
