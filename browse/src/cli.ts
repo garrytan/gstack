@@ -826,12 +826,13 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         BROWSE_HEADED: '1',
         BROWSE_PORT: '34567',
         BROWSE_SIDEBAR_CHAT: '1',
+        // Disable parent-process watchdog for headed mode. The CLI process
+        // exits immediately after launching the server (process.exit(0) below),
+        // so the watchdog would detect a dead parent within 15-75s and shut
+        // down the browser. Headed sessions are user-controlled — they should
+        // only close on explicit disconnect, not on parent exit.
+        BROWSE_PARENT_PID: '0',
       };
-      // If parent explicitly set BROWSE_PARENT_PID=0 (pair-agent disabling
-      // self-termination), pass it through so startServer doesn't override it.
-      if (process.env.BROWSE_PARENT_PID === '0') {
-        serverEnv.BROWSE_PARENT_PID = '0';
-      }
       const newState = await startServer(serverEnv);
 
       // Print connected status
