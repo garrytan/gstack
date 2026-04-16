@@ -22,29 +22,50 @@ Other AI tools: walls of text. Filler words. "I'd be happy to help you with that
 
 CaveStack: answer. Done.
 
-## Install (30 grunt)
+## Install (one line)
 
-Need [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/), Git.
+Need [Claude Code](https://docs.anthropic.com/en/docs/claude-code) + Git.
+Bun auto-installs if missing (with SHA256-verified installer).
 
 ```bash
-git clone https://github.com/JerkyJesse/cavestack.git ~/.claude/skills/cavestack
-cd ~/.claude/skills/cavestack && ./setup
+curl -fsSL https://cavestack.jerkyjesse.io/install | sh
 ```
 
 Open new Claude Code session. Caveman mode active. No `/caveman` needed. Just works.
+
+## Hero Six (featured in v1.0)
+
+Six judgment-layer skills embody the "think before code" moat:
+
+| Skill | What it does |
+|-------|--------------|
+| `/office-hours` | Premise challenge + design doc before building. Six forcing questions. |
+| `/investigate` | Systematic root-cause debugging. Reproduce → isolate → diagnose → fix. |
+| `/plan-eng-review` | Architecture + tests + coverage lock before implementation. |
+| `/plan-design-review` | UI/UX audit with mockups before implementation. |
+| `/plan-devex-review` | Developer experience critique with personas + benchmarks. |
+| `/cso` | Security audit: OWASP Top 10, STRIDE, supply chain. |
+
+**34 more skills** ship alongside — `/ship`, `/review`, `/qa`, `/checkpoint`, `/health`, `/retro`, `/browse`, `/autoplan`, `/codex`, and more. Invoke any by full name. Run `cavestack-skills list` in the terminal or `/help` inside Claude Code to see all 40.
 
 ## What You Get
 
 | Thing | What It Do |
 |-------|-----------|
-| 40 skills | `/review`, `/ship`, `/qa`, `/investigate`, `/office-hours`, `/cso`... all work |
+| 40 skills | All installed, all invokable. Hero six featured, others by full name. |
 | Caveman default | No command needed. First response = terse. Automatic. |
 | Intensity dial | `/caveman lite` (gentle), `full` (default), `ultra` (maximum grunt) |
+| Skill discovery | `cavestack-skills list` or `/help` — no website round-trip |
+| Short aliases | `cs-*` for every `cavestack-*` CLI. Speed over typing. |
+| Tier-2 errors | Every error: what broke + why + exact fix + docs link |
+| Local DX metrics | `cavestack-dx show` — your TTHW and skill events, zero network |
+| Productivity wrapper | `cavestack run <task>` with `--budget` + `--record` (redaction-gated share) |
 | Windows-first | Bun compiles, Git Bash symlinks, PowerShell statusline. All work. |
 | Reversible | `cavestack-uninstall`. Clean removal. Your files untouched. |
 | Headless browser | `/browse` for QA, screenshots, page testing. Built in. |
 | Design tools | `/design-consultation`, `/design-review`, `/design-shotgun` |
 | Security audit | `/cso` — OWASP Top 10 + STRIDE threat modeling |
+| Zero telemetry | No remote data ever. `/methodology` for how savings are measured. |
 
 ## Try It Live
 
