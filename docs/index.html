@@ -64,6 +64,28 @@
       radial-gradient(ellipse at 50% 50%, rgba(60,40,20,0.05) 0%, transparent 70%);
   }
 
+  /* ── TORCH CURSOR GLOW ── */
+  .torch-glow {
+    position: fixed;
+    width: 400px;
+    height: 400px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(245,158,11,0.07) 0%, rgba(196,149,106,0.03) 30%, transparent 70%);
+    transition: opacity 0.3s;
+    will-change: transform;
+  }
+  .torch-glow.visible { opacity: 1; }
+  @media (hover: none), (max-width: 768px) {
+    .torch-glow { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .torch-glow { display: none; }
+  }
+
   a { color: var(--amber); text-decoration: none; }
   a:hover { text-decoration: underline; }
 
@@ -639,6 +661,7 @@
 </style>
 </head>
 <body>
+<div class="torch-glow" id="torch-glow"></div>
 
 <!-- ═══ HERO ═══ -->
 <div class="hero">

@@ -485,6 +485,23 @@ document.addEventListener('DOMContentLoaded', () => {
   // Hero mini terminal
   initHeroTerminal();
 
+  // Torch cursor glow — follows mouse, illuminates cave wall
+  const torch = document.getElementById('torch-glow');
+  if (torch && !prefersReducedMotion && window.matchMedia('(hover: hover)').matches) {
+    let raf;
+    document.addEventListener('mousemove', (e) => {
+      if (raf) return; // throttle to rAF
+      raf = requestAnimationFrame(() => {
+        torch.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -50%)`;
+        raf = null;
+      });
+    });
+    document.addEventListener('mouseenter', () => torch.classList.add('visible'));
+    document.addEventListener('mouseleave', () => torch.classList.remove('visible'));
+    // Show after small delay so it doesn't flash on page load
+    setTimeout(() => torch.classList.add('visible'), 500);
+  }
+
   // Copy buttons
   document.querySelectorAll('.copy-btn').forEach(btn => {
     btn.addEventListener('click', () => {
