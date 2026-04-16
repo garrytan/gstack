@@ -7,16 +7,29 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     width: 1200px;
-    background: #0d1117;
+    background: #0C0C0C;
     font-family: 'Courier New', 'Consolas', monospace;
     padding: 20px;
     color: #c9d1d9;
+    position: relative;
+  }
+  /* Subtle cave wall texture */
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 10% 20%, rgba(139,69,19,0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 90% 80%, rgba(139,69,19,0.04) 0%, transparent 50%);
+    pointer-events: none;
   }
   .header {
     text-align: center;
     margin-bottom: 20px;
     color: #8b949e;
     font-size: 14px;
+    position: relative;
+    z-index: 1;
   }
   .header strong {
     color: #e8d5b7;
@@ -24,38 +37,45 @@
   .container {
     display: flex;
     gap: 16px;
+    position: relative;
+    z-index: 1;
   }
   .panel {
     flex: 1;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
     overflow: hidden;
   }
   .panel-header {
-    padding: 10px 16px;
-    border-bottom: 1px solid #30363d;
+    padding: 12px 16px;
+    border-bottom: 1px solid #2a2a2a;
     font-size: 13px;
     font-weight: bold;
     display: flex;
     align-items: center;
     gap: 8px;
+    background: rgba(0,0,0,0.2);
   }
   .verbose .panel-header {
-    background: #1c2128;
     color: #f85149;
   }
   .caveman .panel-header {
-    background: #1c2128;
     color: #3fb950;
   }
+  .dots {
+    display: flex;
+    gap: 5px;
+    margin-right: 8px;
+  }
   .dot {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
   }
-  .verbose .dot { background: #f85149; }
-  .caveman .dot { background: #3fb950; }
+  .dot.red { background: #f85149; }
+  .dot.yellow { background: #FBBF24; }
+  .dot.green { background: #3fb950; }
   .panel-body {
     padding: 16px;
     font-size: 12px;
@@ -76,6 +96,8 @@
     margin-top: 16px;
     color: #484f58;
     font-size: 12px;
+    position: relative;
+    z-index: 1;
   }
   .footer em { color: #c4956a; }
 </style>
@@ -85,7 +107,10 @@
 <div class="container">
 
 <div class="panel verbose">
-<div class="panel-header"><div class="dot"></div> Default verbose /review</div>
+<div class="panel-header">
+  <div class="dots"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+  Default verbose /review
+</div>
 <div class="panel-body"><span class="comment"># patch /review</span>
 
 <span class="dim">Analyzing your changes...</span>
@@ -134,7 +159,10 @@ a test case for the boundary condition as well.</div>
 </div>
 
 <div class="panel caveman">
-<div class="panel-header"><div class="dot"></div> CaveStack /review (caveman mode)</div>
+<div class="panel-header">
+  <div class="dots"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+  CaveStack /review (caveman mode)
+</div>
 <div class="panel-body"><span class="comment"># patch /review</span>
 
 <span class="keyword">## Findings: 2</span>

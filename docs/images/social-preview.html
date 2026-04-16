@@ -7,7 +7,7 @@
   body {
     width: 1280px;
     height: 640px;
-    background: #1a1a1a;
+    background: #0C0C0C;
     font-family: 'Courier New', monospace;
     display: flex;
     flex-direction: column;
@@ -29,11 +29,20 @@
     pointer-events: none;
   }
 
+  /* Firelight glow */
+  body::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 85%, rgba(245,158,11,0.12) 0%, transparent 55%);
+    pointer-events: none;
+  }
+
   /* Cave handprints */
   .handprint {
     position: absolute;
     font-size: 48px;
-    opacity: 0.12;
+    opacity: 0.1;
     transform: rotate(-15deg);
   }
   .handprint.left { top: 80px; left: 60px; transform: rotate(-25deg); }
@@ -44,20 +53,19 @@
   .torch {
     position: absolute;
     font-size: 40px;
-    opacity: 0.25;
+    opacity: 0.2;
   }
   .torch.l { left: 30px; top: 280px; }
   .torch.r { right: 30px; top: 280px; }
 
-  /* Cave drawings */
+  /* Cave art */
   .cave-art {
     position: absolute;
-    opacity: 0.1;
+    opacity: 0.08;
     font-size: 32px;
   }
   .cave-art.deer { bottom: 120px; left: 140px; font-size: 28px; }
   .cave-art.person1 { top: 160px; right: 120px; }
-  .cave-art.person2 { bottom: 160px; left: 300px; font-size: 24px; }
 
   .title {
     font-size: 96px;
@@ -82,25 +90,30 @@
     text-shadow: 2px 2px 8px rgba(0,0,0,0.5);
   }
 
-  .terminal-hint {
-    position: absolute;
-    bottom: 50px;
+  /* Mini terminal preview */
+  .mini-terminal {
+    margin-top: 28px;
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 10px 20px;
     font-size: 16px;
-    color: #666;
-    letter-spacing: 2px;
+    color: #8b949e;
+    position: relative;
     z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
+  .mini-terminal .prompt { color: #3fb950; }
+  .mini-terminal .output { color: #c9d1d9; }
 
-  .terminal-hint span {
-    color: #4a9;
-  }
-
-  /* Dots like cave painting dots */
+  /* Dots */
   .dots {
     position: absolute;
     display: flex;
     gap: 12px;
-    opacity: 0.15;
+    opacity: 0.12;
   }
   .dots.top-row { top: 30px; left: 50%; transform: translateX(-50%); }
   .dots.bot-row { bottom: 30px; left: 50%; transform: translateX(-50%); }
@@ -111,11 +124,11 @@
     background: #c4956a;
   }
 
-  /* Scratches like cave wall marks */
+  /* Scratches */
   .scratch {
     position: absolute;
     color: #c4956a;
-    opacity: 0.08;
+    opacity: 0.06;
     font-size: 64px;
     font-weight: 100;
   }
@@ -124,21 +137,14 @@
 </style>
 </head>
 <body>
-  <!-- Cave handprints -->
   <div class="handprint left">&#9995;</div>
   <div class="handprint right">&#9995;</div>
   <div class="handprint top">&#9995;</div>
-
-  <!-- Torches -->
   <div class="torch l">&#128293;</div>
   <div class="torch r">&#128293;</div>
-
-  <!-- Cave art figures -->
   <div class="cave-art deer">&#129420;</div>
   <div class="cave-art person1">&#128100;</div>
-  <div class="cave-art person2">&#128100;</div>
 
-  <!-- Decorative dots -->
   <div class="dots top-row">
     <div class="dot"></div><div class="dot"></div><div class="dot"></div>
     <div class="dot"></div><div class="dot"></div><div class="dot"></div>
@@ -150,13 +156,14 @@
     <div class="dot"></div><div class="dot"></div><div class="dot"></div>
   </div>
 
-  <!-- Scratches -->
   <div class="scratch s1">///</div>
   <div class="scratch s2">///</div>
 
-  <!-- Main content -->
   <div class="title">CAVESTACK</div>
   <div class="tagline">Why use many word when few do?</div>
-  <div class="terminal-hint"><span>$</span> claude &mdash; now with 75% less talking</div>
+  <div class="mini-terminal">
+    <span class="prompt">$</span>
+    <span class="output">/review &rarr; Bug in auth:47. Token expiry. Fix:</span>
+  </div>
 </body>
 </html>
