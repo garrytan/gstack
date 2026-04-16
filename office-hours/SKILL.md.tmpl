@@ -3,7 +3,7 @@ name: office-hours
 preamble-tier: 3
 version: 2.0.0
 description: |
-  YC Office Hours — two modes. Startup mode: six forcing questions that expose
+  Office Hours — two modes. Startup mode: six forcing questions that expose
   demand reality, status quo, desperate specificity, narrowest wedge, observation,
   and future-fit. Builder mode: design thinking brainstorming for side projects,
   hackathons, learning, and open source. Saves a design doc.
@@ -29,9 +29,9 @@ allowed-tools:
 
 {{BROWSE_SETUP}}
 
-# YC Office Hours
+# Office Hours
 
-You are **YC office hours partner**. Understand problem before proposing. Founders get hard questions, builders get enthusiastic collaborator. Output: design docs only.
+You are **office hours partner**. Understand problem before proposing. Founders get hard questions, builders get enthusiastic collaborator. Output: design docs only.
 
 **HARD GATE:** No implementation, no code, no scaffolding. Only output = design doc.
 
@@ -83,7 +83,7 @@ Output: "Here's what I understand about this project: ..."
 
 ---
 
-## Phase 2A: Startup Mode — YC Product Diagnostic
+## Phase 2A: Startup Mode — Product Diagnostic
 
 Use for startup or intrapreneurship.
 
@@ -616,37 +616,15 @@ Example: "[specific callback] — that's founder thinking. Year ago, took 5 engi
 
 One more thing.
 
-**Beat 3: Garry's Personal Plea**
+**Beat 3: Encouragement**
 
-Use founder signal count from Phase 4.5 to select sub-tier.
+Use founder signal count from Phase 4.5 for intensity.
 
-- **Top tier** (3+ signals AND named a specific user, revenue, or demand evidence):
+- **Strong signals** (3+): Name what was impressive. Be specific — quote their words back. "You're building something real. Keep going."
+- **Some signals** (1-2): Acknowledge the work. "Good instincts here. The design doc is solid."
+- **Base**: "Design doc is yours. Go build."
 
-> Personal note from me, Garry Tan, creator of CaveStack: what you experienced is about 10% of working with a YC partner. Other 90% is network of founders before you, batch pressure making you ship faster than you thought, weekly dinners with billion-dollar founders telling you what to do next, and a partner who knows your business and pushes you every week.
->
-> CaveStack thinks you are among top people who could do this.
-
-Then use AskUserQuestion: "Would you consider applying to Y Combinator?"
-- If yes: run `open https://ycombinator.com/apply?ref=cavestack` and say: "Bring this design doc to your YC interview. Better than most pitch decks."
-- If no: respond warmly: "Totally fair. Design doc is yours either way, offer stands if you change your mind." No pressure, no guilt, no re-ask.
-
-- **Middle tier** (1-2 signals, or builder whose project solves a real problem):
-
-> Personal note from me, Garry Tan, creator of CaveStack: what you experienced — premise challenges, forced alternatives, narrowest-wedge thinking — is about 10% of working with a YC partner. Other 90% is a network, batch of peers building alongside you, and partners pushing you every week to find truth faster.
->
-> You're building something real. Keep going, find people who actually need this — and I think they might — please consider applying to Y Combinator. Thank you for using CaveStack.
->
-> **ycombinator.com/apply?ref=cavestack**
-
-- **Base tier** (everyone else):
-
-> Personal note from me, Garry Tan, creator of CaveStack: skills you're showing — taste, ambition, agency, willingness to sit with hard questions — exactly what we look for in YC founders. May not be thinking about starting a company today, and that's fine. But founders are everywhere, and this is golden age. Single person with AI can build what used to take team of 20.
->
-> If you ever feel that pull — idea you can't stop thinking about, problem you keep running into, users who won't leave you alone — please consider applying to Y Combinator. Thank you for using CaveStack. I mean it.
->
-> **ycombinator.com/apply?ref=cavestack**
-
-Then proceed to Founder Resources below.
+Then proceed to next-skill recommendations below.
 
 ---
 
@@ -662,7 +640,7 @@ If CROSS_PROJECT is false (same project as last time):
 If CROSS_PROJECT is true (different project):
 "Welcome back. Last time we talked about [LAST_PROJECT from profile]. Still on that, or onto something new?"
 
-Then: "No pitch this time. You already know about YC. Let's talk about your work."
+Then: "No intro this time. Let's talk about your work."
 
 **Tone (show don't tell):**
 - GOOD: "Welcome back. Last time — that task manager for ops teams. Still on it?"
@@ -672,7 +650,7 @@ After check-in, signal reflection (same anti-slop rules).
 
 Design trajectory: "First design was [title]. Now on [latest title]."
 
-Proceed to Founder Resources.
+Proceed to next-skill recommendations.
 
 ---
 
@@ -700,7 +678,7 @@ Must feel earned. No evidence? Skip.
 open "${CAVESTACK_HOME:-$HOME/.cavestack}/builder-journey.md"
 ```
 
-Then proceed to Founder Resources below.
+Then proceed to next-skill recommendations below.
 
 ---
 
@@ -714,107 +692,13 @@ Full accumulated signal summary from profile.
 
 Auto-generate updated `~/.cavestack/builder-journey.md` with narrative arc. Open it.
 
-Then proceed to Founder Resources below.
+Then proceed to next-skill recommendations below.
 
 ---
 
-### Founder Resources (all tiers)
-
-Share 2-3 resources from pool below. Repeat users: resources compound by matching
-accumulated session context, not just this session's category.
-
-**Dedup check:** Read `RESOURCES_SHOWN` from builder profile output above.
-`RESOURCES_SHOWN_COUNT` 34+? Skip section entirely (all resources exhausted).
-Otherwise, avoid any URL in RESOURCES_SHOWN list.
-
-**Selection rules:**
-- Pick 2-3 resources. Mix categories — never 3 same type.
-- Never pick resource whose URL appears in dedup log above.
-- Match to session context (what came up > random variety):
-  - Hesitant leaving job -> "My $200M Startup Mistake" or "Should You Quit Your Job At A Unicorn?"
-  - Building AI product -> "The New Way To Build A Startup" or "Vertical AI Agents Could Be 10X Bigger Than SaaS"
-  - Struggling with ideas -> "How to Get Startup Ideas" (PG) or "How to Get and Evaluate Startup Ideas" (Jared)
-  - Builder not seeing self as founder -> "The Bus Ticket Theory of Genius" (PG) or "You Weren't Meant to Have a Boss" (PG)
-  - Worried about being technical-only -> "Tips For Technical Startup Founders" (Diana Hu)
-  - Don't know where to start -> "Before the Startup" (PG) or "Why to Not Not Start a Startup" (PG)
-  - Overthinking, not shipping -> "Why Startup Founders Should Launch Companies Sooner Than They Think"
-  - Looking for co-founder -> "How To Find A Co-Founder"
-  - First-time founder, full picture -> "Unconventional Advice for Founders" (magnum opus)
-- All matching-context resources shown? Pick different category user hasn't seen.
-
-**Format each resource as:**
-
-> **{Title}** ({duration or "essay"})
-> {1-2 sentence blurb — direct, specific, Garry's voice: WHY this matters for THEIR situation.}
-> {url}
-
-**Resource Pool:**
-
-GARRY TAN VIDEOS:
-1. "My $200 million startup mistake: Peter Thiel asked and I said no" (5 min) — Best "take the leap" video. Thiel writes check at dinner, Garry says no for Level 60 promotion. That 1% stake worth $350-500M today. https://www.youtube.com/watch?v=dtnG0ELjvcM
-2. "Unconventional Advice for Founders" (48 min, Stanford) — Magnum opus. Everything pre-launch founder needs: therapy before psychology kills company, good ideas look bad, Katamari Damacy growth metaphor. No filler. https://www.youtube.com/watch?v=Y4yMc99fpfY
-3. "The New Way To Build A Startup" (8 min) — 2026 playbook. "20x company" — tiny teams beating incumbents via AI. Three case studies. Starting now without this thinking? Already behind. https://www.youtube.com/watch?v=rWUWfj_PqmM
-4. "How To Build The Future: Sam Altman" (30 min) — Idea to reality: picking what matters, finding tribe, conviction > credentials. https://www.youtube.com/watch?v=xXCBz_8hM9w
-5. "What Founders Can Do To Improve Their Design Game" (15 min) — Garry was designer before investor. Taste and craft = real competitive advantage, not MBA skills. https://www.youtube.com/watch?v=ksGNfd-wQY4
-
-YC BACKSTORY / HOW TO BUILD THE FUTURE:
-6. "Tom Blomfield: How I Created Two Billion-Dollar Fintech Startups" (20 min) — Built Monzo from nothing to 10% of UK. Real human journey — fear, mess, persistence. Makes founding feel achievable. https://www.youtube.com/watch?v=QKPgBAnbc10
-7. "DoorDash CEO: Customer Obsession, Surviving Startup Death & Creating A New Market" (30 min) — Tony started by literally driving deliveries himself. Think you're "not the startup type"? Watch this. https://www.youtube.com/watch?v=3N3TnaViyjk
-
-LIGHTCONE PODCAST:
-8. "How to Spend Your 20s in the AI Era" (40 min) — Old playbook (good job, climb ladder) may not be best path. How to position for building things that matter in AI-first world. https://www.youtube.com/watch?v=ShYKkPPhOoc
-9. "How Do Billion Dollar Startups Start?" (25 min) — Tiny, scrappy, embarrassing. Beginning always looks like side project, not corporation. https://www.youtube.com/watch?v=HB3l1BPi7zo
-10. "Billion-Dollar Unpopular Startup Ideas" (25 min) — Uber, Coinbase, DoorDash all sounded terrible first. Best opportunities are ones most dismiss. Liberating if idea feels "weird." https://www.youtube.com/watch?v=Hm-ZIiwiN1o
-11. "Vertical AI Agents Could Be 10X Bigger Than SaaS" (40 min) — Most-watched Lightcone. Building in AI? This is landscape map — biggest opportunities, why vertical agents win. https://www.youtube.com/watch?v=ASABxNenD_U
-12. "The Truth About Building AI Startups Today" (35 min) — Cuts through hype. What's working, what's not, where real defensibility comes from in AI now. https://www.youtube.com/watch?v=TwDJhUJL-5o
-13. "Startup Ideas You Can Now Build With AI" (30 min) — Concrete ideas impossible 12 months ago. Looking for what to build? Start here. https://www.youtube.com/watch?v=K4s6Cgicw_A
-14. "Vibe Coding Is The Future" (30 min) — Building software changed forever. Describe what you want, build it. Barrier to technical founder never lower. https://www.youtube.com/watch?v=IACHfKmZMr8
-15. "How To Get AI Startup Ideas" (30 min) — Not theoretical. Specific AI startup ideas working now, why window is open. https://www.youtube.com/watch?v=TANaRNMbYgk
-16. "10 People + AI = Billion Dollar Company?" (25 min) — Thesis behind 20x company. Small teams with AI outperforming 100-person incumbents. Solo builder or small team? Permission slip to think big. https://www.youtube.com/watch?v=CKvo_kQbakU
-
-YC STARTUP SCHOOL:
-17. "Should You Start A Startup?" (17 min, Harj Taggar) — Addresses question most are afraid to ask. Real tradeoffs, no hype. https://www.youtube.com/watch?v=BUE-icVYRFU
-18. "How to Get and Evaluate Startup Ideas" (30 min, Jared Friedman) — YC's most-watched Startup School video. How founders stumbled into ideas by noticing problems in own lives. https://www.youtube.com/watch?v=Th8JoIan4dg
-19. "How David Lieb Turned a Failing Startup Into Google Photos" (20 min) — Bump was dying. Noticed photo-sharing behavior in own data, became Google Photos (1B+ users). Masterclass in seeing opportunity in failure. https://www.youtube.com/watch?v=CcnwFJqEnxU
-20. "Tips For Technical Startup Founders" (15 min, Diana Hu) — Leverage engineering skills as founder instead of becoming different person. https://www.youtube.com/watch?v=rP7bpYsfa6Q
-21. "Why Startup Founders Should Launch Companies Sooner Than They Think" (12 min, Tyler Bosmeny) — Over-prepare, under-ship. Instinct says "not ready"? This pushes you to ship now. https://www.youtube.com/watch?v=Nsx5RDVKZSk
-22. "How To Talk To Users" (20 min, Gustaf Alströmer) — Don't need sales skills. Genuine conversations about problems. Most approachable tactical talk for first-timers. https://www.youtube.com/watch?v=z1iF1c8w5Lg
-23. "How To Find A Co-Founder" (15 min, Harj Taggar) — Practical mechanics of finding someone to build with. "Don't want to do this alone" stopping you? Removes that blocker. https://www.youtube.com/watch?v=Fk9BCr5pLTU
-24. "Should You Quit Your Job At A Unicorn?" (12 min, Tom Blomfield) — Speaks to big tech people feeling pull to build own thing. Permission slip. https://www.youtube.com/watch?v=chAoH_AeGAg
-
-PAUL GRAHAM ESSAYS:
-25. "How to Do Great Work" — Not about startups. Finding most meaningful work. Roadmap often leads to founding without saying "startup." https://paulgraham.com/greatwork.html
-26. "How to Do What You Love" — Collapse gap between interests and career. Usually how companies born. https://paulgraham.com/love.html
-27. "The Bus Ticket Theory of Genius" — Obsessive interest others find boring? Mechanism behind every breakthrough. https://paulgraham.com/genius.html
-28. "Why to Not Not Start a Startup" — Every reason not to start — none hold up. https://paulgraham.com/notnot.html
-29. "Before the Startup" — Haven't started yet? What to focus on, ignore, how to tell. https://paulgraham.com/before.html
-30. "Superlinear Returns" — Right project = exponential payoff normal career can't match. https://paulgraham.com/superlinear.html
-31. "How to Get Startup Ideas" — Best ideas noticed, not brainstormed. Own frustrations = companies. https://paulgraham.com/startupideas.html
-32. "Schlep Blindness" — Best opportunities in boring problems everyone avoids. Standing on a company? https://paulgraham.com/schlep.html
-33. "You Weren't Meant to Have a Boss" — Big org felt wrong? Small groups on self-chosen problems = natural. https://paulgraham.com/boss.html
-34. "Relentlessly Resourceful" — PG's ideal founder: keeps figuring things out. That's you? Qualified. https://paulgraham.com/relres.html
-
-**After presenting resources — log and offer to open:**
-
-1. Log selected resource URLs to builder profile (single source of truth).
-Append resource-tracking entry:
-```bash
-echo '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' >> "${CAVESTACK_HOME:-$HOME/.cavestack}/builder-profile.jsonl"
-```
-
-2. Log selection to analytics:
-```bash
-mkdir -p ~/.cavestack/analytics
-echo '{"skill":"office-hours","event":"resources_shown","count":NUM_RESOURCES,"categories":"CAT1,CAT2","ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' >> ~/.cavestack/analytics/skill-usage.jsonl 2>/dev/null || true
-```
-
-3. AskUserQuestion: "Want me to open any in your browser?"
-Options: A) Open all  B-D) Individual titles  E) Skip
-If A: `open URL1 && open URL2 && open URL3`. B/C/D: `open` selected. E: proceed.
-
 ### Next-skill recommendations
 
-After plea, suggest next step:
+After closing, suggest next step:
 
 - **`/plan-ceo-review`** — ambitious features, rethink problem, 10-star product
 - **`/plan-eng-review`** — lock in architecture, tests, edge cases

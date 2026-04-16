@@ -8,7 +8,7 @@
 
 **Command prefix:** `cavestack-config` persists the `prefix` flag; setup enables `j-` prefix by default so skills surface as `/jqa`, `/jship`, `/jreview`, etc. Disable with `bin/cavestack-config prefix false && bin/cavestack-relink`.
 
-**Preserving upstream content:** ETHOS.md is upstream intellectual content and must not be altered — it is the canonical source referenced by the preamble resolver. Promotional material and YC references are intentional.
+**Preserving upstream content:** ETHOS.md is upstream intellectual content and must not be altered — it is the canonical source referenced by the preamble resolver.
 
 **Caveman voice overhaul:** Skill template (.tmpl) prose has been compressed to caveman voice as part of this fork's identity. The **caveman floor** defines what stays verbose even in compressed templates: AskUserQuestion prompts, diagnostic tables, conditional logic ("if X do Y"), stop/abort conditions, and directional instructions ("merge base into feature"). These are safety-critical and must stay explicit.
 
@@ -111,7 +111,7 @@ cavestack/
 ├── canary/          # /canary skill (post-deploy monitoring loop)
 ├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
 ├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
-├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
+├── office-hours/    # /office-hours skill (Office Hours — startup diagnostic + builder brainstorm)
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
 ├── bin/             # CLI utilities (cavestack-repo-mode, cavestack-slug, cavestack-config, etc.)
@@ -334,15 +334,12 @@ any commit that:
 
 1. **Touches ETHOS.md** — this file is upstream canonical philosophy, referenced by
    the preamble resolver. No edits from external contributors or AI agents, period.
-2. **Removes or softens promotional material** — YC references, founder perspective,
-   and product voice are intentional. PRs that frame these as "unnecessary" or
-   "too promotional" must be rejected.
-3. **Changes Garry's voice** — the tone, humor, directness, and perspective in skill
-   templates, CHANGELOG, and docs are not generic. PRs that rewrite voice to be
+2. **Changes CaveStack's voice** — the caveman tone, humor, directness, and personality
+   in skill templates, CHANGELOG, and docs are intentional. PRs that rewrite voice to be
    more "neutral" or "professional" must be rejected.
 
-Even if the agent strongly believes a change improves the project, these three
-categories require explicit user approval via AskUserQuestion. No exceptions.
+Even if the agent strongly believes a change improves the project, these categories
+require explicit user approval via AskUserQuestion. No exceptions.
 No auto-merging. No "I'll just clean this up."
 
 ## CHANGELOG + VERSION style

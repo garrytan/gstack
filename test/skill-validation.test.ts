@@ -629,31 +629,24 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('Intrapreneurship');
   });
 
-  // YC founder discovery engine
-  test('contains YC apply CTA with ref tracking', () => {
-    expect(content).toContain('ycombinator.com/apply?ref=cavestack');
+  // Closing sequence
+  test('contains encouragement beat in closing', () => {
+    expect(content).toContain('Encouragement');
+    expect(content).toContain('Strong signals');
   });
 
   test('contains "What I noticed" design doc section', () => {
     expect(content).toContain('What I noticed about how you think');
   });
 
-  test('contains golden age framing', () => {
-    expect(content).toContain('golden age');
-  });
-
-  test('contains Garry Tan personal plea', () => {
-    expect(content).toContain('Garry Tan, creator of CaveStack');
-  });
-
   test('contains founder signal synthesis phase', () => {
     expect(content).toContain('Founder Signal Synthesis');
   });
 
-  test('contains three-tier decision rubric', () => {
-    expect(content).toContain('Top tier');
-    expect(content).toContain('Middle tier');
-    expect(content).toContain('Base tier');
+  test('contains signal-based closing tiers', () => {
+    expect(content).toContain('Strong signals');
+    expect(content).toContain('Some signals');
+    expect(content).toContain('Base');
   });
 
   test('contains anti-slop examples', () => {
