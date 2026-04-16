@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1280px;
+    height: 640px;
+    background: #1a1a1a;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Cave wall texture overlay */
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 10% 20%, rgba(139,69,19,0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 90% 80%, rgba(139,69,19,0.1) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(60,40,20,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  /* Cave handprints */
+  .handprint {
+    position: absolute;
+    font-size: 48px;
+    opacity: 0.12;
+    transform: rotate(-15deg);
+  }
+  .handprint.left { top: 80px; left: 60px; transform: rotate(-25deg); }
+  .handprint.right { bottom: 80px; right: 60px; transform: rotate(15deg); }
+  .handprint.top { top: 40px; right: 200px; transform: rotate(-5deg); font-size: 36px; }
+
+  /* Torch flames */
+  .torch {
+    position: absolute;
+    font-size: 40px;
+    opacity: 0.25;
+  }
+  .torch.l { left: 30px; top: 280px; }
+  .torch.r { right: 30px; top: 280px; }
+
+  /* Cave drawings */
+  .cave-art {
+    position: absolute;
+    opacity: 0.1;
+    font-size: 32px;
+  }
+  .cave-art.deer { bottom: 120px; left: 140px; font-size: 28px; }
+  .cave-art.person1 { top: 160px; right: 120px; }
+  .cave-art.person2 { bottom: 160px; left: 300px; font-size: 24px; }
+
+  .title {
+    font-size: 96px;
+    font-weight: bold;
+    color: #e8d5b7;
+    text-shadow:
+      3px 3px 0 #3d2b1f,
+      -1px -1px 0 #3d2b1f,
+      6px 6px 20px rgba(0,0,0,0.5);
+    letter-spacing: 8px;
+    position: relative;
+    z-index: 2;
+  }
+
+  .tagline {
+    font-size: 28px;
+    color: #c4956a;
+    margin-top: 20px;
+    letter-spacing: 4px;
+    position: relative;
+    z-index: 2;
+    text-shadow: 2px 2px 8px rgba(0,0,0,0.5);
+  }
+
+  .terminal-hint {
+    position: absolute;
+    bottom: 50px;
+    font-size: 16px;
+    color: #666;
+    letter-spacing: 2px;
+    z-index: 2;
+  }
+
+  .terminal-hint span {
+    color: #4a9;
+  }
+
+  /* Dots like cave painting dots */
+  .dots {
+    position: absolute;
+    display: flex;
+    gap: 12px;
+    opacity: 0.15;
+  }
+  .dots.top-row { top: 30px; left: 50%; transform: translateX(-50%); }
+  .dots.bot-row { bottom: 30px; left: 50%; transform: translateX(-50%); }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #c4956a;
+  }
+
+  /* Scratches like cave wall marks */
+  .scratch {
+    position: absolute;
+    color: #c4956a;
+    opacity: 0.08;
+    font-size: 64px;
+    font-weight: 100;
+  }
+  .scratch.s1 { top: 100px; left: 400px; transform: rotate(-30deg); }
+  .scratch.s2 { bottom: 100px; right: 400px; transform: rotate(20deg); }
+</style>
+</head>
+<body>
+  <!-- Cave handprints -->
+  <div class="handprint left">&#9995;</div>
+  <div class="handprint right">&#9995;</div>
+  <div class="handprint top">&#9995;</div>
+
+  <!-- Torches -->
+  <div class="torch l">&#128293;</div>
+  <div class="torch r">&#128293;</div>
+
+  <!-- Cave art figures -->
+  <div class="cave-art deer">&#129420;</div>
+  <div class="cave-art person1">&#128100;</div>
+  <div class="cave-art person2">&#128100;</div>
+
+  <!-- Decorative dots -->
+  <div class="dots top-row">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+  </div>
+  <div class="dots bot-row">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+  </div>
+
+  <!-- Scratches -->
+  <div class="scratch s1">///</div>
+  <div class="scratch s2">///</div>
+
+  <!-- Main content -->
+  <div class="title">CAVESTACK</div>
+  <div class="tagline">Why use many word when few do?</div>
+  <div class="terminal-hint"><span>$</span> claude &mdash; now with 75% less talking</div>
+</body>
+</html>

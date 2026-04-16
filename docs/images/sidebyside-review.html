@@ -1,398 +1,163 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>gstack /review vs cavestack /review — same patch</title>
+<meta charset="utf-8">
+<title>Verbose vs CaveStack /review — same patch</title>
 <style>
-  :root {
-    --bg: #0f1115;
-    --panel: #171a21;
-    --border: #2a2f3a;
-    --fg: #e6e9ef;
-    --muted: #8a93a6;
-    --accent: #f5c76a;
-    --accent2: #7aa7ff;
-    --red: #ff7a7a;
-    --green: #8af0a8;
-    --mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "Menlo", "Consolas", monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1200px;
+    background: #0d1117;
+    font-family: 'Courier New', 'Consolas', monospace;
+    padding: 20px;
+    color: #c9d1d9;
   }
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font-family: var(--sans);
+  .header {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #8b949e;
+    font-size: 14px;
   }
-  .wrap {
-    width: 1600px;
-    margin: 0 auto;
-    padding: 32px 32px 24px 32px;
+  .header strong {
+    color: #e8d5b7;
   }
-  header {
+  .container {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: 16px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--border);
+    gap: 16px;
   }
-  h1 {
-    font-size: 22px;
-    font-weight: 600;
-    margin: 0;
-    letter-spacing: 0.2px;
+  .panel {
+    flex: 1;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
   }
-  h1 .hi { color: var(--accent); }
-  .caption {
+  .panel-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid #30363d;
     font-size: 13px;
-    color: var(--muted);
-  }
-  .cols {
-    display: grid;
-    grid-template-columns: 1fr 1px 1fr;
-    gap: 0;
-    background: var(--bg);
-  }
-  .col {
-    background: var(--panel);
-    border: 1px solid var(--border);
-  }
-  .col.left { border-right: none; }
-  .col.right { border-left: none; }
-  .sep {
-    background: var(--border);
-  }
-  .col .head {
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--border);
+    font-weight: bold;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    font-family: var(--sans);
+    gap: 8px;
   }
-  .col .head .name {
-    font-size: 15px;
-    font-weight: 600;
+  .verbose .panel-header {
+    background: #1c2128;
+    color: #f85149;
   }
-  .col.left .head .name { color: var(--red); }
-  .col.right .head .name { color: var(--green); }
-  .col .head .sub {
+  .caveman .panel-header {
+    background: #1c2128;
+    color: #3fb950;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .verbose .dot { background: #f85149; }
+  .caveman .dot { background: #3fb950; }
+  .panel-body {
+    padding: 16px;
     font-size: 12px;
-    color: var(--muted);
-  }
-  .pill {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    color: var(--muted);
-    margin-left: 8px;
-  }
-  pre {
-    margin: 0;
-    padding: 18px 20px 22px 20px;
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--fg);
+    line-height: 1.6;
     white-space: pre-wrap;
-    word-wrap: break-word;
+    max-height: 520px;
+    overflow: hidden;
   }
-  .col.left pre { min-height: 1100px; }
-  .col.right pre { min-height: 1100px; }
-  .stat-strip {
-    display: grid;
-    grid-template-columns: 1fr 1px 1fr;
-    margin-top: 0;
-    background: var(--bg);
-  }
-  .stat {
-    padding: 10px 20px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-top: none;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-    display: flex;
-    justify-content: space-between;
-  }
-  .stat.left { border-right: none; }
-  .stat.right { border-left: none; }
-  .stat .val { color: var(--fg); }
-  footer {
-    margin-top: 14px;
-    font-size: 11px;
-    color: var(--muted);
+  .comment { color: #8b949e; }
+  .keyword { color: #ff7b72; }
+  .string { color: #a5d6ff; }
+  .added { color: #3fb950; }
+  .removed { color: #f85149; }
+  .dim { color: #484f58; }
+  .finding { color: #f0883e; }
+  .footer {
     text-align: center;
-    font-family: var(--sans);
+    margin-top: 16px;
+    color: #484f58;
+    font-size: 12px;
   }
-  .k { color: var(--accent2); }
-  .c { color: var(--muted); }
-  .e { color: var(--red); }
-  .g { color: var(--green); }
-  .w { color: var(--accent); }
+  .footer em { color: #c4956a; }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="header">Same <strong>/review</strong>, same 24-line patch, two defaults &rarr;</div>
+<div class="container">
 
-<header>
-<h1>Same <code>/review</code>, same 24-line patch, two defaults <span class="hi">→</span></h1>
-<div class="caption">Claude Code • cavestack v0.1 launch proof • sample_modified.py</div>
-</header>
+<div class="panel verbose">
+<div class="panel-header"><div class="dot"></div> Default verbose /review</div>
+<div class="panel-body"><span class="comment"># patch /review</span>
 
-<div class="cols">
+<span class="dim">Analyzing your changes...</span>
 
-<div class="col left">
-<div class="head">
-<div class="name">gstack /review <span class="pill">default verbose</span></div>
-<div class="sub">~3 pages</div>
-</div>
-<pre>Running /review on branch main against base HEAD~1
+I'll review the changes in <span class="string">auth/middleware.ts</span> and provide
+comprehensive feedback on the implementation.
 
-<span class="c"># Step 1: Check branch</span>
-Current branch: main (synthetic test repo)
-Base branch: HEAD~1 (1 commit behind baseline)
-Diff scope: sample.py (+19 -5)
+<span class="keyword">## Summary</span>
 
-<span class="c"># Step 2: Read the checklist</span>
-No project CHECKLIST.md found. Using default review dimensions:
- 1. Correctness
- 2. Error handling
- 3. Concurrency / races
- 4. Null safety
- 5. Performance / N+1
- 6. API contract breakage
- 7. Test coverage
+This pull request modifies the authentication middleware
+to add token expiry validation. The changes look generally
+good, but I have several observations and recommendations
+that I'd like to share with you.
 
-<span class="c"># Step 3: Get the diff</span>
-  sample.py  |  24 +++++++++++++++++++-----
-  1 file changed, 19 insertions(+), 5 deletions(-)
+<span class="keyword">## Detailed Analysis</span>
 
-<span class="c"># Step 4: Critical pass</span>
+<span class="finding">### Finding 1: Token Expiry Check (Medium)</span>
 
-I went through the full diff line by line and identified
-four structural issues that tests will not catch, plus a
-few stylistic notes. Here they are in order of severity.
+In <span class="string">auth/middleware.ts:47</span>, the token expiry comparison
+uses a strict less-than operator (<span class="removed">&lt;</span>) when it should
+use less-than-or-equal-to (<span class="added">&lt;=</span>). This means tokens
+that expire at exactly the current timestamp will
+incorrectly be treated as valid. While this is a small
+window, it could potentially allow expired tokens to
+be used for a brief moment.
 
-<span class="e">## Finding 1 — CRITICAL — N+1 query in process_orders</span>
+<span class="keyword">Recommendation:</span> Change the comparison operator from
+<span class="removed">&lt;</span> to <span class="added">&lt;=</span> to ensure tokens are invalidated at
+exactly their expiry time.
 
-Location: sample.py:14-18
+<span class="finding">### Finding 2: Missing Error Context (Low)</span>
 
-The loop inside `process_orders` issues two SELECT statements
-per user_id. For a batch of 200 users, that is 400 round-trips
-to the database. On a hot request path this will dominate
-latency and likely trigger alerts on DB connection saturation.
+The error response at line 52 returns a generic 401
+without including any diagnostic information that would
+help developers understand why their token was rejected.
+Consider adding a <span class="string">"reason"</span> field to the error response
+body to indicate whether the rejection was due to token
+expiry, invalid signature, or malformed token format.
 
-```python
-for uid in user_ids:
-    user = db.query(User).filter_by(id=uid).first()
-    orders = db.query(Order).filter_by(user_id=uid).all()
-    ...
-```
+<span class="keyword">## Overall Assessment</span>
 
-Recommended fix: batch fetch users with `IN (user_ids)`, then
-fetch all orders for those users in a second query and group
-in memory by user_id. This reduces the pattern to two queries
-total regardless of batch size.
-
-<span class="e">## Finding 2 — CRITICAL — NoneType access on user.tier</span>
-
-Location: sample.py:16
-
-`db.query(User).filter_by(id=uid).first()` returns None if no
-such row exists. The subsequent `user.tier` access will raise
-AttributeError at runtime, crashing the whole batch on a
-single missing user. The existing code before the patch had
-the same bug on `user.name`, but the new code adds a second
-null-deref site.
-
-Recommended fix: either filter out missing user_ids up front,
-or skip with a log line when `user is None`. The right choice
-depends on whether a missing user_id is a client bug (should
-500) or an expected race (should 200 with a partial response).
-Without more context I cannot pick for you, so flag this as a
-decision the author needs to make before merge.
-
-<span class="e">## Finding 3 — HIGH — Unhandled KeyError in format_invoice</span>
-
-Location: sample.py:30
-
-```python
-symbol = {"USD": "$", "EUR": "€", "GBP": "£"}[currency]
-```
-
-Any `currency` value outside the three hard-coded keys will
-raise KeyError. The function signature defaults currency to
-"USD", which is safe, but any caller that passes a user-supplied
-or config-supplied currency value can trigger an unhandled
-exception. This is especially bad because format_invoice is
-a pure formatter — it should never throw.
-
-Recommended fix: use `.get(currency, "$")` with a sensible
-fallback, or validate upstream and return early with a clear
-error message if the currency is unsupported.
-
-<span class="e">## Finding 4 — HIGH — refund_order has no null check and no rollback</span>
-
-Location: sample.py:41-44
-
-```python
-def refund_order(order_id):
-    order = db.query(Order).filter_by(id=order_id).first()
-    order.refunded = True
-    db.commit()
-    return order
-```
-
-Two problems. First, `order` can be None — same class of bug
-as Finding 2. Second, there is no try/except around the commit,
-so a commit failure (constraint violation, connection dropped,
-transaction timeout) leaves the caller with no way to
-distinguish success from failure. The function silently returns
-the stale object reference.
-
-Recommended fix: guard on `order is None` and raise or return
-early. Wrap the write in try/except with rollback on failure.
-
-## Lower-severity notes
-
-- `sync_inventory` now returns `synced` count but there is no
-  unit test covering this return value.
-- The new `tier_multipliers` parameter has no type hint.
-- `format_invoice` adds a `(currency)` suffix to the invoice
-  header, which is a user-visible change but no test asserts
-  the new format.
-- The whole file still has no module docstring covering the
-  tier/currency additions.
-
-## Summary
-
-4 findings (2 critical, 2 high). This branch is not ready to
-land. Address Findings 1 through 4 before merging. I can
-auto-fix Findings 2 and 4 with null guards if you want — reply
-with "yes, auto-fix null guards" and I will apply them and
-re-run the diff.
-
-## Next steps
- - Fix N+1 query in process_orders (manual, needs design choice)
- - Add null guards to process_orders and refund_order (can auto)
- - Make format_invoice currency-safe (can auto)
- - Add tests for sync_inventory return value, format_invoice
-   currency branch, and refund_order null path
- - Re-run /review after fixes</pre>
+The changes demonstrate a solid understanding of the
+authentication flow. With the operator fix applied,
+this should be ready to merge. I'd recommend adding
+a test case for the boundary condition as well.</div>
 </div>
 
-<div class="sep"></div>
+<div class="panel caveman">
+<div class="panel-header"><div class="dot"></div> CaveStack /review (caveman mode)</div>
+<div class="panel-body"><span class="comment"># patch /review</span>
 
-<div class="col right">
-<div class="head">
-<div class="name">cavestack /review <span class="pill">caveman:full default</span></div>
-<div class="sub">5 lines</div>
+<span class="keyword">## Findings: 2</span>
+
+<span class="finding">1.</span> <span class="string">auth/middleware.ts:47</span> — token expiry check
+   use <span class="removed">&lt;</span> not <span class="added">&lt;=</span>. Token at exact expiry time
+   passes validation. Fix:
+
+   <span class="dim">- if (token.exp &lt; now) {</span>
+   <span class="added">+ if (token.exp &lt;= now) {</span>
+
+<span class="finding">2.</span> <span class="string">auth/middleware.ts:52</span> — 401 response
+   missing reason field. Add:
+
+   <span class="added">{ error: "unauthorized", reason: "token_expired" }</span>
+
+<span class="keyword">Status:</span> Fix #1, merge.
+
+
 </div>
-<pre>sample.py 4 findings. Not ready.
-
-<span class="e">L14</span> N+1: query per user. Batch fetch users + orders IN (ids).
-<span class="e">L16</span> user.tier NoneType if user missing. Guard or filter first.
-<span class="e">L30</span> format_invoice KeyError on unknown currency. Use .get() fallback.
-<span class="e">L41</span> refund_order no null check, no rollback. Guard + try/except.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-</pre>
 </div>
 
 </div>
-
-<div class="stat-strip">
-  <div class="stat left">
-    <span>output: <span class="val">3,214 chars / ~4,100 tokens</span></span>
-    <span>read time: <span class="val">~90 s</span></span>
-  </div>
-  <div class="sep" style="background:var(--border)"></div>
-  <div class="stat right">
-    <span>output: <span class="val">312 chars / ~80 tokens</span></span>
-    <span>read time: <span class="val">~6 s</span></span>
-  </div>
-</div>
-
-<footer>
-  github.com/JerkyJesse/cavestack &nbsp;•&nbsp; same <code>/review</code> skill, same patch, caveman SessionStart hook on/off &nbsp;•&nbsp; MIT
-</footer>
-
-</div>
+<div class="footer">Same patch. Same findings. Left: <em>~250 words</em>. Right: <em>~40 words</em>.</div>
 </body>
 </html>
