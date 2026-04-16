@@ -32,6 +32,26 @@
     "priority_instruction": {
       "type": "string",
       "description": "Runtime injection line for caveman-voice-priority.js hook"
+    },
+    "verbose_phrases": {
+      "type": "array",
+      "description": "Verbose-to-cave substitution pairs for voice-audit --fix mode",
+      "items": {
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "density_thresholds": {
+      "type": "object",
+      "description": "Density thresholds for voice-audit checks",
+      "properties": {
+        "articlesPerHundred": { "type": "number" },
+        "fillersPerHundred": { "type": "number" },
+        "hedgesPerHundred": { "type": "number" },
+        "verbosePhraseMax": { "type": "number" }
+      }
     }
   },
   "additionalProperties": false

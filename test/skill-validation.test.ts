@@ -1531,3 +1531,25 @@ describe('sidebar agent (#584)', () => {
     expect(content).not.toContain("proc.stderr.on('data', () => {})");
   });
 });
+
+// ─── Voice Density Regression Gate ──────────────────────────
+// Ensures compressed templates stay compressed. Catches drift.
+import { auditTemplate } from '../scripts/voice-audit';
+describe('voice density regression', () => {
+
+  // Already-compressed templates must pass density check
+  const compressedTemplates = [
+    'autoplan', 'design-consultation', 'design-review', 'design-shotgun',
+    'investigate', 'office-hours', 'plan-ceo-review', 'plan-design-review',
+    'plan-eng-review', 'qa-only', 'qa', 'retro', 'review', 'ship',
+  ];
+
+  for (const name of compressedTemplates) {
+    test(`${name}/SKILL.md.tmpl passes voice density check`, () => {
+      const tmpl = path.join(ROOT, name, 'SKILL.md.tmpl');
+      if (!fs.existsSync(tmpl)) return;
+      const result = auditTemplate(tmpl);
+      expect(result.status).toBe('PASS');
+    });
+  }
+});
