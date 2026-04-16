@@ -37,8 +37,8 @@ function buildHostPaths(): Record<string, HostPaths> {
         skillRoot: root,
         localSkillRoot: config.localSkillRoot,
         binDir: `${root}/bin`,
-        browseDir: `${root}/browse/dist`,
-        designDir: `${root}/design/dist`,
+        browseDir: `$HOME/${config.globalRoot}/browse/dist`,
+        designDir: `$HOME/${config.globalRoot}/design/dist`,
       };
     }
   }
