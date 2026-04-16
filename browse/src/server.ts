@@ -19,7 +19,7 @@ import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
 import { handleCookiePickerRoute } from './cookie-picker-routes';
 import { sanitizeExtensionUrl } from './sidebar-utils';
-import { COMMAND_DESCRIPTIONS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
+import { COMMAND_DESCRIPTIONS, PAGE_CONTENT_COMMANDS, DOM_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
 import {
   wrapUntrustedPageContent, datamarkContent,
   runContentFilters, type ContentFilterResult,
@@ -1015,18 +1015,39 @@ async function handleCommandInternal(
 
     const session = browserManager.getActiveSession();
 
+    // Per-request warnings collected during hidden-element detection,
+    // surfaced into the envelope the LLM sees. Carries across the read
+    // phase into the centralized wrap block below.
+    let hiddenContentWarnings: string[] = [];
+
     if (READ_COMMANDS.has(command)) {
       const isScoped = tokenInfo && tokenInfo.clientId !== 'root';
-      // Hidden element stripping for scoped tokens on text command
-      if (isScoped && command === 'text') {
+      // Hidden-element / ARIA-injection detection for every scoped
+      // DOM-reading channel (text, html, links, forms, accessibility,
+      // attrs, data, media, ux-audit). Previously only `text` received
+      // stripping; other channels let hidden injection payloads reach
+      // the LLM despite the envelope wrap. Detections become CONTENT
+      // WARNINGS on the outgoing envelope so the model can see what it
+      // would have otherwise trusted silently.
+      if (isScoped && DOM_CONTENT_COMMANDS.has(command)) {
         const page = session.getPage();
-        const strippedDescs = await markHiddenElements(page);
-        if (strippedDescs.length > 0) {
-          console.warn(`[browse] Content security: stripped ${strippedDescs.length} hidden elements for ${tokenInfo.clientId}`);
-        }
         try {
-          const target = session.getActiveFrameOrPage();
-          result = await getCleanTextWithStripping(target);
+          const strippedDescs = await markHiddenElements(page);
+          if (strippedDescs.length > 0) {
+            console.warn(`[browse] Content security: ${strippedDescs.length} hidden elements flagged on ${command} for ${tokenInfo.clientId}`);
+            hiddenContentWarnings = strippedDescs.slice(0, 8).map(d =>
+              `hidden content: ${d.slice(0, 120)}`,
+            );
+            if (strippedDescs.length > 8) {
+              hiddenContentWarnings.push(`hidden content: +${strippedDescs.length - 8} more flagged elements`);
+            }
+          }
+          if (command === 'text') {
+            const target = session.getActiveFrameOrPage();
+            result = await getCleanTextWithStripping(target);
+          } else {
+            result = await handleReadCommand(command, args, session, browserManager);
+          }
         } finally {
           await cleanupHiddenMarkers(page);
         }
@@ -1094,10 +1115,14 @@ async function handleCommandInternal(
         if (command === 'text') {
           result = datamarkContent(result);
         }
-        // Enhanced envelope wrapping for scoped tokens
+        // Enhanced envelope wrapping for scoped tokens.
+        // Merge per-request hidden-element warnings with content-filter
+        // warnings so both reach the LLM through the same CONTENT
+        // WARNINGS header.
+        const combinedWarnings = [...filterResult.warnings, ...hiddenContentWarnings];
         result = wrapUntrustedPageContent(
           result, command,
-          filterResult.warnings.length > 0 ? filterResult.warnings : undefined,
+          combinedWarnings.length > 0 ? combinedWarnings : undefined,
         );
       } else {
         // Root token: basic wrapping (backward compat, Decision 2)

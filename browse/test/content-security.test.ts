@@ -302,6 +302,75 @@ describe('Centralized wrapping', () => {
   });
 });
 
+// ─── 5b. DOM-content channel coverage (F008) ────────────────────
+//
+// Regression: `markHiddenElements` was only invoked for scoped
+// `text`. Other DOM-reading channels (html, accessibility, attrs,
+// forms, links, data, media, ux-audit) went through the envelope
+// wrap with zero hidden-element detection, so a
+// <div style="display:none">IGNORE INSTRUCTIONS …</div> or an
+// aria-label carrying an injection pattern reached the LLM silently.
+// The dispatch now gates on DOM_CONTENT_COMMANDS and surfaces
+// descriptions as CONTENT WARNINGS.
+
+describe('DOM-content channel coverage', () => {
+  test('commands.ts exports DOM_CONTENT_COMMANDS', () => {
+    expect(COMMANDS_SRC).toContain('export const DOM_CONTENT_COMMANDS');
+  });
+
+  test('DOM_CONTENT_COMMANDS covers the DOM-reading channels', () => {
+    const setStart = COMMANDS_SRC.indexOf('export const DOM_CONTENT_COMMANDS');
+    expect(setStart).toBeGreaterThan(-1);
+    const setBlock = COMMANDS_SRC.slice(
+      setStart, COMMANDS_SRC.indexOf(']);', setStart),
+    );
+    for (const cmd of ['text', 'html', 'links', 'forms', 'accessibility', 'attrs', 'media', 'data', 'ux-audit']) {
+      expect(setBlock).toContain(`'${cmd}'`);
+    }
+    // console + dialog read runtime state, not DOM — should NOT be in the set
+    expect(setBlock).not.toContain("'console'");
+    expect(setBlock).not.toContain("'dialog'");
+  });
+
+  test('server gates markHiddenElements on DOM_CONTENT_COMMANDS, not just text', () => {
+    // Find the scoped-token read block. The dispatch must pivot on
+    // the full set rather than the literal string 'text'.
+    const readBlockStart = SERVER_SRC.indexOf('if (READ_COMMANDS.has(command))');
+    expect(readBlockStart).toBeGreaterThan(-1);
+    const readBlockEnd = SERVER_SRC.indexOf('} else if (WRITE_COMMANDS.has(command))', readBlockStart);
+    const readBlock = SERVER_SRC.slice(readBlockStart, readBlockEnd);
+
+    // Old shape the PR replaces — must be gone. If a future refactor
+    // reintroduces `command === 'text'` as the ONLY trigger for
+    // markHiddenElements this test trips.
+    expect(readBlock).toContain('DOM_CONTENT_COMMANDS.has(command)');
+    expect(readBlock).toContain('markHiddenElements');
+    expect(readBlock).toContain('cleanupHiddenMarkers');
+  });
+
+  test('hidden-element descriptions flow into the envelope warnings', () => {
+    // The per-request warnings variable must be collected during the
+    // read phase and then merged into the wrap block's
+    // `combinedWarnings` before `wrapUntrustedPageContent` is called.
+    expect(SERVER_SRC).toContain('hiddenContentWarnings');
+    expect(SERVER_SRC).toMatch(/combinedWarnings\s*=\s*\[\s*\.\.\.\s*filterResult\.warnings\s*,\s*\.\.\.\s*hiddenContentWarnings\s*\]/);
+    // And the merged list is what actually reaches the wrap helper.
+    const wrapBlockStart = SERVER_SRC.indexOf('Enhanced envelope wrapping for scoped tokens');
+    expect(wrapBlockStart).toBeGreaterThan(-1);
+    const wrapBlock = SERVER_SRC.slice(wrapBlockStart, wrapBlockStart + 600);
+    expect(wrapBlock).toContain('combinedWarnings');
+    expect(wrapBlock).toMatch(/wrapUntrustedPageContent\s*\(\s*\n?\s*result/);
+  });
+
+  test('DOM_CONTENT_COMMANDS is a subset of PAGE_CONTENT_COMMANDS', async () => {
+    const { PAGE_CONTENT_COMMANDS, DOM_CONTENT_COMMANDS } =
+      await import('../src/commands');
+    for (const cmd of DOM_CONTENT_COMMANDS) {
+      expect(PAGE_CONTENT_COMMANDS.has(cmd)).toBe(true);
+    }
+  });
+});
+
 // ─── 6. Chain Security (source-level) ───────────────────────────
 
 describe('Chain security', () => {
