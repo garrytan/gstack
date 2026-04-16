@@ -2,12 +2,12 @@
 name: pair-agent
 version: 0.1.0
 description: |
-  Pair a remote AI agent with your browser. One command generates a setup key and
-  prints instructions the other agent can follow to connect. Works with OpenClaw,
-  Hermes, Codex, Cursor, or any agent that can make HTTP requests. The remote agent
-  gets its own tab with scoped access (read+write by default, admin on request).
-  Use when asked to "pair agent", "connect agent", "share browser", "remote browser",
-  "let another agent use my browser", or "give browser access". (cavestack)
+  Pair remote AI agent with your browser. One command generates setup key and
+  prints instructions other agent follows to connect. Works with OpenClaw,
+  Hermes, Codex, Cursor, or any agent making HTTP requests. Remote agent
+  gets own tab with scoped access (read+write default, admin on request).
+  Use when: "pair agent", "connect agent", "share browser", "remote browser",
+  "let another agent use my browser", "give browser access". (cavestack)
 voice-triggers:
   - "pair agent"
   - "connect agent"
@@ -24,42 +24,42 @@ allowed-tools:
 
 # /pair-agent — Share Your Browser With Another AI Agent
 
-You're sitting in Claude Code with a browser running. You also have another AI agent
-open (OpenClaw, Hermes, Codex, Cursor, whatever). You want that other agent to be
-able to browse the web using YOUR browser. This skill makes that happen.
+Claude Code with browser running. Another AI agent open (OpenClaw, Hermes,
+Codex, Cursor, whatever). Want that agent to browse web using YOUR browser.
+This skill makes it happen.
 
 ## How it works
 
-Your cavestack browser runs a local HTTP server. This skill creates a one-time setup key,
-prints a block of instructions, and you paste those instructions into the other agent.
-The other agent exchanges the key for a session token, creates its own tab, and starts
-browsing. Each agent gets its own tab. They can't mess with each other's tabs.
+Cavestack browser runs local HTTP server. This skill creates one-time setup key,
+prints instruction block, you paste into other agent.
+Other agent exchanges key for session token, creates own tab, starts
+browsing. Each agent gets own tab. Can't mess with each other's tabs.
 
-The setup key expires in 5 minutes and can only be used once. If it leaks, it's dead
-before anyone can abuse it. The session token lasts 24 hours.
+Setup key expires in 5 minutes, single-use only. If it leaks, dead
+before anyone can abuse it. Session token lasts 24 hours.
 
-**Same machine:** If the other agent is on the same machine (like OpenClaw running
-locally), you can skip the copy-paste ceremony and write the credentials directly to
-the agent's config directory.
+**Same machine:** If other agent on same machine (like OpenClaw running
+locally), skip copy-paste ceremony and write credentials directly to
+agent's config directory.
 
-**Remote:** If the other agent is on a different machine, you need an ngrok tunnel.
-The skill will tell you if one is needed and how to set it up.
+**Remote:** If other agent on different machine, need ngrok tunnel.
+Skill tells you if one needed and how to set it up.
 
 {{BROWSE_SETUP}}
 
-## Step 1: Check prerequisites
+## Step 1: Check prereqs
 
 ```bash
 $B status 2>/dev/null
 ```
 
-If the browse server is not running, start it:
+If browse server not running, start it:
 
 ```bash
 $B goto about:blank
 ```
 
-This ensures the server is up and healthy before pairing.
+Ensures server up and healthy before pairing.
 
 ## Step 2: Ask what they want
 
@@ -75,8 +75,8 @@ Options:
 - D) Another Claude Code session (local or remote)
 - E) Something else (generic HTTP instructions — use this for Hermes)
 
-Based on the answer, set `TARGET_HOST`:
-- A → `openclaw`
+Based on answer, set `TARGET_HOST`:
+- → `openclaw`
 - B → `codex`
 - C → `cursor`
 - D → `claude`
@@ -104,20 +104,20 @@ Options:
 
 ### If same machine (option A):
 
-Run pair-agent with --local flag:
+Run pair-agent with --local:
 
 ```bash
 $B pair-agent --local TARGET_HOST
 ```
 
-Replace `TARGET_HOST` with the value from Step 2 (openclaw, codex, cursor, etc.).
+Replace `TARGET_HOST` with value from Step 2 (openclaw, codex, cursor, etc.).
 
-If it succeeds, tell the user:
+If succeeds, tell user:
 "Done. TARGET_HOST can now use your browser. It will read credentials from the
 config file that was written. Try asking it to navigate to a URL."
 
-If it fails (host not found, write permission error), show the error and suggest
-using the generic remote flow instead.
+If fails (host not found, write permission error), show error and suggest
+using generic remote flow instead.
 
 ### If different machine (option B):
 
@@ -128,32 +128,32 @@ which ngrok 2>/dev/null && echo "NGROK_INSTALLED" || echo "NGROK_NOT_INSTALLED"
 ngrok config check 2>/dev/null && echo "NGROK_AUTHED" || echo "NGROK_NOT_AUTHED"
 ```
 
-**If ngrok is installed and authed:** Just run the command. The CLI will auto-detect
-ngrok, start the tunnel, and print the instruction block with the tunnel URL:
+**If ngrok installed and authed:** Just run command. CLI auto-detects
+ngrok, starts tunnel, prints instruction block with tunnel URL:
 
 ```bash
 $B pair-agent --client TARGET_HOST
 ```
 
-If the user also needs admin access (JS execution, cookies, storage):
+If user also needs admin access (JS execution, cookies, storage):
 
 ```bash
 $B pair-agent --admin --client TARGET_HOST
 ```
 
-**CRITICAL: You MUST output the full instruction block to the user.** The command
-prints everything between ═══ lines. Copy the ENTIRE block verbatim into your
-response so the user can copy-paste it into their other agent. Do NOT summarize it,
-do NOT skip it, do NOT just say "here's the output." The user needs to SEE the block
-to copy it. Output it inside a markdown code block so it's easy to select and copy.
+**CRITICAL: You MUST output the full instruction block to the user.** Command
+prints everything between ═══ lines. Copy ENTIRE block verbatim into your
+response so user can copy-paste into other agent. Do NOT summarize,
+do NOT skip, do NOT just say "here's the output." User needs to SEE the block
+to copy it. Output inside markdown code block for easy select and copy.
 
-Then tell the user:
+Then tell user:
 "Copy the block above and paste it into your other agent's chat. The setup key
 expires in 5 minutes."
 
-**If ngrok is installed but NOT authed:** Walk the user through authentication:
+**If ngrok installed but NOT authed:** Walk user through auth:
 
-Tell the user:
+Tell user:
 "ngrok is installed but not logged in. Let's fix that:
 
 1. Go to https://dashboard.ngrok.com/get-started/your-authtoken
@@ -162,16 +162,16 @@ Tell the user:
 
 STOP here and wait for the user to provide their auth token.
 
-When they provide it, run:
+When provided, run:
 ```bash
 ngrok config add-authtoken THEIR_TOKEN
 ```
 
 Then retry `$B pair-agent --client TARGET_HOST`.
 
-**If ngrok is NOT installed:** Walk the user through installation:
+**If ngrok NOT installed:** Walk user through install:
 
-Tell the user:
+Tell user:
 "To connect a remote agent, we need ngrok (a tunnel that exposes your local
 browser to the internet securely).
 
@@ -187,75 +187,75 @@ STOP here. Wait for the user to install ngrok and re-invoke.
 
 ## Step 5: Verify connection
 
-After the user pastes the instructions into the other agent, wait a moment then check:
+After user pastes instructions into other agent, wait then check:
 
 ```bash
 $B status
 ```
 
-Look for the connected agent in the status output. If it appears, tell the user:
-"The remote agent is connected and has its own tab. You'll see its activity in the
-side panel if you have CaveStack Browser open."
+Look for connected agent in status. If found, tell user:
+"Remote agent connected with own tab. Activity visible in side panel
+if CaveStack Browser open."
 
-## What the remote agent can do
+## What remote agent can do
 
 With default (read+write) access:
-- Navigate to URLs, click elements, fill forms, take screenshots
+- Navigate URLs, click elements, fill forms, take screenshots
 - Read page content (text, HTML, snapshot)
-- Create new tabs (each agent gets its own)
+- Create new tabs (each agent gets own)
 - Cannot execute arbitrary JavaScript, read cookies, or access storage
 
-With admin access (--admin flag):
+With admin access (--admin):
 - Everything above, plus JS execution, cookie access, storage access
 - Use sparingly. Only for agents you fully trust.
 
 ## Troubleshooting
 
-**"Tab not owned by your agent"** — The remote agent tried to interact with a tab
-it didn't create. Tell it to run `newtab` first to get its own tab.
+**"Tab not owned by your agent"** — Remote agent tried to interact with tab
+it didn't create. Tell it to run `newtab` first to get own tab.
 
-**"Domain not allowed"** — The token has domain restrictions. Re-pair with broader
-domain access or no domain restrictions.
+**"Domain not allowed"** — Token has domain restrictions. Re-pair with broader
+domain access or no restrictions.
 
-**"Rate limit exceeded"** — The agent is sending > 10 requests/second. It should
-wait for the Retry-After header and slow down.
+**"Rate limit exceeded"** — Agent sending > 10 requests/second. Should
+wait for Retry-After header and slow down.
 
-**"Token expired"** — The 24-hour session expired. Run `/pair-agent` again to
-generate a new setup key.
+**"Token expired"** — 24-hour session expired. Run `/pair-agent` again to
+generate new setup key.
 
-**Agent can't reach the server** — If remote, check the ngrok tunnel is running
-(`$B status`). If local, check the browse server is running.
+**Agent can't reach server** — If remote, check ngrok tunnel running
+(`$B status`). If local, check browse server running.
 
 ## Platform-specific notes
 
 ### OpenClaw / AlphaClaw
 
-OpenClaw agents use the `exec` tool instead of `Bash`. The instruction block uses
-`exec curl` syntax which OpenClaw understands natively. When using `--local openclaw`,
-credentials are written to `~/.openclaw/skills/cavestack/browse-remote.json`.
+OpenClaw agents use `exec` tool instead of `Bash`. Instruction block uses
+`exec curl` syntax which OpenClaw understands natively. With `--local openclaw`,
+credentials written to `~/.openclaw/skills/cavestack/browse-remote.json`.
 
 
 ### Codex
 
-Codex agents can execute shell commands via `codex exec`. The instruction block's
-curl commands work directly. When using `--local codex`, credentials are written
+Codex agents execute shell commands via `codex exec`. Instruction block's
+curl commands work directly. With `--local codex`, credentials written
 to `~/.codex/skills/cavestack/browse-remote.json`.
 
 ### Cursor
 
-Cursor's AI can run terminal commands. The instruction block works as-is.
-When using `--local cursor`, credentials are written to
+Cursor's AI can run terminal commands. Instruction block works as-is.
+With `--local cursor`, credentials written to
 `~/.cursor/skills/cavestack/browse-remote.json`.
 
 ## Revoking access
 
-To disconnect a specific agent:
+Disconnect specific agent:
 
 ```bash
 $B tunnel revoke AGENT_NAME
 ```
 
-To disconnect all agents and rotate the root token:
+Disconnect all agents, rotate root token:
 
 ```bash
 # This invalidates ALL scoped tokens immediately

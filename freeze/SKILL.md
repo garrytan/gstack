@@ -2,11 +2,10 @@
 name: freeze
 version: 0.1.0
 description: |
-  Restrict file edits to a specific directory for the session. Blocks Edit and
-  Write outside the allowed path. Use when debugging to prevent accidentally
-  "fixing" unrelated code, or when you want to scope changes to one module.
-  Use when asked to "freeze", "restrict edits", "only edit this folder",
-  or "lock down edits". (cavestack)
+  Restrict file edits to specific directory for session. Blocks Edit and Write
+  outside allowed path. Use when debugging to prevent accidentally fixing
+  unrelated code, or scoping changes to one module. Use when asked to "freeze",
+  "restrict edits", "only edit this folder", or "lock down edits". (cavestack)
 allowed-tools:
   - Bash
   - Read
@@ -27,10 +26,10 @@ hooks:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-# /freeze — Restrict Edits to a Directory
+# /freeze — Restrict Edits to Directory
 
-Lock file edits to a specific directory. Any Edit or Write operation targeting
-a file outside the allowed path will be **blocked** (not just warned).
+Lock file edits to specific directory. Any Edit or Write targeting file outside
+allowed path gets **blocked** (not just warned).
 
 ```bash
 mkdir -p ~/.cavestack/analytics
@@ -39,20 +38,20 @@ echo '{"skill":"freeze","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basen
 
 ## Setup
 
-Ask the user which directory to restrict edits to. Use AskUserQuestion:
+Ask user which directory to restrict edits to. Use AskUserQuestion:
 
 - Question: "Which directory should I restrict edits to? Files outside this path will be blocked from editing."
-- Text input (not multiple choice) — the user types a path.
+- Text input (not multiple choice) — user types a path.
 
-Once the user provides a directory path:
+Once user provides directory path:
 
-1. Resolve it to an absolute path:
+1. Resolve to absolute path:
 ```bash
 FREEZE_DIR=$(cd "<user-provided-path>" 2>/dev/null && pwd)
 echo "$FREEZE_DIR"
 ```
 
-2. Ensure trailing slash and save to the freeze state file:
+2. Ensure trailing slash, save to freeze state file:
 ```bash
 FREEZE_DIR="${FREEZE_DIR%/}/"
 STATE_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.cavestack}"
@@ -61,22 +60,22 @@ echo "$FREEZE_DIR" > "$STATE_DIR/freeze-dir.txt"
 echo "Freeze boundary set: $FREEZE_DIR"
 ```
 
-Tell the user: "Edits are now restricted to `<path>/`. Any Edit or Write
-outside this directory will be blocked. To change the boundary, run `/freeze`
-again. To remove it, run `/unfreeze` or end the session."
+Tell user: "Edits now restricted to `<path>/`. Any Edit or Write outside this
+directory will be blocked. To change boundary, run `/freeze` again. To remove,
+run `/unfreeze` or end session."
 
 ## How it works
 
-The hook reads `file_path` from the Edit/Write tool input JSON, then checks
-whether the path starts with the freeze directory. If not, it returns
-`permissionDecision: "deny"` to block the operation.
+Hook reads `file_path` from Edit/Write tool input JSON, checks whether path
+starts with freeze directory. If not, returns `permissionDecision: "deny"` to
+block operation.
 
-The freeze boundary persists for the session via the state file. The hook
-script reads it on every Edit/Write invocation.
+Freeze boundary persists for session via state file. Hook reads it on every
+Edit/Write invocation.
 
 ## Notes
 
-- The trailing `/` on the freeze directory prevents `/src` from matching `/src-old`
-- Freeze applies to Edit and Write tools only — Read, Bash, Glob, Grep are unaffected
-- This prevents accidental edits, not a security boundary — Bash commands like `sed` can still modify files outside the boundary
-- To deactivate, run `/unfreeze` or end the conversation
+- Trailing `/` on freeze directory prevents `/src` from matching `/src-old`
+- Freeze applies to Edit and Write only — Read, Bash, Glob, Grep unaffected
+- Prevents accidental edits, not security boundary — Bash `sed` can still modify files outside
+- To deactivate, run `/unfreeze` or end conversation

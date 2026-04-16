@@ -1,17 +1,17 @@
 ---
 name: cavestack-contrib-add-host
 description: |
-  Contributor-only skill: create a new host config for cavestack's multi-host system.
-  NOT installed for end users. Only usable from the cavestack source repo.
+  Contributor-only: create new host config for cavestack multi-host system.
+  NOT installed for end users. Only usable from cavestack source repo.
 ---
 
-# /cavestack-contrib-add-host — Add a New Host
+# /cavestack-contrib-add-host — Add New Host
 
-This skill helps contributors add support for a new AI coding agent to cavestack.
+Helps contributors add support for new AI coding agent to cavestack.
 
 ## What you'll create
 
-A single TypeScript file in `hosts/<name>.ts` that defines:
+Single TypeScript file in `hosts/<name>.ts` defining:
 - CLI binary name for detection
 - Skill directory paths (global + local)
 - Frontmatter transformation rules
@@ -22,22 +22,22 @@ A single TypeScript file in `hosts/<name>.ts` that defines:
 
 ### 1. Gather host info
 
-Ask the contributor:
-- What's the agent's name? (e.g., "OpenCode")
-- What's the CLI binary? (e.g., "opencode")
-- Where does it store skills globally? (e.g., "~/.config/opencode/skills/")
-- Where does it store skills locally in a project? (e.g., ".opencode/skills/")
-- What frontmatter fields does it support? (name + description is the minimum)
-- Does it have its own tool names? (e.g., "exec" instead of "Bash")
+Ask contributor:
+- Agent name? (e.g., "OpenCode")
+- CLI binary? (e.g., "opencode")
+- Global skill storage? (e.g., "~/.config/opencode/skills/")
+- Local project skill storage? (e.g., ".opencode/skills/")
+- Supported frontmatter fields? (name + description minimum)
+- Own tool names? (e.g., "exec" instead of "Bash")
 
-### 2. Create the config file
+### 2. Create config file
 
-Use `hosts/opencode.ts` as a reference. Create `hosts/<name>.ts` with the
-gathered info. Follow the HostConfig interface in `scripts/host-config.ts`.
+Use `hosts/opencode.ts` as reference. Create `hosts/<name>.ts` with gathered
+info. Follow HostConfig interface in `scripts/host-config.ts`.
 
 ### 3. Register in index
 
-Add the import and re-export in `hosts/index.ts`.
+Add import and re-export in `hosts/index.ts`.
 
 ### 4. Add to .gitignore
 
@@ -56,8 +56,8 @@ Check:
 
 ### 6. Run tests
 
+All parameterized tests auto-include new host.
+
 ```bash
 bun test test/gen-skill-docs.test.ts
 ```
-
-All parameterized tests auto-include the new host.

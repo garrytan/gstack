@@ -3,10 +3,9 @@ name: careful
 version: 0.1.0
 description: |
   Safety guardrails for destructive commands. Warns before rm -rf, DROP TABLE,
-  force-push, git reset --hard, kubectl delete, and similar destructive operations.
-  User can override each warning. Use when touching prod, debugging live systems,
-  or working in a shared environment. Use when asked to "be careful", "safety mode",
-  "prod mode", or "careful mode". (cavestack)
+  force-push, git reset --hard, kubectl delete, similar ops. User can override
+  each warning. Use when touching prod, debugging live, or shared env. Use when
+  asked to "be careful", "safety mode", "prod mode", or "careful mode". (cavestack)
 allowed-tools:
   - Bash
   - Read
@@ -22,9 +21,8 @@ sensitive: true
 
 # /careful — Destructive Command Guardrails
 
-Safety mode is now **active**. Every bash command will be checked for destructive
-patterns before running. If a destructive command is detected, you'll be warned
-and can choose to proceed or cancel.
+Safety mode now **active**. Every bash command checked for destructive patterns
+before running. If destructive command detected, you get warned — can proceed or cancel.
 
 ```bash
 mkdir -p ~/.cavestack/analytics
@@ -46,13 +44,12 @@ echo '{"skill":"careful","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(base
 
 ## Safe exceptions
 
-These patterns are allowed without warning:
+Allowed without warning:
 - `rm -rf node_modules` / `.next` / `dist` / `__pycache__` / `.cache` / `build` / `.turbo` / `coverage`
 
 ## How it works
 
-The hook reads the command from the tool input JSON, checks it against the
-patterns above, and returns `permissionDecision: "ask"` with a warning message
-if a match is found. You can always override the warning and proceed.
+Hook reads command from tool input JSON, checks against patterns above, returns
+`permissionDecision: "ask"` with warning if match found. Can always override.
 
-To deactivate, end the conversation or start a new one. Hooks are session-scoped.
+To deactivate, end conversation or start new one. Hooks are session-scoped.

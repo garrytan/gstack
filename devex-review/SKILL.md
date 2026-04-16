@@ -3,13 +3,11 @@ name: devex-review
 preamble-tier: 3
 version: 1.0.0
 description: |
-  Live developer experience audit. Uses the browse tool to actually TEST the
-  developer experience: navigates docs, tries the getting started flow, times
-  TTHW, screenshots error messages, evaluates CLI help text. Produces a DX
-  scorecard with evidence. Compares against /plan-devex-review scores if they
-  exist (the boomerang: plan said 3 minutes, reality says 8). Use when asked to
-  "test the DX", "DX audit", "developer experience test", or "try the
-  onboarding". Proactively suggest after shipping a developer-facing feature. (cavestack)
+  Live DX audit via browse tool. Tests getting started flow, times TTHW,
+  screenshots errors, evaluates CLI help. Produces DX scorecard with evidence.
+  Compares against /plan-devex-review scores (boomerang: plan said 3min,
+  reality says 8). Triggers: "test the DX", "DX audit", "developer experience
+  test", "try the onboarding". Suggest after shipping dev-facing feature. (cavestack)
   Voice triggers (speech-to-text aliases): "dx audit", "test the developer experience", "try the onboarding", "developer experience test".
 allowed-tools:
   - Read
@@ -572,13 +570,11 @@ If `NEEDS_SETUP`:
    fi
    ```
 
-# /devex-review: Live Developer Experience Audit
+# /devex-review: Live DX Audit
 
-You are a DX engineer dogfooding a live developer product. Not reviewing a plan.
-Not reading about the experience. TESTING it.
+DX engineer dogfooding live dev product. Not reviewing plan. Not reading about experience. TESTING.
 
-Use the browse tool to navigate docs, try the getting started flow, and screenshot
-what developers actually see. Use bash to try CLI commands. Measure, don't guess.
+Use browse to navigate docs, try getting started flow, screenshot what devs actually see. Bash for CLI commands. Measure, don't guess.
 
 ## DX First Principles
 
@@ -652,15 +648,11 @@ Do NOT read the entire file at once. This keeps context focused.
 
 ## Scope Declaration
 
-Browse can test web-accessible surfaces: docs pages, API playgrounds, web dashboards,
-signup flows, interactive tutorials, error pages.
+Browse CAN test: docs pages, API playgrounds, web dashboards, signup flows, interactive tutorials, error pages.
 
-Browse CANNOT test: CLI install friction, terminal output quality, local environment
-setup, email verification flows, auth requiring real credentials, offline behavior,
-build times, IDE integration.
+Browse CANNOT test: CLI install friction, terminal output, local env setup, email verification, auth with real credentials, offline behavior, build times, IDE integration.
 
-For untestable dimensions, use bash (for CLI --help, README, CHANGELOG) or mark as
-INFERRED from artifacts. Never guess. State your evidence source for every score.
+For untestable dimensions, use bash (CLI --help, README, CHANGELOG) or mark INFERRED from artifacts. Never guess. State evidence source for every score.
 
 ## Step 0: Target Discovery
 
@@ -668,7 +660,7 @@ INFERRED from artifacts. Never guess. State your evidence source for every score
 2. Read README.md for getting started instructions
 3. Read package.json or equivalent for install commands
 
-If URLs are missing, AskUserQuestion: "What's the URL for the docs/product I should test?"
+If URLs missing, AskUserQuestion: "What's the URL for the docs/product I should test?"
 
 ### Boomerang Baseline
 
@@ -679,11 +671,11 @@ eval "$(~/.claude/skills/cavestack/bin/cavestack-slug 2>/dev/null)"
 ~/.claude/skills/cavestack/bin/cavestack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_PLAN_REVIEW"
 ```
 
-If prior scores exist, display them. These are your baseline for the boomerang comparison.
+If prior scores exist, display. These = baseline for boomerang comparison.
 
 ## Step 1: Getting Started Audit
 
-Navigate to the docs/landing page via browse. Screenshot it.
+Navigate to docs/landing page via browse. Screenshot it.
 
 ```
 GETTING STARTED AUDIT
@@ -699,9 +691,9 @@ Score 0-10. Load "## Pass 1" from dx-hall-of-fame.md for calibration.
 ## Step 2: API/CLI/SDK Ergonomics Audit
 
 Test what you can:
-- CLI: Run `--help` via bash. Evaluate output quality, flag design, discoverability.
-- API playground: Navigate via browse if one exists. Screenshot.
-- Naming: Check consistency across the API surface.
+- CLI: Run `--help` via bash. Evaluate output quality, flag design, discoverability
+- API playground: Navigate via browse if exists. Screenshot
+- Naming: Check consistency across API surface
 
 Score 0-10. Load "## Pass 2" from dx-hall-of-fame.md for calibration.
 
@@ -711,17 +703,17 @@ Trigger common error scenarios:
 - Browse: Navigate to 404 pages, submit invalid forms, try unauthenticated access
 - CLI: Run with missing args, invalid flags, bad input
 
-Screenshot each error. Score against the Elm/Rust/Stripe three-tier model.
+Screenshot each error. Score against Elm/Rust/Stripe three-tier model.
 
 Score 0-10. Load "## Pass 3" from dx-hall-of-fame.md for calibration.
 
 ## Step 4: Documentation Audit
 
-Navigate the docs structure via browse:
-- Check search functionality (try 3 common queries)
-- Verify code examples are copy-paste-complete
-- Check language switcher behavior
-- Check information architecture (can you find what you need in <2 min?)
+Navigate docs via browse:
+- Check search (try 3 common queries)
+- Verify code examples copy-paste-complete
+- Check language switcher
+- Check info architecture (find what you need in <2 min?)
 
 Screenshot key findings. Score 0-10. Load "## Pass 4" from dx-hall-of-fame.md.
 
@@ -730,24 +722,24 @@ Screenshot key findings. Score 0-10. Load "## Pass 4" from dx-hall-of-fame.md.
 Read via bash:
 - CHANGELOG quality (clear? user-facing? migration notes?)
 - Migration guides (exist? step-by-step?)
-- Deprecation warnings in code (grep for deprecated/obsolete)
+- Deprecation warnings (grep for deprecated/obsolete)
 
 Score 0-10. Evidence: INFERRED from files. Load "## Pass 5" from dx-hall-of-fame.md.
 
-## Step 6: Developer Environment Audit
+## Step 6: Dev Environment Audit
 
 Read via bash:
-- README setup instructions (steps? prerequisites? platform coverage?)
-- CI/CD configuration (exists? documented?)
+- README setup (steps? prereqs? platform coverage?)
+- CI/CD config (exists? documented?)
 - TypeScript types (if applicable)
-- Test utilities / fixtures
+- Test utils / fixtures
 
 Score 0-10. Evidence: INFERRED from files. Load "## Pass 6" from dx-hall-of-fame.md.
 
 ## Step 7: Community & Ecosystem Audit
 
 Browse:
-- Community links (GitHub Discussions, Discord, Stack Overflow)
+- Community links (GitHub Discussions, Discord, SO)
 - GitHub issues (response time, templates, labels)
 - Contributing guide
 
@@ -755,9 +747,9 @@ Score 0-10. Evidence: TESTED where web-accessible, INFERRED otherwise.
 
 ## Step 8: DX Measurement Audit
 
-Check for feedback mechanisms:
+Check feedback mechanisms:
 - Bug report templates
-- NPS or feedback widgets
+- NPS / feedback widgets
 - Analytics on docs
 
 Score 0-10. Evidence: INFERRED from files/pages.
@@ -786,7 +778,7 @@ Score 0-10. Evidence: INFERRED from files/pages.
 
 ## Boomerang Comparison
 
-If /plan-devex-review scores exist from the baseline check:
+If /plan-devex-review scores exist from baseline:
 
 ```
 PLAN vs REALITY
@@ -804,7 +796,7 @@ PLAN vs REALITY
 | TTHW             | __ min    | __ min    | __ min| ⚠/✓   |
 ```
 
-Flag any dimension where live score < plan score - 2 (reality fell short of plan).
+Flag dimension where live < plan - 2 (reality fell short).
 
 ## Review Log
 
@@ -964,13 +956,13 @@ already knows. A good test: would this insight save time in a future session? If
 
 ## Next Steps
 
-After the audit, recommend:
-- Fix the gaps found (specific, actionable fixes)
+After audit, recommend:
+- Fix gaps found (specific, actionable)
 - Re-run /devex-review after fixes to verify improvement
-- If boomerang showed significant gaps, re-run /plan-devex-review on the next feature plan
+- If boomerang showed big gaps, re-run /plan-devex-review on next plan
 
 ## Formatting Rules
 
 * NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
 * Rate every dimension with evidence source.
-* Screenshots are the gold standard. File references are acceptable. Guesses are not.
+* Screenshots = gold standard. File refs acceptable. Guesses not.

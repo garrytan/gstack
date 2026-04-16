@@ -1,3 +1,4 @@
+<!-- voice:skip -->
 ---
 name: caveman-commit
 description: |

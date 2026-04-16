@@ -3,11 +3,10 @@ name: learn
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Manage project learnings. Review, search, prune, and export what cavestack
-  has learned across sessions. Use when asked to "what have we learned",
-  "show learnings", "prune stale learnings", or "export learnings".
-  Proactively suggest when the user asks about past patterns or wonders
-  "didn't we fix this before?"
+  Manage project learnings. Review, search, prune, export what cavestack
+  learned across sessions. Triggers: "what have we learned", "show learnings",
+  "prune stale learnings", "export learnings". Suggest when user asks about
+  past patterns or wonders "didn't we fix this before?"
 allowed-tools:
   - Bash
   - Read
@@ -488,9 +487,7 @@ plan's living status.
 
 # Project Learnings Manager
 
-You are a **Staff Engineer who maintains the team wiki**. Your job is to help the user
-see what cavestack has learned across sessions on this project, search for relevant
-knowledge, and prune stale or contradictory entries.
+**Staff Engineer maintaining team wiki.** Help user see what cavestack learned across sessions, search relevant knowledge, prune stale/contradictory entries.
 
 **HARD GATE:** Do NOT implement code changes. This skill manages learnings only.
 
@@ -498,7 +495,7 @@ knowledge, and prune stale or contradictory entries.
 
 ## Detect command
 
-Parse the user's input to determine which command to run:
+Parse user input to determine command:
 
 - `/learn` (no arguments) → **Show recent**
 - `/learn search <query>` → **Search**
@@ -511,14 +508,14 @@ Parse the user's input to determine which command to run:
 
 ## Show recent (default)
 
-Show the most recent 20 learnings, grouped by type.
+Show most recent 20 learnings, grouped by type.
 
 ```bash
 eval "$(~/.claude/skills/cavestack/bin/cavestack-slug 2>/dev/null)"
 ~/.claude/skills/cavestack/bin/cavestack-learnings-search --limit 20 2>/dev/null || echo "No learnings yet."
 ```
 
-Present the output in a readable format. If no learnings exist, tell the user:
+Present output readable. If none exist, tell user:
 "No learnings recorded yet. As you use /review, /ship, /investigate, and other skills,
 cavestack will automatically capture patterns, pitfalls, and insights it discovers."
 
@@ -531,50 +528,45 @@ eval "$(~/.claude/skills/cavestack/bin/cavestack-slug 2>/dev/null)"
 ~/.claude/skills/cavestack/bin/cavestack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo "No matches."
 ```
 
-Replace USER_QUERY with the user's search terms. Present results clearly.
+Replace USER_QUERY with user's search terms. Present results clearly.
 
 ---
 
 ## Prune
 
-Check learnings for staleness and contradictions.
+Check for staleness and contradictions.
 
 ```bash
 eval "$(~/.claude/skills/cavestack/bin/cavestack-slug 2>/dev/null)"
 ~/.claude/skills/cavestack/bin/cavestack-learnings-search --limit 100 2>/dev/null
 ```
 
-For each learning in the output:
+For each learning:
 
-1. **File existence check:** If the learning has a `files` field, check whether those
-   files still exist in the repo using Glob. If any referenced files are deleted, flag:
+1. **File check:** If learning has `files` field, check files still exist via Glob. If any referenced files deleted, flag:
    "STALE: [key] references deleted file [path]"
 
-2. **Contradiction check:** Look for learnings with the same `key` but different or
-   opposite `insight` values. Flag: "CONFLICT: [key] has contradicting entries —
-   [insight A] vs [insight B]"
+2. **Contradiction check:** Look for same `key` with different/opposite `insight` values. Flag: "CONFLICT: [key] has contradicting entries -- [insight A] vs [insight B]"
 
 Present each flagged entry via AskUserQuestion:
 - A) Remove this learning
 - B) Keep it
 - C) Update it (I'll tell you what to change)
 
-For removals, read the learnings.jsonl file and remove the matching line, then write
-back. For updates, append a new entry with the corrected insight (append-only, the
-latest entry wins).
+For removals, read learnings.jsonl and remove matching line, write back. For updates, append new entry with corrected insight (append-only, latest entry wins).
 
 ---
 
 ## Export
 
-Export learnings as markdown suitable for adding to CLAUDE.md or project documentation.
+Export learnings as markdown for CLAUDE.md or project docs.
 
 ```bash
 eval "$(~/.claude/skills/cavestack/bin/cavestack-slug 2>/dev/null)"
 ~/.claude/skills/cavestack/bin/cavestack-learnings-search --limit 50 2>/dev/null
 ```
 
-Format the output as a markdown section:
+Format as markdown section:
 
 ```markdown
 ## Project Learnings
@@ -592,14 +584,13 @@ Format the output as a markdown section:
 - **[key]**: [insight] (confidence: N/10)
 ```
 
-Present the formatted output to the user. Ask if they want to append it to CLAUDE.md
-or save it as a separate file.
+Present formatted output. Ask if user wants to append to CLAUDE.md or save as separate file.
 
 ---
 
 ## Stats
 
-Show summary statistics about the project's learnings.
+Show summary stats for project learnings.
 
 ```bash
 eval "$(~/.claude/skills/cavestack/bin/cavestack-slug 2>/dev/null)"
@@ -639,20 +630,20 @@ else
 fi
 ```
 
-Present the stats in a readable table format.
+Present stats in readable table.
 
 ---
 
 ## Manual add
 
-The user wants to manually add a learning. Use AskUserQuestion to gather:
+User wants to manually add learning. Use AskUserQuestion to gather:
 1. Type (pattern / pitfall / preference / architecture / tool)
-2. A short key (2-5 words, kebab-case)
-3. The insight (one sentence)
+2. Short key (2-5 words, kebab-case)
+3. Insight (one sentence)
 4. Confidence (1-10)
 5. Related files (optional)
 
-Then log it:
+Then log:
 
 ```bash
 ~/.claude/skills/cavestack/bin/cavestack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'

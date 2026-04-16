@@ -3,11 +3,10 @@ name: canary
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Post-deploy canary monitoring. Watches the live app for console errors,
-  performance regressions, and page failures using the browse daemon. Takes
-  periodic screenshots, compares against pre-deploy baselines, and alerts
-  on anomalies. Use when: "monitor deploy", "canary", "post-deploy check",
-  "watch production", "verify deploy". (cavestack)
+  Post-deploy canary monitor. Watches live app for console errors, perf
+  regressions, page failures via browse daemon. Periodic screenshots,
+  baseline comparison, anomaly alerts. Use when: "monitor deploy", "canary",
+  "post-deploy check", "watch production", "verify deploy". (cavestack)
 allowed-tools:
   - Bash
   - Read
@@ -561,19 +560,19 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 # /canary — Post-Deploy Visual Monitor
 
-You are a **Release Reliability Engineer** watching production after a deploy. You've seen deploys that pass CI but break in production — a missing environment variable, a CDN cache serving stale assets, a database migration that's slower than expected on real data. Your job is to catch these in the first 10 minutes, not 10 hours.
+**Release Reliability Engineer** watching prod after deploy. Deploys pass CI but break in prod — missing env var, CDN cache serving stale assets, slow migration on real data. Job: catch these in 10 minutes, not 10 hours.
 
-You use the browse daemon to watch the live app, take screenshots, check console errors, and compare against baselines. You are the safety net between "shipped" and "verified."
+Use browse daemon to watch live app, screenshot, check console errors, compare against baselines. Safety net between "shipped" and "verified."
 
 ## User-invocable
-When the user types `/canary`, run this skill.
+User types `/canary` → run skill.
 
 ## Arguments
-- `/canary <url>` — monitor a URL for 10 minutes after deploy
-- `/canary <url> --duration 5m` — custom monitoring duration (1m to 30m)
-- `/canary <url> --baseline` — capture baseline screenshots (run BEFORE deploying)
+- `/canary <url>` — monitor URL for 10min after deploy
+- `/canary <url> --duration 5m` — custom duration (1m to 30m)
+- `/canary <url> --baseline` — capture baseline screenshots (run BEFORE deploy)
 - `/canary <url> --pages /,/dashboard,/settings` — specify pages to monitor
-- `/canary <url> --quick` — single-pass health check (no continuous monitoring)
+- `/canary <url> --quick` — single-pass health check (no continuous monitor)
 
 ## Instructions
 
@@ -586,13 +585,13 @@ mkdir -p .cavestack/canary-reports/baselines
 mkdir -p .cavestack/canary-reports/screenshots
 ```
 
-Parse the user's arguments. Default duration is 10 minutes. Default pages: auto-discover from the app's navigation.
+Parse args. Default duration: 10 min. Default pages: auto-discover from app nav.
 
-### Phase 2: Baseline Capture (--baseline mode)
+### Phase 2: Baseline Capture (--baseline)
 
-If the user passed `--baseline`, capture the current state BEFORE deploying.
+If user passed `--baseline`, capture current state BEFORE deploying.
 
-For each page (either from `--pages` or the homepage):
+For each page (from `--pages` or homepage):
 
 ```bash
 $B goto <page-url>
@@ -602,9 +601,9 @@ $B perf
 $B text
 ```
 
-Collect for each page: screenshot path, console error count, page load time from `perf`, and a text content snapshot.
+Collect per page: screenshot path, console error count, load time from `perf`, text content snapshot.
 
-Save the baseline manifest to `.cavestack/canary-reports/baseline.json`:
+Save baseline manifest to `.cavestack/canary-reports/baseline.json`:
 
 ```json
 {
@@ -625,7 +624,7 @@ Then STOP and tell the user: "Baseline captured. Deploy your changes, then run `
 
 ### Phase 3: Page Discovery
 
-If no `--pages` were specified, auto-discover pages to monitor:
+If no `--pages` specified, auto-discover pages to monitor:
 
 ```bash
 $B goto <url>
@@ -633,18 +632,18 @@ $B links
 $B snapshot -i
 ```
 
-Extract the top 5 internal navigation links from the `links` output. Always include the homepage. Present the page list via AskUserQuestion:
+Extract top 5 internal nav links from `links` output. Always include homepage. Present via AskUserQuestion:
 
-- **Context:** Monitoring the production site at the given URL after a deploy.
+- **Context:** Monitoring production site at given URL after deploy.
 - **Question:** Which pages should the canary monitor?
 - **RECOMMENDATION:** Choose A — these are the main navigation targets.
-- A) Monitor these pages: [list the discovered pages]
+- A) Monitor these pages: [list discovered pages]
 - B) Add more pages (user specifies)
 - C) Monitor homepage only (quick check)
 
-### Phase 4: Pre-Deploy Snapshot (if no baseline exists)
+### Phase 4: Pre-Deploy Snapshot (no baseline)
 
-If no `baseline.json` exists, take a quick snapshot now as a reference point.
+If no `baseline.json` exists, take quick snapshot now as reference.
 
 For each page to monitor:
 
@@ -655,11 +654,11 @@ $B console --errors
 $B perf
 ```
 
-Record the console error count and load time for each page. These become the reference for detecting regressions during monitoring.
+Record console error count + load time per page. These become reference for detecting regressions.
 
 ### Phase 5: Continuous Monitoring Loop
 
-Monitor for the specified duration. Every 60 seconds, check each page:
+Monitor for specified duration. Every 60s, check each page:
 
 ```bash
 $B goto <page-url>
@@ -668,18 +667,18 @@ $B console --errors
 $B perf
 ```
 
-After each check, compare results against the baseline (or pre-deploy snapshot):
+After each check, compare against baseline (or pre-deploy snapshot):
 
-1. **Page load failure** — `goto` returns error or timeout → CRITICAL ALERT
-2. **New console errors** — errors not present in baseline → HIGH ALERT
-3. **Performance regression** — load time exceeds 2x baseline → MEDIUM ALERT
+1. **Page load failure** — `goto` returns error/timeout → CRITICAL ALERT
+2. **New console errors** — errors not in baseline → HIGH ALERT
+3. **Perf regression** — load time >2x baseline → MEDIUM ALERT
 4. **Broken links** — new 404s not in baseline → LOW ALERT
 
-**Alert on changes, not absolutes.** A page with 3 console errors in the baseline is fine if it still has 3. One NEW error is an alert.
+**Alert on changes, not absolutes.** Page with 3 console errors in baseline fine if still has 3. One NEW error = alert.
 
-**Don't cry wolf.** Only alert on patterns that persist across 2 or more consecutive checks. A single transient network blip is not an alert.
+**Don't cry wolf.** Only alert on patterns persisting 2+ consecutive checks. Single transient blip not an alert.
 
-**If a CRITICAL or HIGH alert is detected**, immediately notify the user via AskUserQuestion:
+**If CRITICAL or HIGH alert detected**, immediately notify user via AskUserQuestion:
 
 ```
 CANARY ALERT
@@ -694,15 +693,15 @@ Current:  [current value]
 ```
 
 - **Context:** Canary monitoring detected an issue on [page] after [duration].
-- **RECOMMENDATION:** Choose based on severity — A for critical, B for transient.
-- A) Investigate now — stop monitoring, focus on this issue
-- B) Continue monitoring — this might be transient (wait for next check)
-- C) Rollback — revert the deploy immediately
-- D) Dismiss — false positive, continue monitoring
+- **RECOMMENDATION:** Choose based on severity -- A for critical, B for transient.
+- A) Investigate now -- stop monitoring, focus on this issue
+- B) Continue monitoring -- might be transient (wait for next check)
+- C) Rollback -- revert deploy immediately
+- D) Dismiss -- false positive, continue monitoring
 
 ### Phase 6: Health Report
 
-After monitoring completes (or if the user stops early), produce a summary:
+After monitoring completes (or user stops early), produce summary:
 
 ```
 CANARY REPORT — [url]
@@ -725,34 +724,34 @@ Screenshots:   .cavestack/canary-reports/screenshots/
 VERDICT: [DEPLOY IS HEALTHY / DEPLOY HAS ISSUES — details above]
 ```
 
-Save report to `.cavestack/canary-reports/{date}-canary.md` and `.cavestack/canary-reports/{date}-canary.json`.
+Save to `.cavestack/canary-reports/{date}-canary.md` and `.cavestack/canary-reports/{date}-canary.json`.
 
-Log the result for the review dashboard:
+Log for review dashboard:
 
 ```bash
 eval "$(~/.claude/skills/cavestack/bin/cavestack-slug 2>/dev/null)"
 mkdir -p ~/.cavestack/projects/$SLUG
 ```
 
-Write a JSONL entry: `{"skill":"canary","timestamp":"<ISO>","status":"<HEALTHY/DEGRADED/BROKEN>","url":"<url>","duration_min":<N>,"alerts":<N>}`
+Write JSONL entry: `{"skill":"canary","timestamp":"<ISO>","status":"<HEALTHY/DEGRADED/BROKEN>","url":"<url>","duration_min":<N>,"alerts":<N>}`
 
 ### Phase 7: Baseline Update
 
-If the deploy is healthy, offer to update the baseline:
+If deploy healthy, offer baseline update:
 
 - **Context:** Canary monitoring completed. The deploy is healthy.
-- **RECOMMENDATION:** Choose A — deploy is healthy, new baseline reflects current production.
+- **RECOMMENDATION:** Choose A -- deploy healthy, new baseline reflects current prod.
 - A) Update baseline with current screenshots
 - B) Keep old baseline
 
-If the user chooses A, copy the latest screenshots to the baselines directory and update `baseline.json`.
+If user chooses A, copy latest screenshots to baselines dir and update `baseline.json`.
 
 ## Important Rules
 
-- **Speed matters.** Start monitoring within 30 seconds of invocation. Don't over-analyze before monitoring.
+- **Speed matters.** Start monitoring within 30s of invocation. Don't over-analyze before monitoring.
 - **Alert on changes, not absolutes.** Compare against baseline, not industry standards.
-- **Screenshots are evidence.** Every alert includes a screenshot path. No exceptions.
-- **Transient tolerance.** Only alert on patterns that persist across 2+ consecutive checks.
-- **Baseline is king.** Without a baseline, canary is a health check. Encourage `--baseline` before deploying.
-- **Performance thresholds are relative.** 2x baseline is a regression. 1.5x might be normal variance.
+- **Screenshots = evidence.** Every alert includes screenshot path. No exceptions.
+- **Transient tolerance.** Only alert on patterns persisting 2+ consecutive checks.
+- **Baseline is king.** Without baseline, canary = health check. Encourage `--baseline` before deploy.
+- **Perf thresholds relative.** 2x baseline = regression. 1.5x = normal variance.
 - **Read-only.** Observe and report. Don't modify code unless the user explicitly asks to investigate and fix.

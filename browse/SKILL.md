@@ -3,12 +3,11 @@ name: browse
 preamble-tier: 1
 version: 1.1.0
 description: |
-  Fast headless browser for QA testing and site dogfooding. Navigate any URL, interact with
-  elements, verify page state, diff before/after actions, take annotated screenshots, check
-  responsive layouts, test forms and uploads, handle dialogs, and assert element states.
-  ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
-  user flow, or file a bug with evidence. Use when asked to "open in browser", "test the
-  site", "take a screenshot", or "dogfood this". (cavestack)
+  Fast headless browser for QA + dogfooding. Navigate URLs, interact with elements,
+  verify state, diff before/after, take annotated screenshots, check responsive layouts,
+  test forms/uploads, handle dialogs, assert element states. ~100ms/command. Use for
+  testing features, verifying deploys, dogfooding flows, filing bugs with evidence.
+  Triggers: "open in browser", "test the site", "take a screenshot", "dogfood this". (cavestack)
 allowed-tools:
   - Bash
   - Read
@@ -351,8 +350,8 @@ plan's living status.
 
 # browse: QA Testing & Dogfooding
 
-Persistent headless Chromium. First call auto-starts (~3s), then ~100ms per command.
-State persists between calls (cookies, tabs, login sessions).
+Persistent headless Chromium. First call auto-starts (~3s), then ~100ms/command.
+State persists between calls (cookies, tabs, sessions).
 
 ## SETUP (run this check BEFORE any browse command)
 
@@ -392,7 +391,7 @@ If `NEEDS_SETUP`:
 
 ## Core QA Patterns
 
-### 1. Verify a page loads correctly
+### 1. Verify page loads
 ```bash
 $B goto https://yourapp.com
 $B text                          # content loads?
@@ -401,7 +400,7 @@ $B network                       # failed requests?
 $B is visible ".main-content"    # key elements present?
 ```
 
-### 2. Test a user flow
+### 2. Test user flow
 ```bash
 $B goto https://app.com/login
 $B snapshot -i                   # see all interactive elements
@@ -412,27 +411,27 @@ $B snapshot -D                   # diff: what changed after submit?
 $B is visible ".dashboard"       # success state present?
 ```
 
-### 3. Verify an action worked
+### 3. Verify action worked
 ```bash
 $B snapshot                      # baseline
 $B click @e3                     # do something
 $B snapshot -D                   # unified diff shows exactly what changed
 ```
 
-### 4. Visual evidence for bug reports
+### 4. Visual evidence for bugs
 ```bash
 $B snapshot -i -a -o /tmp/annotated.png   # labeled screenshot
 $B screenshot /tmp/bug.png                # plain screenshot
 $B console                                # error log
 ```
 
-### 5. Find all clickable elements (including non-ARIA)
+### 5. Find all clickable elements (incl. non-ARIA)
 ```bash
 $B snapshot -C                   # finds divs with cursor:pointer, onclick, tabindex
-$B click @c1                     # interact with them
+$B click @c1                     # interact
 ```
 
-### 6. Assert element states
+### 6. Assert element state
 ```bash
 $B is visible ".modal"
 $B is enabled "#submit-btn"
@@ -443,20 +442,20 @@ $B is focused "#search-input"
 $B js "document.body.textContent.includes('Success')"
 ```
 
-### 7. Test responsive layouts
+### 7. Test responsive layout
 ```bash
 $B responsive /tmp/layout        # mobile + tablet + desktop screenshots
 $B viewport 375x812              # or set specific viewport
 $B screenshot /tmp/mobile.png
 ```
 
-### 8. Test file uploads
+### 8. Test file upload
 ```bash
 $B upload "#file-input" /path/to/file.pdf
 $B is visible ".upload-success"
 ```
 
-### 9. Test dialogs
+### 9. Test dialog
 ```bash
 $B dialog-accept "yes"           # set up handler
 $B click "#delete-button"        # trigger dialog
@@ -469,19 +468,18 @@ $B snapshot -D                   # verify deletion happened
 $B diff https://staging.app.com https://prod.app.com
 ```
 
-### 11. Show screenshots to the user
-After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the Read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
+### 11. Show screenshots to user
+After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always Read output PNGs so user sees them. Without this, screenshots invisible.
 
 ## User Handoff
 
-When you hit something you can't handle in headless mode (CAPTCHA, complex auth, multi-factor
-login), hand off to the user:
+When stuck in headless mode (CAPTCHA, complex auth, MFA), hand off to user:
 
 ```bash
-# 1. Open a visible Chrome at the current page
+# 1. Open visible Chrome at current page
 $B handoff "Stuck on CAPTCHA at login page"
 
-# 2. Tell the user what happened (via AskUserQuestion)
+# 2. Tell user what happened (via AskUserQuestion)
 #    "I've opened Chrome at the login page. Please solve the CAPTCHA
 #     and let me know when you're done."
 
@@ -489,14 +487,14 @@ $B handoff "Stuck on CAPTCHA at login page"
 $B resume
 ```
 
-**When to use handoff:**
-- CAPTCHAs or bot detection
-- Multi-factor authentication (SMS, authenticator app)
-- OAuth flows that require user interaction
-- Complex interactions the AI can't handle after 3 attempts
+**When to handoff:**
+- CAPTCHAs / bot detection
+- MFA (SMS, authenticator app)
+- OAuth flows requiring user interaction
+- Complex interactions AI can't handle after 3 attempts
 
-The browser preserves all state (cookies, localStorage, tabs) across the handoff.
-After `resume`, you get a fresh snapshot of wherever the user left off.
+Browser preserves all state (cookies, localStorage, tabs) across handoff.
+After `resume`, get fresh snapshot of wherever user left off.
 
 ## Snapshot Flags
 
@@ -545,24 +543,24 @@ $B click @c1       # cursor-interactive ref (from -C)
 
 Refs are invalidated on navigation — run `snapshot` again after `goto`.
 
-## CSS Inspector & Style Modification
+## CSS Inspector & Style Mod
 
 ### Inspect element CSS
 ```bash
 $B inspect .header              # full CSS cascade for selector
 $B inspect                      # latest picked element from sidebar
-$B inspect --all                # include user-agent stylesheet rules
-$B inspect --history            # show modification history
+$B inspect --all                # include user-agent stylesheet
+$B inspect --history            # modification history
 ```
 
-### Modify styles live
+### Modify styles
 ```bash
 $B style .header background-color #1a1a1a   # modify CSS property
 $B style --undo                              # revert last change
 $B style --undo 2                            # revert specific change
 ```
 
-### Clean screenshots
+### Clean screenshot
 ```bash
 $B cleanup --all                 # remove ads, cookies, sticky, social
 $B cleanup --ads --cookies       # selective cleanup

@@ -3,14 +3,11 @@ name: design-html
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Design finalization: generates production-quality Pretext-native HTML/CSS.
-  Works with approved mockups from /design-shotgun, CEO plans from /plan-ceo-review,
-  design review context from /plan-design-review, or from scratch with a user
-  description. Text actually reflows, heights are computed, layouts are dynamic.
-  30KB overhead, zero deps. Smart API routing: picks the right Pretext patterns
-  for each design type. Use when: "finalize this design", "turn this into HTML",
-  "build me a page", "implement this design", or after any planning skill.
-  Proactively suggest when user has approved a design or has a plan ready. (cavestack)
+  Design finalization: production-quality Pretext-native HTML/CSS. Works with approved
+  mockups, CEO plans, design reviews, or from scratch. Text reflows, heights computed,
+  layouts dynamic. 30KB, zero deps. Smart Pretext API routing per design type.
+  Use when: "finalize design", "turn into HTML", "build page", "implement design".
+  Suggest when user has approved design or plan ready. (cavestack)
   Voice triggers (speech-to-text aliases): "build the design", "code the mockup", "make it real".
 allowed-tools:
   - Bash
@@ -493,10 +490,9 @@ plan's living status.
 
 # /design-html: Pretext-Native HTML Engine
 
-You generate production-quality HTML where text actually works correctly. Not CSS
-approximations. Computed layout via Pretext. Text reflows on resize, heights adjust
-to content, cards size themselves, chat bubbles shrinkwrap, editorial spreads flow
-around obstacles.
+Generate production-quality HTML where text works correctly. Not CSS approximations.
+Computed layout via Pretext. Text reflows on resize, heights adjust to content,
+cards self-size, chat bubbles shrinkwrap, editorial spreads flow around obstacles.
 
 ## DESIGN SETUP (run this check BEFORE any design mockup command)
 
@@ -670,7 +666,7 @@ If `NEEDS_SETUP`:
 eval "$(~/.claude/skills/cavestack/bin/cavestack-slug 2>/dev/null)"
 ```
 
-Detect what design context exists for this project. Run all four checks:
+Detect design context for project. Run all four checks:
 
 ```bash
 setopt +o nomatch 2>/dev/null || true
@@ -697,34 +693,29 @@ _FINALIZED=$(ls -t ~/.cavestack/projects/$SLUG/designs/*/finalized.html 2>/dev/n
 [ -f DESIGN.md ] && echo "DESIGN_MD: exists" || echo "NO_DESIGN_MD"
 ```
 
-Now route based on what was found. Check these cases in order:
+Route based on what was found. Check in order:
 
 ### Case A: approved.json exists (design-shotgun ran)
 
-If `APPROVED` was found, read it. Extract: approved variant PNG path, user feedback,
-screen name. Also read the CEO plan if one exists (it adds strategic context).
+Read it. Extract: approved variant PNG path, user feedback, screen name. Also read
+CEO plan if exists (strategic context). Read `DESIGN.md` if in repo root — tokens
+take priority for system-level values (fonts, brand colors, spacing scale).
 
-Read `DESIGN.md` if it exists in the repo root. These tokens take priority for
-system-level values (fonts, brand colors, spacing scale).
-
-Then check for prior finalized.html. If `FINALIZED` was also found, use AskUserQuestion:
+Check for prior finalized.html. If `FINALIZED` also found, use AskUserQuestion:
 > Found a prior finalized HTML from a previous session. Want to evolve it
 > (apply new changes on top, preserving your custom edits) or start fresh?
 > A) Evolve — iterate on the existing HTML
 > B) Start fresh — regenerate from the approved mockup
 
-If evolve: read the existing HTML. Apply changes on top during Step 3.
-If fresh or no finalized.html: proceed to Step 1 with the approved PNG as the
-visual reference.
+If evolve: read existing HTML. Apply changes on top during Step 3.
+If fresh or no finalized.html: proceed to Step 1 with approved PNG as reference.
 
-### Case B: CEO plan and/or design variants exist, but no approved.json
-
-If `CEO_PLAN` or `VARIANTS` was found but no `APPROVED`:
+### Case B: CEO plan and/or variants exist, no approved.json
 
 Read whichever context exists:
-- If CEO plan found: read it and summarize the product vision and design requirements.
-- If variant PNGs found: show them inline using the Read tool.
-- If DESIGN.md found: read it for design tokens and constraints.
+- CEO plan found: read it, summarize vision and design requirements.
+- Variant PNGs found: show inline via Read tool.
+- DESIGN.md found: read for design tokens and constraints.
 
 Use AskUserQuestion:
 > Found [CEO plan from /plan-ceo-review | design review variants from /plan-design-review | both]
@@ -733,15 +724,11 @@ Use AskUserQuestion:
 > B) Skip mockups — I'll design the HTML directly from the plan context
 > C) I have a PNG — let me provide the path
 
-If A: tell the user to run /design-shotgun, then come back to /design-html.
-If B: proceed to Step 1 in "plan-driven mode." There is no approved PNG, the plan is
-the source of truth. Ask the user for a screen name to use for the output directory
-(e.g., "landing-page", "dashboard", "pricing").
-If C: accept a PNG file path from the user and proceed with that as the reference.
+If A: tell user to run /design-shotgun, then come back to /design-html.
+If B: proceed to Step 1 in "plan-driven mode." No approved PNG — plan is source of truth. Ask user for screen name (e.g., "landing-page", "dashboard", "pricing").
+If C: accept PNG path from user, proceed with that as reference.
 
 ### Case C: Nothing found (clean slate)
-
-If none of the above produced any context:
 
 Use AskUserQuestion:
 > No design context found for this project. How do you want to start?
@@ -750,55 +737,51 @@ Use AskUserQuestion:
 > C) Run /design-shotgun — jump straight to visual design exploration
 > D) Just describe it — tell me what you want and I'll design the HTML live
 
-If A, B, or C: tell the user to run that skill, then come back to /design-html.
-If D: proceed to Step 1 in "freeform mode." Ask the user for a screen name.
+If A, B, or C: tell user to run that skill, then come back to /design-html.
+If D: proceed to Step 1 in "freeform mode." Ask user for screen name.
 
 ### Context summary
 
-After routing, output a brief context summary:
+Output brief context summary:
 - **Mode:** approved-mockup | plan-driven | freeform | evolve
-- **Visual reference:** path to approved PNG, or "none (plan-driven)" or "none (freeform)"
+- **Visual ref:** path to approved PNG, or "none (plan-driven)" or "none (freeform)"
 - **CEO plan:** path or "none"
 - **Design tokens:** "DESIGN.md" or "none"
-- **Screen name:** from approved.json, user-provided, or inferred from CEO plan
+- **Screen name:** from approved.json, user-provided, or inferred from plan
 
 ---
 
 ## Step 1: Design Analysis
 
-1. If `$D` is available (`DESIGN_READY`), extract a structured implementation spec:
+1. If `$D` available (`DESIGN_READY`), extract structured spec:
 ```bash
 $D prompt --image <approved-variant.png> --output json
 ```
-This returns colors, typography, layout structure, and component inventory via GPT-4o vision.
+Returns colors, typography, layout, component inventory via GPT-4o vision.
 
-2. If `$D` is not available, read the approved PNG inline using the Read tool.
-   Describe the visual layout, colors, typography, and component structure yourself.
+2. If `$D` unavailable, read approved PNG inline via Read tool. Describe visual layout,
+   colors, typography, component structure.
 
-3. If in plan-driven or freeform mode (no approved PNG), design from context:
-   - **Plan-driven:** read the CEO plan and/or design review notes. Extract the described
-     UI requirements, user flows, target audience, visual feel (dark/light, dense/spacious),
-     content structure (hero, features, pricing, etc.), and design constraints. Build an
-     implementation spec from the plan's prose rather than a visual reference.
-   - **Freeform:** use AskUserQuestion to gather what the user wants to build. Ask about:
-     purpose/audience, visual feel (dark/light, playful/serious, dense/spacious),
-     content structure (hero, features, pricing, etc.), and any reference sites they like.
-   In both cases, describe the intended visual layout, colors, typography, and
-   component structure as your implementation spec. Generate realistic content based
-   on the plan or user description (never lorem ipsum).
+3. If plan-driven or freeform (no approved PNG), design from context:
+   - **Plan-driven:** read CEO plan / design review notes. Extract UI requirements, user
+     flows, audience, visual feel (dark/light, dense/spacious), content structure (hero,
+     features, pricing), constraints. Build spec from plan prose.
+   - **Freeform:** use AskUserQuestion to gather what user wants. Ask about: purpose/audience,
+     visual feel (dark/light, playful/serious, dense/spacious), content structure, reference sites.
+   In both cases, describe intended layout, colors, typography, components as spec.
+   Generate realistic content from plan or description (never lorem ipsum).
 
-4. Read `DESIGN.md` tokens. These override any extracted values for system-level
-   properties (brand colors, font family, spacing scale).
+4. Read `DESIGN.md` tokens. Override any extracted values for system-level properties
+   (brand colors, font family, spacing scale).
 
-5. Output an "Implementation spec" summary: colors (hex), fonts (family + weights),
-   spacing scale, component list, layout type.
+5. Output "Implementation spec": colors (hex), fonts (family + weights), spacing scale,
+   component list, layout type.
 
 ---
 
 ## Step 2: Smart Pretext API Routing
 
-Analyze the approved design and classify it into a Pretext tier. Each tier uses
-different Pretext APIs for optimal results:
+Classify design into Pretext tier. Each tier uses different APIs:
 
 | Design type | Pretext APIs | Use case |
 |-------------|-------------|----------|
@@ -808,30 +791,29 @@ different Pretext APIs for optimal results:
 | Content-heavy (editorial, blog) | `prepareWithSegments()` + `layoutNextLine()` | Text around obstacles |
 | Complex editorial | Full engine + `layoutWithLines()` | Manual line rendering |
 
-State the chosen tier and why. Reference the specific Pretext APIs that will be used.
+State chosen tier and why. Reference specific Pretext APIs.
 
 ---
 
 ## Step 2.5: Framework Detection
 
-Check if the user's project uses a frontend framework:
+Check if project uses frontend framework:
 
 ```bash
 [ -f package.json ] && cat package.json | grep -o '"react"\|"svelte"\|"vue"\|"@angular/core"\|"solid-js"\|"preact"' | head -1 || echo "NONE"
 ```
 
-If a framework is detected, use AskUserQuestion:
+If framework detected, use AskUserQuestion:
 > Detected [React/Svelte/Vue] in your project. What format should the output be?
 > A) Vanilla HTML — self-contained preview file (recommended for first pass)
 > B) [React/Svelte/Vue] component — framework-native with Pretext hooks
 
-If the user chooses framework output, ask one follow-up:
+If framework chosen, one follow-up:
 > A) TypeScript
 > B) JavaScript
 
-For vanilla HTML: proceed to Step 3 with vanilla output.
-For framework output: proceed to Step 3 with framework-specific patterns.
-If no framework detected: default to vanilla HTML, no question needed.
+Vanilla HTML → Step 3 with vanilla. Framework → Step 3 with framework patterns.
+No framework detected → vanilla HTML, no question needed.
 
 ---
 
@@ -839,7 +821,7 @@ If no framework detected: default to vanilla HTML, no question needed.
 
 ### Pretext Source Embedding
 
-For **vanilla HTML output**, check for the vendored Pretext bundle:
+For **vanilla HTML**, check for vendored Pretext bundle:
 ```bash
 _PRETEXT_VENDOR=""
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -848,13 +830,12 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -n "$_PRETEXT_VENDOR" ] && echo "VENDOR: $_PRETEXT_VENDOR" || echo "VENDOR_MISSING"
 ```
 
-- If `VENDOR` found: read the file and inline it in a `<script>` tag. The HTML file
-  is fully self-contained with zero network dependencies.
-- If `VENDOR_MISSING`: use CDN import as fallback:
+- If `VENDOR` found: inline in `<script>` tag. Fully self-contained, zero network deps.
+- If `VENDOR_MISSING`: CDN fallback:
   `<script type="module">import { prepare, layout, prepareWithSegments, walkLineRanges, layoutNextLine, layoutWithLines } from 'https://esm.sh/@chenglou/pretext'</script>`
-  Add a comment: `<!-- FALLBACK: vendor/pretext.js missing, using CDN -->`
+  Add comment: `<!-- FALLBACK: vendor/pretext.js missing, using CDN -->`
 
-For **framework output**, add to the project's dependencies instead:
+For **framework output**, add to project deps instead:
 ```bash
 # Detect package manager
 [ -f bun.lockb ] && echo "bun add @chenglou/pretext" || \
@@ -862,46 +843,45 @@ For **framework output**, add to the project's dependencies instead:
 [ -f yarn.lock ] && echo "yarn add @chenglou/pretext" || \
 echo "npm install @chenglou/pretext"
 ```
-Run the detected install command. Then use standard imports in the component.
+Run detected install command. Use standard imports in component.
 
 ### HTML Generation
 
-Write a single file using the Write tool. Save to:
+Write single file via Write tool. Save to:
 `~/.cavestack/projects/$SLUG/designs/<screen-name>-YYYYMMDD/finalized.html`
 
-For framework output, save to:
+Framework output:
 `~/.cavestack/projects/$SLUG/designs/<screen-name>-YYYYMMDD/finalized.[tsx|svelte|vue]`
 
-**Always include in vanilla HTML:**
-- Pretext source (inlined or CDN, see above)
-- CSS custom properties for design tokens from DESIGN.md / Step 1 extraction
-- Google Fonts via `<link>` tags + `document.fonts.ready` gate before first `prepare()`
+**Always include (vanilla HTML):**
+- Pretext source (inlined or CDN)
+- CSS custom properties for design tokens
+- Google Fonts via `<link>` + `document.fonts.ready` gate before `prepare()`
 - Semantic HTML5 (`<header>`, `<nav>`, `<main>`, `<section>`, `<footer>`)
-- Responsive behavior via Pretext relayout (not just media queries)
-- Breakpoint-specific adjustments at 375px, 768px, 1024px, 1440px
-- ARIA attributes, heading hierarchy, focus-visible states
-- `contenteditable` on text elements + MutationObserver to re-prepare + re-layout on edit
-- ResizeObserver on containers to re-layout on resize
-- `prefers-color-scheme` media query for dark mode
+- Responsive via Pretext relayout (not just media queries)
+- Breakpoints: 375px, 768px, 1024px, 1440px
+- ARIA attributes, heading hierarchy, focus-visible
+- `contenteditable` on text + MutationObserver for re-prepare/re-layout
+- ResizeObserver on containers for re-layout
+- `prefers-color-scheme` for dark mode
 - `prefers-reduced-motion` for animation respect
-- Real content extracted from the mockup (never lorem ipsum)
+- Real content from mockup (never lorem ipsum)
 
-**Never include (AI slop blacklist):**
+**Never include (slop blacklist):**
 - Purple/blue gradients as default
 - Generic 3-column feature grids
-- Center-everything layouts with no visual hierarchy
-- Decorative blobs, waves, or geometric patterns not in the mockup
+- Center-everything layouts without hierarchy
+- Decorative blobs/waves/patterns not in mockup
 - Stock photo placeholder divs
-- "Get Started" / "Learn More" generic CTAs not from the mockup
-- Rounded-corner cards with drop shadows as the default component
+- Generic "Get Started"/"Learn More" CTAs not from mockup
+- Default rounded-corner card + drop shadow
 - Emoji as visual elements
 - Generic testimonial sections
-- Cookie-cutter hero sections with left-text right-image
+- Cookie-cutter hero: left-text right-image
 
 ### Pretext Wiring Patterns
 
-Use these patterns based on the tier selected in Step 2. These are the correct
-Pretext API usage patterns. Follow them exactly.
+Patterns based on tier from Step 2. Correct Pretext API usage — follow exactly.
 
 **Pattern 1: Basic height computation (Simple layout, Card/grid)**
 ```js
@@ -943,7 +923,7 @@ for (const el of elements) {
 }
 ```
 
-**Pattern 2: Shrinkwrap / tight-fit containers (Chat bubbles)**
+**Pattern 2: Shrinkwrap / tight-fit (Chat bubbles)**
 ```js
 import { prepareWithSegments, walkLineRanges } from './pretext-inline.js'
 
@@ -1056,7 +1036,7 @@ setLocale(locale?) → void
 
 ## Step 3.5: Live Reload Server
 
-After writing the HTML file, start a simple HTTP server for live preview:
+After writing HTML, start simple HTTP server for live preview:
 
 ```bash
 # Start a simple HTTP server in the output directory
@@ -1069,15 +1049,15 @@ echo "SERVER: http://localhost:$_PORT/finalized.html"
 echo "PID: $_SERVER_PID"
 ```
 
-If python3 is not available, fall back to:
+If python3 unavailable, fall back to:
 ```bash
 open <path-to-finalized.html>
 ```
 
-Tell the user: "Live preview running at http://localhost:$_PORT/finalized.html.
-After each edit, just refresh the browser (Cmd+R) to see changes."
+Tell user: "Live preview at http://localhost:$_PORT/finalized.html.
+Refresh browser (Cmd+R) after each edit."
 
-When the refinement loop ends (Step 4 exits), kill the server:
+When refinement loop ends (Step 4 exits), kill server:
 ```bash
 kill $_SERVER_PID 2>/dev/null || true
 ```
@@ -1088,7 +1068,7 @@ kill $_SERVER_PID 2>/dev/null || true
 
 ### Verification Screenshots
 
-If `$B` is available (browse binary), take verification screenshots at 3 viewports:
+If `$B` available (browse binary), take screenshots at 3 viewports:
 
 ```bash
 $B goto "file://<path-to-finalized.html>"
@@ -1097,14 +1077,14 @@ $B screenshot /tmp/cavestack-verify-tablet.png --width 768
 $B screenshot /tmp/cavestack-verify-desktop.png --width 1440
 ```
 
-Show all three screenshots inline using the Read tool. Check for:
-- Text overflow (text cut off or extending beyond containers)
-- Layout collapse (elements overlapping or missing)
-- Responsive breakage (content not adapting to viewport)
+Show all three inline via Read tool. Check for:
+- Text overflow (cut off or beyond containers)
+- Layout collapse (overlapping or missing)
+- Responsive breakage (not adapting to viewport)
 
-If issues are found, note them and fix before presenting to the user.
+If issues found, fix before presenting to user.
 
-If `$B` is not available, skip verification and note:
+If `$B` unavailable, skip and note:
 "Browse binary not available. Skipping automated viewport verification."
 
 ### Refinement Loop
@@ -1138,7 +1118,7 @@ LOOP:
   8. Go to LOOP
 ```
 
-Maximum 10 iterations. If the user hasn't said "done" after 10, use AskUserQuestion:
+Max 10 iterations. If no "done" after 10, use AskUserQuestion:
 "We've done 10 rounds of refinement. Want to continue iterating or call it done?"
 
 ---
@@ -1147,15 +1127,10 @@ Maximum 10 iterations. If the user hasn't said "done" after 10, use AskUserQuest
 
 ### Design Token Extraction
 
-If no `DESIGN.md` exists in the repo root, offer to create one from the generated HTML:
+If no `DESIGN.md` in repo root, offer to create from generated HTML.
 
-Extract from the HTML:
-- CSS custom properties (colors, spacing, font sizes)
-- Font families and weights used
-- Color palette (primary, secondary, accent, neutral)
-- Spacing scale
-- Border radius values
-- Shadow values
+Extract: CSS custom properties (colors, spacing, sizes), font families/weights, color
+palette (primary, secondary, accent, neutral), spacing scale, border radius, shadows.
 
 Use AskUserQuestion:
 > No DESIGN.md found. I can extract the design tokens from the HTML we just built
@@ -1164,11 +1139,11 @@ Use AskUserQuestion:
 > A) Create DESIGN.md from these tokens
 > B) Skip — I'll handle the design system later
 
-If A: write `DESIGN.md` to the repo root with the extracted tokens.
+If A: write `DESIGN.md` to repo root with extracted tokens.
 
 ### Save Metadata
 
-Write `finalized.json` alongside the HTML:
+Write `finalized.json` alongside HTML:
 ```json
 {
   "source_mockup": "<approved variant PNG path or null>",
@@ -1196,22 +1171,17 @@ Use AskUserQuestion:
 
 ## Important Rules
 
-- **Source of truth fidelity over code elegance.** When an approved mockup exists,
-  pixel-match it. If that requires `width: 312px` instead of a CSS grid class, that's
-  correct. When in plan-driven or freeform mode, the user's feedback during the
-  refinement loop is the source of truth. Code cleanup happens later during
-  component extraction.
+- **Source of truth fidelity > code elegance.** Approved mockup → pixel-match it. If
+  that needs `width: 312px` not CSS grid class, that's correct. Plan-driven/freeform →
+  user feedback is source of truth. Code cleanup later in component extraction.
 
-- **Always use Pretext for text layout.** Even if the design looks simple, Pretext
-  ensures correct height computation on resize. The overhead is 30KB. Every page benefits.
+- **Always use Pretext.** Even simple designs — Pretext ensures correct height on resize.
+  30KB overhead. Every page benefits.
 
-- **Surgical edits in the refinement loop.** Use the Edit tool to make targeted changes,
-  not the Write tool to regenerate the entire file. The user may have made manual edits
-  via contenteditable that should be preserved.
+- **Surgical edits in refinement loop.** Edit tool for targeted changes, not Write to
+  regenerate entire file. User may have manual edits via contenteditable to preserve.
 
-- **Real content only.** When a mockup exists, extract text from it. In plan-driven mode,
-  use content from the plan. In freeform mode, generate realistic content based on the
-  user's description. Never use "Lorem ipsum", "Your text here", or placeholder content.
+- **Real content only.** Mockup → extract text. Plan-driven → content from plan.
+  Freeform → realistic content from description. Never "Lorem ipsum" or placeholders.
 
-- **One page per invocation.** For multi-page designs, run /design-html once per page.
-  Each run produces one HTML file.
+- **One page per invocation.** Multi-page → run /design-html once per page.

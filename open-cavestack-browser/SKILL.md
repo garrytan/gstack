@@ -2,11 +2,10 @@
 name: open-cavestack-browser
 version: 0.2.0
 description: |
-  Launch CaveStack Browser — AI-controlled Chromium with the sidebar extension baked in.
-  Opens a visible browser window where you can watch every action in real time.
-  The sidebar shows a live activity feed and chat. Anti-bot stealth built in.
-  Use when asked to "open cavestack browser", "launch browser", "connect chrome",
-  "open chrome", "real browser", "launch chrome", "side panel", or "control my browser".
+  Launch CaveStack Browser -- AI-controlled Chromium with sidebar extension baked in.
+  Visible window, watch every action live. Sidebar = activity feed + chat. Anti-bot
+  stealth. Triggers: "open cavestack browser", "launch browser", "connect chrome",
+  "open chrome", "real browser", "launch chrome", "side panel", "control my browser".
   Voice triggers (speech-to-text aliases): "show me the browser".
 allowed-tools:
   - Bash
@@ -493,8 +492,8 @@ plan's living status.
 
 # /open-cavestack-browser — Launch CaveStack Browser
 
-Launch CaveStack Browser — AI-controlled Chromium with the sidebar extension,
-anti-bot stealth, and custom branding. You see every action in real time.
+Launch CaveStack Browser — AI-controlled Chromium with sidebar extension,
+anti-bot stealth, custom branding. See every action in real time.
 
 ## SETUP (run this check BEFORE any browse command)
 
@@ -534,9 +533,7 @@ If `NEEDS_SETUP`:
 
 ## Step 0: Pre-flight cleanup
 
-Before connecting, kill any stale browse servers and clean up lock files that
-may have persisted from a crash. This prevents "already connected" false
-positives and Chromium profile lock conflicts.
+Kill stale browse servers, clean lock files from crashes. Prevents "already connected" false positives and Chromium profile lock conflicts.
 
 ```bash
 # Kill any existing browse server
@@ -561,21 +558,18 @@ echo "Pre-flight cleanup done"
 $B connect
 ```
 
-This launches CaveStack Browser (rebranded Chromium) in headed mode with:
-- A visible window you can watch (not your regular Chrome — it stays untouched)
-- The cavestack sidebar extension auto-loaded via `launchPersistentContext`
-- Anti-bot stealth patches (sites like Google and NYTimes work without captchas)
-- Custom user agent and CaveStack Browser branding in Dock/menu bar
-- A sidebar agent process for chat commands
+Launches CaveStack Browser (rebranded Chromium) in headed mode with:
+- visible window (not regular Chrome — stays untouched)
+- sidebar extension auto-loaded via `launchPersistentContext`
+- anti-bot stealth (Google, NYTimes work without captchas)
+- custom user agent + CaveStack Browser branding
+- sidebar agent for chat commands
 
-The `connect` command auto-discovers the extension from the cavestack install
-directory. It always uses port **34567** so the extension can auto-connect.
+`connect` auto-discovers extension from cavestack install dir. Always port **34567** so extension auto-connects.
 
-After connecting, print the full output to the user. Confirm you see
-`Mode: headed` in the output.
+After connecting, print full output. Confirm `Mode: headed` in output.
 
-If the output shows an error or the mode is not `headed`, run `$B status` and
-share the output with the user before proceeding.
+If error or mode not `headed`, run `$B status` and share output before proceeding.
 
 ## Step 2: Verify
 
@@ -583,16 +577,15 @@ share the output with the user before proceeding.
 $B status
 ```
 
-Confirm the output shows `Mode: headed`. Read the port from the state file:
+Confirm output shows `Mode: headed`. Read port from state file:
 
 ```bash
 cat "$(git rev-parse --show-toplevel 2>/dev/null)/.cavestack/browse.json" 2>/dev/null | grep -o '"port":[0-9]*' | grep -o '[0-9]*'
 ```
 
-The port should be **34567**. If it's different, note it — the user may need it
-for the Side Panel.
+Port should be **34567**. If different, note — user may need for Side Panel.
 
-Also find the extension path so you can help the user if they need to load it manually:
+Find extension path (for manual load if needed):
 
 ```bash
 _EXT_PATH=""
@@ -602,7 +595,7 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 echo "EXTENSION_PATH: ${_EXT_PATH:-NOT FOUND}"
 ```
 
-## Step 3: Guide the user to the Side Panel
+## Step 3: Guide user to Side Panel
 
 Use AskUserQuestion:
 
@@ -645,32 +638,31 @@ If B: Tell the user:
 
 If C:
 
-1. Run `$B status` and show the output
-2. If the server is not healthy, re-run Step 0 cleanup + Step 1 connect
-3. If the server IS healthy but the browser isn't visible, try `$B focus`
-4. If that fails, ask the user what they see (error message, blank screen, etc.)
+1. Run `$B status`, show output
+2. If server not healthy, re-run Step 0 cleanup + Step 1 connect
+3. If server IS healthy but browser not visible, try `$B focus`
+4. If that fails, ask user what they see (error message, blank screen, etc.)
 
 ## Step 4: Demo
 
-After the user confirms the Side Panel is working, run a quick demo:
+After user confirms Side Panel, run quick demo:
 
 ```bash
 $B goto https://github.com/trending
 ```
 
-Wait 2 seconds, then:
+Wait 2s, then:
 
 ```bash
 $B snapshot -i
 ```
 
-Tell the user: "Check the Side Panel — you should see the `goto` and `snapshot`
-commands appear in the activity feed. Every command Claude runs shows up here
-in real time."
+Tell user: "Check Side Panel — `goto` and `snapshot` commands appear in activity feed. Every command Claude runs shows here in real time."
 
 ## Step 5: Sidebar chat
 
-After the activity feed demo, tell the user about the sidebar chat:
+<!-- voice:floor -->
+After activity feed demo, tell user about sidebar chat:
 
 > The Side Panel also has a **chat tab**. Try typing a message like "take a
 > snapshot and describe this page." A sidebar agent (a child Claude instance)
@@ -680,33 +672,32 @@ After the activity feed demo, tell the user about the sidebar chat:
 > The sidebar agent can navigate pages, click buttons, fill forms, and read
 > content. Each task gets up to 5 minutes. It runs in an isolated session, so
 > it won't interfere with this Claude Code window.
+<!-- voice:endfloor -->
 
 ## Step 6: What's next
 
-Tell the user:
+Tell user:
 
-> You're all set! Here's what you can do with the connected Chrome:
+> You're all set! Here's what you can do with connected Chrome:
 >
-> **Watch Claude work in real time:**
-> - Run any cavestack skill (`/qa`, `/design-review`, `/benchmark`) and watch
->   every action happen in the visible Chrome window + Side Panel feed
-> - No cookie import needed — the Playwright browser shares its own session
+> **Watch Claude work live:**
+> - Run any cavestack skill (`/qa`, `/design-review`, `/benchmark`) — watch
+>   every action in visible Chrome + Side Panel feed
+> - No cookie import needed — Playwright browser shares its own session
 >
-> **Control the browser directly:**
-> - **Sidebar chat** — type natural language in the Side Panel and the sidebar
->   agent executes it (e.g., "fill in the login form and submit")
+> **Control browser directly:**
+> - **Sidebar chat** — natural language in Side Panel, sidebar agent executes
+>   (e.g., "fill in the login form and submit")
 > - **Browse commands** — `$B goto <url>`, `$B click <sel>`, `$B fill <sel> <val>`,
 >   `$B snapshot -i` — all visible in Chrome + Side Panel
 >
 > **Window management:**
-> - `$B focus` — bring Chrome to the foreground anytime
-> - `$B disconnect` — close headed Chrome and return to headless mode
+> - `$B focus` — bring Chrome to foreground
+> - `$B disconnect` — close headed Chrome, return to headless
 >
-> **What skills look like in headed mode:**
-> - `/qa` runs its full test suite in the visible browser — you see every page
->   load, every click, every assertion
-> - `/design-review` takes screenshots in the real browser — same pixels you see
-> - `/benchmark` measures performance in the headed browser
+> **Skills in headed mode:**
+> - `/qa` runs full test suite in visible browser — see every page load, click, assertion
+> - `/design-review` screenshots in real browser — same pixels you see
+> - `/benchmark` measures perf in headed browser
 
-Then proceed with whatever the user asked to do. If they didn't specify a task,
-ask what they'd like to test or browse.
+Proceed with user's task. If none specified, ask what to test or browse.

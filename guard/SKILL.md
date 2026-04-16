@@ -3,10 +3,10 @@ name: guard
 version: 0.1.0
 description: |
   Full safety mode: destructive command warnings + directory-scoped edits.
-  Combines /careful (warns before rm -rf, DROP TABLE, force-push, etc.) with
-  /freeze (blocks edits outside a specified directory). Use for maximum safety
-  when touching prod or debugging live systems. Use when asked to "guard mode",
-  "full safety", "lock it down", or "maximum safety". (cavestack)
+  Combines /careful (warns before rm -rf, DROP TABLE, force-push) with /freeze
+  (blocks edits outside specified directory). Max safety for prod or live
+  debugging. Use when asked to "guard mode", "full safety", "lock it down",
+  or "maximum safety". (cavestack)
 allowed-tools:
   - Bash
   - Read
@@ -34,12 +34,11 @@ hooks:
 
 # /guard — Full Safety Mode
 
-Activates both destructive command warnings and directory-scoped edit restrictions.
-This is the combination of `/careful` + `/freeze` in a single command.
+Activates destructive command warnings + directory-scoped edit restrictions.
+Combination of `/careful` + `/freeze` in single command.
 
-**Dependency note:** This skill references hook scripts from the sibling `/careful`
-and `/freeze` skill directories. Both must be installed (they are installed together
-by the cavestack setup script).
+**Dependency note:** References hook scripts from sibling `/careful` and `/freeze`
+skill directories. Both must be installed (installed together by cavestack setup).
 
 ```bash
 mkdir -p ~/.cavestack/analytics
@@ -48,20 +47,20 @@ echo '{"skill":"guard","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basena
 
 ## Setup
 
-Ask the user which directory to restrict edits to. Use AskUserQuestion:
+Ask user which directory to restrict edits to. Use AskUserQuestion:
 
 - Question: "Guard mode: which directory should edits be restricted to? Destructive command warnings are always on. Files outside the chosen path will be blocked from editing."
-- Text input (not multiple choice) — the user types a path.
+- Text input (not multiple choice) — user types a path.
 
-Once the user provides a directory path:
+Once user provides directory path:
 
-1. Resolve it to an absolute path:
+1. Resolve to absolute path:
 ```bash
 FREEZE_DIR=$(cd "<user-provided-path>" 2>/dev/null && pwd)
 echo "$FREEZE_DIR"
 ```
 
-2. Ensure trailing slash and save to the freeze state file:
+2. Ensure trailing slash, save to freeze state file:
 ```bash
 FREEZE_DIR="${FREEZE_DIR%/}/"
 STATE_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.cavestack}"
@@ -70,13 +69,13 @@ echo "$FREEZE_DIR" > "$STATE_DIR/freeze-dir.txt"
 echo "Freeze boundary set: $FREEZE_DIR"
 ```
 
-Tell the user:
-- "**Guard mode active.** Two protections are now running:"
+Tell user:
+- "**Guard mode active.** Two protections running:"
 - "1. **Destructive command warnings** — rm -rf, DROP TABLE, force-push, etc. will warn before executing (you can override)"
 - "2. **Edit boundary** — file edits restricted to `<path>/`. Edits outside this directory are blocked."
-- "To remove the edit boundary, run `/unfreeze`. To deactivate everything, end the session."
+- "To remove edit boundary, run `/unfreeze`. To deactivate everything, end session."
 
 ## What's protected
 
-See `/careful` for the full list of destructive command patterns and safe exceptions.
-See `/freeze` for how edit boundary enforcement works.
+See `/careful` for full list of destructive command patterns and safe exceptions.
+See `/freeze` for edit boundary enforcement details.

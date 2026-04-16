@@ -2,8 +2,7 @@
 name: unfreeze
 version: 0.1.0
 description: |
-  Clear the freeze boundary set by /freeze, allowing edits to all directories
-  again. Use when you want to widen edit scope without ending the session.
+  Clear freeze boundary from /freeze, re-allow edits to all directories.
   Use when asked to "unfreeze", "unlock edits", "remove freeze", or
   "allow all edits". (cavestack)
 allowed-tools:
@@ -15,7 +14,7 @@ allowed-tools:
 
 # /unfreeze — Clear Freeze Boundary
 
-Remove the edit restriction set by `/freeze`, allowing edits to all directories.
+Remove edit restriction from `/freeze`. Edits allowed everywhere again.
 
 ```bash
 mkdir -p ~/.cavestack/analytics
@@ -35,6 +34,4 @@ else
 fi
 ```
 
-Tell the user the result. Note that `/freeze` hooks are still registered for the
-session — they will just allow everything since no state file exists. To re-freeze,
-run `/freeze` again.
+Tell user result. `/freeze` hooks still registered for session but allow everything since no state file exists. Re-freeze: run `/freeze` again.

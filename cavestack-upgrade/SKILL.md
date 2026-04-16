@@ -2,9 +2,9 @@
 name: cavestack-upgrade
 version: 1.1.0
 description: |
-  Upgrade cavestack to the latest version. Detects global vs vendored install,
-  runs the upgrade, and shows what's new. Use when asked to "upgrade cavestack",
-  "update cavestack", or "get latest version".
+  Upgrade cavestack to latest version. Detects global vs vendored install,
+  runs upgrade, shows what's new. Use when: "upgrade cavestack",
+  "update cavestack", "get latest version".
   Voice triggers (speech-to-text aliases): "upgrade the tools", "update the tools", "gee stack upgrade", "g stack upgrade".
 allowed-tools:
   - Bash
@@ -17,15 +17,15 @@ allowed-tools:
 
 # /cavestack-upgrade
 
-Upgrade cavestack to the latest version and show what's new.
+Upgrade cavestack to latest version and show what's new.
 
 ## Inline upgrade flow
 
-This section is referenced by all skill preambles when they detect `UPGRADE_AVAILABLE`.
+Referenced by all skill preambles when they detect `UPGRADE_AVAILABLE`.
 
-### Step 1: Ask the user (or auto-upgrade)
+### Step 1: Ask user (or auto-upgrade)
 
-First, check if auto-upgrade is enabled:
+First, check if auto-upgrade enabled:
 ```bash
 _AUTO=""
 [ "${CAVESTACK_AUTO_UPGRADE:-}" = "1" ] && _AUTO="true"
@@ -33,7 +33,7 @@ _AUTO=""
 echo "AUTO_UPGRADE=$_AUTO"
 ```
 
-**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading cavestack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `/cavestack-upgrade` manually to retry."
+**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading cavestack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn user: "Auto-upgrade failed — restored previous version. Run `/cavestack-upgrade` manually to retry."
 
 **Otherwise**, use AskUserQuestion:
 - Question: "cavestack **v{new}** is available (you're on v{old}). Upgrade now?"
@@ -45,9 +45,9 @@ echo "AUTO_UPGRADE=$_AUTO"
 ```bash
 ~/.claude/skills/cavestack/bin/cavestack-config set auto_upgrade true
 ```
-Tell user: "Auto-upgrade enabled. Future updates will install automatically." Then proceed to Step 2.
+Tell user: "Auto-upgrade enabled. Future updates install automatically." Then proceed to Step 2.
 
-**If "Not now":** Write snooze state with escalating backoff (first snooze = 24h, second = 48h, third+ = 1 week), then continue with the current skill. Do not mention the upgrade again.
+**If "Not now":** Write snooze state with escalating backoff (first snooze = 24h, second = 48h, third+ = 1 week), then continue with current skill. Do not mention upgrade again.
 ```bash
 _SNOOZE_FILE=~/.cavestack/update-snoozed
 _REMOTE_VER="{new}"
@@ -63,16 +63,16 @@ _NEW_LEVEL=$((_CUR_LEVEL + 1))
 [ "$_NEW_LEVEL" -gt 3 ] && _NEW_LEVEL=3
 echo "$_REMOTE_VER $_NEW_LEVEL $(date +%s)" > "$_SNOOZE_FILE"
 ```
-Note: `{new}` is the remote version from the `UPGRADE_AVAILABLE` output — substitute it from the update check result.
+Note: `{new}` is remote version from `UPGRADE_AVAILABLE` output — substitute from update check result.
 
-Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.cavestack/config.yaml` for automatic upgrades."
+Tell user snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.cavestack/config.yaml` for automatic upgrades."
 
 **If "Never ask again":**
 ```bash
 ~/.claude/skills/cavestack/bin/cavestack-config set update_check false
 ```
 Tell user: "Update checks disabled. Run `~/.claude/skills/cavestack/bin/cavestack-config set update_check true` to re-enable."
-Continue with the current skill.
+Continue with current skill.
 
 ### Step 2: Detect install type
 
@@ -102,11 +102,11 @@ fi
 echo "Install type: $INSTALL_TYPE at $INSTALL_DIR"
 ```
 
-The install type and directory path printed above will be used in all subsequent steps.
+Install type and directory path printed above used in all subsequent steps.
 
 ### Step 3: Save old version
 
-Use the install directory from Step 2's output below:
+Use install directory from Step 2's output:
 
 ```bash
 OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
@@ -114,7 +114,7 @@ OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 
 ### Step 4: Upgrade
 
-Use the install type and directory detected in Step 2:
+Use install type and directory detected in Step 2:
 
 **For git installs** (global-git, local-git):
 ```bash
@@ -124,7 +124,7 @@ git fetch origin
 git reset --hard origin/main
 ./setup
 ```
-If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
+If `$STASH_OUTPUT` contains "Saved working directory", warn user: "Note: local changes were stashed. Run `git stash pop` in skill directory to restore them."
 
 **For vendored installs** (vendored, vendored-global):
 ```bash
@@ -139,7 +139,7 @@ rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
 
 ### Step 4.5: Handle local vendored copy
 
-Use the install directory from Step 2. Check if there's also a local vendored copy, and whether team mode is active:
+Use install directory from Step 2. Check if there's also local vendored copy, and whether team mode active:
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -156,7 +156,7 @@ echo "LOCAL_CAVESTACK=$LOCAL_CAVESTACK"
 echo "TEAM_MODE=$_TEAM_MODE"
 ```
 
-**If `LOCAL_CAVESTACK` is non-empty AND `TEAM_MODE` is `true`:** Remove the vendored copy. Team mode uses the global install as the single source of truth.
+**If `LOCAL_CAVESTACK` is non-empty AND `TEAM_MODE` is `true`:** Remove vendored copy. Team mode uses global install as single source of truth.
 
 ```bash
 cd "$_ROOT"
@@ -168,7 +168,7 @@ rm -rf "$LOCAL_CAVESTACK"
 ```
 Tell user: "Removed vendored copy at `$LOCAL_CAVESTACK` (team mode active — global install is the source of truth). Commit the `.gitignore` change when ready."
 
-**If `LOCAL_CAVESTACK` is non-empty AND `TEAM_MODE` is NOT `true`:** Update it by copying from the freshly-upgraded primary install (same approach as README vendored install):
+**If `LOCAL_CAVESTACK` is non-empty AND `TEAM_MODE` is NOT `true`:** Update by copying from freshly-upgraded primary install (same approach as README vendored install):
 ```bash
 mv "$LOCAL_CAVESTACK" "$LOCAL_CAVESTACK.bak"
 cp -Rf "$INSTALL_DIR" "$LOCAL_CAVESTACK"
@@ -178,7 +178,7 @@ rm -rf "$LOCAL_CAVESTACK.bak"
 ```
 Tell user: "Also updated vendored copy at `$LOCAL_CAVESTACK` — commit `.claude/skills/cavestack/` when you're ready."
 
-If `./setup` fails, restore from backup and warn the user:
+If `./setup` fails, restore from backup and warn user:
 ```bash
 rm -rf "$LOCAL_CAVESTACK"
 mv "$LOCAL_CAVESTACK.bak" "$LOCAL_CAVESTACK"
@@ -187,8 +187,8 @@ Tell user: "Sync failed — restored previous version at `$LOCAL_CAVESTACK`. Run
 
 ### Step 4.75: Run version migrations
 
-After `./setup` completes, run any migration scripts for versions between the old
-and new version. Migrations handle state fixes that `./setup` alone can't cover
+After `./setup` completes, run migration scripts for versions between old
+and new version. Migrations handle state fixes `./setup` alone can't cover
 (stale config, orphaned files, directory structure changes).
 
 ```bash
@@ -207,9 +207,9 @@ if [ -d "$MIGRATIONS_DIR" ]; then
 fi
 ```
 
-Migrations are idempotent bash scripts in `cavestack-upgrade/migrations/`. Each is named
-`v{VERSION}.sh` and runs only when upgrading from an older version. See CONTRIBUTING.md
-for how to add new migrations.
+Migrations are idempotent bash scripts in `cavestack-upgrade/migrations/`. Each named
+`v{VERSION}.sh`, runs only when upgrading from older version. See CONTRIBUTING.md
+for adding new migrations.
 
 ### Step 5: Write marker + clear cache
 
@@ -222,7 +222,7 @@ rm -f ~/.cavestack/update-snoozed
 
 ### Step 6: Show What's New
 
-Read `$INSTALL_DIR/CHANGELOG.md`. Find all version entries between the old version and the new version. Summarize as 5-7 bullets grouped by theme. Don't overwhelm — focus on user-facing changes. Skip internal refactors unless they're significant.
+Read `$INSTALL_DIR/CHANGELOG.md`. Find all version entries between old and new version. Summarize as 5-7 bullets grouped by theme. Don't overwhelm — focus on user-facing changes. Skip internal refactors unless significant.
 
 Format:
 ```
@@ -238,30 +238,30 @@ Happy shipping!
 
 ### Step 7: Continue
 
-After showing What's New, continue with whatever skill the user originally invoked. The upgrade is done — no further action needed.
+After showing What's New, continue with whatever skill user originally invoked. Upgrade done — no further action needed.
 
 ---
 
 ## Standalone usage
 
-When invoked directly as `/cavestack-upgrade` (not from a preamble):
+When invoked directly as `/cavestack-upgrade` (not from preamble):
 
-1. Force a fresh update check (bypass cache):
+1. Force fresh update check (bypass cache):
 ```bash
 ~/.claude/skills/cavestack/bin/cavestack-update-check --force 2>/dev/null || \
 .claude/skills/cavestack/bin/cavestack-update-check --force 2>/dev/null || true
 ```
-Use the output to determine if an upgrade is available.
+Use output to determine if upgrade available.
 
 2. If `UPGRADE_AVAILABLE <old> <new>`: follow Steps 2-6 above.
 
-3. If no output (primary is up to date): check for a stale local vendored copy.
+3. If no output (primary up to date): check for stale local vendored copy.
 
-Run the Step 2 bash block above to detect the primary install type and directory (`INSTALL_TYPE` and `INSTALL_DIR`). Then run the Step 4.5 detection bash block above to check for a local vendored copy (`LOCAL_CAVESTACK`) and team mode status (`TEAM_MODE`).
+Run Step 2 bash block to detect primary install type and directory (`INSTALL_TYPE` and `INSTALL_DIR`). Then run Step 4.5 detection bash block to check for local vendored copy (`LOCAL_CAVESTACK`) and team mode status (`TEAM_MODE`).
 
-**If `LOCAL_CAVESTACK` is empty** (no local vendored copy): tell the user "You're already on the latest version (v{version})."
+**If `LOCAL_CAVESTACK` is empty** (no local vendored copy): tell user "You're already on the latest version (v{version})."
 
-**If `LOCAL_CAVESTACK` is non-empty AND `TEAM_MODE` is `true`:** Remove the vendored copy using the Step 4.5 team-mode removal bash block above. Tell user: "Global v{version} is up to date. Removed stale vendored copy (team mode active). Commit the `.gitignore` change when ready."
+**If `LOCAL_CAVESTACK` is non-empty AND `TEAM_MODE` is `true`:** Remove vendored copy using Step 4.5 team-mode removal bash block. Tell user: "Global v{version} is up to date. Removed stale vendored copy (team mode active). Commit the `.gitignore` change when ready."
 
 **If `LOCAL_CAVESTACK` is non-empty AND `TEAM_MODE` is NOT `true`**, compare versions:
 ```bash
@@ -270,6 +270,6 @@ LOCAL_VER=$(cat "$LOCAL_CAVESTACK/VERSION" 2>/dev/null || echo "unknown")
 echo "PRIMARY=$PRIMARY_VER LOCAL=$LOCAL_VER"
 ```
 
-**If versions differ:** follow the Step 4.5 sync bash block above to update the local copy from the primary. Tell user: "Global v{PRIMARY_VER} is up to date. Updated local vendored copy from v{LOCAL_VER} → v{PRIMARY_VER}. Commit `.claude/skills/cavestack/` when you're ready."
+**If versions differ:** follow Step 4.5 sync bash block to update local copy from primary. Tell user: "Global v{PRIMARY_VER} is up to date. Updated local vendored copy from v{LOCAL_VER} → v{PRIMARY_VER}. Commit `.claude/skills/cavestack/` when you're ready."
 
-**If versions match:** tell the user "You're on the latest version (v{PRIMARY_VER}). Global and local vendored copy are both up to date."
+**If versions match:** tell user "You're on the latest version (v{PRIMARY_VER}). Global and local vendored copy are both up to date."

@@ -3,13 +3,13 @@ name: checkpoint
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Save and resume working state checkpoints. Captures git state, decisions made,
-  and remaining work so you can pick up exactly where you left off — even across
+  Save and resume working state checkpoints. Captures git state, decisions,
+  remaining work so you pick up exactly where you left off — even across
   Conductor workspace handoffs between branches.
-  Use when asked to "checkpoint", "save progress", "where was I", "resume",
-  "what was I working on", or "pick up where I left off".
-  Proactively suggest when a session is ending, the user is switching context,
-  or before a long break. (cavestack)
+  Use when: "checkpoint", "save progress", "where was I", "resume",
+  "what was I working on", "pick up where I left off".
+  Suggest proactively when session ending, user switching context,
+  or before long break. (cavestack)
 allowed-tools:
   - Bash
   - Read
@@ -23,9 +23,9 @@ allowed-tools:
 
 # /checkpoint — Save and Resume Working State
 
-You are a **Staff Engineer who keeps meticulous session notes**. Your job is to
-capture the full working context — what's being done, what decisions were made,
-what's left — so that any future session (even on a different branch or workspace)
+You are a **Staff Engineer who keeps meticulous session notes**. Job is to
+capture full working context — what's being done, decisions made,
+what's left — so any future session (even on different branch or workspace)
 can resume without losing a beat.
 
 **HARD GATE:** Do NOT implement code changes. This skill captures and restores
@@ -35,14 +35,14 @@ context only.
 
 ## Detect command
 
-Parse the user's input to determine which command to run:
+Parse user input to determine command:
 
 - `/checkpoint` or `/checkpoint save` → **Save**
 - `/checkpoint resume` → **Resume**
 - `/checkpoint list` → **List**
 
-If the user provides a title after the command (e.g., `/checkpoint auth refactor`),
-use it as the checkpoint title. Otherwise, infer a title from the current work.
+If user provides title after command (e.g., `/checkpoint auth refactor`),
+use it as checkpoint title. Otherwise, infer title from current work.
 
 ---
 
@@ -54,7 +54,7 @@ use it as the checkpoint title. Otherwise, infer a title from the current work.
 {{SLUG_SETUP}}
 ```
 
-Collect the current working state:
+Collect current working state:
 
 ```bash
 echo "=== BRANCH ==="
@@ -71,20 +71,20 @@ git log --oneline -10 2>/dev/null
 
 ### Step 2: Summarize context
 
-Using the gathered state plus your conversation history, produce a summary covering:
+Using gathered state + conversation history, produce summary covering:
 
-1. **What's being worked on** — the high-level goal or feature
+1. **What's being worked on** — high-level goal or feature
 2. **Decisions made** — architectural choices, trade-offs, approaches chosen and why
-3. **Remaining work** — concrete next steps, in priority order
-4. **Notes** — anything a future session needs to know (gotchas, blocked items,
-   open questions, things that were tried and didn't work)
+3. **Remaining work** — concrete next steps, priority order
+4. **Notes** — anything future session needs to know (gotchas, blocked items,
+   open questions, things tried that didn't work)
 
-If the user provided a title, use it. Otherwise, infer a concise title (3-6 words)
-from the work being done.
+If user provided title, use it. Otherwise, infer concise title (3-6 words)
+from work being done.
 
 ### Step 3: Compute session duration
 
-Try to determine how long this session has been active:
+Try to determine how long session has been active:
 
 ```bash
 # Try _TEL_START (Conductor timestamp) first, then shell process start time
@@ -102,7 +102,7 @@ else
 fi
 ```
 
-If the duration cannot be determined, omit the `session_duration_s` field from the
+If duration cannot be determined, omit `session_duration_s` field from
 checkpoint file.
 
 ### Step 4: Write checkpoint file
@@ -116,11 +116,11 @@ echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
 echo "TIMESTAMP=$TIMESTAMP"
 ```
 
-Write the checkpoint file to `{CHECKPOINT_DIR}/{TIMESTAMP}-{title-slug}.md` where
-`title-slug` is the title in kebab-case (lowercase, spaces replaced with hyphens,
-special characters removed).
+Write checkpoint file to `{CHECKPOINT_DIR}/{TIMESTAMP}-{title-slug}.md` where
+`title-slug` is title in kebab-case (lowercase, spaces → hyphens,
+special chars removed).
 
-The file format:
+File format:
 
 ```markdown
 ---
@@ -152,10 +152,10 @@ files_modified:
 {Gotchas, blocked items, open questions, things tried that didn't work}
 ```
 
-The `files_modified` list comes from `git status --short` (both staged and unstaged
-modified files). Use relative paths from the repo root.
+`files_modified` list comes from `git status --short` (staged + unstaged
+modified files). Use relative paths from repo root.
 
-After writing, confirm to the user:
+After writing, confirm to user:
 
 ```
 CHECKPOINT SAVED
@@ -184,17 +184,17 @@ else
 fi
 ```
 
-List checkpoints from **all branches** (checkpoint files contain the branch name
-in their frontmatter, so all files in the directory are candidates). This enables
-Conductor workspace handoff — a checkpoint saved on one branch can be resumed from
+List checkpoints from **all branches** (checkpoint files contain branch name
+in frontmatter, so all files in directory are candidates). Enables
+Conductor workspace handoff — checkpoint saved on one branch can resume from
 another.
 
 ### Step 2: Load checkpoint
 
-If the user specified a checkpoint (by number, title fragment, or date), find the
-matching file. Otherwise, load the **most recent** checkpoint.
+If user specified checkpoint (by number, title fragment, or date), find
+matching file. Otherwise, load **most recent** checkpoint.
 
-Read the checkpoint file and present a summary:
+Read checkpoint file and present summary:
 
 ```
 RESUMING CHECKPOINT
@@ -216,19 +216,19 @@ Status:      {status}
 {notes from checkpoint}
 ```
 
-If the current branch differs from the checkpoint's branch, note this:
+If current branch differs from checkpoint's branch, note this:
 "This checkpoint was saved on branch `{branch}`. You are currently on
 `{current branch}`. You may want to switch branches before continuing."
 
 ### Step 3: Offer next steps
 
-After presenting the checkpoint, ask via AskUserQuestion:
+After presenting checkpoint, ask via AskUserQuestion:
 
 - A) Continue working on the remaining items
 - B) Show the full checkpoint file
 - C) Just needed the context, thanks
 
-If A, summarize the first remaining work item and suggest starting there.
+If A, summarize first remaining work item and suggest starting there.
 
 ---
 
@@ -249,15 +249,15 @@ fi
 
 ### Step 2: Display table
 
-**Default behavior:** Show checkpoints for the **current branch** only.
+**Default:** Show checkpoints for **current branch** only.
 
-If the user passes `--all` (e.g., `/checkpoint list --all`), show checkpoints
+If user passes `--all` (e.g., `/checkpoint list --all`), show checkpoints
 from **all branches**.
 
-Read the frontmatter of each checkpoint file to extract `status`, `branch`, and
-`timestamp`. Parse the title from the filename (the part after the timestamp).
+Read frontmatter of each checkpoint file to extract `status`, `branch`, and
+`timestamp`. Parse title from filename (part after timestamp).
 
-Present as a table:
+Present as table:
 
 ```
 CHECKPOINTS ({branch} branch)
@@ -270,7 +270,7 @@ CHECKPOINTS ({branch} branch)
 ════════════════════════════════════════
 ```
 
-If `--all` is used, add a Branch column:
+If `--all` used, add Branch column:
 
 ```
 CHECKPOINTS (all branches)
@@ -283,17 +283,17 @@ CHECKPOINTS (all branches)
 ════════════════════════════════════════
 ```
 
-If there are no checkpoints, tell the user: "No checkpoints saved yet. Run
+If no checkpoints, tell user: "No checkpoints saved yet. Run
 `/checkpoint` to save your current working state."
 
 ---
 
 ## Important Rules
 
-- **Never modify code.** This skill only reads state and writes checkpoint files.
-- **Always include the branch name** in checkpoint files — this is critical for
+- **Never modify code.** Skill only reads state and writes checkpoint files.
+- **Always include branch name** in checkpoint files — critical for
   cross-branch resume in Conductor workspaces.
 - **Checkpoint files are append-only.** Never overwrite or delete existing checkpoint
-  files. Each save creates a new file.
+  files. Each save creates new file.
 - **Infer, don't interrogate.** Use git state and conversation context to fill in
-  the checkpoint. Only use AskUserQuestion if the title genuinely cannot be inferred.
+  checkpoint. Only AskUserQuestion if title genuinely cannot be inferred.

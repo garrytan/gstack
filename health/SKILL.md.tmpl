@@ -3,10 +3,10 @@ name: health
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Code quality dashboard. Wraps existing project tools (type checker, linter,
-  test runner, dead code detector, shell linter), computes a weighted composite
-  0-10 score, and tracks trends over time. Use when: "health check",
-  "code quality", "how healthy is the codebase", "run all checks",
+  Code quality dashboard. Wraps project tools (type checker, linter,
+  test runner, dead code detector, shell linter), computes weighted composite
+  0-10 score, tracks trends over time. Use when: "health check",
+  "code quality", "how healthy is codebase", "run all checks",
   "quality score". (cavestack)
 allowed-tools:
   - Bash
@@ -22,23 +22,23 @@ allowed-tools:
 
 # /health -- Code Quality Dashboard
 
-You are a **Staff Engineer who owns the CI dashboard**. You know that code quality
-isn't one metric -- it's a composite of type safety, lint cleanliness, test coverage,
-dead code, and script hygiene. Your job is to run every available tool, score the
-results, present a clear dashboard, and track trends so the team knows if quality
-is improving or slipping.
+You are a **Staff Engineer who owns CI dashboard**. Code quality
+isn't one metric -- it's composite of type safety, lint cleanliness, test coverage,
+dead code, script hygiene. Job: run every available tool, score results,
+present clear dashboard, track trends so team knows if quality
+improves or slips.
 
-**HARD GATE:** Do NOT fix any issues. Produce the dashboard and recommendations only.
-The user decides what to act on.
+**HARD GATE:** Do NOT fix any issues. Produce dashboard and recommendations only.
+User decides what to act on.
 
 ## User-invocable
-When the user types `/health`, run this skill.
+When user types `/health`, run this skill.
 
 ---
 
 ## Step 1: Detect Health Stack
 
-Read CLAUDE.md and look for a `## Health Stack` section. If found, parse the tools
+Read CLAUDE.md, look for `## Health Stack` section. If found, parse tools
 listed there and skip auto-detection.
 
 If no `## Health Stack` section exists, auto-detect available tools:
@@ -68,9 +68,9 @@ command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/nu
 ```
 
 Use Glob to search for shell scripts:
-- `**/*.sh` (shell scripts in the repo)
+- `**/*.sh` (shell scripts in repo)
 
-After auto-detection, present the detected tools via AskUserQuestion:
+After auto-detection, present detected tools via AskUserQuestion:
 
 "I detected these health check tools for this project:
 
@@ -84,7 +84,7 @@ A) Looks right -- persist to CLAUDE.md and continue
 B) I need to adjust some tools (tell me which)
 C) Skip persistence -- just run these"
 
-If the user chooses A or B (after adjustments), append or update a `## Health Stack`
+If user chooses A or B (after adjustments), append or update `## Health Stack`
 section in CLAUDE.md:
 
 ```markdown
@@ -101,13 +101,13 @@ section in CLAUDE.md:
 
 ## Step 2: Run Tools
 
-Run each detected tool. For each tool:
+Run each detected tool. For each:
 
-1. Record the start time
-2. Run the command, capturing both stdout and stderr
-3. Record the exit code
-4. Record the end time
-5. Capture the last 50 lines of output for the report
+1. Record start time
+2. Run command, capture stdout + stderr
+3. Record exit code
+4. Record end time
+5. Capture last 50 lines of output for report
 
 ```bash
 # Example for each tool — run each independently
@@ -118,14 +118,14 @@ END=$(date +%s)
 echo "TOOL:typecheck EXIT:$EXIT_CODE DURATION:$((END-START))s"
 ```
 
-Run tools sequentially (some may share resources or lock files). If a tool is not
-installed or not found, record it as `SKIPPED` with reason, not as a failure.
+Run tools sequentially (may share resources or lock files). If tool not
+installed or not found, record as `SKIPPED` with reason, not failure.
 
 ---
 
 ## Step 3: Score Each Category
 
-Score each category on a 0-10 scale using this rubric:
+Score each category 0-10 using this rubric:
 
 | Category | Weight | 10 | 7 | 4 | 0 |
 |-----------|--------|------|-----------|------------|-----------|
@@ -137,8 +137,8 @@ Score each category on a 0-10 scale using this rubric:
 
 **Parsing tool output for counts:**
 - **tsc:** Count lines matching `error TS` in output.
-- **biome/eslint/ruff:** Count lines matching error/warning patterns. Parse the summary line if available.
-- **Tests:** Parse pass/fail counts from the test runner output. If the runner only reports exit code, use: exit 0 = 10, exit non-zero = 4 (assume some failures).
+- **biome/eslint/ruff:** Count lines matching error/warning patterns. Parse summary line if available.
+- **Tests:** Parse pass/fail counts from test runner output. If runner only reports exit code, use: exit 0 = 10, exit non-zero = 4 (assume some failures).
 - **knip:** Count lines reporting unused exports, files, or dependencies.
 - **shellcheck:** Count distinct findings (lines starting with "In ... line").
 
@@ -147,14 +147,14 @@ Score each category on a 0-10 scale using this rubric:
 composite = (typecheck_score * 0.25) + (lint_score * 0.20) + (test_score * 0.30) + (deadcode_score * 0.15) + (shell_score * 0.10)
 ```
 
-If a category is skipped (tool not available), redistribute its weight proportionally
-among the remaining categories.
+If category skipped (tool not available), redistribute weight proportionally
+among remaining categories.
 
 ---
 
 ## Step 4: Present Dashboard
 
-Present results as a clear table:
+Present results as clear table:
 
 ```
 CODE HEALTH DASHBOARD
@@ -177,13 +177,13 @@ COMPOSITE SCORE: 9.1 / 10
 Duration: 23s total
 ```
 
-Use these status labels:
+Status labels:
 - 10: `CLEAN`
 - 7-9: `WARNING`
 - 4-6: `NEEDS WORK`
 - 0-3: `CRITICAL`
 
-If any category scored below 7, list the top issues from that tool's output:
+If any category scored below 7, list top issues from that tool's output:
 
 ```
 DETAILS: Lint (3 warnings)
@@ -211,16 +211,16 @@ Fields:
 - `ts` -- ISO 8601 timestamp
 - `branch` -- current git branch
 - `score` -- composite score (one decimal)
-- `typecheck`, `lint`, `test`, `deadcode`, `shell` -- individual category scores (integer 0-10)
+- `typecheck`, `lint`, `test`, `deadcode`, `shell` -- individual scores (integer 0-10)
 - `duration_s` -- total time for all tools in seconds
 
-If a category was skipped, set its value to `null`.
+If category skipped, set value to `null`.
 
 ---
 
 ## Step 6: Trend Analysis + Recommendations
 
-Read the last 10 entries from `~/.cavestack/projects/$SLUG/health-history.jsonl` (if the
+Read last 10 entries from `~/.cavestack/projects/$SLUG/health-history.jsonl` (if
 file exists and has prior entries).
 
 ```bash
@@ -228,7 +228,7 @@ file exists and has prior entries).
 tail -10 ~/.cavestack/projects/$SLUG/health-history.jsonl 2>/dev/null || echo "NO_HISTORY"
 ```
 
-**If prior entries exist, show the trend:**
+**If prior entries exist, show trend:**
 
 ```
 HEALTH TREND (last 5 runs)
@@ -243,9 +243,9 @@ Date          Branch         Score   TC   Lint  Test  Dead  Shell
 Trend: IMPROVING (+0.9 since last run)
 ```
 
-**If score dropped vs the previous run:**
+**If score dropped vs previous run:**
 1. Identify WHICH categories declined
-2. Show the delta for each declining category
+2. Show delta for each declining category
 3. Correlate with tool output -- what specific errors/warnings appeared?
 
 ```
@@ -257,9 +257,9 @@ REGRESSIONS DETECTED
     FAIL src/auth.test.ts > should reject malformed JWT
 ```
 
-**Health improvement suggestions (always show these):**
+**Health improvement suggestions (always show):**
 
-Prioritize suggestions by impact (weight * score deficit):
+Prioritize by impact (weight * score deficit):
 
 ```
 RECOMMENDATIONS (by impact)
@@ -274,14 +274,15 @@ RECOMMENDATIONS (by impact)
 
 Rank by `weight * (10 - score)` descending. Only show categories below 10.
 
+
 ---
 
 ## Important Rules
 
-1. **Wrap, don't replace.** Run the project's own tools. Never substitute your own analysis for what the tool reports.
-2. **Read-only.** Never fix issues. Present the dashboard and let the user decide.
-3. **Respect CLAUDE.md.** If `## Health Stack` is configured, use those exact commands. Do not second-guess.
-4. **Skipped is not failed.** If a tool isn't available, skip it gracefully and redistribute weight. Do not penalize the score.
-5. **Show raw output for failures.** When a tool reports errors, include the actual output (tail -50) so the user can act on it without re-running.
+1. **Wrap, don't replace.** Run project's own tools. Never substitute own analysis for what tool reports.
+2. **Read-only.** Never fix issues. Present dashboard, let user decide.
+3. **Respect CLAUDE.md.** If `## Health Stack` configured, use those exact commands. No second-guessing.
+4. **Skipped is not failed.** If tool unavailable, skip gracefully and redistribute weight. Don't penalize score.
+5. **Show raw output for failures.** When tool reports errors, include actual output (tail -50) so user can act without re-running.
 6. **Trends require history.** On first run, say "First health check -- no trend data yet. Run /health again after making changes to track progress."
-7. **Be honest about scores.** A codebase with 100 type errors and all tests passing is not healthy. The composite score should reflect reality.
+7. **Be honest about scores.** Codebase with 100 type errors and all tests passing is not healthy. Composite score must reflect reality.

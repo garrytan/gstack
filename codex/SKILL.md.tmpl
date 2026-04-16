@@ -6,7 +6,7 @@ description: |
   OpenAI Codex CLI wrapper — three modes. Code review: independent diff review via
   codex review with pass/fail gate. Challenge: adversarial mode that tries to break
   your code. Consult: ask codex anything with session continuity for follow-ups.
-  The "200 IQ autistic developer" second opinion. Use when asked to "codex review",
+  "200 IQ autistic developer" second opinion. Use when asked to "codex review",
   "codex challenge", "ask codex", "second opinion", or "consult codex". (cavestack)
 voice-triggers:
   - "code x"
@@ -27,11 +27,9 @@ allowed-tools:
 
 # /codex — Multi-AI Second Opinion
 
-You are running the `/codex` skill. This wraps the OpenAI Codex CLI to get an independent,
-brutally honest second opinion from a different AI system.
+Running `/codex` skill. Wraps OpenAI Codex CLI for independent, brutally honest second opinion from different AI system.
 
-Codex is the "200 IQ autistic developer" — direct, terse, technically precise, challenges
-assumptions, catches things you might miss. Present its output faithfully, not summarized.
+Codex = "200 IQ autistic developer" — direct, terse, technically precise, challenges assumptions, catches things you miss. Present output faithfully, never summarize.
 
 ---
 
@@ -49,32 +47,29 @@ If `NOT_FOUND`: stop and tell the user:
 
 ## Step 1: Detect mode
 
-Parse the user's input to determine which mode to run:
+Parse user input to determine mode:
 
 1. `/codex review` or `/codex review <instructions>` — **Review mode** (Step 2A)
 2. `/codex challenge` or `/codex challenge <focus>` — **Challenge mode** (Step 2B)
 3. `/codex` with no arguments — **Auto-detect:**
    - Check for a diff (with fallback if origin isn't available):
      `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
-   - If a diff exists, use AskUserQuestion:
+   - Diff exists → use AskUserQuestion:
      ```
      Codex detected changes against the base branch. What should it do?
      A) Review the diff (code review with pass/fail gate)
      B) Challenge the diff (adversarial — try to break it)
      C) Something else — I'll provide a prompt
      ```
-   - If no diff, check for plan files scoped to the current project:
+   - No diff → check for plan files scoped to current project:
      `ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
-     If no project-scoped match, fall back to: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-     but warn the user: "Note: this plan may be from a different project."
-   - If a plan file exists, offer to review it
-   - Otherwise, ask: "What would you like to ask Codex?"
+     No project-scoped match → fall back to: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
+     Warn: "Note: this plan may be from a different project."
+   - Plan file exists → offer to review it
+   - Otherwise → ask: "What would you like to ask Codex?"
 4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
 
-**Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
-note it and remove it from the prompt text before passing to Codex. When `--xhigh`
-is present, use `model_reasoning_effort="xhigh"` for all modes regardless of the
-per-mode default below. Otherwise, use the per-mode defaults:
+**Reasoning effort override:** User input contains `--xhigh` → remove from prompt, use `model_reasoning_effort="xhigh"` for all modes. Otherwise per-mode defaults:
 - Review (2A): `high` — bounded diff input, needs thoroughness
 - Challenge (2B): `high` — adversarial but bounded by diff
 - Consult (2C): `medium` — large context, interactive, needs speed
@@ -83,37 +78,33 @@ per-mode default below. Otherwise, use the per-mode defaults:
 
 ## Filesystem Boundary
 
-All prompts sent to Codex MUST be prefixed with this boundary instruction:
+All prompts to Codex MUST be prefixed with this boundary instruction:
 
 > IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
 
-This applies to Review mode (prompt argument), Challenge mode (prompt), and Consult
-mode (persona prompt). Reference this section as "the filesystem boundary" below.
+Applies to Review, Challenge, and Consult modes. Reference as "filesystem boundary" below.
 
 ---
 
 ## Step 2A: Review Mode
 
-Run Codex code review against the current branch diff.
+Run Codex code review against current branch diff.
 
-1. Create temp files for output capture:
+1. Create temp files:
 ```bash
 TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
 ```
 
-2. Run the review (5-minute timeout). **Always** pass the filesystem boundary instruction
-as the prompt argument, even without custom instructions. If the user provided custom
-instructions, append them after the boundary separated by a newline:
+2. Run review (5-minute timeout). **Always** pass filesystem boundary as prompt argument. Custom instructions → append after boundary:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+`--xhigh` → use `"xhigh"` instead of `"high"`.
 
-Use `timeout: 300000` on the Bash call. If the user provided custom instructions
-(e.g., `/codex review focus on security`), append them after the boundary:
+`timeout: 300000` on Bash call. Custom instructions (e.g., `/codex review focus on security`) → append after boundary:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
@@ -122,16 +113,14 @@ codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.a
 focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
 ```
 
-3. Capture the output. Then parse cost from stderr:
+3. Capture output. Parse cost from stderr:
 ```bash
 grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
 ```
 
-4. Determine gate verdict by checking the review output for critical findings.
-   If the output contains `[P1]` — the gate is **FAIL**.
-   If no `[P1]` markers are found (only `[P2]` or no findings) — the gate is **PASS**.
+4. Gate verdict: output contains `[P1]` → **FAIL**. No `[P1]` → **PASS**.
 
-5. Present the output:
+5. Present output:
 
 ```
 CODEX SAYS (code review):
@@ -147,8 +136,7 @@ or
 GATE: FAIL (N critical findings)
 ```
 
-6. **Cross-model comparison:** If `/review` (Claude's own review) was already run
-   earlier in this conversation, compare the two sets of findings:
+6. **Cross-model comparison:** `/review` already ran in this conversation → compare findings:
 
 ```
 CROSS-MODEL ANALYSIS:
@@ -158,14 +146,12 @@ CROSS-MODEL ANALYSIS:
   Agreement rate: X% (N/M total unique findings overlap)
 ```
 
-7. Persist the review result:
+7. Persist review result:
 ```bash
 ~/.claude/skills/cavestack/bin/cavestack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 
-Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
-GATE ("pass" or "fail"), findings (count of [P1] + [P2] markers),
-findings_fixed (count of findings that were addressed/fixed before shipping).
+Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL), GATE ("pass"/"fail"), findings (count of [P1]+[P2]), findings_fixed (addressed before shipping).
 
 8. Clean up temp files:
 ```bash
@@ -178,13 +164,11 @@ rm -f "$TMPERR"
 
 ## Step 2B: Challenge (Adversarial) Mode
 
-Codex tries to break your code — finding edge cases, race conditions, security holes,
-and failure modes that a normal review would miss.
+Codex tries to break your code. Edge cases, race conditions, security holes, failure modes normal review misses.
 
-1. Construct the adversarial prompt. **Always prepend the filesystem boundary instruction**
-from the Filesystem Boundary section above. If the user provided a focus area
-(e.g., `/codex challenge security`), include it after the boundary:
+1. Construct adversarial prompt. **Always prepend filesystem boundary.** User provided focus (e.g., `/codex challenge security`) → include after boundary:
 
+<!-- voice:floor -->
 Default prompt (no focus):
 "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
@@ -194,10 +178,10 @@ With focus (e.g., "security"):
 "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
+<!-- voice:endfloor -->
 
-2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls (5-minute timeout):
-
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+2. Run codex exec with **JSONL output** for reasoning traces + tool calls (5-min timeout).
+`--xhigh` → use `"xhigh"` instead of `"high"`.
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
@@ -229,10 +213,9 @@ for line in sys.stdin:
 "
 ```
 
-This parses codex's JSONL events to extract reasoning traces, tool calls, and the final
-response. The `[codex thinking]` lines show what codex reasoned through before its answer.
+Parses codex JSONL events → reasoning traces, tool calls, final response.
 
-3. Present the full streamed output:
+3. Present full streamed output:
 
 ```
 CODEX SAYS (adversarial challenge):
@@ -246,14 +229,14 @@ Tokens: N | Est. cost: ~$X.XX
 
 ## Step 2C: Consult Mode
 
-Ask Codex anything about the codebase. Supports session continuity for follow-ups.
+Ask Codex anything about codebase. Session continuity for follow-ups.
 
-1. **Check for existing session:**
+1. **Check existing session:**
 ```bash
 cat .context/codex-session-id 2>/dev/null || echo "NO_SESSION"
 ```
 
-If a session file exists (not `NO_SESSION`), use AskUserQuestion:
+Session file exists (not `NO_SESSION`) → use AskUserQuestion:
 ```
 You have an active Codex conversation from earlier. Continue it or start fresh?
 A) Continue the conversation (Codex remembers the prior context)
@@ -266,30 +249,22 @@ TMPRESP=$(mktemp /tmp/codex-resp-XXXXXX.txt)
 TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
 ```
 
-3. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
-or if plan files exist and the user said `/codex` with no arguments:
+3. **Plan review auto-detection:** User prompt about reviewing plan, or plan files exist + no arguments:
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
 ```
-If no project-scoped match, fall back to `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-but warn: "Note: this plan may be from a different project — verify before sending to Codex."
+No project-scoped match → fall back to `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
+Warn: "Note: this plan may be from different project — verify before sending to Codex."
 
-**IMPORTANT — embed content, don't reference path:** Codex runs sandboxed to the repo
-root (`-C`) and cannot access `~/.claude/plans/` or any files outside the repo. You MUST
-read the plan file yourself and embed its FULL CONTENT in the prompt below. Do NOT tell
-Codex the file path or ask it to read the plan file — it will waste 10+ tool calls
-searching and fail.
+**IMPORTANT — embed content, don't reference path:** Codex sandboxed to repo root (`-C`), cannot access `~/.claude/plans/`. MUST read plan file yourself, embed FULL CONTENT in prompt. Do NOT tell Codex file path — wastes 10+ tool calls searching.
 
-Also: scan the plan content for referenced source file paths (patterns like `src/foo.ts`,
-`lib/bar.py`, paths containing `/` that exist in the repo). If found, list them in the
-prompt so Codex reads them directly instead of discovering them via rg/find.
+Also: scan plan for referenced source paths (`src/foo.ts`, `lib/bar.py`). Found → list in prompt so Codex reads directly.
 
-**Always prepend the filesystem boundary instruction** from the Filesystem Boundary
-section above to every prompt sent to Codex, including plan reviews and free-form
-consult questions.
+**Always prepend filesystem boundary** to every prompt, including plan reviews and consult questions.
 
-Prepend the boundary and persona to the user's prompt:
+<!-- voice:floor -->
+Prepend boundary + persona to user prompt:
 "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 You are a brutally honest technical reviewer. Review this plan for: logical gaps and
@@ -301,16 +276,16 @@ Also review these source files referenced in the plan: <list of referenced files
 THE PLAN:
 <full plan content, embedded verbatim>"
 
-For non-plan consult prompts (user typed `/codex <question>`), still prepend the boundary:
+Non-plan consult prompts (user typed `/codex <question>`) → still prepend boundary:
 "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 <user's question>"
+<!-- voice:endfloor -->
 
-4. Run codex exec with **JSONL output** to capture reasoning traces (5-minute timeout):
+4. Run codex exec with **JSONL output** for reasoning traces (5-min timeout).
+`--xhigh` → `"xhigh"` instead of `"medium"`.
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
-
-For a **new session:**
+**New session:**
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
@@ -344,7 +319,7 @@ for line in sys.stdin:
 "
 ```
 
-For a **resumed session** (user chose "Continue"):
+**Resumed session** (user chose "Continue"):
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
@@ -352,15 +327,13 @@ codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'mode
 "
 ```
 
-5. Capture session ID from the streamed output. The parser prints `SESSION_ID:<id>`
-   from the `thread.started` event. Save it for follow-ups:
+5. Capture session ID from streamed output (parser prints `SESSION_ID:<id>` from `thread.started`). Save for follow-ups:
 ```bash
 mkdir -p .context
 ```
-Save the session ID printed by the parser (the line starting with `SESSION_ID:`)
-to `.context/codex-session-id`.
+Save session ID (line starting with `SESSION_ID:`) to `.context/codex-session-id`.
 
-6. Present the full streamed output:
+6. Present full streamed output:
 
 ```
 CODEX SAYS (consult):
@@ -371,69 +344,48 @@ Tokens: N | Est. cost: ~$X.XX
 Session saved — run /codex again to continue this conversation.
 ```
 
-7. After presenting, note any points where Codex's analysis differs from your own
-   understanding. If there is a disagreement, flag it:
-   "Note: Claude Code disagrees on X because Y."
+7. After presenting, note disagreements with your own analysis: "Note: Claude Code disagrees on X because Y."
 
 ---
 
 ## Model & Reasoning
 
-**Model:** No model is hardcoded — codex uses whatever its current default is (the frontier
-agentic coding model). This means as OpenAI ships newer models, /codex automatically
-uses them. If the user wants a specific model, pass `-m` through to codex.
+**Model:** No hardcoded model — codex uses current default (frontier agentic coding model). Newer models auto-adopted. User wants specific model → pass `-m` through.
 
-**Reasoning effort (per-mode defaults):**
+**Reasoning effort defaults:**
 - **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
 - **Challenge (2B):** `high` — adversarial but bounded by diff size
 - **Consult (2C):** `medium` — large context (plans, codebase), interactive, needs speed
 
-`xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
-tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
-(e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
+`xhigh` = ~23x more tokens, 50+ min hangs on large context (OpenAI issues #8545, #8402, #6931). Override with `--xhigh` when max reasoning wanted.
 
-**Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
-docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
+**Web search:** All commands use `--enable web_search_cached` — cached index, fast, no extra cost.
 
-If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
-or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
+User specifies model (e.g., `-m gpt-5.1-codex-max`) → pass `-m` through.
 
 ---
 
 ## Cost Estimation
 
-Parse token count from stderr. Codex prints `tokens used\nN` to stderr.
-
-Display as: `Tokens: N`
-
-If token count is not available, display: `Tokens: unknown`
+Parse token count from stderr (`tokens used\nN`). Display as `Tokens: N`. Unavailable → `Tokens: unknown`.
 
 ---
 
 ## Error Handling
 
-- **Binary not found:** Detected in Step 0. Stop with install instructions.
-- **Auth error:** Codex prints an auth error to stderr. Surface the error:
-  "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
-- **Timeout:** If the Bash call times out (5 min), tell the user:
-  "Codex timed out after 5 minutes. The diff may be too large or the API may be slow. Try again or use a smaller scope."
-- **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
-  "Codex returned no response. Check stderr for errors."
-- **Session resume failure:** If resume fails, delete the session file and start fresh.
+- **Binary not found:** Detected Step 0. Stop with install instructions.
+- **Auth error:** Surface: "Codex auth failed. Run `codex login` to authenticate via ChatGPT."
+- **Timeout:** "Codex timed out (5 min). Diff too large or API slow. Try again or smaller scope."
+- **Empty response:** "Codex returned no response. Check stderr."
+- **Session resume failure:** Delete session file, start fresh.
 
 ---
 
 ## Important Rules
 
-- **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode.
-- **Present output verbatim.** Do not truncate, summarize, or editorialize Codex's output
-  before showing it. Show it in full inside the CODEX SAYS block.
-- **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
-- **5-minute timeout** on all Bash calls to codex (`timeout: 300000`).
-- **No double-reviewing.** If the user already ran `/review`, Codex provides a second
-  independent opinion. Do not re-run Claude Code's own review.
-- **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
-  that Codex got distracted by skill files: `cavestack-config`, `cavestack-update-check`,
-  `SKILL.md`, or `skills/cavestack`. If any of these appear in the output, append a
-  warning: "Codex appears to have read cavestack skill files instead of reviewing your
-  code. Consider retrying."
+- **Never modify files.** Read-only. Codex runs in read-only sandbox.
+- **Present output verbatim.** Never truncate, summarize, or editorialize. Full output in CODEX SAYS block.
+- **Synthesis after, not instead of.** Claude commentary comes after full output.
+- **5-minute timeout** on all Bash calls (`timeout: 300000`).
+- **No double-reviewing.** User ran `/review` → Codex = second opinion, not repeat.
+- **Detect skill-file rabbit holes.** Codex output contains `cavestack-config`, `cavestack-update-check`, `SKILL.md`, or `skills/cavestack` → warn: "Codex read cavestack skill files instead of your code. Consider retrying."

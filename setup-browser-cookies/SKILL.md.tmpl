@@ -3,10 +3,10 @@ name: setup-browser-cookies
 preamble-tier: 1
 version: 1.0.0
 description: |
-  Import cookies from your real Chromium browser into the headless browse session.
-  Opens an interactive picker UI where you select which cookie domains to import.
-  Use before QA testing authenticated pages. Use when asked to "import cookies",
-  "login to the site", or "authenticate the browser". (cavestack)
+  Import cookies from real Chromium browser into headless browse session. Opens
+  interactive picker UI to select cookie domains. Use before QA testing
+  authenticated pages. Use when asked to "import cookies", "login to the site",
+  or "authenticate the browser". (cavestack)
 allowed-tools:
   - Bash
   - Read
@@ -17,11 +17,11 @@ allowed-tools:
 
 # Setup Browser Cookies
 
-Import logged-in sessions from your real Chromium browser into the headless browse session.
+Import logged-in sessions from real Chromium browser into headless browse session.
 
 ## CDP mode check
 
-First, check if browse is already connected to the user's real browser:
+First, check if browse already connected to user's real browser:
 ```bash
 $B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
 ```
@@ -29,56 +29,56 @@ If `CDP_MODE=true`: tell the user "Not needed — you're connected to your real 
 
 ## How it works
 
-1. Find the browse binary
-2. Run `cookie-import-browser` to detect installed browsers and open the picker UI
-3. User selects which cookie domains to import in their browser
-4. Cookies are decrypted and loaded into the Playwright session
+1. Find browse binary
+2. Run `cookie-import-browser` to detect installed browsers, open picker UI
+3. User selects cookie domains to import
+4. Cookies decrypted and loaded into Playwright session
 
 ## Steps
 
-### 1. Find the browse binary
+### 1. Find browse binary
 
 {{BROWSE_SETUP}}
 
-### 2. Open the cookie picker
+### 2. Open cookie picker
 
 ```bash
 $B cookie-import-browser
 ```
 
-This auto-detects installed Chromium browsers and opens
-an interactive picker UI in your default browser where you can:
+Auto-detects installed Chromium browsers, opens interactive picker UI in
+default browser where you can:
 - Switch between installed browsers
 - Search domains
-- Click "+" to import a domain's cookies
+- Click "+" to import domain's cookies
 - Click trash to remove imported cookies
 
-Tell the user: **"Cookie picker opened — select the domains you want to import in your browser, then tell me when you're done."**
+Tell user: **"Cookie picker opened — select the domains you want to import in your browser, then tell me when you're done."**
 
 ### 3. Direct import (alternative)
 
-If the user specifies a domain directly (e.g., `/setup-browser-cookies github.com`), skip the UI:
+If user specifies domain directly (e.g., `/setup-browser-cookies github.com`), skip UI:
 
 ```bash
 $B cookie-import-browser comet --domain github.com
 ```
 
-Replace `comet` with the appropriate browser if specified.
+Replace `comet` with appropriate browser if specified.
 
 ### 4. Verify
 
-After the user confirms they're done:
+After user confirms done:
 
 ```bash
 $B cookies
 ```
 
-Show the user a summary of imported cookies (domain counts).
+Show user summary of imported cookies (domain counts).
 
 ## Notes
 
-- On macOS, the first import per browser may trigger a Keychain dialog — click "Allow" / "Always Allow"
+- On macOS, first import per browser may trigger Keychain dialog — click "Allow" / "Always Allow"
 - On Linux, `v11` cookies may require `secret-tool`/libsecret access; `v10` cookies use Chromium's standard fallback key
-- Cookie picker is served on the same port as the browse server (no extra process)
-- Only domain names and cookie counts are shown in the UI — no cookie values are exposed
-- The browse session persists cookies between commands, so imported cookies work immediately
+- Cookie picker served on same port as browse server (no extra process)
+- Only domain names and cookie counts shown in UI — no cookie values exposed
+- browse session persists cookies between commands, imported cookies work immediately

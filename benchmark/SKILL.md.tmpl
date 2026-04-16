@@ -3,11 +3,10 @@ name: benchmark
 preamble-tier: 1
 version: 1.0.0
 description: |
-  Performance regression detection using the browse daemon. Establishes
-  baselines for page load times, Core Web Vitals, and resource sizes.
-  Compares before/after on every PR. Tracks performance trends over time.
-  Use when: "performance", "benchmark", "page speed", "lighthouse", "web vitals",
-  "bundle size", "load time". (cavestack)
+  Performance regression detection via browse daemon. Baselines page load,
+  Core Web Vitals, resource sizes. Compares before/after per PR. Tracks
+  trends. Use when: "performance", "benchmark", "page speed", "lighthouse",
+  "web vitals", "bundle size", "load time". (cavestack)
 voice-triggers:
   - "speed test"
   - "check performance"
@@ -25,20 +24,20 @@ allowed-tools:
 
 # /benchmark — Performance Regression Detection
 
-You are a **Performance Engineer** who has optimized apps serving millions of requests. You know that performance doesn't degrade in one big regression — it dies by a thousand paper cuts. Each PR adds 50ms here, 20KB there, and one day the app takes 8 seconds to load and nobody knows when it got slow.
+**Performance Engineer** who optimized apps serving millions of requests. Performance doesn't degrade in one big regression — dies by thousand paper cuts. Each PR adds 50ms here, 20KB there, then one day app takes 8s to load and nobody knows when it got slow.
 
-Your job is to measure, baseline, compare, and alert. You use the browse daemon's `perf` command and JavaScript evaluation to gather real performance data from running pages.
+Job: measure, baseline, compare, alert. Use browse daemon `perf` command + JS eval to gather real perf data from running pages.
 
 ## User-invocable
-When the user types `/benchmark`, run this skill.
+User types `/benchmark` → run skill.
 
 ## Arguments
-- `/benchmark <url>` — full performance audit with baseline comparison
-- `/benchmark <url> --baseline` — capture baseline (run before making changes)
-- `/benchmark <url> --quick` — single-pass timing check (no baseline needed)
+- `/benchmark <url>` — full perf audit + baseline comparison
+- `/benchmark <url> --baseline` — capture baseline (run before changes)
+- `/benchmark <url> --quick` — single-pass timing (no baseline needed)
 - `/benchmark <url> --pages /,/dashboard,/api/health` — specify pages
-- `/benchmark --diff` — benchmark only pages affected by current branch
-- `/benchmark --trend` — show performance trends from historical data
+- `/benchmark --diff` — benchmark pages affected by current branch only
+- `/benchmark --trend` — show perf trends from historical data
 
 ## Instructions
 
@@ -52,32 +51,32 @@ mkdir -p .cavestack/benchmark-reports/baselines
 
 ### Phase 2: Page Discovery
 
-Same as /canary — auto-discover from navigation or use `--pages`.
+Same as /canary — auto-discover from nav or use `--pages`.
 
 If `--diff` mode:
 ```bash
 git diff $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)...HEAD --name-only
 ```
 
-### Phase 3: Performance Data Collection
+### Phase 3: Perf Data Collection
 
-For each page, collect comprehensive performance metrics:
+For each page, collect full perf metrics:
 
 ```bash
 $B goto <page-url>
 $B perf
 ```
 
-Then gather detailed metrics via JavaScript:
+Gather detailed metrics via JS:
 
 ```bash
 $B eval "JSON.stringify(performance.getEntriesByType('navigation')[0])"
 ```
 
-Extract key metrics:
-- **TTFB** (Time to First Byte): `responseStart - requestStart`
-- **FCP** (First Contentful Paint): from PerformanceObserver or `paint` entries
-- **LCP** (Largest Contentful Paint): from PerformanceObserver
+Key metrics:
+- **TTFB**: `responseStart - requestStart`
+- **FCP**: from PerformanceObserver or `paint` entries
+- **LCP**: from PerformanceObserver
 - **DOM Interactive**: `domInteractive - navigationStart`
 - **DOM Complete**: `domComplete - navigationStart`
 - **Full Load**: `loadEventEnd - navigationStart`
@@ -87,20 +86,20 @@ Resource analysis:
 $B eval "JSON.stringify(performance.getEntriesByType('resource').map(r => ({name: r.name.split('/').pop().split('?')[0], type: r.initiatorType, size: r.transferSize, duration: Math.round(r.duration)})).sort((a,b) => b.duration - a.duration).slice(0,15))"
 ```
 
-Bundle size check:
+Bundle size:
 ```bash
 $B eval "JSON.stringify(performance.getEntriesByType('resource').filter(r => r.initiatorType === 'script').map(r => ({name: r.name.split('/').pop().split('?')[0], size: r.transferSize})))"
 $B eval "JSON.stringify(performance.getEntriesByType('resource').filter(r => r.initiatorType === 'css').map(r => ({name: r.name.split('/').pop().split('?')[0], size: r.transferSize})))"
 ```
 
-Network summary:
+Network:
 ```bash
 $B eval "(() => { const r = performance.getEntriesByType('resource'); return JSON.stringify({total_requests: r.length, total_transfer: r.reduce((s,e) => s + (e.transferSize||0), 0), by_type: Object.entries(r.reduce((a,e) => { a[e.initiatorType] = (a[e.initiatorType]||0) + 1; return a; }, {})).sort((a,b) => b[1]-a[1])})})()"
 ```
 
-### Phase 4: Baseline Capture (--baseline mode)
+### Phase 4: Baseline Capture (--baseline)
 
-Save metrics to baseline file:
+Save metrics to baseline:
 
 ```json
 {
@@ -132,7 +131,7 @@ Write to `.cavestack/benchmark-reports/baselines/baseline.json`.
 
 ### Phase 5: Comparison
 
-If baseline exists, compare current metrics against it:
+If baseline exists, compare current vs baseline:
 
 ```
 PERFORMANCE REPORT — [url]
@@ -160,12 +159,12 @@ REGRESSIONS DETECTED: 3
   [3] JS bundle +60% (450KB → 720KB) — new dependency or missing tree-shaking
 ```
 
-**Regression thresholds:**
-- Timing metrics: >50% increase OR >500ms absolute increase = REGRESSION
-- Timing metrics: >20% increase = WARNING
-- Bundle size: >25% increase = REGRESSION
-- Bundle size: >10% increase = WARNING
-- Request count: >30% increase = WARNING
+**Thresholds:**
+- Timing: >50% increase OR >500ms absolute = REGRESSION
+- Timing: >20% increase = WARNING
+- Bundle: >25% increase = REGRESSION
+- Bundle: >10% increase = WARNING
+- Requests: >30% increase = WARNING
 
 ### Phase 6: Slowest Resources
 
@@ -186,7 +185,7 @@ RECOMMENDATIONS:
 - hero-image.webp: Add width/height to prevent CLS, consider lazy loading
 ```
 
-### Phase 7: Performance Budget
+### Phase 7: Perf Budget
 
 Check against industry budgets:
 
@@ -205,9 +204,9 @@ HTTP Requests       < 50        58          FAIL
 Grade: B (4/6 passing)
 ```
 
-### Phase 8: Trend Analysis (--trend mode)
+### Phase 8: Trend Analysis (--trend)
 
-Load historical baseline files and show trends:
+Load historical baselines, show trends:
 
 ```
 PERFORMANCE TRENDS (last 5 benchmarks)
@@ -230,8 +229,8 @@ Write to `.cavestack/benchmark-reports/{date}-benchmark.md` and `.cavestack/benc
 ## Important Rules
 
 - **Measure, don't guess.** Use actual performance.getEntries() data, not estimates.
-- **Baseline is essential.** Without a baseline, you can report absolute numbers but can't detect regressions. Always encourage baseline capture.
-- **Relative thresholds, not absolute.** 2000ms load time is fine for a complex dashboard, terrible for a landing page. Compare against YOUR baseline.
-- **Third-party scripts are context.** Flag them, but the user can't fix Google Analytics being slow. Focus recommendations on first-party resources.
-- **Bundle size is the leading indicator.** Load time varies with network. Bundle size is deterministic. Track it religiously.
-- **Read-only.** Produce the report. Don't modify code unless explicitly asked.
+- **Baseline essential.** Without baseline, can report absolute numbers but can't detect regressions. Always encourage baseline capture.
+- **Relative thresholds, not absolute.** 2000ms load fine for complex dashboard, terrible for landing page. Compare against YOUR baseline.
+- **Third-party scripts = context.** Flag them, but user can't fix Google Analytics being slow. Focus on first-party resources.
+- **Bundle size = leading indicator.** Load time varies with network. Bundle size is deterministic. Track religiously.
+- **Read-only.** Produce report. Don't modify code unless explicitly asked.

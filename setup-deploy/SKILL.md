@@ -3,11 +3,10 @@ name: setup-deploy
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Configure deployment settings for /land-and-deploy. Detects your deploy
-  platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, custom),
-  production URL, health check endpoints, and deploy status commands. Writes
-  the configuration to CLAUDE.md so all future deploys are automatic.
-  Use when: "setup deploy", "configure deployment", "set up land-and-deploy",
+  Configure deploy settings for /land-and-deploy. Detects platform (Fly.io,
+  Render, Vercel, Netlify, Heroku, GitHub Actions, custom), prod URL, health
+  checks, deploy status commands. Writes config to CLAUDE.md for auto deploys.
+  Triggers: "setup deploy", "configure deployment", "set up land-and-deploy",
   "how do I deploy with cavestack", "add deploy config".
 allowed-tools:
   - Bash
@@ -489,36 +488,35 @@ plan's living status.
 
 # /setup-deploy — Configure Deployment for cavestack
 
-You are helping the user configure their deployment so `/land-and-deploy` works
-automatically. Your job is to detect the deploy platform, production URL, health
-checks, and deploy status commands — then persist everything to CLAUDE.md.
+Configure deployment so `/land-and-deploy` works automatically. Detect deploy
+platform, prod URL, health checks, deploy status commands — persist to CLAUDE.md.
 
-After this runs once, `/land-and-deploy` reads CLAUDE.md and skips detection entirely.
+After first run, `/land-and-deploy` reads CLAUDE.md and skips detection.
 
 ## User-invocable
-When the user types `/setup-deploy`, run this skill.
+User types `/setup-deploy` → run skill.
 
 ## Instructions
 
-### Step 1: Check existing configuration
+### Step 1: Check existing config
 
 ```bash
 grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG"
 ```
 
-If configuration already exists, show it and ask:
+If config exists, show it and ask:
 
 - **Context:** Deploy configuration already exists in CLAUDE.md.
 - **RECOMMENDATION:** Choose A to update if your setup changed.
 - A) Reconfigure from scratch (overwrite existing)
 - B) Edit specific fields (show current config, let me change one thing)
-- C) Done — configuration looks correct
+- C) Done -- configuration looks correct
 
-If the user picks C, stop.
+If user picks C, stop.
 
 ### Step 2: Detect platform
 
-Run the platform detection from the deploy bootstrap:
+Run platform detection:
 
 ```bash
 # Platform config files
@@ -541,89 +539,86 @@ find . -maxdepth 1 -name '*.gemspec' 2>/dev/null | grep -q . && echo "PROJECT_TY
 
 ### Step 3: Platform-specific setup
 
-Based on what was detected, guide the user through platform-specific configuration.
+Based on detection, guide through platform-specific config.
 
 #### Fly.io
 
 If `fly.toml` detected:
 
 1. Extract app name: `grep -m1 "^app" fly.toml | sed 's/app = "\(.*\)"/\1/'`
-2. Check if `fly` CLI is installed: `which fly 2>/dev/null`
+2. Check `fly` CLI: `which fly 2>/dev/null`
 3. If installed, verify: `fly status --app {app} 2>/dev/null`
 4. Infer URL: `https://{app}.fly.dev`
-5. Set deploy status command: `fly status --app {app}`
-6. Set health check: `https://{app}.fly.dev` (or `/health` if the app has one)
+5. Deploy status: `fly status --app {app}`
+6. Health check: `https://{app}.fly.dev` (or `/health` if app has one)
 
-Ask the user to confirm the production URL. Some Fly apps use custom domains.
+Ask user to confirm prod URL. Some Fly apps use custom domains.
 
 #### Render
 
 If `render.yaml` detected:
 
-1. Extract service name and type from render.yaml
-2. Check for Render API key: `echo $RENDER_API_KEY | head -c 4` (don't expose the full key)
+1. Extract service name + type from render.yaml
+2. Check Render API key: `echo $RENDER_API_KEY | head -c 4` (don't expose full key)
 3. Infer URL: `https://{service-name}.onrender.com`
-4. Render deploys automatically on push to the connected branch — no deploy workflow needed
-5. Set health check: the inferred URL
+4. Render auto-deploys on push to connected branch — no deploy workflow needed
+5. Health check: inferred URL
 
-Ask the user to confirm. Render uses auto-deploy from the connected git branch — after
-merge to main, Render picks it up automatically. The "deploy wait" in /land-and-deploy
-should poll the Render URL until it responds with the new version.
+Confirm with user. Render auto-deploys from connected git branch — after merge to main, Render picks up automatically. "Deploy wait" in /land-and-deploy polls Render URL until new version responds.
 
 #### Vercel
 
 If vercel.json or .vercel detected:
 
-1. Check for `vercel` CLI: `which vercel 2>/dev/null`
+1. Check `vercel` CLI: `which vercel 2>/dev/null`
 2. If installed: `vercel ls --prod 2>/dev/null | head -3`
-3. Vercel deploys automatically on push — preview on PR, production on merge to main
-4. Set health check: the production URL from vercel project settings
+3. Vercel auto-deploys on push — preview on PR, prod on merge to main
+4. Health check: prod URL from vercel project settings
 
 #### Netlify
 
 If netlify.toml detected:
 
 1. Extract site info from netlify.toml
-2. Netlify deploys automatically on push
-3. Set health check: the production URL
+2. Netlify auto-deploys on push
+3. Health check: prod URL
 
 #### GitHub Actions only
 
 If deploy workflows detected but no platform config:
 
-1. Read the workflow file to understand what it does
-2. Extract the deploy target (if mentioned)
-3. Ask the user for the production URL
+1. Read workflow file to understand what it does
+2. Extract deploy target (if mentioned)
+3. Ask user for prod URL
 
 #### Custom / Manual
 
 If nothing detected:
 
-Use AskUserQuestion to gather the information:
+Use AskUserQuestion to gather info:
 
 1. **How are deploys triggered?**
-   - A) Automatically on push to main (Fly, Render, Vercel, Netlify, etc.)
+   - A) Auto on push to main (Fly, Render, Vercel, Netlify, etc.)
    - B) Via GitHub Actions workflow
-   - C) Via a deploy script or CLI command (describe it)
+   - C) Via deploy script or CLI command (describe it)
    - D) Manually (SSH, dashboard, etc.)
    - E) This project doesn't deploy (library, CLI, tool)
 
-2. **What's the production URL?** (Free text — the URL where the app runs)
+2. **What's the production URL?** (Free text -- URL where app runs)
 
 3. **How can cavestack check if a deploy succeeded?**
-   - A) HTTP health check at a specific URL (e.g., /health, /api/status)
+   - A) HTTP health check at specific URL (e.g., /health, /api/status)
    - B) CLI command (e.g., `fly status`, `kubectl rollout status`)
-   - C) Check the GitHub Actions workflow status
-   - D) No automated way — just check the URL loads
+   - C) Check GitHub Actions workflow status
+   - D) No automated way -- just check URL loads
 
-4. **Any pre-merge or post-merge hooks?**
-   - Commands to run before merging (e.g., `bun run build`)
-   - Commands to run after merge but before deploy verification
+4. **Pre-merge or post-merge hooks?**
+   - Commands before merging (e.g., `bun run build`)
+   - Commands after merge but before deploy verification
 
-### Step 4: Write configuration
+### Step 4: Write config
 
-Read CLAUDE.md (or create it). Find and replace the `## Deploy Configuration` section
-if it exists, or append it at the end.
+Read CLAUDE.md (or create). Find/replace `## Deploy Configuration` if exists, or append.
 
 ```markdown
 ## Deploy Configuration (configured by /setup-deploy)
@@ -644,20 +639,19 @@ if it exists, or append it at the end.
 
 ### Step 5: Verify
 
-After writing, verify the configuration works:
+After writing, verify config works:
 
-1. If a health check URL was configured, try it:
+1. If health check URL configured, try it:
 ```bash
 curl -sf "{health-check-url}" -o /dev/null -w "%{http_code}" 2>/dev/null || echo "UNREACHABLE"
 ```
 
-2. If a deploy status command was configured, try it:
+2. If deploy status command configured, try it:
 ```bash
 {deploy-status-command} 2>/dev/null | head -5 || echo "COMMAND_FAILED"
 ```
 
-Report results. If anything failed, note it but don't block — the config is still
-useful even if the health check is temporarily unreachable.
+Report results. If anything failed, note but don't block — config still useful even if health check temporarily down.
 
 ### Step 6: Summary
 
@@ -681,7 +675,7 @@ Next steps:
 ## Important Rules
 
 - **Never expose secrets.** Don't print full API keys, tokens, or passwords.
-- **Confirm with the user.** Always show the detected config and ask for confirmation before writing.
-- **CLAUDE.md is the source of truth.** All configuration lives there — not in a separate config file.
-- **Idempotent.** Running /setup-deploy multiple times overwrites the previous config cleanly.
-- **Platform CLIs are optional.** If `fly` or `vercel` CLI isn't installed, fall back to URL-based health checks.
+- **Confirm with user.** Show detected config, ask confirmation before writing.
+- **CLAUDE.md = source of truth.** All config lives there — not separate file.
+- **Idempotent.** Running /setup-deploy multiple times overwrites previous config cleanly.
+- **Platform CLIs optional.** If `fly` or `vercel` CLI not installed, fall back to URL-based health checks.
