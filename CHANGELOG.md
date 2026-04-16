@@ -1,5 +1,84 @@
 # Changelog
 
+## [1.0.0.0] - 2026-04-16 — v1.0 finished product
+
+CaveStack is now a **finished product**. You can install it in one line, see
+every skill from inside your terminal, and know exactly what's getting
+measured — without running a single line of telemetry anywhere.
+
+### What you can now do
+
+- **Install in one line.** `curl -fsSL https://cavestack.jerkyjesse.io/install | sh` —
+  detects and installs bun if missing (with SHA256-verified installer), clones
+  cavestack into the right place, builds binaries, wires hooks, and prints
+  a post-install message pointing you at your first three skills.
+- **Discover every skill without leaving your terminal.** New
+  `cavestack-skills list` shows all 40 installed skills with one-line
+  descriptions, hero six highlighted. `cavestack-skills search <term>`
+  fuzzy-matches. `cavestack-skills info <name>` shows details.
+- **Ask `/help` from inside Claude Code** to see the same catalog. No website
+  round-trip needed.
+- **Type `cs-*` instead of `cavestack-*`.** 20+ shortcut aliases installed
+  automatically: `cs-skills`, `cs-config`, `cs-analytics`, `cs-dx`, `cs-run`,
+  `cs-replay`. Same CLIs, fewer keystrokes.
+- **Measure your own DX locally.** `cavestack-dx show` displays your
+  personal time-to-hello-world and skill discovery events. Zero network.
+  Zero telemetry. Purge with `rm ~/.cavestack/analytics/dx-metrics.jsonl`.
+- **See the benchmark proof.** New `/methodology` page shows exactly what
+  tasks we ran, on what hardware, with what model — and how to rerun yourself.
+  Honest about three trust tiers (verifiable, probabilistic, unaudited).
+- **Wrap Claude Code for productivity.** New `cavestack run "<task>"` command
+  adds opt-in token-budget warnings and session replay with redact-on-record.
+  Built-in redaction catches AWS/Anthropic/GitHub/GitLab tokens, JWTs,
+  `.env` fragments, and URL-embedded credentials. The `share` command
+  refuses to publish non-redacted records.
+- **Every error you hit now tells you what broke + why + the exact fix +
+  a docs link.** New Tier-2 error pattern (`CS001`-`CS901`) shared across
+  every CLI via `lib/error.sh` and `lib/error.ts`.
+- **Rebuilt github.io landing.** Identity-first hero (brand before benchmark),
+  typeset skill list (anti-slop — no generic 3-col feature grid), bespoke
+  SVG cave-painting silhouettes replace decorative emoji layer, quiet
+  breather section breaks section rhythm, methodology page for transparency.
+- **Zero skills removed.** Every one of the 40 skills from v0.2.0.0 still
+  works. Hero six are just featured on the landing page.
+
+### Under the hood
+
+- **`lib/error-codes.json` + `lib/error.ts` + `lib/error.sh`** — shared
+  error registry. Bash and TypeScript print identical output.
+- **`lib/redact.ts`** — reusable redaction pipeline. `redact(text)` replaces
+  matches with `[REDACTED:<type>]`. `verifyRedacted(text)` returns an array
+  of remaining findings (share command refuses if nonempty).
+- **`bin/cavestack-skills`** — skill catalog CLI. List, info, search, count.
+- **`bin/cavestack-dx`** — local DX metrics. Tracks `install_completed`,
+  `first_skill_run`, `skill_list_viewed`. Shows TTHW classification.
+- **`bin/cavestack-run`** — Claude Code wrapper with `--budget` + `--record`
+  + `--no-redact` flags.
+- **`bin/cavestack-replay`** — replay sessions, `share` gates on redaction.
+- **`bin/cavestack-cs-aliases`** — idempotent short-alias generator. Creates
+  `cs-*` for every `cavestack-*` CLI.
+- **`bin/cavestack-redact-stream.ts`** — stdin→stdout redaction filter used
+  by `cavestack run --record`.
+- **`cavestack-upgrade/migrations/v1.0.0.0.sh`** — idempotent upgrade.
+  Bootstraps DX metrics file, records `install_completed`, creates cs-* aliases.
+- **`test/benchmarks/`** — benchmark harness + 10 fixed tasks + methodology
+  README. Runs via `bun run bench` on maintainer machine only. Pre-release.
+- **`docs/methodology.html`, `docs/skills.html`** — new static pages.
+- **`docs/install.sh`** — one-liner installer with auto-bun-detect + verify.
+- **`docs/roadmap.md`** — deferred items from pre-v1.0 TODOS moved here.
+  Not promised, no version targets.
+
+### For contributors
+
+- Error codes live in `lib/error-codes.json`. Any new error site: add a code,
+  call `cavestack_error CSXXX` from bash or `throw new CavestackError("CSXXX")`
+  from TS.
+- Benchmark harness scaffolded but not wired to actual invocation. Maintainer
+  runs `bun run bench` once before v1.0.0.0 release tag to populate
+  `docs/benchmarks/v1.0.0.0.json`. See `test/benchmarks/README.md`.
+- `docs/roadmap.md` is the new home for deferred ideas. `TODOS.md` is only
+  for active work. If it's not happening soon, move it.
+
 ## [0.2.0.0] - 2026-04-15 — CaveStack rename
 
 ### Changed
