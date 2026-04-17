@@ -154,6 +154,25 @@ export class BrowserManager {
     }
   }
 
+  /**
+   * Build Playwright proxy config from standard environment variables.
+   * Prefer explicit HTTP(S) proxy vars; fall back to ALL_PROXY.
+   */
+  private getProxySettings(): { server: string; bypass?: string } | undefined {
+    const server =
+      process.env.HTTPS_PROXY ||
+      process.env.https_proxy ||
+      process.env.HTTP_PROXY ||
+      process.env.http_proxy ||
+      process.env.ALL_PROXY ||
+      process.env.all_proxy;
+
+    if (!server) return undefined;
+
+    const bypass = process.env.NO_PROXY || process.env.no_proxy || undefined;
+    return bypass ? { server, bypass } : { server };
+  }
+
   async launch() {
     // ─── Extension Support ────────────────────────────────────
     // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
@@ -187,6 +206,7 @@ export class BrowserManager {
       // browsing user-specified URLs has marginal sandbox benefit.
       chromiumSandbox: process.platform !== 'win32',
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
+      ...(this.getProxySettings() ? { proxy: this.getProxySettings() } : {}),
     });
 
     // Chromium crash → exit with clear message
@@ -338,6 +358,7 @@ export class BrowserManager {
       viewport: null,  // Use browser's default viewport (real window size)
       userAgent: this.customUserAgent || customUA,
       ...(executablePath ? { executablePath } : {}),
+      ...(this.getProxySettings() ? { proxy: this.getProxySettings() } : {}),
       // Playwright adds flags that block extension loading
       ignoreDefaultArgs: [
         '--disable-extensions',
@@ -1046,6 +1067,7 @@ export class BrowserManager {
         headless: false,
         args: launchArgs,
         viewport: null,
+        ...(this.getProxySettings() ? { proxy: this.getProxySettings() } : {}),
         ignoreDefaultArgs: [
           '--disable-extensions',
           '--disable-component-extensions-with-background-pages',
