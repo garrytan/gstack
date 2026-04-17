@@ -239,10 +239,20 @@ code, pre, .mono {
   .hero-inner { grid-template-columns: 1fr; }
   .hero-glyph { order: -1; max-width: 160px; }
 }
+.hero-copy .hero-sub {
+  font-family: 'Satoshi', 'DM Sans', sans-serif;
+  font-weight: 700;
+  font-size: clamp(18px, 2vw, 22px);
+  color: var(--cave-brown);
+  margin-top: 16px;
+  letter-spacing: 0.02em;
+  font-style: italic;
+  opacity: 0.88;
+}
 .hero-copy .lede {
-  font-size: clamp(18px, 2.2vw, 22px);
+  font-size: clamp(17px, 2vw, 20px);
   color: var(--text);
-  margin-top: 24px;
+  margin-top: 20px;
   max-width: 56ch;
 }
 .hero-glyph {
