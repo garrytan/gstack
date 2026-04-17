@@ -59,7 +59,7 @@ Six judgment-layer skills embody the "think before code" moat:
 | Short aliases | `cs-*` for every `cavestack-*` CLI. Speed over typing. |
 | Tier-2 errors | Every error: what broke + why + exact fix + docs link |
 | Local DX metrics | `cavestack-dx show` — your TTHW and skill events, zero network |
-| Productivity wrapper | `cavestack run <task>` with `--budget` + `--record` (redaction-gated share) |
+| Productivity wrapper | `cavestack run <task>` with `--record` (redaction-gated share) |
 | Windows-first | Bun compiles, Git Bash symlinks, PowerShell statusline. All work. |
 | Reversible | `cavestack-uninstall`. Clean removal. Your files untouched. |
 | Headless browser | `/browse` for QA, screenshots, page testing. Built in. |

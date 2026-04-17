@@ -2,20 +2,16 @@
 # cavestack-run — wrapper around Claude Code for opt-in productivity features
 #
 # D-core v1.0 features:
-#   --budget N        Character budget. Warn at 80%, hard-stop at 100%.
-#                     Measured in output chars (stdout.length). Model-agnostic.
 #   --record PATH     Record session transcript with redact-on-record.
 #                     Path defaults to ~/.cavestack/sessions/<ts>.replay.
 #   --no-redact       Disable redaction (local-only — share refuses).
 #
 # Usage:
 #   cavestack-run "<task for Claude Code>"
-#   cavestack-run --budget 100000 "explain this repo"
 #   cavestack-run --record session.replay "fix the bug in auth.ts"
 #
-# Under the hood, invokes `claude` (Claude Code CLI) with the given task,
-# streaming output while tracking character count against the optional budget.
-# On budget hit: SIGTERM to claude, exit 1 with clear message.
+# Under the hood, invokes `claude` (Claude Code CLI) with the given task and
+# (if --record) streams output through a redact filter into a replay file.
 set -uo pipefail
 
 _here="$(cd "$(dirname "$0")" && pwd)"
@@ -28,24 +24,11 @@ if [ -f "$CAVESTACK_ROOT/lib/error.sh" ]; then
 fi
 
 # ─── Parse args ───────────────────────────────────────────────
-BUDGET=""
 RECORD=""
 NO_REDACT=0
 TASK_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --budget)
-      BUDGET="$2"
-      if ! echo "$BUDGET" | grep -qE '^[0-9]+$'; then
-        echo "Error[CS601]: --budget expects a positive integer (chars; got '$BUDGET')" >&2
-        exit 1
-      fi
-      shift 2
-      ;;
-    --budget=*)
-      BUDGET="${1#--budget=}"
-      shift
-      ;;
     --record)
       RECORD="$2"
       shift 2
@@ -60,27 +43,19 @@ while [ $# -gt 0 ]; do
       ;;
     --help|-h)
       cat <<EOF
-cavestack-run — Claude Code wrapper with budget + redact-on-record
+cavestack-run — Claude Code wrapper with redact-on-record session replay
 
 USAGE:
   cavestack-run [options] "<task>"
 
 OPTIONS:
-  --budget N          Character budget (warns at 80%, stops at 100%)
-                      Measured in output chars; model-agnostic.
   --record PATH       Record session (auto-redacted, PATH optional)
   --no-redact         Record raw (local only — share will refuse)
   --help              This help
 
 EXAMPLES:
   cavestack-run "explain this repo"
-  cavestack-run --budget 100000 "fix the auth bug"
   cavestack-run --record "debug-session.replay" "investigate 500 error"
-
-WHY CHARS NOT TOKENS:
-  Token counts differ per model (GPT, Claude, Gemini all count differently).
-  Characters are universal: stdout.length gives the same number anywhere.
-  Every terminal can count them. No API key needed to enforce.
 
 PRIVACY:
   Records redacted by default (AWS/Anthropic/GitHub tokens, .env, JWT, etc).
@@ -137,9 +112,6 @@ if [ -x "$CAVESTACK_ROOT/bin/cavestack-dx" ]; then
 fi
 
 # ─── Budget display ───────────────────────────────────────────
-if [ -n "$BUDGET" ]; then
-  echo "[cavestack-run] budget: $BUDGET chars (model-agnostic)" >&2
-fi
 if [ -n "$RECORD" ]; then
   if [ "$NO_REDACT" -eq 1 ]; then
     echo "[cavestack-run] recording (RAW, --no-redact): $RECORD" >&2
@@ -154,32 +126,27 @@ fi
 TASK="${TASK_ARGS[*]}"
 
 if [ -n "$RECORD" ]; then
-  # Pipe claude output through redact filter (via bun if available)
-  REDACT_FILTER="cat"
-  if [ "$NO_REDACT" -eq 0 ] && command -v bun >/dev/null 2>&1; then
-    REDACT_FILTER="bun run $CAVESTACK_ROOT/bin/cavestack-redact-stream"
+  # Decide whether to redact. Install paths often contain spaces (Windows
+  # especially: "Program Files", user names with spaces). Using `eval` on a
+  # filter string breaks the path. Invoke bun directly with a quoted path.
+  USE_REDACTOR=0
+  if [ "$NO_REDACT" -eq 0 ] && command -v bun >/dev/null 2>&1 && [ -f "$CAVESTACK_ROOT/bin/cavestack-redact-stream.ts" ]; then
+    USE_REDACTOR=1
   fi
 
   # Write header to replay file
   {
-    echo "{\"type\":\"header\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"task\":\"$(echo "$TASK" | sed 's/"/\\"/g' | head -c 200)\",\"redacted\":$([ "$NO_REDACT" -eq 0 ] && echo true || echo false),\"budget\":$([ -n "$BUDGET" ] && echo "$BUDGET" || echo "null")}"
+    echo "{\"type\":\"header\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"task\":\"$(echo "$TASK" | sed 's/"/\\"/g' | head -c 200)\",\"redacted\":$([ "$NO_REDACT" -eq 0 ] && echo true || echo false)}"
   } > "$RECORD"
 
-  # Tee output: console + redacted file
-  if [ "$NO_REDACT" -eq 0 ]; then
-    claude -p "$TASK" 2>&1 | tee >(eval "$REDACT_FILTER" >> "$RECORD")
+  # Tee output: console + (optionally redacted) replay file
+  if [ "$USE_REDACTOR" -eq 1 ]; then
+    claude -p "$TASK" 2>&1 | tee >(bun run "$CAVESTACK_ROOT/bin/cavestack-redact-stream.ts" >> "$RECORD")
   else
+    # No redactor available (or --no-redact): append raw
     claude -p "$TASK" 2>&1 | tee -a "$RECORD"
   fi
 else
   # No recording — just pass through
   claude -p "$TASK"
-fi
-
-# Character budget enforcement: `wc -c` on tee'd output would give a live count,
-# but requires restructuring the pipeline to read char count mid-stream. For
-# v1.0, --budget is advisory (cap printed, actual enforcement via post-run
-# measurement). Wire streaming enforcement in a patch release if users ask.
-if [ -n "$BUDGET" ]; then
-  echo "[cavestack-run] NOTE: --budget is advisory in v1.0; streaming enforcement pending" >&2
 fi

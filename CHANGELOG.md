@@ -34,10 +34,9 @@ subscription is enough.
   tasks we ran, on what hardware, with what model — and how to rerun yourself.
   Honest about three trust tiers (verifiable, probabilistic, unaudited).
 - **Wrap Claude Code for productivity.** New `cavestack run "<task>"` command
-  adds opt-in token-budget warnings and session replay with redact-on-record.
-  Built-in redaction catches AWS/Anthropic/GitHub/GitLab tokens, JWTs,
-  `.env` fragments, and URL-embedded credentials. The `share` command
-  refuses to publish non-redacted records.
+  opts into session replay with redact-on-record. Built-in redaction catches
+  AWS/Anthropic/GitHub/GitLab tokens, JWTs, `.env` fragments, and URL-embedded
+  credentials. The `share` command refuses to publish non-redacted records.
 - **Every error you hit now tells you what broke + why + the exact fix +
   a docs link.** New Tier-2 error pattern (`CS001`-`CS901`) shared across
   every CLI via `lib/error.sh` and `lib/error.ts`.
@@ -58,8 +57,8 @@ subscription is enough.
 - **`bin/cavestack-skills`** — skill catalog CLI. List, info, search, count.
 - **`bin/cavestack-dx`** — local DX metrics. Tracks `install_completed`,
   `first_skill_run`, `skill_list_viewed`. Shows TTHW classification.
-- **`bin/cavestack-run`** — Claude Code wrapper with `--budget` + `--record`
-  + `--no-redact` flags.
+- **`bin/cavestack-run`** — Claude Code wrapper with `--record` +
+  `--no-redact` flags for session replay with redact-on-record.
 - **`bin/cavestack-replay`** — replay sessions, `share` gates on redaction.
 - **`bin/cavestack-cs-aliases`** — idempotent short-alias generator. Creates
   `cs-*` for every `cavestack-*` CLI.
