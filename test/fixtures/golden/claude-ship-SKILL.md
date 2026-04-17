@@ -18,6 +18,7 @@ allowed-tools:
   - Agent
   - AskUserQuestion
   - WebSearch
+sensitive: true
 triggers:
   - ship it
   - create a pr
@@ -56,6 +57,14 @@ _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
+# Persist session state so the telemetry block (run in a separate Bash tool
+# call where shell vars don't survive) can recover duration and session id.
+cat > ~/.gstack/analytics/.session-state 2>/dev/null <<SESSTATE || true
+_TEL_START=$_TEL_START
+_SESSION_ID=$_SESSION_ID
+_TEL=${_TEL:-off}
+_BRANCH=$_BRANCH
+SESSTATE
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"ship","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
@@ -475,8 +484,12 @@ Skipping this command loses session duration and outcome data.
 Run this bash:
 
 ```bash
+# Restore session state persisted by the preamble (shell vars don't survive
+# between Bash tool calls, so _TEL_START / _SESSION_ID / _TEL would otherwise
+# be empty here, producing duration_s:"0" and session:"unknown" in telemetry).
+[ -f ~/.gstack/analytics/.session-state ] && . ~/.gstack/analytics/.session-state
 _TEL_END=$(date +%s)
-_TEL_DUR=$(( _TEL_END - _TEL_START ))
+_TEL_DUR=$(( _TEL_END - ${_TEL_START:-$_TEL_END} ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
 ~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
@@ -490,6 +503,8 @@ if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
+# Clear the per-session state file now that telemetry has been recorded.
+rm -f ~/.gstack/analytics/.session-state 2>/dev/null || true
 ```
 
 Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
