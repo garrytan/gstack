@@ -19,6 +19,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import {
+  computeDensity,
+  DEFAULT_THRESHOLDS,
+  VERBOSE_PHRASES,
+  type DensityMetrics,
+  type DensityThresholds,
+  type FlaggedItem,
+} from './lib/voice-density';
+
+export { VERBOSE_PHRASES };
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -29,22 +39,6 @@ interface Section {
   isFloor: boolean;
   isCode: boolean;
   floorReason?: string;
-}
-
-interface DensityMetrics {
-  wordCount: number;
-  articlesPerHundred: number;
-  fillersPerHundred: number;
-  hedgesPerHundred: number;
-  verbosePhraseCount: number;
-  flaggedItems: FlaggedItem[];
-}
-
-interface FlaggedItem {
-  line: number;
-  type: 'article' | 'filler' | 'hedge' | 'verbose-phrase';
-  match: string;
-  context: string;
 }
 
 interface TemplateResult {
@@ -64,67 +58,6 @@ interface SectionViolation {
   metrics: DensityMetrics;
   reasons: string[];
 }
-
-// ─── Default Thresholds (calibrated in Step 5) ──────────────
-
-// Calibrated from 14 already-compressed templates (commit 6c16229).
-// Set at 90th percentile of compressed results to avoid false positives.
-const DEFAULT_THRESHOLDS = {
-  articlesPerHundred: 4.5,
-  fillersPerHundred: 2.0,
-  hedgesPerHundred: 2.0,
-  verbosePhraseMax: 5,
-};
-
-// ─── Verbose Phrase Table (30+ pairs) ───────────────────────
-
-export const VERBOSE_PHRASES: [string, string][] = [
-  ['in order to', 'to'],
-  ['it is important to note', 'note:'],
-  ['it is worth noting', 'note:'],
-  ['please note that', 'note:'],
-  ['the purpose of', 'why:'],
-  ['this approach allows', 'this lets'],
-  ['this ensures that', 'ensures'],
-  ['this will allow', 'lets'],
-  ['as mentioned earlier', '(remove)'],
-  ['as mentioned above', '(remove)'],
-  ['in this section', '(remove)'],
-  ['implement a solution for', 'fix'],
-  ['I would recommend', 'recommend:'],
-  ['it is recommended that', 'recommend:'],
-  ['you can use', 'use'],
-  ['we will', 'will'],
-  ['we can', 'can'],
-  ['the following', 'these'],
-  ['comprehensive', 'full'],
-  ['straightforward', 'simple'],
-  ['leverage', 'use'],
-  ['utilize', 'use'],
-  ['facilitate', 'enable'],
-  ['robust', 'solid'],
-  ['crucial', 'key'],
-  ['nuanced', 'subtle'],
-  ['delve', 'dig'],
-  ['in the event that', 'if'],
-  ['prior to', 'before'],
-  ['subsequent to', 'after'],
-  ['at this point in time', 'now'],
-  ['due to the fact that', 'because'],
-  ['for the purpose of', 'for'],
-  ['in the context of', 'in'],
-  ['with respect to', 'about'],
-  ['on a regular basis', 'regularly'],
-  ['take into consideration', 'consider'],
-  ['a significant number of', 'many'],
-];
-
-// ─── Word Lists ─────────────────────────────────────────────
-
-// Match articles but not CLI flags like -a, -o, or backtick-wrapped code
-const ARTICLES = /(?<![-`])\b(a|an|the)\b(?![-`])/gi;
-const FILLERS = /\b(just|really|basically|actually|simply|very|quite|rather|somewhat|perhaps|certainly|sure|of course|happy to|I'd be happy)\b/gi;
-const HEDGES = /\b(might|could|perhaps|consider|may want to|you might want|it is possible|potentially)\b/gi;
 
 // ─── Floor Detection ────────────────────────────────────────
 
@@ -274,111 +207,6 @@ function extractProse(content: string): { prose: string; lineMap: Map<number, nu
   }
 
   return { prose: proseLines.join('\n'), lineMap };
-}
-
-// ─── Density Computation ────────────────────────────────────
-
-/**
- * Compute density metrics for a section's prose content.
- */
-export function computeDensity(
-  prose: string,
-  sectionStartLine: number,
-  lineMap: Map<number, number>,
-): DensityMetrics {
-  const words = prose.split(/\s+/).filter(w => w.length > 0);
-  const wordCount = words.length;
-  if (wordCount === 0) {
-    return {
-      wordCount: 0,
-      articlesPerHundred: 0,
-      fillersPerHundred: 0,
-      hedgesPerHundred: 0,
-      verbosePhraseCount: 0,
-      flaggedItems: [],
-    };
-  }
-
-  const flagged: FlaggedItem[] = [];
-  const proseLines = prose.split('\n');
-
-  // Count articles
-  let articleCount = 0;
-  for (let i = 0; i < proseLines.length; i++) {
-    const matches = proseLines[i].match(ARTICLES) || [];
-    articleCount += matches.length;
-    for (const m of matches) {
-      flagged.push({
-        line: sectionStartLine + (lineMap.get(i) ?? i),
-        type: 'article',
-        match: m,
-        context: proseLines[i].trim().substring(0, 80),
-      });
-    }
-  }
-
-  // Count fillers
-  let fillerCount = 0;
-  for (let i = 0; i < proseLines.length; i++) {
-    const matches = proseLines[i].match(FILLERS) || [];
-    fillerCount += matches.length;
-    for (const m of matches) {
-      flagged.push({
-        line: sectionStartLine + (lineMap.get(i) ?? i),
-        type: 'filler',
-        match: m,
-        context: proseLines[i].trim().substring(0, 80),
-      });
-    }
-  }
-
-  // Count hedges
-  let hedgeCount = 0;
-  for (let i = 0; i < proseLines.length; i++) {
-    const matches = proseLines[i].match(HEDGES) || [];
-    hedgeCount += matches.length;
-    for (const m of matches) {
-      flagged.push({
-        line: sectionStartLine + (lineMap.get(i) ?? i),
-        type: 'hedge',
-        match: m,
-        context: proseLines[i].trim().substring(0, 80),
-      });
-    }
-  }
-
-  // Count verbose phrases
-  let verboseCount = 0;
-  const lowerProse = prose.toLowerCase();
-  for (const [verbose] of VERBOSE_PHRASES) {
-    const regex = new RegExp(verbose.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    const matches = lowerProse.match(regex) || [];
-    verboseCount += matches.length;
-    if (matches.length > 0) {
-      // Find which line contains the match
-      for (let i = 0; i < proseLines.length; i++) {
-        if (proseLines[i].toLowerCase().includes(verbose)) {
-          flagged.push({
-            line: sectionStartLine + (lineMap.get(i) ?? i),
-            type: 'verbose-phrase',
-            match: verbose,
-            context: proseLines[i].trim().substring(0, 80),
-          });
-        }
-      }
-    }
-  }
-
-  const per100 = (count: number) => (count / wordCount) * 100;
-
-  return {
-    wordCount,
-    articlesPerHundred: per100(articleCount),
-    fillersPerHundred: per100(fillerCount),
-    hedgesPerHundred: per100(hedgeCount),
-    verbosePhraseCount: verboseCount,
-    flaggedItems: flagged,
-  };
 }
 
 // ─── Fix Mode ───────────────────────────────────────────────
