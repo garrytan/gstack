@@ -1,7 +1,7 @@
 ---
 name: product-analytics
 description: 제품 행동 분석, 퍼널 분석, 릴리즈 영향 평가가 필요할 때 호출
-model: sonnet
+model: claude-opus-4-7
 disallowedTools: Write, Edit
 department: evaluation
 ---

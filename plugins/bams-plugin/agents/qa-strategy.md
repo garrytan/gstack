@@ -1,7 +1,7 @@
 ---
 name: qa-strategy
 description: QA 전략 에이전트 — 테스트 전략 수립, 테스트 범위 결정, 리스크 기반 검증 설계. 기능 출시 전 테스트 계획이 필요하거나 품질 리스크를 사전 식별해야 할 때 사용.
-model: sonnet
+model: claude-opus-4-7
 disallowedTools: Write, Edit
 department: qa
 ---

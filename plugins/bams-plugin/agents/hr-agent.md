@@ -1,7 +1,7 @@
 ---
 name: hr-agent
 description: 인사 에이전트 — 에이전트 생명주기 관리(정의/등록/평가/비활성화), 조직도 유지보수, 주간 퍼포먼스 리포트 작성
-model: sonnet
+model: claude-opus-4-7
 department: executive
 disallowedTools: []
 ---

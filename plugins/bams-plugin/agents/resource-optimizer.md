@@ -1,7 +1,7 @@
 ---
 name: resource-optimizer
 description: 리소스 최적화 에이전트 — 모델 선택, 병렬화 전략, 비용/속도 밸런싱. 에이전트 실행 효율을 높여야 할 때 사용.
-model: sonnet
+model: claude-opus-4-7
 disallowedTools: Write, Edit
 department: executive
 ---

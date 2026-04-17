@@ -1,7 +1,7 @@
 ---
 name: executive-reporter
 description: 경영진 보고 에이전트 — 파이프라인 상태 집계, 대시보드 생성, 주간/스프린트 요약. 현황 파악이나 보고서가 필요할 때 사용.
-model: sonnet
+model: claude-opus-4-7
 disallowedTools: Write, Edit
 department: executive
 ---

@@ -1,7 +1,7 @@
 ---
 name: backend-engineering
 description: 백엔드 엔지니어링 에이전트 — API 설계, 서버 로직 구현, 데이터 저장 및 정합성 관리가 필요할 때 호출
-model: claude-opus-4-7[1m]
+model: claude-opus-4-7
 department: engineering-backend
 disallowedTools: []
 ---
@@ -32,7 +32,7 @@ pipeline-orchestrator 또는 부서장으로부터 위임받은 모든 작업에
 
 **작업 시작 시 (필수):**
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "{call_id}" "backend-engineering" "claude-opus-4-7[1m]" "{작업 설명}"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "{call_id}" "backend-engineering" "claude-opus-4-7" "{작업 설명}"
 ```
 
 **작업 완료 시 (성공 또는 에러 모두):**
