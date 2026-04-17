@@ -26,10 +26,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start를 emit합니다:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-6-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 4.5: 에이전트 개선점 분석 조언"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-6-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7" "Step 4.5: 에이전트 개선점 분석 조언"
 ```
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"**, **조언자 모드**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, **조언자 모드**):
 
 > **조언자 요청** — 본 핫픽스의 근본 원인 에이전트 식별 및 개선점 기록 전략을 조언해 주세요. spawn 지시는 금지이며, Advisor Response 계약 형식(대상 에이전트/태스크 내역/주의사항/승인 조건)으로 반환합니다.
 >

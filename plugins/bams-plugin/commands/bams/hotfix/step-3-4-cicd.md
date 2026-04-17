@@ -25,10 +25,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-34-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 3-4: CI/CD + RQG 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-34-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7" "Step 3-4: CI/CD + RQG 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"** — **조언자 모드**:
 
 > **Hotfix Step 3-4 Advisor 호출 — CI/CD + 출시 준비 검토 라우팅 권고**
 >
@@ -56,13 +56,13 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 병렬 호출 전 2개의 agent_start를 일괄 emit:
 ```bash
 _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1)
-[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-3-$(date -u +%Y%m%d)" "platform-devops" "claude-opus-4-7[1m]" "Step 3: CI/CD 프리플라이트"
-[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7[1m]" "Step 4: 출시 준비 검토"
+[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-3-$(date -u +%Y%m%d)" "platform-devops" "claude-opus-4-7" "Step 3: CI/CD 프리플라이트"
+[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7" "Step 4: 출시 준비 검토"
 ```
 
 **단일 메시지에 2개 Task tool 호출을 묶어** 병렬 spawn합니다:
 
-1. Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"claude-opus-4-7[1m]"** — CI/CD 프리플라이트 (Step 3):
+1. Task tool, subagent_type: **"bams-plugin:platform-devops"** — CI/CD 프리플라이트 (Step 3):
 
 > **Step 3 — CI/CD 프리플라이트 (`/bams:verify`)**
 > ```
@@ -74,7 +74,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 >   - FAIL 시 자동 수정(최대 2회) / 수동 / 무시 결과 보고
 > ```
 
-2. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"** — 출시 준비 검토 (Step 4):
+2. Task tool, subagent_type: **"bams-plugin:qa-strategy"** — 출시 준비 검토 (Step 4):
 
 > **Step 4 — 출시 준비 검토 (release-quality-gate)**
 > ```

@@ -24,10 +24,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start를 emit합니다:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-1-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 1: PRD 작성 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-1-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7" "Step 1: PRD 작성 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"** — **조언자 모드**:
 
 > **Phase 1 Step 1 Advisor 호출 — PRD 작성 라우팅 권고**
 >
@@ -53,10 +53,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "product-strategy-1-$(date -u +%Y%m%d)" "product-strategy" "claude-opus-4-7[1m]" "Step 1: PRD 작성"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "product-strategy-1-$(date -u +%Y%m%d)" "product-strategy" "claude-opus-4-7" "Step 1: PRD 작성"
 ```
 
-Task tool, subagent_type: **"bams-plugin:product-strategy"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:product-strategy"** — 메인이 직접 호출:
 
 > **Phase 1 Step 1 — PRD 작성**
 >
@@ -103,10 +103,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-2-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 2: 설계/태스크 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-2-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7" "Step 2: 설계/태스크 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"** — **조언자 모드**:
 
 > **Phase 1 Step 2 Advisor 호출 — 기술 설계 + 태스크 분해 라우팅 권고**
 >
@@ -132,7 +132,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 **단일 메시지에 3개 Task tool 호출을 묶어** 다음을 병렬 spawn합니다:
 
-1. Task tool, subagent_type: **"bams-plugin:product-strategy"**, model: **"claude-opus-4-7[1m]"**:
+1. Task tool, subagent_type: **"bams-plugin:product-strategy"**:
 > ```
 > task_description: "PRD 기반 상세 동작 명세를 작성하라"
 > input_artifacts: [.crew/artifacts/prd/{slug}-prd.md]
@@ -146,7 +146,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 > ```
 > product-strategy는 business-analysis specialist를 최대 1회 추가 spawn 가능.
 
-2. Task tool, subagent_type: **"bams-plugin:frontend-engineering"**, model: **"claude-opus-4-7[1m]"**:
+2. Task tool, subagent_type: **"bams-plugin:frontend-engineering"**:
 > ```
 > task_description: "PRD 기반 프론트엔드 기술 설계(UI/컴포넌트/상태관리)를 작성하라"
 > input_artifacts: [.crew/artifacts/prd/{slug}-prd.md, .crew/config.md]
@@ -158,7 +158,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 >   - 데이터 흐름 명시
 > ```
 
-3. Task tool, subagent_type: **"bams-plugin:backend-engineering"**, model: **"claude-opus-4-7[1m]"**:
+3. Task tool, subagent_type: **"bams-plugin:backend-engineering"**:
 > ```
 > task_description: "PRD 기반 백엔드 기술 설계(API/DB/비즈니스 로직)를 작성하라"
 > input_artifacts: [.crew/artifacts/prd/{slug}-prd.md, .crew/config.md]
@@ -236,10 +236,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-handoff1-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 4: Phase 1→2 게이트 판정 조언"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-handoff1-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7" "Step 4: Phase 1→2 게이트 판정 조언"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"** — **조언자 모드**:
 
 > **Phase 1 → Phase 2 Advisor 호출 — 게이트 판정 + 핸드오프 라우팅**
 >
@@ -265,10 +265,10 @@ Advisor 판정이 GO 또는 CONDITIONAL-GO인 경우에 진행합니다. NO-GO�
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "cross-department-coordinator-4-$(date -u +%Y%m%d)" "cross-department-coordinator" "claude-opus-4-7[1m]" "Step 4: 기획→구현 핸드오프 조율"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "cross-department-coordinator-4-$(date -u +%Y%m%d)" "cross-department-coordinator" "claude-opus-4-7" "Step 4: 기획→구현 핸드오프 조율"
 ```
 
-Task tool, subagent_type: **"bams-plugin:cross-department-coordinator"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:cross-department-coordinator"** — 메인이 직접 호출:
 
 > **Phase 1→2 핸드오프 조율**
 >

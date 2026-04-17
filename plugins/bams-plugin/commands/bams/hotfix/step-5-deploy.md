@@ -21,10 +21,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-5-$(date -u +%Y%m%d)" "platform-devops" "claude-opus-4-7[1m]" "Step 5: 배포 환경 점검"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-5-$(date -u +%Y%m%d)" "platform-devops" "claude-opus-4-7" "Step 5: 배포 환경 점검"
 ```
 
-Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:platform-devops"** — 메인이 직접 호출:
 
 > **Hotfix Step 5 — 배포 환경 점검**
 >

@@ -31,10 +31,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-9-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 9: Ship 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-9-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7" "Step 9: Ship 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"** — **조언자 모드**:
 
 > **Phase 4 Step 9 Advisor 호출 — Ship 라우팅 권고**
 >
@@ -58,10 +58,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "executive-reporter-9-$(date -u +%Y%m%d)" "executive-reporter" "claude-opus-4-7[1m]" "Step 9: 배포 전 상태 보고"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "executive-reporter-9-$(date -u +%Y%m%d)" "executive-reporter" "claude-opus-4-7" "Step 9: 배포 전 상태 보고"
 ```
 
-Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:executive-reporter"** — 메인이 직접 호출:
 
 > **Phase 4 Step 9 — 배포 전 상태 보고**
 >
@@ -88,10 +88,10 @@ GO 판정 시 진행. HOLD이면 사용자에게 보고 후 해결.
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-9-$(date -u +%Y%m%d)" "platform-devops" "claude-opus-4-7[1m]" "Step 9: Ship 실행"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-9-$(date -u +%Y%m%d)" "platform-devops" "claude-opus-4-7" "Step 9: Ship 실행"
 ```
 
-Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:platform-devops"** — 메인이 직접 호출:
 
 > **Phase 4 Step 9 — Ship 실행 (`_SHIP_SKILL`)**
 >

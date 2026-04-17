@@ -35,10 +35,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "project-governance-8-$(date -u +%Y%m%d)" "project-governance" "claude-opus-4-7[1m]" "Step 8: Quality Gate iteration {iteration}"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "project-governance-8-$(date -u +%Y%m%d)" "project-governance" "claude-opus-4-7" "Step 8: Quality Gate iteration {iteration}"
 ```
 
-Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:project-governance"** — 메인이 직접 호출:
 
 > **Phase 3.5 Quality Gate 검증 (iteration {iteration}/3)**
 >

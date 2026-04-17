@@ -60,10 +60,10 @@ Bash로 `git rev-parse --is-inside-work-tree 2>/dev/null`를 실행하여 git �
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-2-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Phase 2: 5관점 리뷰 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-2-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7" "Phase 2: 5관점 리뷰 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"** — **조언자 모드**:
 
 > **Review Phase 2 Advisor 호출 — 5관점 리뷰 라우팅 권고**
 >
@@ -88,10 +88,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-2-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7[1m]" "Phase 2: 5관점 병렬 리뷰"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-2-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7" "Phase 2: 5관점 병렬 리뷰"
 ```
 
-Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:qa-strategy"** — 메인이 직접 호출:
 
 > **Review Phase 2 — 5관점 병렬 코드 리뷰**
 >
@@ -135,10 +135,10 @@ Phase 4는 단일 도메인(QA)의 판정 작업이므로 **루프 A**를 따른
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7[1m]" "Phase 4: 릴리스 품질 게이트"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7" "Phase 4: 릴리스 품질 게이트"
 ```
 
-Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:qa-strategy"** — 메인이 직접 호출:
 
 > **Review Phase 4 — 릴리스 품질 게이트**
 >
