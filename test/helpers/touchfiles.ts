@@ -77,6 +77,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-ceo-review-benefits':  ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
   'plan-eng-review':           ['plan-eng-review/**'],
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
+  'plan-eng-review-data-model-bias': ['plan-eng-review/**'],
   'plan-review-report':        ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
 
   // Codex offering verification
@@ -236,6 +237,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-ceo-review-benefits': 'gate',
   'plan-eng-review': 'periodic',
   'plan-eng-review-artifact': 'periodic',
+  'plan-eng-review-data-model-bias': 'periodic',
   'plan-eng-coverage-audit': 'gate',
   'plan-review-report': 'gate',
 

@@ -590,6 +590,8 @@ If the user asks you to compress or the system triggers context compaction: Step
 * I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
 * Bias toward explicit over clever.
 * Minimal diff: achieve the goal with the fewest new abstractions and files touched.
+* **Data model exception to "minimal diff": for schema and model changes, minimal-diff is NOT a goal.** Normalize first; denormalize only for measured performance reasons. Three clean models that each do one thing are better than one model doing three things, in all respects. When tempted to merge new fields into an existing model to reduce table count, ask: "does each model have exactly one job?" If splitting is honest, split. Count concepts, not tables. The default for schema design is more clean parts, not fewer muddled ones.
+* **JSONField is not an escape hatch for polymorphism.** When tempted to add a JSONField/HStoreField/payload column to encode variant-specific data (different keys for different kinds), promote it to explicit columns instead. JSONField loses FK enforcement, cascade/protect behavior, CheckConstraints on shape, queryability, type system, and self-documentation. Diagnostic: if you find yourself documenting "what keys appear in this JSONField for which variant," you have schema, you just put it in a place where the DB can't help you. Legitimate JSONField uses are genuinely schemaless data (third-party API response caches, user preference bags, opaque blobs). Polymorphism with knowable variants belongs in explicit columns + CheckConstraints.
 
 ## Cognitive Patterns — How Great Eng Managers Think
 
@@ -605,11 +607,14 @@ These are not additional checklist items. They are the instincts that experience
 8. **Org structure IS architecture** — Conway's Law in practice. Design both intentionally (Skelton/Pais, Team Topologies).
 9. **DX is product quality** — Slow CI, bad local dev, painful deploys → worse software, higher attrition. Developer experience is a leading indicator.
 10. **Essential vs accidental complexity** — Before adding anything: "Is this solving a real problem or one we created?" (Brooks, No Silver Bullet).
-11. **Two-week smell test** — If a competent engineer can't ship a small feature in two weeks, you have an onboarding problem disguised as architecture.
-12. **Glue work awareness** — Recognize invisible coordination work. Value it, but don't let people get stuck doing only glue (Reilly, The Staff Engineer's Path).
-13. **Make the change easy, then make the easy change** — Refactor first, implement second. Never structural + behavioral changes simultaneously (Beck).
-14. **Own your code in production** — No wall between dev and ops. "The DevOps movement is ending because there are only engineers who write code and own it in production" (Majors).
-15. **Error budgets over uptime targets** — SLO of 99.9% = 0.1% downtime *budget to spend on shipping*. Reliability is resource allocation (Google SRE).
+11. **Normalize first, denormalize for measured reasons** — Codd's normal forms (1970) and Knuth's "premature optimization is the root of all evil" (1974) both apply directly to schema design. Denormalizing without measurement is exactly what Knuth warned against. The default for data model design is more clean parts, not fewer muddled ones. "Make it work, make it right, make it fast" (Beck) — right shape comes BEFORE fast.
+12. **Single Responsibility Principle applies to data models** — A model that's doing audit + balance + notifications is failing SRP. A model that has fields that are only meaningful when other fields have specific values is failing SRP via hidden polymorphism. Split until each model has exactly one job (Martin, Clean Architecture; Codd, normal forms).
+13. **Structure beats blobs for known polymorphism** — If you can enumerate the variants of a thing at design time, encode them as explicit columns + CheckConstraints, not as a JSONField/payload bag. The DB can enforce FK integrity, shape constraints, and indexing on columns; it can't on JSON paths. JSONField is for genuinely opaque data (third-party blobs, user preferences nobody queries on), not for "we know there are 4 kinds and each kind has different fields."
+14. **Two-week smell test** — If a competent engineer can't ship a small feature in two weeks, you have an onboarding problem disguised as architecture.
+15. **Glue work awareness** — Recognize invisible coordination work. Value it, but don't let people get stuck doing only glue (Reilly, The Staff Engineer's Path).
+16. **Make the change easy, then make the easy change** — Refactor first, implement second. Never structural + behavioral changes simultaneously (Beck).
+17. **Own your code in production** — No wall between dev and ops. "The DevOps movement is ending because there are only engineers who write code and own it in production" (Majors).
+18. **Error budgets over uptime targets** — SLO of 99.9% = 0.1% downtime *budget to spend on shipping*. Reliability is resource allocation (Google SRE).
 
 When evaluating architecture, think "boring by default." When reviewing tests, think "systems over heroes." When assessing complexity, ask Brooks's question. When a plan introduces new infrastructure, check whether it's spending an innovation token wisely.
 
@@ -766,9 +771,70 @@ Evaluate:
 * Data flow patterns and potential bottlenecks.
 * Scaling characteristics and single points of failure.
 * Security architecture (auth, data access, API boundaries).
+* **Data model honesty:** Does each new model/table have exactly one job? Are there nullable fields whose NULL has semantic meaning ("this row is a different kind of thing")? Are there clusters of columns that always co-vary, suggesting a hidden child model? Does any field on a parent model only have meaning when no child rows exist (parent-field-shadowed-by-child smell)? Is there a JSONField/payload column whose keys-per-variant are knowable at design time (JSONField-hiding-schema smell — promote to explicit columns + CheckConstraints)? When in doubt, normalize. Three clean models > one muddled model in all respects.
 * Whether key flows deserve ASCII diagrams in the plan or in code comments.
 * For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
 * **Distribution architecture:** If this introduces a new artifact (binary, package, container), how does it get built, published, and updated? Is the CI/CD pipeline part of the plan or deferred?
+
+#### Data model review checklist
+
+For every new model, model change, or schema migration in this plan, run through this checklist proactively — don't wait for the user to push back on model shape. Each check is a smell; presence of a smell doesn't mean "reject the plan," it means "surface the tradeoff and recommend the normalized alternative."
+
+**Single Responsibility (SRP for models)**
+- Does this model have exactly one job? Audit ≠ balance ≠ notification ≠ display.
+- If a model is doing N jobs, propose splitting it into N models.
+
+**Nullable with semantic meaning**
+- For every nullable column, ask: does NULL flip what kind of thing this row is?
+- If yes, the model is hiding polymorphism behind sentinels. Decompose or add a CheckConstraint tying the nullability to an explicit type column.
+- Always-meaningful nullables (timestamps, optional notes) are fine.
+
+**Models hiding as columns**
+- For every cluster of 2+ columns, ask: do these always co-vary? Would I ever want column A without column B?
+- If they always co-vary, they belong in their own model.
+- For every column, ask: is this only meaningful when another column has a specific value?
+- If yes, you have polymorphism. Promote to a child model or use a CheckConstraint.
+
+**Parent-field-shadowed-by-child**
+- For every field on a parent model, ask: would a child row of this parent have the same field with case-specific values?
+- If yes, the parent's field belongs on the child. Remove from parent, require ≥1 child row, read via FK navigation.
+
+**JSONField as polymorphism escape hatch**
+- For every JSONField, ask: am I documenting "what keys appear for which variant"?
+- If yes, the JSONField has schema. Promote to explicit columns + CheckConstraints.
+- Legitimate JSONField uses: third-party API caches, opaque user preferences, schemaless attribute bags nobody queries against.
+
+**FK deletion strategies (CASCADE / PROTECT / SET_NULL)**
+- For every FK, ask: if the parent is deleted, what should happen to this row?
+- CASCADE only when the child only exists BECAUSE of the parent.
+- PROTECT when deleting the parent would silently destroy user-facing state.
+- SET_NULL when the child should outlive the parent (audit/log rows).
+- Never accept the ORM default without thinking.
+
+**Snapshot vs render-live**
+- For every value stored in a model, ask: is this a NUMERIC INPUT to a calculation, or DISPLAY COPY?
+- Numeric inputs to calculations should be SNAPSHOTTED at the moment of the calculation (so math is reproducible later, immune to source drift).
+- Display copy should be rendered at view time from current FK chains (so renames retroactively update history).
+- Mixing the two is a smell.
+
+**Cross-scope FK consistency**
+- For every model with FKs spanning a "scope" (household, tenant, organization), the DB does not enforce that all FKs resolve to the same scope.
+- Add a validation check that all FKs resolve to the same scope.
+- Single-tenant doesn't need it but adding it now is cheap and future-proofs.
+
+**Derived state beats stored state when read is cheap**
+- For every column that could be derived from another column or query, ask: is the derivation cost acceptable for the read pattern?
+- If yes, derive (single source of truth, can't disagree).
+- Only store derived state when read cost is unacceptable.
+
+**Field naming**
+- For every field, ask: does the name describe WHY it exists (semantics) or HOW it works (implementation)?
+- Bad names: order, position, sequence, type, status, value, data, payload, info, meta.
+- Good names: domain words for the actual concept (step, kind, learning_bonus, role).
+
+**Validation: DB constraints over app validation**
+- For every cross-field invariant, prefer a DB CheckConstraint over app-layer validation.
+- Bulk-insert paths often skip app-layer validation entirely. CheckConstraints catch bugs at write time regardless of how the row was inserted.
 
 **STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
 

@@ -1617,3 +1617,70 @@ describe('sidebar agent (#584)', () => {
     expect(content).not.toContain("proc.stderr.on('data', () => {})");
   });
 });
+
+// Data-model bias guardrails — prevent silent deletion of the corrective bullets
+// added to counter the AI's pull toward table-count minimization and JSONField
+// polymorphism shortcuts. These are load-bearing: if they disappear in a future
+// refactor (templates regenerated, sections rewritten), the bias returns silently.
+// Static grep beats LLM judge here because the real failure mode is "bullet
+// silently deleted during an unrelated edit," which greps catch in milliseconds.
+describe('data-model bias guardrails', () => {
+  const engReview = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+  const ceoReview = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
+
+  test('plan-eng-review preserves the "data model exception to minimal diff" bullet', () => {
+    expect(engReview).toContain('Data model exception to "minimal diff"');
+    expect(engReview).toContain('Count concepts, not tables');
+  });
+
+  test('plan-eng-review preserves the JSONField polymorphism warning', () => {
+    expect(engReview).toContain('JSONField is not an escape hatch for polymorphism');
+    expect(engReview).toContain('what keys appear in this JSONField for which variant');
+  });
+
+  test('plan-eng-review preserves the Normalize-first cognitive pattern', () => {
+    expect(engReview).toContain('Normalize first, denormalize for measured reasons');
+  });
+
+  test('plan-eng-review preserves the SRP-for-data-models cognitive pattern', () => {
+    expect(engReview).toContain('Single Responsibility Principle applies to data models');
+  });
+
+  test('plan-eng-review preserves the Structure-beats-blobs cognitive pattern', () => {
+    expect(engReview).toContain('Structure beats blobs for known polymorphism');
+  });
+
+  test('plan-eng-review Architecture section preserves Data model honesty check', () => {
+    expect(engReview).toContain('Data model honesty');
+    expect(engReview).toContain('parent-field-shadowed-by-child');
+    expect(engReview).toContain('JSONField-hiding-schema');
+  });
+
+  test('plan-eng-review preserves the Data model review checklist subsection', () => {
+    expect(engReview).toContain('Data model review checklist');
+    // A few load-bearing checklist items — if any disappear, the checklist was gutted
+    expect(engReview).toContain('Single Responsibility (SRP for models)');
+    expect(engReview).toContain('Nullable with semantic meaning');
+    expect(engReview).toContain('Parent-field-shadowed-by-child');
+    expect(engReview).toContain('FK deletion strategies');
+    expect(engReview).toContain('Snapshot vs render-live');
+  });
+
+  test('plan-eng-review cognitive patterns list is contiguous 1–18', () => {
+    // If someone inserts/removes a pattern without renumbering, catch it here
+    for (let i = 1; i <= 18; i++) {
+      expect(engReview).toMatch(new RegExp(`^${i}\\. \\*\\*`, 'm'));
+    }
+    // And item 19 should NOT exist (the list ends at 18)
+    expect(engReview).not.toMatch(/^19\. \*\*/m);
+  });
+
+  test('plan-ceo-review preserves the "data model exception to minimal diff" bullet', () => {
+    expect(ceoReview).toContain('Data model exception to "minimal diff"');
+    expect(ceoReview).toContain('Count concepts, not tables');
+  });
+
+  test('plan-ceo-review preserves the JSONField polymorphism warning', () => {
+    expect(ceoReview).toContain('JSONField is not an escape hatch for polymorphism');
+  });
+});
