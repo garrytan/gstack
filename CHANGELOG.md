@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.2.0.0] - 2026-04-17 — Musk 5-step algorithm baked into every skill
+
+Every cavestack skill now applies the Musk 5-step algorithm before scoping
+work. Question every requirement, delete first, simplify, accelerate,
+automate — in **strict order**, never reverse, never skip ahead. No new
+commands, no new flags. Sharper scope, fewer half-finished features.
+
+The directive ships verbose at tier 2-3 (workflow + planning skills) and
+compact at tier 4 (ship/review/qa/qa-only/design-review/land-and-deploy).
+Tier 1 utility skills (browse, setup-cookies, benchmark) skip it entirely
+since they don't author code or scope tasks.
+
+### Added
+
+- **Musk 5-Step Algorithm directive** in every tier 2+ cavestack skill.
+  Caveman-styled to pass the existing voice-density Stop hook. Strict-order
+  reinforcement: caught on step 4-5 without finishing 1-3 = stop and restart
+  at step 1.
+- **Opt-in CLAUDE.md injection.** After accepting the proactive setting,
+  the next cavestack skill invocation in a project offers to append a
+  `## Build philosophy` section to your CLAUDE.md (~10 lines). Same UX as
+  the routing-injection prompt. Decline once and we never ask again. Gate
+  is the HTML comment marker `<!-- cavestack-build-philosophy -->`, not the
+  H2 header — so CHANGELOG quotes won't trip the gate.
+
+### For contributors
+
+- New `MUSK_RULES_FULL`, `MUSK_RULES_COMPACT`, and
+  `BUILD_PHILOSOPHY_CLAUDE_MD_SECTION` constants in
+  `scripts/resolvers/behavioral-protocols.ts`. Single source of truth — the
+  CLAUDE.md template body derives from `MUSK_RULES_COMPACT` via H2→H3
+  string interpolation, not literal duplication. Editing the constant
+  propagates everywhere.
+- Tier 4 skills get the compact variant to bound SKILL.md growth
+  (`ship/SKILL.md` pre-existing 112KB; this change adds ~1.7KB). Tier 1
+  skills skip the directive entirely.
+- New tests in `test/gen-skill-docs.test.ts` `build philosophy directive`
+  describe block: tier-3 inclusion, tier-4 compact variant, tier-1 exclusion,
+  CLAUDE.md template structure, opt-in flow, marker-comment gate.
+- Golden files `test/fixtures/golden/{claude,codex,factory}-ship-SKILL.md`
+  regenerated. Diff is the new directive content only.
+
 ## [1.1.1.0] - 2026-04-17 — Voice-verify hardening + review comparison relaunch
 
 Patch release on top of v1.1.0.0. Plugs four evasion paths the `/review`
