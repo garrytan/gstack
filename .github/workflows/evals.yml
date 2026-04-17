@@ -4,6 +4,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+  packages: write
+
 concurrency:
   group: evals-${{ github.head_ref }}
   cancel-in-progress: true
