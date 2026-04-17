@@ -63,6 +63,10 @@ done
 if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
   { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
+  # Count prefix-mode directories
+  _PREFIX_COUNT=0
+  for _P in "$HOME/.claude/skills"/gstack-*; do [ -e "$_P" ] || [ -L "$_P" ] && _PREFIX_COUNT=$((_PREFIX_COUNT + 1)); done
+  [ "$_PREFIX_COUNT" -gt 0 ] && echo "  ~/.claude/skills/gstack-* ($_PREFIX_COUNT prefix-mode directories)"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
@@ -146,6 +150,15 @@ if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
   REMOVED+=("~/.claude/skills/gstack")
 fi
 
+# Remove prefix-mode Claude skill directories (gstack-browse, gstack-ship, etc.)
+if [ -d "$CLAUDE_SKILLS" ]; then
+  for _ITEM in "$CLAUDE_SKILLS"/gstack-*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("claude/$(basename "$_ITEM")")
+  done
+fi
+
 # ─── Remove project-local Claude skills (--local installs) ──
 if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.claude/skills" ]; then
   for _LINK in "$_GIT_ROOT/.claude/skills"/*; do
@@ -159,6 +172,12 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.claude/skills" ]; then
     rm -rf "$_GIT_ROOT/.claude/skills/gstack"
     REMOVED+=("$_GIT_ROOT/.claude/skills/gstack")
   fi
+  # Remove project-local prefix-mode directories
+  for _ITEM in "$_GIT_ROOT/.claude/skills"/gstack-*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("local claude/$(basename "$_ITEM")")
+  done
 fi
 
 # ─── Remove Codex skills ────────────────────────────────────

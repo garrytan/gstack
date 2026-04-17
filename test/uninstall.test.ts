@@ -136,6 +136,40 @@ describe('gstack-uninstall', () => {
       expect(result.stdout.toString()).toContain('Nothing to remove');
     });
 
+    test('prefix-mode: real gstack-* directories are removed', () => {
+      // Simulate prefix-mode install where each skill is a real directory
+      // with a SKILL.md symlink inside (not a top-level symlink)
+      const prefixDir = path.join(mockHome, '.claude', 'skills', 'gstack-browse');
+      fs.mkdirSync(prefixDir, { recursive: true });
+      fs.writeFileSync(path.join(prefixDir, 'SKILL.md'), 'test');
+
+      const prefixDir2 = path.join(mockHome, '.claude', 'skills', 'gstack-qa');
+      fs.mkdirSync(prefixDir2, { recursive: true });
+      fs.writeFileSync(path.join(prefixDir2, 'SKILL.md'), 'test');
+
+      const result = spawnSync('bash', [UNINSTALL, '--force'], {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          HOME: mockHome,
+          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
+          GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
+        },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      const output = result.stdout.toString();
+      expect(output).toContain('gstack uninstalled');
+
+      // Prefix-mode directories should be removed
+      expect(fs.existsSync(prefixDir)).toBe(false);
+      expect(fs.existsSync(prefixDir2)).toBe(false);
+
+      // Non-gstack tool should survive
+      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
+    });
+
     test('upgrade path: prefixed install + uninstall cleans both old and new symlinks', () => {
       // Simulate the state after setup --no-prefix followed by setup (with prefix):
       // Both old unprefixed and new prefixed symlinks exist
