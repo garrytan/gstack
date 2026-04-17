@@ -81,9 +81,11 @@ else
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
 ${ctx.paths.binDir}/gstack-timeline-log '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+# Resolve project root (CWD may be a subdirectory, worktree, or monorepo package)
+_ROOT=\${_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
-if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
+if [ -f "$_ROOT/CLAUDE.md" ] && grep -qi "## Skill routing" "$_ROOT/CLAUDE.md" 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
 _ROUTING_DECLINED=$(${ctx.paths.binDir}/gstack-config get routing_declined 2>/dev/null || echo "false")
@@ -91,8 +93,8 @@ echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 # Vendoring deprecation: detect if CWD has a vendored gstack copy
 _VENDORED="no"
-if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
-  if [ -f ".claude/skills/gstack/VERSION" ] || [ -d ".claude/skills/gstack/.git" ]; then
+if [ -d "$_ROOT/.claude/skills/gstack" ] && [ ! -L "$_ROOT/.claude/skills/gstack" ]; then
+  if [ -f "$_ROOT/.claude/skills/gstack/VERSION" ] || [ -d "$_ROOT/.claude/skills/gstack/.git" ]; then
     _VENDORED="yes"
   fi
 fi

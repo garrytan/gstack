@@ -1327,7 +1327,7 @@ describe('preamble routing injection', () => {
   const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 
   test('preamble bash checks for routing section in CLAUDE.md', () => {
-    expect(shipContent).toContain('grep -q "## Skill routing" CLAUDE.md');
+    expect(shipContent).toContain('grep -qi "## Skill routing" "$_ROOT/CLAUDE.md"');
     expect(shipContent).toContain('HAS_ROUTING');
   });
 
