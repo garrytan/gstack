@@ -1,5 +1,173 @@
 # TODOS
 
+## Plan Tune (v2 deferrals from v0.19.0.0 rollback)
+
+All six items are gated on v1 dogfood results and the acceptance criteria in
+`docs/designs/PLAN_TUNING_V0.md`. They were explicitly deferred after Codex's
+outside-voice review drove a scope rollback from the CEO EXPANSION plan. v1
+ships the observational substrate only; v2 adds behavior adaptation.
+
+### E1 — Substrate wiring (5 skills consume profile)
+
+**What:** Add `{{PROFILE_ADAPTATION:<skill>}}` placeholder to ship, review,
+office-hours, plan-ceo-review, plan-eng-review SKILL.md.tmpl files. Implement
+`scripts/resolvers/profile-consumer.ts` with a per-skill adaptation registry
+(`scripts/profile-adaptations/{skill}.ts`). Each consumer reads
+`~/.gstack/developer-profile.json` on preamble and adapts skill-specific
+defaults (verbosity, mode selection, severity thresholds, pushback intensity).
+
+**Why:** v1 observational profile writes a file nobody reads. The substrate
+claim only becomes real when skills actually consume it. Without this, /plan-tune
+is a fancy config page.
+
+**Pros:** gstack feels personal. Every skill adapts to the user's steering
+style instead of defaulting to middle-of-the-road.
+
+**Cons:** Risk of psychographic drift if profile is noisy. Requires calibrated
+profile (v1 acceptance criteria: 90+ days stable across 3+ skills).
+
+**Context:** See `docs/designs/PLAN_TUNING_V0.md` §Deferred to v2. v1 ships the
+signal map + inferred computation; it's displayed in /plan-tune but no skill
+reads it yet.
+
+**Effort:** L (human: ~1 week / CC: ~4h)
+**Priority:** P0
+**Depends on:** 2+ weeks of v1 dogfood, profile diversity check passing.
+
+### E3 — `/plan-tune narrative` + `/plan-tune vibe`
+
+**What:** Event-anchored narrative ("You accepted 7 scope expansions, overrode
+test_failure_triage 4 times, called every PR 'boil the lake'") + one-word vibe
+archetype (Cathedral Builder, Ship-It Pragmatist, Deep Craft, etc).
+scripts/archetypes.ts is ALREADY SHIPPED in v1 (8 archetypes + Polymath
+fallback). v2 work is the narrative generator + /plan-tune skill wiring.
+
+**Why:** Makes profile tangible and shareable. Screenshot-able.
+
+**Pros:** Killer delight feature. Social surface for gstack. Concrete, specific
+output anchored in real events (not generic AI slop).
+
+**Cons:** Requires stable inferred profile — without calibration it produces
+generic paragraphs. Gen-tests need to validate no-slop.
+
+**Context:** Archetypes already defined. Just need the /plan-tune narrative
+subcommand + slop-check test.
+
+**Effort:** S+ (human: ~1 day / CC: ~1h)
+**Priority:** P0
+**Depends on:** Calibrated profile (>= 20 events, 3+ skills, 7+ days span).
+
+### E4 — Blind-spot coach
+
+**What:** Preamble injection that surfaces the OPPOSITE of the user's profile
+once per session per tier >= 2 skill. Boil-the-ocean user gets challenged on
+scope ("what's the 80% version?"); small-scope user gets challenged on ambition.
+`scripts/resolvers/blind-spot-coach.ts`. Marker file for session dedup. Opt-out
+via `gstack-config set blind_spot_coach false`.
+
+**Why:** Makes gstack a coach (challenges you) instead of a mirror (reflects
+you). The killer differentiation vs. a settings menu.
+
+**Pros:** The feature that makes gstack feel like Garry. Surfaces assumptions
+the user hasn't challenged.
+
+**Cons:** Logically conflicts with E1 (which adapts TO profile) and E6 (which
+flags mismatch). Requires interaction-budget design: global session budget +
+escalation rules + explicit exclusion from mismatch detection. Risk of feeling
+like a nag if fires wrong.
+
+**Context:** v2 must redesign to resolve the E1/E4/E6 composition issue Codex
+caught. Dogfood required to calibrate frequency.
+
+**Effort:** M (human: ~3 days / CC: ~2h design + ~1h impl)
+**Priority:** P0
+**Depends on:** E1 shipped + interaction-budget design spec.
+
+### E5 — LANDED celebration HTML page
+
+**What:** When a PR authored by the user is newly merged to the base branch,
+open an animated HTML celebration page in the browser. Confetti + typewriter
+headline + stats counter. Shows: what we built (PR stats + CHANGELOG entry),
+road traveled (scope decisions from CEO plan), road not traveled (deferred
+items), where we're going (next TODOs), who you are as a builder (vibe +
+narrative + profile delta for this ship). Self-contained HTML (CSS animations
+only, no JS deps).
+
+**CRITICAL REVISION from v0 plan:** Passive detection must NOT live in the
+preamble (Codex #9). When promoted, moves to explicit `/plan-tune show-landed`
+OR post-ship hook — not passive detection in the hot path.
+
+**Why:** Biggest personality moment in gstack. The "one-word thing that makes
+you remember why you built this."
+
+**Pros:** Screenshot-worthy. Shareable. The kind of dopamine hit that turns
+power users into evangelists.
+
+**Cons:** Product theater if the substrate isn't solid. Needs /design-shotgun
+→ /design-html for the visual direction. Requires E2 unified profile for
+narrative/vibe data.
+
+**Context:** /land-and-deploy trust/adoption is low, so passive detection is
+the right trigger shape. Dedup marker per PR in `~/.gstack/.landed-celebrated-*`.
+E2E tests for squash/merge-commit/rebase/co-author/fresh-clone/dedup variants.
+
+**Effort:** M+ (human: ~1 week / CC: ~3h total)
+**Priority:** P0
+**Depends on:** E3 narrative/vibe shipped. /design-shotgun run on real PR data
+to pick a visual direction, then /design-html to finalize.
+
+### E6 — Auto-adjustment based on declared ↔ inferred mismatch
+
+**What:** Currently `/plan-tune` shows the gap between declared and inferred
+(v1 observational). v2 auto-suggests declaration updates when the gap exceeds
+a threshold ("Your profile says hands-off but you've overridden 40% of
+recommendations — you're actually taste-driven. Update declared autonomy from
+0.8 to 0.5?"). Requires explicit user confirmation before any mutation (Codex
+trust-boundary #15 already baked into v1).
+
+**Why:** Profile drifts silently without correction. Self-correcting profile
+stays honest.
+
+**Pros:** Profile becomes more accurate over time. User sees the gap and
+decides.
+
+**Cons:** Requires stable inferred profile (diversity check). False positives
+nag the user.
+
+**Context:** v1 has `--check-mismatch` that flags > 0.3 gaps but doesn't
+suggest fixes. v2 adds the suggestion UX + per-dimension threshold tuning from
+real data.
+
+**Effort:** S (human: ~1 day / CC: ~45min)
+**Priority:** P0
+**Depends on:** Calibrated profile + real mismatch data from v1 dogfood.
+
+### E7 — Psychographic auto-decide
+
+**What:** When inferred profile is calibrated AND a question is two-way AND
+the user's dimensions strongly favor one option, auto-choose without asking
+(visible annotation: "Auto-decided via profile. Change with /plan-tune."). v1
+only auto-decides via EXPLICIT per-question preferences; v2 adds profile-driven
+auto-decide.
+
+**Why:** The whole point of the psychographic. Silent, correct defaults based
+on who the user IS, not just what they've said.
+
+**Pros:** Friction-free skill invocation for calibrated power users. Over time,
+gstack feels like it's reading your mind.
+
+**Cons:** Highest-risk deferral. Wrong auto-decides are costly. Requires very
+high confidence in the signal map AND calibration gate.
+
+**Context:** v1 diversity gate is `sample_size >= 20 AND skills_covered >= 3
+AND question_ids_covered >= 8 AND days_span >= 7`. v2 must prove this gate
+actually catches noisy profiles before shipping.
+
+**Effort:** M (human: ~3 days / CC: ~2h)
+**Priority:** P0
+**Depends on:** E1 (skills consuming profile) + real observed data showing
+calibration gate is trustworthy.
+
 ## Browse
 
 ### Scope sidebar-agent kill to session PID, not `pkill -f sidebar-agent\.ts`
