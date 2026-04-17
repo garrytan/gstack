@@ -47,6 +47,15 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
+# Detect remote control mode (Anthropic app remote control)
+# TTY detection is unreliable (Claude Code's Bash tool never has a real TTY).
+# Use explicit env var or check if gstack-config has it enabled.
+_REMOTE_CONTROL="${GSTACK_REMOTE_CONTROL:-}"
+if [ -z "$_REMOTE_CONTROL" ]; then
+  _REMOTE_CONTROL=$(~/.claude/skills/gstack/bin/gstack-config get remote_control 2>/dev/null || echo "")
+fi
+[ -z "$_REMOTE_CONTROL" ] && _REMOTE_CONTROL=0
+echo "REMOTE_CONTROL: $_REMOTE_CONTROL"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"setup-browser-cookies","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
