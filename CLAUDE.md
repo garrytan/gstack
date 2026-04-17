@@ -193,13 +193,20 @@ hr_reports (독립)
 > Last updated: 2026-04-17
 
 ### 진행 중
-- **`plan_에이전트모델opus47업그레이드`** (Backlog, 6 tasks)
+- **`plan_opus47개선6종`** (Backlog, 6 tasks — TASK-007~012)
   - Work Unit: 전체bams리뷰
-  - PRD: `.crew/artifacts/prd/plan_에이전트모델opus47업그레이드-prd.md`
-  - Spec: `.crew/artifacts/design/plan_에이전트모델opus47업그레이드-spec.md`
-  - Design: `.crew/artifacts/design/plan_에이전트모델opus47업그레이드-design.md`
-  - 영향: 38파일 / 95개소 (agents 5 + commands 30 + tests 3)
-  - 다음: `/bams:dev plan_에이전트모델opus47업그레이드` 또는 `/bams:sprint plan`
+  - PRD: `.crew/artifacts/prd/plan_opus47개선6종-prd.md`
+  - Spec: `.crew/artifacts/design/plan_opus47개선6종-spec.md`
+  - Design: `.crew/artifacts/design/plan_opus47개선6종-design.md`
+  - 범위: 이슈 1/2/3/4/5/7 (6건, 이슈 6 사용자 스킵 결정)
+  - 영향: agents 10파일 + commands 31파일 + tests 3파일 + references/model-config.md 신규
+  - 커밋 전략: 4커밋 분리 (정책/agents/commands/security)
+  - 예상 소요: 4.5~5.5h
+  - 다음: `/bams:dev plan_opus47개선6종`
+
+### 완료 파이프라인 (opus47 관련)
+- `dev_에이전트모델opus47업그레이드` (commit d453a38) — 5 부서장 `opus` → `claude-opus-4-7[1m]` 업그레이드 (39 files)
+- `deep-review_opus47사용리뷰` — 5관점 심층 리뷰, 성능 위주 이슈 7건 발견
 
 ### 완료 파이프라인
 - `dev_vizDB재설계` — viz DB 전면 재설계 + UI 2페이지 구조 (12태스크, 92 tests, 87.9/100)

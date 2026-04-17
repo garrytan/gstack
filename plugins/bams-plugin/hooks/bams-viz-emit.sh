@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+umask 077  # Ensure new files (logs, tmp) are created with 0600 permission
 # bams-viz-emit.sh — Pipeline/step event emit helper
 # Called from pipeline commands (feature, dev, hotfix, etc.)
 #
