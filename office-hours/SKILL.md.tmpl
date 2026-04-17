@@ -880,6 +880,33 @@ The design doc at `~/.gstack/projects/` is automatically discoverable by downstr
 
 ---
 
+## Pre-Telemetry: Verify Design Doc Artifact
+
+**PLAN MODE EXCEPTION — ALWAYS RUN.** This is the last step before the preamble's `## Telemetry (run last)` block. It determines the correct OUTCOME value by verifying that this session actually produced a design doc. This prevents silent-completion failures where the skill logs `outcome:success` but no artifact persists to disk.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_SESS_REF=$(ls -t ~/.gstack/sessions/ 2>/dev/null | head -1)
+[ -n "$_SESS_REF" ] && _SESS_REF="$HOME/.gstack/sessions/$_SESS_REF"
+_FRESH_DOC=""
+if [ -n "$_SESS_REF" ] && [ -d ~/.gstack/projects/"${SLUG:-unknown}" ]; then
+  _FRESH_DOC=$(find ~/.gstack/projects/"${SLUG:-unknown}" -maxdepth 1 -name '*-design-*.md' -newer "$_SESS_REF" 2>/dev/null | head -1)
+fi
+if [ -n "$_FRESH_DOC" ]; then
+  echo "ARTIFACT_STATUS: ok"
+  echo "ARTIFACT_PATH: $_FRESH_DOC"
+else
+  echo "ARTIFACT_STATUS: no_doc"
+fi
+```
+
+**Use this result to set OUTCOME in the telemetry block:**
+
+- If `ARTIFACT_STATUS: ok` — the user saw a design doc. OUTCOME follows the normal rules (`success` if the user approved in Phase 5 review, `error` on failure, `abort` on user interrupt).
+- If `ARTIFACT_STATUS: no_doc` — the session ended without producing the artifact. OUTCOME **must** be `no_doc`, not `success`. This is not a successful office hours session even if the conversation felt productive. Downstream analytics depend on this distinction to catch Phase 5 skips.
+
+---
+
 {{LEARNINGS_LOG}}
 
 ## Important Rules
@@ -888,6 +915,7 @@ The design doc at `~/.gstack/projects/` is automatically discoverable by downstr
 - **Questions ONE AT A TIME.** Never batch multiple questions into one AskUserQuestion.
 - **The assignment is mandatory.** Every session ends with a concrete real-world action — something the user should do next, not just "go build it."
 - **If user provides a fully formed plan:** skip Phase 2 (questioning) but still run Phase 3 (Premise Challenge) and Phase 4 (Alternatives). Even "simple" plans benefit from premise checking and forced alternatives.
+- **The design doc file is the artifact of this skill.** Before running the preamble's `## Telemetry (run last)` block, run the `## Pre-Telemetry: Verify Design Doc Artifact` check above and use its result to set OUTCOME. Never log `outcome:success` when no design doc was written — use `no_doc` instead. A session without a persisted doc is not a successful session, regardless of how the conversation felt.
 - **Completion status:**
   - DONE — design doc APPROVED
   - DONE_WITH_CONCERNS — design doc approved but with open questions listed
