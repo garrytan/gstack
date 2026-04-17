@@ -422,7 +422,12 @@ function processExternalHost(
 }
 
 function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath: string; content: string; symlinkLoop?: boolean } {
-  const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
+  // Normalize to LF at the entry point. Templates may have CRLF on disk when
+  // checked out on Windows with core.autocrlf=true. Downstream regexes
+  // (processVoiceTriggers, transformFrontmatter) hardcode \n, so without
+  // normalization they silently no-op on CRLF — producing different output
+  // than CI (Linux, LF) and breaking the Skill Docs Freshness check.
+  const tmplContent = fs.readFileSync(tmplPath, 'utf-8').replace(/\r\n/g, '\n');
   const relTmplPath = path.relative(ROOT, tmplPath);
   let outputPath = tmplPath.replace(/\.tmpl$/, '');
 
