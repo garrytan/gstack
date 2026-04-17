@@ -1,0 +1,459 @@
+---
+name: seo-audit
+preamble-tier: 4
+version: 1.0.0
+description: |
+  Live SEO + GEO audit. Crawls your site via real browser, pulls current Google algorithm
+  state via WebSearch, scores 0-100 (50pts traditional SEO + 50pts GEO / AI visibility),
+  and outputs copy-pasteable code fixes. Accepts an optional URL argument for auditing
+  live deployments: /seo-audit https://yoursite.com. Without a URL, auto-detects your
+  local dev server. After the report, offers to apply all fixes via /ship. Handles
+  JS-rendered pages. Checks llms.txt, JSON-LD, Core Web Vitals, LLM bot access, and
+  content front-loading. Use when asked to "audit my SEO", "check my SEO", "improve my
+  search ranking", or "check AI visibility". Run after /ship to verify no SEO regressions.
+  (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - WebSearch
+  - WebFetch
+---
+
+{{PREAMBLE}}
+
+# /seo-audit — Live SEO + GEO Audit
+
+You are running the `/seo-audit` workflow. You will crawl the user's site, pull current
+algorithm state from the web, and score it 0-100 across traditional SEO and GEO (AI
+visibility). Output is a scored markdown report with specific, copy-pasteable code fixes.
+
+---
+
+## Phase 0: Opening status
+
+Output this immediately before any other work:
+
+```bash
+echo "SEO audit starting... (expect ~45-60 seconds with Lighthouse, ~15 seconds without)"
+```
+
+---
+
+## Phase 1: Algorithm State
+
+The skill issues two live search queries using the current date:
+- `"Google core algorithm update [MONTH YEAR]"` — e.g., `"Google core algorithm update April 2026"`
+- `"GEO generative engine optimization best practices [YEAR]"` — e.g., `"GEO generative engine optimization best practices 2026"`
+
+Run both via WebSearch. Synthesize into an `ALGORITHM_STATE` block for use in the final report:
+- 2-3 bullets with the most recent algorithm changes, each with a source URL
+- One relevance flag: "This update is relevant to your site because [reason]" if applicable
+
+If WebSearch is unavailable: write `Algorithm state: unavailable — using in-distribution knowledge` and continue.
+
+---
+
+## Phase 2: Browse + Lighthouse Check
+
+```bash
+B=~/.claude/skills/gstack/browse/dist/browse
+[ -x "$B" ] && echo "BROWSE_READY" || echo "BROWSE_NEEDS_SETUP"
+
+if command -v lighthouse &>/dev/null; then
+  echo "LIGHTHOUSE_FOUND"
+  # Dry-run probe to confirm Chrome is usable
+  if timeout 8 lighthouse about:blank --quiet --chrome-flags="--headless --no-sandbox" \
+      --output json --output-path /dev/null 2>&1 | grep -qi "error\|not found\|cannot"; then
+    echo "LIGHTHOUSE_CHROME_MISSING"
+  else
+    echo "LIGHTHOUSE_OK"
+  fi
+else
+  echo "LIGHTHOUSE_MISSING"
+fi
+```
+
+- If `BROWSE_NEEDS_SETUP`: tell the user to run the one-time browse setup (same as /qa and /browse skills), then stop.
+- If `LIGHTHOUSE_MISSING` or `LIGHTHOUSE_CHROME_MISSING`: note in report, skip Core Web Vitals section, continue. Award 0 pts for CWV with a note explaining why.
+
+---
+
+## Phase 3: Target URL Detection
+
+**If the user passed a URL argument** (e.g. `/seo-audit https://yoursite.com`), use it directly:
+```bash
+URL="<user-provided-url>"
+```
+Note in the report that this is a live deployment audit. Lighthouse will run with network
+throttling, so CWV numbers reflect real-world conditions rather than local dev.
+
+**Otherwise**, probe for a local dev server:
+```bash
+URL=""
+for PORT in 3000 3001 8080 4000; do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$PORT 2>/dev/null)
+  CTYPE=$(curl -s -I http://localhost:$PORT 2>/dev/null | grep -i "content-type" || true)
+  if [ "$STATUS" = "200" ] && echo "$CTYPE" | grep -qi "html"; then
+    URL="http://localhost:$PORT"
+    echo "Found dev server at $URL"
+    break
+  fi
+done
+```
+
+If `$URL` is still empty after the loop:
+```
+No dev server detected. Start your dev server (e.g. bun dev) then re-run /seo-audit,
+or pass a URL directly: /seo-audit https://yoursite.com
+```
+Stop.
+
+---
+
+## Phase 4: Live Crawl
+
+```bash
+$B goto "$URL"
+$B wait --networkidle
+$B screenshot /tmp/seo-screenshot.png
+```
+
+Extract all page data in one `$B js` call. The JSON string is captured into `$DATA`.
+Read `$DATA` as context and use fields in subsequent phases — no explicit bash parsing required.
+
+```bash
+DATA=$($B js 'JSON.stringify({
+  title: document.title,
+  metaDescription: document.querySelector("meta[name=\"description\"]")?.content ?? null,
+  canonical: document.querySelector("link[rel=\"canonical\"]")?.href ?? null,
+  ogTitle: document.querySelector("meta[property=\"og:title\"]")?.content ?? null,
+  ogDescription: document.querySelector("meta[property=\"og:description\"]")?.content ?? null,
+  ogImage: document.querySelector("meta[property=\"og:image\"]")?.content ?? null,
+  ogUrl: document.querySelector("meta[property=\"og:url\"]")?.content ?? null,
+  lang: document.documentElement.lang ?? null,
+  h1Count: document.querySelectorAll("h1").length,
+  h1Text: document.querySelector("h1")?.textContent?.trim() ?? null,
+  h2Count: document.querySelectorAll("h2").length,
+  jsonLd: Array.from(document.querySelectorAll("script[type=\"application/ld+json\"]"))
+            .map(s => { try { return JSON.parse(s.textContent); } catch(e) { return null; } })
+            .filter(Boolean),
+  hreflang: Array.from(document.querySelectorAll("link[rel=\"alternate\"][hreflang]"))
+              .map(l => ({ lang: l.hreflang, href: l.href })),
+  bodyText: (() => {
+    const el = document.querySelector("article, main, [role=\"main\"]") ?? document.body;
+    return el.innerText.replace(/\s+/g, " ").trim().split(" ").slice(0, 300).join(" ");
+  })()
+})')
+```
+
+Fetch plain-text files via HTTP (not browser):
+```bash
+ROBOTS=$(curl -s --max-time 5 "${URL}/robots.txt" || echo "FETCH_FAILED")
+SITEMAP=$(curl -s --max-time 5 "${URL}/sitemap.xml" || echo "FETCH_FAILED")
+LLMS_RESP=$(curl -s -I --max-time 5 "${URL}/llms.txt" 2>/dev/null)
+LLMS_STATUS=$(echo "$LLMS_RESP" | head -1 | awk '{print $2}')
+LLMS_CTYPE=$(echo "$LLMS_RESP" | grep -i "content-type" || echo "")
+if [ "$LLMS_STATUS" = "200" ] && echo "$LLMS_CTYPE" | grep -qi "text/plain"; then
+  LLMS_PRESENT=true
+else
+  LLMS_PRESENT=false
+fi
+```
+
+**i18n handling:** If the `hreflang` array in `$DATA` is non-empty, spot-check 2 alternate URLs with curl to confirm they return 200. If `lang` is set but `hreflang` is empty: flag as a site that may need hreflang tags.
+
+---
+
+## Phase 5: Core Web Vitals (skip if Lighthouse unavailable)
+
+```bash
+lighthouse "$URL" \
+  --output json \
+  --output-path /tmp/seo-lh.json \
+  --only-categories performance \
+  --chrome-flags="--headless --no-sandbox" \
+  --quiet
+```
+
+Parse `/tmp/seo-lh.json` for:
+- LCP: `audits['largest-contentful-paint'].numericValue` (ms)
+- CLS: `audits['cumulative-layout-shift'].numericValue` (unitless)
+- FCP: `audits['first-contentful-paint'].numericValue` (ms)
+- TTFB: `audits['server-response-time'].numericValue` (ms)
+- INP: `audits['interaction-to-next-paint'].numericValue` (ms, may be absent on static pages)
+
+Google thresholds (2026):
+- LCP: Good < 2500ms / Needs improvement 2500-4000ms / Poor > 4000ms
+- CLS: Good < 0.1 / Needs improvement 0.1-0.25 / Poor > 0.25
+- INP: Good < 200ms / Needs improvement 200-500ms / Poor > 500ms
+
+**Note:** Local dev server Lighthouse scores are better than production (no network throttling). Treat as directional. Add `--throttling-method=devtools` for more realistic results. Always verify with Google Search Console for real CWV data.
+
+---
+
+## Phase 6: GEO Checks
+
+**Content type detection** — check the `jsonLd` array from `$DATA`:
+- If any item has `@type: "Recipe"` or `@type: "NutritionInformation"` → `CONTENT_TYPE=recipe`
+- Else if URL contains `/blog/`, `/article/`, or `@type: "Article"` in JSON-LD → `CONTENT_TYPE=article`
+- Else if `@type: "Product"` in JSON-LD → `CONTENT_TYPE=product`
+- Else → `CONTENT_TYPE=general`
+
+**GEO checklist:**
+
+1. **llms.txt**: use `$LLMS_PRESENT`. If false: generate template (see Phase 8).
+
+2. **LLM bot access**: parse `$ROBOTS`. Check for `User-agent: GPTBot`, `User-agent: ClaudeBot`, `User-agent: PerplexityBot`. Flag only if any of these appear in an active `Disallow: /` block. Absence = allowed (pass).
+
+3. **Content front-loading**: use `bodyText` and `h1Text` from `$DATA`. Check: does `h1Text` contain at least one word (>3 chars) also present in `title`? If yes → pass. If no → flag "Key terms from title not reflected in H1."
+
+4. **JSON-LD for AI ingestion**: check `jsonLd` against `CONTENT_TYPE`:
+   - `recipe`: expect `Recipe` with `nutrition`, `recipeIngredient`, `recipeInstructions`
+   - `article`: expect `Article` or `BlogPosting` with `headline`, `author`, `datePublished`
+   - `product`: expect `Product` with `name`, `description`, `offers`
+   - `general`: expect `WebSite` with `name`, `url`
+   Generate missing schemas in the Fixes section.
+
+5. **Header hierarchy**: flag if `h1Count === 0` or `h1Count > 1`. Flag if `h2Count === 0` on a page with more than 200 words.
+
+---
+
+## Phase 7: Scoring
+
+Maximum: 100 points.
+
+**Traditional SEO (50 pts):**
+
+| Check | Points | Pass condition |
+|-------|--------|----------------|
+| Title tag | 5 | Present and < 60 chars |
+| Meta description | 5 | Present and < 160 chars |
+| Canonical URL | 5 | Present and matches current URL (no trailing slash mismatch) |
+| Open Graph | 5 | All 4 tags present: og:title, og:description, og:image, og:url |
+| robots.txt | 5 | Present and no `Disallow: /` for Googlebot |
+| sitemap.xml | 5 | Present and returns valid XML |
+| H1 | 5 | Exactly one H1 present |
+| Lang attribute | 5 | `<html lang="...">` set |
+| Core Web Vitals | 10 | LCP < 2500ms (+4), CLS < 0.1 (+3), INP < 200ms (+3). If Lighthouse unavailable: 0 pts, note why. |
+
+**GEO / AI Visibility (50 pts):**
+
+| Check | Points | Pass condition |
+|-------|--------|----------------|
+| llms.txt present | 15 | Returns 200 with Content-Type: text/plain |
+| LLM bots allowed | 10 | No active Disallow for GPTBot, ClaudeBot, or PerplexityBot |
+| JSON-LD present + appropriate | 15 | Correct schema type for detected content type, required fields present |
+| Content front-loading | 5 | Key title term appears in H1 or first 300 words |
+| hreflang (multilingual) | 5 | Present if multiple locales detected; auto-awarded if `lang` is set to a single known locale (e.g., `en`, `es`, `pt`) and `hreflang` array is empty |
+
+---
+
+## Phase 8: Report
+
+Output the full report as markdown:
+
+```
+# SEO Audit — [URL] — [YYYY-MM-DD]
+
+## Algorithm State
+[2-3 bullets from WebSearch synthesis, each with source URL]
+[Relevance flag if applicable]
+
+## Score: [X]/100
+Traditional SEO: [X]/50 | GEO / AI Visibility: [X]/50
+
+## Critical Issues
+[Only items scoring 0 that have a direct fix — listed as: item: exact fix needed]
+
+## Traditional SEO
+| Check | Status | Value | Fix |
+|-------|--------|-------|-----|
+[one row per check]
+
+## GEO / AI Visibility
+| Check | Status | Fix |
+|-------|--------|-----|
+[one row per check]
+
+## Fixes
+
+### llms.txt
+[If missing: ready-to-paste content. Place at /public/llms.txt]
+
+### JSON-LD
+[If missing or incomplete: ready-to-paste structured data block]
+
+### Other fixes
+[Copy-pasteable code for each remaining issue, one section per issue]
+```
+
+**llms.txt template** (adapt based on CONTENT_TYPE):
+```
+# LLMs.txt — machine-readable site index
+# Version: 1.0
+# Generated by gstack /seo-audit
+
+## Site
+[Site Name]
+[Site URL]
+
+## About
+This site covers [topic]. Content includes [content types].
+
+## Key pages
+- [URL]: [one-line description]
+- [URL]: [one-line description]
+
+## Structured data
+[For recipe sites]: All ingredient and recipe pages include JSON-LD (schema.org/Recipe, schema.org/NutritionInformation).
+[For article sites]: All posts include JSON-LD (schema.org/Article or BlogPosting).
+[For product sites]: All product pages include JSON-LD (schema.org/Product).
+
+## Crawling
+GPTBot: allowed
+ClaudeBot: allowed
+PerplexityBot: allowed
+
+## Last updated
+[ISO date]
+```
+
+---
+
+## Phase 9: Persist Results
+
+```bash
+LH_AVAILABLE=false
+command -v lighthouse &>/dev/null && echo "LIGHTHOUSE_OK" | grep -q "OK" && LH_AVAILABLE=true || true
+
+jq -n \
+  --arg url "$URL" \
+  --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson score "$SCORE" \
+  --argjson traditional "$SCORE_TRADITIONAL" \
+  --argjson geo "$SCORE_GEO" \
+  --argjson lh "$LH_AVAILABLE" \
+  --argjson issues '[]' \
+  '{url: $url, date: $date, score: $score, traditional: $traditional, geo: $geo, lighthouse_available: $lh, issues: $issues}' \
+  >> ~/.gstack/analytics/seo-audits.jsonl 2>/dev/null || true
+```
+
+This is a stub for future `/seo-audit diff` (trend tracking across runs). Out of scope for v1.
+
+---
+
+## Phase 10: Offer to Apply Fixes
+
+After outputting the report, if any fixable issues were found (score < 100), ask:
+
+> Found [N] fixable issues. Want me to apply them now?
+>
+> A) Yes — apply all fixes and open a PR via /ship
+> B) No — I'll apply them manually using the code above
+> C) Apply some — tell me which ones to skip
+
+Use AskUserQuestion with those three options.
+
+**If A:** Invoke `/ship` with context: pass the list of fixes as the task description so /ship
+knows exactly what to commit. After /ship completes, automatically re-run the audit against
+the same URL to confirm the score improved. Show a before/after score comparison.
+
+**If B:** Output a one-line summary:
+```
+Score: [X]/100. Copy the fixes above and re-run /seo-audit when done to confirm.
+```
+Then stop.
+
+**If C:** Ask the user which fixes to skip (by check name), then apply the remaining ones
+via /ship, then re-run the audit.
+
+**If score is already 100/100:** Skip this phase entirely. Output:
+```
+Perfect score. Nothing to fix.
+```
+
+---
+
+## What to do next
+
+After fixes are applied, re-run to confirm:
+```
+/seo-audit [same URL if you passed one]
+```
+
+For broken things that aren't obvious (e.g., Lighthouse shows bad LCP but you can't tell why), use `/investigate` first.
+
+---
+
+## Post-fix: Get indexed fast
+
+Once the fixes are live, don't wait for crawlers to find you organically. Tell them directly.
+
+### Google Search Console (do this first)
+
+1. Go to [search.google.com/search-console](https://search.google.com/search-console)
+2. If the property isn't verified: if your domain is on Cloudflare, GSC can auto-verify via DNS — just add the property and it detects the TXT record automatically.
+3. Left sidebar → **Sitemaps** → submit `[your-domain]/sitemap.xml`
+4. Left sidebar → **URL Inspection** → paste your homepage URL → **Request Indexing**
+
+Googlebot usually crawls the sitemap within a few hours of submission. Indexed URL count shows up in GSC within 24-48h — that's faster than waiting for organic discovery.
+
+### Bing Webmaster Tools
+
+If you're already verified on GSC, use the import shortcut — no separate verification needed:
+
+1. Go to [bing.com/webmasters](https://bing.com/webmasters)
+2. Click **Import** → "Import your sites from GSC"
+3. Done — sitemaps come with it.
+
+If you're not on GSC yet, use the CNAME DNS method (fastest) or HTML meta tag method.
+
+### Validate your robots.txt is being parsed (GSC, universal)
+
+GSC exposes the robots.txt Google actually fetched and parsed. Works on any host — no Cloudflare needed.
+
+1. GSC → **Settings** (sidebar bottom) → **Crawling** → **robots.txt → Open Report**
+2. You'll see every variant Google has fetched (`https://`, `http://`, `www.`) with Status + Size + Issues
+3. Expected after a clean fix: **"All files are valid"**, size matches your deployed file, zero issues
+4. If a recrawl is needed (e.g., you just deployed a fix), click the ⋮ menu on any row → **Request a recrawl**
+
+This is the fastest free proof that Googlebot (and by extension Gemini/AI Overviews) can read your GPTBot/ClaudeBot/PerplexityBot allow lines. If this passes, traditional SEO and Google-side GEO are unblocked.
+
+### Crawl stats (GSC, universal)
+
+Same Settings page → **Crawl stats → Open Report**. Shows last 90 days of Googlebot activity:
+- Total crawl requests (a healthy small site sees 1k+ in 30 days)
+- Response breakdown (mostly 200s = good; high 301/404 = stale URLs in sitemap)
+- File type (HTML/CSS/JS/Image)
+- Googlebot type (Smartphone/Desktop/Image)
+
+Low numbers 2+ weeks after deploy usually mean the sitemap is wrong or the site isn't crawlable — re-run `/seo-audit` to catch what changed.
+
+### Monitoring non-Google AI bots on free tier
+
+GSC only sees Googlebot. For GPTBot/ClaudeBot/PerplexityBot/OAI-SearchBot traffic, you need server-side logs — and the usual candidates have gotchas:
+
+- **Vercel Analytics** — paid. Skip.
+- **Google Analytics (GA4)** — client-side JavaScript. Bots don't execute JS. Blind to AI crawlers.
+- **Vercel runtime logs** (free) — Project → Logs → filter by user-agent for `ClaudeBot|GPTBot|PerplexityBot`. 1h retention on Hobby, longer on Pro. Good for spot-checks, not trend analysis.
+- **Next.js middleware + durable sink** (free, ~15 LOC) — middleware that writes bot requests to Vercel KV free tier, PostHog free tier, or a Google Sheets webhook. Gives you persistent AI bot logs without a paid plan.
+- **Cloudflare AI Crawl Control** — only if the hostname is proxied (🟠 orange cloud). DNS-only records (gray cloud) are invisible to CF. Check your DNS panel before relying on this.
+
+### Cloudflare bot analytics (if your domain is on Cloudflare)
+
+You don't have to wait for Google. Cloudflare logs every bot hit in real time — but only for proxied hostnames:
+
+1. Cloudflare dashboard → your domain → **Analytics & Logs** → **Traffic**
+2. Filter by bot score or look at the **Bot Traffic** breakdown
+3. You'll see GPTBot, ClaudeBot, PerplexityBot hitting your new `llms.txt` and `robots.txt` within days — often within hours of deploy
+
+This is the fastest proof that GEO fixes are working *when CF is in the path*. AI crawlers are aggressive. If your records are DNS-only, use the Vercel logs / middleware route above instead.
+
+### Timeline expectations
+
+| Signal | When you'll see it |
+|--------|-------------------|
+| AI bots hitting llms.txt | Hours (check Cloudflare) |
+| GSC sitemap indexed URL count | 24-48h |
+| Google Search Console impressions | 3-7 days |
+| Meaningful organic traffic change | 4-8 weeks (domain authority dependent) |
