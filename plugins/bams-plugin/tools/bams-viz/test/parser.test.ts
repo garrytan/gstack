@@ -48,13 +48,13 @@ describe('parseEvents', () => {
   test('parses agent_start + agent_end', () => {
     const lines = [
       JSON.stringify({ type: 'pipeline_start', pipeline_slug: 'test', pipeline_type: 'dev', ts: '2026-04-03T10:00:00Z' }),
-      JSON.stringify({ type: 'agent_start', call_id: 'abc123', agent_type: 'frontend-engineering', model: 'opus', step_number: 1, ts: '2026-04-03T10:00:01Z' }),
+      JSON.stringify({ type: 'agent_start', call_id: 'abc123', agent_type: 'frontend-engineering', model: 'claude-opus-4-7[1m]', step_number: 1, ts: '2026-04-03T10:00:01Z' }),
       JSON.stringify({ type: 'agent_end', call_id: 'abc123', status: 'done', duration_ms: 10000, ts: '2026-04-03T10:00:11Z' }),
     ].join('\n')
     const result = parseEvents(lines)
     expect(result.agents.length).toBe(1)
     expect(result.agents[0].agentType).toBe('frontend-engineering')
-    expect(result.agents[0].model).toBe('opus')
+    expect(result.agents[0].model).toBe('claude-opus-4-7[1m]')
     expect(result.agents[0].durationMs).toBe(10000)
   })
 

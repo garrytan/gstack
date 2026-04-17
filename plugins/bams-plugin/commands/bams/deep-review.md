@@ -134,10 +134,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-4-$(date -u +%Y%m%d)" "pipeline-orchestrator" "opus" "Step 4: 에이전트 개선점 분석 (Advisor)"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-4-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 4: 에이전트 개선점 분석 (Advisor)"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opus"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
 
 > **코드 품질 관점 에이전트 개선점 분석 모드 (Advisor)** — 리뷰에서 반복적으로 발견된 패턴을 에이전트 개선 기회로 기록합니다.
 >

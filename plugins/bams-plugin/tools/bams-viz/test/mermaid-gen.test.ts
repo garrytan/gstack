@@ -37,8 +37,8 @@ describe('generateFlowchart', () => {
     const result = generateFlowchart(makePipeline({
       steps: [{ number: 1, name: 'Impl', phase: 'Phase 2', status: 'done', durationMs: 10000, startedAt: '2026-04-03T10:00:00Z', endedAt: '2026-04-03T10:00:10Z', agentCallIds: ['a1', 'a2'] }],
       agents: [
-        { callId: 'a1', agentType: 'frontend-engineering', model: 'opus', stepNumber: 1, durationMs: 8000, startedAt: '2026-04-03T10:00:00Z', endedAt: '2026-04-03T10:00:08Z', isError: false, description: '', promptSummary: '', parallelGroup: null, department: 'engineering' },
-        { callId: 'a2', agentType: 'backend-engineering', model: 'opus', stepNumber: 1, durationMs: 10000, startedAt: '2026-04-03T10:00:00Z', endedAt: '2026-04-03T10:00:10Z', isError: false, description: '', promptSummary: '', parallelGroup: null, department: 'engineering' },
+        { callId: 'a1', agentType: 'frontend-engineering', model: 'claude-opus-4-7[1m]', stepNumber: 1, durationMs: 8000, startedAt: '2026-04-03T10:00:00Z', endedAt: '2026-04-03T10:00:08Z', isError: false, description: '', promptSummary: '', parallelGroup: null, department: 'engineering' },
+        { callId: 'a2', agentType: 'backend-engineering', model: 'claude-opus-4-7[1m]', stepNumber: 1, durationMs: 10000, startedAt: '2026-04-03T10:00:00Z', endedAt: '2026-04-03T10:00:10Z', isError: false, description: '', promptSummary: '', parallelGroup: null, department: 'engineering' },
       ],
     }))
     expect(result).toContain('S1{"Impl"}')
@@ -67,10 +67,10 @@ describe('generateGantt', () => {
     const result = generateGantt(makePipeline({
       steps: [{ number: 1, name: 'Build', phase: 'Phase 1', status: 'done', durationMs: 5000, startedAt: '2026-04-03T10:00:00Z', endedAt: '2026-04-03T10:00:05Z', agentCallIds: [] }],
       agents: [
-        { callId: 'a1', agentType: 'frontend-engineering', model: 'opus', stepNumber: 1, durationMs: 5000, startedAt: '2026-04-03T10:00:00Z', endedAt: '2026-04-03T10:00:05Z', isError: false, description: '', promptSummary: '', parallelGroup: null, department: 'engineering' },
+        { callId: 'a1', agentType: 'frontend-engineering', model: 'claude-opus-4-7[1m]', stepNumber: 1, durationMs: 5000, startedAt: '2026-04-03T10:00:00Z', endedAt: '2026-04-03T10:00:05Z', isError: false, description: '', promptSummary: '', parallelGroup: null, department: 'engineering' },
       ],
     }))
-    expect(result).toContain('frontend-engineering (opus)')
+    expect(result).toContain('frontend-engineering (claude-opus-4-7[1m])')
     expect(result).toContain('section Phase 1')
   })
 

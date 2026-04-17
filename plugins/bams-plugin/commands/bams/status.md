@@ -35,7 +35,7 @@ Glob으로 `.crew/config.md`가 존재하는지 확인합니다. 없으면:
 
 ### A. executive-reporter 에이전트 (opus):
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"claude-opus-4-7[1m]"**):
 
 > **상태 집계 모드**로 프로젝트 현황을 대시보드로 요약합니다.
 >
@@ -52,7 +52,7 @@ Glob으로 `.crew/config.md`가 존재하는지 확인합니다. 없으면:
 
 ### B. project-governance 에이전트 (opus):
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"claude-opus-4-7[1m]"**):
 
 > **상태 분석 모드**로 프로젝트 리스크와 다음 액션을 분석합니다.
 >

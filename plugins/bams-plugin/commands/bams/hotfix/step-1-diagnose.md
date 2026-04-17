@@ -24,10 +24,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-1-$(date -u +%Y%m%d)" "pipeline-orchestrator" "opus" "Step 1: 긴급 진단+수정 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-1-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 1: 긴급 진단+수정 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opus"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
 
 > **Hotfix Step 1 Advisor 호출 — 긴급 진단+수정 라우팅 권고**
 >
@@ -59,10 +59,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-1-$(date -u +%Y%m%d)" "qa-strategy" "opus" "Step 1: 결함 분류"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-1-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7[1m]" "Step 1: 결함 분류"
 ```
 
-Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
 
 > **Hotfix Step 1 — 결함 분류 + 근본 원인 추적**
 >
@@ -98,10 +98,10 @@ Advisor가 권고한 개발부장(frontend-engineering / backend-engineering / p
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "{dept}-1-$(date -u +%Y%m%d)" "{dept}" "opus" "Step 1: 외과적 수정"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "{dept}-1-$(date -u +%Y%m%d)" "{dept}" "claude-opus-4-7[1m]" "Step 1: 외과적 수정"
 ```
 
-Task tool, subagent_type: **"bams-plugin:{dept}"**, model: **"opus"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:{dept}"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
 
 > **Hotfix Step 1 — 외과적 수정 + 회귀 테스트**
 >
@@ -132,7 +132,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 수정 대상이 `*.tsx`, `*.css`, `src/components/**`, `src/app/**` (API 제외) 등 프론트엔드 파일인 경우, design-director를 병렬로 호출하여 UI 일관성을 검토합니다:
 
-Task tool, subagent_type: **"bams-plugin:design-director"**, model: **"opus"**:
+Task tool, subagent_type: **"bams-plugin:design-director"**, model: **"claude-opus-4-7[1m]"**:
 > **FE 핫픽스 디자인 영향 검토**
 > UI 변경이 디자인 시스템과 일관적인지 확인하고, 필요 시 디자인 가이드를 제공합니다.
 

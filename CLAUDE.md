@@ -190,7 +190,16 @@ hr_reports (독립)
 
 ## 현재 상태
 
-> Last updated: 2026-04-06
+> Last updated: 2026-04-17
+
+### 진행 중
+- **`plan_에이전트모델opus47업그레이드`** (Backlog, 6 tasks)
+  - Work Unit: 전체bams리뷰
+  - PRD: `.crew/artifacts/prd/plan_에이전트모델opus47업그레이드-prd.md`
+  - Spec: `.crew/artifacts/design/plan_에이전트모델opus47업그레이드-spec.md`
+  - Design: `.crew/artifacts/design/plan_에이전트모델opus47업그레이드-design.md`
+  - 영향: 38파일 / 95개소 (agents 5 + commands 30 + tests 3)
+  - 다음: `/bams:dev plan_에이전트모델opus47업그레이드` 또는 `/bams:sprint plan`
 
 ### 완료 파이프라인
 - `dev_vizDB재설계` — viz DB 전면 재설계 + UI 2페이지 구조 (12태스크, 92 tests, 87.9/100)

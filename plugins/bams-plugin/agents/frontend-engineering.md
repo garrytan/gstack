@@ -1,7 +1,7 @@
 ---
 name: frontend-engineering
 description: 프론트엔드 엔지니어링 에이전트 — UI 컴포넌트 구현, 클라이언트 플로우 제어, 프론트엔드 품질 최적화가 필요할 때 호출
-model: opus
+model: claude-opus-4-7[1m]
 department: engineering-frontend
 disallowedTools: []
 ---

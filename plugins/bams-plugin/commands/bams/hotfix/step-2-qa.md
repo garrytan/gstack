@@ -24,10 +24,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-2-$(date -u +%Y%m%d)" "qa-strategy" "opus" "Step 2: 핫픽스 QA 검증"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-2-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7[1m]" "Step 2: 핫픽스 QA 검증"
 ```
 
-Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
 
 > **Hotfix Step 2 — 핫픽스 회귀 테스트**
 >

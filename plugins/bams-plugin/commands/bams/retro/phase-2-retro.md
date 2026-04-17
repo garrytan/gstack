@@ -28,10 +28,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 Bash로 agent_start를 emit합니다:
 ```bash
 _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1)
-[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "orchestrator-advisor-step3-$(date -u +%Y%m%d)" "pipeline-orchestrator" "opus" "Step 3 advisor: 참여 부서장 결정"
+[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "orchestrator-advisor-step3-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 3 advisor: 참여 부서장 결정"
 ```
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opus"**, **조언자 모드**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"**, **조언자 모드**):
 
 > **조언자 요청 — Phase 2 KPT 참여 부서장 동적 결정**
 >

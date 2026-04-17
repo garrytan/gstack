@@ -34,10 +34,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 Bash로 agent_start를 emit:
 ```bash
 _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1)
-[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "product-analytics-5-$(date -u +%Y%m%d)" "product-analytics" "opus" "Step 5: 정량 평가 (부서장 → specialist 내부 spawn)"
+[ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "product-analytics-5-$(date -u +%Y%m%d)" "product-analytics" "claude-opus-4-7[1m]" "Step 5: 정량 평가 (부서장 → specialist 내부 spawn)"
 ```
 
-Task tool, subagent_type: **"bams-plugin:product-analytics"**, model: **"opus"** — 평가부장이 내부적으로 performance-evaluation, business-kpi를 최대 1회씩 추가 spawn(harness 깊이 2 한도). 위임 메시지는 아래 원본을 따릅니다:
+Task tool, subagent_type: **"bams-plugin:product-analytics"**, model: **"claude-opus-4-7[1m]"** — 평가부장이 내부적으로 performance-evaluation, business-kpi를 최대 1회씩 추가 spawn(harness 깊이 2 한도). 위임 메시지는 아래 원본을 따릅니다:
 
 > **Phase 3 Step 5 — 정량 평가 3에이전트 병렬 실행**
 >

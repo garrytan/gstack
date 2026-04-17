@@ -79,7 +79,7 @@ describe('generateOrgChart', () => {
         {
           department_id: 'engineering',
           department_name: '개발부서',
-          agents: [{ agent_id: 'fe', agent_name: 'FE', model: 'opus' }],
+          agents: [{ agent_id: 'fe', agent_name: 'FE', model: 'claude-opus-4-7[1m]' }],
         },
         {
           department_id: 'qa',

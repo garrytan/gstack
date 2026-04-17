@@ -43,10 +43,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-4-$(date -u +%Y%m%d)" "pipeline-orchestrator" "opus" "Step 4: 5관점 리뷰 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-4-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 4: 5관점 리뷰 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opus"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
 
 > **Phase 3 Step 4 Advisor 호출 — 5관점 코드 리뷰 라우팅 권고**
 >
@@ -72,10 +72,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "opus" "Step 4: 5관점 코드 리뷰"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "qa-strategy-4-$(date -u +%Y%m%d)" "qa-strategy" "claude-opus-4-7[1m]" "Step 4: 5관점 코드 리뷰"
 ```
 
-Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
 
 > **Phase 3 Step 4 — 5관점 병렬 코드 리뷰**
 >
@@ -128,10 +128,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-567-$(date -u +%Y%m%d)" "pipeline-orchestrator" "opus" "Step 5-6-7: QA/성능/보안 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-567-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 5-6-7: QA/성능/보안 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opus"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
 
 > **Phase 3 Step 5-6-7 Advisor 호출 — QA + 성능 + 보안 라우팅 권고**
 >
@@ -160,7 +160,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 **단일 메시지에 2개 Task tool 호출을 묶어** 병렬 spawn합니다:
 
-1. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"** — 브라우저 QA + 보안 감사 (Step 5 + Step 7):
+1. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"** — 브라우저 QA + 보안 감사 (Step 5 + Step 7):
 
 > **Step 5 — 브라우저 QA:**
 > ```
@@ -193,7 +193,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 >
 > QA부장은 automation-qa / defect-triage specialist를 최대 1회 추가 spawn 가능(harness 깊이 2).
 
-2. Task tool, subagent_type: **"bams-plugin:product-analytics"**, model: **"opus"** — 성능 베이스라인 (Step 6):
+2. Task tool, subagent_type: **"bams-plugin:product-analytics"**, model: **"claude-opus-4-7[1m]"** — 성능 베이스라인 (Step 6):
 
 > **Step 6 — 성능 베이스라인:**
 > ```
@@ -241,10 +241,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-8-$(date -u +%Y%m%d)" "pipeline-orchestrator" "opus" "Step 8: CI/CD + 검증→배포 게이트 조언"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-8-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 8: CI/CD + 검증→배포 게이트 조언"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opus"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
 
 > **Phase 3 CI/CD + Phase 3 → Phase 4 Advisor 호출**
 >
@@ -276,10 +276,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-8-$(date -u +%Y%m%d)" "platform-devops" "opus" "Step 8: CI/CD 프리플라이트"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "platform-devops-8-$(date -u +%Y%m%d)" "platform-devops" "claude-opus-4-7[1m]" "Step 8: CI/CD 프리플라이트"
 ```
 
-Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"opus"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
 
 > **CI/CD 프리플라이트 실행 (`/bams:verify`)**
 >
@@ -299,10 +299,10 @@ Advisor 판정이 GO 또는 CONDITIONAL-GO인 경우에 진행. NO-GO이면 미�
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "cross-department-coordinator-8-$(date -u +%Y%m%d)" "cross-department-coordinator" "opus" "Step 8: 검증→배포 핸드오프 조율"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "cross-department-coordinator-8-$(date -u +%Y%m%d)" "cross-department-coordinator" "claude-opus-4-7[1m]" "Step 8: 검증→배포 핸드오프 조율"
 ```
 
-Task tool, subagent_type: **"bams-plugin:cross-department-coordinator"**, model: **"opus"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:cross-department-coordinator"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
 
 > **Phase 3→4 핸드오프 조율**
 >

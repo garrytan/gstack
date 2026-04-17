@@ -30,10 +30,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "resource-optimizer-0-$(date -u +%Y%m%d)" "resource-optimizer" "opus" "Step 0: feature 파이프라인 전략 수립"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "resource-optimizer-0-$(date -u +%Y%m%d)" "resource-optimizer" "claude-opus-4-7[1m]" "Step 0: feature 파이프라인 전략 수립"
 ```
 
-Task tool, subagent_type: **"bams-plugin:resource-optimizer"**, model: **"opus"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:resource-optimizer"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
 
 > **파이프라인 초기화 — feature 파이프라인 전략 수립**
 >

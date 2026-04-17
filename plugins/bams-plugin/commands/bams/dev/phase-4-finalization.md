@@ -27,10 +27,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "executive-reporter-9a-$(date -u +%Y%m%d)" "executive-reporter" "opus" "Step 9a: 성과 집계"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "executive-reporter-9a-$(date -u +%Y%m%d)" "executive-reporter" "claude-opus-4-7[1m]" "Step 9a: 성과 집계"
 ```
 
-Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"opus"** — 메인이 직접 호출:
+Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"claude-opus-4-7[1m]"** — 메인이 직접 호출:
 
 > **Phase 4 마무리 — 성과 집계**
 >
@@ -88,10 +88,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-9b-$(date -u +%Y%m%d)" "pipeline-orchestrator" "opus" "Step 9b: 회고 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-9b-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 9b: 회고 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opus"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
 
 > **Phase 4 Step 9b Advisor 호출 — 회고 참여자 라우팅 권고**
 >
@@ -116,7 +116,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Advisor가 권고한 참여 부서장 목록에 대해, **단일 메시지에 복수 Task tool 호출**로 병렬 spawn합니다. 병렬 호출 전 각 부서장의 agent_start를 일괄 emit합니다.
 
-1. Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"opus"** — 정량 데이터 수집:
+1. Task tool, subagent_type: **"bams-plugin:executive-reporter"**, model: **"claude-opus-4-7[1m]"** — 정량 데이터 수집:
 > 총 소요 시간, Phase별 소요 시간, Step 성공률, 재시도 횟수, 에이전트별 호출 통계, 품질 지표, 이전 3회 대비 트렌드를 수집하여 반환.
 
 2. Task tool, subagent_type: **"bams-plugin:{참여-부서장}"** (Advisor 권고 목록의 각 부서장에 대해 병렬로) — KPT 제출:

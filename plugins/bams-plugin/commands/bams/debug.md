@@ -102,7 +102,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 ### 1b. qa-strategy 부서장 (defect-triage 위임)
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"**):
 
 > **버그 분류 및 재현 모드**로 보고된 버그를 분류하고 재현을 시도합니다.
 >
@@ -167,7 +167,7 @@ defect-triage 결과의 수정 대상 파일에 따라 적절한 에이전트를
 - API/DB/비즈니스 로직 관련 파일 -> backend-engineering
 - 양쪽 모두 -> 두 에이전트를 병렬 실행
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:frontend-engineering"** 또는 **"bams-plugin:backend-engineering"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:frontend-engineering"** 또는 **"bams-plugin:backend-engineering"**, model: **"claude-opus-4-7[1m]"**):
 
 > **버그 수정 모드**로 버그를 최소 범위로 수정합니다.
 >
@@ -206,7 +206,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 프로젝트에 테스트 러너가 있으면 Bash로 실행. 실패 시 사용자에게 수정/조사/스킵 선택.
 
 **3b — 회귀 테스트 생성:**
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"**):
 
 > **회귀 테스트 모드**로 버그 수정에 대한 회귀 테스트를 작성합니다.
 >

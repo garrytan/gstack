@@ -303,7 +303,7 @@ DB가 활성화되면 이후 파이프라인 커맨드(`/bams:dev`, `/bams:featu
 **두 에이전트를 동시에 실행합니다:**
 
 **Step 6 — product-strategy 에이전트 (opus):**
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:product-strategy"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:product-strategy"**, model: **"claude-opus-4-7[1m]"**):
 
 > **프로젝트 초기 분석 모드**로 이 프로젝트의 전체 구조를 분석합니다.
 >
@@ -317,7 +317,7 @@ DB가 활성화되면 이후 파이프라인 커맨드(`/bams:dev`, `/bams:featu
 > 반환: 아키텍처 요약, 모듈 맵, 컨벤션 목록, 권장사항
 
 **Step 7 — platform-devops 에이전트 (opus):**
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:platform-devops"**, model: **"claude-opus-4-7[1m]"**):
 
 > **배포 환경 점검 모드**로 현재 프로젝트의 인프라/배포 상태를 확인합니다.
 >

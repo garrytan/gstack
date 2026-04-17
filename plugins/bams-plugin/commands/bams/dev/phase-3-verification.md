@@ -28,10 +28,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 Bash로 agent_start emit:
 ```bash
-_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-7-$(date -u +%Y%m%d)" "pipeline-orchestrator" "opus" "Step 7: 검증 Phase 조언 요청"
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "pipeline-orchestrator-7-$(date -u +%Y%m%d)" "pipeline-orchestrator" "claude-opus-4-7[1m]" "Step 7: 검증 Phase 조언 요청"
 ```
 
-Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"opus"** — **조언자 모드**:
+Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, model: **"claude-opus-4-7[1m]"** — **조언자 모드**:
 
 > **Phase 3 Step 7 Advisor 호출 — 3관점 리뷰 + 성과 평가 라우팅 권고**
 >
@@ -60,7 +60,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 
 **단일 메시지에 2개 Task tool 호출을 묶어** 병렬 spawn합니다:
 
-1. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"opus"**:
+1. Task tool, subagent_type: **"bams-plugin:qa-strategy"**, model: **"claude-opus-4-7[1m]"**:
 > ```
 > task_description: "3관점(정확성, 보안+성능, 코드품질) 병렬 리뷰를 실행하라"
 > input_artifacts:
@@ -79,7 +79,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 > - 관점 2: 보안 + 성능
 > - 관점 3: 코드 품질 + 유지보수성
 
-2. Task tool, subagent_type: **"bams-plugin:product-analytics"**, model: **"opus"**:
+2. Task tool, subagent_type: **"bams-plugin:product-analytics"**, model: **"claude-opus-4-7[1m]"**:
 > ```
 > task_description: "구현 결과의 성능과 비즈니스 지표를 평가하라"
 > input_artifacts:

@@ -57,7 +57,7 @@ board.md의 `## Backlog`에 있는 태스크 수를 셉니다. 0이면:
 
 **3. project-governance 에이전트로 스프린트 플래닝:**
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"claude-opus-4-7[1m]"**):
 
 > **스프린트 플래닝 모드**로 백로그 태스크를 분석하고 스프린트 구성을 제안합니다.
 >
@@ -91,7 +91,7 @@ board.md의 `## Backlog`에 있는 태스크 수를 셉니다. 0이면:
 
 **2. project-governance 에이전트로 상태 분석:**
 
-서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"opus"**):
+서브에이전트 실행 (Task tool, subagent_type: **"bams-plugin:project-governance"**, model: **"claude-opus-4-7[1m]"**):
 
 > **스프린트 상태 분석 모드**
 > **스프린트 파일**: [활성 스프린트 내용]
