@@ -29,6 +29,36 @@
 
 **참고**: `[1m]` 1M 컨텍스트 서픽스는 실제 입력이 200K를 초과하는 경우에만 사용. 대부분의 부서장 호출은 40K 이하이므로 기본 200K 컨텍스트로 충분하며 `[1m]`은 latency 손해만 발생. 본 정책은 기본적으로 `[1m]` 서픽스 미사용.
 
+## 환경 요구사항
+
+harness v2.1.97에서 `xW()` display/집계 정규화 함수가 `claude-opus-4-7`을 `includes("claude-opus-4")` 규칙으로 매칭하여 `"opus"`로 다운그레이드 기록하는 알려진 현상이 있다. API 실행 경로(`$5()`)는 영향 없으므로 실제 모델은 정상 실행되나, 로그/viz/비용 집계에 부정확한 모델명이 저장된다.
+
+### 해결책 (개인 환경 설정)
+
+`~/.claude/settings.json`의 `env` 섹션에 다음 설정:
+```json
+{
+  "env": {
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-7"
+  }
+}
+```
+
+`UN()` 함수가 이 env var를 최우선 참조 → display/집계 경로도 `claude-opus-4-7`로 통일.
+
+### 팀/CI 전파 주의
+
+위 설정은 개인 홈 디렉토리 파일이므로 Git 추적 대상 아님. 다음 상황에서 재설정 필요:
+- 신규 개발자 합류 시
+- OS 재설치 또는 `~/.claude/` 초기화 시
+- CI/CD 환경에서 에이전트 실행 시 (CI 환경변수로 `ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-7` 설정)
+
+향후 옵션: 프로젝트 루트 `.claude/settings.json`로 이동하면 Git 추적 + 팀 자동 전파 가능. harness가 프로젝트별 settings를 지원하므로 마이그레이션 시 본 문서 업데이트 필요.
+
+### 검증 방법
+
+설정 적용 후 Claude Code 재시작 → 샘플 파이프라인 1회 실행 → `~/.bams/artifacts/agents/YYYY-MM-DD.jsonl`에서 `model` 필드가 `"claude-opus-4-7"`로 기록되는지 확인.
+
 ## 에이전트별 모델 매핑 (27개)
 
 ### 기획부 (Product)
