@@ -8,6 +8,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
+| [`/plan-devex-review`](#plan-devex-review) | **Developer Advocate** | Interactive developer experience plan review. Scores onboarding, docs, API ergonomics, error messages, upgrade paths, and community touchpoints before you build. |
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
 | [`/review`](#review) | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
 | [`/investigate`](#investigate) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
@@ -23,10 +24,14 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/cso`](#cso) | **Chief Security Officer** | OWASP Top 10 + STRIDE threat modeling security audit. Scans for injection, auth, crypto, and access control issues. |
 | [`/document-release`](#document-release) | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
+| [`/devex-review`](#devex-review) | **Developer Experience Auditor** | Live DX audit. Actually runs the getting-started flow, times onboarding, inspects CLI help and docs, and compares reality against plan-stage expectations. |
+| [`/health`](#health) | **Code Quality Dashboard** | Runs the project's type checker, linter, tests, dead-code scan, and shell linter, then rolls them into a weighted health score with trend tracking. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
+| [`/pair-agent`](#pair-agent) | **Remote Pairing** | Pair another AI agent with your browser. Generates a setup key and scoped tab so Codex, OpenClaw, Hermes, Cursor, or any HTTP-capable agent can collaborate live. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
+| [`/checkpoint`](#checkpoint) | **Session Snapshot** | Save and resume working state. Captures git state, decisions made, and remaining work so long-running sessions survive branch switches and handoffs. |
 | | | |
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
@@ -278,6 +283,50 @@ Claude: Initial Design Rating: 4/10
 ```
 
 When you re-run it, sections already at 8+ get a quick pass. Sections below 8 get full treatment. For live-site visual audits post-implementation, use `/design-review`.
+
+---
+
+## `/plan-devex-review`
+
+This is my **developer advocate reviewing the plan before the product exists**.
+
+Most teams talk about developer experience after they ship. The docs are already confusing, the error messages are already vague, the setup takes too long, and someone says "we should do a DX pass." `/plan-devex-review` moves that conversation forward to the planning stage, where the fixes are cheap.
+
+It looks at the whole developer journey: getting started, local setup, API ergonomics, naming, error messages, upgrade path, observability, docs structure, examples, and the moments where a new user decides whether your tool feels sharp or annoying. It forces you to name the developer persona you are serving and to define what "time to first working" should actually mean.
+
+### Three modes
+
+- **DX EXPANSION** — find the differentiated onboarding or tooling moves that could become a real product advantage.
+- **DX POLISH** — assume the scope is right and make every touchpoint clearer, faster, and harder to misuse.
+- **DX TRIAGE** — focus only on the most painful bottlenecks and missing basics.
+
+It also compares your planned experience against competitors or adjacent tools when that helps calibrate the bar. The output is not generic advice like "write better docs." It is concrete product feedback: missing quickstart, weak CLI help, unclear auth flow, no copy-paste example, hidden prerequisites, upgrade path not designed.
+
+### Example
+
+```
+You:   /plan-devex-review
+
+Claude: Initial DX Rating: 5.8/10
+
+        "The API design is mostly coherent, but the plan assumes users
+         already understand your auth model. There is no defined first
+         successful request, no copy-paste example, and no error-message
+         strategy for expired tokens or wrong base URLs."
+
+        Pass 1 (Getting Started): 4/10
+        → Added 5-minute quickstart path with exact prerequisites
+
+        Pass 3 (Error Messages): 3/10
+        → Added user-facing error contract with actionable next steps
+
+        Pass 6 (Upgrade Path): 6/10
+        → Added versioning and migration notes section to the plan
+
+        Overall: 5.8/10 → 8.1/10 after fixes
+```
+
+Run it before you build a CLI, SDK, API, internal platform, or any product other developers have to learn.
 
 ---
 
@@ -798,6 +847,66 @@ It saves a JSON snapshot to `.context/retros/` so the next run can show trends.
 
 ---
 
+## `/devex-review`
+
+This is my **live developer experience audit**.
+
+`/plan-devex-review` scores the plan. `/devex-review` checks reality. It uses the browse tool to actually walk the getting-started flow, read the docs like a new user, inspect CLI help text, click through onboarding, and time how long it takes to reach the first successful result.
+
+That matters because planned DX and real DX diverge constantly. The plan said "3 minutes to first working request." The live docs require finding an API key page, installing two tools, copying an env file that is not documented, and decoding a vague error message. `/devex-review` catches the difference with evidence.
+
+It produces a scorecard with screenshots, timings, and concrete friction points. When a plan-stage review exists, it compares the promised experience against the actual one. That boomerang is the point: not "is the app good in theory," but "does the current onboarding actually feel good when someone tries it cold?"
+
+```
+You:   /devex-review
+
+Claude: Testing docs and onboarding flow...
+
+        Time to first working example: 11m 42s
+        Expected from plan: 4m
+
+        Findings:
+        - Install docs omit `bun` version requirement
+        - CLI help explains flags but not the success path
+        - First auth failure says "invalid credentials" with no recovery step
+        - Quickstart uses an endpoint that 404s on fresh installs
+
+        DX score: 6.4/10
+```
+
+Use it after shipping developer-facing work, or whenever you suspect the onboarding story is drifting from what you intended.
+
+---
+
+## `/health`
+
+This is my **code quality dashboard**.
+
+`/health` does not invent new standards out of thin air. It wraps the quality tools your project already has — type checker, linter, tests, dead-code detector, shell linter, and similar checks — and turns them into one weighted health score so you can see where the repo actually stands.
+
+The value is not just "green or red." It breaks the result down by surface area, shows what was run, records trends over time, and makes it obvious whether a repo is drifting because tests are shrinking, lint is being ignored, or dead code is piling up.
+
+It is especially useful after a big refactor, before a release push, or when you inherit a codebase and want one pass that answers: is this repo healthy, and if not, where is the damage?
+
+```
+You:   /health
+
+Claude: Running quality checks...
+
+        Typecheck: 10/10
+        Lint:      8/10 (14 warnings)
+        Tests:     7/10 (2 failures, low regression coverage)
+        Dead code: 6/10 (11 unused exports)
+        Shell:    10/10
+
+        Composite health score: 8.0/10
+        Trend: down 0.6 from last run
+```
+
+If a project lacks one of the expected tools, `/health` reports the gap instead of pretending the repo is clean.
+
+---
+
 ## `/browse`
 
 This is my **QA engineer mode**.
@@ -900,6 +1009,34 @@ Claude: Imported 12 cookies for github.com from Comet.
 
 ---
 
+## `/pair-agent`
+
+This is my **remote collaboration mode**.
+
+Sometimes one agent should keep driving while another specializes. `/pair-agent` creates that bridge. It generates a setup key and the connection instructions for a second AI agent, then gives that remote agent a scoped browser tab with controlled permissions.
+
+The useful part is not novelty, it is separation of labor. One agent can keep the main implementation context while the paired agent explores a page, reproduces a bug, gathers screenshots, or helps with a flow that benefits from another model or another toolchain.
+
+It works with OpenClaw, Hermes, Codex, Cursor, or any other agent that can make the required HTTP requests. The access is intentionally scoped: the remote agent gets its own tab and the permission level you choose, instead of inheriting everything in your session.
+
+```
+You:   /pair-agent
+
+Claude: Setup key generated.
+
+        Remote agent instructions:
+        1. Open the pairing endpoint
+        2. Paste this key
+        3. Browser access will attach to a dedicated tab
+
+        Default scope: read/write in the paired tab
+        Admin scope: available if explicitly requested
+```
+
+Use it when you want true browser pairing instead of trying to serialize a complex live flow through chat.
+
+---
+
 ## `/autoplan`
 
 This is my **review autopilot mode**.
@@ -952,6 +1089,38 @@ Claude: 23 learnings for this project (14 high confidence, 6 medium, 3 low)
         - "auth middleware uses JWT" — auth/middleware.ts was deleted
         [Prune these? Y/N]
 ```
+
+---
+
+## `/checkpoint`
+
+This is my **save-and-resume mode**.
+
+Long sessions get interrupted. You switch branches, hand a task to Conductor, come back the next day, or simply lose the thread. `/checkpoint` captures the working state so the next session can resume from something better than memory.
+
+It records the git state, the key decisions already made, what remains to do, and any important context that would otherwise disappear into chat history. That makes it useful both for solo work and for handoffs between parallel workspaces.
+
+The skill is intentionally simple: save a checkpoint when context is hot, resume from it when you return, and stop wasting time reconstructing what you had already figured out.
+
+```
+You:   /checkpoint
+
+Claude: Saved checkpoint on `fix/auth-timeout`.
+
+        Included:
+        - current branch and dirty files
+        - 3 decisions made
+        - remaining tasks
+        - blockers and follow-ups
+
+You:   /checkpoint resume
+
+Claude: Restored last checkpoint.
+        You were debugging token refresh on Safari.
+        Remaining work: write regression test, verify logout path, open PR.
+```
+
+Use it before breaks, before branch switches, or whenever a task is complex enough that "I'll remember" is probably false.
 
 ---
 
