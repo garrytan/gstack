@@ -673,29 +673,83 @@
       <div class="eyebrow">Same /review · same patch · watch difference</div>
       <h2>Before / After.</h2>
       <p>
-        Default verbose vs caveman mode. Scroll sideways. Math speak for itself.
+        Default verbose left. Caveman mode right. Same findings, 82% less prose.
       </p>
 
-      <div class="compare-carousel" role="region" aria-label="Review output comparison" tabindex="0">
-        <figure class="compare-card">
-          <img src="images/sidebyside-review.png" alt="Side-by-side /review output: default verbose (left) vs CaveStack caveman mode (right). Caveman version is 82% fewer characters."
-               width="1280" height="720" loading="eager" decoding="async">
-          <figcaption>/review — 82% fewer characters, same findings.</figcaption>
-        </figure>
-        <figure class="compare-card">
-          <img src="images/github-2013.png" alt="Screenshot of verbose GitHub-style code review comment, long prose, buried recommendation"
-               width="1398" height="400" loading="lazy" decoding="async">
-          <figcaption>Verbose review. Prose wall. Recommendation buried.</figcaption>
-        </figure>
-        <figure class="compare-card">
-          <img src="images/github-2026.png" alt="Screenshot of caveman-compressed code review: tight bullet list, line numbers, exact diff suggestion"
-               width="1406" height="374" loading="lazy" decoding="async">
-          <figcaption>Caveman review. File:line. Exact fix. Done.</figcaption>
-        </figure>
+      <div class="compare-split" role="region" aria-label="Review output comparison">
+        <div class="compare-pane pane-verbose">
+          <div class="pane-label">
+            <span class="pane-dot"></span>
+            Default verbose
+          </div>
+          <pre># patch /review
+
+Analyzing your changes...
+
+I'll review the changes in auth/middleware.ts and provide
+comprehensive feedback on the implementation.
+
+## Summary
+
+This pull request modifies the authentication middleware
+to add token expiry validation. The changes look generally
+good, but I have several observations and recommendations
+that I'd like to share with you.
+
+## Detailed Analysis
+
+### Finding 1: Token Expiry Check (Medium)
+
+In auth/middleware.ts:47, the token expiry comparison
+uses a strict less-than operator (&lt;) when it should
+use less-than-or-equal-to (&lt;=). This means tokens
+that expire at exactly the current timestamp will
+incorrectly be treated as valid.
+
+Recommendation: Change the comparison operator from
+&lt; to &lt;= to ensure tokens are invalidated at exactly
+their expiry time.
+
+### Finding 2: Missing Error Context (Low)
+
+The error response at line 52 returns a generic 401
+without diagnostic information. Consider adding a
+"reason" field to the error response.
+
+## Overall Assessment
+
+The changes demonstrate a solid understanding of the
+authentication flow. With the operator fix applied,
+this should be ready to merge.</pre>
+        </div>
+
+        <div class="compare-pane pane-caveman">
+          <div class="pane-label">
+            <span class="pane-dot amber"></span>
+            CaveStack · caveman mode
+          </div>
+          <pre># patch /review
+
+## Findings: 2
+
+1. auth/middleware.ts:47 — token expiry check
+   use &lt; not &lt;=. Token at exact expiry time
+   passes validation. Fix:
+
+   - if (token.exp &lt; now) {
+   + if (token.exp &lt;= now) {
+
+2. auth/middleware.ts:52 — 401 response
+   missing reason field. Add:
+
+   { error: "unauthorized", reason: "token_expired" }
+
+Status: Fix #1, merge.</pre>
+        </div>
       </div>
 
       <div class="compare-meta">
-        <span>drag / swipe / arrow keys →</span>
+        <span>187 fewer words · 82% less · same findings</span>
       </div>
     </div>
   </section>

@@ -302,71 +302,86 @@ code, pre, .mono {
 .install-copy:focus-visible { outline: 2px solid var(--heading); outline-offset: -4px; }
 .install-copy[data-copied="1"] { background: var(--term-green); color: var(--base); }
 
-/* ───────── DEMO / REVIEW-COMPARISON CAROUSEL ───────── */
+/* ───────── DEMO / REVIEW COMPARISON (split pane) ───────── */
 .demo {
   background: var(--surface);
   border-top: var(--line);
   border-bottom: var(--line);
 }
-.compare-carousel {
+.compare-split {
   margin-top: 32px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  scrollbar-width: thin;
-  scrollbar-color: var(--cave-brown) transparent;
-  padding: 8px 4px 20px;
-  -webkit-overflow-scrolling: touch;
-  border-radius: var(--radius-lg);
-}
-.compare-carousel::-webkit-scrollbar { height: 8px; }
-.compare-carousel::-webkit-scrollbar-track { background: transparent; }
-.compare-carousel::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
-.compare-carousel::-webkit-scrollbar-thumb:hover { background: var(--cave-brown); }
-.compare-carousel:focus-visible {
-  outline: 2px solid var(--amber);
-  outline-offset: 4px;
-}
-.compare-card {
-  flex: 0 0 auto;
-  scroll-snap-align: center;
-  width: min(92vw, 980px);
   background: #0A0A0A;
   border: var(--line);
   border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: 0 30px 80px -20px rgba(0,0,0,0.6);
-  margin: 0;
+}
+.compare-pane {
   display: flex;
   flex-direction: column;
+  min-height: 420px;
+  max-height: 620px;
+  background: #0A0A0A;
+  border-right: var(--line);
 }
-.compare-card img {
-  width: 100%;
-  height: auto;
-  display: block;
-  background: #000;
-}
-.compare-card figcaption {
+.compare-pane:last-child { border-right: 0; }
+.pane-verbose { background: #0C0C0C; }
+.pane-caveman { background: #0F0F0F; }
+.pane-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 14px 20px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-  color: var(--text-dim);
-  border-top: var(--line);
-  background: #0E0E0E;
-}
-.compare-meta {
-  margin-top: 12px;
+  border-bottom: var(--line);
+  background: #141414;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--text-dim);
-  letter-spacing: 0.08em;
+}
+.pane-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.pane-dot.amber { background: var(--amber); box-shadow: 0 0 12px rgba(245,158,11,0.6); }
+.compare-pane pre {
+  flex: 1;
+  padding: 20px;
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.pane-caveman pre { color: var(--heading); }
+.compare-pane pre::-webkit-scrollbar { width: 6px; }
+.compare-pane pre::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.compare-meta {
+  margin-top: 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--amber);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   text-align: right;
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .compare-split { grid-template-columns: 1fr; }
+  .compare-pane { border-right: 0; border-bottom: var(--line); min-height: 320px; max-height: 480px; }
+  .compare-pane:last-child { border-bottom: 0; }
+  .compare-pane pre { font-size: 12.5px; padding: 16px; }
 }
 
 /* ───────── SKILLS GRID ───────── */
