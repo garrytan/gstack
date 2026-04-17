@@ -8,9 +8,7 @@ description: |
   fixes anything. Use when asked to "just report bugs", "qa report only", or
   "test but don't fix". For the full test-fix-verify loop, use /qa instead.
   Proactively suggest when the user wants a bug report without any code changes. (gstack)
-voice-triggers:
-  - "bug report"
-  - "just check for bugs"
+  Voice triggers (speech-to-text aliases): "bug report", "just check for bugs".
 allowed-tools:
   - Bash
   - Read

@@ -18,7 +18,6 @@ allowed-tools:
   - Agent
   - AskUserQuestion
   - WebSearch
-sensitive: true
 triggers:
   - ship it
   - create a pr

@@ -7,8 +7,7 @@ description: |
   The sidebar shows a live activity feed and chat. Anti-bot stealth built in.
   Use when asked to "open gstack browser", "launch browser", "connect chrome",
   "open chrome", "real browser", "launch chrome", "side panel", or "control my browser".
-voice-triggers:
-  - "show me the browser"
+  Voice triggers (speech-to-text aliases): "show me the browser".
 triggers:
   - open gstack browser
   - launch chromium

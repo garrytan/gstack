@@ -11,9 +11,7 @@ description: |
   automatically", or "make the decisions for me".
   Proactively suggest when the user has a plan file and wants to run the full review
   gauntlet without answering 15-30 intermediate questions. (gstack)
-voice-triggers:
-  - "auto plan"
-  - "automatic review"
+  Voice triggers (speech-to-text aliases): "auto plan", "automatic review".
 benefits-from: [office-hours]
 triggers:
   - run all reviews
