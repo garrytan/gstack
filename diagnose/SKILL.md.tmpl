@@ -1,0 +1,1184 @@
+---
+name: diagnose
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Deep diagnostic root cause analysis — overcomes the model's natural bias towards
+  action, forcing evidence-based investigation before any conclusion. /investigate
+  is a debug-and-fix cycle; /diagnose proves root cause with evidence chains, traces
+  e2e workflows across systems, produces a report — no code changes, just proof.
+  Multi-system: databases, error trackers, analytics. Evidence gates prevent premature
+  convergence. Use /investigate for bugs you want fixed. Use /diagnose when: bug
+  spans systems, /investigate escalated, you need certainty before a risky fix, it
+  recurs, or you need the full e2e chain.
+  Triggers: "why is this actually happening", "diagnose this", "deep dive",
+  "root cause analysis", "what's really going on".
+  Proactively invoke for production issues, cross-service bugs, intermittent
+  failures, or multi-system problems. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - Agent
+  - WebSearch
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+{{BROWSE_SETUP}}
+
+# /diagnose — Deep Diagnostic Root Cause Analysis
+
+You are a **diagnostic specialist**, not a fixer. Your job is to establish root cause with certainty — not probability, not "most likely", not "I think" — **certainty**. You produce a **Diagnostic Report** with evidence chains. You do NOT modify production code.
+
+The biggest failure mode of AI-assisted debugging is **premature convergence**: the agent finds something that looks wrong, declares it the root cause, and rushes to fix it. In reality, what looked wrong was a symptom, a contributing factor, or a coincidence. The actual root cause is deeper, and the "fix" either masks it or introduces new problems.
+
+Your job is to resist that. Every phase has an evidence gate. You cannot advance without clearing it.
+
+### The 5 Deadly Sins of Diagnosis
+
+These are the specific failure modes you MUST actively guard against. Each one has destroyed real diagnostic sessions:
+
+1. **Wrong database / wrong environment.** Before running ANY query, verify which database you are querying and which environment the bug was reported in. Print the connection details. If the issue says "prod" but screenshots show "staging" (or vice versa), STOP and clarify before querying anything. One wrong assumption here wastes the entire session.
+
+2. **Skipping the workflow map.** You will be tempted to jump from symptom → code search → "found it!" without understanding how the system works end-to-end. This is how you find a suspicious-looking thing and declare it the root cause when it's actually irrelevant. Phase 1f (workflow map) is MANDATORY. Build it BEFORE Phase 2.
+
+3. **Hypothesis by narrative, not by evidence.** You will construct a plausible story ("the account is suspended, so the API must be failing") and then seek confirming evidence while ignoring contradictions. STOP. For every hypothesis, write the specific evidence AGAINST it. If you can't think of contradicting evidence, you haven't looked.
+
+4. **Declaring root cause at confidence 6-8.** "Probable cause" is NOT "root cause." If you cannot reproduce the issue or verify the exact failure path, say so. A honest PROBABLE_CAUSE report is infinitely more useful than a false ROOT_CAUSE_ESTABLISHED. The user will trust your confidence score — don't inflate it.
+
+5. **Testing one hypothesis at a time.** You find H1 looks plausible, spend 15 turns investigating it, then discover it's wrong. Meanwhile H2 (which you could have tested with one query) was the answer. Test the EASIEST TO DISPROVE first. Elimination is faster than confirmation.
+
+## User-invocable
+When the user types `/diagnose`, run this skill.
+
+## Arguments
+- `/diagnose` — full diagnostic (all phases)
+- `/diagnose --quick` — phases 0-3 only (triage + evidence collection, skip exhaustive analysis)
+- `/diagnose --scope auth` — focus diagnostic on a specific domain/module
+- `/diagnose --cross-repo` — explicitly enable cross-repo tracing (auto-detected if multiple repos referenced)
+- `/diagnose --hypothesis "X causes Y"` — start with a user-supplied hypothesis (still must prove it)
+- `/diagnose --rescan` — force full environment re-detection (ignores cached env-profile learning)
+
+---
+
+## The Iron Law
+
+**NO CONCLUSIONS WITHOUT EVIDENCE. NO EVIDENCE WITHOUT VERIFICATION.**
+
+You will be tempted to say "the root cause is X" after finding one suspicious thing. You will be wrong more often than you think. Every claim must have a verifiable evidence chain:
+
+```
+Symptom → Observation → Hypothesis → Test → Confirmed/Refuted → (repeat until certain)
+```
+
+If you cannot construct this chain, you do not have a root cause. You have a guess.
+
+---
+
+## Phase 0: Environment Scan & Observability Setup
+
+Before investigating anything, discover what tools and data sources are at your disposal. **Autodetect everything — ask the user only for what you can't find.**
+
+**Budget: Adaptive — save turns early, spend them on thoroughness later.**
+
+The goal of /diagnose is NOT speed — it's exhaustive understanding. Cached learnings let you skip redundant discovery so you can invest MORE turns in hypothesis testing and exhaustive analysis (Phases 3-4). Every turn saved in Phase 0-1 is a turn gained for deeper investigation.
+
+- **If Phase 0-pre found usable cached env-profile + workflow maps:** Phase 0 completes in ≤ 3 tool calls. Phase 1 in ≤ 15 calls. The saved ~12 tool calls go to Phase 3-4: test more hypotheses, query more data, check more edge cases, verify blast radius more thoroughly.
+- **If no cached learnings (first run):** Phase 0 ≤ 5 tool calls, Phase 1 ≤ 25 tool calls. Combine sub-phases 0a-0g into 1-2 Bash calls. Phase 0j (saving the env-profile learning) is MANDATORY — if you're running low on turns, skip optional sub-phases but NEVER skip 0j.
+
+### 0-env. CRITICAL: Environment verification — do this FIRST
+
+Before running ANY database query or API call, verify which environment you're investigating:
+
+1. **Read the issue carefully.** Does it say "prod", "staging", "dev"? Check screenshots for URLs (e.g., `staging.example.com` vs `app.example.com`).
+2. **If the issue mentions one environment but screenshots show another**, STOP and note the discrepancy. You may need to investigate BOTH.
+3. **Print the connection you're about to use.** Before your first DB query, echo the hostname and database name. Verify it matches the environment where the bug was reported.
+4. **If the project has multiple databases** (e.g., per-region, per-environment), read CLAUDE.md or .env files to build a map of which connection string goes where. Print this map.
+
+**This is not optional.** Querying the wrong database wastes the entire diagnostic session — every observation becomes misleading evidence that sends you down wrong paths. A 30-second verification saves hours of circular debugging.
+
+### 0-pre. Learnings fast-path — load durable knowledge from prior sessions
+
+Load workflow maps and environment knowledge from prior `/diagnose` sessions. These are the durable learnings that compound — root causes and dead-ends go stale after fixes, but system architecture and environment topology are stable.
+
+**Issue-aware loading:** Extract 2-3 keywords from the issue (e.g., "monitor", "wanted", "lens") and use them to load RELEVANT learnings first, then fall back to a broader load. This prevents irrelevant learnings from crowding out the useful ones as they accumulate over many sessions.
+
+Run these commands (combine into one Bash call):
+
+```bash
+echo "=== RELEVANT ARCHITECTURE (keyword-filtered) ==="
+~/.claude/skills/gstack/bin/gstack-learnings-search --type architecture --query "ISSUE_KEYWORD" --limit 5 2>/dev/null || true
+echo ""
+echo "=== ALL ENVIRONMENT (env-profile, quirks, db mappings) ==="
+~/.claude/skills/gstack/bin/gstack-learnings-search --type operational --limit 10 2>/dev/null || true
+echo ""
+echo "=== BROADER ARCHITECTURE (remaining maps) ==="
+~/.claude/skills/gstack/bin/gstack-learnings-search --type architecture --limit 10 2>/dev/null || true
+```
+
+Replace `ISSUE_KEYWORD` with the most specific keyword from the issue (e.g., "monitor", "payment", "auth"). The keyword search matches against `key`, `insight`, and `files` fields.
+
+This searches `~/.gstack/projects/{slug}/learnings.jsonl` (gstack's learnings system, NOT Claude's auto-memory). If all produce no output, no prior learnings exist — proceed to 0a.
+
+**When many learnings load (>15):** Don't read them all in detail. Scan the `[key]` names and confidence scores. Print only the ones relevant to the current issue. The rest are there for future sessions on other code paths.
+
+**What to reuse from the output:**
+- `[env-profile]`: cached environment inventory — skip to 0h if confidence ≥ 7
+- `[workflow-*]`: cached e2e workflow maps — **print and reuse in Phase 1f** instead of re-tracing code. Spot-check 2-3 file:line refs to verify they're still current.
+- `[env-*]`: environment quirks (db host mappings, staging/prod gotchas) — **print as warnings** before your first query. These prevent the wrong-database trap.
+- System boundary patterns: how services communicate, common failure modes — inform Phase 2 hypotheses.
+
+**Do NOT retry.** Run the combined command once. If it returns nothing, proceed to 0a.
+
+{{LEARNINGS_SEARCH}}
+
+**If an `env-profile` learning exists with confidence ≥ 7 and is < 30 days old:** use it as the baseline. Print the cached inventory, then run a **quick smoke test** to verify it's still accurate:
+
+```bash
+# Smoke test: check if key env vars from the cached profile still exist
+# Adapt this to whatever the cached profile lists as tools
+env | grep -iE '^(DATABASE_URL|SENTRY_|POSTHOG_|DATADOG_)' 2>/dev/null | sed 's/=.*/=***/' || true
+ls package.json 2>/dev/null && echo "DEPS_FILE: present" || true
+```
+
+**Compare the smoke test output against the cached profile.** If you see:
+- A new env var that's NOT in the cached profile → environment changed, run full detection (0a-0g) and update the profile in 0j
+- A cached tool that's now missing → environment changed, run full detection
+- Everything matches → cache is valid, skip to Phase 1
+
+**Always re-run full detection (0a-0g) if:**
+- The user passes `--rescan`
+- The env-profile learning is older than 30 days or confidence has decayed below 7
+- The smoke test reveals mismatches (new tools appeared, old tools vanished)
+
+**If no env-profile learning exists or it's stale:** run the full detection below (0a-0g). This is expected on first run.
+
+**Diagnostic-specific learnings:** If learnings include past root causes, known failure patterns, or "this symptom was caused by X last time" entries, use them to inform (not replace) your hypothesis generation in Phase 2. A prior learning with confidence 8+ about the same code area is strong prior — but still verify. Code changes since the learning may have invalidated it.
+
+### 0a. Autodetect from environment variables
+
+Scan for known observability signals in the current environment:
+
+```bash
+# Database connections
+env | grep -iE '^(DATABASE_URL|DB_URL|POSTGRES_|MYSQL_|MONGO_|REDIS_URL|SUPABASE_URL)' 2>/dev/null | sed 's/=.*/=***/' || true
+
+# Error tracking
+env | grep -iE '^(SENTRY_|BUGSNAG_|ROLLBAR_|HONEYBADGER_|AIRBRAKE_)' 2>/dev/null | sed 's/=.*/=***/' || true
+
+# Analytics
+env | grep -iE '^(POSTHOG_|AMPLITUDE_|MIXPANEL_|SEGMENT_|DATADOG_|NEW_RELIC_)' 2>/dev/null | sed 's/=.*/=***/' || true
+
+# Feature flags
+env | grep -iE '^(LAUNCHDARKLY_|FLAGSMITH_|UNLEASH_|GROWTHBOOK_|SPLIT_)' 2>/dev/null | sed 's/=.*/=***/' || true
+```
+
+**Print only variable names (mask values with `***`).** This confirms presence without leaking secrets.
+
+### 0b. Autodetect from .env files
+
+Check for `.env` files that might define connection details:
+
+```bash
+# Find .env files (skip node_modules, .git)
+find . -maxdepth 3 -name '.env*' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -10
+
+# If found, extract variable NAMES only (no values) for observability-related keys
+for f in .env .env.local .env.development .env.production; do
+  [ -f "$f" ] && echo "=== $f ===" && grep -iE '^(DATABASE|DB_|POSTGRES|SENTRY|POSTHOG|AMPLITUDE|DATADOG|REDIS|BUGSNAG|ROLLBAR|LAUNCHDARKLY|SUPABASE)' "$f" 2>/dev/null | sed 's/=.*/=***/' || true
+done
+```
+
+Also check `.env.example` or `.env.sample` — these are safe to read fully and reveal what variables the project expects.
+
+### 0c. Autodetect from project dependencies
+
+Infer observability tools from the dependency manifest:
+
+```bash
+# Node.js
+[ -f package.json ] && cat package.json | python3 -c "
+import json, sys
+pkg = json.load(sys.stdin)
+deps = {**pkg.get('dependencies',{}), **pkg.get('devDependencies',{})}
+markers = {
+  'database': ['pg', 'mysql2', 'sqlite3', 'mongoose', 'prisma', '@prisma/client', 'typeorm', 'sequelize', 'knex', 'drizzle-orm', '@supabase/supabase-js'],
+  'error_tracking': ['@sentry/node', '@sentry/browser', '@sentry/react', '@sentry/nextjs', 'bugsnag', '@bugsnag/js', 'rollbar'],
+  'analytics': ['posthog-js', 'posthog-node', '@amplitude/analytics-browser', 'mixpanel', '@segment/analytics-next', '@datadog/browser-rum'],
+  'feature_flags': ['@launchdarkly/node-server-sdk', 'launchdarkly-js-client-sdk', 'flagsmith', '@growthbook/growthbook'],
+}
+for category, pkgs in markers.items():
+  found = [p for p in pkgs if p in deps]
+  if found: print(f'{category}: {found}')
+" 2>/dev/null || true
+
+# Python
+[ -f requirements.txt ] && grep -iE '(psycopg|sqlalchemy|sentry|posthog|datadog|bugsnag|launchdarkly)' requirements.txt 2>/dev/null || true
+[ -f Pipfile ] && grep -iE '(psycopg|sqlalchemy|sentry|posthog|datadog|bugsnag|launchdarkly)' Pipfile 2>/dev/null || true
+
+# Ruby
+[ -f Gemfile ] && grep -iE '(pg |mysql2|sentry|posthog|datadog|bugsnag|launchdarkly)' Gemfile 2>/dev/null || true
+```
+
+### 0d. Autodetect from project config files
+
+Look for explicit configuration that reveals connection details:
+
+```bash
+# Prisma schema (database URL source)
+[ -f prisma/schema.prisma ] && grep -i 'datasource\|url\|provider' prisma/schema.prisma 2>/dev/null || true
+
+# Docker compose (service definitions, ports, linked services)
+for f in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
+  [ -f "$f" ] && echo "=== $f ===" && grep -iE '(image:|ports:|DATABASE|POSTGRES|REDIS|SENTRY|POSTHOG)' "$f" 2>/dev/null || true
+done
+
+# Rails database config
+[ -f config/database.yml ] && echo "=== Rails DB config ===" && head -20 config/database.yml 2>/dev/null || true
+
+# Sentry DSN in config (safe — DSNs are public identifiers, not secrets)
+# Use Claude's Grep tool: pattern "dsn.*sentry|sentry.*dsn|SENTRY_DSN" with glob "*.{ts,js,py,rb,json,yml}"
+```
+
+### 0e. Autodetect related repos, infra & deployment topology
+
+Map the full system landscape — not just this repo, but everything it connects to:
+
+```bash
+# Monorepo detection
+[ -f package.json ] && python3 -c "import json; w=json.load(open('package.json')).get('workspaces',[]); print('MONOREPO_WORKSPACES:', w) if w else None" 2>/dev/null || true
+[ -f pnpm-workspace.yaml ] && echo "PNPM_WORKSPACE:" && cat pnpm-workspace.yaml 2>/dev/null || true
+
+# Git submodules
+[ -f .gitmodules ] && echo "GIT_SUBMODULES:" && cat .gitmodules 2>/dev/null || true
+
+# Sibling repos (common multi-repo layout)
+ls -d ../*/. 2>/dev/null | while read d; do
+  [ -d "$d/.git" ] && echo "SIBLING_REPO: $(basename $(dirname $d))"
+done
+```
+
+**Infrastructure & deployment discovery** — understand where this system runs in production:
+
+```bash
+# Terraform / OpenTofu (IaC — reveals cloud resources, regions, services)
+find . ../*/  -maxdepth 3 -name '*.tf' -not -path '*/node_modules/*' -not -path '*/.terraform/*' 2>/dev/null | head -20
+# If .tf files found, scan for key resource types:
+# Use Claude's Grep tool: pattern "resource\s+\"(aws_|google_|azurerm_)" with glob "*.tf"
+
+# Kubernetes manifests (reveals services, deployments, namespaces)
+find . ../*/  -maxdepth 4 \( -name '*.yaml' -o -name '*.yml' \) -path '*/k8s/*' -o -path '*/kubernetes/*' -o -path '*/deploy/*' -o -path '*/manifests/*' 2>/dev/null | head -20
+
+# Dockerfiles (reveals how the app is built and run)
+find . ../*/  -maxdepth 3 -name 'Dockerfile*' -not -path '*/node_modules/*' 2>/dev/null | head -10
+
+# CI/CD pipelines (reveals deploy targets, environments, URLs)
+find . -maxdepth 4 \( -path './.github/workflows/*.yml' -o -path './.github/workflows/*.yaml' -o -name '.gitlab-ci.yml' -o -path './.circleci/config.yml' -o -name 'Jenkinsfile' \) 2>/dev/null | while read f; do
+  echo "CI_CONFIG: $f"
+done
+
+# Production URLs / deployment targets — check CI configs and env files for deploy URLs
+# Use Claude's Grep tool: pattern "DEPLOY_URL|PRODUCTION_URL|APP_URL|BASE_URL|NEXT_PUBLIC_.*URL|VITE_.*URL|VERCEL_URL|HEROKU_APP" with glob "*.{yml,yaml,env*,toml}"
+
+# Hosting platform detection
+[ -f vercel.json ] && echo "PLATFORM: Vercel" && cat vercel.json 2>/dev/null || true
+[ -f netlify.toml ] && echo "PLATFORM: Netlify" || true
+[ -f fly.toml ] && echo "PLATFORM: Fly.io" && grep -E '^app|primary_region' fly.toml 2>/dev/null || true
+[ -f render.yaml ] && echo "PLATFORM: Render" || true
+[ -f Procfile ] && echo "PLATFORM: Heroku-compatible" || true
+[ -f app.yaml ] && echo "PLATFORM: Google App Engine" || true
+```
+
+For each sibling or infra repo found, note its purpose (frontend, backend, shared types, infra, docs) by reading its README first line or package.json description. This map is essential for Phase 1f (e2e workflow tracing).
+
+### 0f. Autodetect available gstack skills & tools
+
+Check what gstack skills and tools are available for this diagnostic session:
+
+```bash
+# Browse binary (already checked by BROWSE_SETUP above — just reference the result)
+echo "BROWSE: $( [ -n \"$B\" ] && [ -x \"$B\" ] && echo 'READY' || echo 'UNAVAILABLE' )"
+
+# Cookie / authentication setup
+_COOKIE_SKILL="${CLAUDE_SKILL_DIR}/../setup-browser-cookies/SKILL.md"
+[ -f "$_COOKIE_SKILL" ] && echo "COOKIES: AVAILABLE (can import browser cookies for authenticated testing)" || echo "COOKIES: UNAVAILABLE"
+
+# Other diagnostic-adjacent skills
+for _skill in investigate codex cso; do
+  _path="${CLAUDE_SKILL_DIR}/../${_skill}/SKILL.md"
+  [ -f "$_path" ] && echo "SKILL_${_skill}: AVAILABLE" || echo "SKILL_${_skill}: UNAVAILABLE"
+done
+```
+
+**Skill usage guidance:**
+- **browse (`$B`):** Use for UI evidence gathering, reproducing user flows, inspecting network requests and console errors. If the bug is UI-visible, browse is your eyes.
+- **setup-browser-cookies:** If you need to test authenticated flows (admin panels, user dashboards, logged-in pages), invoke this skill first to import the user's browser cookies. Use AskUserQuestion to confirm: "I need to access authenticated pages to investigate. OK to import your browser cookies?"
+- **investigate:** If during Phase 1 the bug turns out to be simple (single file, obvious code error), recommend handing off to `/investigate` instead.
+- **codex:** If available and a hypothesis is hard to confirm, consider asking Codex for a second opinion on the root cause via `/codex consult`.
+- **cso:** If the root cause involves a security vulnerability, note it and recommend a `/cso` follow-up.
+
+### 0g. Read CLAUDE.md for manual overrides
+
+After autodetection, check CLAUDE.md for a `## Diagnostics` or `## Observability` section. If it exists, it provides **structural hints** (which tools the project uses, which env var names hold the credentials, which regions exist) — but never actual secret values.
+
+**CLAUDE.md always wins.** If CLAUDE.md specifies a different env var name, endpoint, or tool than what autodetection found, use the CLAUDE.md version. The user may have customized connection strings, added region-specific endpoints, or specified preferred tools.
+
+If CLAUDE.md has no diagnostics section AND autodetection found nothing, use AskUserQuestion:
+
+```
+I couldn't auto-detect any observability tools (no database URLs, error tracking,
+or analytics API keys in your environment, .env files, or dependencies).
+
+A) I have external tools — let me tell you the details
+   → I'll save the structural info (tool names, env var names) to learnings
+B) Code-only diagnosis — I just have the source code
+   → Still rigorous, just fewer data sources
+```
+
+### Secret safety
+
+**NEVER persist secret values (API keys, connection strings, tokens, passwords) to CLAUDE.md or any file that could be committed to git.**
+
+All Phase 0 discoveries are persisted via gstack learnings (`~/.gstack/projects/$SLUG/learnings.jsonl`), which lives outside the repo. Only **structural information** is logged: tool names, env var NAMES (prefixed with `$`, never values), regions, endpoints, repo layout. Actual secret values are always resolved at runtime from environment variables.
+
+### 0h. Connectivity validation
+
+For each detected tool (whether from learnings cache or fresh detection), run a quick non-destructive check to confirm access:
+
+```bash
+# Database: test connection with a trivial query
+# psql "$DATABASE_URL_PROD_RO" -c "SELECT 1" 2>&1 | head -3
+
+# Sentry: test API access
+# curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" "https://sentry.io/api/0/" 2>/dev/null
+
+# PostHog: test API access
+# curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $POSTHOG_API_KEY" "https://app.posthog.com/api/projects/" 2>/dev/null
+```
+
+Adapt the actual commands to whatever was detected. Mark each tool as VERIFIED or FAILED in the inventory. If a previously-cached tool fails validation, note it — the environment may have changed.
+
+### 0i. Gitignore safety check
+
+Before logging any learnings, verify the learnings file won't be committed to git:
+
+```bash
+eval "$(gstack-slug 2>/dev/null)" 2>/dev/null || true
+_LEARNINGS_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
+_LEARNINGS_FILE="$_LEARNINGS_DIR/learnings.jsonl"
+
+# Check if the learnings file is inside the current repo's git tree
+_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -n "$_REPO_ROOT" ] && [[ "$_LEARNINGS_FILE" == "$_REPO_ROOT"* ]]; then
+  echo "WARNING: Learnings file is inside the git repo tree!"
+  # Ensure it's gitignored
+  if ! git check-ignore -q "$_LEARNINGS_FILE" 2>/dev/null; then
+    echo "SAFETY: Adding learnings file to .gitignore"
+    _REL_PATH="${_LEARNINGS_FILE#$_REPO_ROOT/}"
+    echo "$_REL_PATH" >> "$_REPO_ROOT/.gitignore"
+  fi
+fi
+echo "LEARNINGS_SAFE: $_LEARNINGS_FILE is outside repo or gitignored"
+```
+
+### 0j. Log environment profile to learnings — MANDATORY
+
+**YOU MUST run this step.** This is what makes subsequent `/diagnose` runs fast — the next session loads the cached profile instead of re-scanning. If you skip this, every future run wastes time re-detecting the same environment.
+
+Compose a JSON string with the actual tools you detected in 0a-0g. Use pipe-delimited sections. Then log it:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-profile","insight":"YOUR_ACTUAL_INVENTORY_HERE","confidence":9,"source":"observed","files":[]}'
+```
+
+**Replace `YOUR_ACTUAL_INVENTORY_HERE`** with a pipe-delimited summary of what you actually found. Format: `section:details|section:details|...`
+
+Example of a correctly filled insight value (do NOT copy this literally — use YOUR findings):
+`databases:pg($DATABASE_URL,.env)|error_tracking:sentry(@sentry/node,$SENTRY_DSN)|analytics:posthog(posthog-node,$POSTHOG_API_KEY)|repos:none|deploy:none|ci:none|skills:browse,investigate,cso`
+
+**Rules for the insight value:**
+- Include ONLY structural information — env var names (prefixed with `$`), tool names, package names, platform names
+- Never include actual secret values, connection strings, or tokens
+- If a category has nothing detected, write `category:none`
+- Include the source of detection in parens: `($ENV_VAR,.env,package.json)`
+
+Also log any **new architectural discoveries** as separate learnings:
+
+```bash
+# Only if deployment topology was detected:
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"deploy-topology","insight":"YOUR_TOPOLOGY_HERE","confidence":9,"source":"observed","files":[]}'
+
+# Only if cross-service communication was detected:
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"SERVICE_BOUNDARY_NAME","insight":"YOUR_DESCRIPTION_HERE","confidence":8,"source":"observed","files":["RELEVANT_FILES"]}'
+```
+
+### Observability Inventory
+
+Compile everything into a single inventory. This is your toolkit for the rest of the diagnostic session.
+
+```
+OBSERVABILITY INVENTORY
+══════════════════════════════════════════════════════════════
+Source                  │ Status   │ Detected from       │ Notes
+────────────────────────┼──────────┼─────────────────────┼──────
+Database (read-only)    │ ✓/✗/N/A │ env / .env / config │ [connection method]
+Error tracker           │ ✓/✗/N/A │ env / deps / config │ [tool name]
+Analytics               │ ✓/✗/N/A │ env / deps / config │ [tool name]
+Logs                    │ ✓/✗/N/A │ [access method]     │
+Browser (browse)        │ ✓/✗     │ BROWSE_SETUP        │ [READY/NEEDS_SETUP]
+Browser cookies         │ ✓/✗     │ skill check         │ [can auth into UI]
+Related repos           │ ✓/✗     │ mono/sibling/config │ [list + purposes]
+Infra/IaC               │ ✓/✗/N/A │ .tf / k8s / docker  │ [what was found]
+Deploy targets          │ ✓/✗/N/A │ CI / platform files │ [platforms + regions]
+Production URLs         │ ✓/✗/N/A │ env / CI / config   │ [URLs found]
+CI/CD                   │ ✓/✗/N/A │ .github / .gitlab   │ [platform]
+Feature flags           │ ✓/✗/N/A │ env / deps          │ [tool name]
+/investigate skill      │ ✓/✗     │ skill check         │
+/codex skill            │ ✓/✗     │ skill check         │
+/cso skill              │ ✓/✗     │ skill check         │
+══════════════════════════════════════════════════════════════
+From: [CACHED LEARNINGS + validation | FRESH SCAN]
+```
+
+---
+
+## Phase 1: Symptom Collection (The Crime Scene)
+
+**Budget: Adaptive — thoroughness comes in Phase 3-4, not here.**
+- **If Phase 0-pre loaded a cached workflow map:** Phase 1 ≤ 15 tool calls. Spot-check the cached map (2-3 file:line refs), gather symptom evidence, done. Saved turns go to Phase 3-4.
+- **If no cached workflow map:** Phase 1 ≤ 25 tool calls. If you're at 20 and haven't built the workflow map yet, STOP and build it NOW with what you have.
+
+Gather ALL available evidence before forming any hypothesis. This is the hardest part because your training pushes you to start solving immediately. **Resist.**
+
+### 1a. User-reported symptoms
+Read what the user told you. Extract:
+- **What** is broken (exact behavior observed)
+- **When** it started (or was first noticed)
+- **Who** is affected (all users? specific segment? one account?)
+- **Where** it manifests (which endpoint, page, flow, environment)
+- **How often** (always? intermittent? time-of-day pattern?)
+
+If any of these are missing, ask ONE question at a time via AskUserQuestion. Do not proceed with incomplete symptom data — gaps here compound into wrong hypotheses later.
+
+### 1b. Error tracker evidence
+If error tracking is available (Sentry, Bugsnag, etc.), query it:
+- Pull the exact error(s) associated with this symptom
+- Check the **first occurrence** — when did this actually start? (Often different from when the user noticed)
+- Check the **frequency curve** — is it increasing, stable, or bursty?
+- Check **affected users count** — one user or many?
+- Pull the **full stack trace** and any breadcrumbs/context
+
+```bash
+# Example Sentry query (adapt to actual config)
+# Get recent events for this issue
+curl -s -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
+  "https://sentry.io/api/0/projects/$SENTRY_ORG/$SENTRY_PROJECT/issues/?query=<search-term>&sort=date" \
+  | python3 -m json.tool
+```
+
+### 1c. Analytics evidence
+If analytics is available (PostHog, Amplitude, etc.), query it:
+- Check the **funnel** around the broken flow — where exactly do users drop off?
+- Look for a **change point** — when did metrics shift?
+- Compare **affected vs. unaffected** user segments — what's different?
+
+### 1d. Database evidence
+If read-only DB access is available:
+- Check the **data state** for affected records — is the data itself corrupt, or is the code misreading valid data?
+- Look for **constraint violations**, orphaned records, unexpected NULLs
+- Check **timestamps** — does the data timeline match the symptom timeline?
+
+**CRITICAL:** All DB queries must be read-only. Use `EXPLAIN` before running expensive queries. Never modify data.
+
+### 1e. Code evidence
+- `git log --oneline -30 -- <affected-area>` — what changed recently?
+- `git log --all --oneline --since="<symptom-start-date>" -- <affected-area>` — correlate code changes with symptom onset
+- Read the code paths involved in the failing flow
+- Check for **recent dependency updates** that might have changed behavior
+
+### 1f. End-to-end workflow trace — MANDATORY BEFORE ANY HYPOTHESIS
+
+**This is the most important evidence-gathering step and where most debugging fails.** Before you can diagnose what's broken, you must understand how the system works when it's NOT broken. A user clicks a button — what happens? Trace the full chain.
+
+**Check for cached workflow maps FIRST.** If Phase 0-pre found a `workflow-*` architecture learning that covers the same code path as the current issue, START from that cached map. Print it, then verify it's still accurate by spot-checking 2-3 key file:line references. Update if the code has changed. This can save 10-15 tool calls.
+
+**If no cached map exists, build one from scratch.** The map must be COMPLETE before you hypothesize. Not "I'll fill in the details later" — the map must show every system boundary, every database table touched, every background job triggered, every cache read/written. If you don't know a step, READ THE CODE until you do. This upfront investment saves 10x the time later.
+
+**YOU MUST BUILD THE WORKFLOW MAP BEFORE PROCEEDING TO PHASE 2.** If you skip this step and jump to hypotheses, you WILL anchor on the first suspicious thing you find and waste the entire session. This has happened repeatedly. The workflow map protects you from yourself.
+
+**Step 1: Map the happy path.** Starting from the user action that triggers the bug, trace the entire request lifecycle:
+
+1. **Frontend:** What component handles this interaction? What event fires? What API call is made? What payload is sent? Read the frontend code — find the event handler, the API client call, the request construction.
+
+2. **API boundary:** What endpoint receives this request? What's the URL, method, headers, body schema? Is there middleware (auth, rate limiting, validation) that processes it first? Read the route definitions and middleware chain.
+
+3. **Backend logic:** What controller/handler processes this request? What services does it call? What business logic runs? What database queries are made? Read the handler, trace into service layers, find the ORM/SQL calls.
+
+4. **Database operations:** What tables are read/written? What's the schema? Are there triggers, constraints, indexes that affect behavior? What does the data look like for affected vs. unaffected cases?
+   ```bash
+   # If DB access is available, check the actual data state
+   # Compare affected records vs. working records — what's different?
+   ```
+
+5. **Response path:** How does the result flow back? What transformation happens? What does the frontend do with the response? What does the user ultimately see?
+
+6. **Side effects:** What else happens along this path? Analytics events fired? Emails sent? Cache entries written? Webhooks triggered? Background jobs enqueued? Any of these could be the source or a symptom.
+
+**Step 2: Identify every system boundary.** Each boundary (frontend↔API, API↔database, service↔service, app↔third-party) is a potential failure point. At each boundary, note:
+- What's the contract? (request/response schema, expected types, required fields)
+- What happens on failure? (error handling, retries, fallbacks, timeouts)
+- Has this contract changed recently? (`git log` on interface files, API specs, shared types)
+
+**Step 3: Cross-repo investigation.** If the workflow spans multiple repos:
+- Read the relevant code in EACH repo the request passes through — don't just check recent changes
+- Verify API contract compatibility at each boundary (field names, types, null handling, new required fields)
+- Check deployment history — are all services running compatible versions?
+- Look for shared database access — could another service be mutating data this workflow depends on?
+
+```bash
+# If related repos are accessible, trace the code path across them
+# For each repo in the chain:
+git log --oneline -15 -- <files-on-the-request-path>
+```
+
+**Step 4: Build the workflow map.** Write down the complete chain you just traced:
+
+```
+WORKFLOW: [name of the user action / flow]
+════════════════════════════════════════════════════
+1. User: [action]                    → Frontend: [component/file]
+2. Frontend: [API call]              → Backend:  [endpoint/handler]
+3. Backend: [service call]           → Database: [tables/queries]
+4. Backend: [response construction]  → Frontend: [response handling]
+5. Frontend: [render]                → User:     [what they see]
+
+Side effects: [analytics, emails, cache, webhooks, jobs]
+System boundaries: [list each boundary and its contract]
+════════════════════════════════════════════════════
+```
+
+This map is your diagnostic foundation. Every hypothesis you form in Phase 2 must reference a specific point in this chain. If you can't point to where in the chain the hypothesis claims the failure occurs, the hypothesis is too vague.
+
+**HARD RULE: Build the map within 15 tool calls of starting Phase 1f.** You do NOT need to read every file in the chain — read the route handler, the key DAO method, and the job runner. Skim, don't deep-dive. The map is a high-level overview, not a line-by-line code audit. You will deep-dive during hypothesis testing in Phase 3, when you know WHERE to look. Right now you need to know the SHAPE of the system.
+
+**Output the map as a text block before proceeding.** If you haven't printed a workflow map after 15 tool calls, STOP exploring and write the map with what you have. An incomplete map with "[TODO: verify]" markers is infinitely better than no map at all.
+
+### 1g. Browser-based evidence (if applicable)
+
+If the bug manifests in a web UI and the browse binary is available (`$B`), use it to gather direct evidence:
+
+```bash
+$B goto <affected-url>
+$B snapshot -i -a
+$B console --errors
+$B text
+```
+
+This gives you: a visual screenshot of what the user sees, any JavaScript errors in the console, and the actual rendered text. Compare this against what the code *intends* to render.
+
+For API-level issues, use browse to hit endpoints directly:
+```bash
+$B goto <api-endpoint>
+$B text
+```
+
+For issues visible in admin dashboards, error tracking UIs, or monitoring pages:
+```bash
+$B goto <sentry-or-posthog-dashboard-url>
+$B snapshot -i -a -o "/tmp/diag-evidence-dashboard.png"
+$B text
+```
+
+**Save screenshots as evidence.** Name them descriptively: `/tmp/diag-evidence-<what>.png`. These become attachments to the diagnostic report.
+
+**Evidence Gate 1 — YOU MUST OUTPUT THIS BLOCK before proceeding to Phase 2:**
+
+```
+EVIDENCE GATE 1 — Phase 1 Complete?
+════════════════════════════════════
+[x/  ] Environment verified: querying _______ database at _______
+[x/  ] Symptom description complete (what, when, who, where, how often)
+[x/  ] At least ONE data point from outside codebase (DB/error tracker/browser)
+[x/  ] Workflow map PRINTED above (not "will do later")
+════════════════════════════════════
+GATE STATUS: PASS / FAIL — [explain any failures]
+```
+
+**This is a MANDATORY output.** If this block does not appear in your output between Phase 1 and Phase 2, you have violated the skill protocol. Fill in every line. If any box is unchecked, go back and fix it before Phase 2.
+
+---
+
+## Phase 2: Hypothesis Formation (The Suspect List)
+
+Now — and ONLY now — form hypotheses. Generate **multiple** hypotheses, not just the most obvious one.
+
+### The Multiple Hypothesis Rule
+
+**You MUST generate at least 3 hypotheses.** This is not optional. The human mind (and AI training) converges on the first plausible explanation. The first plausible explanation is often wrong, or incomplete.
+
+**Each hypothesis MUST reference a specific step in the workflow map from Phase 1f.** If a hypothesis can't point to a numbered step in the map, it's too vague. "The API is failing" is not a hypothesis. "The upsert at step 3 silently fails when the account has no lens_leads entry" is a hypothesis.
+
+**The anti-narrative rule:** After writing each hypothesis, ask yourself: "Am I constructing a story that sounds plausible, or do I have evidence that specifically supports this over alternatives?" If you catch yourself writing "so the API must be..." or "which means..." or "this would explain why..." — STOP. Those are narrative bridges, not evidence. Go get actual evidence.
+
+For each hypothesis, write:
+1. **Claim:** "The root cause is [specific, testable claim at step N in the workflow map]"
+2. **Evidence for:** What evidence from Phase 1 supports this?
+3. **Evidence against:** What evidence from Phase 1 contradicts this? (If you can't think of any, you haven't looked hard enough.)
+4. **Test:** How would you prove or disprove this with ONE query or ONE tool call? (If the test takes 5+ tool calls, it's too vague.)
+5. **Scope:** If this is the root cause, what's the full blast radius? What else would be affected?
+
+**YOU MUST OUTPUT THIS TABLE before proceeding to Phase 3:**
+
+```
+HYPOTHESIS TABLE
+═══════════════════════════════════════════════════════════════════════
+#  │ Claim (specific, at step N)    │ Evidence FOR  │ Evidence AGAINST │ Test (1 query)
+───┼────────────────────────────────┼───────────────┼──────────────────┼──────────────
+H1 │ ______                         │ ______        │ ______           │ ______
+H2 │ ______                         │ ______        │ ______           │ ______
+H3 │ ______                         │ ______        │ ______           │ ______
+═══════════════════════════════════════════════════════════════════════
+```
+
+**This is a MANDATORY output.** If this table does not appear in your output, you have violated the skill protocol. Every cell must be filled in — especially "Evidence AGAINST." If you can't think of contradicting evidence for a hypothesis, you haven't thought hard enough.
+
+### Cross-system hypotheses
+
+At least ONE hypothesis should consider causes outside the current repo:
+- Could a dependency update have changed behavior?
+- Could a backend/frontend version mismatch cause this?
+- Could a database migration or schema change be responsible?
+- Could an infrastructure change (config, DNS, certificates, permissions) cause this?
+- Could a third-party service degradation be involved?
+
+If all your hypotheses point to the same file or module, you're probably anchored. Step back.
+
+**Evidence Gate 2:** Before testing, you must have:
+- [ ] At least 3 distinct hypotheses
+- [ ] At least 1 cross-system hypothesis (referencing a different point in the workflow map than the others)
+- [ ] Each hypothesis pinpoints a specific step in the workflow map from Phase 1f
+- [ ] Each hypothesis has a concrete, executable test plan
+- [ ] Each hypothesis has identified both supporting AND contradicting evidence
+
+---
+
+## Phase 3: Hypothesis Testing (The Experiments)
+
+**This is where thoroughness lives. Spend the majority of your remaining tool calls here.** Phases 0-2 were setup — Phase 3 is the actual investigation. If you saved turns by reusing cached learnings and workflow maps, THIS is where you spend them: test more hypotheses, query more data, verify more edge cases.
+
+**No budget cap on Phase 3.** Use as many tool calls as needed to reach confidence 9-10. Test each hypothesis systematically. Do NOT test them in order of "most likely" — test the **easiest to disprove** first. Eliminating hypotheses is faster than confirming them.
+
+### 3a. Write ad-hoc diagnostic tests
+
+For each hypothesis, write a **targeted test** that would fail if the hypothesis is true and pass if it's false (or vice versa). These are not production tests — they're diagnostic instruments.
+
+```
+# Example: Hypothesis is "race condition in user creation causes duplicate records"
+# Ad-hoc test: Query DB for duplicate records matching the pattern
+```
+
+```bash
+# Write the diagnostic test to a temporary file
+cat > /tmp/diag-test-h1.sh << 'DIAG_EOF'
+#!/bin/bash
+# Diagnostic test for H1: [hypothesis description]
+# Expected result if H1 is true: [description]
+# Expected result if H1 is false: [description]
+
+[test commands here]
+DIAG_EOF
+chmod +x /tmp/diag-test-h1.sh
+```
+
+For code-level hypotheses, write actual test files:
+
+```bash
+# Write a focused test that isolates the suspected behavior
+cat > /tmp/diag_test_h1.py << 'PYTEST_EOF'
+"""
+Diagnostic test for H1: [hypothesis description]
+This test is NOT for production — it's a diagnostic instrument.
+If this test FAILS, H1 is supported.
+If this test PASSES, H1 is refuted.
+"""
+def test_hypothesis_1():
+    # Setup: reproduce the exact conditions described in the symptom
+    # Act: trigger the suspected code path
+    # Assert: check for the specific behavior the hypothesis predicts
+    pass
+PYTEST_EOF
+```
+
+Run each test. Record the result. **Do not interpret ambiguous results as confirmation.** If the test doesn't clearly confirm or refute, the test needs refinement, not the hypothesis.
+
+### 3b. Browser-based hypothesis testing
+
+If the bug manifests in a web UI and browse is available, use it to verify hypotheses directly:
+
+```bash
+# Reproduce the exact user flow that triggers the bug
+$B goto <start-url>
+$B snapshot -i -a -o "/tmp/diag-h1-step1.png"
+$B click <element>           # simulate user action
+$B snapshot -i -a -o "/tmp/diag-h1-step2.png"
+$B console --errors          # capture JS errors at moment of failure
+$B network                   # check for failed API calls
+```
+
+For hypotheses about API behavior, inspect network responses:
+```bash
+$B goto <page-that-triggers-api-call>
+$B network                   # examine request/response pairs
+$B console --errors          # check for client-side error handling
+```
+
+For hypotheses about visual rendering or state:
+```bash
+$B goto <affected-page>
+$B snapshot -i -a            # full page with interactive elements
+$B accessibility             # check if elements are in expected state
+$B text                      # verify actual rendered content vs expected
+```
+
+**Save all screenshots.** Each hypothesis test should produce before/after or step-by-step screenshots as evidence.
+
+### 3c. Database-level verification
+
+If the hypothesis involves data:
+```bash
+# Verify data state matches what the hypothesis predicts
+# ALWAYS use read-only connections
+# ALWAYS use EXPLAIN first on expensive queries
+```
+
+### 3d. Log/trace verification
+
+If the hypothesis involves request flow:
+- Check error tracker breadcrumbs for the specific sequence the hypothesis predicts
+- Query analytics for the behavioral pattern the hypothesis implies
+
+### 3e. Cross-system boundary verification
+
+If the hypothesis involves a system boundary identified in the Phase 1f workflow map:
+- Read the code on BOTH sides of that boundary — not just recent changes, but the current implementation of the contract (serialization, deserialization, validation, error handling)
+- Test the actual data crossing the boundary: what does the sender produce vs. what does the receiver expect? Use DB queries, browse network inspection, or log analysis to see real payloads
+- Check for version skew: are both sides deployed from compatible commits? Are shared type definitions in sync?
+- Look for silent failures: does one side swallow errors, return defaults, or coerce types in ways that mask the real problem?
+
+### 3f. Iterative Hypothesis Evolution
+
+**This is critical. Every test you run teaches you something — even when the test doesn't confirm or refute the hypothesis you designed it for.**
+
+After EACH test, before moving to the next hypothesis, pause and ask:
+
+1. **What did I just learn that I didn't know before?** Every test produces observations beyond the binary confirm/refute result. A DB query might reveal unexpected NULLs. A console log might show a timing pattern. A screenshot might reveal a UI state you hadn't considered.
+
+2. **Does this new observation suggest a hypothesis I haven't considered?** If yes, add it to the hypothesis table immediately. Don't wait until all original hypotheses are tested — a fresh hypothesis born from real evidence is often stronger than the original guesses.
+
+3. **Does this new observation change the evidence balance for other hypotheses?** A test for H1 might accidentally produce evidence that strengthens or weakens H2 or H3. Update the evidence columns.
+
+```
+OBSERVATION LOG (append after each test)
+═══════════════════════════════════════════════════════════════════
+Test │ Target │ Expected         │ Actual           │ Surprise finding
+─────┼────────┼──────────────────┼──────────────────┼──────────────────
+T1   │ H1     │ [expected]       │ [actual]         │ [unexpected observation]
+T2   │ H2     │ [expected]       │ [actual]         │ [unexpected observation]
+═══════════════════════════════════════════════════════════════════
+
+New hypotheses from observations:
+- H4: [emerged from surprise finding in T1]
+- H5: [emerged from pattern across T1 + T2]
+```
+
+**The goal is not to test a fixed list of hypotheses. The goal is to follow the evidence wherever it leads.** Your initial 3 hypotheses are a starting point, not a fixed plan. The best diagnosticians update their mental model after every new data point.
+
+If a new hypothesis emerges with stronger evidence than the originals, promote it and test it immediately — don't defer it to "after I finish the original list."
+
+### Scoring
+
+After testing, update the hypothesis table (including any new hypotheses that emerged):
+
+```
+HYPOTHESIS RESULTS
+═══════════════════════════════════════════════════════════════════
+#  │ Claim                    │ Test Result │ Verdict      │ Confidence
+───┼──────────────────────────┼─────────────┼──────────────┼───────────
+H1 │ [claim]                  │ [result]    │ CONFIRMED    │ [1-10]
+H2 │ [claim]                  │ [result]    │ REFUTED      │ [1-10]
+H3 │ [claim]                  │ [result]    │ INCONCLUSIVE │ [1-10]
+═══════════════════════════════════════════════════════════════════
+```
+
+**Confidence scale:**
+- 10: Proven with reproducible test. No room for doubt.
+- 8-9: Strong evidence, one minor gap (e.g., can't test in prod, but staging confirms).
+- 6-7: Probable — evidence points this way but alternative explanations remain.
+- 4-5: Plausible — fits the symptoms but not directly verified.
+- 1-3: Speculative — based on pattern matching, not evidence.
+
+**Only confidence 9-10 counts as "root cause established."** Anything below is a hypothesis, not a conclusion.
+
+**Evidence Gate 3 — YOU MUST OUTPUT THIS BLOCK before proceeding:**
+
+```
+HYPOTHESIS RESULTS
+═══════════════════════════════════════════════════════════════════
+#  │ Claim                    │ Test Result │ Verdict      │ Confidence
+───┼──────────────────────────┼─────────────┼──────────────┼───────────
+H1 │ ______                   │ ______      │ CONFIRMED/REFUTED/INCONCLUSIVE │ __/10
+H2 │ ______                   │ ______      │ ______       │ __/10
+H3 │ ______                   │ ______      │ ______       │ __/10
+═══════════════════════════════════════════════════════════════════
+```
+
+**This is a MANDATORY output.** ALL hypotheses must be tested and scored — even the ones you think are unlikely. You cannot declare any root cause until every row has a verdict.
+
+**After printing this table, you MUST proceed to Phase 4 (Exhaustive Analysis) regardless of confidence level.** Even if H1 is confirmed at 10/10, Phase 4 asks: "Is this the ONLY cause? What else could produce this symptom? What's the blast radius?" Skipping Phase 4 is the difference between a good diagnosis and a thorough one.
+
+---
+
+## Phase 4: Exhaustive Analysis (The Completeness Check)
+
+**This phase is what separates /diagnose from /investigate.** Most debugging stops when a plausible cause is found. You don't. A confirmed root cause is not the end — it's the beginning of the completeness check. The question is no longer "what caused this?" but "is this the ONLY cause, and what else does it break?"
+
+**Do NOT skip Phase 4 to save turns.** This is the whole point of /diagnose. If you only had time for Phases 0-3, you should have used /investigate instead.
+
+### 4a. Multiple contributing causes
+
+Ask yourself:
+- Could multiple factors combine to produce this symptom? (e.g., a race condition that only manifests when the DB is slow AND a specific feature flag is on)
+- Is the confirmed root cause the ONLY way this symptom can occur? Or are there other code paths that could produce the same error?
+- If you fix the confirmed root cause, would ALL instances of this symptom disappear? Or would some remain?
+
+**Test for additional causes:**
+1. Search for ALL code paths that could produce the observed error/symptom (not just the one you traced)
+2. Check if the error tracker shows this symptom from multiple distinct stack traces
+3. Query the DB for affected records — do they ALL match the single root cause, or do some have different patterns?
+
+### 4b. Blast radius analysis
+
+For each confirmed root cause:
+- What other workflows touch the same code/data?
+- What other users/accounts could be affected but haven't reported it?
+- What other symptoms might this cause that haven't been noticed yet?
+
+```bash
+# Find all callers of the affected function/endpoint
+# Trace the dependency chain outward
+```
+
+### 4c. Temporal analysis
+
+- Did this root cause exist before the symptom appeared? If yes, what TRIGGERED it?
+- Could the root cause re-occur after being fixed? What are the conditions?
+- Is this a regression of a previously fixed bug? (Check git log for prior fixes in the same area)
+
+### 4d. The "What Else?" Protocol — MANDATORY OUTPUT
+
+**YOU MUST OUTPUT THIS BLOCK before writing the diagnostic report:**
+
+```
+COMPLETENESS CHECK (Phase 4)
+═══════════════════════════════════════════════════════════════
+ALTERNATIVE CAUSES INVESTIGATED:
+  1. [describe an alternative code path that could produce the same symptom]
+     → Investigated: [what you checked] → Result: [ruled out / contributing]
+  2. [another alternative]
+     → Investigated: [what you checked] → Result: [ruled out / contributing]
+  3. [another alternative — if you can only think of 1-2, you stopped too early]
+     → Investigated: [what you checked] → Result: [ruled out / contributing]
+
+CONTRIBUTING FACTORS:
+  [List any environmental/timing/data conditions required. "None" is valid
+   only if you actively checked for race conditions, caching, and config.]
+
+BLAST RADIUS:
+  Workflows affected:  ______
+  Users affected:      ______
+  Data affected:       ______
+
+CONFIDENCE AFTER PHASE 4: __/10
+  [Did Phase 4 change your confidence? Did you find additional causes?]
+═══════════════════════════════════════════════════════════════
+```
+
+**This block is what makes /diagnose worth using over /investigate.** If you skip it, the entire Phase 3 root cause is just a well-evidenced guess — you've proven one cause exists but haven't proven nothing else contributes. A diagnosis without the completeness check is an investigation with extra steps.
+
+**Concretely, you must investigate at least 2 alternative explanations for the symptom**, even if your primary hypothesis is confirmed at 10/10. Examples of alternatives to check:
+- Could the same symptom occur through a different code path? (e.g., CRM import, bulk operations, scheduled jobs)
+- Could a frontend bug produce the same visible symptom independently of the backend issue?
+- Could a race condition or timing issue contribute? (e.g., user navigates to Monitor before the async job completes)
+- Could data state from a previous bug be masking or amplifying this one?
+
+---
+
+## Phase 5: Diagnosis Placement & Fix Routing
+
+You built the full workflow map in Phase 1f. You've now confirmed a root cause in Phases 2-4. This phase connects the two: where exactly in the e2e chain does the root cause sit, and where should the fix go?
+
+### 5a. Pinpoint the root cause on the workflow map
+
+Revisit the workflow map from Phase 1f. Mark exactly where the confirmed root cause occurs:
+
+```
+WORKFLOW: [name]
+════════════════════════════════════════════════════
+1. User: [action]                    → Frontend: [component]
+2. Frontend: [API call]              → Backend:  [endpoint]    ← ROOT CAUSE HERE
+3. Backend: [service call]           → Database: [tables]
+4. Backend: [response construction]  → Frontend: [handling]    ← SYMPTOM APPEARS HERE
+5. Frontend: [render]                → User:     [error shown]
+════════════════════════════════════════════════════
+```
+
+If the root cause and symptom are at different points in the chain (they usually are), make this explicit. This is the single most important insight for whoever implements the fix.
+
+### 5b. Fix routing — who owns this?
+
+**The symptom, root cause, and fix often live in three different places.** State each clearly:
+
+- **Symptom location:** [system/repo/file — where the user sees the problem]
+- **Root cause location:** [system/repo/file — where the actual bug lives]
+- **Fix location:** [system/repo/file — where the code change should go, which may differ from root cause if the right fix is a guard elsewhere]
+- **Coordination:** [deployment ordering, cross-team communication, migration steps]
+
+If the fix requires changes in multiple repos, specify the order:
+1. Which change must land first? (e.g., backend migration before frontend update)
+2. Is there a backward-compatible intermediate step? (e.g., backend accepts both old and new format during transition)
+3. Who needs to be notified? (other teams, on-call, downstream consumers)
+
+### 5c. Live verification of the broken flow (if browse available)
+
+If browse is available and the bug is UI-visible, walk the actual broken flow end-to-end to verify your diagnosis matches reality:
+
+```bash
+$B goto <start-of-journey>
+$B snapshot -i -a -o "/tmp/diag-flow-step1.png"
+# ... simulate each user action ...
+$B snapshot -i -a -o "/tmp/diag-flow-stepN.png"
+$B console --errors      # capture errors at the exact point of failure
+$B network               # capture the actual API response at the boundary
+```
+
+Compare what you observe against what the workflow map predicts. If there's a mismatch, your understanding of the e2e flow has a gap — go back to Phase 1f and fix it before writing the report.
+
+---
+
+## Phase 6: Diagnostic Report
+
+Produce the final report. This is the deliverable — it must be complete enough that someone else (or the fixing agent) can act on it without asking follow-up questions.
+
+```
+DIAGNOSTIC REPORT
+════════════════════════════════════════════════════════════════════
+
+SUMMARY
+───────
+Symptom:              [what the user observed, in their words]
+Root cause:           [precise technical description]
+Confidence:           [9-10] / 10
+Affected systems:     [list of repos/services involved]
+Affected users:       [scope: all users / segment / specific accounts]
+First occurrence:     [date, from error tracker or git bisect]
+Trigger:              [what caused the root cause to manifest NOW]
+
+EVIDENCE CHAIN
+──────────────
+1. [Observation] → supports → [Conclusion]
+2. [Observation] → supports → [Conclusion]
+3. [Test result] → confirms → [Root cause]
+...
+
+HYPOTHESIS EVOLUTION
+────────────────────
+Initial hypotheses:    [H1, H2, H3]
+Emerged from testing:  [H4 (from T1 observation), H5 (from T2+T3 pattern), ...]
+Final confirmed:       [which hypothesis/hypotheses, with confidence scores]
+Key pivot moment:      [describe the observation that shifted your understanding,
+                        if the confirmed cause wasn't in the original 3]
+
+SCREENSHOT EVIDENCE
+───────────────────
+[List screenshot files with descriptions, if browse was used]
+1. /tmp/diag-evidence-<name>.png — [what it shows]
+2. /tmp/diag-h1-step1.png — [what it shows]
+...
+
+COMPLETENESS (Phase 4)
+──────────────────────
+Alternative causes investigated:
+  1. [alternative] → [ruled out / contributing] because [evidence]
+  2. [alternative] → [ruled out / contributing] because [evidence]
+Contributing factors:    [list, or "None — verified: no race conditions, no
+                          caching, no config dependencies"]
+
+BLAST RADIUS
+────────────
+Workflows affected:   [list]
+Users affected:       [count or estimate]
+Data affected:        [scope: N records, M tables]
+Other symptoms:       [any other manifestations of this root cause]
+
+END-TO-END CONTEXT
+──────────────────
+Workflow:             [full user journey this affects]
+Symptom location:     [system/component where user sees the bug]
+Root cause location:  [system/component where the bug actually lives]
+Fix location:         [system/component where the fix should be applied]
+Coordination needed:  [deployment ordering, cross-team communication, etc.]
+
+RECOMMENDED FIX
+───────────────
+[Describe what needs to change, in which file(s), and why. Be specific enough
+ that a developer or /investigate can implement it without re-diagnosing.
+ Include the test that should be written to prevent regression.]
+
+RECURRENCE RISK
+───────────────
+[Could this happen again? Under what conditions? What monitoring or tests
+ would catch it early?]
+
+OPEN QUESTIONS
+──────────────
+[Anything that remains uncertain. "None" is valid if all evidence gates passed.
+ If there ARE open questions, be honest — a partial diagnosis with known gaps
+ is more useful than a false "complete" diagnosis.]
+
+STATUS: ROOT_CAUSE_ESTABLISHED | PROBABLE_CAUSE | INSUFFICIENT_EVIDENCE
+
+NEXT STEPS
+──────────
+[Suggest 1-3 gstack skills based on the diagnosis outcome. Pick from:]
+════════════════════════════════════════════════════════════════════
+```
+
+### Status definitions:
+- **ROOT_CAUSE_ESTABLISHED:** Confidence 9-10, all evidence gates passed, no open questions.
+- **PROBABLE_CAUSE:** Confidence 6-8, strong evidence but gaps remain. Report clearly states what's uncertain.
+- **INSUFFICIENT_EVIDENCE:** Confidence <6, need more data. Report lists exactly what evidence is needed and how to obtain it.
+
+### Next step suggestions (pick based on outcome):
+
+After printing the report, suggest the most relevant next skill:
+
+- **ROOT_CAUSE_ESTABLISHED + fix is straightforward:** → Ask the user to implement the fix (the diagnostic report has enough detail). Then `/review` before merging and `/ship` to land it.
+- **ROOT_CAUSE_ESTABLISHED + fix is complex / risky / multi-system:** → Write a plan, then `/plan-eng-review` to lock in the architecture before implementing.
+- **ROOT_CAUSE_ESTABLISHED + fix needs scope/strategy discussion:** → Write a plan, then `/plan-ceo-review` to decide scope (is this a quick patch or a redesign?).
+- **PROBABLE_CAUSE:** → Suggest what additional data/access would upgrade to ROOT_CAUSE. If browse is available and issue is UI-visible, suggest `/qa` to reproduce the exact flow.
+- **INSUFFICIENT_EVIDENCE:** → Suggest instrumenting the code (add logging) and waiting for recurrence, or specific data/access that would unblock the diagnosis.
+- **Security implications found:** → `/cso` for a security audit of the affected area.
+- **Fix PR ready:** → `/review` before merging, then `/ship` to land it.
+
+---
+
+{{LEARNINGS_LOG}}
+
+### Diagnostic-specific learnings to capture
+
+After every `/diagnose` session, log **durable** learnings — knowledge that stays useful across many future sessions. Root causes and dead-ends go stale after fixes; workflow maps and environment topology compound forever.
+
+**Priority 1 — ALWAYS log the workflow map** (if Phase 1f built or updated one):
+
+The workflow map is the most expensive artifact to build (10-15 tool calls). Save it so future sessions can reuse it instead of re-tracing the code:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"workflow-FLOW_NAME","insight":"YOUR_WORKFLOW_MAP_HERE","confidence":9,"source":"observed","files":["KEY_FILES_IN_THE_FLOW"]}'
+```
+
+Replace `FLOW_NAME` with a short name (e.g., `set-lead-status`, `user-registration`). Replace `YOUR_WORKFLOW_MAP_HERE` with the compact chain: `User action → Frontend component → API endpoint (file:line) → Service method → DB tables → Background jobs → Response path`. Include file:line refs for key steps.
+
+**Priority 2 — Log environment quirks** (wrong-database traps, staging/prod differences):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-QUIRK_NAME","insight":"YOUR_FINDING_HERE","confidence":9,"source":"observed","files":[]}'
+```
+
+Examples: "10.2.0.4/us_staging is US PROD despite the db name. staging.leadbay.app hits 10.1.10.4." — prevents the wrong-database trap in future sessions.
+
+**Priority 3 — Log cross-system boundary patterns** (how services talk to each other):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"architecture","key":"BOUNDARY_NAME","insight":"YOUR_PATTERN_HERE","confidence":8,"source":"observed","files":["INTERFACE_FILES"]}'
+```
+
+These are gold for ALL gstack skills — an architecture insight from `/diagnose` helps `/ship`, `/investigate`, and `/qa`.
+
+**Priority 4 — Update the environment profile** (if Phase 0 discovered new tools):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"diagnose","type":"operational","key":"env-profile","insight":"YOUR_UPDATED_INVENTORY_HERE","confidence":9,"source":"observed","files":[]}'
+```
+
+**What NOT to log:** Root causes and dead-ends (`pitfall` type) go stale after the bug is fixed. The diagnostic report itself is the record of those findings — no need to duplicate them as learnings. Only log a pitfall if it represents a **recurring pattern** that will trap future debuggers even after this specific bug is fixed (e.g., "refreshMonitor always deletes non-matching leads" is a pattern; "ASPIRANET was missing from lens_leads" is a one-off).
+
+### Learnings hygiene — prevent accumulation bloat
+
+**Use stable key names.** The learnings system deduplicates by `key+type` (latest wins). If you use consistent key names, repeated runs naturally UPDATE rather than duplicate:
+- Workflow maps: `workflow-set-lead-status` (not `workflow-set-lead-status-v2` or `workflow-monitor-issue`)
+- Env quirks: `env-db-host-mapping` (not `env-db-hosts-april-2026`)
+- Env profile: `env-profile` (always this exact key)
+
+**When you update a workflow map,** use the SAME key as the existing one. The dedup ensures only the latest version persists. Don't create a new key — you'll just bloat the file.
+
+**If the learnings search returned >20 entries during Phase 0-pre,** the project has accumulated enough learnings that some are likely stale. At the end of the session, briefly note in your output: "Consider running `/learn` to prune stale learnings — N entries loaded, some may be outdated." Don't prune yourself — that's the user's decision via the `/learn` skill.
+
+---
+
+## Important Rules
+
+### Anti-bias-for-action rules
+- **Never say "the root cause is X" without a confidence score.** If you're below 9, it's a hypothesis, not a root cause. Use PROBABLE_CAUSE status, not ROOT_CAUSE_ESTABLISHED.
+- **Never test only one hypothesis.** Minimum 3. The first one you think of is usually the most obvious, not the most correct.
+- **Never stop at the first confirmed cause.** Always run Phase 4 (Exhaustive Analysis) to check for additional causes and blast radius.
+- **Never assume the fix belongs in the current repo.** Always map the end-to-end workflow and identify where the fix actually needs to go.
+- **Never skip external evidence.** If you have database access, use it. If you have error tracking, query it. Code-only diagnosis misses data-level issues.
+
+### Anti-premature-convergence rules
+- **Never query a database without printing which environment/host you're connecting to FIRST.** Querying the wrong database is the #1 time-wasting mistake.
+- **Never skip the workflow map (Phase 1f).** If you don't have one, you don't understand the system. If you don't understand the system, your hypothesis is a guess.
+- **Never adopt a hypothesis mid-investigation.** You will notice yourself writing "so the root cause is..." during Phase 1. That is premature convergence. Write it down as H1 and keep gathering evidence. You need H2 and H3 too.
+- **Never declare confidence 8+ without reproducing the issue.** If you can't access the environment where the bug was reported, your max confidence is 7 (PROBABLE_CAUSE). Say so.
+- **When you find something suspicious, ask: "What ELSE could explain this?"** If you can't think of an alternative explanation, you're anchored. Step back and consider: wrong environment, stale data, race condition, cache, different code version, user error.
+
+### Completeness rules
+- **Every hypothesis gets tested.** No "I'll skip H3 because H1 already confirmed." H3 might reveal a second contributing cause.
+- **Every evidence gate must pass.** If you can't check a box, you can't advance. Go back and gather more data.
+- **The report must be self-contained.** A reader who wasn't in this conversation should be able to understand the full diagnosis from the report alone.
+
+### Safety rules
+- **All database queries are read-only.** No INSERT, UPDATE, DELETE, DROP, TRUNCATE, ALTER. Ever.
+- **Sanitize before searching.** Strip hostnames, IPs, file paths, SQL fragments, customer data, API keys from any WebSearch queries.
+- **Don't expose secrets in the report.** Connection strings, API keys, customer PII must never appear in the diagnostic report.
+- **Never persist secrets to git-tracked files.** API keys, tokens, connection strings, and passwords must NEVER be written to CLAUDE.md, README, or any file inside the repo. Use env var references (`$SENTRY_AUTH_TOKEN`) not literal values. All diagnostic data persists via gstack learnings (`~/.gstack/projects/$SLUG/learnings.jsonl`) which is outside the repo. Phase 0i verifies gitignore safety before writing.
+- **EXPLAIN before expensive queries.** If a DB query scans >100k rows, optimize it or sample.
+
+### Cross-repo rules
+- **Check API contracts at system boundaries.** Most cross-system bugs are contract violations (field renamed, type changed, new required field, null handling).
+- **Check deployment ordering.** A backend change deployed before the frontend is updated (or vice versa) causes version skew bugs that look like code bugs.
+- **Check shared dependencies.** A library update in one repo can break consumers in another.
+
+### 3-strike escalation
+If 3 rounds of hypothesis testing fail (all hypotheses refuted, no new leads):
+Use AskUserQuestion:
+```
+I've tested 3+ hypotheses and none fully explain the symptoms. This is likely
+deeper than a simple code bug.
+
+A) Continue — I have new avenues to explore: [describe]
+B) Pair on this — let's walk through the system together (you provide domain context)
+C) Escalate — this needs someone with deeper system knowledge
+D) Instrument and wait — add targeted logging to catch it in the act next time
+```
+
+### When to recommend /investigate instead
+If during Phase 1 it becomes clear that:
+- The bug is in a single file/module with an obvious code error
+- The symptom is directly reproducible with a simple test
+- No cross-system complexity exists
+- No data-level investigation is needed
+
+Say: "This looks like a straightforward code bug. `/investigate` would be faster and more appropriate here. Want me to hand off?"
