@@ -87,6 +87,50 @@ function isRootRequest(req: Request): boolean {
   return token !== null && isRootToken(token);
 }
 
+// ─── Tunnel security policy ──────────────────────────────────────
+//
+// When a tunnel (ngrok or SSH forward) is active, the server is reachable
+// from the public internet despite binding to 127.0.0.1.  Any endpoint that
+// relies on the "localhost = trusted" assumption becomes a remote attack
+// surface.
+//
+// This function is the single enforcement point: it runs before every route
+// handler and, when the tunnel is active, rejects unauthenticated requests
+// unless the path is on the explicit allowlist below.
+//
+// Adding a new allowlist entry requires deliberate intent — "I am exposing
+// this endpoint to the internet without auth."  Every other endpoint gets
+// authentication for free.
+// Endpoints that remain unauthenticated in tunnel mode.
+// Adding a new entry requires deliberate intent: "I am exposing this to the
+// internet without auth."  Every other endpoint is protected for free.
+//
+// /token is intentionally excluded — it has its own isRootRequest() guard.
+const TUNNEL_UNAUTHENTICATED_ALLOWLIST = new Set([
+  '/connect', // remote pairing ceremony — rate-limited, no root secrets returned
+]);
+
+function enforceTunnelPolicy(req: Request, url: URL): Response | null {
+  if (!tunnelActive) return null; // local mode — existing behaviour unchanged
+
+  if (TUNNEL_UNAUTHENTICATED_ALLOWLIST.has(url.pathname)) return null;
+
+  // Allow OPTIONS preflight through so CORS headers are sent correctly.
+  if (req.method === 'OPTIONS') return null;
+
+  if (!validateAuth(req) && !getTokenInfo(req)) {
+    return new Response(
+      JSON.stringify({
+        error: 'Tunnel mode: authentication required',
+        hint: 'All endpoints require a Bearer token when the server is tunneled. ' +
+              'Pair a remote agent with: gstack browse --pair',
+      }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+  return null; // authenticated — proceed to route handler
+}
+
 // ─── Sidebar Model Router ────────────────────────────────────────
 // Fast model for navigation/interaction, smart model for reading/analysis.
 // The delta between sonnet and opus on "click @e24" is 5-10x in latency
@@ -1361,8 +1405,28 @@ async function start() {
     fetch: async (req) => {
       const url = new URL(req.url);
 
-      // Cookie picker routes — HTML page unauthenticated, data/action routes require auth
+      // Tunnel security gate — must run before any route handler.
+      // Rejects unauthenticated requests when the server is exposed via ngrok/SSH tunnel.
+      const tunnelBlock = enforceTunnelPolicy(req, url);
+      if (tunnelBlock) return tunnelBlock;
+
+      // Cookie picker routes.
+      // In tunnel mode this feature is explicitly disabled: cookie-picker reads
+      // local browser DBs (~/Library/.../Chrome, ~/.config/google-chrome, etc.)
+      // which only make sense when the caller is physically on the server machine.
+      // Returning a clear 403 is better than serving a broken UI where the embedded
+      // auth token is missing and every data API call fails silently.
       if (url.pathname.startsWith('/cookie-picker')) {
+        if (tunnelActive) {
+          return new Response(
+            JSON.stringify({
+              error: 'Cookie picker is not available in tunnel mode',
+              hint: 'Cookie import reads local browser databases and requires direct server access. ' +
+                    'Disable the tunnel and run the server locally to use this feature.',
+            }),
+            { status: 403, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
         return handleCookiePickerRoute(url, req, browserManager, AUTH_TOKEN);
       }
 
@@ -1406,14 +1470,29 @@ async function start() {
           mode: browserManager.getConnectionMode(),
           uptime: Math.floor((Date.now() - startTime) / 1000),
           tabs: browserManager.getTabCount(),
-          // Auth token for extension bootstrap. Safe: /health is localhost-only.
-          // Previously served unconditionally, but that leaks the token if the
-          // server is tunneled to the internet (ngrok, SSH tunnel).
-          // In headed mode the server is always local, so return token unconditionally
-          // (fixes Playwright Chromium extensions that don't send Origin header).
-          ...(browserManager.getConnectionMode() === 'headed' ||
-              req.headers.get('origin')?.startsWith('chrome-extension://')
-              ? { token: AUTH_TOKEN } : {}),
+          // Auth token for Chrome extension / headed-mode bootstrap.
+          //
+          // Delivery conditions (ALL must hold):
+          //   1. Tunnel is NOT active — when tunneled, any caller can set
+          //      Origin: chrome-extension://<anything>, so the Origin check
+          //      is not a meaningful guard.  In tunnel mode the Chrome
+          //      extension is not expected to work; agents should pair via
+          //      the /connect → /token ceremony instead.
+          //   2. Request is from a local Chrome extension (origin header)
+          //      OR the server is in headed mode (where the process is
+          //      always local and extensions may omit the Origin header).
+          //
+          // When tunnel is active and token is withheld, a hint is returned
+          // so that callers get a clear error rather than a silent omission.
+          ...(!tunnelActive && (
+                browserManager.getConnectionMode() === 'headed' ||
+                req.headers.get('origin')?.startsWith('chrome-extension://')
+              )
+              ? { token: AUTH_TOKEN }
+              : tunnelActive
+                ? { extensionUnavailable: true, hint: 'Chrome extension bootstrap is disabled in tunnel mode. Remote agents must pair via /connect → /token. Token location for local use: ~/.gstack/browse.json' }
+                : {}
+          ),
           chatEnabled: true,
           agent: {
             status: agentStatus,
@@ -2202,7 +2281,21 @@ async function start() {
         });
       }
 
-      // ─── Inspector endpoints ──────────────────────────────────────
+      // ─── Inspector endpoints — auth required on all sub-paths ────────
+      // These endpoints expose page DOM snapshots, allow CSS injection, and
+      // receive element picks from the Chrome extension.  They previously
+      // had no auth gate (localhost-only assumption).  Auth is now enforced
+      // at the top of the block so every path below is covered automatically.
+      // The tunnel policy gate at the top of the handler already rejects
+      // unauthenticated tunnel requests, but this explicit guard means the
+      // inspector is hardened regardless of future changes to the gate.
+      if (url.pathname.startsWith('/inspector')) {
+        if (!validateAuth(req) && !getTokenInfo(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401, headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
 
       // POST /inspector/pick — receive element pick from extension, run CDP inspection
       if (url.pathname === '/inspector/pick' && req.method === 'POST') {
