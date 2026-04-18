@@ -991,7 +991,12 @@ which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```bash
 TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Given this product context, propose a complete design direction:
+_CODEX_TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+_CODEX_TIMEOUT=()
+if [ -n "$_CODEX_TIMEOUT_BIN" ]; then
+  _CODEX_TIMEOUT=("$_CODEX_TIMEOUT_BIN" "300")
+fi
+"${_CODEX_TIMEOUT[@]}" codex exec "Given this product context, propose a complete design direction:
 - Visual thesis: one sentence describing mood, material, and energy
 - Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
 - Color system: CSS variables for background, surface, primary text, muted text, accent

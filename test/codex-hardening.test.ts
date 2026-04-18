@@ -364,3 +364,38 @@ describe('gstack-codex-probe: telemetry event emission', () => {
     }
   });
 });
+
+describe('resolver codex callsite hardening', () => {
+  test('review/design resolver executable codex calls are timeout-wrapped', () => {
+    const resolverFiles = [
+      'scripts/resolvers/review.ts',
+      'scripts/resolvers/design.ts',
+    ];
+
+    const violations: string[] = [];
+
+    for (const rel of resolverFiles) {
+      const abs = path.join(ROOT, rel);
+      const content = fs.readFileSync(abs, 'utf-8');
+      const lines = content.split('\n');
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        const isCodexCall = line.includes('codex exec') || line.includes('codex review');
+        const isExecutableCallsite = line.includes('< /dev/null') && line.includes('2>"$TMPERR');
+
+        if (!isCodexCall || !isExecutableCallsite || line.startsWith('|')) continue;
+
+        const hasWrapper =
+          line.includes('_gstack_codex_timeout_wrapper') ||
+          line.includes('\\${_CODEX_TIMEOUT[@]}');
+
+        if (!hasWrapper) {
+          violations.push(`${rel}:${i + 1}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+});

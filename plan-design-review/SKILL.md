@@ -1221,7 +1221,12 @@ which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```bash
 TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
+_CODEX_TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+_CODEX_TIMEOUT=()
+if [ -n "$_CODEX_TIMEOUT_BIN" ]; then
+  _CODEX_TIMEOUT=("$_CODEX_TIMEOUT_BIN" "300")
+fi
+"${_CODEX_TIMEOUT[@]}" codex exec "Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
 
 HARD REJECTION — flag if ANY apply:
 1. Generic SaaS card grid as first impression

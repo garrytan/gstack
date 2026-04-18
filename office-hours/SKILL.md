@@ -1188,10 +1188,15 @@ Then add the context block and mode-appropriate instructions:
 ```bash
 TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_OH"
+_CODEX_TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+_CODEX_TIMEOUT=()
+if [ -n "$_CODEX_TIMEOUT_BIN" ]; then
+  _CODEX_TIMEOUT=("$_CODEX_TIMEOUT_BIN" "300")
+fi
+"${_CODEX_TIMEOUT[@]}" codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_OH"
 ```
 
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+Use a 5-minute timeout (`timeout: 300000`). After completion, read stderr:
 ```bash
 cat "$TMPERR_OH"
 rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
@@ -1433,7 +1438,12 @@ If user chooses A, launch both voices simultaneously:
 ```bash
 TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < /dev/null 2>"$TMPERR_SKETCH"
+_CODEX_TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+_CODEX_TIMEOUT=()
+if [ -n "$_CODEX_TIMEOUT_BIN" ]; then
+  _CODEX_TIMEOUT=("$_CODEX_TIMEOUT_BIN" "300")
+fi
+"${_CODEX_TIMEOUT[@]}" codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < /dev/null 2>"$TMPERR_SKETCH"
 ```
 Use a 5-minute timeout (`timeout: 300000`). After completion: `cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"`
 
