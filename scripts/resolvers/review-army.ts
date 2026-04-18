@@ -13,8 +13,8 @@ import type { TemplateContext } from './types';
 
 function generateSpecialistSelection(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
-  const stepSel = isShip ? '3.55' : '4.5';
-  const stepMerge = isShip ? '3.56' : '4.6';
+  const stepSel = isShip ? '9.1' : '4.5';
+  const stepMerge = isShip ? '9.2' : '4.6';
   const nextStep = isShip ? 'the Fix-First flow (item 4)' : 'Step 5';
   return `## Step ${stepSel}: Review Army — Specialist Dispatch
 
@@ -134,10 +134,10 @@ CHECKLIST:
 
 function generateFindingsMerge(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
-  const stepMerge = isShip ? '3.56' : '4.6';
-  const stepSel = isShip ? '3.55' : '4.5';
+  const stepMerge = isShip ? '9.2' : '4.6';
+  const stepSel = isShip ? '9.1' : '4.5';
   const fixFirstRef = isShip ? 'the Fix-First flow (item 4)' : 'Step 5 Fix-First';
-  const critPassRef = isShip ? 'the checklist pass (Step 3.5)' : 'the CRITICAL pass findings from Step 4';
+  const critPassRef = isShip ? 'the checklist pass (Step 9)' : 'the CRITICAL pass findings from Step 4';
   const persistRef = isShip ? 'the review-log persist' : 'the review-log entry in Step 5.8';
   return `### Step ${stepMerge}: Collect and merge findings
 
@@ -202,7 +202,7 @@ Remember these stats — you will need them for the review-log entry in Step 5.8
 
 function generateRedTeam(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
-  const stepMerge = isShip ? '3.56' : '4.6';
+  const stepMerge = isShip ? '9.2' : '4.6';
   const fixFirstRef = isShip ? 'the Fix-First flow (item 4)' : 'Step 5 Fix-First';
   return `### Red Team dispatch (conditional)
 

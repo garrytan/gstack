@@ -85,11 +85,11 @@ describe('gstack-settings-hook', () => {
     expect(settings.hooks).toBeUndefined();
   });
 
-  test('remove is safe when settings.json does not exist', () => {
+  test('remove exits 1 when settings.json does not exist', () => {
     const result = run(`${SETTINGS_HOOK} remove /path/to/gstack-session-update`, {
       env: { GSTACK_SETTINGS_FILE: settingsFile },
     });
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode).toBe(1);
   });
 
   test('remove preserves other hooks', () => {

@@ -1,7 +1,7 @@
 /**
  * Chromium browser cookie import — read and decrypt cookies from real browsers
  *
- * Supports macOS and Linux Chromium-based browsers.
+ * Supports macOS, Linux, and Windows Chromium-based browsers.
  * Pure logic module — no Playwright dependency, no HTTP concerns.
  *
  * Decryption pipeline:
@@ -40,6 +40,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { TEMP_DIR } from './platform';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ export interface BrowserInfo {
   aliases: string[];
   linuxDataDir?: string;
   linuxApplication?: string;
+  windowsDataDir?: string;
 }
 
 export interface ProfileEntry {
@@ -91,7 +93,7 @@ export class CookieImportError extends Error {
   }
 }
 
-type BrowserPlatform = 'darwin' | 'linux';
+type BrowserPlatform = 'darwin' | 'linux' | 'win32';
 
 interface BrowserMatch {
   browser: BrowserInfo;
@@ -104,11 +106,11 @@ interface BrowserMatch {
 
 const BROWSER_REGISTRY: BrowserInfo[] = [
   { name: 'Comet',    dataDir: 'Comet/',                      keychainService: 'Comet Safe Storage',          aliases: ['comet', 'perplexity'] },
-  { name: 'Chrome',   dataDir: 'Google/Chrome/',             keychainService: 'Chrome Safe Storage',         aliases: ['chrome', 'google-chrome', 'google-chrome-stable'], linuxDataDir: 'google-chrome/', linuxApplication: 'chrome' },
-  { name: 'Chromium', dataDir: 'chromium/',                  keychainService: 'Chromium Safe Storage',       aliases: ['chromium'], linuxDataDir: 'chromium/', linuxApplication: 'chromium' },
+  { name: 'Chrome',   dataDir: 'Google/Chrome/',             keychainService: 'Chrome Safe Storage',         aliases: ['chrome', 'google-chrome', 'google-chrome-stable'], linuxDataDir: 'google-chrome/', linuxApplication: 'chrome', windowsDataDir: 'Google/Chrome/User Data/' },
+  { name: 'Chromium', dataDir: 'chromium/',                  keychainService: 'Chromium Safe Storage',       aliases: ['chromium'], linuxDataDir: 'chromium/', linuxApplication: 'chromium', windowsDataDir: 'Chromium/User Data/' },
   { name: 'Arc',      dataDir: 'Arc/User Data/',             keychainService: 'Arc Safe Storage',            aliases: ['arc'] },
-  { name: 'Brave',    dataDir: 'BraveSoftware/Brave-Browser/', keychainService: 'Brave Safe Storage',        aliases: ['brave'], linuxDataDir: 'BraveSoftware/Brave-Browser/', linuxApplication: 'brave' },
-  { name: 'Edge',     dataDir: 'Microsoft Edge/',            keychainService: 'Microsoft Edge Safe Storage', aliases: ['edge'], linuxDataDir: 'microsoft-edge/', linuxApplication: 'microsoft-edge' },
+  { name: 'Brave',    dataDir: 'BraveSoftware/Brave-Browser/', keychainService: 'Brave Safe Storage',        aliases: ['brave'], linuxDataDir: 'BraveSoftware/Brave-Browser/', linuxApplication: 'brave', windowsDataDir: 'BraveSoftware/Brave-Browser/User Data/' },
+  { name: 'Edge',     dataDir: 'Microsoft Edge/',            keychainService: 'Microsoft Edge Safe Storage', aliases: ['edge'], linuxDataDir: 'microsoft-edge/', linuxApplication: 'microsoft-edge', windowsDataDir: 'Microsoft/Edge/User Data/' },
 ];
 
 // ─── Key Cache ──────────────────────────────────────────────────
@@ -133,10 +135,12 @@ export function findInstalledBrowsers(): BrowserInfo[] {
       const browserDir = path.join(getBaseDir(platform), dataDir);
       try {
         const entries = fs.readdirSync(browserDir, { withFileTypes: true });
-        if (entries.some(e =>
-          e.isDirectory() && e.name.startsWith('Profile ') &&
-          fs.existsSync(path.join(browserDir, e.name, 'Cookies'))
-        )) return true;
+        if (entries.some(e => {
+          if (!e.isDirectory() || !e.name.startsWith('Profile ')) return false;
+          const profileDir = path.join(browserDir, e.name);
+          return fs.existsSync(path.join(profileDir, 'Cookies'))
+            || (platform === 'win32' && fs.existsSync(path.join(profileDir, 'Network', 'Cookies')));
+        })) return true;
       } catch {}
     }
     return false;
@@ -174,8 +178,11 @@ export function listProfiles(browserName: string): ProfileEntry[] {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (entry.name !== 'Default' && !entry.name.startsWith('Profile ')) continue;
-      const cookiePath = path.join(browserDir, entry.name, 'Cookies');
-      if (!fs.existsSync(cookiePath)) continue;
+      // Chrome 80+ on Windows stores cookies under Network/Cookies
+      const cookieCandidates = platform === 'win32'
+        ? [path.join(browserDir, entry.name, 'Network', 'Cookies'), path.join(browserDir, entry.name, 'Cookies')]
+        : [path.join(browserDir, entry.name, 'Cookies')];
+      if (!cookieCandidates.some(p => fs.existsSync(p))) continue;
 
       // Avoid duplicates if the same profile appears on multiple platforms
       if (profiles.some(p => p.name === entry.name)) continue;
@@ -268,7 +275,7 @@ export async function importCookies(
 
     for (const row of rows) {
       try {
-        const value = decryptCookieValue(row, derivedKeys);
+        const value = decryptCookieValue(row, derivedKeys, match.platform);
         const cookie = toPlaywrightCookie(row, value);
         cookies.push(cookie);
         domainCounts[row.host_key] = (domainCounts[row.host_key] || 0) + 1;
@@ -310,7 +317,8 @@ function validateProfile(profile: string): void {
 }
 
 function getHostPlatform(): BrowserPlatform | null {
-  if (process.platform === 'darwin' || process.platform === 'linux') return process.platform;
+  const p = process.platform;
+  if (p === 'darwin' || p === 'linux' || p === 'win32') return p as BrowserPlatform;
   return null;
 }
 
@@ -318,20 +326,22 @@ function getSearchPlatforms(): BrowserPlatform[] {
   const current = getHostPlatform();
   const order: BrowserPlatform[] = [];
   if (current) order.push(current);
-  for (const platform of ['darwin', 'linux'] as BrowserPlatform[]) {
+  for (const platform of ['darwin', 'linux', 'win32'] as BrowserPlatform[]) {
     if (!order.includes(platform)) order.push(platform);
   }
   return order;
 }
 
 function getDataDirForPlatform(browser: BrowserInfo, platform: BrowserPlatform): string | null {
-  return platform === 'darwin' ? browser.dataDir : browser.linuxDataDir || null;
+  if (platform === 'darwin') return browser.dataDir;
+  if (platform === 'linux') return browser.linuxDataDir || null;
+  return browser.windowsDataDir || null;
 }
 
 function getBaseDir(platform: BrowserPlatform): string {
-  return platform === 'darwin'
-    ? path.join(os.homedir(), 'Library', 'Application Support')
-    : path.join(os.homedir(), '.config');
+  if (platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support');
+  if (platform === 'win32') return path.join(os.homedir(), 'AppData', 'Local');
+  return path.join(os.homedir(), '.config');
 }
 
 function findBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch | null {
@@ -339,12 +349,18 @@ function findBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch |
   for (const platform of getSearchPlatforms()) {
     const dataDir = getDataDirForPlatform(browser, platform);
     if (!dataDir) continue;
-    const dbPath = path.join(getBaseDir(platform), dataDir, profile, 'Cookies');
-    try {
-      if (fs.existsSync(dbPath)) {
-        return { browser, platform, dbPath };
-      }
-    } catch {}
+    const baseProfile = path.join(getBaseDir(platform), dataDir, profile);
+    // Chrome 80+ on Windows stores cookies under Network/Cookies; fall back to Cookies
+    const candidates = platform === 'win32'
+      ? [path.join(baseProfile, 'Network', 'Cookies'), path.join(baseProfile, 'Cookies')]
+      : [path.join(baseProfile, 'Cookies')];
+    for (const dbPath of candidates) {
+      try {
+        if (fs.existsSync(dbPath)) {
+          return { browser, platform, dbPath };
+        }
+      } catch {}
+    }
   }
   return null;
 }
@@ -369,6 +385,13 @@ function getBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch {
 // ─── Internal: SQLite Access ────────────────────────────────────
 
 function openDb(dbPath: string, browserName: string): Database {
+  // On Windows, Chrome holds exclusive WAL locks even when we open readonly.
+  // The readonly open may "succeed" but return empty results because the WAL
+  // (where all actual data lives) can't be replayed. Always use the copy
+  // approach on Windows so we can open read-write and process the WAL.
+  if (process.platform === 'win32') {
+    return openDbFromCopy(dbPath, browserName);
+  }
   try {
     return new Database(dbPath, { readonly: true });
   } catch (err: any) {
@@ -439,6 +462,11 @@ async function getDerivedKeys(match: BrowserMatch): Promise<Map<string, Buffer>>
     ]);
   }
 
+  if (match.platform === 'win32') {
+    const key = await getWindowsAesKey(match.browser);
+    return new Map([['v10', key]]);
+  }
+
   const keys = new Map<string, Buffer>();
   keys.set('v10', getCachedDerivedKey('linux:v10', 'peanuts', 1));
 
@@ -450,6 +478,84 @@ async function getDerivedKeys(match: BrowserMatch): Promise<Map<string, Buffer>>
     );
   }
   return keys;
+}
+
+async function getWindowsAesKey(browser: BrowserInfo): Promise<Buffer> {
+  const cacheKey = `win32:${browser.keychainService}`;
+  const cached = keyCache.get(cacheKey);
+  if (cached) return cached;
+
+  const platform = 'win32' as const;
+  const dataDir = getDataDirForPlatform(browser, platform);
+  if (!dataDir) throw new CookieImportError(`No Windows data dir for ${browser.name}`, 'not_installed');
+
+  const localStatePath = path.join(getBaseDir(platform), dataDir, 'Local State');
+  let localState: any;
+  try {
+    localState = JSON.parse(fs.readFileSync(localStatePath, 'utf-8'));
+  } catch (err) {
+    const reason = err instanceof Error ? `: ${err.message}` : '';
+    throw new CookieImportError(
+      `Cannot read Local State for ${browser.name} at ${localStatePath}${reason}`,
+      'keychain_error',
+    );
+  }
+
+  const encryptedKeyB64: string = localState?.os_crypt?.encrypted_key;
+  if (!encryptedKeyB64) {
+    throw new CookieImportError(
+      `No encrypted key in Local State for ${browser.name}`,
+      'keychain_not_found',
+    );
+  }
+
+  // The stored value is base64(b"DPAPI" + dpapi_encrypted_bytes) — strip the 5-byte prefix
+  const encryptedKey = Buffer.from(encryptedKeyB64, 'base64').slice(5);
+  const key = await dpapiDecrypt(encryptedKey);
+  keyCache.set(cacheKey, key);
+  return key;
+}
+
+async function dpapiDecrypt(encryptedBytes: Buffer): Promise<Buffer> {
+  const script = [
+    'Add-Type -AssemblyName System.Security',
+    '$stdin = [Console]::In.ReadToEnd().Trim()',
+    '$bytes = [System.Convert]::FromBase64String($stdin)',
+    '$dec = [System.Security.Cryptography.ProtectedData]::Unprotect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    'Write-Output ([System.Convert]::ToBase64String($dec))',
+  ].join('; ');
+
+  const proc = Bun.spawn(['powershell', '-NoProfile', '-Command', script], {
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+  proc.stdin.write(encryptedBytes.toString('base64'));
+  proc.stdin.end();
+
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => {
+      proc.kill();
+      reject(new CookieImportError('DPAPI decryption timed out', 'keychain_timeout', 'retry'));
+    }, 10_000),
+  );
+
+  try {
+    const exitCode = await Promise.race([proc.exited, timeout]);
+    const stdout = await new Response(proc.stdout).text();
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new CookieImportError(`DPAPI decryption failed: ${stderr.trim()}`, 'keychain_error');
+    }
+    return Buffer.from(stdout.trim(), 'base64');
+  } catch (err) {
+    if (err instanceof CookieImportError) throw err;
+    throw new CookieImportError(
+      `DPAPI decryption failed: ${(err as Error).message}`,
+      'keychain_error',
+    );
+  }
 }
 
 async function getMacKeychainPassword(service: string): Promise<string> {
@@ -566,7 +672,7 @@ interface RawCookie {
   samesite: number;
 }
 
-function decryptCookieValue(row: RawCookie, keys: Map<string, Buffer>): string {
+function decryptCookieValue(row: RawCookie, keys: Map<string, Buffer>, platform: BrowserPlatform): string {
   // Prefer unencrypted value if present
   if (row.value && row.value.length > 0) return row.value;
 
@@ -574,9 +680,28 @@ function decryptCookieValue(row: RawCookie, keys: Map<string, Buffer>): string {
   if (ev.length === 0) return '';
 
   const prefix = ev.slice(0, 3).toString('utf-8');
+
+  // Chrome 127+ on Windows uses App-Bound Encryption (v20) — cannot be decrypted
+  // outside the Chrome process. Caller should fall back to CDP extraction.
+  if (prefix === 'v20') throw new CookieImportError(
+    'Cookie uses App-Bound Encryption (v20). Use CDP extraction instead.',
+    'v20_encryption',
+  );
+
   const key = keys.get(prefix);
   if (!key) throw new Error(`No decryption key available for ${prefix} cookies`);
 
+  if (platform === 'win32' && prefix === 'v10') {
+    // Windows: AES-256-GCM — structure: v10(3) + nonce(12) + ciphertext + tag(16)
+    const nonce = ev.slice(3, 15);
+    const tag = ev.slice(ev.length - 16);
+    const ciphertext = ev.slice(15, ev.length - 16);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce) as crypto.DecipherGCM;
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf-8');
+  }
+
+  // macOS / Linux: AES-128-CBC — structure: v10/v11(3) + ciphertext
   const ciphertext = ev.slice(3);
   const iv = Buffer.alloc(16, 0x20); // 16 space characters
   const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
@@ -622,5 +747,286 @@ function mapSameSite(value: number): 'Strict' | 'Lax' | 'None' {
     case 1: return 'Lax';
     case 2: return 'Strict';
     default: return 'Lax';
+  }
+}
+
+
+// ─── CDP-based Cookie Extraction (Windows v20 fallback) ────────
+// When App-Bound Encryption (v20) is detected, we launch Chrome headless
+// with remote debugging and extract cookies via the DevTools Protocol.
+// This only works when Chrome is NOT already running (profile lock).
+
+const CHROME_PATHS_WIN = [
+  path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+];
+
+const EDGE_PATHS_WIN = [
+  path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+  path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+];
+
+function findBrowserExe(browserName: string): string | null {
+  const candidates = browserName.toLowerCase().includes('edge') ? EDGE_PATHS_WIN : CHROME_PATHS_WIN;
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function isBrowserRunning(browserName: string): Promise<boolean> {
+  const exe = browserName.toLowerCase().includes('edge') ? 'msedge.exe' : 'chrome.exe';
+  return new Promise((resolve) => {
+    const proc = Bun.spawn(['tasklist', '/FI', `IMAGENAME eq ${exe}`, '/NH'], {
+      stdout: 'pipe', stderr: 'pipe',
+    });
+    proc.exited.then(async () => {
+      const out = await new Response(proc.stdout).text();
+      resolve(out.toLowerCase().includes(exe));
+    }).catch(() => resolve(false));
+  });
+}
+
+/**
+ * Extract cookies via Chrome DevTools Protocol. Launches Chrome headless with
+ * remote debugging on the user's real profile directory. Requires Chrome to be
+ * closed first (profile lock).
+ *
+ * v20 App-Bound Encryption binds decryption keys to the original user-data-dir
+ * path, so a temp copy of the profile won't work — Chrome silently discards
+ * cookies it can't decrypt. We must use the real profile.
+ */
+export async function importCookiesViaCdp(
+  browserName: string,
+  domains: string[],
+  profile = 'Default',
+): Promise<ImportResult> {
+  if (domains.length === 0) return { cookies: [], count: 0, failed: 0, domainCounts: {} };
+  if (process.platform !== 'win32') {
+    throw new CookieImportError('CDP extraction is only needed on Windows', 'not_supported');
+  }
+
+  const browser = resolveBrowser(browserName);
+  const exePath = findBrowserExe(browser.name);
+  if (!exePath) {
+    throw new CookieImportError(
+      `Cannot find ${browser.name} executable. Install it or use /connect-chrome.`,
+      'not_installed',
+    );
+  }
+
+  if (await isBrowserRunning(browser.name)) {
+    throw new CookieImportError(
+      `${browser.name} is running. Close it first so we can launch headless with your profile, or use /connect-chrome to control your real browser directly.`,
+      'browser_running',
+      'retry',
+    );
+  }
+
+  // Must use the real user data dir — v20 ABE keys are path-bound
+  const dataDir = getDataDirForPlatform(browser, 'win32');
+  if (!dataDir) throw new CookieImportError(`No Windows data dir for ${browser.name}`, 'not_installed');
+  const userDataDir = path.join(getBaseDir('win32'), dataDir);
+
+  // Launch Chrome headless with remote debugging on the real profile.
+  //
+  // Security posture of the debug port:
+  //   - Chrome binds --remote-debugging-port to 127.0.0.1 by default. We rely
+  //     on that — the port is NOT exposed to the network. Any local process
+  //     running as the same user could connect and read cookies, but if an
+  //     attacker already has local-user access they can read the cookie DB
+  //     directly. Threat model: no worse than baseline.
+  //   - Port is randomized in [9222, 9321] to avoid collisions with other
+  //     Chrome-based tools the user may have open. Not cryptographic.
+  //   - Chrome is always killed in the finally block below (even on crash).
+  //
+  // Debugging note: if this path starts failing after a Chrome update,
+  // check the Chrome version logged below — Chrome's ABE key format (v20)
+  // or /json/list shape can change between major versions.
+  const debugPort = 9222 + Math.floor(Math.random() * 100);
+  const chromeProc = Bun.spawn([
+    exePath,
+    `--remote-debugging-port=${debugPort}`,
+    `--user-data-dir=${userDataDir}`,
+    `--profile-directory=${profile}`,
+    '--headless=new',
+    '--no-first-run',
+    '--disable-background-networking',
+    '--disable-default-apps',
+    '--disable-extensions',
+    '--disable-sync',
+    '--no-default-browser-check',
+  ], { stdout: 'pipe', stderr: 'pipe' });
+
+  // Wait for Chrome to start, then find a page target's WebSocket URL.
+  // Network.getAllCookies is only available on page targets, not browser.
+  let wsUrl: string | null = null;
+  const startTime = Date.now();
+  let loggedVersion = false;
+  while (Date.now() - startTime < 15_000) {
+    try {
+      // One-time version log for future diagnostics when Chrome changes v20 format.
+      if (!loggedVersion) {
+        try {
+          const versionResp = await fetch(`http://127.0.0.1:${debugPort}/json/version`);
+          if (versionResp.ok) {
+            const v = await versionResp.json() as { Browser?: string };
+            console.log(`[cookie-import] CDP fallback: ${browser.name} ${v.Browser || 'unknown version'}`);
+            loggedVersion = true;
+          }
+        } catch {}
+      }
+      const resp = await fetch(`http://127.0.0.1:${debugPort}/json/list`);
+      if (resp.ok) {
+        const targets = await resp.json() as Array<{ type: string; webSocketDebuggerUrl?: string }>;
+        const page = targets.find(t => t.type === 'page');
+        if (page?.webSocketDebuggerUrl) {
+          wsUrl = page.webSocketDebuggerUrl;
+          break;
+        }
+      }
+    } catch {
+      // Not ready yet
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  if (!wsUrl) {
+    chromeProc.kill();
+    throw new CookieImportError(
+      `${browser.name} headless did not start within 15s`,
+      'cdp_timeout',
+      'retry',
+    );
+  }
+
+  try {
+    // Connect via CDP WebSocket
+    const cookies = await extractCookiesViaCdp(wsUrl, domains);
+
+    const domainCounts: Record<string, number> = {};
+    for (const c of cookies) {
+      domainCounts[c.domain] = (domainCounts[c.domain] || 0) + 1;
+    }
+
+    return { cookies, count: cookies.length, failed: 0, domainCounts };
+  } finally {
+    chromeProc.kill();
+  }
+}
+
+async function extractCookiesViaCdp(wsUrl: string, domains: string[]): Promise<PlaywrightCookie[]> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    let msgId = 1;
+
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new CookieImportError('CDP cookie extraction timed out', 'cdp_timeout'));
+    }, 10_000);
+
+    ws.onopen = () => {
+      // Enable Network domain first, then request all cookies
+      ws.send(JSON.stringify({ id: msgId++, method: 'Network.enable' }));
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(String(event.data));
+
+      // After Network.enable succeeds, request all cookies
+      if (data.id === 1 && !data.error) {
+        ws.send(JSON.stringify({ id: msgId, method: 'Network.getAllCookies' }));
+        return;
+      }
+
+      if (data.id === msgId && data.result?.cookies) {
+        clearTimeout(timeout);
+        ws.close();
+
+        // Normalize domain matching: domains like ".example.com" match "example.com" and vice versa
+        const domainSet = new Set<string>();
+        for (const d of domains) {
+          domainSet.add(d);
+          domainSet.add(d.startsWith('.') ? d.slice(1) : '.' + d);
+        }
+
+        const matched: PlaywrightCookie[] = [];
+        for (const c of data.result.cookies as CdpCookie[]) {
+          if (!domainSet.has(c.domain)) continue;
+          matched.push({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path || '/',
+            expires: c.expires === -1 ? -1 : c.expires,
+            secure: c.secure,
+            httpOnly: c.httpOnly,
+            sameSite: cdpSameSite(c.sameSite),
+          });
+        }
+        resolve(matched);
+      } else if (data.id === msgId && data.error) {
+        clearTimeout(timeout);
+        ws.close();
+        reject(new CookieImportError(
+          `CDP error: ${data.error.message}`,
+          'cdp_error',
+        ));
+      }
+    };
+
+    ws.onerror = (err) => {
+      clearTimeout(timeout);
+      reject(new CookieImportError(
+        `CDP WebSocket error: ${(err as any).message || 'unknown'}`,
+        'cdp_error',
+      ));
+    };
+  });
+}
+
+interface CdpCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  size: number;
+  httpOnly: boolean;
+  secure: boolean;
+  session: boolean;
+  sameSite: string;
+}
+
+function cdpSameSite(value: string): 'Strict' | 'Lax' | 'None' {
+  switch (value) {
+    case 'Strict': return 'Strict';
+    case 'Lax': return 'Lax';
+    case 'None': return 'None';
+    default: return 'Lax';
+  }
+}
+
+/**
+ * Check if a browser's cookie DB contains v20 (App-Bound) encrypted cookies.
+ * Quick check — reads a small sample, no decryption attempted.
+ */
+export function hasV20Cookies(browserName: string, profile = 'Default'): boolean {
+  if (process.platform !== 'win32') return false;
+  try {
+    const browser = resolveBrowser(browserName);
+    const match = getBrowserMatch(browser, profile);
+    const db = openDb(match.dbPath, browser.name);
+    try {
+      const rows = db.query('SELECT encrypted_value FROM cookies LIMIT 10').all() as Array<{ encrypted_value: Buffer | Uint8Array }>;
+      return rows.some(row => {
+        const ev = Buffer.from(row.encrypted_value);
+        return ev.length >= 3 && ev.slice(0, 3).toString('utf-8') === 'v20';
+      });
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
   }
 }

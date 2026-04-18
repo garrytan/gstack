@@ -38,6 +38,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # skill_prefix: false       # true = namespace skills as /gstack-qa, /gstack-ship
 #                           # false = short names /qa, /ship
 #
+# ─── Writing style (V1) ──────────────────────────────────────────────
+# explain_level: default    # default = jargon-glossed, outcome-framed prose
+#                           #           (V1 default — more accessible for everyone)
+#                           # terse   = V0 prose style, no glosses, no outcome-framing layer
+#                           #           (for power users who know the terms)
+#                           # Unknown values default to "default" with a warning.
+#                           # See docs/designs/PLAN_TUNING_V1.md for rationale.
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
 # gstack_contributor: false # true = file field reports when gstack misbehaves
@@ -62,6 +70,11 @@ case "${1:-}" in
     if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
       echo "Error: key must contain only alphanumeric characters and underscores" >&2
       exit 1
+    fi
+    # V1: whitelist values for keys with closed value domains. Unknown values warn + default.
+    if [ "$KEY" = "explain_level" ] && [ "$VALUE" != "default" ] && [ "$VALUE" != "terse" ]; then
+      echo "Warning: explain_level '$VALUE' not recognized. Valid values: default, terse. Using default." >&2
+      VALUE="default"
     fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation

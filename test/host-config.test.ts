@@ -30,8 +30,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 8 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(8);
+  test('ALL_HOST_CONFIGS has 10 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(10);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -354,6 +354,21 @@ describe('host-config-export.ts CLI', () => {
     expect(lines).toContain('review/checklist.md');
   });
 
+  test('opencode symlinks returns nested runtime assets', () => {
+    const { stdout, exitCode } = run('symlinks', 'opencode');
+    expect(exitCode).toBe(0);
+    const lines = stdout.split('\n');
+    expect(lines).toContain('bin');
+    expect(lines).toContain('browse/dist');
+    expect(lines).toContain('browse/bin');
+    expect(lines).toContain('review/design-checklist.md');
+    expect(lines).toContain('review/greptile-triage.md');
+    expect(lines).toContain('review/specialists');
+    expect(lines).toContain('qa/templates');
+    expect(lines).toContain('qa/references');
+    expect(lines).toContain('plan-devex-review/dx-hall-of-fame.md');
+  });
+
   test('symlinks with missing host exits 1', () => {
     const { exitCode } = run('symlinks');
     expect(exitCode).toBe(1);
@@ -479,9 +494,8 @@ describe('host config correctness', () => {
     expect(openclaw.pathRewrites.some(r => r.from === 'CLAUDE.md' && r.to === 'AGENTS.md')).toBe(true);
   });
 
-  test('openclaw has adapter path', () => {
-    expect(openclaw.adapter).toBeDefined();
-    expect(openclaw.adapter).toContain('openclaw-adapter');
+  test('openclaw has no adapter (dead code removed)', () => {
+    expect(openclaw.adapter).toBeUndefined();
   });
 
   test('openclaw has no staticFiles (SOUL.md removed)', () => {

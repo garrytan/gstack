@@ -14,13 +14,19 @@ DIST_DIR="$GSTACK_DIR/browse/dist"
 echo "Building Node-compatible server bundle..."
 
 # Step 1: Transpile server.ts to a single .mjs bundle (externalize runtime deps)
+#
+# Externalize packages with native addons, dynamic imports, or runtime resolution.
+# If you add a new dependency that uses `await import()` or has a .node addon,
+# add it here. Otherwise `bun build --outfile` will fail with
+# "cannot write multiple output files without an output directory".
 bun build "$SRC_DIR/server.ts" \
   --target=node \
   --outfile "$DIST_DIR/server-node.mjs" \
   --external playwright \
   --external playwright-core \
   --external diff \
-  --external "bun:sqlite"
+  --external "bun:sqlite" \
+  --external "@ngrok/ngrok"
 
 # Step 2: Post-process
 # Replace import.meta.dir with a resolvable reference

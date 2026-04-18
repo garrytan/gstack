@@ -9,6 +9,10 @@ description: |
   "visual brainstorm", or "I don't like how this looks".
   Proactively suggest when the user describes a UI feature but hasn't seen
   what it could look like. (gstack)
+triggers:
+  - explore design variants
+  - show me design options
+  - visual design brainstorm
 allowed-tools:
   - Bash
   - Read
@@ -140,7 +144,7 @@ Set up the output directory:
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/<screen-name>-$(date +%Y%m%d)
+_DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/<screen-name>-$(date +%Y%m%d)"
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```

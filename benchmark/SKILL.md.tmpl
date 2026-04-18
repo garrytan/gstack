@@ -11,6 +11,10 @@ description: |
 voice-triggers:
   - "speed test"
   - "check performance"
+triggers:
+  - performance benchmark
+  - check page speed
+  - detect performance regression
 allowed-tools:
   - Bash
   - Read

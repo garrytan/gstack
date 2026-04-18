@@ -6,6 +6,8 @@ design/dist/
 bin/gstack-global-discover
 .gstack/
 .claude/skills/
+.claude/scheduled_tasks.lock
+.claude/*.lock
 .agents/
 .factory/
 .kiro/
@@ -13,6 +15,8 @@ bin/gstack-global-discover
 .slate/
 .cursor/
 .openclaw/
+.hermes/
+.gbrain/
 .context/
 extension/.auth.json
 .gstack-worktrees/
@@ -24,3 +28,6 @@ extension/.auth.json
 .env.*
 !.env.example
 supabase/.temp/
+
+# Throughput analysis — local-only, regenerate via scripts/garry-output-comparison.ts
+docs/throughput-*.json

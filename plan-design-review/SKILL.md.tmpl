@@ -17,6 +17,10 @@ allowed-tools:
   - Glob
   - Bash
   - AskUserQuestion
+triggers:
+  - design plan review
+  - review ux plan
+  - check design decisions
 ---
 
 {{PREAMBLE}}
@@ -184,7 +188,7 @@ First, set up the output directory. Name it after the screen/feature being desig
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/<screen-name>-$(date +%Y%m%d)
+_DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/<screen-name>-$(date +%Y%m%d)"
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```

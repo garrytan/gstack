@@ -5,7 +5,7 @@
 import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
-import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
+import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand } from './commands';
 import { validateNavigationUrl } from './url-validation';
 import { checkScope, type TokenInfo } from './token-registry';
 import { validateOutputPath, escapeRegExp } from './path-security';
@@ -124,11 +124,15 @@ export async function handleMetaCommand(
       let base64Mode = false;
 
       const remaining: string[] = [];
+      let flagSelector: string | undefined;
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--viewport') {
           viewportOnly = true;
         } else if (args[i] === '--base64') {
           base64Mode = true;
+        } else if (args[i] === '--selector') {
+          flagSelector = args[++i];
+          if (!flagSelector) throw new Error('Usage: screenshot --selector <css> [path]');
         } else if (args[i] === '--clip') {
           const coords = args[++i];
           if (!coords) throw new Error('Usage: screenshot --clip x,y,w,h [path]');
@@ -154,6 +158,14 @@ export async function handleMetaCommand(
         } else {
           outputPath = arg;
         }
+      }
+
+      // --selector flag takes precedence; conflict with positional selector.
+      if (flagSelector !== undefined) {
+        if (targetSelector !== undefined) {
+          throw new Error('--selector conflicts with positional selector — choose one');
+        }
+        targetSelector = flagSelector;
       }
 
       validateOutputPath(outputPath);
@@ -244,27 +256,36 @@ export async function handleMetaCommand(
         '   or: browse chain \'goto url | click @e5 | snapshot -ic\''
       );
 
-      let commands: string[][];
+      let rawCommands: string[][];
       try {
-        commands = JSON.parse(jsonStr);
-        if (!Array.isArray(commands)) throw new Error('not array');
+        rawCommands = JSON.parse(jsonStr);
+        if (!Array.isArray(rawCommands)) throw new Error('not array');
       } catch (err: any) {
         // Fallback: pipe-delimited format "goto url | click @e5 | snapshot -ic"
         if (!(err instanceof SyntaxError) && err?.message !== 'not array') throw err;
-        commands = jsonStr.split(' | ')
+        rawCommands = jsonStr.split(' | ')
           .filter(seg => seg.trim().length > 0)
           .map(seg => tokenizePipeSegment(seg.trim()));
       }
 
+      // Canonicalize aliases across the whole chain. Pair canonical name with the raw
+      // input so result labels + error messages reflect what the user typed, but every
+      // dispatch path (scope check, WRITE_COMMANDS.has, watch blocking, handler lookup)
+      // uses the canonical name. Otherwise `chain '[["setcontent","/tmp/x.html"]]'`
+      // bypasses prevalidation or runs under the wrong command set.
+      const commands = rawCommands.map(cmd => {
+        const [rawName, ...cmdArgs] = cmd;
+        const name = canonicalizeCommand(rawName);
+        return { rawName, name, args: cmdArgs };
+      });
+
       // Pre-validate ALL subcommands against the token's scope before executing any.
-      // This prevents partial execution where some subcommands succeed before a
-      // scope violation is hit, leaving the browser in an inconsistent state.
+      // Uses canonical name so aliases don't bypass scope checks.
       if (tokenInfo && tokenInfo.clientId !== 'root') {
-        for (const cmd of commands) {
-          const [name] = cmd;
-          if (!checkScope(tokenInfo, name)) {
+        for (const c of commands) {
+          if (!checkScope(tokenInfo, c.name)) {
             throw new Error(
-              `Chain rejected: subcommand "${name}" not allowed by your token scope (${tokenInfo.scopes.join(', ')}). ` +
+              `Chain rejected: subcommand "${c.rawName}" not allowed by your token scope (${tokenInfo.scopes.join(', ')}). ` +
               `All subcommands must be within scope.`
             );
           }
@@ -280,30 +301,33 @@ export async function handleMetaCommand(
       let lastWasWrite = false;
 
       if (executeCmd) {
-        // Full security pipeline via handleCommandInternal
-        for (const cmd of commands) {
-          const [name, ...cmdArgs] = cmd;
+        // Full security pipeline via handleCommandInternal.
+        // Pass rawName so the server's own canonicalization is a no-op (already canonical).
+        for (const c of commands) {
           const cr = await executeCmd(
-            { command: name, args: cmdArgs },
+            { command: c.name, args: c.args },
             tokenInfo,
           );
+          const label = c.rawName === c.name ? c.name : `${c.rawName}→${c.name}`;
           if (cr.status === 200) {
-            results.push(`[${name}] ${cr.result}`);
+            results.push(`[${label}] ${cr.result}`);
           } else {
             // Parse error from JSON result
             let errMsg = cr.result;
             try { errMsg = JSON.parse(cr.result).error || cr.result; } catch (err: any) { if (!(err instanceof SyntaxError)) throw err; }
-            results.push(`[${name}] ERROR: ${errMsg}`);
+            results.push(`[${label}] ERROR: ${errMsg}`);
           }
-          lastWasWrite = WRITE_COMMANDS.has(name);
+          lastWasWrite = WRITE_COMMANDS.has(c.name);
         }
       } else {
         // Fallback: direct dispatch (CLI mode, no server context)
         const { handleReadCommand } = await import('./read-commands');
         const { handleWriteCommand } = await import('./write-commands');
 
-        for (const cmd of commands) {
-          const [name, ...cmdArgs] = cmd;
+        for (const c of commands) {
+          const name = c.name;
+          const cmdArgs = c.args;
+          const label = c.rawName === name ? name : `${c.rawName}→${name}`;
           try {
             let result: string;
             if (WRITE_COMMANDS.has(name)) {
@@ -323,11 +347,11 @@ export async function handleMetaCommand(
               result = await handleMetaCommand(name, cmdArgs, bm, shutdown, tokenInfo, opts);
               lastWasWrite = false;
             } else {
-              throw new Error(`Unknown command: ${name}`);
+              throw new Error(`Unknown command: ${c.rawName}`);
             }
-            results.push(`[${name}] ${result}`);
+            results.push(`[${label}] ${result}`);
           } catch (err: any) {
-            results.push(`[${name}] ERROR: ${err.message}`);
+            results.push(`[${label}] ERROR: ${err.message}`);
           }
         }
       }
@@ -346,12 +370,12 @@ export async function handleMetaCommand(
       if (!url1 || !url2) throw new Error('Usage: browse diff <url1> <url2>');
 
       const page = bm.getPage();
-      await validateNavigationUrl(url1);
-      await page.goto(url1, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const normalizedUrl1 = await validateNavigationUrl(url1);
+      await page.goto(normalizedUrl1, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const text1 = await getCleanText(page);
 
-      await validateNavigationUrl(url2);
-      await page.goto(url2, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const normalizedUrl2 = await validateNavigationUrl(url2);
+      await page.goto(normalizedUrl2, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const text2 = await getCleanText(page);
 
       const changes = Diff.diffLines(text1, text2);
@@ -608,9 +632,17 @@ export async function handleMetaCommand(
         // Close existing pages, then restore (replace, not merge)
         bm.setFrame(null);
         await bm.closeAllPages();
+        // Allowlist disk-loaded page fields — NEVER accept loadedHtml, loadedHtmlWaitUntil,
+        // or owner from disk. Those are in-memory-only invariants; allowing them would let
+        // a tampered state file smuggle HTML past load-html's safe-dirs + magic-byte + size
+        // checks, or forge tab ownership for cross-agent authorization bypass.
         await bm.restoreState({
           cookies: validatedCookies,
-          pages: data.pages.map((p: any) => ({ ...p, storage: null })),
+          pages: data.pages.map((p: any) => ({
+            url: typeof p.url === 'string' ? p.url : '',
+            isActive: Boolean(p.isActive),
+            storage: null,
+          })),
         });
         return `State loaded: ${data.cookies.length} cookies, ${data.pages.length} pages`;
       }

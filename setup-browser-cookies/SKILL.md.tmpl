@@ -7,6 +7,10 @@ description: |
   Opens an interactive picker UI where you select which cookie domains to import.
   Use before QA testing authenticated pages. Use when asked to "import cookies",
   "login to the site", or "authenticate the browser". (gstack)
+triggers:
+  - import browser cookies
+  - login to test site
+  - setup authenticated session
 allowed-tools:
   - Bash
   - Read

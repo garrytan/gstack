@@ -19,9 +19,15 @@ allowed-tools:
   - Grep
   - AskUserQuestion
   - WebSearch
+triggers:
+  - visual design audit
+  - design qa
+  - fix design issues
 ---
 
 {{PREAMBLE}}
+
+{{GBRAIN_CONTEXT_LOAD}}
 
 # /design-review: Design Audit → Fix → Verify
 
@@ -90,7 +96,7 @@ If `DESIGN_NOT_AVAILABLE`: skip mockup generation — the fix loop works without
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-REPORT_DIR=~/.gstack/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)
+REPORT_DIR="$HOME/.gstack/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)"
 mkdir -p "$REPORT_DIR/screenshots"
 echo "REPORT_DIR: $REPORT_DIR"
 ```
@@ -292,6 +298,8 @@ If the repo has a `TODOS.md`:
 ---
 
 {{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ## Additional Rules (design-review specific)
 

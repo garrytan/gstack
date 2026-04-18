@@ -2088,3 +2088,340 @@ describe('Frame', () => {
     await handleMetaCommand('frame', ['main'], bm, async () => {});
   });
 });
+
+// ─── load-html ─────────────────────────────────────────────────
+
+describe('load-html', () => {
+  const tmpDir = '/tmp';
+  const fixturePath = path.join(tmpDir, `browse-test-loadhtml-${Date.now()}.html`);
+  const fragmentPath = path.join(tmpDir, `browse-test-fragment-${Date.now()}.html`);
+
+  beforeAll(() => {
+    fs.writeFileSync(fixturePath, '<html><body><h1 id="loaded">loaded by load-html</h1></body></html>');
+    fs.writeFileSync(fragmentPath, '<div class="fragment" style="width:100px;height:50px">fragment</div>');
+  });
+
+  afterAll(() => {
+    try { fs.unlinkSync(fixturePath); } catch {}
+    try { fs.unlinkSync(fragmentPath); } catch {}
+  });
+
+  test('load-html loads HTML file into page', async () => {
+    const result = await handleWriteCommand('load-html', [fixturePath], bm);
+    expect(result).toContain('Loaded HTML:');
+    expect(result).toContain(fixturePath);
+    const text = await handleReadCommand('text', [], bm);
+    expect(text).toContain('loaded by load-html');
+  });
+
+  test('load-html accepts bare HTML fragments (no doctype)', async () => {
+    const result = await handleWriteCommand('load-html', [fragmentPath], bm);
+    expect(result).toContain('Loaded HTML:');
+    const html = await handleReadCommand('html', [], bm);
+    expect(html).toContain('fragment');
+  });
+
+  test('load-html rejects missing file arg', async () => {
+    try {
+      await handleWriteCommand('load-html', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Usage: browse load-html/);
+    }
+  });
+
+  test('load-html rejects non-.html extension', async () => {
+    const txtPath = path.join(tmpDir, `load-html-test-${Date.now()}.txt`);
+    fs.writeFileSync(txtPath, '<html></html>');
+    try {
+      await handleWriteCommand('load-html', [txtPath], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/does not appear to be HTML/);
+    } finally {
+      try { fs.unlinkSync(txtPath); } catch {}
+    }
+  });
+
+  test('load-html rejects file outside safe dirs', async () => {
+    try {
+      await handleWriteCommand('load-html', ['/etc/passwd.html'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/must be under|not found|security policy/);
+    }
+  });
+
+  test('load-html rejects missing file with actionable error', async () => {
+    try {
+      await handleWriteCommand('load-html', [path.join(tmpDir, 'does-not-exist.html')], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/not found|security policy/);
+    }
+  });
+
+  test('load-html rejects directory target', async () => {
+    try {
+      await handleWriteCommand('load-html', [path.join(tmpDir, 'browse-test-notafile.html') + '/'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      // Either "not found" or "is a directory" — both valid rejections
+      expect(err.message).toMatch(/not found|directory|not a regular file|security policy/);
+    }
+  });
+
+  test('load-html rejects binary content disguised as .html', async () => {
+    const binPath = path.join(tmpDir, `load-html-binary-${Date.now()}.html`);
+    // PNG magic bytes: 0x89 0x50 0x4E 0x47
+    fs.writeFileSync(binPath, Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
+    try {
+      await handleWriteCommand('load-html', [binPath], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/does not look like HTML/);
+    } finally {
+      try { fs.unlinkSync(binPath); } catch {}
+    }
+  });
+
+  test('load-html strips UTF-8 BOM before magic-byte check', async () => {
+    const bomPath = path.join(tmpDir, `load-html-bom-${Date.now()}.html`);
+    const bomBytes = Buffer.from([0xEF, 0xBB, 0xBF]);
+    fs.writeFileSync(bomPath, Buffer.concat([bomBytes, Buffer.from('<html><body>bom ok</body></html>')]));
+    try {
+      const result = await handleWriteCommand('load-html', [bomPath], bm);
+      expect(result).toContain('Loaded HTML:');
+    } finally {
+      try { fs.unlinkSync(bomPath); } catch {}
+    }
+  });
+
+  test('load-html --wait-until networkidle exercises non-default branch', async () => {
+    const result = await handleWriteCommand('load-html', [fixturePath, '--wait-until', 'networkidle'], bm);
+    expect(result).toContain('Loaded HTML:');
+  });
+
+  test('load-html rejects invalid --wait-until value', async () => {
+    try {
+      await handleWriteCommand('load-html', [fixturePath, '--wait-until', 'bogus'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Invalid --wait-until/);
+    }
+  });
+
+  test('load-html rejects unknown flag', async () => {
+    try {
+      await handleWriteCommand('load-html', [fixturePath, '--bogus'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Unknown flag/);
+    }
+  });
+});
+
+// ─── screenshot --selector ─────────────────────────────────────
+
+describe('screenshot --selector', () => {
+  test('--selector flag with output path captures element', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const p = `/tmp/browse-test-selector-${Date.now()}.png`;
+    const result = await handleMetaCommand('screenshot', ['--selector', '#title', p], bm, async () => {});
+    expect(result).toContain('Screenshot saved (element)');
+    expect(fs.existsSync(p)).toBe(true);
+    fs.unlinkSync(p);
+  });
+
+  test('--selector conflicts with positional selector', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--selector', '#title', '.other'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/conflicts with positional selector/);
+    }
+  });
+
+  test('--selector conflicts with --clip', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--selector', '#title', '--clip', '0,0,100,100'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Cannot use --clip with a selector/);
+    }
+  });
+
+  test('--selector with --base64 returns element base64', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleMetaCommand('screenshot', ['--selector', '#title', '--base64'], bm, async () => {});
+    expect(result).toMatch(/^data:image\/png;base64,/);
+  });
+
+  test('--selector missing value throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--selector'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Usage: screenshot --selector/);
+    }
+  });
+});
+
+// ─── viewport --scale ───────────────────────────────────────────
+
+describe('viewport --scale', () => {
+  test('viewport WxH --scale 2 produces 2x dimension screenshot', async () => {
+    const tmpFix = path.join('/tmp', `scale-${Date.now()}.html`);
+    fs.writeFileSync(tmpFix, '<div id="box" style="width:100px;height:50px;background:#f00"></div>');
+    try {
+      await handleWriteCommand('viewport', ['200x200', '--scale', '2'], bm);
+      await handleWriteCommand('load-html', [tmpFix], bm);
+      const p = `/tmp/scale-${Date.now()}.png`;
+      await handleMetaCommand('screenshot', ['--selector', '#box', p], bm, async () => {});
+      // Parse PNG IHDR (bytes 16-23 are width/height big-endian u32)
+      const buf = fs.readFileSync(p);
+      const w = buf.readUInt32BE(16);
+      const h = buf.readUInt32BE(20);
+      // Box is 100x50 at 2x = 200x100
+      expect(w).toBe(200);
+      expect(h).toBe(100);
+      fs.unlinkSync(p);
+      // Reset scale for other tests
+      await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+    } finally {
+      try { fs.unlinkSync(tmpFix); } catch {}
+    }
+  });
+
+  test('viewport --scale without WxH keeps current size', async () => {
+    await handleWriteCommand('viewport', ['800x600'], bm);
+    const result = await handleWriteCommand('viewport', ['--scale', '2'], bm);
+    expect(result).toContain('800x600');
+    expect(result).toContain('2x');
+    expect(bm.getDeviceScaleFactor()).toBe(2);
+    await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+  });
+
+  test('--scale non-finite (NaN) throws', async () => {
+    try {
+      await handleWriteCommand('viewport', ['100x100', '--scale', 'abc'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/not a finite number/);
+    }
+  });
+
+  test('--scale out of range throws', async () => {
+    try {
+      await handleWriteCommand('viewport', ['100x100', '--scale', '4'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/between 1 and 3/);
+    }
+    try {
+      await handleWriteCommand('viewport', ['100x100', '--scale', '0.5'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/between 1 and 3/);
+    }
+  });
+
+  test('--scale missing value throws', async () => {
+    try {
+      await handleWriteCommand('viewport', ['--scale'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/missing value/);
+    }
+  });
+
+  test('viewport with neither arg nor flag throws usage', async () => {
+    try {
+      await handleWriteCommand('viewport', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Usage: browse viewport/);
+    }
+  });
+});
+
+// ─── setContent replay across context recreation ────────────────
+
+describe('setContent replay (load-html survives viewport --scale)', () => {
+  const tmpDir = '/tmp';
+
+  test('load-html → viewport --scale 2 → content survives', async () => {
+    const fix = path.join(tmpDir, `replay-${Date.now()}.html`);
+    fs.writeFileSync(fix, '<h1 id="marker">replay-test-marker</h1>');
+    try {
+      await handleWriteCommand('load-html', [fix], bm);
+      await handleWriteCommand('viewport', ['400x300', '--scale', '2'], bm);
+      const text = await handleReadCommand('text', [], bm);
+      expect(text).toContain('replay-test-marker');
+      await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+    } finally {
+      try { fs.unlinkSync(fix); } catch {}
+    }
+  });
+
+  test('double scale cycle: 2x → 1.5x, content still survives', async () => {
+    const fix = path.join(tmpDir, `replay2-${Date.now()}.html`);
+    fs.writeFileSync(fix, '<h2 id="m">double-cycle-marker</h2>');
+    try {
+      await handleWriteCommand('load-html', [fix], bm);
+      await handleWriteCommand('viewport', ['400x300', '--scale', '2'], bm);
+      await handleWriteCommand('viewport', ['400x300', '--scale', '1.5'], bm);
+      const text = await handleReadCommand('text', [], bm);
+      expect(text).toContain('double-cycle-marker');
+      await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+    } finally {
+      try { fs.unlinkSync(fix); } catch {}
+    }
+  });
+
+  test('goto clears loadedHtml — subsequent viewport --scale does NOT resurrect old HTML', async () => {
+    const fix = path.join(tmpDir, `clear-${Date.now()}.html`);
+    fs.writeFileSync(fix, '<div id="stale">stale-content</div>');
+    try {
+      await handleWriteCommand('load-html', [fix], bm);
+      await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+      await handleWriteCommand('viewport', ['400x300', '--scale', '2'], bm);
+      const text = await handleReadCommand('text', [], bm);
+      // Should see basic.html content, NOT the stale load-html content
+      expect(text).not.toContain('stale-content');
+      await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+    } finally {
+      try { fs.unlinkSync(fix); } catch {}
+    }
+  });
+});
+
+// ─── Alias routing ─────────────────────────────────────────────
+
+describe('Command aliases', () => {
+  const tmpDir = '/tmp';
+  const aliasFix = path.join(tmpDir, `alias-${Date.now()}.html`);
+
+  beforeAll(() => {
+    fs.writeFileSync(aliasFix, '<p id="alias">alias routing ok</p>');
+  });
+  afterAll(() => {
+    try { fs.unlinkSync(aliasFix); } catch {}
+  });
+
+  test('setcontent alias routes to load-html via chain', async () => {
+    // Chain canonicalizes aliases end-to-end; verifies the dispatch path
+    const result = await handleMetaCommand('chain', [JSON.stringify([['setcontent', aliasFix]])], bm, async () => {});
+    expect(result).toContain('Loaded HTML:');
+    const text = await handleReadCommand('text', [], bm);
+    expect(text).toContain('alias routing ok');
+  });
+
+  test('set-content (hyphenated) alias also routes', async () => {
+    const result = await handleMetaCommand('chain', [JSON.stringify([['set-content', aliasFix]])], bm, async () => {});
+    expect(result).toContain('Loaded HTML:');
+  });
+});

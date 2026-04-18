@@ -28,6 +28,8 @@ const slate: HostConfig = {
     { from: '.claude/skills', to: '.slate/skills' },
   ],
 
+  suppressedResolvers: ['GBRAIN_CONTEXT_LOAD', 'GBRAIN_SAVE_RESULTS'],
+
   runtimeRoot: {
     globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
     globalFiles: {

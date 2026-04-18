@@ -22,6 +22,8 @@ CODEX_SKILLS="$HOME/.codex/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
+OPENCODE_SKILLS="$HOME/.config/opencode/skills"
+OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -41,7 +43,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -54,7 +56,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|auto) ;;
+  claude|codex|kiro|factory|opencode|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -67,7 +69,29 @@ case "$HOST" in
     echo "  3. See docs/OPENCLAW.md for the full architecture"
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, openclaw, or auto)" >&2; exit 1 ;;
+  hermes)
+    echo ""
+    echo "Hermes integration uses the same model as OpenClaw — Hermes spawns"
+    echo "Claude Code sessions, and gstack provides methodology artifacts."
+    echo ""
+    echo "To integrate gstack with Hermes:"
+    echo "  1. Tell your Hermes agent: 'install gstack for hermes'"
+    echo "  2. Or generate artifacts: bun run gen:skill-docs --host hermes"
+    echo ""
+    exit 0 ;;
+  gbrain)
+    echo ""
+    echo "GBrain is a mod for gstack — it makes coding skills brain-aware."
+    echo "GBrain generates brain-enhanced skill variants that search your brain"
+    echo "for context before starting and save results after finishing."
+    echo ""
+    echo "To generate brain-aware skills:"
+    echo "  bun run gen:skill-docs --host gbrain"
+    echo ""
+    echo "GBrain setup and brain skills ship from the GBrain repo."
+    echo ""
+    exit 0 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -130,13 +154,15 @@ INSTALL_CLAUDE=0
 INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
+INSTALL_OPENCODE=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
+  command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -147,6 +173,8 @@ elif [ "$HOST" = "kiro" ]; then
   INSTALL_KIRO=1
 elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
+elif [ "$HOST" = "opencode" ]; then
+  INSTALL_OPENCODE=1
 fi
 
 migrate_direct_codex_install() {
@@ -215,6 +243,40 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   if [ ! -f "$SOURCE_GSTACK_DIR/browse/dist/.version" ]; then
     git -C "$SOURCE_GSTACK_DIR" rev-parse HEAD > "$SOURCE_GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
   fi
+
+  # macOS Apple Silicon: ad-hoc codesign compiled binaries.
+  # Bun's --compile can produce a corrupt or linker-only code signature that
+  # macOS kills with SIGKILL (exit 137). The two-step remove+re-sign is
+  # required because a naive `codesign -s - -f` fails when the existing
+  # signature block is corrupt. This is idempotent and costs <1s.
+  # See: https://github.com/garrytan/gstack/issues/997
+  if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+    for _bin in browse/dist/browse browse/dist/find-browse design/dist/design bin/gstack-global-discover; do
+      _bin_path="$SOURCE_GSTACK_DIR/$_bin"
+      [ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue
+      codesign --remove-signature "$_bin_path" 2>/dev/null || true
+      if ! codesign -s - -f "$_bin_path" 2>/dev/null; then
+        log "warning: codesign failed for $_bin (binary may not run on Apple Silicon)"
+      fi
+    done
+  fi
+
+  # macOS: install coreutils for `gtimeout` (Codex hang protection in /codex + /autoplan).
+  # macOS ships BSD `timeout`-less; Homebrew's coreutils installs GNU timeout as
+  # `gtimeout` to avoid shadowing BSD utilities. The /codex and /autoplan skills
+  # fall back to unwrapped codex invocations when neither is available — this
+  # auto-install upgrades them to hang-protected where possible.
+  # Skip entirely with GSTACK_SKIP_COREUTILS=1 (CI, managed machines, offline envs).
+  if [ "$(uname -s)" = "Darwin" ] && [ "${GSTACK_SKIP_COREUTILS:-0}" != "1" ]; then
+    if ! command -v gtimeout >/dev/null 2>&1 && ! command -v timeout >/dev/null 2>&1; then
+      if command -v brew >/dev/null 2>&1; then
+        log "Installing coreutils for Codex hang protection (set GSTACK_SKIP_COREUTILS=1 to skip)..."
+        brew install coreutils >/dev/null 2>&1 || log "warning: brew install coreutils failed; /codex will run without hang protection"
+      else
+        log "warning: Homebrew not found. /codex will run without hang protection. Install coreutils manually or set GSTACK_SKIP_COREUTILS=1."
+      fi
+    fi
+  fi
 fi
 
 if [ ! -x "$BROWSE_BIN" ]; then
@@ -249,6 +311,16 @@ if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   )
 fi
 
+# 1d. Generate .opencode/ OpenCode skill docs
+if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .opencode/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host opencode
+  )
+fi
+
 # 2. Ensure Playwright's Chromium is available
 if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
@@ -270,6 +342,10 @@ if ! ensure_playwright_browser; then
       cd "$SOURCE_GSTACK_DIR"
       # Bun's node_modules already has playwright; verify Node can require it
       node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright
+      # @ngrok/ngrok is externalized in server-node.mjs and resolved at runtime.
+      # Verify the platform-specific native binary is installed so /pair-agent
+      # tunnels don't fail later with a cryptic module-not-found error.
+      node -e "require('@ngrok/ngrok')" 2>/dev/null || npm install --no-save @ngrok/ngrok
     )
   fi
 fi
@@ -570,6 +646,59 @@ create_factory_runtime_root() {
   fi
 }
 
+create_opencode_runtime_root() {
+  local gstack_dir="$1"
+  local opencode_gstack="$2"
+  local opencode_dir="$gstack_dir/.opencode/skills"
+
+  if [ -L "$opencode_gstack" ]; then
+    rm -f "$opencode_gstack"
+  elif [ -d "$opencode_gstack" ] && [ "$opencode_gstack" != "$gstack_dir" ]; then
+    rm -rf "$opencode_gstack"
+  fi
+
+  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
+
+  if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
+    ln -snf "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$opencode_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$opencode_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$opencode_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/design/dist" ]; then
+    ln -snf "$gstack_dir/design/dist" "$opencode_gstack/design/dist"
+  fi
+  if [ -f "$opencode_dir/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$opencode_dir/gstack-upgrade/SKILL.md" "$opencode_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$opencode_gstack/review/$f"
+    fi
+  done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    ln -snf "$gstack_dir/review/specialists" "$opencode_gstack/review/specialists"
+  fi
+  if [ -d "$gstack_dir/qa/templates" ]; then
+    ln -snf "$gstack_dir/qa/templates" "$opencode_gstack/qa/templates"
+  fi
+  if [ -d "$gstack_dir/qa/references" ]; then
+    ln -snf "$gstack_dir/qa/references" "$opencode_gstack/qa/references"
+  fi
+  if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
+    ln -snf "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$opencode_gstack/plan-devex-review/dx-hall-of-fame.md"
+  fi
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$opencode_gstack/ETHOS.md"
+  fi
+}
+
 link_factory_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -587,6 +716,38 @@ link_factory_skill_dirs() {
   fi
 
   for skill_dir in "$factory_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+link_opencode_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local opencode_dir="$gstack_dir/.opencode/skills"
+  local linked=()
+
+  if [ ! -d "$opencode_dir" ]; then
+    echo "  Generating .opencode/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host opencode )
+  fi
+
+  if [ ! -d "$opencode_dir" ]; then
+    echo "  warning: .opencode/skills/ generation failed — run 'bun run gen:skill-docs --host opencode' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$opencode_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
@@ -762,6 +923,16 @@ if [ "$INSTALL_FACTORY" -eq 1 ]; then
   echo "gstack ready (factory)."
   echo "  browse: $BROWSE_BIN"
   echo "  factory skills: $FACTORY_SKILLS"
+fi
+
+# 6c. Install for OpenCode
+if [ "$INSTALL_OPENCODE" -eq 1 ]; then
+  mkdir -p "$OPENCODE_SKILLS"
+  create_opencode_runtime_root "$SOURCE_GSTACK_DIR" "$OPENCODE_GSTACK"
+  link_opencode_skill_dirs "$SOURCE_GSTACK_DIR" "$OPENCODE_SKILLS"
+  echo "gstack ready (opencode)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  opencode skills: $OPENCODE_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

@@ -289,6 +289,18 @@ function transformFrontmatter(content: string, host: Host): string {
     }
   }
 
+  // Preserve additional keepFields beyond name and description
+  if (fm.keepFields) {
+    for (const field of fm.keepFields) {
+      if (field === 'name' || field === 'description') continue;
+      // Match YAML field with possible multi-line/array value (indented lines after colon)
+      const fieldMatch = frontmatter.match(new RegExp(`^${field}:(.*(?:\\n(?:[ \\t]+.+))*)`, 'm'));
+      if (fieldMatch) {
+        newFm += `${field}:${fieldMatch[1]}\n`;
+      }
+    }
+  }
+
   // Rename fields (copy values from template frontmatter with new keys)
   if (fm.renameFields) {
     for (const [oldName, newName] of Object.entries(fm.renameFields)) {

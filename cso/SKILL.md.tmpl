@@ -25,9 +25,15 @@ allowed-tools:
   - Agent
   - WebSearch
   - AskUserQuestion
+triggers:
+  - security audit
+  - check for vulnerabilities
+  - owasp review
 ---
 
 {{PREAMBLE}}
+
+{{GBRAIN_CONTEXT_LOAD}}
 
 # /cso — Chief Security Officer Audit (v2)
 
@@ -608,6 +614,8 @@ Write findings to `.gstack/security-reports/{date}-{HHMMSS}.json` using this sch
 If `.gstack/` is not in `.gitignore`, note it in findings — security reports should stay local.
 
 {{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ## Important Rules
 

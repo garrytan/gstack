@@ -19,7 +19,7 @@
 
 import * as crypto from 'crypto';
 import type { BrowserManager } from './browser-manager';
-import { findInstalledBrowsers, listProfiles, listDomains, importCookies, CookieImportError, type PlaywrightCookie } from './cookie-import-browser';
+import { findInstalledBrowsers, listProfiles, listDomains, importCookies, importCookiesViaCdp, hasV20Cookies, CookieImportError, type PlaywrightCookie } from './cookie-import-browser';
 import { getCookiePickerHTML } from './cookie-picker-ui';
 
 // ─── Auth State ─────────────────────────────────────────────────
@@ -38,6 +38,23 @@ export function generatePickerCode(): string {
   const code = crypto.randomUUID();
   pendingCodes.set(code, Date.now() + CODE_TTL_MS);
   return code;
+}
+
+/** Return true while the picker still has a live code or session. */
+export function hasActivePicker(): boolean {
+  const now = Date.now();
+
+  for (const [code, expiry] of pendingCodes) {
+    if (expiry > now) return true;
+    pendingCodes.delete(code);
+  }
+
+  for (const [session, expiry] of validSessions) {
+    if (expiry > now) return true;
+    validSessions.delete(session);
+  }
+
+  return false;
 }
 
 /** Extract session ID from the gstack_picker cookie. */
@@ -217,7 +234,25 @@ export async function handleCookiePickerRoute(
       }
 
       // Decrypt cookies from the browser DB
-      const result = await importCookies(browser, domains, profile || 'Default');
+      const selectedProfile = profile || 'Default';
+      let result = await importCookies(browser, domains, selectedProfile);
+
+      // If all cookies failed and v20 encryption is detected, try CDP extraction
+      if (result.cookies.length === 0 && result.failed > 0 && hasV20Cookies(browser, selectedProfile)) {
+        console.log(`[cookie-picker] v20 App-Bound Encryption detected, trying CDP extraction...`);
+        try {
+          result = await importCookiesViaCdp(browser, domains, selectedProfile);
+        } catch (cdpErr: any) {
+          console.log(`[cookie-picker] CDP fallback failed: ${cdpErr.message}`);
+          return jsonResponse({
+            imported: 0,
+            failed: result.failed,
+            domainCounts: {},
+            message: `Cookies use App-Bound Encryption (v20). Close ${browser}, retry, or use /connect-chrome to browse with your real browser directly.`,
+            code: 'v20_encryption',
+          }, { port });
+        }
+      }
 
       if (result.cookies.length === 0) {
         return jsonResponse({

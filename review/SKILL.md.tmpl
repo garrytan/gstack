@@ -17,6 +17,11 @@ allowed-tools:
   - Agent
   - AskUserQuestion
   - WebSearch
+triggers:
+  - review this pr
+  - code review
+  - check my diff
+  - pre-landing review
 ---
 
 {{PREAMBLE}}
@@ -68,6 +73,19 @@ git fetch origin <base> --quiet
 ```
 
 Run `git diff origin/<base>` to get the full diff. This includes both committed and uncommitted changes against the latest base branch.
+
+## Step 3.5: Slop scan (advisory)
+
+Run a slop scan on changed files to catch AI code quality issues (empty catches,
+redundant `return await`, overcomplicated abstractions):
+
+```bash
+bun run slop:diff origin/<base> 2>/dev/null || true
+```
+
+If findings are reported, include them in the review output as an informational
+diagnostic. Slop findings are advisory, never blocking. If slop:diff is not
+available (e.g., slop-scan not installed), skip this step silently.
 
 ---
 

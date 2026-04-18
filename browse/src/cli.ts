@@ -210,12 +210,20 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
 
   let proc: any = null;
 
+  // Allow the caller to opt out of the parent-process watchdog by setting
+  // BROWSE_PARENT_PID=0 in the environment. Useful for CI, non-interactive
+  // shells, and short-lived Bash invocations that need the server to outlive
+  // the spawning CLI. Defaults to the current process PID (watchdog active).
+  // Parse as int so stray whitespace ("0\n") still opts out — matches the
+  // server's own parseInt at server.ts:760.
+  const parentPid = parseInt(process.env.BROWSE_PARENT_PID || '', 10) === 0 ? '0' : String(process.pid);
+
   if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
     // when the CLI exits, the server dies with it. Use Node's child_process.spawn
     // with { detached: true } instead, which is the gold standard for Windows
     // process independence. Credit: PR #191 by @fqueiro.
-    const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: String(process.pid), ...(extraEnv || {}) });
+    const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...(extraEnv || {}) });
     const launcherCode =
       `const{spawn}=require('child_process');` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
@@ -226,7 +234,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     // macOS/Linux: Bun.spawn + unref works correctly
     proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: String(process.pid), ...extraEnv },
+      env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
     });
     proc.unref();
   }
@@ -826,12 +834,12 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         BROWSE_HEADED: '1',
         BROWSE_PORT: '34567',
         BROWSE_SIDEBAR_CHAT: '1',
+        // Disable parent-process watchdog: the user controls the headed browser
+        // window lifecycle. The CLI exits immediately after connect, so watching
+        // it would kill the server ~15s later. Cleanup happens via browser
+        // disconnect event or $B disconnect.
+        BROWSE_PARENT_PID: '0',
       };
-      // If parent explicitly set BROWSE_PARENT_PID=0 (pair-agent disabling
-      // self-termination), pass it through so startServer doesn't override it.
-      if (process.env.BROWSE_PARENT_PID === '0') {
-        serverEnv.BROWSE_PARENT_PID = '0';
-      }
       const newState = await startServer(serverEnv);
 
       // Print connected status

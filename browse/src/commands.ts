@@ -21,6 +21,7 @@ export const READ_COMMANDS = new Set([
 
 export const WRITE_COMMANDS = new Set([
   'goto', 'back', 'forward', 'reload',
+  'load-html',
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
   'viewport', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
   'upload', 'dialog-accept', 'dialog-dismiss',
@@ -64,7 +65,8 @@ export function wrapUntrustedContent(result: string, url: string): string {
 
 export const COMMAND_DESCRIPTIONS: Record<string, { category: string; description: string; usage?: string }> = {
   // Navigation
-  'goto':    { category: 'Navigation', description: 'Navigate to URL', usage: 'goto <url>' },
+  'goto':    { category: 'Navigation', description: 'Navigate to URL (http://, https://, or file:// scoped to cwd/TEMP_DIR)', usage: 'goto <url>' },
+  'load-html': { category: 'Navigation', description: 'Load a local HTML file via setContent (no HTTP server needed). For self-contained HTML (inline CSS/JS, data URIs). For HTML on disk, goto file://... is often cleaner.', usage: 'load-html <file> [--wait-until load|domcontentloaded|networkidle]' },
   'back':    { category: 'Navigation', description: 'History back' },
   'forward': { category: 'Navigation', description: 'History forward' },
   'reload':  { category: 'Navigation', description: 'Reload page' },
@@ -99,7 +101,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'scroll':  { category: 'Interaction', description: 'Scroll element into view, or scroll to page bottom if no selector', usage: 'scroll [sel]' },
   'wait':    { category: 'Interaction', description: 'Wait for element, network idle, or page load (timeout: 15s)', usage: 'wait <sel|--networkidle|--load>' },
   'upload':  { category: 'Interaction', description: 'Upload file(s)', usage: 'upload <sel> <file> [file2...]' },
-  'viewport':{ category: 'Interaction', description: 'Set viewport size', usage: 'viewport <WxH>' },
+  'viewport':{ category: 'Interaction', description: 'Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild.', usage: 'viewport [<WxH>] [--scale <n>]' },
   'cookie':  { category: 'Interaction', description: 'Set cookie on current page domain', usage: 'cookie <name>=<value>' },
   'cookie-import': { category: 'Interaction', description: 'Import cookies from JSON file', usage: 'cookie-import <json>' },
   'cookie-import-browser': { category: 'Interaction', description: 'Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import)', usage: 'cookie-import-browser [browser] [--domain d]' },
@@ -112,7 +114,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'scrape':   { category: 'Extraction', description: 'Bulk download all media from page. Writes manifest.json', usage: 'scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]' },
   'archive':  { category: 'Extraction', description: 'Save complete page as MHTML via CDP', usage: 'archive [path]' },
   // Visual
-  'screenshot': { category: 'Visual', description: 'Save screenshot (supports element crop via CSS/@ref, --clip region, --viewport)', usage: 'screenshot [--viewport] [--clip x,y,w,h] [selector|@ref] [path]' },
+  'screenshot': { category: 'Visual', description: 'Save screenshot. --selector targets a specific element (explicit flag form). Positional selectors starting with ./#/@/[ still work.', usage: 'screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]' },
   'pdf':     { category: 'Visual', description: 'Save as PDF', usage: 'pdf [path]' },
   'responsive': { category: 'Visual', description: 'Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc.', usage: 'responsive [prefix]' },
   'diff':    { category: 'Visual', description: 'Text diff between pages', usage: 'diff <url1> <url2>' },
@@ -160,4 +162,102 @@ for (const cmd of allCmds) {
 }
 for (const key of descKeys) {
   if (!allCmds.has(key)) throw new Error(`COMMAND_DESCRIPTIONS has unknown command: ${key}`);
+}
+
+/**
+ * Command aliases — user-friendly names that route to canonical commands.
+ *
+ * Single source of truth: server.ts dispatch and meta-commands.ts chain prevalidation
+ * both import `canonicalizeCommand()`, so aliases resolve identically everywhere.
+ *
+ * When adding a new alias: keep the alias name guessable (e.g. setcontent → load-html
+ * helps agents migrating from Puppeteer's page.setContent()).
+ */
+export const COMMAND_ALIASES: Record<string, string> = {
+  'setcontent': 'load-html',
+  'set-content': 'load-html',
+  'setContent': 'load-html',
+};
+
+/** Resolve an alias to its canonical command name. Non-aliases pass through unchanged. */
+export function canonicalizeCommand(cmd: string): string {
+  return COMMAND_ALIASES[cmd] ?? cmd;
+}
+
+/**
+ * Commands added in specific versions — enables future "this command was added in vX"
+ * upgrade hints in unknown-command errors. Only helps agents on *newer* browse builds
+ * that encounter typos of recently-added commands; does NOT help agents on old builds
+ * that type a new command (they don't have this map).
+ */
+export const NEW_IN_VERSION: Record<string, string> = {
+  'load-html': '0.19.0.0',
+};
+
+/**
+ * Levenshtein distance (dynamic programming).
+ * O(a.length * b.length) — fast for command name sizes (<20 chars).
+ */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const m: number[][] = [];
+  for (let i = 0; i <= a.length; i++) m.push([i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) m[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + cost);
+    }
+  }
+  return m[a.length][b.length];
+}
+
+/**
+ * Build an actionable error message for an unknown command.
+ *
+ * Pure function — takes the full command set + alias map + version map as args so tests
+ * can exercise the synthetic "older-version" case without mutating any global state.
+ *
+ *   1. Always names the input.
+ *   2. If Levenshtein distance ≤ 2 AND input.length ≥ 4, suggests the closest match
+ *      (alphabetical tiebreak for determinism). Short-input guard prevents noisy
+ *      suggestions for typos of 2-letter commands like 'js' or 'is'.
+ *   3. If the input appears in newInVersion, appends an upgrade hint. Honesty caveat:
+ *      this only fires on builds that have this handler AND the map entry; agents on
+ *      older builds hitting a newly-added command won't see it. Net benefit compounds
+ *      as more commands land.
+ */
+export function buildUnknownCommandError(
+  command: string,
+  commandSet: Set<string>,
+  aliasMap: Record<string, string> = COMMAND_ALIASES,
+  newInVersion: Record<string, string> = NEW_IN_VERSION,
+): string {
+  let msg = `Unknown command: '${command}'.`;
+
+  // Suggestion via Levenshtein, gated on input length to avoid noisy short-input matches.
+  // Candidates are pre-sorted alphabetically, so strict "d < bestDist" gives us the
+  // closest match with alphabetical tiebreak for free — first equal-distance candidate
+  // wins because subsequent equal-distance candidates fail the strict-less check.
+  if (command.length >= 4) {
+    let best: string | undefined;
+    let bestDist = 3; // sentinel: distance 3 would be rejected by the <= 2 gate below
+    const candidates = [...commandSet, ...Object.keys(aliasMap)].sort();
+    for (const cand of candidates) {
+      const d = levenshtein(command, cand);
+      if (d <= 2 && d < bestDist) {
+        best = cand;
+        bestDist = d;
+      }
+    }
+    if (best) msg += ` Did you mean '${best}'?`;
+  }
+
+  if (newInVersion[command]) {
+    msg += ` This command was added in browse v${newInVersion[command]}. Upgrade: cd ~/.claude/skills/gstack && git pull && bun run build.`;
+  }
+
+  return msg;
 }

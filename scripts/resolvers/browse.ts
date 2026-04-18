@@ -106,7 +106,7 @@ export function generateBrowseSetup(ctx: TemplateContext): string {
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B=${ctx.paths.browseDir}/browse
+[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
 else

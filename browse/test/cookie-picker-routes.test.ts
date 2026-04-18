@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { handleCookiePickerRoute, generatePickerCode } from '../src/cookie-picker-routes';
+import { handleCookiePickerRoute, generatePickerCode, hasActivePicker } from '../src/cookie-picker-routes';
 
 // ─── Mock BrowserManager ──────────────────────────────────────
 
@@ -281,6 +281,57 @@ describe('cookie-picker-routes', () => {
       const res = await handleCookiePickerRoute(url, req, bm, 'test-token');
 
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe('active picker tracking', () => {
+    test('one-time codes keep the picker active until consumed', async () => {
+      const realNow = Date.now;
+      Date.now = () => realNow() + 3_700_000;
+      try {
+        expect(hasActivePicker()).toBe(false); // clears any stale state from prior tests
+      } finally {
+        Date.now = realNow;
+      }
+
+      const { bm } = mockBrowserManager();
+      const code = generatePickerCode();
+      expect(hasActivePicker()).toBe(true);
+
+      const res = await handleCookiePickerRoute(
+        makeUrl(`/cookie-picker?code=${code}`),
+        new Request('http://127.0.0.1:9470', { method: 'GET' }),
+        bm,
+        'test-token',
+      );
+
+      expect(res.status).toBe(302);
+      expect(hasActivePicker()).toBe(true); // session is now active
+    });
+
+    test('picker becomes inactive after an invalid session probe clears expired state', async () => {
+      const { bm } = mockBrowserManager();
+      const session = await getSessionCookie(bm, 'test-token');
+      expect(hasActivePicker()).toBe(true);
+
+      const realNow = Date.now;
+      Date.now = () => realNow() + 3_700_000;
+      try {
+        const res = await handleCookiePickerRoute(
+          makeUrl('/cookie-picker'),
+          new Request('http://127.0.0.1:9470', {
+            method: 'GET',
+            headers: { 'Cookie': `gstack_picker=${session}` },
+          }),
+          bm,
+          'test-token',
+        );
+
+        expect(res.status).toBe(403);
+        expect(hasActivePicker()).toBe(false);
+      } finally {
+        Date.now = realNow;
+      }
     });
   });
 

@@ -18,6 +18,8 @@ import { generateConfidenceCalibration } from './confidence';
 import { generateInvokeSkill } from './composition';
 import { generateReviewArmy } from './review-army';
 import { generateDxFramework } from './dx';
+import { generateGBrainContextLoad, generateGBrainSaveResults } from './gbrain';
+import { generateQuestionPreferenceCheck, generateQuestionLog, generateInlineTuneFeedback } from './question-tuning';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
@@ -63,4 +65,9 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   REVIEW_ARMY: generateReviewArmy,
   CROSS_REVIEW_DEDUP: generateCrossReviewDedup,
   DX_FRAMEWORK: generateDxFramework,
+  GBRAIN_CONTEXT_LOAD: generateGBrainContextLoad,
+  GBRAIN_SAVE_RESULTS: generateGBrainSaveResults,
+  QUESTION_PREFERENCE_CHECK: generateQuestionPreferenceCheck,
+  QUESTION_LOG: generateQuestionLog,
+  INLINE_TUNE_FEEDBACK: generateInlineTuneFeedback,
 };

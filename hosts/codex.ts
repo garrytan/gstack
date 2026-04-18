@@ -37,6 +37,8 @@ const codex: HostConfig = {
     'CODEX_SECOND_OPINION',   // review.ts:257 — Codex can't invoke itself
     'CODEX_PLAN_REVIEW',      // review.ts:541 — Codex can't invoke itself
     'REVIEW_ARMY',            // review-army.ts:180 — Codex shouldn't orchestrate
+    'GBRAIN_CONTEXT_LOAD',
+    'GBRAIN_SAVE_RESULTS',
   ],
 
   runtimeRoot: {

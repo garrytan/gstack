@@ -1,8 +1,18 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test as _bunTest, expect, beforeEach, afterEach } from 'bun:test';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+// Every test in this file shells out to gstack-config + gstack-relink (bash scripts
+// invoking subprocess work). Under parallel bun test load, subprocess spawn contends
+// with other suites and each test can drift ~200ms past the 5s default. Bump to 15s.
+// Object.assign preserves test.only / test.skip / test.each / test.todo sub-APIs.
+const test = Object.assign(
+  ((name: any, fn: any, timeout?: number) =>
+    _bunTest(name, fn, timeout ?? 15_000)) as typeof _bunTest,
+  _bunTest,
+);
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');

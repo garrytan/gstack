@@ -7,6 +7,10 @@ description: |
   /freeze (blocks edits outside a specified directory). Use for maximum safety
   when touching prod or debugging live systems. Use when asked to "guard mode",
   "full safety", "lock it down", or "maximum safety". (gstack)
+triggers:
+  - full safety mode
+  - guard against mistakes
+  - maximum safety
 allowed-tools:
   - Bash
   - Read

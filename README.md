@@ -6,7 +6,9 @@ When I heard Karpathy say this, I wanted to find out how. How does one person sh
 
 I'm [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https://www.ycombinator.com/). I've worked with thousands of startups — Coinbase, Instacart, Rippling — when they were one or two people in a garage. Before YC, I was one of the first eng/PM/designers at Palantir, cofounded Posterous (sold to Twitter), and built Bookface, YC's internal social network.
 
-**gstack is my answer.** I've been building products for twenty years, and right now I'm shipping more code than I ever have. In the last 60 days: **600,000+ lines of production code** (35% tests), **10,000-20,000 lines per day**, part-time, while running YC full-time. Here's my last `/retro` across 3 projects: **140,751 lines added, 362 commits, ~115k net LOC** in one week.
+**gstack is my answer.** I've been building products for twenty years, and right now I'm shipping more products than I ever have. In the last 60 days: 3 production services, 40+ shipped features, part-time, while running YC full-time. On logical code change — not raw LOC, which AI inflates — my 2026 run rate is **~810× my 2013 pace** (11,417 vs 14 logical lines/day). Year-to-date (through April 18), 2026 has already produced **240× the entire 2013 year**. Measured across 40 public + private `garrytan/*` repos including Bookface, after excluding one demo repo. AI wrote most of it. The point isn't who typed it, it's what shipped.
+
+> The LOC critics aren't wrong that raw line counts inflate with AI. They are wrong that normalized-for-inflation, I'm less productive. I'm more productive, by a lot. Full methodology, caveats, and reproduction script: **[On the LOC Controversy](docs/ON_THE_LOC_CONTROVERSY.md)**.
 
 **2026 — 1,237 contributions and counting:**
 
@@ -50,21 +52,15 @@ Open Claude Code and paste this. Claude does the rest.
 
 ### Step 2: Team mode — auto-update for shared repos (recommended)
 
-Every developer installs globally, updates happen automatically:
+From inside your repo, paste this. Switches you to team mode, bootstraps the repo so teammates get gstack automatically, and commits the change:
 
 ```bash
-cd ~/.claude/skills/gstack && ./setup --team
-```
-
-Then bootstrap your repo so teammates get it:
-
-```bash
-cd <your-repo>
-~/.claude/skills/gstack/bin/gstack-team-init required  # or: optional
-git add .claude/ CLAUDE.md && git commit -m "require gstack for AI-assisted work"
+(cd ~/.claude/skills/gstack && ./setup --team) && ~/.claude/skills/gstack/bin/gstack-team-init required && git add .claude/ CLAUDE.md && git commit -m "require gstack for AI-assisted work"
 ```
 
 No vendored files in your repo, no version drift, no manual upgrades. Every Claude Code session starts with a fast auto-update check (throttled to once/hour, network-failure-safe, completely silent).
+
+Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
 > **Contributing or need full history?** The commands above use `--depth 1` for a fast install. If you plan to contribute or need full git history, do a full clone instead:
 > ```bash
@@ -110,7 +106,7 @@ These are conversational skills. Your OpenClaw agent runs them directly via chat
 
 ### Other AI Agents
 
-gstack works on 8 AI coding agents, not just Claude. Setup auto-detects which
+gstack works on 10 AI coding agents, not just Claude. Setup auto-detects which
 agents you have installed:
 
 ```bash
@@ -128,6 +124,8 @@ Or target a specific agent with `./setup --host <name>`:
 | Factory Droid | `--host factory` | `~/.factory/skills/gstack-*/` |
 | Slate | `--host slate` | `~/.slate/skills/gstack-*/` |
 | Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
+| Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` |
+| GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
@@ -236,6 +234,10 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 
 **[Deep dives with examples and philosophy for every skill →](docs/skills.md)**
 
+### Karpathy's four failure modes? Already covered.
+
+Andrej Karpathy's [AI coding rules](https://github.com/forrestchang/andrej-karpathy-skills) (17K stars) nail four failure modes: wrong assumptions, overcomplexity, orthogonal edits, imperative over declarative. gstack's workflow skills enforce all four. `/office-hours` forces assumptions into the open before code is written. The Confusion Protocol stops Claude from guessing on architectural decisions. `/review` catches unnecessary complexity and drive-by edits. `/ship` transforms tasks into verifiable goals with test-first execution. If you already use Karpathy-style CLAUDE.md rules, gstack is the workflow enforcement layer that makes them stick across entire sprints, not just single prompts.
+
 ## Parallel sprints
 
 gstack works well with one sprint. It gets interesting with ten running at once.
@@ -337,7 +339,7 @@ Free, MIT licensed, open source. No premium tier, no waitlist.
 
 I open sourced how I build software. You can fork it and make it your own.
 
-> **We're hiring.** Want to ship 10K+ LOC/day and help harden gstack?
+> **We're hiring.** Want to ship real products at AI-coding speed and help harden gstack?
 > Come work at YC — [ycombinator.com/software](https://ycombinator.com/software)
 > Extremely competitive salary and equity. San Francisco, Dogpatch District.
 

@@ -19,6 +19,12 @@ allowed-tools:
   - Glob
   - AskUserQuestion
   - WebSearch
+triggers:
+  - debug this
+  - fix this bug
+  - why is this broken
+  - root cause analysis
+  - investigate this error
 hooks:
   PreToolUse:
     - matcher: "Edit"
@@ -45,6 +51,8 @@ Fixing symptoms creates whack-a-mole debugging. Every fix that doesn't address r
 
 ---
 
+{{GBRAIN_CONTEXT_LOAD}}
+
 ## Phase 1: Root Cause Investigation
 
 Gather context before forming any hypothesis.
@@ -60,6 +68,8 @@ Gather context before forming any hypothesis.
    Was this working before? What changed? A regression means the root cause is in the diff.
 
 4. **Reproduce:** Can you trigger the bug deterministically? If not, gather more evidence before proceeding.
+
+5. **Check investigation history:** Search prior learnings for investigations on the same files. Recurring bugs in the same area are an architectural smell. If prior investigations exist, note patterns and check if the root cause was structural.
 
 {{LEARNINGS_SEARCH}}
 
@@ -186,7 +196,15 @@ Status:          DONE | DONE_WITH_CONCERNS | BLOCKED
 ════════════════════════════════════════
 ```
 
+Log the investigation as a learning for future sessions. Use `type: "investigation"` and include the affected files so future investigations on the same area can find this:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"investigate","type":"investigation","key":"ROOT_CAUSE_KEY","insight":"ROOT_CAUSE_SUMMARY","confidence":9,"source":"observed","files":["affected/file1.ts","affected/file2.ts"]}'
+```
+
 {{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ---
 

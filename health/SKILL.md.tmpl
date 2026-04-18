@@ -8,6 +8,10 @@ description: |
   0-10 score, and tracks trends over time. Use when: "health check",
   "code quality", "how healthy is the codebase", "run all checks",
   "quality score". (gstack)
+triggers:
+  - code health check
+  - quality dashboard
+  - how healthy is codebase
 allowed-tools:
   - Bash
   - Read

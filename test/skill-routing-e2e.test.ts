@@ -60,10 +60,9 @@ if (evalsEnabled && process.env.EVALS_TIER) {
 // --- Helper functions ---
 
 /** Copy all SKILL.md files for auto-discovery.
- *  Install to BOTH project-level (.claude/skills/) AND user-level (~/.claude/skills/)
- *  because Claude Code discovers skills from both locations. In CI containers,
- *  $HOME may differ from the working directory, so we need both paths to ensure
- *  the Skill tool appears in Claude's available tools list. */
+ *  Installs to project-level (.claude/skills/) only. Writing to the user's
+ *  ~/.claude/skills/ is unsafe: it may contain symlinks from the real gstack
+ *  install that point to different worktrees or dangling targets. */
 function installSkills(tmpDir: string) {
   const skillDirs = [
     '', // root gstack SKILL.md
@@ -73,24 +72,16 @@ function installSkills(tmpDir: string) {
     'gstack-upgrade', 'humanizer',
   ];
 
-  // Install to both project-level and user-level skill directories
-  const homeDir = process.env.HOME || os.homedir();
-  const installTargets = [
-    path.join(tmpDir, '.claude', 'skills'),        // project-level
-    path.join(homeDir, '.claude', 'skills'),        // user-level (~/.claude/skills/)
-  ];
+  const targetBase = path.join(tmpDir, '.claude', 'skills');
 
   for (const skill of skillDirs) {
     const srcPath = path.join(ROOT, skill, 'SKILL.md');
     if (!fs.existsSync(srcPath)) continue;
 
     const skillName = skill || 'gstack';
-
-    for (const targetBase of installTargets) {
-      const destDir = path.join(targetBase, skillName);
-      fs.mkdirSync(destDir, { recursive: true });
-      fs.copyFileSync(srcPath, path.join(destDir, 'SKILL.md'));
-    }
+    const destDir = path.join(targetBase, skillName);
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(srcPath, path.join(destDir, 'SKILL.md'));
   }
 
   // Write a CLAUDE.md with explicit routing instructions.

@@ -14,6 +14,10 @@ allowed-tools:
   - Write
   - Glob
   - AskUserQuestion
+triggers:
+  - weekly retro
+  - what did we ship
+  - engineering retrospective
 ---
 
 {{PREAMBLE}}
@@ -37,6 +41,8 @@ When the user types `/retro`, run this skill.
 - `/retro global` — cross-project retro across all AI coding tools (7d default)
 - `/retro global 14d` — cross-project retro with explicit window
 
+{{GBRAIN_CONTEXT_LOAD}}
+
 ## Instructions
 
 Parse the argument to determine the time window. Default to 7 days if no argument given. All times should be reported in the user's **local timezone** (use the system default — do NOT set `TZ`).
@@ -59,6 +65,16 @@ Usage: /retro [window | compare | global]
 **If the first argument is `global`:** Skip the normal repo-scoped retro (Steps 1-14). Instead, follow the **Global Retrospective** flow at the end of this document. The optional second argument is the time window (default 7d). This mode does NOT require being inside a git repo.
 
 {{LEARNINGS_SEARCH}}
+
+### Non-git context (optional)
+
+Check for non-git context that should be included in the retro:
+
+```bash
+[ -f ~/.gstack/retro-context.md ] && echo "RETRO_CONTEXT_FOUND" || echo "NO_RETRO_CONTEXT"
+```
+
+If `RETRO_CONTEXT_FOUND`: read `~/.gstack/retro-context.md`. This file is user-authored and may contain meeting notes, calendar events, decisions, and other context that doesn't appear in git history. Incorporate this context into the retro narrative where relevant.
 
 ### Step 1: Gather Raw Data
 
@@ -123,20 +139,29 @@ Calculate and present these metrics in a summary table:
 
 | Metric | Value |
 |--------|-------|
+| **Features shipped** (from CHANGELOG + merged PR titles) | N |
 | Commits to main | N |
+| Weighted commits (commits × avg files-touched, capped at 20 per commit) | N |
 | Contributors | N |
 | PRs merged | N |
-| Total insertions | N |
-| Total deletions | N |
-| Net LOC added | N |
+| **Logical SLOC added** (non-blank, non-comment — primary code-volume metric) | N |
+| Raw LOC: insertions | N |
+| Raw LOC: deletions | N |
+| Raw LOC: net | N |
 | Test LOC (insertions) | N |
 | Test LOC ratio | N% |
 | Version range | vX.Y.Z.W → vX.Y.Z.W |
 | Active days | N |
 | Detected sessions | N |
-| Avg LOC/session-hour | N |
+| Avg raw LOC/session-hour | N |
 | Greptile signal | N% (Y catches, Z FPs) |
 | Test Health | N total tests · M added this period · K regression tests |
+
+**Metric order rationale (V1):** features shipped leads — what users got. Commits
+and weighted commits reflect intent-to-ship. Logical SLOC added reflects real
+new functionality. Raw LOC is demoted to context because AI inflates it; ten
+lines of a good fix is not less shipping than ten thousand lines of scaffold.
+See docs/designs/PLAN_TUNING_V1.md §Workstream C.
 
 Then show a **per-author leaderboard** immediately below:
 
@@ -280,6 +305,8 @@ For each contributor (including the current user), compute:
 **If there are Co-Authored-By trailers:** Parse `Co-Authored-By:` lines in commit messages. Credit those authors for the commit alongside the primary author. Note AI co-authors (e.g., `noreply@anthropic.com`) but do not include them as team members — instead, track "AI-assisted commits" as a separate metric.
 
 {{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ### Step 10: Week-over-Week Trends (if window >= 14d)
 

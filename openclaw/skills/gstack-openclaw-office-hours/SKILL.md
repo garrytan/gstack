@@ -1,8 +1,6 @@
 ---
 name: gstack-openclaw-office-hours
-description: Product interrogation with six forcing questions. Two modes: startup diagnostic (demand reality, status quo, desperate specificity, narrowest wedge, observation, future-fit) and builder brainstorm. Use when asked to brainstorm, "is this worth building", "I have an idea", "office hours", or "help me think through this". Proactively use when user describes a new product idea or wants to think through design decisions before any code is written.
-version: 1.0.0
-metadata: { "openclaw": { "emoji": "🎯" } }
+description: Use when asked to brainstorm, evaluate whether an idea is worth building, run office hours, or think through a new product idea or design direction before any code is written.
 ---
 
 # YC Office Hours

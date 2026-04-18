@@ -19,6 +19,10 @@ allowed-tools:
   - Grep
   - AskUserQuestion
   - WebSearch
+triggers:
+  - design system
+  - create a brand
+  - design from scratch
 ---
 
 {{PREAMBLE}}
@@ -78,6 +82,8 @@ If `DESIGN_READY`: Phase 5 will generate AI mockups of your proposed design syst
 If `DESIGN_NOT_AVAILABLE`: Phase 5 falls back to the HTML preview page (still good).
 
 ---
+
+{{GBRAIN_CONTEXT_LOAD}}
 
 {{LEARNINGS_SEARCH}}
 
@@ -257,7 +263,7 @@ Generate AI-rendered mockups showing the proposed design system applied to reali
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR=~/.gstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)
+_DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)"
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```
@@ -422,6 +428,8 @@ After shipping DESIGN.md, if the session produced screen-level mockups or page l
 ---
 
 {{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ## Important Rules
 

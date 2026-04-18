@@ -54,7 +54,7 @@ case "$ACTION" in
     " 2>/dev/null
     ;;
   remove)
-    [ -f "$SETTINGS_FILE" ] || exit 0
+    [ -f "$SETTINGS_FILE" ] || exit 1
     GSTACK_SETTINGS_PATH="$SETTINGS_FILE" bun -e "
       const fs = require('fs');
       const settingsPath = process.env.GSTACK_SETTINGS_PATH;

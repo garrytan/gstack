@@ -46,6 +46,7 @@ export const SCOPE_READ = new Set([
 /** Commands that modify page state or navigate */
 export const SCOPE_WRITE = new Set([
   'goto', 'back', 'forward', 'reload',
+  'load-html',
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
   'upload', 'viewport', 'newtab', 'closetab',
   'dialog-accept', 'dialog-dismiss',

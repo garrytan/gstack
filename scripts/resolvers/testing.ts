@@ -28,7 +28,7 @@ ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
 **If test framework detected** (config files or test directories found):
 Print "Test framework detected: {name} ({N} existing tests). Skipping bootstrap."
 Read 2-3 existing test files to learn conventions (naming, imports, assertion style, setup patterns).
-Store conventions as prose context for use in Phase 8e.5 or Step 3.4. **Skip the rest of bootstrap.**
+Store conventions as prose context for use in Phase 8e.5 or Step 7. **Skip the rest of bootstrap.**
 
 **If BOOTSTRAP_DECLINED** appears: Print "Test bootstrap previously declined — skipping." **Skip the rest of bootstrap.**
 
@@ -213,7 +213,7 @@ ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pyt
 ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
 \`\`\`
 
-3. **If no framework detected:**${mode === 'ship' ? ' falls through to the Test Framework Bootstrap step (Step 2.5) which handles full setup.' : ' still produce the coverage diagram, but skip test generation.'}`);
+3. **If no framework detected:**${mode === 'ship' ? ' falls through to the Test Framework Bootstrap step (Step 4) which handles full setup.' : ' still produce the coverage diagram, but skip test generation.'}`);
 
   // ── Before/after count (ship only) ──
   if (mode === 'ship') {
@@ -379,7 +379,7 @@ GAPS: 8 paths need tests (2 need E2E, 1 needs eval)
 ─────────────────────────────────
 \`\`\`
 
-**Fast path:** All paths covered → "${mode === 'ship' ? 'Step 3.4' : mode === 'review' ? 'Step 4.75' : 'Test review'}: All new code paths have test coverage ✓" Continue.`);
+**Fast path:** All paths covered → "${mode === 'ship' ? 'Step 7' : mode === 'review' ? 'Step 4.75' : 'Test review'}: All new code paths have test coverage ✓" Continue.`);
 
   // ── Mode-specific action section ──
   if (mode === 'plan') {
@@ -432,7 +432,7 @@ This file is consumed by \`/qa\` and \`/qa-only\` as primary test input. Include
     sections.push(`
 **5. Generate tests for uncovered paths:**
 
-If test framework detected (or bootstrapped in Step 2.5):
+If test framework detected (or bootstrapped in Step 4):
 - Prioritize error handlers and edge cases first (happy paths are more likely already tested)
 - Read 2-3 existing test files to match conventions exactly
 - Generate unit tests. Mock all external dependencies (DB, API, Redis).
@@ -446,7 +446,7 @@ Caps: 30 code paths max, 20 tests generated max (code + user flow combined), 2-m
 
 If no test framework AND user declined bootstrap → diagram only, no generation. Note: "Test generation skipped — no test framework configured."
 
-**Diff is test-only changes:** Skip Step 3.4 entirely: "No new application code paths to audit."
+**Diff is test-only changes:** Skip Step 7 entirely: "No new application code paths to audit."
 
 **6. After-count and coverage summary:**
 

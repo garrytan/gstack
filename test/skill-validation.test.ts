@@ -973,7 +973,7 @@ describe('Test Bootstrap ({{TEST_BOOTSTRAP}}) integration', () => {
   test('TEST_BOOTSTRAP appears in ship/SKILL.md', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Test Framework Bootstrap');
-    expect(content).toContain('Step 2.5');
+    expect(content).toContain('Step 4');
   });
 
   test('TEST_BOOTSTRAP appears in design-review/SKILL.md', () => {
@@ -1068,9 +1068,9 @@ describe('Phase 8e.5 regression test generation', () => {
 // --- Step 3.4 coverage audit validation ---
 
 describe('Step 3.4 test coverage audit', () => {
-  test('ship/SKILL.md contains Step 3.4', () => {
+  test('ship/SKILL.md contains Step 7', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Step 3.4: Test Coverage Audit');
+    expect(content).toContain('Step 7: Test Coverage Audit');
     expect(content).toContain('CODE PATH COVERAGE');
   });
 
@@ -1095,7 +1095,7 @@ describe('Step 3.4 test coverage audit', () => {
 
   test('ship rules include test generation rule', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Step 3.4 generates coverage tests');
+    expect(content).toContain('Step 7 generates coverage tests');
     expect(content).toContain('Never commit failing tests');
   });
 
@@ -1126,6 +1126,53 @@ describe('Step 3.4 test coverage audit', () => {
     expect(content).toContain('USER FLOW COVERAGE');
     expect(content).toContain('Code paths:');
     expect(content).toContain('User flows:');
+  });
+});
+
+// --- Ship step numbering regression guard ---
+
+describe('ship step numbering', () => {
+  // Allowed sub-steps that are resolver-generated and intentionally nested:
+  // 8.1 (Plan Verification), 8.2 (Scope Drift), 9.1 (Review Army), 9.2 (Findings Merge), 9.3 (Cross-review dedup)
+  const ALLOWED_SUBSTEPS = new Set(['8.1', '8.2', '9.1', '9.2', '9.3']);
+
+  test('ship/SKILL.md.tmpl contains no unexpected fractional step numbers', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
+    // Match "Step X.Y" where X.Y is a decimal step reference (e.g., "Step 3.47", "Step 8.1")
+    const matches = Array.from(tmpl.matchAll(/Step (\d+\.\d+)/g));
+    const violations = matches
+      .map((m) => m[1])
+      .filter((n) => !ALLOWED_SUBSTEPS.has(n));
+    if (violations.length > 0) {
+      const unique = Array.from(new Set(violations)).sort();
+      throw new Error(
+        `ship/SKILL.md.tmpl contains fractional step numbers that are not in the allowed sub-step list.\n` +
+          `  Found: ${unique.join(', ')}\n` +
+          `  Allowed sub-steps: ${Array.from(ALLOWED_SUBSTEPS).sort().join(', ')}\n` +
+          `  Fix: use clean integer step numbers (1-20), or add to ALLOWED_SUBSTEPS if intentional.`
+      );
+    }
+  });
+
+  test('ship/SKILL.md main headings use clean integer step numbers', () => {
+    const skill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    // Headings like "## Step 7: Test Coverage Audit" — NOT sub-steps like "## Step 8.1:"
+    const headings = Array.from(skill.matchAll(/^## Step (\d+(?:\.\d+)?):/gm)).map(
+      (m) => m[1]
+    );
+    const fractional = headings.filter((n) => n.includes('.'));
+    const unexpected = fractional.filter((n) => !ALLOWED_SUBSTEPS.has(n));
+    expect(unexpected).toEqual([]);
+  });
+
+  test('review/SKILL.md step numbers unchanged (regression guard for resolver conditionals)', () => {
+    const skill = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    // /review uses its own fractional numbering: 1.5, 2.5, 4.5, 5.5, 5.6, 5.7, 5.8
+    // If the ship-side renumber accidentally touched the review-side of resolver conditionals,
+    // these would vanish. This test catches that.
+    expect(skill).toContain('## Step 1.5: Scope Drift Detection');
+    expect(skill).toContain('## Step 4.5: Review Army');
+    expect(skill).toContain('## Step 5.7: Adversarial review');
   });
 });
 

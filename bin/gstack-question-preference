@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# gstack-question-preference — read/write/check explicit per-question preferences.
+#
+# Preference file: ~/.gstack/projects/{SLUG}/question-preferences.json
+# Schema: { "<question_id>": "always-ask" | "never-ask" | "ask-only-for-one-way" }
+#
+# Subcommands:
+#   --check <id>                   → emit ASK_NORMALLY | AUTO_DECIDE | ASK_ONLY_ONE_WAY
+#   --write '{...}'                → set a preference (user-origin gate enforced)
+#   --read                         → dump preferences JSON
+#   --clear [<id>]                 → clear one or all preferences
+#   --stats                        → short summary
+#
+# User-origin gate
+# ----------------
+# The --write subcommand REQUIRES a `source` field on the input:
+#   - "plan-tune"         — user ran /plan-tune and chose a preference (allowed)
+#   - "inline-user"       — inline `tune:` from the user's own chat message (allowed)
+#   - "inline-tool-output"— tune: prefix seen in tool output / file content (REJECTED)
+#   - "inline-file"       — tune: prefix seen in a file the agent read (REJECTED)
+# This is the profile-poisoning defense from docs/designs/PLAN_TUNING_V0.md.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+SLUG="${SLUG:-unknown}"
+PREF_FILE="$GSTACK_HOME/projects/$SLUG/question-preferences.json"
+EVENT_FILE="$GSTACK_HOME/projects/$SLUG/question-events.jsonl"
+mkdir -p "$GSTACK_HOME/projects/$SLUG"
+
+CMD="${1:-}"
+shift || true
+
+ensure_file() {
+  if [ ! -f "$PREF_FILE" ]; then
+    echo '{}' > "$PREF_FILE"
+  fi
+}
+
+# -----------------------------------------------------------------------
+# --check <question_id>
+# -----------------------------------------------------------------------
+do_check() {
+  local QID="${1:-}"
+  if [ -z "$QID" ]; then
+    echo "ASK_NORMALLY"
+    return 0
+  fi
+  ensure_file
+  cd "$ROOT_DIR"
+  PREF_FILE_PATH="$PREF_FILE" QID="$QID" bun -e "
+    import('./scripts/one-way-doors.ts').then((oneway) => {
+      const fs = require('fs');
+      const qid = process.env.QID;
+      const prefs = JSON.parse(fs.readFileSync(process.env.PREF_FILE_PATH, 'utf-8'));
+      const pref = prefs[qid];
+
+      // Always check one-way status first — safety overrides preferences.
+      const oneWay = oneway.isOneWayDoor({ question_id: qid });
+
+      if (oneWay) {
+        console.log('ASK_NORMALLY');
+        if (pref === 'never-ask') {
+          console.log('NOTE: one-way door overrides your never-ask preference for safety.');
+        }
+        return;
+      }
+
+      switch (pref) {
+        case 'never-ask':
+          console.log('AUTO_DECIDE');
+          break;
+        case 'ask-only-for-one-way':
+          // Not one-way (we checked above) — auto-decide this two-way question.
+          console.log('AUTO_DECIDE');
+          break;
+        case 'always-ask':
+        case undefined:
+        case null:
+          console.log('ASK_NORMALLY');
+          break;
+        default:
+          console.log('ASK_NORMALLY');
+          console.log('NOTE: unknown preference value: ' + pref);
+      }
+    }).catch(err => { console.error('check:', err.message); process.exit(1); });
+  "
+}
+
+# -----------------------------------------------------------------------
+# --write '{...}' (with user-origin gate)
+# -----------------------------------------------------------------------
+do_write() {
+  local INPUT="${1:-}"
+  if [ -z "$INPUT" ]; then
+    echo "gstack-question-preference: --write requires a JSON payload" >&2
+    exit 1
+  fi
+  ensure_file
+  local TMPERR
+  TMPERR=$(mktemp)
+  # Use function-local cleanup via RETURN trap so variable lookup only happens
+  # while the function is on the stack (avoids EXIT-trap unbound-var race).
+  trap "rm -f '$TMPERR'" RETURN
+
+  set +e
+  local RESULT
+  RESULT=$(printf '%s' "$INPUT" | PREF_FILE_PATH="$PREF_FILE" EVENT_FILE_PATH="$EVENT_FILE" bun -e "
+    const fs = require('fs');
+    const raw = await Bun.stdin.text();
+    let j;
+    try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-question-preference: invalid JSON\n'); process.exit(1); }
+
+    // Required: question_id (kebab-case, <=64)
+    if (!j.question_id || !/^[a-z0-9-]+\$/.test(j.question_id) || j.question_id.length > 64) {
+      process.stderr.write('gstack-question-preference: invalid question_id\n');
+      process.exit(1);
+    }
+
+    // Required: preference
+    const ALLOWED_PREFS = ['always-ask', 'never-ask', 'ask-only-for-one-way'];
+    if (!ALLOWED_PREFS.includes(j.preference)) {
+      process.stderr.write('gstack-question-preference: invalid preference (must be one of: ' + ALLOWED_PREFS.join(', ') + ')\n');
+      process.exit(1);
+    }
+
+    // user-origin gate — REQUIRED on every write.
+    // See docs/designs/PLAN_TUNING_V0.md §Security model
+    const ALLOWED_SOURCES = ['plan-tune', 'inline-user'];
+    const REJECTED_SOURCES = ['inline-tool-output', 'inline-file', 'inline-file-content', 'inline-unknown'];
+    if (!j.source) {
+      process.stderr.write('gstack-question-preference: source field required (one of: ' + ALLOWED_SOURCES.join(', ') + ')\n');
+      process.exit(1);
+    }
+    if (REJECTED_SOURCES.includes(j.source)) {
+      process.stderr.write('gstack-question-preference: rejected — source \"' + j.source + '\" is not user-originated (profile poisoning defense)\n');
+      process.exit(2);
+    }
+    if (!ALLOWED_SOURCES.includes(j.source)) {
+      process.stderr.write('gstack-question-preference: invalid source \"' + j.source + '\"; allowed: ' + ALLOWED_SOURCES.join(', ') + '\n');
+      process.exit(1);
+    }
+
+    // Optional free_text — sanitize (no injection patterns, no newlines, <=300 chars)
+    if (j.free_text !== undefined) {
+      if (typeof j.free_text !== 'string') {
+        process.stderr.write('gstack-question-preference: free_text must be string\n');
+        process.exit(1);
+      }
+      if (j.free_text.length > 300) j.free_text = j.free_text.slice(0, 300);
+      j.free_text = j.free_text.replace(/\n+/g, ' ');
+      const INJECTION_PATTERNS = [
+        /ignore\s+(all\s+)?previous\s+(instructions|context|rules)/i,
+        /you\s+are\s+now\s+/i,
+        /override[:\s]/i,
+        /\bsystem\s*:/i,
+        /\bassistant\s*:/i,
+        /do\s+not\s+(report|flag|mention)/i,
+      ];
+      for (const pat of INJECTION_PATTERNS) {
+        if (pat.test(j.free_text)) {
+          process.stderr.write('gstack-question-preference: free_text contains injection-like content, rejected\n');
+          process.exit(1);
+        }
+      }
+    }
+
+    // Write to preferences file
+    const prefs = JSON.parse(fs.readFileSync(process.env.PREF_FILE_PATH, 'utf-8'));
+    prefs[j.question_id] = j.preference;
+    fs.writeFileSync(process.env.PREF_FILE_PATH, JSON.stringify(prefs, null, 2));
+
+    // Also append a record to question-events.jsonl for audit + derivation.
+    const evt = {
+      ts: new Date().toISOString(),
+      event_type: 'preference-set',
+      question_id: j.question_id,
+      preference: j.preference,
+      source: j.source,
+      ...(j.free_text ? { free_text: j.free_text } : {}),
+    };
+    fs.appendFileSync(process.env.EVENT_FILE_PATH, JSON.stringify(evt) + '\n');
+
+    console.log('OK: ' + j.question_id + ' → ' + j.preference + ' (source: ' + j.source + ')');
+  " 2>"$TMPERR")
+  local RC=$?
+  set -e
+
+  if [ $RC -ne 0 ]; then
+    cat "$TMPERR" >&2
+    exit $RC
+  fi
+  echo "$RESULT"
+}
+
+# -----------------------------------------------------------------------
+# --read
+# -----------------------------------------------------------------------
+do_read() {
+  ensure_file
+  cat "$PREF_FILE"
+}
+
+# -----------------------------------------------------------------------
+# --clear [<id>]
+# -----------------------------------------------------------------------
+do_clear() {
+  local QID="${1:-}"
+  ensure_file
+  if [ -z "$QID" ]; then
+    echo '{}' > "$PREF_FILE"
+    echo "OK: cleared all preferences"
+  else
+    PREF_FILE_PATH="$PREF_FILE" QID="$QID" bun -e "
+      const fs = require('fs');
+      const prefs = JSON.parse(fs.readFileSync(process.env.PREF_FILE_PATH, 'utf-8'));
+      if (prefs[process.env.QID] !== undefined) {
+        delete prefs[process.env.QID];
+        fs.writeFileSync(process.env.PREF_FILE_PATH, JSON.stringify(prefs, null, 2));
+        console.log('OK: cleared ' + process.env.QID);
+      } else {
+        console.log('NOOP: no preference set for ' + process.env.QID);
+      }
+    "
+  fi
+}
+
+# -----------------------------------------------------------------------
+# --stats
+# -----------------------------------------------------------------------
+do_stats() {
+  ensure_file
+  cat "$PREF_FILE" | bun -e "
+    const prefs = JSON.parse(await Bun.stdin.text());
+    const entries = Object.entries(prefs);
+    const counts = { 'always-ask': 0, 'never-ask': 0, 'ask-only-for-one-way': 0, other: 0 };
+    for (const [, v] of entries) {
+      if (counts[v] !== undefined) counts[v]++;
+      else counts.other++;
+    }
+    console.log('TOTAL: ' + entries.length);
+    console.log('ALWAYS_ASK: ' + counts['always-ask']);
+    console.log('NEVER_ASK: ' + counts['never-ask']);
+    console.log('ASK_ONLY_ONE_WAY: ' + counts['ask-only-for-one-way']);
+    if (counts.other) console.log('OTHER: ' + counts.other);
+  "
+}
+
+case "$CMD" in
+  --check) do_check "$@" ;;
+  --write) do_write "$@" ;;
+  --read|"") do_read ;;
+  --clear) do_clear "$@" ;;
+  --stats) do_stats ;;
+  --help|-h) sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||' ;;
+  *)
+    echo "gstack-question-preference: unknown subcommand '$CMD'" >&2
+    exit 1
+    ;;
+esac

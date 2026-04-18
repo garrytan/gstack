@@ -22,9 +22,15 @@ allowed-tools:
   - AskUserQuestion
   - Bash
   - WebSearch
+triggers:
+  - review architecture
+  - eng plan review
+  - check the implementation plan
 ---
 
 {{PREAMBLE}}
+
+{{GBRAIN_CONTEXT_LOAD}}
 
 # Plan Review Mode
 
@@ -39,7 +45,7 @@ If the user asks you to compress or the system triggers context compaction: Step
 * I want code that's "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
 * I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
 * Bias toward explicit over clever.
-* Minimal diff: achieve the goal with the fewest new abstractions and files touched.
+* Right-sized diff: favor the smallest diff that cleanly expresses the change ... but don't compress a necessary rewrite into a minimal patch. If the existing foundation is broken, say "scrap it and do this instead."
 
 ## Cognitive Patterns — How Great Eng Managers Think
 
@@ -294,6 +300,8 @@ Substitute values from the Completion Summary:
 {{PLAN_FILE_REVIEW_REPORT}}
 
 {{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ## Next Steps — Review Chaining
 

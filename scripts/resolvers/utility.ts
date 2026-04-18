@@ -373,7 +373,7 @@ export function generateCoAuthorTrailer(ctx: TemplateContext): string {
 }
 
 export function generateChangelogWorkflow(_ctx: TemplateContext): string {
-  return `## CHANGELOG (auto-generate)
+  return `## Step 13: CHANGELOG (auto-generate)
 
 1. Read \`CHANGELOG.md\` header to know the format.
 

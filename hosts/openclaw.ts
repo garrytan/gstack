@@ -53,6 +53,8 @@ const openclaw: HostConfig = {
     'CODEX_SECOND_OPINION',
     'CODEX_PLAN_REVIEW',
     'REVIEW_ARMY',
+    'GBRAIN_CONTEXT_LOAD',
+    'GBRAIN_SAVE_RESULTS',
   ],
 
   runtimeRoot: {
@@ -69,8 +71,6 @@ const openclaw: HostConfig = {
 
   coAuthorTrailer: 'Co-Authored-By: OpenClaw Agent <agent@openclaw.ai>',
   learningsMode: 'basic',
-
-  adapter: './scripts/host-adapters/openclaw-adapter',
 };
 
 export default openclaw;
