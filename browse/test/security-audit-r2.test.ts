@@ -392,12 +392,13 @@ describe('frame --url ReDoS fix', () => {
 
 describe('chain command watch-mode guard', () => {
   it('chain loop contains isWatching() guard before write dispatch', () => {
-    const block = sliceBetween(META_SRC, 'for (const cmd of commands)', 'Wait for network to settle');
+    // Post-alias refactor: loop iterates over canonicalized `c of commands`.
+    const block = sliceBetween(META_SRC, 'for (const c of commands)', 'Wait for network to settle');
     expect(block).toContain('isWatching');
   });
 
   it('chain loop BLOCKED message appears for write commands in watch mode', () => {
-    const block = sliceBetween(META_SRC, 'for (const cmd of commands)', 'Wait for network to settle');
+    const block = sliceBetween(META_SRC, 'for (const c of commands)', 'Wait for network to settle');
     expect(block).toContain('BLOCKED: write commands disabled in watch mode');
   });
 });
