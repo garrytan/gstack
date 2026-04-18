@@ -6,13 +6,13 @@ This document covers the command reference and internals of gstack's headless br
 
 | Category | Commands | What for |
 |----------|----------|----------|
-| Navigate | `goto`, `back`, `forward`, `reload`, `url` | Get to a page |
+| Navigate | `goto` (accepts `http://`, `https://`, `file://`), `load-html`, `back`, `forward`, `reload`, `url` | Get to a page, including local HTML |
 | Read | `text`, `html`, `links`, `forms`, `accessibility` | Extract content |
 | Snapshot | `snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o] [-C]` | Get refs, diff, annotate |
-| Interact | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport`, `upload` | Use the page |
+| Interact | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport [WxH] [--scale N]`, `upload` | Use the page (scale = deviceScaleFactor for retina) |
 | Inspect | `js`, `eval`, `css`, `attrs`, `is`, `console`, `network`, `dialog`, `cookies`, `storage`, `perf`, `inspect [selector] [--all]` | Debug and verify |
 | Style | `style <sel> <prop> <val>`, `style --undo [N]`, `cleanup [--all]`, `prettyscreenshot` | Live CSS editing and page cleanup |
-| Visual | `screenshot [--viewport] [--clip x,y,w,h] [sel\|@ref] [path]`, `pdf`, `responsive` | See what Claude sees |
+| Visual | `screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [sel\|@ref] [path]`, `pdf`, `responsive` | See what Claude sees |
 | Compare | `diff <url1> <url2>` | Spot differences between environments |
 | Dialogs | `dialog-accept [text]`, `dialog-dismiss` | Control alert/confirm/prompt handling |
 | Tabs | `tabs`, `tab`, `newtab`, `closetab` | Multi-page workflows |
@@ -100,18 +100,50 @@ No DOM mutation. No injected scripts. Just Playwright's native accessibility API
 
 ### Screenshot modes
 
-The `screenshot` command supports four modes:
+The `screenshot` command supports five modes:
 
 | Mode | Syntax | Playwright API |
 |------|--------|----------------|
 | Full page (default) | `screenshot [path]` | `page.screenshot({ fullPage: true })` |
 | Viewport only | `screenshot --viewport [path]` | `page.screenshot({ fullPage: false })` |
-| Element crop | `screenshot "#sel" [path]` or `screenshot @e3 [path]` | `locator.screenshot()` |
+| Element crop (flag) | `screenshot --selector <css> [path]` | `locator.screenshot()` |
+| Element crop (positional) | `screenshot "#sel" [path]` or `screenshot @e3 [path]` | `locator.screenshot()` |
 | Region clip | `screenshot --clip x,y,w,h [path]` | `page.screenshot({ clip })` |
 
-Element crop accepts CSS selectors (`.class`, `#id`, `[attr]`) or `@e`/`@c` refs from `snapshot`. Auto-detection: `@e`/`@c` prefix = ref, `.`/`#`/`[` prefix = CSS selector, `--` prefix = flag, everything else = output path.
+Element crop accepts CSS selectors (`.class`, `#id`, `[attr]`) or `@e`/`@c` refs from `snapshot`. Auto-detection for positional: `@e`/`@c` prefix = ref, `.`/`#`/`[` prefix = CSS selector, `--` prefix = flag, everything else = output path. **Tag selectors like `button` aren't caught by the positional heuristic** — use the `--selector` flag form.
 
-Mutual exclusion: `--clip` + selector and `--viewport` + `--clip` both throw errors. Unknown flags (e.g. `--bogus`) also throw.
+The `--base64` flag returns `data:image/png;base64,...` instead of writing to disk — composes with `--selector`, `--clip`, and `--viewport`.
+
+Mutual exclusion: `--clip` + selector (flag or positional), `--viewport` + `--clip`, and `--selector` + positional selector all throw. Unknown flags (e.g. `--bogus`) also throw.
+
+### Retina screenshots — viewport `--scale`
+
+`viewport --scale <n>` sets Playwright's `deviceScaleFactor` (context-level option, 1-3 gstack policy cap). A 2x scale doubles the pixel density of screenshots:
+
+```bash
+$B viewport 480x600 --scale 2
+$B load-html /tmp/card.html
+$B screenshot /tmp/card.png --selector .card
+# .card element at 400x200 CSS pixels → card.png is 800x400 pixels
+```
+
+`viewport --scale N` alone (no `WxH`) keeps the current viewport size and only changes the scale. Scale changes trigger a browser context recreation (Playwright requirement), which invalidates `@e`/`@c` refs — rerun `snapshot` after. HTML loaded via `load-html` survives the recreation via in-memory replay (see below). Rejected in headed mode since scale is controlled by the real browser window.
+
+### Loading local HTML — `goto file://` vs `load-html`
+
+Two ways to render HTML that isn't on a web server:
+
+| Approach | When | URL after | Relative assets |
+|----------|------|-----------|-----------------|
+| `goto file://<abs-path>` | File already on disk | `file:///...` | Resolve against file's directory |
+| `goto file://./<rel>`, `goto file://~/<rel>`, `goto file://<seg>` | Smart-parsed to absolute | `file:///...` | Same |
+| `load-html <file>` | HTML generated in memory | `about:blank` | Broken (self-contained HTML only) |
+
+Both are scoped to files under cwd or `$TMPDIR` via the same safe-dirs policy as the `eval` command. `file://` URLs preserve query strings and fragments (SPA routes work). `load-html` has an extension allowlist (`.html/.htm/.xhtml/.svg`) and a magic-byte sniff to reject binary files mis-renamed as HTML, plus a 50 MB size cap (override via `GSTACK_BROWSE_MAX_HTML_BYTES`).
+
+`load-html` content survives later `viewport --scale` calls via in-memory replay (TabSession tracks the loaded HTML + waitUntil). The replay is purely in-memory — HTML is never persisted to disk via `state save` to avoid leaking secrets or customer data.
+
+Aliases: `setcontent`, `set-content`, and `setContent` all route to `load-html` via the server's alias canonicalization (happens before scope checks, so a read-scoped token still can't use the alias to run a write command).
 
 ### Batch endpoint
 

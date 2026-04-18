@@ -18,6 +18,9 @@ import * as fs from 'fs';
 export interface AuditEntry {
   ts: string;
   cmd: string;
+  /** If the agent typed an alias (e.g. 'setcontent'), the raw input is preserved here
+   *  while `cmd` holds the canonical name ('load-html'). Omitted when cmd === rawCmd. */
+  aliasOf?: string;
   args: string;
   origin: string;
   durationMs: number;
@@ -56,6 +59,7 @@ export function writeAuditEntry(entry: AuditEntry): void {
       hasCookies: entry.hasCookies,
       mode: entry.mode,
     };
+    if (entry.aliasOf) record.aliasOf = entry.aliasOf;
     if (truncatedError) record.error = truncatedError;
 
     fs.appendFileSync(auditPath, JSON.stringify(record) + '\n');

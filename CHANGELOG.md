@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.1.0.0] - 2026-04-18
+
+### Added
+- **Browse can now render local HTML without an HTTP server.** Two ways: `$B goto file:///tmp/report.html` navigates to a local file (including cwd-relative `file://./x` and home-relative `file://~/x` forms, smart-parsed so you don't have to think about URL grammar), or `$B load-html /tmp/tweet.html` reads the file and loads it via `page.setContent()`. Both are scoped to cwd + temp dir for safety. If you're migrating a Puppeteer script that generates HTML in memory, this kills your Python-HTTP-server workaround.
+- **Element screenshots with an explicit flag.** `$B screenshot out.png --selector .card` is now the unambiguous way to screenshot a single element. Positional selectors still work, but tag selectors like `button` weren't recognized positionally, so the flag form fixes that. `--selector` composes with `--base64` and rejects alongside `--clip` (choose one).
+- **Retina screenshots via `--scale`.** `$B viewport 480x2000 --scale 2` sets `deviceScaleFactor: 2` and produces pixel-doubled screenshots. `$B viewport --scale 2` alone changes just the scale factor and keeps the current size. Scale is capped at 1-3 (gstack policy). Headed mode rejects the flag since scale is controlled by the real browser window.
+- **Load-HTML content survives scale changes.** Changing `--scale` rebuilds the browser context (that's how Playwright works), which previously would have wiped pages loaded via `load-html`. Now the HTML is cached in tab state and replayed into the new context automatically. In-memory only; never persisted to disk.
+- **Puppeteer → browse cheatsheet in SKILL.md.** Side-by-side table of Puppeteer APIs mapped to browse commands, plus a full worked example (tweet-renderer flow: viewport + scale + load-html + element screenshot).
+- **Guess-friendly aliases.** Type `setcontent` or `set-content` and it routes to `load-html`. Canonicalization happens before scope checks, so read-scoped tokens can't use the alias to bypass write-scope enforcement.
+- **`Did you mean ...?` on unknown commands.** `$B load-htm` returns `Unknown command: 'load-htm'. Did you mean 'load-html'?`. Levenshtein match within distance 2, gated on input length ≥ 4 so 2-letter typos don't produce noise.
+- **Rich, actionable errors on `load-html`.** Every rejection path (file not found, directory, oversize, outside safe dirs, binary content, frame context) names the input, explains the cause, and says what to do next. Extension allowlist `.html/.htm/.xhtml/.svg` + magic-byte sniff (with UTF-8 BOM strip) catches mis-renamed binaries before they render as garbage.
+
+### Security
+- `file://` navigation is now an accepted scheme in `goto`, scoped to cwd + temp dir via the existing `validateReadPath()` policy. UNC/network hosts (`file://host.example.com/...`), IP hosts, IPv6 hosts, and Windows drive-letter hosts are all rejected with explicit errors.
+- **State files can no longer smuggle HTML content.** `state load` now uses an explicit allowlist for the fields it accepts from disk — a tampered state file cannot inject `loadedHtml` to bypass the `load-html` safe-dirs, extension allowlist, magic-byte sniff, or size cap checks. Tab ownership is preserved across context recreation via the same in-memory channel, closing a cross-agent authorization gap where scoped agents could lose (or gain) tabs after `viewport --scale`.
+- **Audit log now records the raw alias input.** When you type `setcontent`, the audit entry shows `cmd: load-html, aliasOf: setcontent` so the forensic trail reflects what the agent actually sent, not just the canonical form.
+- **`load-html` content correctly clears on every real navigation** — link clicks, form submits, and JavaScript redirects now invalidate the replay metadata just like explicit `goto`/`back`/`forward`/`reload` do. Previously a later `viewport --scale` after a click could resurrect the original `load-html` content (silent data corruption). Also fixes SPA fixture URLs: `goto file:///tmp/app.html?route=home#login` preserves the query string and fragment through normalization.
+
+### For contributors
+- `validateNavigationUrl()` now returns the normalized URL (previously void). All four callers — goto, diff, newTab, restoreState — updated to consume the return value so smart-parsing takes effect at every navigation site.
+- New `normalizeFileUrl()` helper uses `fileURLToPath()` + `pathToFileURL()` from `node:url` — never string-concat — so URL escapes like `%20` decode correctly and encoded-slash traversal (`%2F..%2F`) is rejected by Node outright.
+- New `TabSession.loadedHtml` field + `setTabContent()` / `getLoadedHtml()` / `clearLoadedHtml()` methods. ASCII lifecycle diagram in the source. The `clear` call happens BEFORE navigation starts (not after) so a goto that times out post-commit doesn't leave stale metadata that could resurrect on a later context recreation.
+- `BrowserManager.setDeviceScaleFactor(scale, w, h)` is atomic: validates input, stores new values, calls `recreateContext()`, rolls back the fields on failure. `currentViewport` tracking means recreateContext preserves your size instead of hardcoding 1280×720.
+- `COMMAND_ALIASES` + `canonicalizeCommand()` + `buildUnknownCommandError()` + `NEW_IN_VERSION` are exported from `browse/src/commands.ts`. Single source of truth — both the server dispatcher and `chain` prevalidation import from the same place. Chain uses `{ rawName, name }` shape per step so audit logs preserve what the user typed while dispatch uses the canonical name.
+- `load-html` is registered in `SCOPE_WRITE` in `browse/src/token-registry.ts`.
+- Review history for the curious: 3 Codex consults (20 + 10 + 6 gaps), DX review (TTHW ~4min → <60s, Champion tier), 2 Eng review passes. Third Codex pass caught the 4-caller bug for `validateNavigationUrl` that the eng passes missed. All findings folded into the plan.
+
 ## [1.0.0.0] - 2026-04-18
 
 ### Added

@@ -3,6 +3,11 @@
  * Localhost and private IPs are allowed (primary use case: QA testing local dev servers).
  */
 
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { validateReadPath } from './path-security';
+
 export const BLOCKED_METADATA_HOSTS = new Set([
   '169.254.169.254',  // AWS/GCP/Azure instance metadata
   'fe80::1',          // IPv6 link-local — common metadata endpoint alias
@@ -105,17 +110,169 @@ async function resolvesToBlockedIp(hostname: string): Promise<boolean> {
   }
 }
 
-export async function validateNavigationUrl(url: string): Promise<void> {
+/**
+ * Normalize non-standard file:// URLs into absolute form before the WHATWG URL parser
+ * sees them. Handles cwd-relative, home-relative, and bare-segment shapes that the
+ * standard parser would otherwise mis-interpret as hostnames.
+ *
+ *   file:///abs/path.html       → unchanged
+ *   file://./<rel>              → file://<cwd>/<rel>
+ *   file://~/<rel>              → file://<HOME>/<rel>
+ *   file://<single-segment>/... → file://<cwd>/<single-segment>/...  (cwd-relative)
+ *   file://localhost/<abs>      → unchanged
+ *   file://<host-like>/...      → unchanged (caller rejects via host heuristic)
+ *
+ * Rejects empty (file://) and root-only (file:///) URLs — these would silently
+ * trigger Chromium's directory listing, which is a different product surface.
+ */
+export function normalizeFileUrl(url: string): string {
+  if (!url.toLowerCase().startsWith('file:')) return url;
+
+  // Split off query + fragment BEFORE touching the path — SPAs + fixture URLs rely
+  // on these. path.resolve would URL-encode `?` and `#` as `%3F`/`%23` (and
+  // pathToFileURL drops them entirely), silently routing preview URLs to the
+  // wrong fixture. Extract, normalize the path, reattach at the end.
+  //
+  // Parse order: `?` before `#` per RFC 3986 — '?' in a fragment is literal.
+  // Find the FIRST `?` or `#`, whichever comes first, and take everything
+  // after (including the delimiter) as the trailing segment.
+  const qIdx = url.indexOf('?');
+  const hIdx = url.indexOf('#');
+  let delimIdx = -1;
+  if (qIdx >= 0 && hIdx >= 0) delimIdx = Math.min(qIdx, hIdx);
+  else if (qIdx >= 0) delimIdx = qIdx;
+  else if (hIdx >= 0) delimIdx = hIdx;
+
+  const pathPart = delimIdx >= 0 ? url.slice(0, delimIdx) : url;
+  const trailing = delimIdx >= 0 ? url.slice(delimIdx) : '';
+
+  const rest = pathPart.slice('file:'.length);
+
+  // file:/// or longer → standard absolute; pass through unchanged (caller validates path).
+  if (rest.startsWith('///')) {
+    // Reject bare root-only (file:/// with nothing after)
+    if (rest === '///' || rest === '////') {
+      throw new Error('Invalid file URL: file:/// has no path. Use file:///<absolute-path>.');
+    }
+    return pathPart + trailing;
+  }
+
+  // Everything else: must start with // (we accept file://... only)
+  if (!rest.startsWith('//')) {
+    throw new Error(`Invalid file URL: ${url}. Use file:///<absolute-path> or file://./<rel> or file://~/<rel>.`);
+  }
+
+  const afterDoubleSlash = rest.slice(2);
+
+  // Reject empty (file://) and trailing-slash-only (file://./ listing cwd).
+  if (afterDoubleSlash === '') {
+    throw new Error('Invalid file URL: file:// is empty. Use file:///<absolute-path>.');
+  }
+  if (afterDoubleSlash === '.' || afterDoubleSlash === './') {
+    throw new Error('Invalid file URL: file://./ would list the current directory. Use file://./<filename> to render a specific file.');
+  }
+  if (afterDoubleSlash === '~' || afterDoubleSlash === '~/') {
+    throw new Error('Invalid file URL: file://~/ would list the home directory. Use file://~/<filename> to render a specific file.');
+  }
+
+  // Home-relative: file://~/<rel>
+  if (afterDoubleSlash.startsWith('~/')) {
+    const rel = afterDoubleSlash.slice(2);
+    const absPath = path.join(os.homedir(), rel);
+    return pathToFileURL(absPath).href + trailing;
+  }
+
+  // cwd-relative with explicit ./ : file://./<rel>
+  if (afterDoubleSlash.startsWith('./')) {
+    const rel = afterDoubleSlash.slice(2);
+    const absPath = path.resolve(process.cwd(), rel);
+    return pathToFileURL(absPath).href + trailing;
+  }
+
+  // localhost host explicitly allowed: file://localhost/<abs> (pass through to standard parser).
+  if (afterDoubleSlash.toLowerCase().startsWith('localhost/')) {
+    return pathPart + trailing;
+  }
+
+  // Ambiguous: file://<segment>/<rest> — treat as cwd-relative ONLY if <segment> is a
+  // simple path name (no dots, no colons, no backslashes, no percent-encoding, no
+  // IPv6 brackets, no Windows drive letter pattern).
+  const firstSlash = afterDoubleSlash.indexOf('/');
+  const segment = firstSlash === -1 ? afterDoubleSlash : afterDoubleSlash.slice(0, firstSlash);
+
+  // Reject host-like segments: dotted names (docs.v1), IPs (127.0.0.1), IPv6 ([::1]),
+  // drive letters (C:), percent-encoded, or backslash paths.
+  const looksLikeHost = /[.:\\%]/.test(segment) || segment.startsWith('[');
+  if (looksLikeHost) {
+    throw new Error(
+      `Unsupported file URL host: ${segment}. Use file:///<absolute-path> for local files (network/UNC paths are not supported).`
+    );
+  }
+
+  // Simple-segment cwd-relative: file://docs/page.html → cwd/docs/page.html
+  const absPath = path.resolve(process.cwd(), afterDoubleSlash);
+  return pathToFileURL(absPath).href + trailing;
+}
+
+/**
+ * Validate a navigation URL and return a normalized version suitable for page.goto().
+ *
+ * Callers MUST use the return value — normalization of non-standard file:// forms
+ * only takes effect at the navigation site, not at the original URL.
+ *
+ * Callers (keep this list current, grep before removing):
+ *   - write-commands.ts:goto
+ *   - meta-commands.ts:diff (both URL args)
+ *   - browser-manager.ts:newTab
+ *   - browser-manager.ts:restoreState
+ */
+export async function validateNavigationUrl(url: string): Promise<string> {
+  // Normalize non-standard file:// shapes before the URL parser sees them.
+  let normalized = url;
+  if (url.toLowerCase().startsWith('file:')) {
+    normalized = normalizeFileUrl(url);
+  }
+
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    parsed = new URL(normalized);
   } catch {
     throw new Error(`Invalid URL: ${url}`);
   }
 
+  // file:// path: validate against safe-dirs and allow; otherwise defer to http(s) logic.
+  if (parsed.protocol === 'file:') {
+    // Reject non-empty non-localhost hosts (UNC / network paths).
+    if (parsed.host !== '' && parsed.host.toLowerCase() !== 'localhost') {
+      throw new Error(
+        `Unsupported file URL host: ${parsed.host}. Use file:///<absolute-path> for local files.`
+      );
+    }
+
+    // Convert URL → filesystem path with proper decoding (handles %20, %2F, etc.)
+    // fileURLToPath strips query + hash; we reattach them after validation so SPA
+    // fixture URLs like file:///tmp/app.html?route=home#login survive intact.
+    let fsPath: string;
+    try {
+      fsPath = fileURLToPath(parsed);
+    } catch (e: any) {
+      throw new Error(`Invalid file URL: ${url} (${e.message})`);
+    }
+
+    // Reject path traversal after decoding — e.g. file:///tmp/safe%2F..%2Fetc/passwd
+    // Note: fileURLToPath doesn't collapse .., so a literal '..' in the decoded path
+    // is suspicious. path.resolve will normalize it; check the result against safe dirs.
+    validateReadPath(fsPath);
+
+    // Return the canonical file:// URL derived from the filesystem path + original
+    // query + hash. This guarantees page.goto() gets a well-formed URL regardless
+    // of input shape while preserving SPA route/query params.
+    return pathToFileURL(fsPath).href + parsed.search + parsed.hash;
+  }
+
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(
-      `Blocked: scheme "${parsed.protocol}" is not allowed. Only http: and https: URLs are permitted.`
+      `Blocked: scheme "${parsed.protocol}" is not allowed. Only http:, https:, and file: URLs are permitted.`
     );
   }
 
@@ -137,4 +294,6 @@ export async function validateNavigationUrl(url: string): Promise<void> {
       `Blocked: ${parsed.hostname} resolves to a cloud metadata IP. Possible DNS rebinding attack.`
     );
   }
+
+  return url;
 }

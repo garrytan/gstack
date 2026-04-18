@@ -19,7 +19,7 @@ import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
 import { handleCookiePickerRoute, hasActivePicker } from './cookie-picker-routes';
 import { sanitizeExtensionUrl } from './sidebar-utils';
-import { COMMAND_DESCRIPTIONS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
+import { COMMAND_DESCRIPTIONS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand, buildUnknownCommandError, ALL_COMMANDS } from './commands';
 import {
   wrapUntrustedPageContent, datamarkContent,
   runContentFilters, type ContentFilterResult,
@@ -916,11 +916,20 @@ async function handleCommandInternal(
   tokenInfo?: TokenInfo | null,
   opts?: { skipRateCheck?: boolean; skipActivity?: boolean; chainDepth?: number },
 ): Promise<CommandResult> {
-  const { command, args = [], tabId } = body;
+  const { args = [], tabId } = body;
+  const rawCommand = body.command;
 
-  if (!command) {
+  if (!rawCommand) {
     return { status: 400, result: JSON.stringify({ error: 'Missing "command" field' }), json: true };
   }
+
+  // ─── Alias canonicalization (before scope, watch, tab-ownership, dispatch) ─
+  // Agent-friendly names like 'setcontent' route to canonical 'load-html'. Must
+  // happen BEFORE scope check so a read-scoped token calling 'setcontent' is still
+  // rejected (load-html lives in SCOPE_WRITE). Audit logging preserves rawCommand
+  // so the trail records what the agent actually typed.
+  const command = canonicalizeCommand(rawCommand);
+  const isAliased = command !== rawCommand;
 
   // ─── Recursion guard: reject nested chains ──────────────────
   if (command === 'chain' && (opts?.chainDepth ?? 0) > 0) {
@@ -1090,10 +1099,13 @@ async function handleCommandInternal(
       const helpText = generateHelpText();
       return { status: 200, result: helpText };
     } else {
+      // Use the rich unknown-command helper: names the input, suggests the closest
+      // match via Levenshtein (≤ 2 distance, ≥ 4 chars input), and appends an upgrade
+      // hint if the command is listed in NEW_IN_VERSION.
       return {
         status: 400, json: true,
         result: JSON.stringify({
-          error: `Unknown command: ${command}`,
+          error: buildUnknownCommandError(rawCommand, ALL_COMMANDS),
           hint: `Available commands: ${[...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS].sort().join(', ')}`,
         }),
       };
@@ -1148,6 +1160,7 @@ async function handleCommandInternal(
     writeAuditEntry({
       ts: new Date().toISOString(),
       cmd: command,
+      aliasOf: isAliased ? rawCommand : undefined,
       args: args.join(' '),
       origin: browserManager.getCurrentUrl(),
       durationMs: successDuration,
@@ -1192,6 +1205,7 @@ async function handleCommandInternal(
     writeAuditEntry({
       ts: new Date().toISOString(),
       cmd: command,
+      aliasOf: isAliased ? rawCommand : undefined,
       args: args.join(' '),
       origin: browserManager.getCurrentUrl(),
       durationMs: errorDuration,

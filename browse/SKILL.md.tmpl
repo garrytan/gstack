@@ -111,6 +111,57 @@ $B diff https://staging.app.com https://prod.app.com
 ### 11. Show screenshots to the user
 After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the Read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
 
+### 12. Render local HTML (no HTTP server needed)
+Two paths, pick the cleaner one:
+```bash
+# HTML file on disk → goto file:// (absolute, or cwd-relative)
+$B goto file:///tmp/report.html
+$B goto file://./docs/page.html        # cwd-relative
+$B goto file://~/Documents/page.html   # home-relative
+
+# HTML generated in memory → load-html reads the file into setContent
+echo '<div class="tweet">hello</div>' > /tmp/tweet.html
+$B load-html /tmp/tweet.html
+```
+
+`goto file://...` is usually cleaner (URL is saved in state, relative asset URLs resolve against the file's dir, scale changes replay naturally). `load-html` uses `page.setContent()` — URL stays `about:blank`, but the content survives `viewport --scale` via in-memory replay. Both are scoped to files under cwd or `$TMPDIR`.
+
+### 13. Retina screenshots (deviceScaleFactor)
+```bash
+$B viewport 480x600 --scale 2       # 2x deviceScaleFactor
+$B load-html /tmp/tweet.html        # or: $B goto file://./tweet.html
+$B screenshot /tmp/out.png --selector .tweet-card
+# → /tmp/out.png is 2x the pixel dimensions of the element
+```
+Scale must be 1-3 (gstack policy cap). Changing `--scale` recreates the browser context; refs from `snapshot` are invalidated (rerun `snapshot`), but `load-html` content is replayed automatically. Not supported in headed mode.
+
+## Puppeteer → browse cheatsheet
+
+Migrating from Puppeteer? Here's the 1:1 mapping for the core workflow:
+
+| Puppeteer | browse |
+|---|---|
+| `await page.goto(url)` | `$B goto <url>` |
+| `await page.setContent(html)` | `$B load-html <file>` (or `$B goto file://<abs>`) |
+| `await page.setViewport({width, height})` | `$B viewport WxH` |
+| `await page.setViewport({width, height, deviceScaleFactor: 2})` | `$B viewport WxH --scale 2` |
+| `await (await page.$('.x')).screenshot({path})` | `$B screenshot <path> --selector .x` |
+| `await page.screenshot({fullPage: true, path})` | `$B screenshot <path>` (full page default) |
+| `await page.screenshot({clip: {x, y, w, h}, path})` | `$B screenshot <path> --clip x,y,w,h` |
+
+Worked example (the tweet-renderer flow — Puppeteer → browse):
+
+```bash
+# Generate HTML in memory, render at 2x scale, screenshot the tweet card.
+echo '<div class="tweet-card" style="width:400px;height:200px;background:#1da1f2;color:white;padding:20px">hello</div>' > /tmp/tweet.html
+$B viewport 480x600 --scale 2
+$B load-html /tmp/tweet.html
+$B screenshot /tmp/out.png --selector .tweet-card
+# /tmp/out.png is 800x400 px, crisp (2x deviceScaleFactor).
+```
+
+Aliases: typing `setcontent` or `set-content` routes to `load-html` automatically. Typing a typo (`load-htm`) returns `Did you mean 'load-html'?`.
+
 ## User Handoff
 
 When you hit something you can't handle in headless mode (CAPTCHA, complex auth, multi-factor
