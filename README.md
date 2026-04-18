@@ -8,6 +8,8 @@ I'm [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https
 
 **gstack is my answer.** I've been building products for twenty years, and right now I'm shipping more products than I ever have. In the last 60 days: 3 production services, 40+ shipped features, part-time, while running YC full-time. On logical code change — not raw LOC, which AI inflates — my 2026 run rate is **~880× my 2013 pace** (12,382 vs 14 logical lines/day). Year-to-date (through April 18), 2026 has already produced **260× the entire 2013 year**. Measured across 41 public + private `garrytan/*` repos including Bookface. AI wrote most of it. The point isn't who typed it, it's what shipped.
 
+> The LOC critics aren't wrong that raw line counts inflate with AI. They are wrong that normalized-for-inflation, I'm less productive. I'm more productive, by a lot. Full methodology, caveats, and reproduction script: **[On the LOC Controversy](docs/ON_THE_LOC_CONTROVERSY.md)**.
+
 **2026 — 1,237 contributions and counting:**
 
 ![GitHub contributions 2026 — 1,237 contributions, massive acceleration in Jan-Mar](docs/images/github-2026.png)
