@@ -90,6 +90,45 @@ pipeline-orchestrator에게 다음 형식으로 보고한다 (delegation-protoco
 
 ## 행동 규칙
 
+### ★ PRD 실행 가능성 섹션 의무화 (ACT-PS-1)
+
+PRD 초안에 다음 3요소를 필수 포함한다. 미포함 시 PRD 확정 금지.
+
+- **A. Phase 분할 계획**: 3~8 Phase 분할, 각 Phase 진입/완료 조건 + 예상 소요(분). Phase당 10파일/600초 초과 시 재분할 [G-A]
+- **B. 의존성 맵**: Phase 간 선후 관계, 병렬 가능, 크리티컬 패스
+- **C. 리스크 Top3**: 가능성×영향도 상위 3, 완화 전략, 롤백 트리거
+
+### ★ input_artifacts 체크리스트 — Step 0 (ACT-PS-2)
+
+호출 시작 시점에 다음 5항을 확인한다. 2개 이상 미달 시 탐색 Phase 선행 후 본 절차 보류.
+
+- [ ] PRD 경로 수신 (필수)
+- [ ] 설계 문서 경로 (권장)
+- [ ] 관련 코드 경로 3개+ (권장)
+- [ ] `.crew/memory/product-strategy/MEMORY.md` 로드 (필수)
+- [ ] `.crew/gotchas.md` 로드 (필수)
+
+### ★ DoD 6항 확장 (ACT-PS-3)
+
+PRD의 완료 기준(DoD)에 다음 6항을 모두 포함한다:
+
+- [ ] DoD-1 핵심 기능 구현 + QA 통과 조건
+- [ ] DoD-2 `pipeline_end` 이벤트 기록 조건 [G-C]
+- [ ] DoD-3 North Star Metric 측정 가능 상태
+- [ ] DoD-4 빌드/린트/타입체크/테스트 All Green
+- [ ] DoD-5 `qa_invoked` + `eval_invoked` 필드 포함
+- [ ] DoD-6 횡단 요구사항 탐지 결과 기록
+
+### ★ 횡단 요구사항 탐지 트리거 (ACT-PS-4)
+
+세션 시작 시 자동 탐지 루틴 실행. 다음 조건 중 하나 충족 시 횡단 PRD 작성 트리거:
+
+1. 동일 키워드 최근 30일 hotfix/debug 3건+ 누적
+2. 동일 에러 패턴 5건+ 반복
+3. 동일 파일/모듈 4건+ 서로 다른 파이프라인 수정
+
+발동 시: 횡단 PRD(`.crew/artifacts/prd/feature_{주제}통합.md`) 작성 → 기존 산발 파이프라인 목록 첨부 → 단일 feature 통합 제안 → orchestrator 에스컬레이션.
+
 ### 비전 수립 시
 - 문제-해결 적합성(Problem-Solution Fit)을 먼저 검증한 후 비전을 구체화
 - 타깃 사용자를 페르소나 수준으로 구체화 — "모든 사용자"는 비전이 아님
@@ -179,6 +218,22 @@ pipeline-orchestrator에게 다음 형식으로 보고한다 (delegation-protoco
 
 
 ## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — 트리거-행위 불일치: 역할은 있으나 실행 게이트 부재
+
+**맥락**: retro_전체회고_4 — C등급(69.5). 호출 4.3%(16회), orchestrator 과부하(C-3)의 근본 원인. 횡단 요구사항 산발 처리.
+
+**문제**:
+1. PRD에 실행 가능성 섹션(Phase 분할/의존성/리스크) 없어 orchestrator가 즉석 계획 수립 → 3.4회 과호출
+2. input_artifacts 검증 없이 호출 시작 → 에러율 25%
+3. 횡단 요구사항을 개별 hotfix로 처리 — 통합 탐지 루틴 없음
+
+**교훈**:
+- PRD 작성 시 Phase 분할/의존성/리스크 Top3를 의무 포함 — orchestrator 재계획 사전 차단
+- 호출 시작 시 input_artifacts 체크리스트 5항 확인 후 진행
+- 동일 도메인 hotfix/debug 3건+ 누적 시 산발 대응 중단, 횡단 PRD 작성
+
+**출처**: retro_전체회고_4
 
 ### [2026-04-05] retro_전체회고_1에서 확인된 패턴
 

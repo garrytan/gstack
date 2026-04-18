@@ -48,6 +48,35 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 - **agent_start 없이 agent_end만 기록되면 처리시간 추적 불가 — 절대 금지**
 - emit 실패(스크립트 없음)는 경고만 출력하고 작업은 계속 진행
 
+### ★ Full Path 자동 위임 트리거 체크리스트 (IMP-AQA-1 — 생략 불가)
+
+qa-strategy로부터 위임 수신 시, 아래 체크리스트를 순서대로 확인하고 **결과를 출력**한다:
+
+```
+[ ] 1. 변경 파일 수 확인: git diff --name-only | wc -l → N개
+[ ] 2. N ≥ 3이면 → Full Path (E2E + API + 회귀 테스트 전체)
+[ ] 3. N < 3이면 → Fast Path (핵심 회귀만)
+[ ] 4. hotfix 플래그 존재 시 → Fast Path 강제 적용
+→ 판정 결과: [Full Path | Fast Path], 근거: [파일 수 N개]
+```
+
+**30초 내 위임 미수신 감지:**
+qa-strategy agent_start 이후 30초 내 본 에이전트에 위임이 없으면:
+```bash
+# pipeline-orchestrator에 "참여 누락 감지" 알림 전송
+echo "[automation-qa] QA Phase 위임 미수신 감지 — qa-strategy agent_start 후 30초 초과. pipeline-orchestrator에 에스컬레이션 필요." >&2
+```
+
+### ★ agent_end result_summary 4항 필수 구조 (IMP-AQA-2)
+
+agent_end emit 시 result_summary는 반드시 다음 4항을 포함한다:
+
+```
+테스트수:{N}개 / 커버리지:{N}% / 비주얼회귀:{통과|실패|스킵} / 주요실패:{없음|{테스트명}}
+```
+
+누락 항목이 있으면 "N/A"로 명시 — 빈 필드 금지.
+
 ### 참여 의무 파이프라인
 
 - feature 파이프라인 Phase 3: **필수 참여** (qa-strategy Phase Gate 조건)
@@ -128,6 +157,20 @@ qa-strategy로부터 feature Phase 3 위임을 받지 않은 경우, pipeline-or
 
 
 ## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — 고성능 저활용 패턴 지속
+
+**맥락**: retro_전체회고_4 — A등급(97.8점)이지만 참여율 낮음. Full Path vs Fast Path 위임 기준 미명문화로 자동화 역량 저활용.
+
+**문제**:
+- 위임 트리거 기준(파일 수)이 암묵적 — 매번 qa-strategy 판단에 의존
+- agent_end result_summary 구조 비일관 — 회귀 데이터 집계 어려움
+
+**교훈**:
+- 변경 파일 수 ≥ 3 기준은 rule-based로 체크리스트화 → 30초 내 자동 판정
+- result_summary는 4항(테스트수/커버리지/비주얼회귀/주요실패) 고정 포맷 적용
+
+**출처**: retro_전체회고_4
 
 ### [2026-04-05] retro_전체회고_1에서 확인된 패턴
 

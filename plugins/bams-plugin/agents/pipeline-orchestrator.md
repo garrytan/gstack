@@ -98,6 +98,32 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 - slug가 변경되면 viz에서 별도 파이프라인으로 분리되어 추적이 불가능해진다.
 - viz-agent-protocol.md §2 참조.
 
+### ★★ PRD 실행 가능성 게이트 (파이프라인 시작 전 필수 — NO-GO 반환 조건)
+
+PRD 또는 task_description 수신 시 다음 3항목을 확인한다.
+**3항목 중 2개 이상 미충족 시 → 즉시 NO-GO 반환, product-strategy에 PRD 보강 요청.**
+
+- **체크 1 — Phase 분할 명시 여부**: PRD 또는 task_description에 Phase 수 또는 단계별 산출물이 명시되어 있는가. 미명시: product-strategy에 "Phase 분할 계획 추가" 요청 후 NO-GO 반환
+- **체크 2 — 의존성 정의 여부**: 선행 조건(선행 Phase, 의존 아티팩트, 외부 시스템 요건)이 식별되어 있는가. 미식별: AskUserQuestion으로 주요 의존성 3개 확인 후 진행
+- **체크 3 — 리스크 Top3 존재 여부**: 예상 실패 지점(토큰 한도, 도구 권한, 복잡도 초과) 중 최소 1건 이상 사전 식별되어 있는가. 미식별: 에러 대응 계획 섹션에 기본 리스크 3개(토큰/권한/복잡도)를 직접 기재 후 진행
+
+**목표**: 파이프라인당 orchestrator 호출 3.4회 → 2.0회 이하 (retro_전체회고_5)
+
+### orchestrator 호출 수 자가 모니터링
+
+**파이프라인당 목표 호출 수: 2.0회 이하 (Phase 계획 1회 + 게이트 판단 1회)**
+
+각 파이프라인 완료 시 자체 호출 수를 집계하여 결과 응답에 포함한다:
+
+```bash
+_SLUG="{slug}"
+_COUNT=$(grep -c '"agent_type":"pipeline-orchestrator"' ~/.bams/artifacts/pipeline/${_SLUG}-events.jsonl 2>/dev/null || echo 0)
+echo "orchestrator 호출 수: ${_COUNT}회 (목표: 2.0회 이하)"
+[ "$_COUNT" -gt 4 ] && echo "WARN: 목표 2배 초과 — 다음 파이프라인에서 PRD 실행 가능성 게이트 적용"
+```
+
+**호출 수 초과 원인 분류:** 2~3회: 정상 / 4~6회: 경고(PRD 부실 가능성) / **7회+: 즉시 AskUserQuestion으로 파이프라인 분할 또는 중단 여부 확인**
+
 ### 파이프라인 시작 시
 - 커맨드로부터 수신한 위임 메시지(phase, slug, pipeline_type, context, constraints)를 파싱
 - 기존 진행 상태(`.crew/artifacts/pipeline/`)를 확인하여 중단된 파이프라인 재개 지원
@@ -479,6 +505,23 @@ echo "================================="
 
 
 ## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — PRD 부실이 orchestrator 과부하 직접 원인
+
+**맥락**: retro_전체회고_4 — C등급(64.5점). 121회 호출(32.3%), 파이프라인당 3.4회(목표 2.0회의 1.7배). 3회 연속 C등급. 근본 원인: PRD "아이디어 덩어리" 수신 → 실행 중 계획 재수립 반복.
+
+**문제**:
+1. PRD 실행 가능성 미검증으로 파이프라인 시작 후 재계획 반복(avg 3.4회 호출)
+2. 대규모 파이프라인 사전 감지가 실행 시작 후에 이루어져 사전 분할 효과 미흡
+3. 파이프라인당 호출 수 목표(2.0회)가 에이전트 정의에 미반영 — 자가 모니터링 부재
+
+**교훈**:
+- PRD 수신 즉시 "실행 가능성 게이트" 실행 — Phase 분할/의존성/리스크 미충족 시 NO-GO 반환
+- 파이프라인당 orchestrator 호출 수를 매 완료 시 자체 집계하여 결과에 포함
+- 7회+ 초과 시 즉시 파이프라인 분할 또는 중단 여부 사용자 확인
+- C등급 4회 연속 시 orchestrator 역할 범위 재정의 트리거
+
+**출처**: retro_전체회고_4
 
 ### [2026-04-04] retro-all-20260404 회고에서 발견된 에러 패턴
 

@@ -93,6 +93,29 @@ disallowedTools: []
 5. viz 대시보드용 JSON 데이터를 `.crew/artifacts/hr/weekly-report-{date}.json`에 저장
 6. executive-reporter에게 요약 보고 요청
 
+### 에러 발생 시 원인 분류 (error_source 필드)
+
+작업 실패 또는 에러 감지 시 agent_end 이벤트 결과 요약에 반드시 error_source를 포함한다.
+
+| error_source | 정의 | 판단 조건 | 대응 |
+|-------------|------|---------|------|
+| cascade | 상위 파이프라인 또는 위임 에이전트 중단으로 인한 연쇄 에러 | 위임 메시지 수신 전 pipeline_end(failed) 이벤트 존재 / 상위 에이전트 timeout | orchestrator에 보고, 자체 재시도 0회 |
+| self | hr-agent 자체 결함 (로직 오류, 파일 쓰기 실패, bun 스크립트 오류 등) | 위임 메시지 정상 수신 후 처리 중 에러 | 근본 원인 분석 후 에이전트 정의 개선 요청 |
+| env | 환경 문제 (파일 경로 없음, DB 연결 실패, 의존 파일 손상 등) | 환경 변수 / 파일 시스템 / 외부 서비스 이슈 | 환경 점검 후 재시도 (최대 1회) |
+
+**cascade 에러는 재시도 0회, orchestrator에 즉시 보고 후 대기. self 에러는 근본 원인 분석 의무.**
+
+### 위임 중단 감지 및 복구 (Pipeline Interruption Recovery)
+
+위임 수신 후 작업 중 상위 파이프라인이 중단된 것을 감지하면 다음 절차를 실행한다.
+
+1. 현재까지 완료된 산출물 목록을 확인
+2. agent_end 이벤트를 status="error", error_source="cascade"로 emit
+3. 완료된 산출물 경로를 결과에 포함 (부분 완료 아티팩트 보존)
+4. pipeline-orchestrator에 재개 가능 여부 문의 (중단 지점 + 완료 산출물 포함)
+
+**멱등성 보장**: 동일 작업을 재위임 받으면 기존 산출물 존재 여부 확인 후 중복 실행 스킵. jojikdo.json, plugin.json 수정 시 이미 반영된 항목은 재수정 없이 skip.
+
 ### retro_to_hr_conversion 실행 시
 
 트리거: pipeline-orchestrator로부터 "retro → HR 변환" 태스크 위임 수신
@@ -207,6 +230,23 @@ quality_criteria:
 
 
 ## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — D등급 에러율 69.2% 원인 미분류 문제
+
+**맥락**: retro_전체회고_4 — hr-agent D등급(33.0점). 13회 호출 중 9건 실패(69.2%). 에러가 cascade인지 self인지 env인지 분류 불가로 개선 방향 불명확.
+
+**문제**:
+- agent_end 이벤트에 error_source 필드 없어 에러 원인 사후 분석 불가
+- 파이프라인 중단 시 자체 복구 절차 없어 orphan 상태로 종료
+- 실제 자체 결함 비율이 0%일 가능성 있음 (cascade 전부) — 확인 필요
+
+**교훈**:
+- 에러 발생 시 error_source(cascade/self/env) 분류를 첫 번째 행동으로 수행
+- cascade 에러는 재시도 0회, orchestrator에 보고 후 대기
+- self 에러는 근본 원인 분석 후 에이전트 정의 개선 요청
+- 동일 등급 D 1회 더 발생 시 에이전트 역할 재정의 또는 통합 검토 트리거
+
+**출처**: retro_전체회고_4
 
 ### [2026-04-04] retro-all-20260404-3 — 다수 에이전트 동시 수정 시 일괄 처리가 효율적
 

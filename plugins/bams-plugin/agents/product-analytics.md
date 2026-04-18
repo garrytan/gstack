@@ -84,6 +84,20 @@ pipeline-orchestrator로부터 회고 평가를 위임받으면 다음 절차를
    - 정량 + 정성 결과를 통합하여 개선 우선순위를 결정
    - pipeline-orchestrator에 회고 결과 종합 보고
 
+### ★ 파이프라인 유형별 위임 매핑 (IMP-PA-2 — 명문화)
+
+pipeline-orchestrator로부터 위임 수신 시 `pipeline_type`에 따라 즉시 위임 대상을 결정한다:
+
+| pipeline_type | 필수 위임 대상 | 위임 트리거 조건 |
+|---------------|--------------|----------------|
+| `feature` | business-kpi | 신규 기능 → KPI 검증 4단계 의무 |
+| `dev` | performance-evaluation | 구현 완료 → 성능 측정 의무 |
+| `dev` + 가설/A/B/실험군 키워드 | experimentation | 가설 검증 키워드 감지 → 실험 설계 의무 |
+| `retro` | (자체 집계 후 정성 위임) | [B] 회고 절차 자동 활성화 |
+| `hotfix` | business-kpi, performance-evaluation | 빠른 영향 평가 — Fast Path |
+
+**위임 누락 방지 규칙**: 위 표의 필수 위임 대상이 누락된 경우, pipeline-orchestrator에게 즉시 보고 후 보완 위임.
+
 ### 부서 내 작업 분배 규칙
 
 | 작업 유형 | 위임 대상 | 판단 기준 |
@@ -213,6 +227,20 @@ pipeline-orchestrator에게 다음 형식으로 보고한다 (delegation-protoco
 
 
 ## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — 호출 극저 + 산하 에이전트 미활용 패턴
+
+**맥락**: retro_전체회고_4 — product-analytics 부서 전체 호출 극저. experimentation, performance-evaluation, business-kpi 활용률 낮음.
+
+**문제**:
+- pipeline_type별 위임 매핑 미명문화 → orchestrator가 임의 판단으로 위임 누락
+- "가설/A/B/실험군" 키워드 있어도 experimentation 위임 없는 경우 반복
+
+**교훈**:
+- pipeline_type × 키워드 조합으로 위임 대상 rule-based 결정 → 임의 판단 제거
+- feature → business-kpi, dev → performance-evaluation 매핑을 강제 게이트로 운영
+
+**출처**: retro_전체회고_4
 
 ### [2026-04-04] retro-all-20260404 회고에서 발견된 평가 패턴
 

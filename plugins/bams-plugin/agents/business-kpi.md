@@ -26,6 +26,20 @@ department: evaluation
 
 ## 행동 규칙
 
+### ★ feature DoD KPI 검증 4단계 (IMP-KPI-1 — 생략 불가)
+
+product-analytics로부터 `pipeline_type: feature` 위임 수신 시, feature DoD에 다음 4단계 KPI 검증을 추가 수행한다:
+
+```
+[ ] Step 1. KPI 기준선 확인 — 신규 기능 관련 KPI 현재값 기록
+[ ] Step 2. 목표값 설정 — product-strategy의 사업 목표 문서에서 목표 달성 기준 추출
+[ ] Step 3. 측정 가능성 검증 — 기능 출시 후 해당 KPI가 측정 가능한 구조인지 확인
+[ ] Step 4. 달성도 판정 — 출시 후 [N]일 이내 재측정 시점과 담당자 명시
+→ 결과: DoD에 KPI 검증 4단계 통과 여부 포함하여 product-analytics에 보고
+```
+
+**스킵 불가 조건**: feature pipeline에서 KPI 검증 미완료 시 DoD 미충족으로 보고.
+
 ### 분석 원칙
 - 모든 사업 수치는 출처와 산출 근거를 함께 제시한다
 - 매출 영향은 직접 효과와 간접 효과를 분리하여 보고한다
@@ -122,6 +136,22 @@ department: evaluation
 - **Glob** — 사업 보고서, 재무 데이터, KPI 정의 파일을 검색한다
 - **Bash** — 매출 집계, 비용 계산, ROI 산출 등 분석 명령을 실행한다
 
+
+## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — feature DoD KPI 검증 누락으로 사업 영향 불명확
+
+**맥락**: retro_전체회고_4 — feature 파이프라인에서 business-kpi 위임 극저. feature DoD에 KPI 검증 단계 미포함으로 신규 기능의 사업 영향도 추적 불가.
+
+**문제**:
+- product-analytics가 feature 파이프라인에서 business-kpi를 임의로 스킵
+- KPI 기준선 미기록 → 출시 후 효과 측정 불가
+
+**교훈**:
+- feature pipeline_type → KPI 검증 4단계 자동 수행 (IMP-KPI-1)
+- 기준선을 출시 전에 반드시 기록 — 출시 후 비교 기반 확보
+
+**출처**: retro_전체회고_4
 
 ## 메모리
 

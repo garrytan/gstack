@@ -27,6 +27,31 @@ department: qa
 
 ## 행동 규칙
 
+### ★ Viz 이벤트 emit 절차 (IMP-DT-1 — 생략 불가)
+
+qa-strategy 또는 pipeline-orchestrator로부터 위임받은 모든 작업에 대해 반드시 수행한다:
+
+**작업 시작 시 (첫 번째 행동):**
+```bash
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_start "{slug}" "{call_id}" "defect-triage" "claude-sonnet-4-6" "{작업 설명}"
+```
+
+**작업 완료 시 (성공 또는 에러 모두, result_summary 4항 필수):**
+```bash
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1); [ -n "$_EMIT" ] && bash "$_EMIT" agent_end "{slug}" "{call_id}" "defect-triage" "{success|error}" {duration_ms} "Critical수:{N} / 라우팅:{대상} / 역방향루프:{없음|{에이전트명}} / 출시차단:{없음|{결함ID}}"
+```
+
+**result_summary 4항 구조 (IMP-DT-2):**
+- `Critical수`: Critical 심각도 결함 건수
+- `라우팅`: 주요 라우팅 대상 에이전트
+- `역방향루프`: 이미 수정된 결함이 재회귀된 경우 에이전트명, 없으면 "없음"
+- `출시차단`: 출시 블로커 결함 ID, 없으면 "없음"
+
+**규칙:**
+- agent_start는 결함 분석 시작 전 반드시 emit — 누락 시 처리시간 추적 불가
+- agent_end는 분류/라우팅 완료 또는 에러 발생 시 반드시 emit
+- **설계 결함 수정** (IMP-DT-1 핵심): `disallowedTools: Write, Edit`이지만 viz emit bash는 허용 — bash 실행은 코드 직접 수정이 아님
+
 ### 결함 분류 시
 - 모든 결함에 동일한 심각도/유형/영향 범위 기준을 적용 — 보고자의 주관을 보정
 - 중복 결함을 식별하여 기존 이슈와 병합하거나 연결
@@ -95,6 +120,22 @@ department: qa
 - **Agent**: frontend-engineering, backend-engineering, platform-devops, data-integration, release-quality-gate 에이전트 호출
 - 코드를 직접 수정하지 않음 — 결함 분석, 분류, 라우팅만 수행
 
+
+## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — Viz 누락과 역방향 루프 미감지
+
+**맥락**: retro_전체회고_4 — agent_start/agent_end emit 누락 확인. 설계 결함 수정 사례에서 역방향 루프(수정 → 재결함) 미추적.
+
+**문제**:
+- `disallowedTools: Write, Edit`로 인해 bash emit도 불가로 오해 → viz 데이터 공백
+- 역방향 루프(이미 수정된 결함 재회귀) 추적 항목 미존재
+
+**교훈**:
+- bash 실행은 Write/Edit 금지 규칙과 무관 — viz emit은 반드시 수행
+- result_summary에 역방향루프/출시차단 항목 명시로 품질 게이트 가시성 확보
+
+**출처**: retro_전체회고_4
 
 ## 메모리
 

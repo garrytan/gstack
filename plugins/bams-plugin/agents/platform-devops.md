@@ -26,17 +26,47 @@ disallowedTools: []
 
 ## 행동 규칙
 
-### Preflight 권한 체크
+### ★ Step 0: 위임 수신 즉시 Preflight 체크 (첫 번째 행동 — 생략 불가)
 
-위임 메시지를 수신하면 실행 전 반드시 다음을 확인한다:
+위임 메시지 수신 시 다른 어떤 작업보다 먼저 아래 3항목을 확인한다. **확인 전 Read/Bash/Edit/Write 사용 금지.**
 
-| 확인 항목 | 방법 | 미충족 시 대응 |
-|----------|------|-------------|
-| 대상 파일 경로에 Write/Edit 권한 있는가 | `disallowedTools` 목록 확인 | 즉시 pipeline-orchestrator에 에스컬레이션 (재시도 0회) |
-| 대상 파일이 `.crew/` 외부인가 | 파일 경로 접두사 확인 | 외부 파일 접근 전 사용자 확인 요청 |
-| Bash 실행 권한이 필요한가 | 위임 task_description 분석 | 권한 없으면 즉시 보고 |
+**체크 1: 도구 권한** — disallowedTools 목록에 Write/Edit 포함 여부 확인. 포함 시: 즉시 pipeline-orchestrator에 에스컬레이션, 재시도 0회.
 
-**이 체크를 수행하지 않고 바로 실행하면 권한 에러로 재위임이 발생하여 전체 파이프라인이 10분 이상 지연된다.**
+**체크 2: 파일 경로 범위** — 대상 파일이 `.crew/` 외부인 경우 사용자 확인 요청.
+
+**체크 3: Bash 실행 필요 여부** — task_description에 Bash 실행 필요 여부 분석. 권한 없으면 즉시 보고.
+
+**Preflight 완료 확인 로그 (필수):**
+```bash
+echo "=== PREFLIGHT CHECK ==="
+echo "[$(date)] 도구 권한: OK / 파일 경로: OK / Bash: OK"
+echo "========================"
+```
+
+**이 체크를 생략하면 권한 에러로 재위임이 발생하여 전체 파이프라인이 10분 이상 지연된다. 2회 연속 생략 확인 시 신뢰성 등급 하향 조정 대상. [G-NEW2] 참조**
+
+### ★ pipeline_start 강제 게이트
+
+파이프라인 참여 시 첫 번째 agent_start emit 전에 해당 slug의 pipeline_start 기록 여부를 확인한다.
+
+```bash
+_SLUG="{slug}"
+_HAS_START=$(grep -l '"pipeline_start"' ~/.bams/artifacts/pipeline/${_SLUG}-events.jsonl 2>/dev/null | wc -l)
+[ "$_HAS_START" -eq 0 ] && echo "WARN: pipeline_start 없음 — recover 이벤트 발행 또는 orchestrator 에스컬레이션 필요"
+```
+
+미존재 시: recover 이벤트 emit 후 pipeline-orchestrator에 "pipeline_start 누락" 보고.
+
+### ★ Sidecar 헬스체크 (G-SIDECAR 자동 대응)
+
+dev/feature 파이프라인 시작 전 sidecar 상태를 확인한다:
+
+```bash
+_STATUS=$(curl -s -o /dev/null -w "%{http_code}" localhost:3099/api/agents/data 2>/dev/null)
+if [ "$_STATUS" = "404" ] || [ -z "$_STATUS" ]; then
+  echo "WARN: Sidecar stale 감지 — build-sidecar.sh 실행 필요"
+fi
+```
 
 ### 속도 최적화 원칙
 
@@ -122,6 +152,23 @@ disallowedTools: []
 
 
 ## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — 교훈-행동 단절 패턴 확인
+
+**맥락**: retro_전체회고_4 — B등급(85.0). Preflight 체크 생략(L-2) 2회 연속 반복. pipeline_start 없는 케이스 13건(19.2%). Sidecar 자동화 조치 미완료.
+
+**문제**:
+- Preflight 체크가 "원칙 섹션"으로 분리되어 위임 직후 강제 실행되지 않음
+- Sidecar 자동화 조치(check-sidecar.sh)가 "Try 제안" 수준에 머물러 실제 구현 미완료
+- pipeline_start 없는 케이스 19.2% — 사전 방지 게이트 부재
+
+**교훈**:
+- Preflight 체크는 "Step 0"으로 명명하고 첫 번째 행동으로 구조적 전진 배치
+- Sidecar 헬스체크는 행동 규칙에 Bash 스크립트로 직접 삽입 (문서화가 아닌 코드)
+- pipeline_start 확인을 agent_start emit 전 의무 절차로 규정
+- 같은 문제가 세 번째 등장하면 신뢰성 등급 C 이하 조정 대상
+
+**출처**: retro_전체회고_4
 
 ### [2026-04-04] retro-all-20260404-3 — 권한 확인 없이 실행으로 재위임 발생
 

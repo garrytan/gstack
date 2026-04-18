@@ -120,6 +120,39 @@ pipeline-orchestrator에 GO 보고 전 반드시 확인:
 
 automation-qa 호출 없이 QA 완료 보고 시: 보고서에 "automation-qa 미호출 사유" 명시 필수
 
+### ★ automation-qa 위임 판단 체크리스트 (IMP-QS-3 — 생략 불가)
+
+QA Phase 시작 시 다음 체크리스트를 순서대로 확인하고 결과를 보고서에 기록한다:
+
+```
+□ Step 1: 변경 파일 수 확인
+  - 변경 파일 수 < 3 이고 hotfix/debug 유형 → [Fast Path] automation-qa 핵심 회귀만
+  - 변경 파일 수 ≥ 3 또는 dev/feature 유형 → [Full Path] automation-qa 필수 위임
+
+□ Step 2: [Full Path 확정 시] automation-qa 위임 즉시 실행
+  - 위임 없이 진행 시: "automation-qa 미위임 사유" 명시 의무 (사유 없으면 위반)
+
+□ Step 3: automation-qa call_id 기록
+  - call_id: _______ (위임 후 즉시 기록)
+
+□ Step 4: [Full Path 완료 후] release-quality-gate 위임
+  - automation-qa 완료 후 release-quality-gate 위임 일정 수립 의무화
+```
+
+이 체크리스트는 qa-strategy 보고서 상단에 항상 포함되어야 한다.
+
+### ★ QA Phase step_start / step_end 이벤트 emit (IMP-QS-2)
+
+QA Phase 진입 시점에 step_start 이벤트를 emit하고, 모든 하위 에이전트 완료 후 step_end를 emit한다:
+
+```bash
+_EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plugin/*" 2>/dev/null | head -1)
+# QA Phase 진입 시
+[ -n "$_EMIT" ] && bash "$_EMIT" step_start "{pipeline_slug}" "{step_number}" "QA Phase" "qa"
+# QA Phase 완료 시 (GO/NO-GO 판단 직후)
+[ -n "$_EMIT" ] && bash "$_EMIT" step_end "{pipeline_slug}" "{step_number}" "done" {duration_ms}
+```
+
 ### ★ design-director 실패 시 QA 시각 검증 대체 SOP
 
 design-director 에러 감지 또는 agent_end 없을 시:
@@ -203,6 +236,22 @@ design-director 에러 감지 또는 agent_end 없을 시:
 
 
 ## 학습된 교훈
+
+### [2026-04-18] retro_전체회고_4 — QA 투입 가시성 부재와 자동화 저활용
+
+**맥락**: retro_전체회고_4 — B(84.0), 호출 -19.2% 감소. automation-qa 활용률 19%(4/21). release-quality-gate 0회.
+
+**문제**:
+1. pipeline_end에 qa_invoked 필드 없어 QA 누락 vs 효율화 판별 불가
+2. automation-qa 위임 트리거가 LLM 재량에 맡겨져 Full Path에서도 생략됨
+3. QA Phase step 이벤트 미발행으로 병목 구간 측정 불가
+
+**교훈**:
+- automation-qa 위임 체크리스트를 LLM 판단이 아닌 규칙 기반으로 강제화해야 한다 (변경 파일 수 ≥ 3 → 자동 Full Path)
+- QA Phase 진입/종료 시 step_start/step_end emit을 의무화해야 병목을 측정할 수 있다
+- platform-devops에 `qa_invoked: bool` 필드를 pipeline_end 이벤트에 추가 요청해야 한다
+
+**출처**: retro_전체회고_4
 
 ### [2026-04-04] retro-all-20260404-3 — Fast Path 미도입으로 QA Phase 병목
 
