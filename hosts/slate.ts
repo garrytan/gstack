@@ -1,48 +1,55 @@
-import type { HostConfig } from '../scripts/host-config';
+import type { HostConfig } from "../scripts/host-config";
 
 const slate: HostConfig = {
-  name: 'slate',
-  displayName: 'Slate',
-  cliCommand: 'slate',
+  name: "slate",
+  displayName: "Slate",
+  cliCommand: "slate",
   cliAliases: [],
 
-  globalRoot: '.slate/skills/gstack',
-  localSkillRoot: '.slate/skills/gstack',
-  hostSubdir: '.slate',
+  globalRoot: ".slate/skills/gstack",
+  localSkillRoot: ".slate/skills/gstack",
+  hostSubdir: ".slate",
   usesEnvVars: true,
 
   frontmatter: {
-    mode: 'allowlist',
-    keepFields: ['name', 'description'],
+    mode: "allowlist",
+    keepFields: ["name", "description"],
     descriptionLimit: null,
   },
 
   generation: {
     generateMetadata: false,
-    skipSkills: ['codex'],
+    skipSkills: ["codex"],
+    propagateSubdirs: ["references"],
   },
 
   pathRewrites: [
-    { from: '~/.claude/skills/gstack', to: '~/.slate/skills/gstack' },
-    { from: '.claude/skills/gstack', to: '.slate/skills/gstack' },
-    { from: '.claude/skills', to: '.slate/skills' },
+    { from: "~/.claude/skills/gstack", to: "~/.slate/skills/gstack" },
+    { from: ".claude/skills/gstack", to: ".slate/skills/gstack" },
+    { from: ".claude/skills", to: ".slate/skills" },
   ],
 
-  suppressedResolvers: ['GBRAIN_CONTEXT_LOAD', 'GBRAIN_SAVE_RESULTS'],
+  suppressedResolvers: ["GBRAIN_CONTEXT_LOAD", "GBRAIN_SAVE_RESULTS"],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: [
+      "bin",
+      "browse/dist",
+      "browse/bin",
+      "gstack-upgrade",
+      "ETHOS.md",
+    ],
     globalFiles: {
-      'review': ['checklist.md', 'TODOS-format.md'],
+      review: ["checklist.md", "TODOS-format.md"],
     },
   },
 
   install: {
     prefixable: false,
-    linkingStrategy: 'symlink-generated',
+    linkingStrategy: "symlink-generated",
   },
 
-  learningsMode: 'basic',
+  learningsMode: "basic",
 };
 
 export default slate;
