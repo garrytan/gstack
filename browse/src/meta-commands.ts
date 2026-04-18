@@ -2,7 +2,7 @@
  * Meta commands — tabs, server control, screenshots, chain, diff, snapshot
  */
 
-import type { BrowserManager } from './browser-manager';
+import { type BrowserManager, getDefaultViewport } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from './commands';
@@ -214,7 +214,7 @@ export async function handleMetaCommand(
       const viewports = [
         { name: 'mobile', width: 375, height: 812 },
         { name: 'tablet', width: 768, height: 1024 },
-        { name: 'desktop', width: 1280, height: 720 },
+        { name: 'desktop', ...getDefaultViewport() },
       ];
       const originalViewport = page.viewportSize();
       const results: string[] = [];

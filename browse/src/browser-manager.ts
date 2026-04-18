@@ -25,6 +25,23 @@ export type { RefEntry };
 // Re-export TabSession for consumers
 export { TabSession };
 
+/**
+ * Parse BROWSE_VIEWPORT env var ("WIDTHxHEIGHT") into {width, height}.
+ * Falls back to 1280×720 if unset or malformed.
+ */
+export function getDefaultViewport(): { width: number; height: number } {
+  const raw = process.env.BROWSE_VIEWPORT;
+  if (raw) {
+    const match = raw.match(/^(\d+)x(\d+)$/);
+    if (match) {
+      const width = Math.max(320, Math.min(7680, parseInt(match[1], 10)));
+      const height = Math.max(240, Math.min(4320, parseInt(match[2], 10)));
+      return { width, height };
+    }
+  }
+  return { width: 1280, height: 720 };
+}
+
 export interface BrowserState {
   cookies: Cookie[];
   pages: Array<{
@@ -197,7 +214,7 @@ export class BrowserManager {
     });
 
     const contextOptions: BrowserContextOptions = {
-      viewport: { width: 1280, height: 720 },
+      viewport: getDefaultViewport(),
     };
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
@@ -960,7 +977,7 @@ export class BrowserManager {
 
       // 3. Create new context with updated settings
       const contextOptions: BrowserContextOptions = {
-        viewport: { width: 1280, height: 720 },
+        viewport: getDefaultViewport(),
       };
       if (this.customUserAgent) {
         contextOptions.userAgent = this.customUserAgent;
@@ -983,7 +1000,7 @@ export class BrowserManager {
         if (this.context) await this.context.close().catch(() => {});
 
         const contextOptions: BrowserContextOptions = {
-          viewport: { width: 1280, height: 720 },
+          viewport: getDefaultViewport(),
         };
         if (this.customUserAgent) {
           contextOptions.userAgent = this.customUserAgent;
