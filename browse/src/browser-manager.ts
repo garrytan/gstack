@@ -31,6 +31,12 @@ export interface BrowserState {
     url: string;
     isActive: boolean;
     storage: { localStorage: Record<string, string>; sessionStorage: Record<string, string> } | null;
+    /**
+     * HTML content loaded via load-html (setContent), replayed after context recreation.
+     * In-memory only — never persisted to disk (HTML may contain secrets or customer data).
+     */
+    loadedHtml?: string;
+    loadedHtmlWaitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
   }>;
 }
 
@@ -43,6 +49,14 @@ export class BrowserManager {
   private nextTabId: number = 1;
   private extraHeaders: Record<string, string> = {};
   private customUserAgent: string | null = null;
+
+  // ─── Viewport + deviceScaleFactor (context options) ──────────
+  // Tracked at the manager level so recreateContext() preserves them.
+  // deviceScaleFactor is a *context* option, not a page-level setter — changes
+  // require recreateContext(). Viewport width/height can change on-page, but we
+  // track the latest so context recreation restores it instead of hardcoding 1280x720.
+  private deviceScaleFactor: number = 1;
+  private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
 
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
@@ -197,7 +211,8 @@ export class BrowserManager {
     });
 
     const contextOptions: BrowserContextOptions = {
-      viewport: { width: 1280, height: 720 },
+      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+      deviceScaleFactor: this.deviceScaleFactor,
     };
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
@@ -550,9 +565,12 @@ export class BrowserManager {
   async newTab(url?: string, clientId?: string): Promise<number> {
     if (!this.context) throw new Error('Browser not launched');
 
-    // Validate URL before allocating page to avoid zombie tabs on rejection
+    // Validate URL before allocating page to avoid zombie tabs on rejection.
+    // Use the normalized return value for navigation — it handles file://./x and
+    // file://<segment> cwd-relative forms that the standard URL parser doesn't.
+    let normalizedUrl: string | undefined;
     if (url) {
-      await validateNavigationUrl(url);
+      normalizedUrl = await validateNavigationUrl(url);
     }
 
     const page = await this.context.newPage();
@@ -569,8 +587,8 @@ export class BrowserManager {
     // Wire up console/network/dialog capture
     this.wirePageEvents(page);
 
-    if (url) {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    if (normalizedUrl) {
+      await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     }
 
     return id;
@@ -792,6 +810,7 @@ export class BrowserManager {
 
   // ─── Viewport ──────────────────────────────────────────────
   async setViewport(width: number, height: number) {
+    this.currentViewport = { width, height };
     await this.getPage().setViewportSize({ width, height });
   }
 
@@ -858,10 +877,18 @@ export class BrowserManager {
           sessionStorage: { ...sessionStorage },
         }));
       } catch {}
+
+      // Capture load-html content so a later context recreation (viewport --scale)
+      // can replay it via setTabContent. Never persisted to disk.
+      const session = this.tabSessions.get(id);
+      const loaded = session?.getLoadedHtml();
+
       pages.push({
         url: url === 'about:blank' ? '' : url,
         isActive: id === this.activeTabId,
         storage,
+        loadedHtml: loaded?.html,
+        loadedHtmlWaitUntil: loaded?.waitUntil,
       });
     }
 
@@ -887,19 +914,31 @@ export class BrowserManager {
       const page = await this.context.newPage();
       const id = this.nextTabId++;
       this.pages.set(id, page);
-      this.tabSessions.set(id, new TabSession(page));
+      const newSession = new TabSession(page);
+      this.tabSessions.set(id, newSession);
       this.wirePageEvents(page);
 
-      if (saved.url) {
-        // Validate the saved URL before navigating — the state file is user-writable and
-        // a tampered URL could navigate to cloud metadata endpoints or file:// URIs.
+      if (saved.loadedHtml) {
+        // Replay load-html content via setTabContent — this rehydrates
+        // TabSession.loadedHtml so the next saveState sees it. page.setContent()
+        // alone would restore the DOM but lose the replay metadata.
         try {
-          await validateNavigationUrl(saved.url);
+          await newSession.setTabContent(saved.loadedHtml, { waitUntil: saved.loadedHtmlWaitUntil });
+        } catch (err: any) {
+          console.warn(`[browse] Failed to replay loadedHtml for tab ${id}: ${err.message}`);
+        }
+      } else if (saved.url) {
+        // Validate the saved URL before navigating — the state file is user-writable and
+        // a tampered URL could navigate to cloud metadata endpoints. Use the normalized
+        // return value so file:// forms get consistent treatment with live goto.
+        let normalizedUrl: string;
+        try {
+          normalizedUrl = await validateNavigationUrl(saved.url);
         } catch (err: any) {
           console.warn(`[browse] Skipping invalid URL in state file: ${saved.url} — ${err.message}`);
           continue;
         }
-        await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+        await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
       }
 
       if (saved.storage) {
@@ -960,7 +999,8 @@ export class BrowserManager {
 
       // 3. Create new context with updated settings
       const contextOptions: BrowserContextOptions = {
-        viewport: { width: 1280, height: 720 },
+        viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+        deviceScaleFactor: this.deviceScaleFactor,
       };
       if (this.customUserAgent) {
         contextOptions.userAgent = this.customUserAgent;
@@ -983,7 +1023,8 @@ export class BrowserManager {
         if (this.context) await this.context.close().catch(() => {});
 
         const contextOptions: BrowserContextOptions = {
-          viewport: { width: 1280, height: 720 },
+          viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+          deviceScaleFactor: this.deviceScaleFactor,
         };
         if (this.customUserAgent) {
           contextOptions.userAgent = this.customUserAgent;
@@ -996,6 +1037,49 @@ export class BrowserManager {
       }
       return `Context recreation failed: ${err instanceof Error ? err.message : String(err)}. Browser reset to blank tab.`;
     }
+  }
+
+  /**
+   * Change deviceScaleFactor + viewport size atomically.
+   *
+   * deviceScaleFactor is a context-level option, so Playwright requires a full context
+   * recreation. This method validates the input, stores the new values, calls
+   * recreateContext(), and rolls back the fields on failure so a bad call doesn't
+   * leave the manager in an inconsistent state.
+   *
+   * Returns null on success, or an error string if the new context couldn't be built
+   * (state may have been lost, per recreateContext's fallback behavior).
+   */
+  async setDeviceScaleFactor(scale: number, width: number, height: number): Promise<string | null> {
+    if (!Number.isFinite(scale)) {
+      throw new Error(`viewport --scale: value must be a finite number, got ${scale}`);
+    }
+    if (scale < 1 || scale > 3) {
+      throw new Error(`viewport --scale: value must be between 1 and 3 (gstack policy cap), got ${scale}`);
+    }
+    if (this.connectionMode === 'headed') {
+      throw new Error('viewport --scale is not supported in headed mode — scale is controlled by the real browser window.');
+    }
+
+    const prevScale = this.deviceScaleFactor;
+    const prevViewport = { ...this.currentViewport };
+    this.deviceScaleFactor = scale;
+    this.currentViewport = { width, height };
+
+    const err = await this.recreateContext();
+    if (err !== null) {
+      // recreateContext already warned and reset to a blank tab; roll back the fields
+      // so the next call doesn't inherit the failed values.
+      this.deviceScaleFactor = prevScale;
+      this.currentViewport = prevViewport;
+      return err;
+    }
+    return null;
+  }
+
+  /** Read current deviceScaleFactor (for tests + debug). */
+  getDeviceScaleFactor(): number {
+    return this.deviceScaleFactor;
   }
 
   // ─── Handoff: Headless → Headed ─────────────────────────────
