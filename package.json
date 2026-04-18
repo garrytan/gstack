@@ -1,6 +1,6 @@
 {
   "name": "cavestack",
-  "version": "1.2.0.0",
+  "version": "1.2.1.0",
   "description": "CaveStack — AI builder framework with caveman mode baked in for always-on terse responses. Claude Code skills + fast headless browser.",
   "repository": {
     "type": "git",
