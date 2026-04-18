@@ -1519,9 +1519,6 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ## The Assignment
 {one concrete real-world action the founder should take next — not "go build it"}
-
-## What I noticed about how you think
-{observational, mentor-like reflections referencing specific things the user said during the session. Quote their words back to them — don't characterize their behavior. 2-4 bullets.}
 ```
 
 ### Builder mode design doc template:
@@ -1572,9 +1569,6 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ## Next Steps
 {concrete build tasks — what to implement first, second, third}
-
-## What I noticed about how you think
-{observational, mentor-like reflections referencing specific things the user said during the session. Quote their words back to them — don't characterize their behavior. 2-4 bullets.}
 ```
 
 ---

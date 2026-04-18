@@ -629,10 +629,6 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('Intrapreneurship');
   });
 
-  test('contains "What I noticed" design doc section', () => {
-    expect(content).toContain('What I noticed about how you think');
-  });
-
   // Operating principles per mode
   test('contains startup operating principles', () => {
     expect(content).toContain('Specificity is the only currency');
