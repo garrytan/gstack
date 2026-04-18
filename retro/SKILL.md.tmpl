@@ -139,20 +139,29 @@ Calculate and present these metrics in a summary table:
 
 | Metric | Value |
 |--------|-------|
+| **Features shipped** (from CHANGELOG + merged PR titles) | N |
 | Commits to main | N |
+| Weighted commits (commits × avg files-touched, capped at 20 per commit) | N |
 | Contributors | N |
 | PRs merged | N |
-| Total insertions | N |
-| Total deletions | N |
-| Net LOC added | N |
+| **Logical SLOC added** (non-blank, non-comment — primary code-volume metric) | N |
+| Raw LOC: insertions | N |
+| Raw LOC: deletions | N |
+| Raw LOC: net | N |
 | Test LOC (insertions) | N |
 | Test LOC ratio | N% |
 | Version range | vX.Y.Z.W → vX.Y.Z.W |
 | Active days | N |
 | Detected sessions | N |
-| Avg LOC/session-hour | N |
+| Avg raw LOC/session-hour | N |
 | Greptile signal | N% (Y catches, Z FPs) |
 | Test Health | N total tests · M added this period · K regression tests |
+
+**Metric order rationale (V1):** features shipped leads — what users got. Commits
+and weighted commits reflect intent-to-ship. Logical SLOC added reflects real
+new functionality. Raw LOC is demoted to context because AI inflates it; ten
+lines of a good fix is not less shipping than ten thousand lines of scaffold.
+See docs/designs/PLAN_TUNING_V1.md §Workstream C.
 
 Then show a **per-author leaderboard** immediately below:
 
