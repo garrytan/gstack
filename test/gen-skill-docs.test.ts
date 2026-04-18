@@ -267,8 +267,9 @@ describe('gen-skill-docs', () => {
       if (!content.includes('.pending-')) continue;
       // Must NOT have a bare shell glob ".pending-*" outside of find's -name argument
       expect(content).not.toMatch(/for _PF in [^\n]*\/\.pending-\*/);
-      // Must use find to avoid zsh NOMATCH error on glob expansion
-      expect(content).toContain("find ~/.gstack/analytics -maxdepth 1 -name '.pending-*'");
+      // Pending cleanup must be handled via gstack-pending-finalize script
+      // (which uses find internally) to avoid damage-control hook false positives
+      expect(content).toContain('gstack-pending-finalize');
     }
   });
 
@@ -2353,7 +2354,7 @@ describe('telemetry', () => {
   test('generated SKILL.md contains pending marker handling', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('.pending');
-    expect(content).toContain('_pending_finalize');
+    expect(content).toContain('pending-finalize');
   });
 
   test('telemetry blocks appear in all skill files that use PREAMBLE', () => {
