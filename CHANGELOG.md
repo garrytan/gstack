@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.2.0] - 2026-04-18
+
+### Changed
+- **`/plan-eng-review` and `/plan-ceo-review` now defend schema normalization.** The skills' "right-sized diff" preference is sane for bug fixes and most feature work, but it was systematically pushing reviewers to merge new fields into existing models (because new tables touch more files) and to reach for JSONField as a polymorphism shortcut. Both skills now carry an explicit data-model exception: when reviewing schema changes, count concepts not tables, normalize first, denormalize only for measured reasons. JSONField gets its own explicit guidance — promote variant-specific keys to columns + CheckConstraints when the variants are knowable at design time, and reserve JSONField for the legitimate cases (third-party API caches, opaque preference bags).
+- **`/plan-eng-review` Architecture Review now runs a Data Model Review Checklist.** Reviewers no longer wait for the user to push back on model shape. The new subsection runs eleven proactive checks per model touched by the plan: SRP per model, nullable-with-semantic-meaning, models-hiding-as-columns, parent-field-shadowed-by-child, JSONField-as-polymorphism-escape-hatch, FK deletion strategy, snapshot-vs-render-live values, cross-scope FK consistency, derived-state-vs-stored-state, field naming, and DB CheckConstraints over app-layer validation.
+- **`/plan-eng-review` cognitive patterns gained three data-modeling instincts.** Codd's normal forms (1970), Knuth's "premature optimization" warning applied to schema, Beck's "make it right before fast," Martin's SRP applied to data models, and Structure-beats-blobs-for-known-polymorphism. The list before this change covered engineering management instincts (Larson, McKinley, Fowler, Conway, Brooks, SRE) but had nothing on data-modeling discourse — leaving the "fewer parts feels simpler" bias with no counterweight.
+
+### For contributors
+- New regression suite in `test/skill-validation.test.ts`: ten static guardrails verify every load-bearing bullet survives future template refactors (free, sub-5ms, catches silent deletion). Cognitive-patterns list contiguity (1–18) is asserted.
+- New E2E case in `test/skill-e2e-plan.test.ts` (periodic tier): a synthetic SubscriptionTier plan exercises the bias fix end-to-end. Asserts the skill recommends a separate tier model, pushes back on JSONField for variant data, and cites normalization or SRP. Runs weekly via `EVALS_TIER=periodic`.
+- Caught in real `/plan-eng-review` sessions where experienced developers had to push back on the bias multiple times before landing the right shape.
+- Closes garrytan/gstack#1048.
+
 ## [1.1.1.0] - 2026-04-18
 
 ### Fixed
