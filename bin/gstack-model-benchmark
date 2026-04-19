@@ -1,0 +1,168 @@
+#!/usr/bin/env bun
+/**
+ * gstack-model-benchmark — run the same prompt across multiple providers
+ * and compare latency, tokens, cost, quality, and tool-call count.
+ *
+ * Usage:
+ *   gstack-model-benchmark <skill-or-prompt-file> [options]
+ *
+ * Options:
+ *   --models claude,gpt,gemini   Comma-separated provider list (default: claude)
+ *   --prompt "<text>"            Inline prompt instead of a file
+ *   --workdir <path>             Working dir passed to each CLI (default: cwd)
+ *   --timeout-ms <n>             Per-provider timeout (default: 300000)
+ *   --output table|json|markdown Output format (default: table)
+ *   --skip-unavailable           Skip providers that fail available() check
+ *                                (default: include them with unavailable marker)
+ *   --judge                      Run Anthropic SDK judge on outputs for quality score
+ *                                (requires ANTHROPIC_API_KEY; adds ~$0.05 per call)
+ *   --dry-run                    Validate flags + resolve auth, don't invoke providers
+ *
+ * Examples:
+ *   gstack-model-benchmark --prompt "Write a haiku about databases" --models claude,gpt
+ *   gstack-model-benchmark ./test-prompt.txt --models claude,gpt,gemini --judge
+ *   gstack-model-benchmark --prompt "hi" --models claude,gpt,gemini --dry-run
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput } from '../test/helpers/benchmark-runner';
+import { ClaudeAdapter } from '../test/helpers/providers/claude';
+import { GptAdapter } from '../test/helpers/providers/gpt';
+import { GeminiAdapter } from '../test/helpers/providers/gemini';
+
+const ADAPTER_FACTORIES = {
+  claude: () => new ClaudeAdapter(),
+  gpt: () => new GptAdapter(),
+  gemini: () => new GeminiAdapter(),
+};
+
+type OutputFormat = 'table' | 'json' | 'markdown';
+
+function arg(name: string, def?: string): string | undefined {
+  const idx = process.argv.findIndex(a => a === name || a.startsWith(name + '='));
+  if (idx < 0) return def;
+  const eqIdx = process.argv[idx].indexOf('=');
+  if (eqIdx >= 0) return process.argv[idx].slice(eqIdx + 1);
+  return process.argv[idx + 1];
+}
+
+function flag(name: string): boolean {
+  return process.argv.includes(name);
+}
+
+function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini'> {
+  if (!s) return ['claude'];
+  const seen = new Set<'claude' | 'gpt' | 'gemini'>();
+  for (const p of s.split(',').map(x => x.trim()).filter(Boolean)) {
+    if (p === 'claude' || p === 'gpt' || p === 'gemini') seen.add(p);
+    else {
+      console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini.`);
+    }
+  }
+  return seen.size ? Array.from(seen) : ['claude'];
+}
+
+function resolvePrompt(positional: string | undefined): string {
+  const inline = arg('--prompt');
+  if (inline) return inline;
+  if (!positional) {
+    console.error('ERROR: specify a prompt via positional path or --prompt "<text>"');
+    process.exit(1);
+  }
+  if (fs.existsSync(positional)) {
+    return fs.readFileSync(positional, 'utf-8');
+  }
+  // Not a file — treat as inline prompt
+  return positional;
+}
+
+async function main(): Promise<void> {
+  const positional = process.argv.slice(2).find(a => !a.startsWith('--'));
+  const prompt = resolvePrompt(positional);
+  const providers = parseProviders(arg('--models'));
+  const workdir = arg('--workdir', process.cwd())!;
+  const timeoutMs = parseInt(arg('--timeout-ms', '300000')!, 10);
+  const output = (arg('--output', 'table') as OutputFormat);
+  const skipUnavailable = flag('--skip-unavailable');
+  const doJudge = flag('--judge');
+  const dryRun = flag('--dry-run');
+
+  if (dryRun) {
+    await dryRunReport({ prompt, providers, workdir, timeoutMs, output, doJudge });
+    return;
+  }
+
+  const input: BenchmarkInput = {
+    prompt,
+    workdir,
+    providers,
+    timeoutMs,
+    skipUnavailable,
+  };
+
+  const report = await runBenchmark(input);
+
+  if (doJudge) {
+    try {
+      const { judgeEntries } = await import('../test/helpers/benchmark-judge');
+      await judgeEntries(report);
+    } catch (err) {
+      console.error(`WARN: judge unavailable: ${(err as Error).message}`);
+    }
+  }
+
+  let out: string;
+  switch (output) {
+    case 'json':     out = formatJson(report); break;
+    case 'markdown': out = formatMarkdown(report); break;
+    case 'table':
+    default:         out = formatTable(report); break;
+  }
+  process.stdout.write(out + '\n');
+}
+
+async function dryRunReport(opts: {
+  prompt: string;
+  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  workdir: string;
+  timeoutMs: number;
+  output: OutputFormat;
+  doJudge: boolean;
+}): Promise<void> {
+  const lines: string[] = [];
+  lines.push('== gstack-model-benchmark --dry-run ==');
+  lines.push(`  prompt:     ${opts.prompt.length > 80 ? opts.prompt.slice(0, 80) + '…' : opts.prompt}`);
+  lines.push(`  providers:  ${opts.providers.join(', ')}`);
+  lines.push(`  workdir:    ${opts.workdir}`);
+  lines.push(`  timeout_ms: ${opts.timeoutMs}`);
+  lines.push(`  output:     ${opts.output}`);
+  lines.push(`  judge:      ${opts.doJudge ? 'on (Anthropic SDK)' : 'off'}`);
+  lines.push('');
+  lines.push('Adapter availability:');
+  let authFailures = 0;
+  for (const name of opts.providers) {
+    const factory = ADAPTER_FACTORIES[name];
+    if (!factory) {
+      lines.push(`  ${name}: UNKNOWN PROVIDER`);
+      authFailures += 1;
+      continue;
+    }
+    const adapter = factory();
+    const check = await adapter.available();
+    if (check.ok) {
+      lines.push(`  ${adapter.name}: OK`);
+    } else {
+      lines.push(`  ${adapter.name}: NOT READY — ${check.reason}`);
+      authFailures += 1;
+    }
+  }
+  lines.push('');
+  lines.push(`(--dry-run — no prompts sent. ${authFailures} provider(s) unavailable.)`);
+  process.stdout.write(lines.join('\n') + '\n');
+}
+
+main().catch(err => {
+  console.error('FATAL:', err);
+  process.exit(1);
+});

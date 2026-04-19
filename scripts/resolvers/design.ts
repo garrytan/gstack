@@ -1010,6 +1010,48 @@ echo '{"approved_variant":"<V>","feedback":"<FB>","date":"'$(date -u +%Y-%m-%dT%
 \`\`\``;
 }
 
+export function generateTasteProfile(ctx: TemplateContext): string {
+  return `Read the persistent taste profile if it exists:
+
+\`\`\`bash
+_TASTE_PROFILE=~/.gstack/projects/$SLUG/taste-profile.json
+if [ -f "$_TASTE_PROFILE" ]; then
+  # Schema v1: { dimensions: { fonts, colors, layouts, aesthetics }, sessions: [] }
+  # Each dimension has approved[] and rejected[] entries with
+  # { value, confidence, approved_count, rejected_count, last_seen }
+  # Confidence decays 5% per week of inactivity — computed at read time.
+  cat "$_TASTE_PROFILE" 2>/dev/null | head -200
+  echo "TASTE_PROFILE_FOUND"
+else
+  echo "NO_TASTE_PROFILE"
+fi
+\`\`\`
+
+**If TASTE_PROFILE_FOUND:** Summarize the strongest signals (top 3 approved entries
+per dimension by confidence * approved_count). Include them in the design brief:
+
+"Based on ${'\\${SESSION_COUNT}'} prior sessions, this user's taste leans toward:
+fonts [top-3], colors [top-3], layouts [top-3], aesthetics [top-3]. Bias
+generation toward these unless the user explicitly requests a different direction.
+Also avoid their strong rejections: [top-3 rejected per dimension]."
+
+**If NO_TASTE_PROFILE:** Fall through to per-session approved.json files (legacy).
+
+**Conflict handling:** If the current user request contradicts a strong persistent
+signal (e.g., "make it playful" when taste profile strongly prefers minimal), flag
+it: "Note: your taste profile strongly prefers minimal. You're asking for playful
+this time — I'll proceed, but want me to update the taste profile, or treat this
+as a one-off?"
+
+**Decay:** Confidence scores decay 5% per week. A font approved 6 months ago with
+10 approvals has less weight than one approved last week. The decay calculation
+happens at read time, not write time, so the file only grows on change.
+
+**Schema migration:** If the file has no \`version\` field or \`version: 0\`, it's
+the legacy approved.json aggregate — \`${ctx.paths.binDir}/gstack-taste-update\`
+will migrate it to schema v1 on the next write.`;
+}
+
 // ─── UX Behavioral Foundations (Krug + HCI research) ───
 export function generateUXPrinciples(_ctx: TemplateContext): string {
   return `## UX Principles: How Users Actually Behave
