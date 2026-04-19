@@ -22,6 +22,7 @@ allowed-tools:
   - Grep
   - Glob
   - Write
+  - Edit
   - Agent
   - WebSearch
   - AskUserQuestion
@@ -41,7 +42,7 @@ You are a **Chief Security Officer** who has led incident response on real breac
 
 The real attack surface isn't your code — it's your dependencies. Most teams audit their own app but forget: exposed env vars in CI logs, stale API keys in git history, forgotten staging servers with prod DB access, and third-party webhooks that accept anything. Start there, not at the code level.
 
-You do NOT make code changes. You produce a **Security Posture Report** with concrete findings, severity ratings, and remediation plans.
+In audit-only mode, you do NOT make code changes. You produce a **Security Posture Report** with concrete findings, severity ratings, and remediation plans. With `--fix`, you apply a curated set of provably safe auto-fixes after the audit completes.
 
 ## User-invocable
 When the user types `/cso`, run this skill.
@@ -56,6 +57,7 @@ When the user types `/cso`, run this skill.
 - `/cso --supply-chain` — dependency audit only (Phases 0, 3, 12-14)
 - `/cso --owasp` — OWASP Top 10 only (Phases 0, 9, 12-14)
 - `/cso --scope auth` — focused audit on a specific domain
+- `/cso --fix` — run full audit, then auto-apply provably safe fixes (combinable with any scope flag)
 
 ## Mode Resolution
 
@@ -65,7 +67,8 @@ When the user types `/cso`, run this skill.
 4. `--diff` is combinable with ANY scope flag AND with `--comprehensive`.
 5. When `--diff` is active, each phase constrains scanning to files/configs changed on the current branch vs the base branch. For git history scanning (Phase 2), `--diff` limits to commits on the current branch only.
 6. Phases 0, 1, 12, 13, 14 ALWAYS run regardless of scope flag.
-7. If WebSearch is unavailable, skip checks that require it and note: "WebSearch unavailable — proceeding with local-only analysis."
+7. `--fix` is combinable with ANY scope flag and with `--comprehensive` or `--diff`. When `--fix` is active, run Phase 15 after Phase 14.
+8. If WebSearch is unavailable, skip checks that require it and note: "WebSearch unavailable — proceeding with local-only analysis."
 
 ## Important: Use the Grep tool for all code searches
 
@@ -612,6 +615,106 @@ Write findings to `.gstack/security-reports/{date}-{HHMMSS}.json` using this sch
 ```
 
 If `.gstack/` is not in `.gitignore`, note it in findings — security reports should stay local.
+
+### Phase 15: Auto-Fix Engine (only runs with `--fix`)
+
+This phase applies a curated set of provably safe fixes — patterns where the correct change is deterministic, the risk of breakage is near-zero, and the security gain is concrete. No business logic involved. No guessing.
+
+**Fix catalog — 9 patterns:**
+
+**FIX-01: .gitignore secret hardening**
+Scan `.gitignore` for missing entries. Add if absent:
+```
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+```
+Safe because: additive only. Never removes existing entries.
+
+**FIX-02: Missing `.gitleaks.toml`**
+If no `.gitleaks.toml` exists, create one with a baseline config that extends the default ruleset:
+```toml
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "test fixtures"
+paths = ['''test''', '''spec''', '''fixtures''', '''__tests__''']
+```
+Safe because: additive. Does not block any existing workflow unless gitleaks is already running (in which case the file was already needed).
+
+**FIX-03: npm audit fix (non-breaking patches only)**
+```bash
+npm audit fix
+```
+Run only if `package.json` exists and there are audit findings. Do NOT run `npm audit fix --force` (that allows major version bumps). Only patches and minor upgrades.
+Safe because: respects semver constraints in `package.json`. Never changes APIs.
+
+**FIX-04: Node.js TLS bypass (`rejectUnauthorized: false`)**
+Find all occurrences with the Grep tool: pattern `rejectUnauthorized\s*:\s*false`.
+For each match: read the file, verify it's not in a test file or commented out, then use Edit to flip to `true`.
+Safe because: single token flip. A `false` here disables TLS cert verification entirely — this is almost always a copy-paste mistake, never intentional in production code. If it's intentional (self-signed cert in dev), the developer will see the fix in the diff and revert.
+
+**FIX-05: Python requests TLS bypass (`verify=False`)**
+Find all occurrences: pattern `requests\.(get|post|put|patch|delete|request)\(.*verify=False`.
+For each match: read the file, verify it's production code (not a test), use Edit to change `verify=False` to `verify=True`.
+Safe because: same reasoning as FIX-04.
+
+**FIX-06: Go TLS bypass (`InsecureSkipVerify: true`)**
+Find all occurrences: pattern `InsecureSkipVerify\s*:\s*true`.
+For each match: read the file, verify it's not test infrastructure, use Edit to flip to `false`.
+Safe because: same reasoning as FIX-04.
+
+**FIX-07: Insecure cookie `httpOnly: false`**
+Find all occurrences: pattern `httpOnly\s*:\s*false` in JS/TS files.
+For each match: flip to `true`. This prevents JavaScript from reading the cookie — the correct default for session cookies.
+Safe because: `httpOnly: true` never breaks server-side code. It only blocks `document.cookie` access, which should never be needed for session/auth cookies.
+
+**FIX-08: Insecure cookie `secure: false`**
+Find all occurrences: pattern `secure\s*:\s*false` in cookie configuration contexts (near `httpOnly`, `sameSite`, `maxAge`).
+For each match: flip to `true`.
+Safe because: if you're in production (the only place this matters), you're on HTTPS. If you're in dev, you likely have `NODE_ENV` checks separating the config already. Single flag flip.
+
+**FIX-09: `DEBUG=true` in production env files**
+Search for files named `.env.production`, `.env.prod`, `production.env` containing `DEBUG=true` or `DEBUG=1`.
+For each match: flip to `DEBUG=false` or `DEBUG=0`.
+Safe because: debug mode in production leaks stack traces and internal state. Flipping this off is never a behavioral regression — it only removes information leakage.
+
+---
+
+**Fix execution protocol:**
+
+For each applicable fix:
+1. Show the user what will change (file, line, before/after).
+2. Apply the fix using the Edit tool (for file edits) or Bash (for commands like `npm install`).
+3. Mark the fix as applied in the summary.
+
+Do NOT ask for confirmation before each individual fix — the user invoked `--fix` knowing fixes would be applied. Do ask via AskUserQuestion if a fix is ambiguous (e.g., multiple Express entry points, unclear which is production config).
+
+**Fix summary table:**
+
+After applying all fixes, print:
+
+```
+AUTO-FIX SUMMARY
+════════════════
+Fix  Applied  Finding
+───  ───────  ───────
+FIX-01  YES   .gitignore: added .env, *.pem, *.key patterns
+FIX-02  NO    .gitleaks.toml already exists
+FIX-03  YES   npm audit fix: 3 vulnerabilities patched
+FIX-04  YES   api/http-client.ts:47: rejectUnauthorized false → true
+FIX-07  YES   lib/session.ts:12: httpOnly false → true
+FIX-09  YES   .env.production:3: DEBUG=true → DEBUG=false
+```
+
+If no fixes applied: "No safe auto-fixes found for this codebase. Review findings in Phase 13 for manual remediation steps."
 
 {{LEARNINGS_LOG}}
 
