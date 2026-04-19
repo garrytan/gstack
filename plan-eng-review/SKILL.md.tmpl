@@ -248,6 +248,79 @@ Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 
 
 4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
 
+### Throughput planning readout
+
+Because human attention is the scarcest resource, every eng review must end with a
+throughput-optimized execution plan for the accepted scope.
+
+**Skip only if:** the plan is purely exploratory and contains no actionable build work.
+In that case, write: "Exploratory plan only — no throughput estimate."
+
+**Optimization target:** maximize safe parallelization while minimizing required human
+coordination and merge churn. Prefer fewer blocked handoffs over prettier decomposition.
+
+**Assumptions:** default to `1 human lead` plus Claude Code / Codex agents unless the
+plan explicitly says otherwise.
+
+For all estimates:
+- `Human time` = prompt setup, architectural decisions, review, merge/conflict
+  resolution, manual QA, staging inspection, and cutover
+- `CC time` = active agent implementation, tests, refactors, and verification loops
+
+Always produce all of the following:
+
+1. **Strict build stackrank**
+   Use a table:
+
+| Rank | Task | Why this rank | Depends on | Human time | CC time |
+|------|------|---------------|------------|------------|---------|
+
+Rules:
+- Rank by implementation priority under time pressure, not by elegance
+- If time compresses, lower-ranked items are cut before higher-ranked items
+- Call out if a lower-ranked item is still a ship gate
+
+2. **Non-negotiable ship gates**
+   If any tasks cannot be skipped even if lower in build rank (e.g. tests, staging
+   rehearsal, migration verification), list them separately with the same `Human time`
+   and `CC time` split.
+
+3. **Max safe parallelism**
+   State:
+   - how many lanes can start immediately
+   - how many total lanes are safe once contracts stabilize
+   - which module/file hotspots limit further parallelism
+
+   Be explicit about why not to exceed that lane count.
+
+4. **Expected wall clock**
+   Give the elapsed-time estimate for the recommended multi-agent execution shape.
+   Express in working days, not just hours.
+
+5. **Practical total effort**
+   Give the total implementation effort as:
+   - `X-Yh human time`
+   - `A-Bh CC time`
+
+   Arithmetic rule:
+   - every subtotal or total must equal the direct sum of the table ranges above it
+   - do not silently add coordination or contingency buffer into those totals
+   - if a buffer is warranted, show it separately under wall-clock planning or as an explicit buffer line item
+
+6. **Dependency-aware execution map**
+   Include:
+   - the critical path
+   - which tasks can run in parallel vs must stay sequential
+   - a recommended ownership split for agents/worktrees
+
+   Use a concise dependency graph and a short execution-phase list.
+
+The goal is not perfect project management theater. The goal is to answer:
+- what should happen first
+- what can happen at the same time
+- where human attention is actually required
+- how long the accepted scope will really take
+
 ### Completion summary
 At the end of the review, fill in and display this summary so the user can see all findings at a glance:
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
@@ -261,6 +334,7 @@ At the end of the review, fill in and display this summary so the user can see a
 - Failure modes: ___ critical gaps flagged
 - Outside voice: ran (codex/claude) / skipped
 - Parallelization: ___ lanes, ___ parallel / ___ sequential
+- Throughput plan: stackrank written, max safe parallelism ___, wall clock ___, practical total effort ___
 - Lake Score: X/Y recommendations chose complete option
 
 ## Retrospective learning
