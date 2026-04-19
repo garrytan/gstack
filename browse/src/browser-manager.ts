@@ -15,6 +15,7 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
+import { execSync } from 'child_process';
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
@@ -163,16 +164,45 @@ export class BrowserManager {
       launchArgs.push('--no-sandbox');
     }
 
-    // System proxy bypass: on macOS, Chromium inherits the system HTTP/S proxy
-    // by default. Local VPN/proxy apps (Shadowrocket, ClashX, Surge, etc.)
-    // typically MITM TLS via a local proxy — when the proxy's cert handling
-    // breaks, every Chromium navigation fails with net_error -100 /
-    // ERR_ABORTED and the renderer crashes, killing the browse server.
-    // Setting BROWSE_NO_PROXY=1 tells Chromium to route directly, bypassing
-    // the system proxy entirely. curl is unaffected by system proxy by
-    // default, so curl-based health checks can remain working while
-    // Chromium is broken — hence this needs to be explicit.
+    // System proxy handling on macOS. Local VPN/proxy apps (Shadowrocket,
+    // ClashX, Surge) intercept traffic in TWO modes that need OPPOSITE
+    // Chromium configs:
+    //
+    //   HTTP-proxy-only mode: app registers at 127.0.0.1:<port> as an HTTPS
+    //     proxy. Chromium inherits via system proxy → proxy MITMs TLS →
+    //     Chromium rejects the MITM cert → net_error -100. Fix:
+    //     --proxy-server=direct:// bypasses the proxy entirely.
+    //
+    //   TUN mode: app creates a utun interface (typically 198.18.0.0/15,
+    //     the IANA benchmark range) and captures ALL traffic at the
+    //     routing layer. direct:// does NOT escape — packets still flow
+    //     through TUN and get MITM'd. But when Chromium connects to the
+    //     HTTPS proxy explicitly (inherited from system), the proxy
+    //     serves a cert signed by a CA installed in the macOS keychain
+    //     that Chromium trusts on that path → works. So: no flag works,
+    //     direct:// breaks.
+    //
+    // Default: opt-in via BROWSE_NO_PROXY=1 (preserves original behavior).
+    // Auto-override: if user set =1 but current VPN is in TUN mode
+    // (detected via utun interface in 198.18.x.x), skip the flag and log.
+    // This protects users with `export BROWSE_NO_PROXY=1` in their shell
+    // rc when their VPN app silently switches modes.
     if (process.env.BROWSE_NO_PROXY === '1') {
+      let tunMode = false;
+      if (process.platform === 'darwin') {
+        try {
+          const ifOut = execSync('ifconfig', { encoding: 'utf8', timeout: 2000 });
+          tunMode = /^utun\d+:[\s\S]*?inet 198\.18\./m.test(ifOut);
+        } catch {
+          // ifconfig failed — assume non-TUN (preserves original behavior).
+        }
+      }
+      if (tunMode) {
+        console.log('[browse] BROWSE_NO_PROXY=1 but VPN appears to be in TUN mode (utun with 198.18.x.x). Skipping --proxy-server=direct:// because it would break TLS in this mode. Set BROWSE_NO_PROXY=force to override.');
+      } else {
+        launchArgs.push('--proxy-server=direct://');
+      }
+    } else if (process.env.BROWSE_NO_PROXY === 'force') {
       launchArgs.push('--proxy-server=direct://');
     }
 
