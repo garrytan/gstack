@@ -13,7 +13,15 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink } from './error-handling';
-import { checkCanaryInStructure, logAttempt, hashPayload, extractDomain } from './security';
+import {
+  checkCanaryInStructure, logAttempt, hashPayload, extractDomain,
+  combineVerdict, type LayerSignal,
+} from './security';
+import {
+  loadTestsavant, scanPageContent, checkTranscript,
+  shouldRunTranscriptCheck, getClassifierStatus,
+  type ToolCallInput,
+} from './security-classifier';
 
 const QUEUE = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
 const KILL_FILE = path.join(path.dirname(QUEUE), 'sidebar-agent-kill');
@@ -370,12 +378,81 @@ async function onCanaryLeaked(params: {
   }, tabId);
 }
 
+/**
+ * Pre-spawn ML scan of the user message. If the classifier fires at BLOCK,
+ * we log the attempt, emit a security_event to the sidepanel, and DO NOT
+ * spawn claude. Returns true if the scan blocked the session.
+ *
+ * Fail-open: any classifier error or degraded state returns false (safe) so
+ * the sidebar keeps working. The architectural controls (XML framing +
+ * command allowlist, live in server.ts:554-577) still defend.
+ */
+async function preSpawnSecurityCheck(entry: QueueEntry): Promise<boolean> {
+  const { message, canary, pageUrl, tabId } = entry;
+  if (!message || message.length === 0) return false;
+  const tid = tabId ?? 0;
+
+  // L4: scan the user message for direct injection patterns
+  const contentSignal = await scanPageContent(message);
+  const signals: LayerSignal[] = [contentSignal];
+
+  // L4b: only bother with Haiku if L4 already lit up at >= LOG_ONLY.
+  // Saves ~70% of Haiku calls per plan §E1 "gating optimization".
+  if (shouldRunTranscriptCheck(signals)) {
+    const transcriptSignal = await checkTranscript({
+      user_message: message,
+      tool_calls: [], // no tool calls yet at session start
+    });
+    signals.push(transcriptSignal);
+  }
+
+  const result = combineVerdict(signals);
+  if (result.verdict !== 'block') return false;
+
+  // BLOCK verdict. Log + emit + refuse to spawn.
+  const domain = extractDomain(pageUrl ?? '');
+  const leaderSignal = signals.reduce((a, b) => (a.confidence > b.confidence ? a : b));
+
+  logAttempt({
+    ts: new Date().toISOString(),
+    urlDomain: domain,
+    payloadHash: hashPayload(message),
+    confidence: result.confidence,
+    layer: leaderSignal.layer,
+    verdict: 'block',
+  });
+
+  console.warn(`[sidebar-agent] Pre-spawn BLOCK (${result.reason}) for tab ${tid}, confidence=${result.confidence.toFixed(3)}`);
+
+  await sendEvent({
+    type: 'security_event',
+    verdict: 'block',
+    reason: result.reason ?? 'ml_classifier',
+    layer: leaderSignal.layer,
+    confidence: result.confidence,
+    domain,
+  }, tid);
+  await sendEvent({
+    type: 'agent_error',
+    error: `Session blocked — prompt injection detected${domain ? ` from ${domain}` : ' in your message'}`,
+  }, tid);
+
+  return true;
+}
+
 async function askClaude(queueEntry: QueueEntry): Promise<void> {
   const { prompt, args, stateFile, cwd, tabId, canary, pageUrl } = queueEntry;
   const tid = tabId ?? 0;
 
   processingTabs.add(tid);
   await sendEvent({ type: 'agent_start' }, tid);
+
+  // Pre-spawn ML scan: if the user message trips the ensemble, refuse to
+  // spawn claude. Fail-open on classifier errors.
+  if (await preSpawnSecurityCheck(queueEntry)) {
+    processingTabs.delete(tid);
+    return;
+  }
 
   return new Promise((resolve) => {
     // Canary context is set after proc is spawned (needs proc reference for kill).
@@ -615,6 +692,16 @@ async function main() {
   console.log(`[sidebar-agent] Started. Watching ${QUEUE} from line ${lastLine}`);
   console.log(`[sidebar-agent] Server: ${SERVER_URL}`);
   console.log(`[sidebar-agent] Browse binary: ${B}`);
+
+  // Warm up the ML classifier in the background. First call triggers a 112MB
+  // download (~30s on average broadband). Non-blocking — the sidebar stays
+  // functional on cold start; classifier just reports 'off' until warmed.
+  loadTestsavant((msg) => console.log(`[security-classifier] ${msg}`))
+    .then(() => {
+      const s = getClassifierStatus();
+      console.log(`[sidebar-agent] Classifier warmup complete: ${JSON.stringify(s)}`);
+    })
+    .catch((err) => console.warn('[sidebar-agent] Classifier warmup failed (degraded mode):', err?.message));
 
   setInterval(poll, POLL_MS);
   setInterval(pollKillFile, POLL_MS);
